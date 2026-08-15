@@ -64,7 +64,17 @@ function MessageActionRow({
       {!isUser && hookAudits.length > 0 ? (
         <HookAuditAction audits={hookAudits} />
       ) : null}
-      {metadataText ? <span>{metadataText}</span> : null}
+      {metadataText ? (
+        <span
+          className={cn(
+            "transition-opacity duration-150",
+            !isUser &&
+              "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
+        >
+          {metadataText}
+        </span>
+      ) : null}
       {isUser && canCopy && <CopyButton onCopy={handleCopy} />}
     </div>
   );

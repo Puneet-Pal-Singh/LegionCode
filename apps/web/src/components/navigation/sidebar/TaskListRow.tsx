@@ -111,9 +111,16 @@ function handleRowKeyDown(
   }
 }
 
-function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
-  if (status === "idle") return null;
-  const visual = STATUS_VISUALS[status];
+function StatusIndicator({
+  status,
+  titlePending,
+}: {
+  status: SidebarTaskStatus;
+  titlePending: boolean;
+}) {
+  if (status === "idle" && !titlePending) return null;
+  const isGeneratingTitle = titlePending && status === "idle";
+  const visual = STATUS_VISUALS[isGeneratingTitle ? "running" : status];
   const StatusIcon = visual.icon;
   const isNotification = status === "failed" || status === "completed";
 
@@ -123,10 +130,12 @@ function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
       aria-hidden="true"
     >
       <StatusIcon
-        data-testid={`task-status-${status}`}
+        data-testid={
+          isGeneratingTitle ? "task-title-generating" : `task-status-${status}`
+        }
         data-status-kind={visual.kind}
         className={cn(
-          isNotification ? "size-1.5" : "size-3.5",
+          isNotification ? "size-1.5" : "size-4",
           visual.indicatorClass,
         )}
       />
@@ -220,7 +229,10 @@ export function TaskListRow({
             >
               {relativeTime}
             </span>
-            <StatusIndicator status={task.status} />
+            <StatusIndicator
+              status={task.status}
+              titlePending={Boolean(task.titlePending)}
+            />
           </div>
         </div>
       </button>

@@ -13,6 +13,7 @@ import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 interface UseChatResult {
   messages: Message[];
+  optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (
@@ -47,10 +48,12 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
+  onServerProjectionAvailable?: () => void,
 ): UseChatResult {
   // Core chat functionality
   const {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
@@ -67,7 +70,13 @@ export function useChat(
     error,
     clearNonCanonicalError,
     debugEvents,
-  } = useChatCore(sessionId, runId, mode, productMode);
+  } = useChatCore(
+    sessionId,
+    runId,
+    mode,
+    productMode,
+    onServerProjectionAvailable,
+  );
 
   // Handle message hydration
   const { isHydrating, hasHydrated } = useChatHydration(
@@ -93,6 +102,7 @@ export function useChat(
 
   return {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,

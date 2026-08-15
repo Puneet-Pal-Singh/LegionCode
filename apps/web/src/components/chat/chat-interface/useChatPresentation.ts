@@ -16,6 +16,7 @@ interface ChatPresentationInput {
   lifecycleProjection?: LifecycleProjection | null;
   lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
   initialPromptSubmission?: InitialPromptSubmission | null;
+  hasImmediateUserSubmission?: boolean;
 }
 
 function buildPresentedChatEntries(input: ChatPresentationInput) {
@@ -56,10 +57,13 @@ function derivePresentationVisibility(
     !input.hasPendingApproval &&
     !input.hasStartedSession;
   const isTranscriptHydrating = !input.hasHydrated;
+  const hasImmediatePrompt =
+    input.hasImmediateUserSubmission ||
+    Boolean(input.initialPromptSubmission?.prompt.trim());
   return {
     showHeroComposer,
     isTranscriptHydrating,
-    showSessionPlaceholder: isTranscriptHydrating,
+    showSessionPlaceholder: isTranscriptHydrating && !hasImmediatePrompt,
   };
 }
 

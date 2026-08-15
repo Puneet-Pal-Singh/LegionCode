@@ -60,6 +60,7 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
+  onServerProjectionAvailable?: () => void;
   initialPromptSubmission?: InitialPromptSubmission | null;
   onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
@@ -92,6 +93,7 @@ export function Workspace({
   hasStartedSession = false,
   onSessionStatusChange,
   onPromptSubmitted,
+  onServerProjectionAvailable,
   initialPromptSubmission = null,
   onInitialPromptHandled,
   onPendingApprovalStateChange,
@@ -176,6 +178,7 @@ export function Workspace({
 
   const {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
@@ -200,6 +203,7 @@ export function Workspace({
     },
     mode,
     productMode,
+    onServerProjectionAvailable,
   );
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {
@@ -257,7 +261,6 @@ export function Workspace({
         lastMessage: undefined,
       }),
     [
-      activeTurn.hasCanonicalTurn,
       activeTurn.isTransportPending,
       canonicalRunStatus,
       hasPendingApproval,
@@ -478,6 +481,7 @@ export function Workspace({
             <ChatInterface
               chatProps={{
                 messages,
+                optimisticUserMessageId,
                 runId: activeRunId,
                 input,
                 handleInputChange,

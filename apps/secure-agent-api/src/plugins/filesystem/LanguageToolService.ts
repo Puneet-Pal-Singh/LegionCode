@@ -44,7 +44,8 @@ export class LanguageToolService {
     const before = await readTextFile(context.sandbox, targetPath);
     const result = await runLanguageCommand(
       context,
-      ["exec", "prettier", "--write", "--", targetPath],
+      "prettier",
+      ["--write", "--", targetPath],
       "filesystem.format_file",
     );
     if (result.exitCode !== 0) {
@@ -76,15 +77,8 @@ export class LanguageToolService {
     );
     const result = await runLanguageCommand(
       context,
-      [
-        "exec",
-        "tsc",
-        "--noEmit",
-        "--pretty",
-        "false",
-        "--incremental",
-        "false",
-      ],
+      "tsc",
+      ["--noEmit", "--pretty", "false", "--incremental", "false"],
       "filesystem.language_diagnostics",
     );
     if (![0, 2].includes(result.exitCode)) {
@@ -118,6 +112,7 @@ export class LanguageToolService {
 
 async function runLanguageCommand(
   context: WorkspaceToolContext,
+  command: "prettier" | "tsc",
   args: string[],
   operation: string,
 ) {
@@ -125,7 +120,7 @@ async function runLanguageCommand(
     context.sandbox,
     withToolboxCommandContext(
       {
-        command: "pnpm",
+        command,
         args,
         cwd: context.workspaceRoot,
         runId: context.runId,
@@ -134,7 +129,7 @@ async function runLanguageCommand(
       context.toolboxContext,
       operation,
     ),
-    ["pnpm"],
+    [command],
   );
 }
 
@@ -178,9 +173,5 @@ function capLanguageOutput(value: string): {
   value: string;
   truncated: boolean;
 } {
-  return truncateUtf8(
-    value,
-    MAX_LANGUAGE_OUTPUT_BYTES,
-    "\n[output truncated]",
-  );
+  return truncateUtf8(value, MAX_LANGUAGE_OUTPUT_BYTES, "\n[output truncated]");
 }

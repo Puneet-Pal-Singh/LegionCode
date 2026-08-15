@@ -58,6 +58,7 @@ import {
 } from "./conversationScope";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
+import { attachActiveTurnIdentity } from "./chat/activeTurnMessageIdentity";
 import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
@@ -90,6 +91,7 @@ interface ChatSubmitAttachments {
 
 interface UseChatCoreResult {
   messages: Message[];
+  optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (
@@ -122,6 +124,7 @@ export function useChatCore(
   externalRunId?: string,
   mode: RunMode = DEFAULT_RUN_MODE,
   productMode?: ProductMode,
+  onServerProjectionAvailable?: () => void,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
@@ -134,6 +137,9 @@ export function useChatCore(
     scopeKey: string;
     message: Message;
   } | null>(null);
+  const [optimisticUserMessageId, setOptimisticUserMessageId] = useState<
+    string | null
+  >(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
   const preAdmissionStopKeyRef = useRef<string | null>(null);
   const stopRequestedRef = useRef(false);
@@ -173,10 +179,11 @@ export function useChatCore(
     activeScopeKeyRef.current = scopeKey;
     activeConversationScopeRef.current = activeConversationScope;
     setServerTurnId(activeConversationScope?.turnId ?? null);
+    const presentationScopeKey = scopeKey ?? runScopeKey;
     setPendingUserMessage((current) =>
-      current?.scopeKey === scopeKey ? current : null,
+      current?.scopeKey === presentationScopeKey ? current : null,
     );
-  }, [activeConversationScope, scopeKey]);
+  }, [activeConversationScope, runScopeKey, scopeKey]);
 
   useEffect(() => {
     activeRunScopeKeyRef.current = runScopeKey;
@@ -185,6 +192,7 @@ export function useChatCore(
     setError(null);
     setIsSubmitting(false);
     setIsStopping(false);
+    setOptimisticUserMessageId(null);
     setDebugEvents([]);
     lastLoggedStreamErrorRef.current = null;
   }, [runScopeKey]);
@@ -204,7 +212,10 @@ export function useChatCore(
       controller.signal,
     )
       .then((scope) => {
-        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+        if (
+          controller.signal.aborted ||
+          !isActiveRunScope(requestRunScopeKey)
+        ) {
           return;
         }
         if (!scope) return;
@@ -218,7 +229,10 @@ export function useChatCore(
         publishConversationScopeReady(scope);
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+        if (
+          controller.signal.aborted ||
+          !isActiveRunScope(requestRunScopeKey)
+        ) {
           return;
         }
         if (
@@ -273,14 +287,12 @@ export function useChatCore(
   } = useProviderStore(runId);
   const selectedModel =
     selectedProviderId && selectedModelId
-      ? (
-          providerModels[selectedProviderId]?.find(
-            (model) => model.id === selectedModelId,
-          ) ??
-          manageProviderModels[selectedProviderId]?.find(
-            (model) => model.id === selectedModelId,
-          )
-        )
+      ? (providerModels[selectedProviderId]?.find(
+          (model) => model.id === selectedModelId,
+        ) ??
+        manageProviderModels[selectedProviderId]?.find(
+          (model) => model.id === selectedModelId,
+        ))
       : undefined;
   const selectedModelContextWindow = selectedModel?.contextWindow;
   const selectedModelPricing = selectedModel?.pricing;
@@ -291,9 +303,7 @@ export function useChatCore(
     [],
   );
   const hasConnectedCredential = credentials.length > 0;
-  const isModelConfigReady =
-    status === "ready" &&
-    hasConnectedCredential;
+  const isModelConfigReady = status === "ready" && hasConnectedCredential;
   const lifecycleClient = useMemo(() => createLifecycleClient(), []);
 
   const {
@@ -341,6 +351,7 @@ export function useChatCore(
         return;
       }
       dispatchRunSummaryRefresh(runId);
+      onServerProjectionAvailable?.();
       logClientEvent("chat/stream", "response", {
         runId,
         sessionId,
@@ -362,6 +373,7 @@ export function useChatCore(
         return;
       }
       dispatchRunSummaryRefresh(runId);
+      onServerProjectionAvailable?.();
       logClientEvent("chat/stream", "finished", {
         runId,
         sessionId,
@@ -439,7 +451,10 @@ export function useChatCore(
     setIsSubmitting(false);
     setIsStopping(false);
   }, [activeTurnProjection.isTerminal, activeTurnProjection.turnId]);
-  const scopedMessagesBase = messages;
+  const scopedMessagesBase = useMemo(
+    () => attachActiveTurnIdentity(messages, activeConversationScope),
+    [activeConversationScope, messages],
+  );
   const presentationScopeKey = scopeKey ?? runScopeKey;
   const scopedMessages = useMemo(
     () =>
@@ -451,21 +466,6 @@ export function useChatCore(
       ),
     [pendingUserMessage, presentationScopeKey, scopedMessagesBase],
   );
-  useEffect(() => {
-    if (
-      !pendingUserMessage ||
-      pendingUserMessage.scopeKey !== presentationScopeKey ||
-      !hasEquivalentLatestUserMessage(
-        scopedMessagesBase,
-        pendingUserMessage.message,
-      )
-    ) {
-      return;
-    }
-    setPendingUserMessage((current) =>
-      current === pendingUserMessage ? null : current,
-    );
-  }, [pendingUserMessage, presentationScopeKey, scopedMessagesBase]);
   useEffect(() => {
     logClientEvent("chat/messages", "scoped-derived", {
       runId,
@@ -642,10 +642,7 @@ export function useChatCore(
       const bootstrapScopeKey = runScopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
-      if (
-        (!content && !hasImages) ||
-        status !== "ready"
-      ) {
+      if ((!content && !hasImages) || status !== "ready") {
         throw new Error(
           "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
         );
@@ -665,6 +662,7 @@ export function useChatCore(
         scopeKey: bootstrapScopeKey,
         message: buildPendingUserMessage(submittedMessage),
       });
+      setOptimisticUserMessageId(submittedMessage.id ?? null);
       logClientEvent("chat/pending-user", "projected", {
         runId,
         sessionId,
@@ -694,7 +692,10 @@ export function useChatCore(
             scopeKey: bootstrapScopeKey,
             reason: "provider-resolution-unavailable",
           });
-          return;
+          if (!isActiveRunScope(runScopeKey)) return;
+          throw new Error(
+            "The selected provider configuration is unavailable. Reconnect the provider or choose another model, then try again.",
+          );
         }
         if (
           stopRequestedRef.current &&
@@ -737,10 +738,7 @@ export function useChatCore(
           stopRequestedRef.current &&
           preAdmissionStopKeyRef.current === bootstrapScopeKey
         ) {
-          await interruptAndAwaitTerminal(
-            lifecycleClient,
-            requestScope,
-          );
+          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
           stopStream();
           return;
         }
@@ -776,27 +774,25 @@ export function useChatCore(
             throw transportError;
           }
           setError(null);
-          logClientWarning("chat/stream", "transport-detached-after-acceptance", {
-            runId,
-            sessionId,
-            scopeKey: requestScopeKey,
-            clientMessageId: submittedMessage.id,
-            error:
-              transportError instanceof Error
-                ? transportError.message
-                : String(transportError),
-          });
+          logClientWarning(
+            "chat/stream",
+            "transport-detached-after-acceptance",
+            {
+              runId,
+              sessionId,
+              scopeKey: requestScopeKey,
+              clientMessageId: submittedMessage.id,
+              error:
+                transportError instanceof Error
+                  ? transportError.message
+                  : String(transportError),
+            },
+          );
         }
       } finally {
         if (isActiveRunScope(runScopeKey)) {
           const settledScopeKey = activeScopeKeyRef.current;
           setIsSubmitting(false);
-          logClientEvent("chat/pending-user", "cleared", {
-            runId,
-            sessionId,
-            scopeKey: settledScopeKey,
-            clientMessageId: submittedMessage.id,
-          });
           logClientEvent("chat/submit", "settled", {
             runId,
             sessionId,
@@ -809,6 +805,7 @@ export function useChatCore(
     [
       buildChatRequestBody,
       isActiveRunScope,
+      lifecycleClient,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
@@ -816,15 +813,14 @@ export function useChatCore(
       runScopeKey,
       sessionId,
       status,
+      stopStream,
       submitResolvedMessage,
     ],
   );
 
   const shouldBlockSubmit = useCallback(
     (content: string, hasImages: boolean) =>
-      (!content && !hasImages) ||
-      canonicalRunLoading ||
-      !isModelConfigReady,
+      (!content && !hasImages) || canonicalRunLoading || !isModelConfigReady,
     [canonicalRunLoading, isModelConfigReady],
   );
 
@@ -841,10 +837,7 @@ export function useChatCore(
 
   const handleSubmitFailure = useCallback(
     (error: unknown, requestScopeKey: string, originalInput: string) => {
-      if (
-        requestScopeKey !== runScopeKey &&
-        !isActiveScope(requestScopeKey)
-      ) {
+      if (requestScopeKey !== runScopeKey && !isActiveScope(requestScopeKey)) {
         return;
       }
       restoreChatInput(originalInput);
@@ -853,6 +846,7 @@ export function useChatCore(
       // this handler still owns the only active submission and must clear that
       // projection as well; otherwise the UI remains stuck on "Starting".
       setPendingUserMessage(null);
+      setOptimisticUserMessageId(null);
       const message =
         error instanceof Error
           ? normalizeChatErrorMessage(error)
@@ -880,7 +874,14 @@ export function useChatCore(
         error: error instanceof Error ? error.message : "Unknown append error",
       });
     },
-    [isActiveScope, pushDebugEvent, restoreChatInput, runId, runScopeKey, sessionId],
+    [
+      isActiveScope,
+      pushDebugEvent,
+      restoreChatInput,
+      runId,
+      runScopeKey,
+      sessionId,
+    ],
   );
 
   const submitPreparedInput = useCallback(
@@ -945,7 +946,7 @@ export function useChatCore(
     ],
   );
 
-const stop = useCallback(() => {
+  const stop = useCallback(() => {
     if (stopRequestedRef.current) {
       return;
     }
@@ -965,6 +966,7 @@ const stop = useCallback(() => {
           preAdmissionStopKeyRef.current = runScopeKey;
           stopStream();
           setPendingUserMessage(null);
+          setOptimisticUserMessageId(null);
         }
         dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
@@ -986,10 +988,18 @@ const stop = useCallback(() => {
     };
 
     void cancelRun();
-  }, [isActiveScope, lifecycleClient, runId, runScopeKey, scopeKey, stopStream]);
+  }, [
+    isActiveRunScope,
+    lifecycleClient,
+    runId,
+    runScopeKey,
+    scopeKey,
+    stopStream,
+  ]);
 
   return {
     messages: scopedMessages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
@@ -1016,7 +1026,9 @@ async function interruptAndAwaitTerminal(
   const settlementAbort = new AbortController();
   const settlementTimeout = window.setTimeout(
     () =>
-      settlementAbort.abort("Timed out waiting for interrupted terminal event."),
+      settlementAbort.abort(
+        "Timed out waiting for interrupted terminal event.",
+      ),
     15_000,
   );
   try {

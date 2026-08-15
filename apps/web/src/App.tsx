@@ -11,7 +11,7 @@ import {
   GitHubContextProvider,
   useGitHub,
 } from "./components/github/GitHubContextProvider";
-import { RepoPicker } from "./components/github/RepoPicker";
+import { AuthorizedRepositoryPicker } from "./components/github/AuthorizedRepositoryPicker";
 import type {
   Repository,
   WorkspaceListItem,
@@ -32,10 +32,9 @@ import {
 } from "./lib/startup-shell-state";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
-import { LockedShellCard } from "./components/startup/LockedShellCard";
 import { AuthShellLoading } from "./components/startup/AuthShellLoading";
 import type { SetupSessionState } from "./types/session";
-import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
+import { GitHubSignInPage } from "./components/onboarding/GitHubSignInPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import {
   subscribeToOpenSettingsDialog,
@@ -46,6 +45,7 @@ import {
   createInitialPromptSubmissionId,
   type InitialPromptSubmission,
 } from "./lib/initial-prompt-submission";
+import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
 
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
 const MIN_RIGHT_SIDEBAR_WIDTH = 420;
@@ -57,13 +57,6 @@ function getInitialRightSidebarWidth(): number {
     MIN_RIGHT_SIDEBAR_WIDTH,
     Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
   );
-}
-
-function buildOnboardingSeenKey(userId: string | null): string {
-  if (!userId) {
-    return "shadowbox:startup-onboarding:seen:anonymous";
-  }
-  return `shadowbox:startup-onboarding:seen:${userId}`;
 }
 
 function buildRepositoryFromWorkspace(
@@ -205,6 +198,11 @@ function AppContent() {
     clearContext,
     saveSessionContext,
   } = useGitHub();
+  const workspaceSelectionBootstrapStatus = useWorkspaceSelectionBootstrap({
+    enabled: isAuthenticated && !isLoading,
+    currentRepository: repo,
+    setContext,
+  });
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
@@ -249,19 +247,6 @@ function AppContent() {
     },
     [activeSessionId],
   );
-  const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
-    useState(false);
-  const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
-    try {
-      const key = buildOnboardingSeenKey(user?.id ?? null);
-      return localStorage.getItem(key) === "true";
-    } catch (error) {
-      console.warn("[App] Failed to read onboarding seen state:", error);
-      return false;
-    }
-  });
-  const [isOnboardingReopened, setIsOnboardingReopened] =
-    useState<boolean>(false);
   const [isWorkspaceContextRepairing, setIsWorkspaceContextRepairing] =
     useState(false);
   const workspaceContextRepairGenerationRef = useRef(0);
@@ -279,38 +264,6 @@ function AppContent() {
     },
     [],
   );
-  useEffect(() => {
-    let cancelled = false;
-    try {
-      const key = buildOnboardingSeenKey(user?.id ?? null);
-      const nextValue = localStorage.getItem(key) === "true";
-      window.setTimeout(() => {
-        if (cancelled) {
-          return;
-        }
-        setHasSeenOnboarding(nextValue);
-      }, 0);
-    } catch (error) {
-      console.warn("[App] Failed to hydrate onboarding seen state:", error);
-      window.setTimeout(() => {
-        if (cancelled) {
-          return;
-        }
-        setHasSeenOnboarding(false);
-      }, 0);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-  const persistOnboardingSeen = useCallback(() => {
-    try {
-      const key = buildOnboardingSeenKey(user?.id ?? null);
-      localStorage.setItem(key, "true");
-    } catch (error) {
-      console.warn("[App] Failed to persist onboarding seen state:", error);
-    }
-  }, [user]);
   const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
   const openSettingsDialog = useCallback(
@@ -716,9 +669,9 @@ function AppContent() {
     !!isSessionStarted;
   const hasProviderConnection = isAuthenticated && credentials.length > 0;
   const hasRealSession = sessions.length > 0;
-  const hasRepoContext = sessions.some(
-    (session) => (session.repository?.trim() ?? "").length > 0,
-  );
+  const hasRepoContext =
+    Boolean(repo?.full_name) ||
+    sessions.some((session) => (session.repository?.trim() ?? "").length > 0);
   const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(
     () =>
@@ -743,62 +696,6 @@ function AppContent() {
     (shellStartupState === "shell_authenticated_setup" ||
       shellStartupState === "shell_authenticated_repo_missing");
   const isPreparingSetupShell = showShellSetupSurface && setupSession === null;
-  const isStartupSetupVisible =
-    showSetup || (showShellSetupSurface && setupSession !== null);
-  const isOnboardingComplete = hasProviderConnection && hasRepoContext;
-  const shouldOfferOnboardingOverlay =
-    isAuthenticated && isStartupSetupVisible && !isOnboardingComplete;
-  const showOnboardingOverlay =
-    shouldOfferOnboardingOverlay &&
-    !isPreparingSetupShell &&
-    ((isOnboardingReopened && isOnboardingOverlayDelayElapsed) ||
-      (!hasSeenOnboarding && isOnboardingOverlayDelayElapsed));
-  const showOnboardingReopenButton =
-    shouldOfferOnboardingOverlay &&
-    hasSeenOnboarding &&
-    !showOnboardingOverlay &&
-    !isPreparingSetupShell;
-  const onboardingWasShownRef = useRef(false);
-  useEffect(() => {
-    onboardingWasShownRef.current = false;
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!shouldOfferOnboardingOverlay) {
-      onboardingWasShownRef.current = false;
-      window.setTimeout(() => {
-        setIsOnboardingReopened(false);
-      }, 0);
-    }
-  }, [shouldOfferOnboardingOverlay]);
-
-  useEffect(() => {
-    if (!showOnboardingOverlay || onboardingWasShownRef.current) {
-      return;
-    }
-    onboardingWasShownRef.current = true;
-    if (!hasSeenOnboarding) {
-      persistOnboardingSeen();
-    }
-  }, [hasSeenOnboarding, persistOnboardingSeen, showOnboardingOverlay]);
-
-  useEffect(() => {
-    if (!shouldOfferOnboardingOverlay) {
-      return;
-    }
-
-    if (isOnboardingOverlayDelayElapsed) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setIsOnboardingOverlayDelayElapsed(true);
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [isOnboardingOverlayDelayElapsed, shouldOfferOnboardingOverlay]);
 
   // Get active session name for the header
   const taskTitle = activeSession?.name;
@@ -841,28 +738,12 @@ function AppContent() {
     setShowRepoPicker(true);
   };
 
-  const handleOpenProviderSetup = () => {
-    openSettingsDialog("connect");
-  };
-
   useEffect(() => {
     return subscribeToOpenSettingsDialog((section) => {
       openSettingsDialog(section);
     });
   }, [openSettingsDialog]);
 
-  const handleDismissOnboardingOverlay = () => {
-    setIsOnboardingOverlayDelayElapsed(false);
-    setIsOnboardingReopened(false);
-    setHasSeenOnboarding(true);
-    persistOnboardingSeen();
-  };
-
-  const handleReopenOnboardingOverlay = () => {
-    setIsOnboardingReopened(true);
-    setIsOnboardingOverlayDelayElapsed(true);
-    onboardingWasShownRef.current = true;
-  };
   const handleNewTask = (repositoryName?: string) => {
     if (!isAuthenticated) {
       login();
@@ -972,7 +853,7 @@ function AppContent() {
           },
         }),
       );
-      return;
+      throw error;
     }
 
     setIsGitReviewOpen(false);
@@ -994,24 +875,28 @@ function AppContent() {
     });
   };
 
-  /**
-   * Handle skip - allow user to proceed without GitHub
-   */
-  const handleSkipRepoPicker = () => {
-    setShowRepoPicker(false);
-  };
-
   const isSessionContextLoading = isSessionContextPending({
     isAuthenticated,
     isAuthLoading: isLoading,
     sessionHydrationStatus,
   });
   const isShellContextLoading =
-    isLoading || isSessionContextLoading || isWorkspaceContextRepairing;
+    isLoading ||
+    isSessionContextLoading ||
+    isWorkspaceContextRepairing ||
+    workspaceSelectionBootstrapStatus === "loading";
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
     return <AuthShellLoading />;
+  }
+
+  if (!isAuthenticated) {
+    return <GitHubSignInPage onLogin={login} />;
+  }
+
+  if (!hasRepoContext) {
+    return <AuthorizedRepositoryPicker onRepoSelect={handleRepoSelect} />;
   }
 
   return (
@@ -1090,18 +975,7 @@ function AppContent() {
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative bg-black">
           <AnimatePresence initial={false} mode="wait">
-            {shellStartupState === "shell_locked_unauthenticated" ? (
-              <motion.div
-                key="locked-shell"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="absolute inset-0"
-              >
-                <LockedShellCard onLogin={login} />
-              </motion.div>
-            ) : showSetup ? (
+            {showSetup ? (
               <motion.div
                 key={`setup-${activeSessionId}`}
                 initial={{ opacity: 0 }}
@@ -1122,7 +996,6 @@ function AppContent() {
                     }
                     isRightSidebarOpen={isRightSidebarOpen}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
-                    showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
                     projects={repositories.filter(
                       (repository) => repository !== "New Project",
@@ -1164,7 +1037,6 @@ function AppContent() {
                     isRightSidebarOpen={isRightSidebarOpen}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     requiresRepository
-                    showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
                     projects={repositories.filter(
                       (repository) => repository !== "New Project",
@@ -1227,6 +1099,9 @@ function AppContent() {
                       updateSession(activeSessionId, { status: "running" });
                     }
                   }}
+                  onServerProjectionAvailable={() => {
+                    void refreshSessionProjection(activeSessionId);
+                  }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
                       activeSessionId,
@@ -1273,31 +1148,11 @@ function AppContent() {
             )}
           </AnimatePresence>
 
-          {showOnboardingOverlay ? (
-            <StartupOnboardingOverlay
-              isRepositoryStepComplete={hasRepoContext}
-              isProviderStepComplete={hasProviderConnection}
-              onOpenRepositoryPicker={handleOpenRepositoryPicker}
-              onOpenProviderSetup={handleOpenProviderSetup}
-              onDismiss={handleDismissOnboardingOverlay}
-            />
-          ) : null}
-
-          {showOnboardingReopenButton ? (
-            <button
-              type="button"
-              onClick={handleReopenOnboardingOverlay}
-              className="absolute bottom-5 right-5 z-20 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
-            >
-              Show setup guide
-            </button>
-          ) : null}
-
           {showRepoPicker && isAuthenticated ? (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-              <RepoPicker
+              <AuthorizedRepositoryPicker
                 onRepoSelect={handleRepoSelect}
-                onSkip={handleSkipRepoPicker}
+                onClose={() => setShowRepoPicker(false)}
               />
             </div>
           ) : null}

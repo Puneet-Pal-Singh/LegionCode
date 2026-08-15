@@ -61,6 +61,9 @@ describe("ContextDetailsPanel", () => {
     expect(screen.getByText("12,000")).toBeInTheDocument();
     expect(screen.getByText("5,000 / —")).toBeInTheDocument();
     expect(screen.getByText("$0.44")).toBeInTheDocument();
+    expect(screen.getByText("Turn tokens")).toBeInTheDocument();
+    expect(screen.getByText("Turn cost")).toBeInTheDocument();
+    expect(screen.queryByText("Thread tokens")).not.toBeInTheDocument();
     expect(screen.getByText("Conversation 83%")).toBeInTheDocument();
     expect(screen.queryByText("Context composition")).not.toBeInTheDocument();
     expect(screen.queryByText("Latest turn usage")).not.toBeInTheDocument();

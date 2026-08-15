@@ -26,4 +26,17 @@ describe("useStableChatLoadingIndicator", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(result.current).toBe(false);
   });
+
+  it("hides immediately for a locally admitted prompt", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ loading, hideImmediately }) =>
+        useStableChatLoadingIndicator(loading, hideImmediately),
+      { initialProps: { loading: true, hideImmediately: false } },
+    );
+
+    expect(result.current).toBe(true);
+    rerender({ loading: false, hideImmediately: true });
+    expect(result.current).toBe(false);
+  });
 });

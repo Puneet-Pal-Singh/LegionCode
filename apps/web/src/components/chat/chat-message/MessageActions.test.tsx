@@ -7,6 +7,25 @@ import {
 import { MessageActions } from "./MessageActions";
 
 describe("MessageActions", () => {
+  it("keeps copy visible and reveals assistant metadata with full-message hover", () => {
+    render(
+      <MessageActions
+        content="Done"
+        isUser={false}
+        metadata={{
+          modeLabel: "Build",
+          modelLabel: "Gemma 4 31B",
+          timeLabel: "10:26 PM",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeVisible();
+    expect(screen.getByText("Build · Gemma 4 31B · 10:26 PM")).toHaveClass(
+      "group-hover:opacity-100",
+    );
+  });
+
   it("shows runtime-owned hook audits on an assistant message", () => {
     render(
       <MessageActions

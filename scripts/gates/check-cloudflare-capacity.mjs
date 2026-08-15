@@ -25,9 +25,9 @@ const physical = positiveInt(
   "Secure API containers[0].max_instances",
 );
 
-if (admission !== 5 || perUser !== 5 || perWorkspace !== 5) {
+if (admission !== 3 || perUser !== 3 || perWorkspace !== 3) {
   throw new Error(
-    `Initial alpha admission must be exactly five globally, per user, and per workspace; received global=${admission}, user=${perUser}, workspace=${perWorkspace}.`,
+    `Parallel chat admission must be exactly three globally, per user, and per workspace; received global=${admission}, user=${perUser}, workspace=${perWorkspace}.`,
   );
 }
 

@@ -81,11 +81,11 @@ export function ContextDetailsPanel({
           value={formatTokenCount(session.assistantMessageCount)}
         />
         <Metric
-          label="Thread tokens"
+          label="Turn tokens"
           value={formatOptional(usage?.cumulativeThreadTokens)}
         />
         <Metric
-          label="Total cost"
+          label="Turn cost"
           value={formatOptionalCost(
             usage?.cumulativeThreadCost,
             usage?.currency,

@@ -207,6 +207,7 @@ export function AgentSidebar({
             : mapSessionStatus(session, activeSessionId),
           updatedAt: session.updatedAt,
           isActive: session.id === activeSessionId,
+          titlePending: session.titleStatus === "pending",
           context: getRepositoryLabel(repository),
         }));
 
@@ -249,6 +250,7 @@ export function AgentSidebar({
           : mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
+        titlePending: session.titleStatus === "pending",
       })),
       normalizedQuery,
       statusFilter,
@@ -347,7 +349,9 @@ export function AgentSidebar({
             <MoreHorizontal
               size={14}
               aria-hidden="true"
-              className={statusFilter !== "all" ? "text-emerald-300" : undefined}
+              className={
+                statusFilter !== "all" ? "text-emerald-300" : undefined
+              }
             />
           </button>
 

@@ -133,6 +133,37 @@ describe("WorkspaceEditService", () => {
     expect(sandbox.writeFile).not.toHaveBeenCalled();
   });
 
+  it("keeps three concurrent chat edits on distinct checkout roots", async () => {
+    const roots = [
+      "/home/sandbox/checkouts/chat-one",
+      "/home/sandbox/checkouts/chat-two",
+      "/home/sandbox/checkouts/chat-three",
+    ];
+    const service = new WorkspaceEditService();
+
+    await Promise.all(
+      roots.map((workspaceRoot, index) => {
+        const sandbox = createSandbox(
+          { "src/app.ts": `const chat = ${index};\n` },
+          workspaceRoot,
+        );
+        return service.edit(createContext(sandbox, workspaceRoot), {
+          path: "src/app.ts",
+          oldText: `chat = ${index}`,
+          newText: `chat = ${index + 10}`,
+        });
+      }),
+    );
+
+    const editDestinations = vi
+      .mocked(runSafeCommand)
+      .mock.calls.filter(([, spec]) => spec.command === "mv")
+      .map(([, spec]) => spec.args?.at(-1));
+    expect(new Set(editDestinations)).toEqual(
+      new Set(roots.map((root) => `${root}/src/app.ts`)),
+    );
+  });
+
   it("rejects ambiguous single replacements", async () => {
     const sandbox = createSandbox({ "src/app.ts": "same same" });
 
@@ -180,19 +211,22 @@ describe("WorkspaceEditService", () => {
   });
 });
 
-function createContext(sandbox: Sandbox) {
+function createContext(sandbox: Sandbox, workspaceRoot = WORKSPACE_ROOT) {
   return {
     sandbox,
-    workspaceRoot: WORKSPACE_ROOT,
+    workspaceRoot,
     toolboxContext: {},
     runId: "run-edit",
   };
 }
 
-function createSandbox(files: Record<string, string>): Sandbox {
+function createSandbox(
+  files: Record<string, string>,
+  workspaceRoot = WORKSPACE_ROOT,
+): Sandbox {
   return {
     readFile: vi.fn(async (targetPath: string) => {
-      const relativePath = targetPath.replace(`${WORKSPACE_ROOT}/`, "");
+      const relativePath = targetPath.replace(`${workspaceRoot}/`, "");
       const content = files[relativePath];
       return content === undefined
         ? { success: false, content: "" }

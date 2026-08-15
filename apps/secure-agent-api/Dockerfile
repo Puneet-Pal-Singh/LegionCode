@@ -51,10 +51,13 @@ RUN sed -i -E "s#http://(archive|security).ubuntu.com/ubuntu/#https://snapshot.u
     && apt-get clean \
     && rm -rf /var/cache/apt/* /var/lib/apt/lists/*
 
-# 2. Add only the lockfile-pinned TypeScript runner required by the Node plugin.
+# 2. Add the lockfile-pinned Node, formatting, and TypeScript tools exposed by
+# the runtime capability manifest.
 COPY container-tools/package.json container-tools/package-lock.json /opt/legioncode/container-tools/
 RUN npm ci --prefix /opt/legioncode/container-tools --omit=dev --no-audit --no-fund \
     && ln -s /opt/legioncode/container-tools/node_modules/.bin/tsx /usr/local/bin/tsx \
+    && ln -s /opt/legioncode/container-tools/node_modules/.bin/tsc /usr/local/bin/tsc \
+    && ln -s /opt/legioncode/container-tools/node_modules/.bin/prettier /usr/local/bin/prettier \
     && npm cache clean --force
 
 # 3. Preinstall only the hash-locked lightweight Python packages we want available by default.

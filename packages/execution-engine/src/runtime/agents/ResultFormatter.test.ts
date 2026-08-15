@@ -31,6 +31,10 @@ describe("ResultFormatter", () => {
     expect(formatTaskOutput(undefined)).toBe("no output");
   });
 
+  it("preserves an explicitly empty successful output", () => {
+    expect(formatExecutionResult({ success: true, output: "" })).toBe("");
+  });
+
   it("extracts typed secure execution timeout failures", () => {
     const result = {
       status: "timeout",

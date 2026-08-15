@@ -1,5 +1,4 @@
 import type { CoreMessage } from "ai";
-import { GeneratedThreadTitleSchema } from "@repo/platform-protocol";
 import type { Env } from "../../types/ai";
 import { AIService } from "../AIService";
 import {
@@ -23,15 +22,13 @@ export interface GenerateThreadTitleInput extends Omit<
 }
 
 export interface ThreadTitleGenerator {
-  generateStructured<T>(input: {
+  generateText(input: {
     messages: CoreMessage[];
-    schema: { parse(value: unknown): T };
     model?: string;
     providerId?: string;
     temperature?: number;
-    maxTokens?: number;
-    abortSignal?: AbortSignal;
-  }): Promise<{ object: T }>;
+    signal?: AbortSignal;
+  }): Promise<{ text: string }>;
 }
 
 export interface ThreadTitlePersistence {
@@ -44,12 +41,12 @@ interface ThreadTitleGenerationDependencies {
   titleService?: ThreadTitlePersistence;
 }
 
-const TITLE_GENERATION_TIMEOUT_MS = 7_500;
+const TITLE_GENERATION_TIMEOUT_MS = 20_000;
 
 /**
  * Schedules title inference only through a Worker-owned waitUntil lifecycle.
- * Missing credentials, unsupported structured output, timeout, or invalid
- * output leave the deterministic preview untouched.
+ * Missing credentials, provider failure, timeout, or invalid output leave the
+ * deterministic preview untouched.
  */
 export class ThreadTitleGenerationCoordinator {
   private readonly generator?: ThreadTitleGenerator;
@@ -90,22 +87,21 @@ export class ThreadTitleGenerationCoordinator {
         {
           role: "system",
           content:
-            "Create a concise, neutral 3 to 6 word task title. Return only the requested structured object. Do not include secrets, file contents, tool output, or reasoning.",
+            "Create a concise, neutral 3 to 6 word task title. Return only the title as plain text. Do not include quotes, punctuation, secrets, file contents, tool output, or reasoning.",
         },
         { role: "user", content: input.prompt },
       ];
       const generator = this.generator ?? this.generatorFactory(input);
-      const result = await generator.generateStructured({
+      const result = await generator.generateText({
         messages,
-        schema: GeneratedThreadTitleSchema,
         providerId: input.providerId,
         model: input.modelId,
         temperature: 0,
-        maxTokens: 32,
-        abortSignal: abortController.signal,
+        signal: abortController.signal,
       });
-      const title = normalizeGeneratedTitle(result.object.title);
+      const title = normalizeGeneratedTitle(result.text);
       if (!title) {
+        console.warn("[thread-title] generation_failed reason=invalid_output");
         return;
       }
       await this.titleService.persist({
@@ -144,10 +140,21 @@ function classifyTitleGenerationFailure(
 }
 
 function normalizeGeneratedTitle(value: string): string | null {
-  const title = value.replace(/\s+/g, " ").trim();
-  const wordCount = title.split(" ").filter(Boolean).length;
-  if (wordCount < 3 || wordCount > 6 || title.length > 80) {
+  const cleaned = value.replace(/<think>[\s\S]*?<\/think>\s*/giu, "");
+  const firstLine = cleaned
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return null;
+  const normalized = firstLine
+    .replace(/^#{1,6}\s*/u, "")
+    .replace(/^title\s*:\s*/iu, "")
+    .replace(/^[\s"'`]+|[\s"'`.,:;!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length < 3) {
     return null;
   }
-  return title;
+  return words.slice(0, 6).join(" ").slice(0, 80).trim() || null;
 }

@@ -22,6 +22,7 @@ import {
   type WorkflowEntrypoint,
   type WorkflowIntent,
   type ReasoningEffort,
+  type ProviderModelRuntimeRoute,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { TurnScopeBootstrap } from "@repo/platform-protocol";
@@ -38,6 +39,7 @@ import type {
   AgentType,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
+import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
 import {
   builtinProviderRegistry,
   resolveProviderRuntimeRoute,
@@ -79,6 +81,7 @@ export interface HandleChatRequestInput {
   pricing?: BYOKModelPricing;
   reasoningEffort?: ReasoningEffort;
   tools?: Record<string, SerializableToolDefinition>;
+  providerRuntimeRoute?: ProviderModelRuntimeRoute;
   identity: TurnScopeBootstrap;
   backgroundTaskOwner?: BackgroundTaskOwner;
 }
@@ -173,10 +176,9 @@ export class HandleChatRequest {
           : undefined;
       const taskId = input.taskId ?? sessionId;
       const contextWindowTokens = resolveContextWindowTokens(input);
-      const providerRuntimeRoute = resolveProviderRuntimeRoute(
-        input.providerId,
-        input.modelId,
-      );
+      const providerRuntimeRoute =
+        input.providerRuntimeRoute ??
+        resolveProviderRuntimeRoute(input.providerId, input.modelId);
 
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
@@ -305,6 +307,14 @@ export class HandleChatRequest {
         }
       }
 
+      const executionMessages = userId
+        ? await new DurableConversationContextAssembler(this.env).assemble({
+            sessionId,
+            userId,
+            currentTurnId: identity.turnId,
+          })
+        : messages;
+
       // Build execution payload with repository context
       const executionPayload = {
         runId,
@@ -321,9 +331,18 @@ export class HandleChatRequest {
           sessionId,
           providerId: input.providerId,
           modelId: input.modelId,
-          runtimeModelId: providerRuntimeRoute?.runtimeModelId,
-          providerTransport: providerRuntimeRoute?.providerTransport,
-          providerEndpoint: providerRuntimeRoute?.providerEndpoint,
+          runtimeModelId:
+            providerRuntimeRoute && "modelId" in providerRuntimeRoute
+              ? providerRuntimeRoute.modelId
+              : providerRuntimeRoute?.runtimeModelId,
+          providerTransport:
+            providerRuntimeRoute && "transport" in providerRuntimeRoute
+              ? providerRuntimeRoute.transport
+              : providerRuntimeRoute?.providerTransport,
+          providerEndpoint:
+            providerRuntimeRoute && "endpoint" in providerRuntimeRoute
+              ? providerRuntimeRoute.endpoint
+              : providerRuntimeRoute?.providerEndpoint,
           harnessId: input.harnessId,
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
@@ -369,7 +388,7 @@ export class HandleChatRequest {
                 }
               : undefined,
         },
-        messages,
+        messages: executionMessages,
         tools: input.tools,
       };
 

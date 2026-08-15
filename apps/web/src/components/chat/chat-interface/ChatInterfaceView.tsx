@@ -5,7 +5,10 @@ import type {
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import type { ChatMessageMetadata } from "../messageMetadata";
+import {
+  buildLifecycleMessageMetadata,
+  type ChatMessageMetadata,
+} from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
@@ -43,6 +46,8 @@ interface ChatInterfaceViewProps {
   debugEvents: ChatDebugEvent[];
   chatEntries: ChatInterfaceEntry[];
   messageMetadataById: Record<string, ChatMessageMetadata>;
+  modeLabel: string;
+  resolveModelLabel: (modelId: string) => string;
   onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   snapshots: Record<string, FileStatus[]>;
@@ -194,6 +199,14 @@ function TurnWorkflowEntry({
             includeCurrentTurnReview={isCurrentTurn}
             projection={entry.projection}
             hookAudits={entry.projection.hookAudits}
+            metadata={buildLifecycleMessageMetadata(
+              entry.projection,
+              entry.assistantMessage
+                ? props.messageMetadataById[entry.assistantMessage.id]
+                : undefined,
+              props.resolveModelLabel,
+              props.modeLabel,
+            )}
           />
         </div>
       ) : null}
@@ -227,6 +240,7 @@ function TerminalMessage(
     includeCurrentTurnReview: boolean;
     projection: LifecycleProjection;
     hookAudits: LifecycleProjection["hookAudits"];
+    metadata?: ChatMessageMetadata;
   },
 ) {
   const terminal = props.terminalViewModel;
@@ -292,6 +306,7 @@ function TerminalMessage(
             })
       }
       hookAudits={props.hookAudits}
+      metadata={props.metadata}
     />
   );
 }

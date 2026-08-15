@@ -1,12 +1,39 @@
 import type { Message } from "@ai-sdk/react";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { TurnIdSchema } from "@repo/platform-client-sdk";
+import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 
 export interface ChatMessageMetadata {
   modeLabel: string;
   modelLabel?: string;
   durationLabel?: string;
   timeLabel?: string;
+}
+
+export function buildLifecycleMessageMetadata(
+  projection: LifecycleProjection,
+  fallback: ChatMessageMetadata | undefined,
+  resolveModelLabel: (modelId: string) => string,
+  modeLabel: string,
+): ChatMessageMetadata {
+  const startedAtMs = parseTimestamp(projection.startedAt);
+  const settledAtMs = parseTimestamp(
+    projection.settledAt ?? projection.terminal?.occurredAt ?? null,
+  );
+  return {
+    modeLabel: fallback?.modeLabel ?? modeLabel,
+    modelLabel: projection.usage?.modelId
+      ? resolveModelLabel(projection.usage.modelId)
+      : fallback?.modelLabel,
+    durationLabel:
+      fallback?.durationLabel ??
+      formatDuration(
+        startedAtMs && settledAtMs && settledAtMs >= startedAtMs
+          ? settledAtMs - startedAtMs
+          : undefined,
+      ),
+    timeLabel: fallback?.timeLabel ?? formatTimestamp(settledAtMs),
+  };
 }
 
 export interface ConversationTurn {
@@ -97,9 +124,7 @@ function readMessagePhase(message: Message): string | null {
   return typeof phase === "string" ? phase : null;
 }
 
-function readMessageMetadata(
-  message: Message,
-): Record<string, unknown> | null {
+function readMessageMetadata(message: Message): Record<string, unknown> | null {
   const data = (message as Message & { data?: unknown }).data;
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const metadata = (data as Record<string, unknown>).metadata;
@@ -299,10 +324,15 @@ function formatTimestamp(timestampMs?: number): string | undefined {
     hour12: true,
   });
 
-  return localizedTime.replace(
-    /\b(a\.?m\.?|p\.?m\.?)\b/gi,
-    (meridiem) => meridiem.toUpperCase(),
+  return localizedTime.replace(/\b(a\.?m\.?|p\.?m\.?)\b/gi, (meridiem) =>
+    meridiem.toUpperCase(),
   );
+}
+
+function parseTimestamp(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
 function formatDuration(durationMs?: number): string | undefined {

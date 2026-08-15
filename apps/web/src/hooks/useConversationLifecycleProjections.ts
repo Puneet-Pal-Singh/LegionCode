@@ -41,14 +41,15 @@ export function useConversationLifecycleProjections(
     [injectedClient],
   );
   const turnIds = useMemo(
-    () =>
-      [...new Set(
+    () => [
+      ...new Set(
         turns
           .map((turn) => TurnIdSchema.safeParse(turn.turnId))
           .filter((result) => result.success)
           .map((result) => result.data)
           .filter((turnId) => turnId !== activeTurnId),
-      )],
+      ),
+    ],
     [activeTurnId, turns],
   );
   const turnIdsKey = turnIds.join("\u0000");
@@ -76,7 +77,7 @@ export function useConversationLifecycleProjections(
       });
     });
     return () => abortController.abort();
-  }, [client, turnIdsKey]);
+  }, [client, turnIds, turnIdsKey]);
 
   const isCurrent = state?.key === turnIdsKey;
   return {
@@ -92,13 +93,18 @@ async function replaySettledTurn(
 ): Promise<LifecycleProjection | null> {
   let projection = createLifecycleProjection(turnId);
   try {
-    for await (const event of client.followTurnLifecycle(
-      { turnId },
-      { signal: abortController.signal },
-    )) {
+    let afterSequence = null;
+    do {
+      const replay = await client.replayLifecycleEvents(
+        { turnId, afterSequence, limit: 1_000 },
+        { signal: abortController.signal },
+      );
       if (abortController.signal.aborted) return null;
-      projection = applyLifecycleEvent(projection, event);
-    }
+      for (const event of replay.events) {
+        projection = applyLifecycleEvent(projection, event);
+      }
+      afterSequence = replay.nextSequence;
+    } while (afterSequence !== null);
     return projection;
   } catch (error) {
     // The transcript remains usable if an old lifecycle is unavailable.

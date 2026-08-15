@@ -46,7 +46,6 @@ export function buildAgenticLoopSystemPrompt(input: {
     "- If read_file or list_files hits a missing path, do not escalate to bash just to rediscover the tree. Switch to list_files, glob, or grep on the nearest confirmed directory and continue exploring.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
     "- Prefer one cohesive apply_patch for multi-hunk changes when it is available. Otherwise use write_file for a deliberate whole-file rewrite or edit_file with enough unique surrounding text.",
-    "- When write_file creates a new path, omit expectedSha256. Only send expectedSha256 when replacing an existing file whose current content you already read.",
     "- If edit_file fails because the target is missing or ambiguous, reread once, choose a unique larger target, and retry instead of stopping immediately.",
     "- If a mutating tool fails for another reason, stop and explain what failed.",
     "- git_commit messages must be a single-line conventional commit subject (for example: feat: add hero carousel).",

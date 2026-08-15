@@ -38,6 +38,69 @@ const snapshot = WorkspaceSnapshotSchema.parse({
 });
 
 describe("TaskCheckoutIssuer", () => {
+  it("issues three same-model chats with distinct checkout and lease roots", async () => {
+    const repository = createRepository();
+    const issuer = new TaskCheckoutIssuer(
+      {} as Env,
+      {
+        capture: vi.fn(async (input) =>
+          WorkspaceSnapshotSchema.parse({
+            ...snapshot,
+            snapshotId: `wsnap_snapshot${input.workspaceId.at(-1)}`,
+            workspaceId: input.workspaceId,
+            repository: {
+              ...snapshot.repository,
+              name: input.repository.repo,
+              canonicalUrl: `https://github.com/${input.repository.owner}/${input.repository.repo}`,
+            },
+          }),
+        ),
+      },
+      repository,
+      ({ workspaceScope }) => ({
+        acquire: vi.fn(async () => ({
+          sessionId: `sess_${workspaceScope.runAttemptId}`,
+          token: "secret-test-token",
+          expiresAt: Date.now() + 60_000,
+          lease: {
+            leaseId: `lease_${workspaceScope.runAttemptId}`,
+            sandboxId: `sb-attempt-${workspaceScope.runAttemptId.at(-1)}`,
+            generation: 0,
+          },
+        })),
+        recoverAfterSandboxLoss: vi.fn(async () => {
+          throw new Error("not expected");
+        }),
+        release: vi.fn(async () => undefined),
+      }),
+    );
+
+    const issued = await Promise.all([
+      issuer.issue(payloadFor(1, "gpt-5.6-luna")),
+      issuer.issue(payloadFor(2, "gpt-5.6-luna")),
+      issuer.issue(payloadFor(3, "gpt-5.6-luna")),
+    ]);
+
+    expect(
+      new Set(issued.map(({ checkout }) => checkout.checkoutId)).size,
+    ).toBe(3);
+    expect(
+      new Set(issued.map(({ checkout }) => checkout.filesystemRoot)).size,
+    ).toBe(3);
+    expect(new Set(issued.map(({ checkout }) => checkout.leaseId)).size).toBe(
+      3,
+    );
+    for (const { checkout, workspaceScope } of issued) {
+      expect(workspaceScope).toMatchObject({
+        workspaceId: checkout.workspaceId,
+        threadId: checkout.threadId,
+        turnId: checkout.turnId,
+        runAttemptId: checkout.runAttemptId,
+        root: checkout.filesystemRoot,
+      });
+    }
+  });
+
   it("binds one canonical checkout root to the secure lease and snapshot", async () => {
     const repository = createRepository();
     const release = vi.fn(async () => undefined);
@@ -188,9 +251,7 @@ describe("TaskCheckoutIssuer", () => {
     expect(resumed.checkout).toEqual(replacedCheckout);
     expect(resumed.checkout.checkoutId).toBe(first.checkout.checkoutId);
     expect(resumed.checkout.snapshotId).toBe(first.checkout.snapshotId);
-    expect(resumed.checkout.filesystemRoot).toBe(
-      first.checkout.filesystemRoot,
-    );
+    expect(resumed.checkout.filesystemRoot).toBe(first.checkout.filesystemRoot);
     expect(repository.replaceLease).toHaveBeenCalledWith({
       checkoutId: first.checkout.checkoutId,
       expectedLeaseId: "lease_secure01",
@@ -302,6 +363,37 @@ function payload(): ExecuteRunPayload {
       },
     },
     messages: [{ role: "user", content: "read the repository" }],
+  } as ExecuteRunPayload;
+}
+
+function payloadFor(index: number, modelId: string): ExecuteRunPayload {
+  const base = payload();
+  const workspaceId = `wrk_workspace${index}`;
+  const sessionId = `session-control-${index}`;
+  return {
+    ...base,
+    runId: `run_issuer0${index}`,
+    workspaceId,
+    sessionId,
+    correlationId: `corr-issuer-${index}`,
+    identity: {
+      sessionId,
+      workspaceId,
+      threadId: `thr_thread0${index}`,
+      turnId: `trn_turn000${index}`,
+      runAttemptId: `attempt_attempt${index}`,
+    },
+    input: {
+      ...base.input,
+      sessionId,
+      providerId: "openai",
+      modelId,
+      repositoryContext: {
+        owner: "acme",
+        repo: `repo-${index}`,
+        branch: "dev",
+      },
+    },
   } as ExecuteRunPayload;
 }
 
