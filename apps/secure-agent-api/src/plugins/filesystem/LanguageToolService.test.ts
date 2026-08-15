@@ -39,68 +39,6 @@ describe("LanguageToolService", () => {
     });
   });
 
-  it("treats TypeScript exit code two as diagnostic output", async () => {
-    const sandbox = createSandbox([]);
-    mockResolvedPathAndCommand({
-      exitCode: 2,
-      stdout: [
-        "src/a.ts(1,1): error TS2322: Type mismatch",
-        "src/b.ts(2,2): error TS2304: Missing name",
-      ].join("\n"),
-      stderr: "",
-    });
-
-    const result = await new LanguageToolService().diagnostics(
-      createContext(sandbox),
-      "src/app.ts",
-    );
-
-    expect(result).toMatchObject({
-      success: true,
-      metadata: { languageService: "typescript", diagnosticCount: 2 },
-      truncated: false,
-    });
-    const command = findCommand("tsc");
-    expect(command).toBeDefined();
-    expect(command?.args).toEqual([
-      "--noEmit",
-      "--pretty",
-      "false",
-      "--incremental",
-      "false",
-    ]);
-  });
-
-  it("caps broad diagnostic output", async () => {
-    const sandbox = createSandbox([]);
-    mockResolvedPathAndCommand({
-      exitCode: 2,
-      stdout: "x".repeat(30_000),
-      stderr: "",
-    });
-
-    const result = await new LanguageToolService().diagnostics(
-      createContext(sandbox),
-      "src/app.ts",
-    );
-
-    expect(String(result.output)).toContain("[output truncated]");
-    expect(String(result.output).length).toBeLessThan(24_100);
-    expect(result.truncated).toBe(true);
-  });
-
-  it("rejects unsupported extensions before command execution", async () => {
-    const sandbox = createSandbox([]);
-
-    await expect(
-      new LanguageToolService().diagnostics(
-        createContext(sandbox),
-        "image.png",
-      ),
-    ).rejects.toThrow(/does not support/i);
-    expect(runSafeCommand).not.toHaveBeenCalled();
-  });
-
   it("rejects resolved formatter paths outside the workspace", async () => {
     const sandbox = createSandbox([]);
     vi.mocked(runSafeCommand).mockResolvedValue({

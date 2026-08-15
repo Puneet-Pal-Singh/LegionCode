@@ -46,6 +46,50 @@ describe("turn workflow projection", () => {
     expect(buildSegmentTitle(segments[0]!)).toBe("read files");
   });
 
+  it("does not duplicate a lifecycle item when the exact event is replayed twice", () => {
+    const started = toolStarted(
+      1,
+      "itm_gitcall01",
+      "toolcall_gitcall01",
+      "git",
+      "Git diff",
+    );
+
+    const projection = replayTurnWorkflowProjection(TURN_ID, [started, started]);
+
+    expect(projection.items).toHaveLength(1);
+    expect(projection.items[0]?.itemId).toBe("itm_gitcall01");
+    expect(projection.items[0]?.sequence).toBe(1);
+  });
+
+  it("keeps distinct repeated Git tool calls auditable", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      toolStarted(
+        1,
+        "itm_gitcall01",
+        "toolcall_gitcall01",
+        "git",
+        "Git diff",
+      ),
+      toolStarted(
+        2,
+        "itm_gitcall02",
+        "toolcall_gitcall02",
+        "git",
+        "Git diff",
+      ),
+    ]);
+
+    const children = groupToolActivity(projection.items).flatMap(
+      (segment) => segment.children,
+    );
+
+    expect(children.map((item) => item.itemId)).toEqual([
+      "itm_gitcall01",
+      "itm_gitcall02",
+    ]);
+  });
+
   it("does not synthesize item settlement from a terminal event", () => {
     const projection = applyLifecycleEvent(
       applyLifecycleEvent(

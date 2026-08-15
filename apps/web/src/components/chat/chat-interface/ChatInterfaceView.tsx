@@ -56,7 +56,7 @@ interface ChatInterfaceViewProps {
     messageId: string,
     file: FileStatus,
   ) => Promise<DiffContent>;
-  openPromptArtifactReview: (
+  selectPromptArtifactReview: (
     artifactId: string,
     messageId?: string,
     identity?: EditArtifactIdentity,
@@ -224,7 +224,7 @@ function resolveMessageChangedFilesSummary(
     artifacts: props.artifacts,
     loadFileDiff: (file) => props.loadChangedFileDiff(messageId, file),
     onPromptArtifactReview: (artifactId) => {
-      props.openPromptArtifactReview(
+      props.selectPromptArtifactReview(
         artifactId,
         messageId,
         props.artifactIdentity ?? undefined,
@@ -279,7 +279,7 @@ function TerminalMessage(
               loadArtifactFileDiff: (_artifactId, file) =>
                 props.loadCompletedTurnFileDiff(file),
               onPromptArtifactReview: (artifactId) => {
-                props.openPromptArtifactReview(
+                props.selectPromptArtifactReview(
                   artifactId,
                   undefined,
                   props.artifactIdentity ?? undefined,
@@ -295,7 +295,7 @@ function TerminalMessage(
               loadArtifactFileDiff: (artifactId, file) =>
                 props.loadArtifactChangedFileDiff(artifactId, file),
               onPromptArtifactReview: (artifactId) => {
-                props.openPromptArtifactReview(
+                props.selectPromptArtifactReview(
                   artifactId,
                   undefined,
                   props.artifactIdentity ?? undefined,

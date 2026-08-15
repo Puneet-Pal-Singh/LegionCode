@@ -50,9 +50,11 @@ export function ReviewScopeDropdown({
   const selectedOption =
     REVIEW_SCOPE_OPTIONS.find((option) => option.value === value) ??
     DEFAULT_REVIEW_SCOPE_OPTION;
-  const options = REVIEW_SCOPE_OPTIONS.filter(
-    (option) => option.value !== "turn-diff" || canonicalAvailable,
-  );
+  const options = REVIEW_SCOPE_OPTIONS.filter((option) => {
+    if (option.value === "turn-diff") return canonicalAvailable;
+    if (option.value === "prompt-artifact") return !canonicalAvailable;
+    return true;
+  });
 
   return (
     <div className={cn("relative", className)}>

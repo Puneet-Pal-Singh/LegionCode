@@ -79,7 +79,6 @@ interface ChatInterfaceProps {
   onModeChange?: (mode: RunMode) => void;
   permissionMode?: ProductMode;
   onPermissionModeChange?: (mode: ProductMode) => void;
-  onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   onContextOpen?: (
@@ -103,7 +102,6 @@ export function ChatInterface({
   onModeChange,
   permissionMode,
   onPermissionModeChange,
-  onPendingApprovalChange,
   onArtifactOpen,
   onReviewOpen,
   onContextOpen,
@@ -171,7 +169,7 @@ export function ChatInterface({
   }, [messages]);
   const {
     selectedReviewComments,
-    openPromptArtifactReview,
+    selectPromptArtifactReview,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
     markReviewCommentsDispatched,
@@ -179,7 +177,7 @@ export function ChatInterface({
   } = useGitReview();
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
-  const { providerModels } = useProviderStore(runId);
+  const { providerModels } = useProviderStore(sessionId);
   const { login, refreshSession } = useAuth();
   const {
     reviewCommentError,
@@ -243,7 +241,7 @@ export function ChatInterface({
     resolve: resolveApprovalDecision,
   } = useApprovalController({
     lifecycleProjection,
-    onPendingApprovalChange,
+    sessionId,
   });
   const completedTurnReview = useCompletedTurnReview(
     lifecycleProjection,
@@ -459,7 +457,7 @@ export function ChatInterface({
       snapshots={changedFileSnapshotsByAssistantMessageId}
       artifacts={artifactSourcesByAssistantMessageId}
       loadChangedFileDiff={loadChangedFileDiff}
-      openPromptArtifactReview={openPromptArtifactReview}
+      selectPromptArtifactReview={selectPromptArtifactReview}
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalViewModel ? completedTurnReview.files : []}
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}

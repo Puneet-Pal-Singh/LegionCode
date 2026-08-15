@@ -63,7 +63,6 @@ interface WorkspaceProps {
   onServerProjectionAvailable?: () => void;
   initialPromptSubmission?: InitialPromptSubmission | null;
   onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
-  onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   onHookSettingsContextChange?: (context: {
     workspaceId: string;
     audits: readonly HookSettingsAuditReadModel[];
@@ -96,7 +95,6 @@ export function Workspace({
   onServerProjectionAvailable,
   initialPromptSubmission = null,
   onInitialPromptHandled,
-  onPendingApprovalStateChange,
   onHookSettingsContextChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
@@ -503,7 +501,6 @@ export function Workspace({
               onModeChange={onModeChange}
               permissionMode={productMode}
               onPermissionModeChange={setProductMode}
-              onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
               projectName={repository.split("/").filter(Boolean).at(-1)}
@@ -522,7 +519,8 @@ export function Workspace({
               }}
               onReviewOpen={() => {
                 setIsViewingContent(false);
-                onGitReviewOpenChange?.(true);
+                setActiveTab("review");
+                setIsRightSidebarOpen?.(true);
               }}
               onContextOpen={(budget, usage) => {
                 openContextTab(budget, usage, {

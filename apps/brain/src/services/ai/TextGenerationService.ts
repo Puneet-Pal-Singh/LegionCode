@@ -38,6 +38,7 @@ export async function generateText(
     system?: string;
     tools?: Record<string, CoreTool>;
     temperature?: number;
+    maxOutputTokens?: number;
     reasoningEffort?: ReasoningEffort;
     model: string;
     signal?: AbortSignal;
@@ -48,6 +49,7 @@ export async function generateText(
     system: params.system,
     tools: params.tools,
     temperature: params.temperature,
+    maxOutputTokens: params.maxOutputTokens,
     reasoningEffort: params.reasoningEffort,
     model: params.model,
     signal: params.signal,

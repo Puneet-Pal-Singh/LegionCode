@@ -105,7 +105,6 @@ export function ChatInputBar({
   isLoading = false,
   placeholder,
   sessionId,
-  runId,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   hasMessages = false,
@@ -173,7 +172,7 @@ export function ChatInputBar({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore(runId);
+  } = useProviderStore(sessionId);
   const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;

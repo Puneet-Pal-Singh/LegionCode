@@ -30,7 +30,6 @@ interface AgentSidebarProps {
   sessions: AgentSession[];
   repositories: string[];
   activeSessionId: string | null;
-  approvalStatesBySessionId?: Record<string, boolean>;
   onSelect: (id: string) => void;
   onCreate: (repo?: string) => void;
   onRemove: (id: string) => void;
@@ -134,7 +133,6 @@ export function AgentSidebar({
   sessions,
   repositories,
   activeSessionId,
-  approvalStatesBySessionId = {},
   onSelect,
   onCreate,
   onRemove,
@@ -202,9 +200,7 @@ export function AgentSidebar({
         const allTasks = sectionSessions.map<SidebarTaskItem>((session) => ({
           id: session.id,
           title: session.name,
-          status: approvalStatesBySessionId[session.id]
-            ? "needs_approval"
-            : mapSessionStatus(session, activeSessionId),
+          status: mapSessionStatus(session, activeSessionId),
           updatedAt: session.updatedAt,
           isActive: session.id === activeSessionId,
           titlePending: session.titleStatus === "pending",
@@ -233,7 +229,6 @@ export function AgentSidebar({
       .filter((section) => section.shouldRender);
   }, [
     activeSessionId,
-    approvalStatesBySessionId,
     normalizedQuery,
     repositorySource,
     sessions,
@@ -245,9 +240,7 @@ export function AgentSidebar({
       selectPinnedSessions(sessions).map<SidebarTaskItem>((session) => ({
         id: session.id,
         title: session.name,
-        status: approvalStatesBySessionId[session.id]
-          ? "needs_approval"
-          : mapSessionStatus(session, activeSessionId),
+        status: mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
         titlePending: session.titleStatus === "pending",
@@ -257,7 +250,6 @@ export function AgentSidebar({
     );
   }, [
     activeSessionId,
-    approvalStatesBySessionId,
     normalizedQuery,
     sessions,
     statusFilter,

@@ -190,15 +190,25 @@ export function TaskListRow({
         )}
       >
         <div className="grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-1.5 pl-8 pr-2">
-          <span
-            className={cn(
-              "min-w-0 truncate text-sm",
-              task.isActive ? "font-medium" : "font-normal",
-            )}
-            title={task.title}
-          >
-            {task.title}
-          </span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                "min-w-0 truncate text-sm",
+                task.isActive ? "font-medium" : "font-normal",
+              )}
+              title={task.title}
+            >
+              {task.title}
+            </span>
+            {task.status === "needs_approval" ? (
+              <span
+                data-testid="task-status-label-needs_approval"
+                className="shrink-0 rounded-full bg-emerald-900/70 px-2 py-0.5 text-[10px] font-medium leading-4 text-emerald-300"
+              >
+                Awaiting approval
+              </span>
+            ) : null}
+          </div>
           <div
             className={cn(
               "flex shrink-0 items-center justify-end gap-1.5 text-xs transition-[margin]",

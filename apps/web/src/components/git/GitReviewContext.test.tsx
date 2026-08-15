@@ -332,6 +332,33 @@ describe("GitReviewProvider", () => {
     );
   });
 
+  it("selects a chat artifact without opening the full review modal", () => {
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/live.ts"),
+    ]);
+    mockArtifactState.source = buildArtifactSource();
+    mockArtifactState.resolved = true;
+    const onReviewOpenChange = vi.fn();
+
+    render(
+      <GitReviewProvider
+        isReviewOpen={false}
+        isReviewActive
+        onReviewOpenChange={onReviewOpenChange}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "select chat artifact" }),
+    );
+    expect(screen.getByTestId("review-scope")).toHaveTextContent(
+      "prompt-artifact",
+    );
+    expect(onReviewOpenChange).not.toHaveBeenCalled();
+  });
+
   it("preserves every changed file in a multi-file live review", () => {
     mockGitStatusState.status = buildGitStatus([
       buildFileStatus("src/first.ts"),
@@ -514,6 +541,14 @@ function ReviewSourceProbe() {
         }
       >
         open chat artifact
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          review.selectPromptArtifactReview("artifact-chat", "assistant-chat")
+        }
+      >
+        select chat artifact
       </button>
     </div>
   );

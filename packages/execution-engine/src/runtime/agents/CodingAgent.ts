@@ -340,8 +340,6 @@ VALIDATION RULES:
         return this.executeApplyPatchTool(task);
       case "format_file":
         return this.executePathTool(task, "format_file");
-      case "language_diagnostics":
-        return this.executePathTool(task, "language_diagnostics");
       case "bash":
         return this.executeBashTool(task);
       case "git_stage":
@@ -473,7 +471,7 @@ VALIDATION RULES:
 
   private async executePathTool(
     task: Task,
-    toolName: "format_file" | "language_diagnostics",
+    toolName: "format_file",
   ): Promise<TaskResult> {
     const validated = this.validateCodingToolInput(toolName, task.input);
     const path = normalizeTaskPath(validated.path);

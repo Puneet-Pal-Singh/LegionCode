@@ -34,6 +34,7 @@ interface DiffViewerProps {
   onWordWrapChange?: (enabled: boolean) => void;
   showHeader?: boolean;
   showFileSummary?: boolean;
+  fileSummaryLayout?: "stacked" | "inline";
   hunkExpansionRequest?: {
     action: "collapse" | "expand";
     id: number;
@@ -53,6 +54,7 @@ export function DiffViewer({
   onWordWrapChange,
   showHeader = true,
   showFileSummary = true,
+  fileSummaryLayout = "stacked",
   hunkExpansionRequest,
   onCreateReviewComment,
   onDeleteReviewComment,
@@ -186,6 +188,7 @@ export function DiffViewer({
                   diffPath={diffPath}
                   isDeleted={diff.isDeleted}
                   isNewFile={diff.isNewFile}
+                  layout={fileSummaryLayout}
                 />
               ) : (
                 <div />
@@ -260,6 +263,7 @@ export function DiffViewer({
               diffPath={diffPath}
               isDeleted={diff.isDeleted}
               isNewFile={diff.isNewFile}
+              layout={fileSummaryLayout}
             />
           </div>
         ) : null}

@@ -26,7 +26,6 @@ const PRETTIER_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
 ]);
-const TYPESCRIPT_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx"]);
 
 export class LanguageToolService {
   private readonly pathResolver = new WorkspacePathResolver();
@@ -65,31 +64,6 @@ export class LanguageToolService {
     };
   }
 
-  async diagnostics(
-    context: WorkspaceToolContext,
-    inputPath: string,
-  ): Promise<PluginResult> {
-    await this.resolveSupportedPath(
-      context,
-      inputPath,
-      TYPESCRIPT_EXTENSIONS,
-      "language diagnostics",
-    );
-    const result = await runLanguageCommand(
-      context,
-      "tsc",
-      ["--noEmit", "--pretty", "false", "--incremental", "false"],
-      "filesystem.language_diagnostics",
-    );
-    if (![0, 2].includes(result.exitCode)) {
-      return {
-        success: false,
-        error: result.stderr || "TypeScript diagnostics failed",
-      };
-    }
-    return buildDiagnosticsResult(inputPath, result.stdout, result.stderr);
-  }
-
   private async resolveSupportedPath(
     context: WorkspaceToolContext,
     inputPath: string,
@@ -112,7 +86,7 @@ export class LanguageToolService {
 
 async function runLanguageCommand(
   context: WorkspaceToolContext,
-  command: "prettier" | "tsc",
+  command: "prettier",
   args: string[],
   operation: string,
 ) {
@@ -142,31 +116,6 @@ async function readTextFile(
     throw new Error("Unable to read language-tool target");
   }
   return result.content;
-}
-
-function buildDiagnosticsResult(
-  inputPath: string,
-  stdout: string,
-  stderr: string,
-): PluginResult {
-  const combined = [stdout, stderr].filter(Boolean).join("\n");
-  const output = capLanguageOutput(
-    combined || "No TypeScript diagnostics found",
-  );
-  return {
-    success: true,
-    output: output.value,
-    metadata: {
-      path: inputPath,
-      languageService: "typescript",
-      diagnosticCount: countDiagnostics(combined),
-    },
-    truncated: output.truncated,
-  };
-}
-
-function countDiagnostics(output: string): number {
-  return output.split("\n").filter((line) => /error TS\d+:/u.test(line)).length;
 }
 
 function capLanguageOutput(value: string): {

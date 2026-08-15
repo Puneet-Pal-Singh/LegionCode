@@ -140,12 +140,6 @@ async function dispatchAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
-    case "language_diagnostics":
-      return executeLanguageDiagnosticsTool(
-        executionService,
-        input.taskId,
-        input.toolInput,
-      );
     case "bash":
       return executeBashTool(
         executionService,
@@ -374,24 +368,11 @@ async function executeFormatFileTool(
   return executePathTool(executionService, taskId, taskInput, "format_file");
 }
 
-async function executeLanguageDiagnosticsTool(
-  executionService: RuntimeExecutionService,
-  taskId: string,
-  taskInput: TaskInput,
-): Promise<TaskResult> {
-  return executePathTool(
-    executionService,
-    taskId,
-    taskInput,
-    "language_diagnostics",
-  );
-}
-
 async function executePathTool(
   executionService: RuntimeExecutionService,
   taskId: string,
   taskInput: TaskInput,
-  toolName: "format_file" | "language_diagnostics",
+  toolName: "format_file",
 ): Promise<TaskResult> {
   const validated = validateCodingToolInput(toolName, taskInput);
   const path = normalizeAndValidateToolPath(validated.path);

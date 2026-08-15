@@ -11,6 +11,7 @@ import {
   Terminal,
   Wrench,
   ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   buildSegmentTitle,
@@ -27,6 +28,11 @@ import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputP
 import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
 
+// Keep the disclosure trigger and each child on the same row cadence. A
+// shared min-height/padding contract prevents the first child from appearing
+// farther away than subsequent children when a grouped tool call opens.
+const WORKFLOW_ROW_CADENCE = "min-h-7 py-1 text-sm leading-5";
+
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
   turnDiff: TurnDiffPayload | null;
@@ -41,7 +47,7 @@ export function WorkflowTimeline({
   onArtifactOpen,
 }: WorkflowTimelineProps) {
   return (
-    <div className="space-y-3" data-testid="workflow-tool-viewport">
+    <div className="space-y-1" data-testid="workflow-tool-viewport">
       {segments.map((segment) => (
         <WorkflowSegment
           key={segment.key}
@@ -87,7 +93,7 @@ function WorkflowSegment({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {segment.reasoning ? (
         <div className="text-[15px] leading-7 text-zinc-100">
           <MarkdownMessageContent
@@ -103,7 +109,10 @@ function WorkflowSegment({
             onArtifactOpen={onArtifactOpen}
           />
         ) : (
-          <ActivityDisclosure title={buildSegmentTitle(segment)}>
+          <ActivityDisclosure
+            title={buildSegmentTitle(segment)}
+            active={segment.children.some((item) => item.status === "active")}
+          >
             <div
               ref={viewportRef}
               onScroll={(event) => {
@@ -134,9 +143,11 @@ function WorkflowSegment({
 
 function ActivityDisclosure({
   title,
+  active,
   children,
 }: {
   title: string;
+  active: boolean;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -146,24 +157,32 @@ function ActivityDisclosure({
       <button
         type="button"
         aria-expanded={expanded}
+        data-testid="activity-disclosure-row"
         onClick={() => setExpanded((current) => !current)}
-        className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-100"
+        className={cn(
+          "group flex items-center gap-2 text-zinc-500 transition hover:text-zinc-100",
+          WORKFLOW_ROW_CADENCE,
+        )}
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
-        <span className="first-letter:uppercase">{title}</span>
-        <ChevronDown
+        <span
+          className={cn(
+            "first-letter:uppercase",
+            active && "turn-lifecycle-shimmer",
+          )}
+        >
+          {title}
+        </span>
+        <ChevronRight
+          data-testid="activity-disclosure-chevron"
           className={cn(
             "h-3.5 w-3.5 transition-transform",
-            expanded && "rotate-180",
+            expanded && "rotate-90",
           )}
           aria-hidden="true"
         />
       </button>
-      {expanded ? (
-        <div className="mt-1 min-w-0 border-l border-zinc-800 py-1 pl-3 sm:ml-2 sm:pl-4">
-          {children}
-        </div>
-      ) : null}
+      {expanded ? <div className="min-w-0">{children}</div> : null}
     </div>
   );
 }
@@ -210,7 +229,7 @@ function WorkflowItemRow({
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className="group py-0.5 text-sm"
+      className={cn("group", WORKFLOW_ROW_CADENCE)}
     >
       <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
         <WorkflowStatusIcon item={item} />
@@ -250,7 +269,7 @@ function WorkflowItemRow({
             ) : null}
             {item.toolFamily === "edit" &&
             (item.additions != null || item.deletions != null) ? (
-              <span className="ml-2 inline-flex gap-1.5 font-mono">
+              <span className="ml-2 inline-flex gap-1.5 font-mono text-xs font-normal">
                 <span className="text-emerald-400">+{item.additions ?? 0}</span>
                 <span className="text-red-400">-{item.deletions ?? 0}</span>
               </span>
@@ -321,7 +340,7 @@ function InlineEditPreview({
 
   if (diff) {
     return (
-      <div className="mt-2 min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-black sm:ml-6">
+      <div className="mt-2 min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-black">
         <DiffViewer
           diff={diff}
           className="max-h-80 min-w-0"
@@ -329,13 +348,14 @@ function InlineEditPreview({
           wordWrap={false}
           showHeader={false}
           showFileSummary
+          fileSummaryLayout="inline"
         />
       </div>
     );
   }
 
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e] sm:ml-6">
+    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e]">
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2 text-xs">
         <span className="truncate font-mono text-zinc-300">
           {item.filePath ?? "Edited file"}
@@ -403,7 +423,7 @@ function resolveItemLabel(item: WorkflowItem): string {
 
 function WorkflowStatusIcon({ item }: { item: WorkflowItem }) {
   const className = cn(
-    "mt-0.5 h-3.5 w-3.5 text-zinc-600",
+    "mt-0.5 h-4 w-4 text-zinc-600",
     item.status === "active" &&
       "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
     item.status === "completed" && "text-zinc-500",

@@ -183,6 +183,27 @@ describe("PostgresTranscriptRepository", () => {
     );
     expect(statement).toContain("AND ($5::uuid IS NULL OR s2.user_id = $5)");
   });
+
+  it("includes canonical title metadata in session list projections", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.listSessions("123e4567-e89b-42d3-a456-426614174001");
+    await repository.listArchivedSessions(
+      "123e4567-e89b-42d3-a456-426614174001",
+    );
+
+    expect(client.queries[0]?.statement).toContain(
+      "s.thread_id AS session_thread_id",
+    );
+    expect(client.queries[0]?.statement).toContain("s.title_version");
+    expect(client.queries[1]?.statement).toContain(
+      "s.thread_id AS session_thread_id",
+    );
+    expect(client.queries[1]?.statement).toContain("s.title_version");
+  });
 });
 
 function createTaskRow(params: readonly SqlValue[]): SqlRow {

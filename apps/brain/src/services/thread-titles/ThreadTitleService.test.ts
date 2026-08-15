@@ -31,7 +31,7 @@ describe("ThreadTitleService", () => {
     });
 
     expect(preview).toMatchObject({
-      title: "Please inspect and fix…",
+      title: "Please i…",
       titleSource: "preview",
       titleVersion: 2,
     });
@@ -54,7 +54,7 @@ describe("ThreadTitleService", () => {
           threadId: THREAD_ID,
           payload: {
             firstMessageId: FIRST_MESSAGE_ID,
-            title: "Please inspect and fix…",
+            title: "Please i…",
             titleVersion: 2,
             source: "preview",
           },
@@ -158,7 +158,7 @@ describe("ThreadTitleService", () => {
 
   it("uses the selected model for a bounded background title request", async () => {
     const generateText = vi.fn().mockResolvedValue({
-      text: '<think>Choose a concise title.</think>\nTitle: "Review Cloud Task Checkout Improvements."\nIgnored explanation',
+      text: '<think>Choose a concise title.</think>\n* Title: "Review Cloud Task Checkout Improvements."\nIgnored explanation',
     });
     const persist = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
@@ -184,6 +184,7 @@ describe("ThreadTitleService", () => {
         providerId: "google",
         model: "gemma-3-27b",
         temperature: 0,
+        maxOutputTokens: 32,
         messages: [
           expect.objectContaining({ role: "system" }),
           {
@@ -200,6 +201,32 @@ describe("ThreadTitleService", () => {
         expectedTitleVersion: 2,
       }),
     );
+  });
+
+  it("does not persist instruction-like model output as a title", async () => {
+    const generateText = vi.fn().mockResolvedValue({
+      text: "* User wants me to check readme",
+    });
+    const persist = vi.fn().mockResolvedValue(null);
+    let scheduled: Promise<unknown> | undefined;
+    const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
+      generator: { generateText },
+      titleService: { persist },
+    });
+
+    coordinator.schedule(
+      { waitUntil: (promise) => (scheduled = promise) },
+      {
+        ...titleIdentity(),
+        prompt: "Check the README and improve it",
+        previewVersion: 2,
+        providerId: "openai",
+        modelId: "gpt-5.6-luna",
+      },
+    );
+
+    await scheduled;
+    expect(persist).not.toHaveBeenCalled();
   });
 });
 

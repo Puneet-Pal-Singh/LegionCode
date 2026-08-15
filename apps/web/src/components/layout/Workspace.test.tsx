@@ -564,7 +564,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("opens the existing review dialog from a completed edit", () => {
+  it("opens the right sidebar review tab from a completed edit", () => {
     const onGitReviewOpenChange = vi.fn();
     const setIsRightSidebarOpen = vi.fn();
     render(
@@ -582,10 +582,13 @@ describe("Workspace", () => {
     };
     chatProps.onReviewOpen?.();
 
-    expect(onGitReviewOpenChange).toHaveBeenCalledWith(true);
-    expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
+    expect(onGitReviewOpenChange).not.toHaveBeenCalled();
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
     expect(mockWorkspaceStateSetters.setIsViewingContent).toHaveBeenCalledWith(
       false,
+    );
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
+      "review",
     );
   });
 });

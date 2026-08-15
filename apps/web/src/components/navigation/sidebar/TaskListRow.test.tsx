@@ -58,4 +58,28 @@ describe("TaskListRow product identity contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm archive for Review sidebar actions" }));
     expect(onRemove).toHaveBeenCalledOnce();
   });
+
+  it("labels a canonical pending approval without replacing completion notifications", () => {
+    render(
+      <TaskListRow
+        task={{
+          id: "thr_approval001",
+          title: "Review UI changes",
+          status: "needs_approval",
+          updatedAt: "2026-07-16T10:00:00.000Z",
+          isActive: false,
+        }}
+        tabIndex={0}
+        onFocus={vi.fn()}
+        onSelect={vi.fn()}
+        onMoveFocus={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
+      "Awaiting approval",
+    );
+    expect(screen.getByTestId("task-status-needs_approval")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
+  });
 });

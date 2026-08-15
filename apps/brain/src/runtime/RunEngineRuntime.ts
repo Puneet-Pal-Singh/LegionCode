@@ -400,7 +400,12 @@ export class RunEngineRuntime extends DurableObject {
     const env = this.env as Env;
     const userId = scope.userId || "anonymous";
     const workspaceId = scope.workspaceId || "default";
-    return createPostgresProviderConfigService(env, userId, workspaceId);
+    return createPostgresProviderConfigService(
+      env,
+      userId,
+      workspaceId,
+      scope.runId,
+    );
   }
 
   private createProviderRateLimitService(

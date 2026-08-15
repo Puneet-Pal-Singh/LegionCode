@@ -55,6 +55,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      maxTokens: params.maxOutputTokens,
       abortSignal: params.signal,
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
@@ -85,6 +86,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      maxTokens: params.maxOutputTokens,
       abortSignal: params.signal,
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });

@@ -1,19 +1,16 @@
 const FALLBACK_TITLE = "New task";
-const MAX_PREVIEW_WORDS = 10;
+const MAX_PREVIEW_CHARACTERS = 8;
 
 /** Builds a deterministic, safe display title without sending the prompt away. */
 export function buildThreadTitlePreview(prompt: string): string {
-  const words = sanitizePromptForTitle(prompt)
-    .split(/\s+/)
-    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}-]+$/gu, ""))
-    .filter(Boolean)
-    .slice(0, MAX_PREVIEW_WORDS);
-
-  if (words.length === 0) {
+  const safePrompt = sanitizePromptForTitle(prompt);
+  if (!safePrompt) {
     return FALLBACK_TITLE;
   }
-
-  const preview = words.join(" ");
+  const preview = Array.from(safePrompt)
+    .slice(0, MAX_PREVIEW_CHARACTERS)
+    .join("")
+    .trimEnd();
   const title = `${preview[0]?.toUpperCase() ?? ""}${preview.slice(1)}…`;
   return title.slice(0, 80);
 }
