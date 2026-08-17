@@ -177,7 +177,7 @@ export function ChatInterface({
   } = useGitReview();
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
-  const { providerModels } = useProviderStore(sessionId);
+  const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
   const {
     reviewCommentError,
