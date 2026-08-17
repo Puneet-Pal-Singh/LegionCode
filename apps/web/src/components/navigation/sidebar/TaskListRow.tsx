@@ -104,7 +104,13 @@ function handleRowKeyDown(
 }
 
 function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
-  if (status === "idle" || status === "needs_approval") return null;
+  if (
+    status === "idle" ||
+    status === "needs_approval" ||
+    status === "running"
+  ) {
+    return null;
+  }
   const visual = STATUS_VISUALS[status];
   const StatusIcon = visual.icon;
   const isNotification = status === "failed" || status === "completed";
@@ -195,9 +201,7 @@ export function TaskListRow({
           <div
             className={cn(
               "flex shrink-0 items-center justify-end gap-1.5 text-xs transition-[margin]",
-              onRemove && !isConfirmingDelete
-                ? "group-hover:mr-6 group-focus-within:mr-6"
-                : undefined,
+              onRemove && !isConfirmingDelete ? "group-hover:mr-6" : undefined,
             )}
           >
             {metricLabel ? (
@@ -254,16 +258,30 @@ export function TaskListRow({
           </button>
         </div>
       ) : (
-        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center">
+          {task.status === "running" ? (
+            <span
+              data-testid="task-running-action"
+              className="grid size-5 place-items-center text-zinc-300 transition-opacity group-hover:opacity-0"
+              aria-hidden="true"
+            >
+              <LoaderCircle
+                data-testid="task-status-running"
+                data-status-kind="spinner"
+                className="size-4 animate-spin"
+              />
+            </span>
+          ) : null}
           {onRemove ? (
             <button
               type="button"
+              data-testid="task-archive-action"
               aria-label={`Archive ${task.title}`}
               onClick={(event) => {
                 event.stopPropagation();
                 setIsConfirmingDelete(true);
               }}
-              className="grid size-5 place-items-center rounded text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+              className="absolute inset-0 grid place-items-center rounded bg-zinc-800/90 text-zinc-500 opacity-0 transition-[color,background-color,opacity] group-hover:opacity-100 hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
             >
               <Archive size={12} aria-hidden="true" />
             </button>

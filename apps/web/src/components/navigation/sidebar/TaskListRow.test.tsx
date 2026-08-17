@@ -92,4 +92,34 @@ describe("TaskListRow product identity contract", () => {
       screen.queryByTestId("task-status-completed"),
     ).not.toBeInTheDocument();
   });
+
+  it("uses one hover action slot for a running spinner and archive", () => {
+    render(
+      <TaskListRow
+        task={{
+          id: "thr_running001",
+          title: "Running task",
+          status: "running",
+          updatedAt: "2026-07-16T10:00:00.000Z",
+          isActive: true,
+        }}
+        tabIndex={0}
+        onFocus={vi.fn()}
+        onSelect={vi.fn()}
+        onRemove={vi.fn()}
+        onMoveFocus={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-running-action")).toHaveClass(
+      "group-hover:opacity-0",
+    );
+    expect(screen.getByTestId("task-status-running")).toHaveClass(
+      "animate-spin",
+    );
+    expect(screen.getByTestId("task-archive-action")).toHaveClass(
+      "opacity-0",
+      "group-hover:opacity-100",
+    );
+  });
 });

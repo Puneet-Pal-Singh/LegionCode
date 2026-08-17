@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { deriveWorkspaceRunUiState } from "./runUiState";
+import {
+  deriveCanonicalRunStatus,
+  deriveWorkspaceRunUiState,
+} from "./runUiState";
+
+describe("deriveCanonicalRunStatus", () => {
+  it("does not infer running before lifecycle replay is ready", () => {
+    expect(
+      deriveCanonicalRunStatus({
+        hasCanonicalTurn: true,
+        hasReplay: false,
+        terminalState: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("marks a replayed non-terminal turn as running", () => {
+    expect(
+      deriveCanonicalRunStatus({
+        hasCanonicalTurn: true,
+        hasReplay: true,
+        terminalState: null,
+      }),
+    ).toBe("RUNNING");
+  });
+});
 
 describe("deriveWorkspaceRunUiState", () => {
   it("keeps an approval-waiting run stoppable", () => {
