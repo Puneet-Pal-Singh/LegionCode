@@ -15,6 +15,7 @@ export function useStableChatLoadingIndicator(
 
   useEffect(() => {
     if (isLoading) {
+      setIsVisible(true);
       return;
     }
 
@@ -29,5 +30,8 @@ export function useStableChatLoadingIndicator(
     return () => window.clearTimeout(timeoutId);
   }, [isLoading, isVisible]);
 
-  return hideImmediately ? false : isVisible;
+  // A task switch must cover the surface in the same render that loading
+  // begins. Waiting for the effect above would expose one frame of the newly
+  // selected task (including its approval dock) before the loader appears.
+  return hideImmediately ? false : isLoading || isVisible;
 }
