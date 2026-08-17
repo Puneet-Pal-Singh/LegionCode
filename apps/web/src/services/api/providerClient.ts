@@ -33,6 +33,7 @@ import type {
   ProviderModelAvailability,
 } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
+import { isCanonicalRunId } from "../../lib/run-id.js";
 import { SessionStateService } from "../SessionStateService";
 
 export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
@@ -374,8 +375,11 @@ class DefaultRunIdResolver implements RunIdResolver {
   getRunId(): string | null {
     try {
       const runId = sessionStorage.getItem(this.runIdStorageKey);
-      if (runId) {
+      if (isCanonicalRunId(runId)) {
         return runId;
+      }
+      if (runId) {
+        sessionStorage.removeItem(this.runIdStorageKey);
       }
     } catch (error) {
       console.warn(
@@ -383,6 +387,7 @@ class DefaultRunIdResolver implements RunIdResolver {
         error,
       );
     }
-    return SessionStateService.loadActiveSessionRunId();
+    const persistedRunId = SessionStateService.loadActiveSessionRunId();
+    return isCanonicalRunId(persistedRunId) ? persistedRunId : null;
   }
 }

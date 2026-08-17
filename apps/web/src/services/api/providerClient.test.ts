@@ -415,6 +415,18 @@ describe("ProviderApiClient", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
+    it("rejects a stale non-run scope before issuing a request", async () => {
+      sessionStorage.setItem("currentRunId", "session_stale_scope");
+      const clientWithStaleScope = new ProviderApiClient();
+
+      await expect(clientWithStaleScope.getCatalog()).rejects.toMatchObject({
+        code: "MISSING_RUN_ID",
+        statusCode: 400,
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem("currentRunId")).toBeNull();
+    });
+
     it("includes correlationId in error", async () => {
       fetchSpy.mockResolvedValueOnce({
         ok: false,

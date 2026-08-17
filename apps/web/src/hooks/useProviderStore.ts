@@ -31,6 +31,7 @@ import type {
   ProviderModelOption,
 } from "../services/api/providerClient.js";
 import { useOptionalRunContext } from "./useRunContext";
+import { isCanonicalRunId } from "../lib/run-id.js";
 
 const SESSION_RUN_ID_KEY = "currentRunId";
 
@@ -98,7 +99,7 @@ export function useProviderStore(
   }, [store]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!isCanonicalRunId(runId)) {
       return;
     }
 
