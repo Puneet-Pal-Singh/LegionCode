@@ -54,8 +54,14 @@ describe("TaskListRow product identity contract", () => {
       screen.queryByRole("button", { name: /Open review/ }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Archive Review sidebar actions" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm archive for Review sidebar actions" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Review sidebar actions" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Confirm archive for Review sidebar actions",
+      }),
+    );
     expect(onRemove).toHaveBeenCalledOnce();
   });
 
@@ -76,10 +82,14 @@ describe("TaskListRow product identity contract", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
-      "Awaiting approval",
-    );
-    expect(screen.getByTestId("task-status-needs_approval")).toBeInTheDocument();
-    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("task-status-label-needs_approval"),
+    ).toHaveTextContent("Awaiting approval");
+    expect(
+      screen.queryByTestId("task-status-needs_approval"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("task-status-completed"),
+    ).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,6 @@
 import {
   Archive,
   Circle,
-  Clock3,
   LoaderCircle,
   Pause,
   type LucideIcon,
@@ -26,12 +25,10 @@ interface StatusVisual {
   kind: "icon" | "spinner";
 }
 
-const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
-  idle: {
-    icon: Circle,
-    indicatorClass: "text-zinc-600",
-    kind: "icon",
-  },
+const STATUS_VISUALS: Record<
+  Exclude<SidebarTaskStatus, "idle" | "needs_approval">,
+  StatusVisual
+> = {
   running: {
     icon: LoaderCircle,
     indicatorClass: "animate-spin text-zinc-300",
@@ -50,11 +47,6 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
   completed: {
     icon: Circle,
     indicatorClass: "fill-sky-400 text-sky-400",
-    kind: "icon",
-  },
-  needs_approval: {
-    icon: Clock3,
-    indicatorClass: "text-zinc-400",
     kind: "icon",
   },
 };
@@ -111,16 +103,9 @@ function handleRowKeyDown(
   }
 }
 
-function StatusIndicator({
-  status,
-  titlePending,
-}: {
-  status: SidebarTaskStatus;
-  titlePending: boolean;
-}) {
-  if (status === "idle" && !titlePending) return null;
-  const isGeneratingTitle = titlePending && status === "idle";
-  const visual = STATUS_VISUALS[isGeneratingTitle ? "running" : status];
+function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
+  if (status === "idle" || status === "needs_approval") return null;
+  const visual = STATUS_VISUALS[status];
   const StatusIcon = visual.icon;
   const isNotification = status === "failed" || status === "completed";
 
@@ -130,9 +115,7 @@ function StatusIndicator({
       aria-hidden="true"
     >
       <StatusIcon
-        data-testid={
-          isGeneratingTitle ? "task-title-generating" : `task-status-${status}`
-        }
+        data-testid={`task-status-${status}`}
         data-status-kind={visual.kind}
         className={cn(
           isNotification ? "size-1.5" : "size-4",
@@ -239,10 +222,7 @@ export function TaskListRow({
             >
               {relativeTime}
             </span>
-            <StatusIndicator
-              status={task.status}
-              titlePending={Boolean(task.titlePending)}
-            />
+            <StatusIndicator status={task.status} />
           </div>
         </div>
       </button>

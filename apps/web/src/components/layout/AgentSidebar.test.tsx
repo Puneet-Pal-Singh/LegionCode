@@ -92,13 +92,12 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-status-needs_approval")).toHaveAttribute(
-      "data-status-kind",
-      "icon",
-    );
-    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
-      "Awaiting approval",
-    );
+    expect(
+      screen.queryByTestId("task-status-needs_approval"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("task-status-label-needs_approval"),
+    ).toHaveTextContent("Awaiting approval");
   });
 
   it("projects a server waiting-for-approval status into the task title", () => {
@@ -115,9 +114,9 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
-      "Awaiting approval",
-    );
+    expect(
+      screen.getByTestId("task-status-label-needs_approval"),
+    ).toHaveTextContent("Awaiting approval");
   });
 
   it("uses the project folder as the only disclosure control", () => {
@@ -162,12 +161,12 @@ describe("AgentSidebar", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders a spinner indicator for running sessions", () => {
+  it("renders a spinner for a running task in another chat", () => {
     render(
       <AgentSidebar
         sessions={[createSession()]}
         repositories={["shadowbox/shadowbox"]}
-        activeSessionId="session-1"
+        activeSessionId="different-session"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
         onRemove={vi.fn()}
@@ -181,7 +180,7 @@ describe("AgentSidebar", () => {
     expect(indicator.getAttribute("class")).toContain("animate-spin");
   });
 
-  it("keeps a visible spinner while an idle session title is generating", () => {
+  it("does not show a spinner only because an idle title is generating", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "idle", titleStatus: "pending" })]}
@@ -195,9 +194,10 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    const indicator = screen.getByTestId("task-title-generating");
-    expect(indicator).toHaveAttribute("data-status-kind", "spinner");
-    expect(indicator.getAttribute("class")).toContain("animate-spin");
+    expect(
+      screen.queryByTestId("task-title-generating"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-status-running")).not.toBeInTheDocument();
   });
 
   it("renders paused sessions without marking them failed", () => {
