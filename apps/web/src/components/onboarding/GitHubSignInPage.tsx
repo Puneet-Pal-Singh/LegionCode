@@ -15,9 +15,12 @@ export function GitHubSignInPage({ onLogin }: GitHubSignInPageProps) {
           aria-label="LegionCode"
           className="flex items-center justify-center gap-2.5"
         >
-          <div className="grid h-9 w-9 place-items-center rounded-md border border-[#3a404a] bg-[#0b0c0f] font-mono text-[11px] font-semibold tracking-[-0.04em] text-white">
-            LC
-          </div>
+          <img
+            src="/agents/assets/legioncode-icon.svg"
+            alt=""
+            aria-hidden="true"
+            className="h-9 w-9"
+          />
           <span className="text-[15px] font-semibold tracking-[-0.02em]">
             LegionCode
           </span>

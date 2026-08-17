@@ -15,6 +15,7 @@ describe("GitHubSignInPage", () => {
     expect(
       screen.getByText("Brainstorm in Chat. Build in Cloud."),
     ).toBeInTheDocument();
+    expect(screen.queryByText("LC")).not.toBeInTheDocument();
     const action = screen.getByRole("button", { name: "Continue with GitHub" });
     fireEvent.click(action);
     expect(onLogin).toHaveBeenCalledTimes(1);
