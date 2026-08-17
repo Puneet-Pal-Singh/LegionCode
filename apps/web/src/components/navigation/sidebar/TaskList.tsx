@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { TaskListRow } from "./TaskListRow";
 import type { SidebarTaskItem } from "./types";
 
@@ -7,10 +8,10 @@ interface TaskListProps {
   onSelectTask: (taskId: string) => void;
   onRemoveTask?: (taskId: string) => void;
   emptyLabel?: string;
-  maxRows?: number;
 }
 
-const DEFAULT_MAX_ROWS = 10;
+const INITIAL_VISIBLE_ROWS = 5;
+const LOAD_MORE_ROWS = 10;
 
 function getInitialFocusIndex(tasks: SidebarTaskItem[]): number {
   if (tasks.length === 0) return -1;
@@ -30,29 +31,28 @@ export function TaskList({
   onSelectTask,
   onRemoveTask,
   emptyLabel = "No tasks",
-  maxRows = DEFAULT_MAX_ROWS,
 }: TaskListProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   const [focusedIndex, setFocusedIndex] = useState(() => getInitialFocusIndex(tasks));
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const visibleTasks = useMemo(() => {
-    if (isExpanded || tasks.length <= maxRows) {
+    if (tasks.length <= visibleCount) {
       return tasks;
     }
 
     const activeIndex = tasks.findIndex((task) => task.isActive);
-    if (activeIndex === -1 || activeIndex < maxRows) {
-      return tasks.slice(0, maxRows);
+    if (activeIndex === -1 || activeIndex < visibleCount) {
+      return tasks.slice(0, visibleCount);
     }
 
     const activeTask = tasks[activeIndex];
     if (!activeTask) {
-      return tasks.slice(0, maxRows);
+      return tasks.slice(0, visibleCount);
     }
 
-    return [...tasks.slice(0, maxRows - 1), activeTask];
-  }, [isExpanded, maxRows, tasks]);
+    return [...tasks.slice(0, visibleCount - 1), activeTask];
+  }, [tasks, visibleCount]);
 
   const effectiveFocusedIndex = useMemo(() => {
     const defaultFocus = getInitialFocusIndex(visibleTasks);
@@ -99,13 +99,18 @@ export function TaskList({
         ))}
       </ul>
 
-      {tasks.length > maxRows ? (
+      {tasks.length > visibleCount ? (
         <button
           type="button"
-          onClick={() => setIsExpanded((value) => !value)}
-          className="h-7 pl-8 pr-2 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+          onClick={() =>
+            setVisibleCount((count) =>
+              Math.min(count + LOAD_MORE_ROWS, tasks.length),
+            )
+          }
+          className="flex h-7 items-center gap-1.5 pl-8 pr-2 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
         >
-          {isExpanded ? "Show less" : `Show ${tasks.length - maxRows} more`}
+          <span>Show more</span>
+          <ChevronDown size={13} aria-hidden="true" />
         </button>
       ) : null}
     </div>
