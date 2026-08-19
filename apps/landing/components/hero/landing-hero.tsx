@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, Terminal } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import LegionCodeMark from '@/components/logo/legioncode-mark';
 
 const SUBTITLES = [
   'The open-source AI coding agent.',
@@ -26,18 +27,18 @@ export default function LandingHero() {
       <div className="absolute inset-x-0 top-0 h-[480px] bg-gradient-to-b from-[#2a3b68]/40 via-[#161a2e]/20 to-transparent -z-10 pointer-events-none" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-blue-500/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
 
-      {/* Centered Brand Icon Box (Inspiration: Codex / Conductor) */}
-      <motion.div 
+      {/* Centered LegionCode brand mark */}
+      <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="mb-5 w-14 h-14 rounded-2xl bg-white/[0.07] border border-white/15 shadow-2xl flex items-center justify-center text-white backdrop-blur-xl group hover:border-white/25 transition-all cursor-pointer"
+        className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.07] text-white shadow-2xl backdrop-blur-xl"
       >
-        <Terminal className="w-6 h-6 text-zinc-100 group-hover:scale-105 transition-transform" />
+        <LegionCodeMark className="h-8 w-8" />
       </motion.div>
 
       {/* Hero Title */}
-      <motion.h1 
+      <motion.h1
         initial={{ y: 12, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.1 }}
@@ -63,7 +64,7 @@ export default function LandingHero() {
       </div>
 
       {/* Primary Pill Button CTA */}
-      <motion.div 
+      <motion.div
         initial={{ y: 12, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.2 }}
@@ -81,5 +82,3 @@ export default function LandingHero() {
     </section>
   );
 }
-
-
