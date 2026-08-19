@@ -14,6 +14,7 @@ import {
   ArrowUp,
   Check
 } from 'lucide-react';
+import { div } from 'framer-motion/m';
 
 export default function MobileHeroShowcase() {
   const [copied, setCopied] = useState(false);
@@ -41,12 +42,6 @@ export default function MobileHeroShowcase() {
 
           {/* Window Header */}
           <div className="flex items-center justify-between pb-3 border-b border-white/5 mb-3.5 relative z-10">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-zinc-700 hover:bg-rose-500/80 transition-colors" />
-              <div className="w-2.5 h-2.5 rounded-full bg-zinc-700 hover:bg-amber-500/80 transition-colors" />
-              <div className="w-2.5 h-2.5 rounded-full bg-zinc-700 hover:bg-emerald-500/80 transition-colors" />
-            </div>
-
             <div className="flex items-center gap-2">
               <span className="text-zinc-300 font-medium text-xs tracking-tight">
                 Fix dashboard hero
@@ -63,9 +58,9 @@ export default function MobileHeroShowcase() {
           </div>
 
           {/* User Prompt Bubble */}
-          <div className="mb-3.5 relative z-10 max-w-[88%]">
-            <div className="bg-[#181920] border border-white/[0.08] text-zinc-200 rounded-xl p-3 text-xs leading-relaxed font-normal shadow-sm">
-              Fix the dashboard hero layout and loading state.
+          <div className="relative z-10 mb-3.5 ml-auto mr-12 w-fit max-w-[78%]">
+            <div className="whitespace-normal rounded-xl border border-white/[0.08] bg-[#181920] px-4 py-3 text-xs font-normal leading-relaxed text-zinc-200 shadow-sm">
+            Fix the dashboard hero layout and loading state.
             </div>
           </div>
 
