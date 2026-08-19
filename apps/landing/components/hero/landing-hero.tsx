@@ -71,10 +71,10 @@ export default function LandingHero() {
         className="mt-6 mb-4"
       >
         <Link
-          href="/agents"
+          href="/cloud"
           className="inline-flex items-center justify-center gap-2 bg-white text-black hover:bg-neutral-200 px-6 py-2.5 rounded-full text-sm font-medium tracking-tight shadow-[0_0_25px_rgba(255,255,255,0.18)] hover:shadow-[0_0_35px_rgba(255,255,255,0.3)] transition-all duration-200 transform hover:-translate-y-0.5 whitespace-nowrap"
         >
-          <span>Explore Cloud Agents</span>
+          <span>Request Access</span>
           <ArrowRight className="w-4 h-4 text-black stroke-[2.2]" />
         </Link>
       </motion.div>

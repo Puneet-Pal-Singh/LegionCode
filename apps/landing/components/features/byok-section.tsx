@@ -17,7 +17,7 @@ export default function ByokSection() {
             Bring your own key
           </h2>
           <p className="text-zinc-400 text-sm sm:text-base font-light leading-relaxed max-w-2xl">
-            Plug in top providers like Google Gemini, OpenAI, Anthropic Claude, OpenCode, OpenRouter, or Cloudflare AI Gateway with the API keys you already own — we orchestrate, you keep your plan.
+            Connect the providers you already use with your own API keys. LegionCode orchestrates each run; your provider account and billing stay yours.
           </p>
         </div>
 
@@ -113,7 +113,7 @@ export default function ByokSection() {
         </div>
 
         {/* Feature list checkmarks at bottom */}
-        <div className="flex flex-col flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.03] pt-4 text-[13px] font-light leading-[1.55] text-zinc-400 select-none sm:flex-row sm:text-sm">
+        <div className="flex flex-col flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.03] pt-4 text-sm font-light leading-[1.55] text-zinc-400 select-none sm:flex-row">
           <div className="flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-500 shrink-0 stroke-[2.2]" />
             <span>Your keys, your provider account, your billing. LegionCode adds no token markup.</span>

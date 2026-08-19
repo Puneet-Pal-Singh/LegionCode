@@ -61,7 +61,7 @@ export default function WorkflowSteps() {
               <h3 className="font-display font-semibold text-white text-base sm:text-lg mb-2.5 tracking-tight">
                 {step.title}
               </h3>
-              <p className="text-[13px] font-light leading-[1.65] text-zinc-400 sm:text-sm sm:leading-relaxed">
+              <p className="text-sm font-light leading-[1.65] text-zinc-400 sm:leading-relaxed">
                 {step.description}
               </p>
             </div>
