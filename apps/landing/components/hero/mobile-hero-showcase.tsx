@@ -14,7 +14,6 @@ import {
   ArrowUp,
   Check
 } from 'lucide-react';
-import { div } from 'framer-motion/m';
 
 export default function MobileHeroShowcase() {
   const [copied, setCopied] = useState(false);
@@ -60,7 +59,7 @@ export default function MobileHeroShowcase() {
           {/* User Prompt Bubble */}
           <div className="relative z-10 mb-3.5 ml-auto mr-12 w-fit max-w-[78%]">
             <div className="whitespace-normal rounded-xl border border-white/[0.08] bg-[#181920] px-4 py-3 text-xs font-normal leading-relaxed text-zinc-200 shadow-sm">
-            Fix the dashboard hero layout and loading state.
+              Fix the dashboard hero layout and loading state.
             </div>
           </div>
 
@@ -196,4 +195,3 @@ export default function MobileHeroShowcase() {
     </div>
   );
 }
-

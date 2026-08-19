@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { site } from '@/lib/site';
 
 export default function Footer() {
   return (
@@ -18,7 +19,7 @@ export default function Footer() {
           </div>
           <div className="flex items-center gap-4">
             <a 
-              href="https://github.com/Puneet-Pal-Singh/LegionCode" 
+              href={site.githubUrl}
               target="_blank" 
               rel="noopener noreferrer" 
               className="hover:text-white transition-colors relative group py-1"
@@ -28,7 +29,7 @@ export default function Footer() {
             </a>
             <span className="text-zinc-800 select-none">·</span>
             <a 
-              href="https://github.com/Puneet-Pal-Singh/LegionCode#readme" 
+              href={site.docsUrl}
               target="_blank" 
               rel="noopener noreferrer" 
               className="hover:text-white transition-colors relative group py-1"
