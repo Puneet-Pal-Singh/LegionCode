@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { ArrowRight, GitMerge, GitPullRequest, ChevronDown, Lock, RotateCw, Settings } from 'lucide-react';
+import Link from 'next/link';
 
 function DesktopWallpaperBackground() {
   return (
@@ -329,15 +330,13 @@ export default function CloudSection() {
 
             {/* CTA Button */}
             <div>
-              <a
-                href="https://github.com/Puneet-Pal-Singh/LegionCode"
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/cloud"
                 className="inline-flex items-center gap-2 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full bg-white text-black hover:bg-zinc-200 text-[11px] sm:text-xs font-semibold tracking-tight transition-all duration-300 transform hover:-translate-y-0.5 shadow-md shadow-white/5 cursor-pointer"
               >
                 <span>Request Cloud Access</span>
                 <ArrowRight className="w-3.5 h-3.5" />
-              </a>
+              </Link>
             </div>
 
           </div>
