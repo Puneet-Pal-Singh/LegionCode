@@ -113,7 +113,7 @@ export default function ByokSection() {
         </div>
 
         {/* Feature list checkmarks at bottom */}
-        <div className="flex flex-col sm:flex-row flex-wrap gap-y-3 gap-x-8 text-zinc-400 text-xs sm:text-sm font-light select-none pt-4 border-t border-white/[0.03]">
+        <div className="flex flex-col flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.03] pt-4 text-[13px] font-light leading-[1.55] text-zinc-400 select-none sm:flex-row sm:text-sm">
           <div className="flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-500 shrink-0 stroke-[2.2]" />
             <span>Your keys, your provider account, your billing. LegionCode adds no token markup.</span>

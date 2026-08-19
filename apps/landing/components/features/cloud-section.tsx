@@ -74,7 +74,7 @@ function DesktopWallpaperBackground() {
 
 export default function CloudSection() {
   return (
-    <section id="cloud" className="py-24 sm:py-28 lg:py-36 px-4 sm:px-6 border-t border-white/5 bg-black relative overflow-hidden select-none">
+    <section id="cloud" className="relative overflow-hidden border-t border-white/5 bg-black px-4 py-[84px] select-none sm:px-6 sm:py-28 lg:py-36">
       {/* Subtle background radial glow */}
       <div className="absolute top-1/2 left-1/3 -translate-y-1/2 w-[500px] h-[500px] bg-white/[0.015] rounded-full blur-[160px] pointer-events-none" />
 
@@ -321,8 +321,8 @@ export default function CloudSection() {
             </h2>
 
             {/* Body Copy */}
-            <div className="text-zinc-400 text-xs sm:text-sm md:text-base font-light leading-relaxed mb-4 sm:mb-5 lg:mb-6 max-w-md lg:max-w-lg min-w-0">
-              <p className="text-zinc-400 text-xs sm:text-sm md:text-base font-light leading-relaxed break-words">
+            <div className="mb-4 min-w-0 max-w-md text-zinc-400 sm:mb-5 lg:mb-6 lg:max-w-lg">
+              <p className="break-words text-sm font-light leading-relaxed text-zinc-400 md:text-base">
                 Agents get their own cloud computers to build, test, and complete tasks end to end for you to review.
               </p>
             </div>
@@ -347,4 +347,3 @@ export default function CloudSection() {
     </section>
   );
 }
-

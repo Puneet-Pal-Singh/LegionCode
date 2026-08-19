@@ -32,7 +32,7 @@ const STEPS = [
 
 export default function WorkflowSteps() {
   return (
-    <section id="workflow" className="py-28 lg:py-32 px-6 border-t border-white/5 bg-black relative overflow-hidden select-none">
+    <section id="workflow" className="relative overflow-hidden border-t border-white/5 bg-black px-6 py-24 select-none lg:py-32">
       {/* Background radial highlight */}
       <div className="absolute top-0 right-1/4 w-96 h-96 bg-white/[0.02] rounded-full blur-[140px] pointer-events-none" />
 
@@ -61,7 +61,7 @@ export default function WorkflowSteps() {
               <h3 className="font-display font-semibold text-white text-base sm:text-lg mb-2.5 tracking-tight">
                 {step.title}
               </h3>
-              <p className="text-zinc-400 text-xs sm:text-sm leading-relaxed font-light">
+              <p className="text-[13px] font-light leading-[1.65] text-zinc-400 sm:text-sm sm:leading-relaxed">
                 {step.description}
               </p>
             </div>
@@ -71,4 +71,3 @@ export default function WorkflowSteps() {
     </section>
   );
 }
-

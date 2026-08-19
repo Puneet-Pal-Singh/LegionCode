@@ -294,7 +294,7 @@ export default function WorkspacePlayground() {
   };
 
   return (
-    <div id="workspace" ref={containerRef} className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 w-full mb-16 relative">
+    <div id="workspace" ref={containerRef} className="relative mx-auto mb-14 w-full max-w-7xl px-2 sm:mb-16 sm:px-4 lg:px-6">
       {/* Mobile-Only Static Hero Showcase (Matches Screenshot) */}
       <div className="block md:hidden">
         <MobileHeroShowcase />
