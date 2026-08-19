@@ -1,131 +1,85 @@
-"use client";
+'use client';
 
-import React from "react";
-import { motion } from "motion/react";
-import { Terminal, ArrowUpRight, Github } from "lucide-react";
-import Link from "next/link";
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowRight, Terminal } from 'lucide-react';
+import Link from 'next/link';
+
+const SUBTITLES = [
+  'The open-source AI coding agent.',
+  'Run a team of coding agents in the cloud.',
+];
 
 export default function LandingHero() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((prev) => (prev + 1) % SUBTITLES.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
-    <section className="relative px-6 pt-16 md:pt-28 pb-16 overflow-hidden">
-      {/* Subtle Background Radial Depth */}
-      <div className="absolute inset-x-0 top-0 h-[400px] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900/40 via-transparent to-transparent -z-10 pointer-events-none" />
+    <section className="relative px-6 pt-12 md:pt-20 pb-4 md:pb-8 overflow-hidden flex flex-col items-center text-center">
+      {/* Subtle Background Atmospheric Sky Glow (Matches mobile screenshot) */}
+      <div className="absolute inset-x-0 top-0 h-[480px] bg-gradient-to-b from-[#2a3b68]/40 via-[#161a2e]/20 to-transparent -z-10 pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-blue-500/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
 
-      {/* Ambient floating technological indicators in Monochrome */}
-      <div className="absolute top-[15%] left-[6%] hidden xl:block pointer-events-none select-none">
-        <motion.div
-          animate={{ y: [0, -8, 0], rotate: [0, 1, 0] }}
-          transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
-          className="w-14 h-14 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl flex items-center justify-center text-zinc-400 hover:text-white transition-all cursor-pointer"
-        >
-          {/* Minimal Claude-like Asterisk */}
-          <svg
-            className="w-6 h-6 stroke-current"
-            viewBox="0 0 24 24"
-            fill="none"
-            strokeWidth="1.5"
+      {/* Centered Brand Icon Box (Inspiration: Codex / Conductor) */}
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="mb-5 w-14 h-14 rounded-2xl bg-white/[0.07] border border-white/15 shadow-2xl flex items-center justify-center text-white backdrop-blur-xl group hover:border-white/25 transition-all cursor-pointer"
+      >
+        <Terminal className="w-6 h-6 text-zinc-100 group-hover:scale-105 transition-transform" />
+      </motion.div>
+
+      {/* Hero Title */}
+      <motion.h1 
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="font-display text-4xl sm:text-5xl md:text-6xl font-semibold tracking-tight text-white mb-3"
+      >
+        LegionCode
+      </motion.h1>
+
+      {/* Subtitle with subtle animated transitions */}
+      <div className="h-8 sm:h-9 flex items-center justify-center my-1 max-w-xl overflow-hidden px-2">
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={index}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="text-zinc-400 text-base sm:text-lg font-light tracking-tight text-center"
           >
-            <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
-          </svg>
-        </motion.div>
+            {SUBTITLES[index]}
+          </motion.p>
+        </AnimatePresence>
       </div>
 
-      <div className="absolute top-[28%] right-[8%] hidden xl:block pointer-events-none select-none">
-        <motion.div
-          animate={{ y: [0, 8, 0], rotate: [0, -1, 0] }}
-          transition={{
-            duration: 8,
-            repeat: Infinity,
-            ease: "easeInOut",
-            delay: 1,
-          }}
-          className="w-14 h-14 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl flex items-center justify-center text-zinc-400 hover:text-white transition-all cursor-pointer"
+      {/* Primary Pill Button CTA */}
+      <motion.div 
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="mt-6 mb-4"
+      >
+        <Link
+          href="/agents"
+          className="inline-flex items-center justify-center gap-2 bg-white text-black hover:bg-neutral-200 px-6 py-2.5 rounded-full text-sm font-medium tracking-tight shadow-[0_0_25px_rgba(255,255,255,0.18)] hover:shadow-[0_0_35px_rgba(255,255,255,0.3)] transition-all duration-200 transform hover:-translate-y-0.5 whitespace-nowrap"
         >
-          {/* Minimal OpenAI style pattern */}
-          <svg
-            className="w-6 h-6 stroke-current stroke-[1.2]"
-            viewBox="0 0 24 24"
-            fill="none"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2a4 4 0 0 0-4 4M12 2a4 4 0 0 1 4 4M8 6a4 4 0 0 0-4 4M16 6a4 4 0 0 1 4 4M4 10a4 4 0 0 0 4 4M20 10a4 4 0 0 1-4 4M8 14a4 4 0 0 0 4 4M16 14a4 4 0 0 1-4 4" />
-          </svg>
-        </motion.div>
-      </div>
+          <span>Explore Cloud Agents</span>
+          <ArrowRight className="w-4 h-4 text-black stroke-[2.2]" />
+        </Link>
+      </motion.div>
 
-      <div className="absolute bottom-[25%] left-[5%] hidden xl:block pointer-events-none select-none">
-        <motion.div
-          animate={{ y: [0, 6, 0] }}
-          transition={{
-            duration: 6,
-            repeat: Infinity,
-            ease: "easeInOut",
-            delay: 2,
-          }}
-          className="w-14 h-14 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/15 shadow-2xl flex items-center justify-center text-zinc-400 hover:text-white transition-all cursor-pointer"
-        >
-          <Terminal className="w-5 h-5 text-zinc-300" />
-        </motion.div>
-      </div>
-
-      <div className="absolute bottom-[35%] right-[6%] hidden xl:block pointer-events-none select-none">
-        <motion.div
-          animate={{ y: [0, -6, 0] }}
-          transition={{
-            duration: 5,
-            repeat: Infinity,
-            ease: "easeInOut",
-            delay: 1.5,
-          }}
-          className="w-14 h-14 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/15 shadow-2xl flex items-center justify-center text-zinc-400 hover:text-white transition-all cursor-pointer"
-        >
-          <div className="font-mono text-xs font-semibold select-none text-zinc-300">
-            &lt;/&gt;
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Hero Copy Content */}
-      <div className="max-w-4xl mx-auto text-center flex flex-col items-center">
-        {/* Main Statement Title */}
-        <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-medium tracking-tight text-white leading-[1.1] mb-6 max-w-3xl animate-in fade-in slide-in-from-bottom-3 duration-500">
-          The open-source <span className="whitespace-nowrap">multi-agent</span>{" "}
-          coding workspace.
-        </h1>
-
-        {/* Tagline Paragraph */}
-        <p className="text-zinc-400 text-base sm:text-lg md:text-xl font-light leading-relaxed max-w-2xl mb-10 animate-in fade-in slide-in-from-bottom-4 duration-600">
-          Connect a repo, launch parallel coding agents in isolated worktrees,
-          and review every diff before it reaches your main branch.
-        </p>
-
-        {/* Action CTAs */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4 w-full sm:w-auto animate-in fade-in slide-in-from-bottom-5 duration-700">
-          <Link
-            href="/cloud"
-            className="w-full sm:w-auto flex items-center justify-center gap-2.5 bg-white text-black hover:bg-neutral-100 px-8 py-3.5 rounded-xl font-medium tracking-tight shadow-[0_0_30px_rgba(255,255,255,0.25)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] transition-all duration-300 transform hover:-translate-y-0.5 whitespace-nowrap"
-          >
-            <span>Request Cloud Access</span>
-            <ArrowUpRight className="w-4 h-4 text-black stroke-[2.5]" />
-          </Link>
-
-          <a
-            href="https://github.com/Puneet-Pal-Singh/LegionCode"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full sm:w-auto flex items-center justify-center gap-2.5 text-white hover:bg-white/10 border border-white/20 bg-white/5 backdrop-blur-md px-8 py-3.5 rounded-xl font-medium tracking-tight transition-all duration-300 transform hover:-translate-y-0.5 shadow-[0_0_15px_rgba(255,255,255,0.05)] hover:shadow-[0_0_25px_rgba(255,255,255,0.15)] whitespace-nowrap"
-          >
-            <Github className="w-4 h-4 text-zinc-100" />
-            <span>Star on GitHub</span>
-          </a>
-        </div>
-
-        {/* Minimal Open Source Badging under CTAs */}
-        <div className="text-[11px] font-mono text-zinc-500 mb-16 flex items-center gap-1.5 select-none animate-in fade-in duration-1000">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Free, permissive, and open-source under the MIT License.</span>
-        </div>
-      </div>
     </section>
   );
 }
+
+
