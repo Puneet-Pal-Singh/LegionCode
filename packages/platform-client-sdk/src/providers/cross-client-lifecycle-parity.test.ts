@@ -15,14 +15,14 @@ describe("provider client cross-client lifecycle parity", () => {
     const webClient = createProviderClient(
       createByokHttpTransport({
         baseUrl: BASE_URL,
-        getRunId: () => "run-web",
+        getRunId: () => "run_web001",
         fetchImpl: webMock.fetchImpl,
       }),
     );
     const cloudClient = createProviderClient(
       createByokCloudTransport({
         baseUrl: BASE_URL,
-        getRunId: () => "run-desktop",
+        getRunId: () => "run_desktop001",
         getAccessToken: () => "desktop-token",
         fetchImpl: cloudMock.fetchImpl,
       }),
