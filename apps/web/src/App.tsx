@@ -285,12 +285,11 @@ function AppContent() {
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
-  const providerScopeId = providerScopeSession?.id ?? providerScopeRunId;
   const {
     bootstrap: bootstrapProviderStore,
     credentials,
     reset: resetProviderStore,
-  } = useProviderStore(isAuthenticated ? providerScopeId : undefined);
+  } = useProviderStore(isAuthenticated ? providerScopeRunId : undefined);
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs

@@ -33,7 +33,6 @@ import type {
   ProviderModelAvailability,
 } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
-import { SessionStateService } from "../SessionStateService";
 
 export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
 export type UpdateCredentialRequest = BYOKCredentialUpdateRequest;
@@ -122,15 +121,12 @@ export class ProviderApiError extends Error {
 }
 
 export class ProviderApiClient {
-  private static readonly sessionRunIdKey = "currentRunId";
   private static readonly requestTimeoutMs = 15_000;
   private readonly sdkClient;
   private readonly abortControllers = new Map<string, AbortController>();
 
   constructor(
-    private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
-      ProviderApiClient.sessionRunIdKey,
-    ),
+    private readonly runIdResolver: RunIdResolver,
   ) {
     this.sdkClient = createProviderClient(
       createByokHttpTransport({
@@ -366,23 +362,4 @@ function deriveStatusCodeFromOperationError(
     return 500;
   }
   return 400;
-}
-
-class DefaultRunIdResolver implements RunIdResolver {
-  constructor(private readonly runIdStorageKey: string) {}
-
-  getRunId(): string | null {
-    try {
-      const runId = sessionStorage.getItem(this.runIdStorageKey);
-      if (runId) {
-        return runId;
-      }
-    } catch (error) {
-      console.warn(
-        "[provider/resolveRunId] Failed to read sessionStorage",
-        error,
-      );
-    }
-    return SessionStateService.loadActiveSessionRunId();
-  }
 }

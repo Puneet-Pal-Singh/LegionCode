@@ -11,7 +11,7 @@ describe("createByokCloudTransport", () => {
     })) as unknown as typeof fetch;
     const transport = createByokCloudTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       getAccessToken: () => "desktop-token",
       getHeaders: () => ({ "X-Client-Id": "desktop" }),
       fetchImpl,
@@ -25,7 +25,7 @@ describe("createByokCloudTransport", () => {
         credentials: "omit",
         headers: {
           "Content-Type": "application/json",
-          "X-Run-Id": "run-123",
+          "X-Run-Id": "run_123456",
           "X-Client-Id": "desktop",
           Authorization: "Bearer desktop-token",
         },
@@ -42,7 +42,7 @@ describe("createByokCloudTransport", () => {
     })) as unknown as typeof fetch;
     const transport = createByokCloudTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       getAccessToken: () => "token-should-not-override",
       getHeaders: () => ({ Authorization: "Bearer explicit-token" }),
       fetchImpl,
@@ -74,7 +74,7 @@ describe("createByokCloudTransport", () => {
     const fetchImpl = fetchMock as unknown as typeof fetch;
     const transport = createByokCloudTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       getAccessToken: () => "token-should-not-override",
       getHeaders: () => ({ authorization: "Bearer explicit-lowercase-token" }),
       fetchImpl,

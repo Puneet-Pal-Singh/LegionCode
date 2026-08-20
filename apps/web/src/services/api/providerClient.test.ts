@@ -29,7 +29,7 @@ function createCredentialFixture(overrides?: { credentialId?: string }) {
 describe("ProviderApiClient", () => {
   const providerApiBaseUrl =
     `${window.location.origin}/__legioncode/brain/api/byok`;
-  const testRunId = "run-123";
+  const testRunId = "run_123456";
   let client: ProviderApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -410,6 +410,18 @@ describe("ProviderApiClient", () => {
       });
       await expect(clientWithMissingRunId.getCatalog()).rejects.toMatchObject({
         code: "MISSING_RUN_ID",
+        statusCode: 400,
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a noncanonical resolver scope before issuing a request", async () => {
+      const clientWithStaleScope = new ProviderApiClient({
+        getRunId: () => "session_stale_scope",
+      });
+
+      await expect(clientWithStaleScope.getCatalog()).rejects.toMatchObject({
+        code: "INVALID_REQUEST_CONTRACT",
         statusCode: 400,
       });
       expect(fetchSpy).not.toHaveBeenCalled();

@@ -15,6 +15,10 @@ export function useStableChatLoadingIndicator(
 
   useEffect(() => {
     if (isLoading) {
+      // Deliberately latch visibility before paint: deriving only from
+      // `isLoading` would drop the stability window on the next render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsVisible(true);
       return;
     }
 
@@ -29,5 +33,8 @@ export function useStableChatLoadingIndicator(
     return () => window.clearTimeout(timeoutId);
   }, [isLoading, isVisible]);
 
-  return hideImmediately ? false : isVisible;
+  // A task switch must cover the surface in the same render that loading
+  // begins. Waiting for the effect above would expose one frame of the newly
+  // selected task (including its approval dock) before the loader appears.
+  return hideImmediately ? false : isLoading || isVisible;
 }

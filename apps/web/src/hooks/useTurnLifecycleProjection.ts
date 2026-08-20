@@ -91,8 +91,40 @@ interface FollowLifecycleInput {
 
 async function followLifecycle(input: FollowLifecycleInput): Promise<void> {
   try {
+    let projection = createLifecycleProjection(input.turnId);
+    let afterSequence: number | null = null;
+
+    // A historical replay is one read-model snapshot. Publishing each replayed
+    // event separately exposes obsolete intermediate states (for example an
+    // approval request that was resolved later in the same replay). Build the
+    // complete snapshot off-screen, then publish it once.
+    while (!input.abortController.signal.aborted) {
+      const replay = await input.lifecycleClient.replayLifecycleEvents(
+        {
+          turnId: input.turnId,
+          afterSequence,
+          limit: 1_000,
+        },
+        { signal: input.abortController.signal },
+      );
+      for (const event of replay.events) {
+        projection = applyLifecycleEvent(projection, event);
+      }
+      if (replay.events.length < 1_000 || replay.nextSequence === null) {
+        break;
+      }
+      afterSequence = replay.nextSequence;
+    }
+
+    if (input.abortController.signal.aborted) return;
+    input.setProjectionState({ turnId: input.turnId, projection });
+    if (projection.terminal) return;
+
     for await (const event of input.lifecycleClient.followTurnLifecycle(
-      { turnId: input.turnId },
+      {
+        turnId: input.turnId,
+        afterSequence: projection.lastSequence || null,
+      },
       { signal: input.abortController.signal },
     )) {
       if (input.abortController.signal.aborted) {

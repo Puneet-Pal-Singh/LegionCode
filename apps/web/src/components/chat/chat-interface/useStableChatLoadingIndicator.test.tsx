@@ -27,6 +27,25 @@ describe("useStableChatLoadingIndicator", () => {
     expect(result.current).toBe(false);
   });
 
+  it("covers an already revealed chat immediately when another task starts loading", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ loading }) => useStableChatLoadingIndicator(loading),
+      { initialProps: { loading: false } },
+    );
+
+    expect(result.current).toBe(false);
+
+    rerender({ loading: true });
+    expect(result.current).toBe(true);
+
+    rerender({ loading: false });
+    act(() => vi.advanceTimersByTime(179));
+    expect(result.current).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current).toBe(false);
+  });
+
   it("hides immediately for a locally admitted prompt", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(

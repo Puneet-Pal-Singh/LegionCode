@@ -12,7 +12,7 @@ describe("createByokHttpTransport", () => {
     })) as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       fetchImpl,
     });
 
@@ -25,23 +25,40 @@ describe("createByokHttpTransport", () => {
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          "X-Run-Id": "run-123",
+          "X-Run-Id": "run_123456",
         },
       }),
     );
   });
 
   it("fails fast when run id is missing", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
       getRunId: () => null,
-      fetchImpl: vi.fn() as unknown as typeof fetch,
+      fetchImpl,
     });
 
     await expect(transport.discoverProviders()).rejects.toMatchObject({
       code: "MISSING_RUN_ID",
       statusCode: 400,
     });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fails fast when run id is not canonical", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const transport = createByokHttpTransport({
+      baseUrl: "http://localhost:8788/api/byok",
+      getRunId: () => "session_stale_scope",
+      fetchImpl,
+    });
+
+    await expect(transport.discoverProviders()).rejects.toMatchObject({
+      code: "INVALID_REQUEST_CONTRACT",
+      statusCode: 400,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("maps response envelopes to operation errors", async () => {
@@ -59,7 +76,7 @@ describe("createByokHttpTransport", () => {
     })) as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       fetchImpl,
     });
 
@@ -77,7 +94,7 @@ describe("createByokHttpTransport", () => {
     })) as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       fetchImpl,
     });
     const controller = new AbortController();
@@ -106,7 +123,7 @@ describe("createByokHttpTransport", () => {
     })) as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       fetchImpl,
     });
 
@@ -131,7 +148,7 @@ describe("createByokHttpTransport", () => {
     const fetchImpl = fetchMock as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
-      getRunId: () => "run-123",
+      getRunId: () => "run_123456",
       getHeaders: () => ({
         "X-Run-Id": "run-override",
         "x-run-id": "run-lowercase-override",
@@ -145,7 +162,7 @@ describe("createByokHttpTransport", () => {
     await transport.discoverProviders();
 
     const headers = capturedRequestInit?.headers as Record<string, string>;
-    expect(headers["X-Run-Id"]).toBe("run-123");
+    expect(headers["X-Run-Id"]).toBe("run_123456");
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["X-Client-Id"]).toBe("desktop");
     expect(headers).not.toHaveProperty("x-run-id");

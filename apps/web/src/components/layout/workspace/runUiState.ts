@@ -2,6 +2,33 @@ import {
   isApprovalRequiredRunStatus,
   isTerminalRunStatus,
 } from "../../../lib/run-status";
+import type { LifecycleProjectionTerminalState } from "../../../services/lifecycle/LifecycleProjection";
+
+export type CanonicalRunStatus =
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export function deriveCanonicalRunStatus(input: {
+  hasCanonicalTurn: boolean;
+  hasReplay: boolean;
+  terminalState: LifecycleProjectionTerminalState | null;
+}): CanonicalRunStatus | null {
+  if (!input.hasCanonicalTurn || !input.hasReplay) {
+    return null;
+  }
+  switch (input.terminalState) {
+    case "completed":
+      return "COMPLETED";
+    case "failed":
+      return "FAILED";
+    case "interrupted":
+      return "CANCELLED";
+    default:
+      return "RUNNING";
+  }
+}
 
 interface WorkspaceRunMessage {
   role?: string;

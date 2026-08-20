@@ -284,7 +284,7 @@ export function useChatCore(
     providerModels,
     manageProviderModels,
     resolveForChat,
-  } = useProviderStore(sessionId);
+  } = useProviderStore(runId);
   const selectedModel =
     selectedProviderId && selectedModelId
       ? (providerModels[selectedProviderId]?.find(

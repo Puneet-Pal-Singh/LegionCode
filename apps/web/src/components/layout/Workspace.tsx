@@ -34,7 +34,10 @@ import { GitReviewDialog } from "../git/GitReviewDialog";
 import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
-import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
+import {
+  deriveCanonicalRunStatus,
+  deriveWorkspaceRunUiState,
+} from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
 import type {
@@ -241,11 +244,11 @@ export function Workspace({
     activeTurn.projection,
     latestAssistantMessageId,
   );
-  const canonicalRunStatus = activeTurn.hasCanonicalTurn
-    ? activeTurn.projection?.terminal
-      ? lifecycleStatusToRunStatus(activeTurn.projection.terminal.state)
-      : "RUNNING"
-    : null;
+  const canonicalRunStatus = deriveCanonicalRunStatus({
+    hasCanonicalTurn: activeTurn.hasCanonicalTurn,
+    hasReplay: activeTurn.hasReplay,
+    terminalState: activeTurn.projection?.terminal?.state ?? null,
+  });
   const hasPendingApproval = Boolean(activeTurn.projection?.pendingApproval);
   const pendingApprovalRequestId =
     activeTurn.projection?.pendingApproval?.approvalId ?? null;
@@ -673,19 +676,4 @@ export function Workspace({
       </GitReviewProvider>
     </RunContextProvider>
   );
-}
-
-function lifecycleStatusToRunStatus(
-  state: "completed" | "failed" | "interrupted" | null,
-): "COMPLETED" | "FAILED" | "CANCELLED" | null {
-  switch (state) {
-    case "completed":
-      return "COMPLETED";
-    case "failed":
-      return "FAILED";
-    case "interrupted":
-      return "CANCELLED";
-    default:
-      return null;
-  }
 }
