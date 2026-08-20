@@ -2,6 +2,7 @@ import type {
   ProviderClientOperationOptions,
   ProviderClientTransport,
 } from "./client.js";
+import { RunIdSchema, type RunId } from "@repo/platform-protocol";
 import {
   ProviderClientOperationError,
   isRetryableProviderClientErrorCode,
@@ -90,16 +91,7 @@ function createTransportRequest(
   const normalizedBaseUrl = options.baseUrl.replace(/\/$/, "");
 
   return async (method, path, payload, requestOptions) => {
-    const runId = options.getRunId();
-    if (!runId) {
-      throw new ProviderClientOperationError(
-        "MISSING_RUN_ID",
-        "Run ID is required for provider requests",
-        false,
-        undefined,
-        400,
-      );
-    }
+    const runId = resolveCanonicalRunId(options.getRunId);
 
     const url = `${normalizedBaseUrl}${path}`;
     const additionalHeaders = filterProtectedHeaders(options.getHeaders?.());
@@ -133,6 +125,31 @@ function createTransportRequest(
       throw mapTransportException(error);
     }
   };
+}
+
+function resolveCanonicalRunId(getRunId: () => string | null): RunId {
+  const runId = getRunId();
+  if (!runId) {
+    throw new ProviderClientOperationError(
+      "MISSING_RUN_ID",
+      "Run ID is required for provider requests",
+      false,
+      undefined,
+      400,
+    );
+  }
+
+  const parsed = RunIdSchema.safeParse(runId);
+  if (!parsed.success) {
+    throw new ProviderClientOperationError(
+      "INVALID_REQUEST_CONTRACT",
+      "Provider requests require a canonical run ID",
+      false,
+      undefined,
+      400,
+    );
+  }
+  return parsed.data;
 }
 
 function filterProtectedHeaders(
