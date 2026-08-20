@@ -1,259 +1,690 @@
-"use client";
+'use client';
 
-import type { FormEvent } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import React, { useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight,
-  Clock,
+  ChevronDown,
   CornerDownLeft,
   PanelLeft,
   PanelRight,
-} from "lucide-react";
-import type { MockTask } from "./types";
-
-export interface ChatMessage {
-  sender: "user" | "agent";
-  text: string;
-}
+  Check,
+  FileText,
+  Search,
+  Code,
+  Play,
+  ArrowUpRight,
+  Maximize2,
+  Cloud,
+  Plus,
+  ArrowUp,
+  MoreHorizontal,
+  Code2,
+  ShieldCheck,
+  Stethoscope,
+} from 'lucide-react';
+import { MockTask, HeroDemoStep, ChatMessage, ToolStep } from './types';
 
 interface AgentChatPanelProps {
   activeTask: MockTask;
+  demoStep: HeroDemoStep;
+  isLeftSidebarOpen: boolean;
+  setIsLeftSidebarOpen: (open: boolean) => void;
+  isRightSidebarOpen: boolean;
+  setIsRightSidebarOpen: (open: boolean) => void;
+  rightSidebarTab?: 'review' | 'code';
+  setRightSidebarTab?: (tab: 'review' | 'code') => void;
   chatMessages: ChatMessage[];
   inputValue: string;
-  isLeftSidebarOpen: boolean;
-  isRightSidebarOpen: boolean;
+  setInputValue: (val: string) => void;
   isThinking: boolean;
-  onCloseSidebars: () => void;
-  onInputChange: (value: string) => void;
-  onSendMessage: (event: FormEvent) => void;
-  onToggleLeftSidebar: () => void;
-  onToggleRightSidebar: () => void;
+  onSendMessage: (e: React.FormEvent) => void;
+  onStartNewTask: (promptText: string) => void;
   selectedModel: string;
+  setSelectedModel: (model: string) => void;
+  selectedFile: string;
+  onSelectFile: (fileName: string) => void;
+  onUserInteract: () => void;
 }
 
-function PanelHeader({
+export default function AgentChatPanel({
   activeTask,
-  onToggleLeft,
-  onToggleRight,
-}: {
-  activeTask: MockTask;
-  onToggleLeft: () => void;
-  onToggleRight: () => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/5 bg-white/[0.02] px-4 py-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={onToggleLeft}
-          aria-label="Toggle workspaces"
-          className="flex shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 p-1.5 text-zinc-400 transition-all hover:bg-white/10 hover:text-white lg:hidden"
-        >
-          <PanelLeft className="h-4 w-4" />
-        </button>
-        <span className="max-w-[150px] truncate font-semibold text-white sm:max-w-[280px]">
-          {activeTask.title}
-        </span>
-        <span className="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
-          ACTIVE
-        </span>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={onToggleRight}
-          aria-label="Toggle review diff"
-          className="flex shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 p-1.5 text-zinc-400 transition-all hover:bg-white/10 hover:text-white lg:hidden"
-        >
-          <PanelRight className="h-4 w-4" />
-        </button>
-        <span
-          aria-hidden="true"
-          className="select-none px-1 text-sm font-bold leading-none text-zinc-500"
-        >
-          ···
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function TaskSummary({ task }: { task: MockTask }) {
-  const files = task.filesList ?? [{ name: task.fileName, ...task.changes }];
-  return (
-    <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3.5 shadow-lg shadow-black/30 backdrop-blur-md">
-      <div className="flex items-center gap-2">
-        <div className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/10 font-mono text-[10px] font-bold text-white">
-          _&gt;
-        </div>
-        <span className="font-mono font-semibold text-white">
-          LegionCode Workspace Agent
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-zinc-500">
-          Local Compiler Node
-        </span>
-      </div>
-      <p className="font-mono text-[11px] leading-relaxed text-zinc-300">
-        {task.message}
-      </p>
-      <div className="space-y-2 border-t border-white/5 pt-2 text-[11px]">
-        <div className="flex items-center gap-2 font-mono text-[10.5px] text-zinc-400">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-          <span>
-            {files.length} {files.length === 1 ? "file" : "files"} changed
-          </span>
-        </div>
-        <div className="flex w-full flex-col gap-1 font-mono text-[10px]">
-          {files.map((file) => (
-            <div
-              key={file.name}
-              className="flex w-full items-center justify-between rounded border border-white/5 bg-white/[0.02] px-2.5 py-1 text-zinc-400 transition-colors hover:bg-white/[0.04]"
-            >
-              <span className="truncate pr-4 text-[10.5px] text-zinc-450">
-                {file.name}
-              </span>
-              <span className="flex shrink-0 gap-2.5 text-[10.5px] font-medium">
-                <span className="text-emerald-500">+{file.added}</span>
-                <span className="text-rose-500">-{file.removed}</span>
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MessageList({
-  isThinking,
-  messages,
-}: {
-  isThinking: boolean;
-  messages: ChatMessage[];
-}) {
-  return (
-    <>
-      <AnimatePresence initial={false}>
-        {messages.map((message, index) => (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            key={`${message.sender}-${index}-${message.text}`}
-            className={`flex gap-3 leading-relaxed ${message.sender === "user" ? "justify-end" : "justify-start"}`}
-          >
-            {message.sender === "agent" && (
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-white/10 bg-white/10 font-mono text-[10px] font-bold text-white">
-                _&gt;
-              </div>
-            )}
-            <div
-              className={`max-w-[85%] rounded-xl p-3 text-[11px] backdrop-blur-md ${message.sender === "user" ? "border border-white/15 bg-white/10 text-white" : "border border-white/5 bg-white/5 text-zinc-300"}`}
-            >
-              <p
-                className={
-                  message.sender === "user"
-                    ? "select-all font-mono text-zinc-300"
-                    : undefined
-                }
-              >
-                {message.sender === "user" ? `> ${message.text}` : message.text}
-              </p>
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-      {isThinking && (
-        <div className="flex select-none items-center gap-2 pl-8 text-[10.5px] italic text-zinc-500">
-          <span className="h-2 w-2 animate-ping rounded-full bg-white/80" />
-          <span>Workspace compiler thinking...</span>
-        </div>
-      )}
-    </>
-  );
-}
-
-function Composer({
+  demoStep,
+  isLeftSidebarOpen,
+  setIsLeftSidebarOpen,
+  isRightSidebarOpen,
+  setIsRightSidebarOpen,
+  rightSidebarTab,
+  setRightSidebarTab,
+  chatMessages,
   inputValue,
-  onInputChange,
-  onSubmit,
+  setInputValue,
+  isThinking,
+  onSendMessage,
+  onStartNewTask,
   selectedModel,
-}: {
-  inputValue: string;
-  onInputChange: (value: string) => void;
-  onSubmit: (event: FormEvent) => void;
-  selectedModel: string;
-}) {
+  setSelectedModel,
+  selectedFile,
+  onSelectFile,
+  onUserInteract,
+}: AgentChatPanelProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
+
+  // Helper step visibility checks
+  const isTaskSubmitted = demoStep !== 'idle';
+  const isPlanning = isTaskSubmitted && demoStep !== 'task-submitted';
+  const isExploring = isPlanning && demoStep !== 'planning';
+  const isEditing = isExploring && demoStep !== 'exploring';
+  const isTesting = isEditing && demoStep !== 'editing';
+  const isCompleted = isTesting && demoStep !== 'testing';
+
+  const currentToolSteps = React.useMemo(() => {
+    if (activeTask.toolSteps && activeTask.toolSteps.length > 0) {
+      return activeTask.toolSteps;
+    }
+    const steps: ToolStep[] = [
+      { type: 'explore', text: `${activeTask.filesList?.length || 1} files` },
+      { type: 'read', text: activeTask.fileName || activeTask.filesList?.[0]?.name || 'src/index.ts' },
+      { type: 'search', text: activeTask.title },
+    ];
+    (activeTask.filesList || []).forEach((file) => {
+      steps.push({
+        type: 'edit',
+        text: file.name,
+        added: file.added,
+        removed: file.removed,
+      });
+    });
+    steps.push({
+      type: 'run',
+      text: `pnpm test`,
+      status: 'passed',
+    });
+    return steps;
+  }, [activeTask]);
+
+  const exploreToolSteps = currentToolSteps.filter((s) => s.type === 'explore' || s.type === 'read' || s.type === 'search');
+  const editToolSteps = currentToolSteps.filter((s) => s.type === 'edit');
+  const runToolSteps = currentToolSteps.filter((s) => s.type === 'run');
+
+  // Auto-scroll center thread as new content arrives during demo, unless user interacted
+  useEffect(() => {
+    if (scrollRef.current && (demoStep !== 'idle' && demoStep !== 'completed' && demoStep !== 'review')) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [demoStep, chatMessages]);
+
+  const handleScroll = () => {
+    // If user manually scrolls during sequence, signal interaction to stop autoplay
+    if (demoStep !== 'completed' && demoStep !== 'review' && demoStep !== 'idle') {
+      onUserInteract();
+    }
+  };
+
   return (
-    <form
-      onSubmit={onSubmit}
-      className="shrink-0 border-t border-white/5 bg-[#0d0d0d]/30 p-3 backdrop-blur-md"
-    >
-      <div className="flex flex-col rounded-xl border border-white/10 bg-white/[0.02] shadow-inner transition-all focus-within:border-white/20">
-        <input
-          aria-label="Ask LegionCode"
-          type="text"
-          className="w-full border-0 bg-transparent px-3 py-2.5 font-mono text-[11.5px] text-white outline-none placeholder-zinc-500"
-          placeholder="Ask LegionCode anything, @ to add files, / for commands..."
-          value={inputValue}
-          onChange={(event) => onInputChange(event.target.value)}
-        />
-        <div className="flex select-none items-center justify-between px-2.5 pb-2.5 pt-1.5">
-          <div className="flex items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-[10px] text-zinc-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
-            <span>{selectedModel}</span>
-          </div>
+    <div className="flex-1 flex flex-col min-w-0 bg-zinc-950/60 backdrop-blur-lg relative">
+      {/* Top Bar with active ticket title & responsive controls */}
+      <div className="px-4 py-2.5 border-b border-white/5 flex items-center justify-between shrink-0 select-none gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <button
-            type="submit"
-            aria-label="Send message"
-            className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-black shadow-md transition-colors hover:bg-zinc-105"
+            type="button"
+            onClick={() => {
+              onUserInteract();
+              setIsLeftSidebarOpen(!isLeftSidebarOpen);
+            }}
+            className="p-1 text-zinc-400 hover:text-white transition-colors shrink-0 flex items-center justify-center cursor-pointer"
+            title="Toggle Projects"
           >
-            <CornerDownLeft className="h-3.5 w-3.5" />
+            <PanelLeft className="w-3.5 h-3.5" />
           </button>
+
+          <span className="font-semibold text-white truncate max-w-[150px] sm:max-w-[280px] text-xs">
+            {activeTask.title}
+          </span>
+
+          {activeTask.id === 'new-task' && (
+            <button
+              type="button"
+              className="text-zinc-500 hover:text-white transition-colors cursor-pointer p-0.5"
+              title="More options"
+            >
+              <MoreHorizontal className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {activeTask.id === 'new-task' ? (
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                className="bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 px-2 py-1 rounded-md text-[10.5px] font-mono flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Code2 className="w-3.5 h-3.5 text-zinc-400" />
+                <span>Open</span>
+                <ChevronDown className="w-3 h-3 text-zinc-500" />
+              </button>
+              <button
+                type="button"
+                className="p-1 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                title="Details"
+              >
+                <FileText className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onUserInteract();
+                  setIsRightSidebarOpen(!isRightSidebarOpen);
+                }}
+                className="p-1 text-zinc-400 hover:text-white transition-colors shrink-0 flex items-center justify-center cursor-pointer"
+                title="Toggle Review Diff"
+              >
+                <PanelRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                onUserInteract();
+                setIsRightSidebarOpen(!isRightSidebarOpen);
+              }}
+              className="p-1 text-zinc-400 hover:text-white transition-colors shrink-0 flex items-center justify-center cursor-pointer"
+              title="Toggle Review Diff"
+            >
+              <PanelRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
-    </form>
-  );
-}
 
-export default function AgentChatPanel(props: AgentChatPanelProps) {
-  return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-white/[0.01] backdrop-blur-lg">
-      <PanelHeader
-        activeTask={props.activeTask}
-        onToggleLeft={props.onToggleLeftSidebar}
-        onToggleRight={props.onToggleRightSidebar}
-      />
-      {(props.isLeftSidebarOpen || props.isRightSidebarOpen) && (
-        <button
-          type="button"
-          aria-label="Close open panel"
-          className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1.5px] lg:hidden"
-          onClick={props.onCloseSidebars}
+      {/* Mobile overlay for drawers */}
+      {(isLeftSidebarOpen || isRightSidebarOpen) && (
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-[2px] z-20 lg:hidden cursor-pointer"
+          onClick={() => {
+            setIsLeftSidebarOpen(false);
+            setIsRightSidebarOpen(false);
+          }}
         />
       )}
-      <div className="no-scrollbar flex-1 space-y-4 overflow-y-auto p-4">
-        <div className="flex select-none items-center gap-2 text-zinc-500">
-          <Clock className="h-3.5 w-3.5 text-zinc-600" />
-          <span>
-            Worked for{" "}
-            <span className="font-mono font-medium text-white">
-              {props.activeTask.duration}
-            </span>
-          </span>
-          <ChevronRight className="h-3.5 w-3.5 text-zinc-700" />
+
+      {activeTask.id === 'new-task' ? (
+        /* New Task / New Chat UI */
+        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 text-center select-none overflow-y-auto relative">
+          {/* Cloud Badge Icon */}
+          <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-zinc-200 mb-3 shadow-2xl backdrop-blur-md">
+            <Cloud className="w-6 h-6 stroke-[1.5]" />
+          </div>
+
+          {/* Heading */}
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white font-sans">
+            Let&apos;s build
+          </h1>
+
+          {/* Dropdown project title */}
+          <button
+            type="button"
+            className="mt-1 flex items-center gap-1 text-xs font-mono text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+          >
+            <span>LegionCode</span>
+            <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+          </button>
+
+          {/* Central Prompt Card */}
+          <div className="mt-8 w-full max-w-xl bg-[#0c0c0e] border border-white/10 rounded-2xl p-3.5 shadow-2xl text-left relative transition-all focus-within:border-white/25">
+            <textarea
+              rows={3}
+              className="w-full bg-transparent border-0 outline-none text-white placeholder-zinc-500 text-xs font-sans resize-none p-1"
+              placeholder="Ask LegionCode anything, @ to add files, / for commands..."
+              value={inputValue}
+              onChange={(e) => {
+                onUserInteract();
+                setInputValue(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  // Sending is disabled from the new chat window
+                }
+              }}
+            />
+
+            <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-xs select-none gap-2 flex-wrap sm:flex-nowrap">
+              {/* Left Controls */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  className="w-6 h-6 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title="Add files"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                    className="bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded border border-white/10 text-zinc-300 text-[10.5px] font-mono flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>{selectedModel}</span>
+                    <ChevronDown className="w-3 h-3 text-zinc-500" />
+                  </button>
+
+                  {isModelMenuOpen && (
+                    <div className="absolute bottom-full left-0 mb-1 w-40 bg-zinc-900 border border-white/10 rounded-lg shadow-xl py-1 z-30 font-mono text-[10px]">
+                      {[
+                        'GPT 5.6 Sol',
+                        'GPT 5.6 Luna',
+                        'Gemini 3.6 Flash',
+                        'Claude Fable 5',
+                        'Claude Opus 5',
+                        'Kimi K3',
+                      ].map((model) => (
+                        <button
+                          key={model}
+                          type="button"
+                          onClick={() => {
+                            setSelectedModel(model);
+                            setIsModelMenuOpen(false);
+                          }}
+                          className={`w-full text-left px-2.5 py-1.5 hover:bg-white/10 transition-colors ${
+                            selectedModel === model ? 'text-white font-bold bg-white/5' : 'text-zinc-400'
+                          }`}
+                        >
+                          {model}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="text-[10.5px] font-mono text-zinc-400 hover:text-zinc-200 px-1.5 py-0.5 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Stethoscope className="w-3 h-3 text-zinc-500" />
+                  <span>dev</span>
+                  <ChevronDown className="w-2.5 h-2.5 text-zinc-600" />
+                </button>
+
+                <button
+                  type="button"
+                  className="text-[10.5px] font-mono text-zinc-400 hover:text-zinc-200 px-1.5 py-0.5 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <ShieldCheck className="w-3 h-3 text-zinc-500" />
+                  <span>Auto edits</span>
+                  <ChevronDown className="w-2.5 h-2.5 text-zinc-600" />
+                </button>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  // Do nothing when clicked in new chat window
+                }}
+                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                  inputValue.trim()
+                    ? 'bg-white text-black hover:bg-zinc-200 cursor-pointer shadow-md scale-105'
+                    : 'bg-white/10 text-zinc-600 cursor-not-allowed'
+                }`}
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
-        <TaskSummary task={props.activeTask} />
-        <MessageList
-          isThinking={props.isThinking}
-          messages={props.chatMessages}
-        />
+      ) : (
+        /* Standard Chat Thread */
+        <>
+          {/* Scrollable Thread Content Area */}
+      <div
+        ref={scrollRef}
+        onWheel={handleScroll}
+        onTouchMove={handleScroll}
+        className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs no-scrollbar"
+      >
+        {/* 1. User Prompt Bubble */}
+        <AnimatePresence>
+          {isTaskSubmitted && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="flex justify-end"
+            >
+              <div className="max-w-[90%] sm:max-w-[85%] bg-zinc-800/80 border border-white/10 rounded-2xl rounded-tr-xs p-3 text-[11.5px] text-zinc-100 leading-relaxed shadow-sm font-sans">
+                {activeTask.userPrompt}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 2. Agent Acknowledgement Plan */}
+        <AnimatePresence>
+          {isPlanning && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-2"
+            >
+              {/* Worked duration indicator */}
+              <div className="flex items-center gap-1.5 text-zinc-500 text-[11px] select-none">
+                <span>Worked for <span className="text-zinc-200 font-mono">{activeTask.duration}</span></span>
+                <ChevronDown className="w-3 h-3 text-zinc-700" />
+              </div>
+
+              <p className="text-[11.5px] text-zinc-300 leading-relaxed font-sans max-w-[90%]">
+                {activeTask.agentAck}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 3. Progress Activity Rows */}
+        <AnimatePresence>
+          {isExploring && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.4 }}
+              className="space-y-1.5 font-mono text-[11px]"
+            >
+              {exploreToolSteps.map((step, idx) => (
+                <motion.div
+                  key={`explore-${idx}`}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.15 * (idx + 1) }}
+                  className="flex items-center gap-2 text-zinc-400 py-0.5 truncate"
+                >
+                  <span className="text-zinc-500 w-16 shrink-0 font-mono">
+                    {step.type === 'explore' ? 'explored' : step.type === 'search' ? 'search' : step.type}
+                  </span>
+                  <span className="text-zinc-300 truncate font-mono">
+                    {step.text.replace(/^(Explored|Searched|Read)\s+/i, '')}
+                  </span>
+                </motion.div>
+              ))}
+
+              {isEditing && (
+                <>
+                  {editToolSteps.map((step, idx) => (
+                    <motion.div
+                      key={`edit-${idx}`}
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.15 * idx }}
+                      className="flex items-center gap-2 text-zinc-400 py-0.5 truncate"
+                    >
+                      <span className="text-zinc-500 w-16 shrink-0 font-mono">edited</span>
+                      <span className="text-zinc-200 truncate font-mono">
+                        {step.text.replace(/^(Explored|Searched|Read)\s+/i, '')}
+                      </span>
+                      {(step.added !== undefined || step.removed !== undefined) && (
+                        <span className="text-[10px] font-mono space-x-1 shrink-0 ml-1.5">
+                          {step.added !== undefined && <span className="text-emerald-400">+{step.added}</span>}
+                          {step.removed !== undefined && <span className="text-red-400">-{step.removed}</span>}
+                        </span>
+                      )}
+                    </motion.div>
+                  ))}
+                </>
+              )}
+
+              {isTesting && (
+                <>
+                  {runToolSteps.map((step, idx) => (
+                    <motion.div
+                      key={`run-${idx}`}
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.15 * idx }}
+                      className="flex items-center gap-2 text-zinc-400 py-0.5 truncate"
+                    >
+                      <span className="text-zinc-500 w-16 shrink-0 font-mono">ran</span>
+                      <span className="text-zinc-200 truncate font-mono">
+                        {step.text.replace(/^(Explored|Searched|Read)\s+/i, '')}
+                      </span>
+                      {step.status && (
+                        <span className="text-emerald-400 text-[10px] shrink-0 font-mono ml-1.5">{step.status}</span>
+                      )}
+                    </motion.div>
+                  ))}
+                </>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 4. Completion Summary & 5. Changed-Files Block */}
+        <AnimatePresence>
+          {isCompleted && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="space-y-3"
+            >
+              <p className="text-zinc-300 text-[11.5px] leading-relaxed font-sans max-w-[90%]">
+                {activeTask.summary}
+              </p>
+
+              {/* Changed files review card */}
+              {(() => {
+                const totalAdded = activeTask.filesList.reduce((acc, f) => acc + f.added, 0);
+                const totalRemoved = activeTask.filesList.reduce((acc, f) => acc + f.removed, 0);
+
+                const renderFormattedPath = (path: string) => {
+                  const lastSlashIndex = path.lastIndexOf('/');
+                  if (lastSlashIndex === -1) {
+                    return <span className="text-white font-semibold font-mono">{path}</span>;
+                  }
+                  const dir = path.slice(0, lastSlashIndex + 1);
+                  const fileName = path.slice(lastSlashIndex + 1);
+                  return (
+                    <span className="truncate font-mono">
+                      <span className="text-zinc-500">{dir}</span>
+                      <span className="text-white font-semibold">{fileName}</span>
+                    </span>
+                  );
+                };
+
+                return (
+                  <div className="bg-[#0c0c0e] border border-white/10 rounded-xl overflow-hidden shadow-xl">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-2 font-mono text-[11px]">
+                        <span className="font-semibold text-white">
+                          {activeTask.filesList.length} files changed
+                        </span>
+                        <span className="text-emerald-400 font-medium font-mono text-[10.5px]">+{totalAdded}</span>
+                        <span className="text-rose-400 font-medium font-mono text-[10.5px]">-{totalRemoved}</span>
+                      </div>
+                      <div className="flex items-center gap-2.5 text-zinc-500 text-[10.5px] font-mono">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUserInteract();
+                            if (setRightSidebarTab) setRightSidebarTab('review');
+                            setIsRightSidebarOpen(true);
+                          }}
+                          className="flex items-center gap-1 hover:text-zinc-300 transition-colors cursor-pointer"
+                        >
+                          <span>Review</span>
+                          <ArrowUpRight className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUserInteract();
+                            if (setRightSidebarTab) setRightSidebarTab('review');
+                            setIsRightSidebarOpen(true);
+                          }}
+                          className="hover:text-zinc-300 transition-colors cursor-pointer"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* File List Box - Full width left/right/bottom */}
+                    <div className="border-t border-white/10 divide-y divide-white/10 bg-black/40">
+                      {activeTask.filesList.map((file) => (
+                        <div
+                          key={file.name}
+                          onClick={() => {
+                            onUserInteract();
+                            onSelectFile(file.name);
+                            if (setRightSidebarTab) setRightSidebarTab('review');
+                            setIsRightSidebarOpen(true);
+                          }}
+                          className={`flex items-center justify-between px-3 py-2 transition-colors cursor-pointer text-[10.5px] font-mono ${
+                            selectedFile === file.name
+                              ? 'bg-white/10 text-white'
+                              : 'hover:bg-white/[0.04] text-zinc-300'
+                          }`}
+                        >
+                          <div className="truncate pr-2">{renderFormattedPath(file.name)}</div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-emerald-400 font-medium">+{file.added}</span>
+                            <span className="text-rose-400 font-medium">-{file.removed}</span>
+                            <ChevronRight className="w-3 h-3 text-zinc-600" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Custom interactive chat messages */}
+        <AnimatePresence initial={false}>
+          {chatMessages.map((msg, index) => (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              key={index}
+              className={`flex leading-relaxed ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`text-[11.5px] font-sans ${
+                  msg.sender === 'user'
+                    ? 'p-3 rounded-xl max-w-[85%] bg-zinc-800 text-white border border-white/15'
+                    : 'text-zinc-300 max-w-[90%] leading-relaxed'
+                }`}
+              >
+                <span>{msg.text}</span>
+                {msg.link && (
+                  <a
+                    href={msg.link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-orange-400 hover:text-orange-300 font-medium underline underline-offset-2 transition-colors cursor-pointer"
+                  >
+                    {msg.link.label}
+                  </a>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Thinking indicator */}
+        {isThinking && (
+          <div className="flex items-center gap-2 text-zinc-400 italic text-[11px] font-sans">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <span>Agent processing...</span>
+          </div>
+        )}
       </div>
-      <Composer
-        inputValue={props.inputValue}
-        onInputChange={props.onInputChange}
-        onSubmit={props.onSendMessage}
-        selectedModel={props.selectedModel}
-      />
-    </div>
+
+      {/* Fixed Composer at bottom */}
+      <form
+        onSubmit={(e) => {
+          onUserInteract();
+          onSendMessage(e);
+        }}
+        className="p-3 border-t border-white/5 shrink-0 bg-[#0d0d0d]/40 backdrop-blur-md"
+      >
+        <div className="flex flex-col border border-white/10 rounded-xl bg-white/[0.02] backdrop-blur-md focus-within:border-white/20 transition-all shadow-inner relative">
+          <input
+            type="text"
+            className="bg-transparent border-0 px-3 py-2.5 text-[11.5px] outline-none text-white placeholder-zinc-500 w-full font-sans"
+            placeholder="Ask LegionCode anything, @ to add files, / for commands..."
+            value={inputValue}
+            onChange={(e) => {
+              onUserInteract();
+              setInputValue(e.target.value);
+            }}
+            onFocus={() => onUserInteract()}
+          />
+
+          <div className="px-2.5 pb-2 pt-1 flex items-center justify-between select-none">
+            {/* Model Selector Pill */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  onUserInteract();
+                  setIsModelMenuOpen(!isModelMenuOpen);
+                }}
+                className="bg-white/[0.04] hover:bg-white/[0.08] px-2.5 py-1 rounded-md border border-white/10 text-zinc-200 transition-colors text-[11px] flex items-center gap-2 font-mono cursor-pointer"
+              >
+                <span className="text-white font-medium">{selectedModel}</span>
+                <span className="text-zinc-500 font-normal">High</span>
+                <ChevronDown className="w-3 h-3 text-zinc-400 stroke-[1.5]" />
+              </button>
+
+              {isModelMenuOpen && (
+                <div className="absolute bottom-full left-0 mb-1 w-40 bg-zinc-900 border border-white/10 rounded-lg shadow-xl py-1 z-30 font-mono text-[10px]">
+                  {[
+                    'GPT 5.6 Sol',
+                    'GPT 5.6 Luna',
+                    'Gemini 3.6 Flash',
+                    'Claude Fable 5',
+                    'Claude Opus 5',
+                    'Kimi K3',
+                  ].map((model) => (
+                    <button
+                      key={model}
+                      type="button"
+                      onClick={() => {
+                        setSelectedModel(model);
+                        setIsModelMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 hover:bg-white/10 transition-colors ${
+                        selectedModel === model ? 'text-white font-bold bg-white/5' : 'text-zinc-400'
+                      }`}
+                    >
+                      {model}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-6 h-6 bg-white hover:bg-zinc-200 text-black flex items-center justify-center rounded-md cursor-pointer transition-colors shadow-md"
+            >
+              <CornerDownLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </form>
+    </>
+  )}
+</div>
   );
 }

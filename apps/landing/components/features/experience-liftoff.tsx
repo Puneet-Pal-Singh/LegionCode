@@ -66,7 +66,7 @@ export default function ExperienceLiftoff() {
           Experience liftoff.
         </h3>
         
-        <p className="text-zinc-400 text-xs sm:text-sm font-light leading-relaxed max-w-md mx-auto mb-10 select-none">
+        <p className="mx-auto mb-10 max-w-md text-sm font-light leading-relaxed text-zinc-400 select-none">
           Ship code with parallel coding agents.
         </p>
 
@@ -75,7 +75,7 @@ export default function ExperienceLiftoff() {
             href="/cloud"
             className="w-full sm:w-auto flex items-center justify-center gap-2.5 border border-white/15 bg-white/5 hover:bg-white/10 text-white px-6 py-2.5 rounded-full text-xs font-medium tracking-tight transition-all duration-300 transform hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
           >
-            <span>Request Cloud Access</span>
+            <span>Request Access</span>
             <ArrowUpRight className="w-3.5 h-3.5 text-zinc-400 stroke-[2.2]" />
           </Link>
           
