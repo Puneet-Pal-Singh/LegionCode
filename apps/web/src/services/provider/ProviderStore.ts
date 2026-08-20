@@ -966,11 +966,11 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to load provider models";
-      const providerModels = { ...this.state.providerModels };
-      delete providerModels[providerId];
-
       this.setState({
-        providerModels,
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: this.state.providerModels[providerId] ?? [],
+        },
         providerModelsPage: {
           ...this.state.providerModelsPage,
           [providerId]: {
@@ -1045,7 +1045,13 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to load management models";
-      this.setState({ error: message });
+      this.setState({
+        manageProviderModels: {
+          ...this.state.manageProviderModels,
+          [providerId]: this.state.manageProviderModels[providerId] ?? [],
+        },
+        error: message,
+      });
       this.log("[loadManageProviderModels] Error", {
         providerId,
         error: message,

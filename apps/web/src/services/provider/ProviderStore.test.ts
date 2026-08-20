@@ -391,7 +391,7 @@ describe("ProviderStore", () => {
       );
     });
 
-    it("does not retain a client-side model fallback when discovery request fails", async () => {
+    it("settles failed model discovery without a fallback or automatic retry trigger", async () => {
       vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
         new Error("Internal server error"),
       );
@@ -402,12 +402,7 @@ describe("ProviderStore", () => {
 
       const state = store.getState();
       expect(state.loadingModelsForProviderId).toBeNull();
-      expect(
-        Object.prototype.hasOwnProperty.call(
-          state.providerModels,
-          "openrouter",
-        ),
-      ).toBe(false);
+      expect(state.providerModels.openrouter).toEqual([]);
       expect(state.providerModelsPage.openrouter).toEqual({
         view: "popular",
         hasMore: false,
@@ -421,6 +416,30 @@ describe("ProviderStore", () => {
       expect(state.providerModelsMetadata.openrouter?.statusReason).toBe(
         "cache_unavailable",
       );
+
+      await expect(store.loadProviderModels("openrouter")).resolves.toHaveLength(
+        1,
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledTimes(2);
+      expect(store.getState().providerModels.openrouter).toHaveLength(1);
+    });
+
+    it("settles failed manage-model hydration and allows an explicit retry", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
+        new Error("Brain unavailable"),
+      );
+
+      await expect(
+        store.loadManageProviderModels("google"),
+      ).rejects.toThrow("Brain unavailable");
+
+      expect(store.getState().manageProviderModels.google).toEqual([]);
+
+      await expect(
+        store.loadManageProviderModels("google"),
+      ).resolves.toHaveLength(1);
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledTimes(2);
+      expect(store.getState().manageProviderModels.google).toHaveLength(1);
     });
 
     it("switches model view and reloads selected provider models", async () => {
