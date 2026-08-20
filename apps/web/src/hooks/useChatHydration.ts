@@ -169,6 +169,7 @@ export function useChatHydration(
       cancelled = true;
     };
   }, [
+    hydrationKey,
     resetRetry,
     retrySignal,
     replayRevision,

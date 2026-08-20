@@ -15,6 +15,9 @@ export function useStableChatLoadingIndicator(
 
   useEffect(() => {
     if (isLoading) {
+      // Deliberately latch visibility before paint: deriving only from
+      // `isLoading` would drop the stability window on the next render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsVisible(true);
       return;
     }
