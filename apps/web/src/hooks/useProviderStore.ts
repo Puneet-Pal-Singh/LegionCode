@@ -33,8 +33,6 @@ import type {
 import { useOptionalRunContext } from "./useRunContext";
 import { isCanonicalRunId } from "../lib/run-id.js";
 
-const SESSION_RUN_ID_KEY = "currentRunId";
-
 /**
  * useProviderStore Hook
  *
@@ -103,7 +101,6 @@ export function useProviderStore(
       return;
     }
 
-    persistRunId(runId);
     const needsBootstrap = store.setActiveRunId(runId);
 
     if (needsBootstrap) {
@@ -201,12 +198,4 @@ export function useProviderStore(
     clearError,
     reset,
   };
-}
-
-function persistRunId(runId: string): void {
-  try {
-    sessionStorage.setItem(SESSION_RUN_ID_KEY, runId);
-  } catch (error) {
-    console.warn("[provider/store] failed to persist run id", error);
-  }
 }

@@ -223,11 +223,17 @@ export class ProviderStore {
    */
   static getInstance(options?: ProviderStoreOptions): ProviderStore {
     if (!ProviderStore.instance) {
-      const apiClient = options?.apiClient || new ProviderApiClient();
-      ProviderStore.instance = new ProviderStore(
+      let store: ProviderStore | null = null;
+      const apiClient =
+        options?.apiClient ??
+        new ProviderApiClient({
+          getRunId: () => store?.activeRunId ?? null,
+        });
+      store = new ProviderStore(
         apiClient,
         options?.enableLogging ?? false,
       );
+      ProviderStore.instance = store;
     }
     return ProviderStore.instance;
   }
