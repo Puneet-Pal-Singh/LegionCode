@@ -168,15 +168,15 @@ describe("WorkflowTimeline", () => {
     expect(chevron).toHaveClass("rotate-90");
     expect(
       screen.getAllByText("Reading src/main.ts")[0]?.closest("[data-item-id]"),
-    ).toHaveClass("py-1", "text-sm", "leading-5");
+    ).toHaveClass("min-h-6", "py-0.5", "text-sm", "leading-5");
     expect(disclosure.parentElement?.querySelector(".border-l")).toBeNull();
     expect(screen.getByTestId("activity-disclosure-row")).toHaveClass(
-      "min-h-7",
-      "py-1",
+      "min-h-8",
+      "py-1.5",
       "leading-5",
     );
     expect(screen.getByTestId("workflow-tool-viewport")).toHaveClass(
-      "space-y-1",
+      "space-y-3",
     );
     const expandedChildren =
       disclosure.parentElement?.querySelector(".min-w-0");

@@ -6,6 +6,7 @@ import {
   FilePenLine,
   GitBranch,
   Globe,
+  Images,
   Search,
   Square,
   Terminal,
@@ -28,10 +29,12 @@ import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputP
 import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
 
-// Keep the disclosure trigger and each child on the same row cadence. A
-// shared min-height/padding contract prevents the first child from appearing
-// farther away than subsequent children when a grouped tool call opens.
-const WORKFLOW_ROW_CADENCE = "min-h-7 py-1 text-sm leading-5";
+// Parent activity groups are intentionally airy enough to read as separate
+// phases in the trace. Once a group is opened, its child calls use a shorter
+// cadence so the list reads as one compact execution rather than a second
+// stack of cards.
+const WORKFLOW_PARENT_CADENCE = "min-h-8 py-1.5 text-sm leading-5";
+const WORKFLOW_CHILD_CADENCE = "min-h-6 py-0.5 text-sm leading-5";
 
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
@@ -50,7 +53,7 @@ export function WorkflowTimeline({
     ? buildActiveWorkflowTrace(segments)
     : null;
   return (
-    <div className="space-y-1" data-testid="workflow-tool-viewport">
+    <div className="space-y-3" data-testid="workflow-tool-viewport">
       {segments.map((segment) =>
         activeTrace?.consumedSegmentKeys.includes(segment.key) ? null : (
           <WorkflowSegment
@@ -97,6 +100,7 @@ function ActiveWorkflowTrace({
           key={item.itemId}
           item={item}
           turnDiff={turnDiff}
+          nested
           onArtifactOpen={onArtifactOpen}
         />
       ))}
@@ -163,13 +167,14 @@ function WorkflowSegment({
                     viewport.clientHeight <
                   24;
               }}
-              className="max-h-60 space-y-1 overflow-y-auto pr-2"
+              className="max-h-60 space-y-0 overflow-y-auto pr-2"
             >
               {segment.children.map((item) => (
                 <WorkflowItemRow
                   key={item.itemId}
                   item={item}
                   turnDiff={turnDiff}
+                  nested
                   onArtifactOpen={onArtifactOpen}
                 />
               ))}
@@ -217,7 +222,7 @@ function ActivityDisclosure({
         }}
         className={cn(
           "group flex items-center gap-2 text-zinc-500 transition hover:text-zinc-100",
-          WORKFLOW_ROW_CADENCE,
+          WORKFLOW_PARENT_CADENCE,
         )}
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
@@ -253,11 +258,13 @@ function WorkflowItemRow({
   turnDiff,
   reasoning = false,
   onArtifactOpen,
+  nested = false,
 }: {
   item: WorkflowItem;
   turnDiff: TurnDiffPayload | null;
   reasoning?: boolean;
   onArtifactOpen?: ArtifactOpenHandler;
+  nested?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
@@ -290,7 +297,10 @@ function WorkflowItemRow({
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className={cn("group", WORKFLOW_ROW_CADENCE)}
+      className={cn(
+        "group",
+        nested ? WORKFLOW_CHILD_CADENCE : WORKFLOW_PARENT_CADENCE,
+      )}
     >
       <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
         <WorkflowStatusIcon item={item} />
@@ -485,6 +495,9 @@ function resolveItemLabel(item: WorkflowItem): string {
   if (item.toolFamily === "shell") {
     return item.status === "active" ? "Running command" : "Ran command";
   }
+  if (item.toolFamily === "image") {
+    return item.safeSummary ?? (item.status === "active" ? "Viewing images" : "Viewed images");
+  }
   return item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
 }
 
@@ -520,6 +533,8 @@ function WorkflowStatusIcon({ item }: { item: WorkflowItem }) {
     case "web":
     case "browser":
       return <Globe aria-hidden="true" className={className} />;
+    case "image":
+      return <Images aria-hidden="true" className={className} />;
     default:
       return <Wrench aria-hidden="true" className={className} />;
   }
