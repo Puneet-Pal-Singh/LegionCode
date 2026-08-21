@@ -697,6 +697,42 @@ describe("ChatInputBar", () => {
     expect(await screen.findByAltText(/dropped\.webp/)).toBeTruthy();
   });
 
+  it("shows the full composer drop affordance while files are dragged over it", () => {
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+      />,
+    );
+
+    const dropZone = screen.getByTestId("chat-composer-drop-zone");
+    fireEvent.dragOver(dropZone, {
+      dataTransfer: { types: ["Files"], dropEffect: "none" },
+    });
+
+    expect(screen.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    expect(screen.getByText("Drop files to attach")).toBeInTheDocument();
+  });
+
+  it("keeps the composer drop affordance active while dragging over the chat surface", () => {
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.dragOver(window, {
+      dataTransfer: { types: ["Files"], dropEffect: "none" },
+    });
+
+    expect(screen.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+  });
+
   it("allows sending selected review comments without freeform text", () => {
     const onSubmit = vi.fn();
 

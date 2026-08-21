@@ -127,12 +127,42 @@ export function useChatImageAttachmentDraft() {
   );
 
   useEffect(
-    () => () => {
-      for (const attachment of attachmentsRef.current) {
-        URL.revokeObjectURL(attachment.previewUrl);
-      }
+    () => {
+      const handleWindowDragOver = (event: DragEvent) => {
+        if (!event.dataTransfer?.types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setIsDraggingImages(true);
+      };
+      const handleWindowDrop = (event: DragEvent) => {
+        if (!event.dataTransfer?.types.includes("Files")) return;
+        // A drop on the composer already ran the scoped handler. The window
+        // listener only owns drops over the surrounding chat surface.
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        setIsDraggingImages(false);
+        void addFiles(Array.from(event.dataTransfer.files), "upload");
+      };
+      const clearWindowDragState = () => setIsDraggingImages(false);
+      const handleWindowDragLeave = (event: DragEvent) => {
+        if (event.relatedTarget === null) clearWindowDragState();
+      };
+
+      window.addEventListener("dragover", handleWindowDragOver);
+      window.addEventListener("drop", handleWindowDrop);
+      window.addEventListener("dragend", clearWindowDragState);
+      window.addEventListener("dragleave", handleWindowDragLeave);
+      return () => {
+        window.removeEventListener("dragover", handleWindowDragOver);
+        window.removeEventListener("drop", handleWindowDrop);
+        window.removeEventListener("dragend", clearWindowDragState);
+        window.removeEventListener("dragleave", handleWindowDragLeave);
+        for (const attachment of attachmentsRef.current) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      };
     },
-    [],
+    [addFiles],
   );
 
   return {
