@@ -27,7 +27,7 @@ describe("groupToolActivity", () => {
     ]);
 
     expect(buildSegmentTitle(segments[0]!)).toBe(
-      "Run git status --short and inspect…",
+      "Running git status --short and inspect…",
     );
   });
 
@@ -52,7 +52,7 @@ describe("groupToolActivity", () => {
     );
   });
 
-  it("expands short active labels into a four-to-six-word status", () => {
+  it("keeps the exact tool target in a short active status", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_read" as ItemId,
@@ -63,8 +63,23 @@ describe("groupToolActivity", () => {
       }),
     ]);
 
+    expect(buildSegmentTitle(segments[0]!)).toBe("Reading registry.ts");
+  });
+
+  it("prefers typed tool arguments over a generic display title", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_search" as ItemId,
+        kind: "tool_call",
+        toolFamily: "search",
+        status: "active",
+        safeSummary: "List Files",
+        inputSummary: "approval lifecycle",
+      }),
+    ]);
+
     expect(buildSegmentTitle(segments[0]!)).toBe(
-      "Reading the selected source file",
+      "Searching approval lifecycle",
     );
   });
 
@@ -171,7 +186,7 @@ describe("groupToolActivity", () => {
     ]);
 
     const trace = buildActiveWorkflowTrace(segments);
-    expect(trace.title).toBe("Editing the selected project files");
+    expect(trace.title).toBe("Editing landing files");
     expect(trace.children.map((item) => item.itemId)).toEqual([
       "item_completed",
       "item_active",
@@ -206,11 +221,12 @@ describe("groupToolActivity", () => {
         kind: "command_execution",
         toolFamily: "shell",
         status: "active",
+        command: "pnpm test",
       }),
     ]);
 
     const trace = buildActiveWorkflowTrace(segments);
-    expect(trace.title).toBe("Running the current command now");
+    expect(trace.title).toBe("Running pnpm test");
     expect(trace.children.map((item) => item.itemId)).toEqual([
       "item_read",
       "item_shell",
@@ -234,7 +250,7 @@ describe("groupToolActivity", () => {
 
     const trace = buildActiveWorkflowTrace(segments);
     expect(segments[0]?.isActive).toBe(false);
-    expect(trace.title).toBe("Reading the selected source file");
+    expect(trace.title).toBe("Read package.json");
     expect(trace.children.map((item) => item.itemId)).toEqual(["item_read"]);
     expect(trace.consumedSegmentKeys).toEqual(["segment:item_read"]);
   });
@@ -251,13 +267,13 @@ function workflowItem(
     status: overrides.status ?? "completed",
     sequence: 1,
     text: overrides.text ?? "",
-    detail: null,
+    detail: overrides.detail ?? null,
     safeSummary: overrides.safeSummary ?? null,
-    inputSummary: null,
-    outputSummary: null,
-    toolName: null,
-    filePath: null,
-    command: null,
+    inputSummary: overrides.inputSummary ?? null,
+    outputSummary: overrides.outputSummary ?? null,
+    toolName: overrides.toolName ?? null,
+    filePath: overrides.filePath ?? null,
+    command: overrides.command ?? null,
     outputContent: null,
     diffPreview: null,
     additions: null,

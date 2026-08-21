@@ -154,21 +154,23 @@ describe("WorkflowTimeline", () => {
     );
 
     const disclosure = screen.getByRole("button", {
-      name: /reading the selected source file/i,
+      name: /reading src\/main\.ts/i,
     });
     const chevron = screen.getByTestId("activity-disclosure-chevron");
-    expect(screen.getByText("Reading the selected source file")).toHaveClass(
+    expect(screen.getByText("Reading src/main.ts")).toHaveClass(
       "turn-lifecycle-shimmer",
     );
     expect(chevron).not.toHaveClass("rotate-90");
-    expect(
-      screen.queryByText("Reading src/main.ts"),
-    ).not.toBeInTheDocument();
+    expect(screen.getAllByText("Reading src/main.ts")).toHaveLength(1);
     fireEvent.click(disclosure);
     expect(chevron).toHaveClass("rotate-90");
-    expect(
-      screen.getAllByText("Reading src/main.ts")[0]?.closest("[data-item-id]"),
-    ).toHaveClass("min-h-6", "py-0.5", "text-sm", "leading-5");
+    const childRow = screen
+      .getAllByText("Reading src/main.ts")
+      .map((element) => element.closest("[data-item-id]"))
+      .find(
+        (element): element is HTMLElement => element instanceof HTMLElement,
+      );
+    expect(childRow).toHaveClass("min-h-6", "py-0.5", "text-sm", "leading-5");
     expect(disclosure.parentElement?.querySelector(".border-l")).toBeNull();
     expect(screen.getByTestId("activity-disclosure-row")).toHaveClass(
       "min-h-8",
@@ -237,18 +239,21 @@ describe("WorkflowTimeline", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /reading the selected source file/i,
+        name: /reading registry\.ts/i,
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {
-      name: /reading the selected source file/i,
+      name: /reading registry\.ts/i,
     }));
     expect(
       screen.getByRole("button", {
         name: /view details for reading registry\.ts/i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Reading the selected source file")).toHaveClass(
+    expect(screen.getByTestId("active-workflow-title")).toHaveTextContent(
+      "Reading registry.ts",
+    );
+    expect(screen.getByTestId("active-workflow-title")).toHaveClass(
       "turn-lifecycle-shimmer",
     );
     expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
@@ -296,10 +301,10 @@ describe("WorkflowTimeline", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /running the current command now/i }),
+      screen.getByRole("button", { name: /running pnpm test/i }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {
-      name: /running the current command now/i,
+      name: /running pnpm test/i,
     }));
     expect(screen.getByText("Running command")).toHaveClass(
       "turn-lifecycle-shimmer",
@@ -470,7 +475,7 @@ describe("WorkflowTimeline", () => {
     );
     expect(screen.getAllByTestId("activity-disclosure-row")).toHaveLength(1);
     fireEvent.click(screen.getByTestId("activity-disclosure-row"));
-    expect(activeTitle).toHaveTextContent("Running the current command now");
+    expect(activeTitle).toHaveTextContent("Running pnpm test");
     expect(activeTitle).toHaveClass("turn-lifecycle-shimmer");
     expect(
       screen.getByText("I’m checking the test suite now."),

@@ -345,11 +345,13 @@ function collectCurrentTraceSegments(
  */
 function visibleActivityTitle(item: WorkflowItem | undefined): string | null {
   if (!item) return null;
-  const visibleTitle = compactActivityTitle(
-    item.safeSummary ?? item.detail ?? item.inputSummary,
+  return compactActivityTitle(
+    structuredToolActivityTitle(item) ??
+      item.safeSummary ??
+      item.detail ??
+      item.inputSummary ??
+      humanizeToolName(item.toolName),
   );
-  if (visibleTitle && wordCount(visibleTitle) >= 4) return visibleTitle;
-  return activeToolFallback(item);
 }
 
 function visibleReasoningTitle(
@@ -388,24 +390,74 @@ function wordCount(value: string): number {
   return value.replace(/…$/u, "").trim().split(/\s+/u).length;
 }
 
-function activeToolFallback(item: WorkflowItem): string {
+function structuredToolActivityTitle(item: WorkflowItem): string | null {
+  const active = item.status === "active";
+  const inputTarget = stripToolActionPrefix(item.inputSummary);
+  const displayTarget = stripToolActionPrefix(item.safeSummary ?? item.detail);
+  const toolTarget = stripToolActionPrefix(humanizeToolName(item.toolName));
   switch (item.toolFamily) {
     case "read":
-      return "Reading the selected source file";
+      return formatToolTarget(
+        active ? "Reading" : "Read",
+        item.filePath ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
     case "search":
-      return "Searching the relevant project files";
+      return formatToolTarget(
+        active ? "Searching" : "Searched",
+        inputTarget ?? displayTarget ?? toolTarget,
+      );
     case "edit":
-      return "Editing the selected project files";
+      return formatToolTarget(
+        editActivityVerb(active, item.editChange),
+        item.filePath ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
     case "shell":
-      return "Running the current command now";
+      return formatToolTarget(
+        active ? "Running" : "Ran",
+        item.command ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
     case "git":
-      return "Checking the current Git state";
+      return formatToolTarget(
+        active ? "Running" : "Ran",
+        item.command ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
     case "web":
     case "browser":
-      return "Searching the web for context";
+      return formatToolTarget(
+        active ? "Searching" : "Searched",
+        inputTarget ?? displayTarget ?? toolTarget,
+      );
     default:
-      return "Running the current tool now";
+      return null;
   }
+}
+
+function editActivityVerb(
+  active: boolean,
+  change: WorkflowItem["editChange"],
+): string {
+  if (change === "created") return active ? "Creating" : "Created";
+  return active ? "Editing" : "Edited";
+}
+
+function formatToolTarget(verb: string, target: string | null): string | null {
+  const normalized = target?.replace(/\s+/gu, " ").trim();
+  return normalized ? `${verb} ${normalized}` : null;
+}
+
+function stripToolActionPrefix(value: string | null): string | null {
+  const normalized = value?.replace(/\s+/gu, " ").trim();
+  if (!normalized) return null;
+  return normalized.replace(
+    /^(?:read(?:ing)?|search(?:ed|ing)?|edit(?:ed|ing)?|creat(?:ed|ing)|run(?:ning)?|ran|list(?:ed|ing)?|view(?:ed|ing)?)\s+/iu,
+    "",
+  );
+}
+
+function humanizeToolName(value: string | null): string | null {
+  const normalized = value?.replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
+  if (!normalized) return null;
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function toActivityPhrase(label: string): string {
