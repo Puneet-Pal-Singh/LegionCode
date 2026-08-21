@@ -6,6 +6,7 @@ import type {
   TranscriptMessagePartRecord,
   TranscriptMessageRecord,
 } from "@repo/persistence";
+import { projectActiveTranscriptBranch } from "../services/chat/TranscriptBranchProjection";
 import { errorResponse, jsonResponse } from "../http/response";
 import type { Env } from "../types/ai";
 import {
@@ -257,7 +258,11 @@ export class TranscriptController {
       );
 
       const response = {
-        messages: result.messages.map(toHydrationMessage),
+        // Superseded turns remain durable/auditable, but the active transcript
+        // projection excludes their prompt/assistant range after a revision.
+        messages: projectActiveTranscriptBranch(result.messages).map(
+          toHydrationMessage,
+        ),
         nextCursor: result.nextCursor?.toString(),
       };
       console.log(

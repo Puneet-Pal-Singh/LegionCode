@@ -309,10 +309,11 @@ export class HandleChatRequest {
 
       const executionMessages = userId
         ? await new DurableConversationContextAssembler(this.env).assemble({
-            sessionId,
-            userId,
-            currentTurnId: identity.turnId,
-          })
+          sessionId,
+          userId,
+          currentTurnId: identity.turnId,
+          revisionOfTurnId: identity.revisionOfTurnId,
+        })
         : messages;
 
       // Build execution payload with repository context

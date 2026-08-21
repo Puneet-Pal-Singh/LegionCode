@@ -1,4 +1,7 @@
-import { TurnScopeBootstrapRequestSchema } from "@repo/platform-protocol";
+import {
+  TurnScopeBootstrapRequestSchema,
+  type TurnId,
+} from "@repo/platform-protocol";
 import { errorResponse, jsonResponse } from "../http/response";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
@@ -13,11 +16,13 @@ const PUBLIC_TURN_START_SCHEMA = TurnScopeBootstrapRequestSchema.pick({
   runId: true,
   sessionId: true,
   clientMessageId: true,
+  revisionOfTurnId: true,
 });
 type PublicTurnStartRequest = {
   runId: string;
   sessionId: string;
   clientMessageId?: string;
+  revisionOfTurnId?: TurnId;
 };
 
 /** Public control-plane handoff for the server-owned turn scope. */
@@ -47,6 +52,7 @@ export class TurnController {
           workspaceId: scope.workspaceId,
           correlationId,
           clientMessageId: body.clientMessageId,
+          revisionOfTurnId: body.revisionOfTurnId,
         },
         "execution-engine-v1",
       );

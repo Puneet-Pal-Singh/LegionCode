@@ -45,6 +45,32 @@ describe("DurableConversationContextAssembler", () => {
       expect.objectContaining({ turnId: "trn_prior001" }),
     );
   });
+
+  it("excludes the superseded turn from model context while retaining the new prompt", async () => {
+    const transcript = [
+      message("old-user", "user", "Original prompt", "trn_prior001", 1),
+      message("old-answer", "assistant", "Original answer", "trn_prior001", 2),
+      message("new-user", "user", "Edited prompt", "trn_current01", 3),
+    ];
+    const replayLifecyclePage = vi.fn(async () => ({
+      events: [],
+      nextSequence: null,
+    }));
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage: async () => ({ messages: transcript, nextCursor: null }),
+      replayLifecyclePage,
+    });
+
+    const context = await assembler.assemble({
+      sessionId: "session-1",
+      userId: "user-1",
+      currentTurnId: "trn_current01",
+      revisionOfTurnId: "trn_prior001",
+    });
+
+    expect(context.map((entry) => entry.content)).toEqual(["Edited prompt"]);
+    expect(replayLifecyclePage).not.toHaveBeenCalled();
+  });
 });
 
 function message(
