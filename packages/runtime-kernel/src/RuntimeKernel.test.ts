@@ -422,6 +422,46 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
   });
 
+  it("persists provider commentary before the canonical child tool lifecycle", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...toolStep(),
+        commentary: "I’ll inspect the file first.",
+      })
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    const commentaryDeltaIndex = sink.events.findIndex(
+      (event) =>
+        event.type === "assistant_message.delta" &&
+        event.payload.phase === "commentary",
+    );
+    const toolStartedIndex = sink.events.findIndex(
+      (event) => event.type === "tool_call.started",
+    );
+
+    expect(commentaryDeltaIndex).toBeGreaterThan(0);
+    expect(toolStartedIndex).toBeGreaterThan(commentaryDeltaIndex);
+    expect(sink.events[commentaryDeltaIndex - 1]?.type).toBe("item.started");
+    expect(sink.events[commentaryDeltaIndex + 1]?.type).toBe("item.completed");
+    expect(sink.events[commentaryDeltaIndex]).toMatchObject({
+      itemId: "itm_runtime001_commentary_0",
+      payload: {
+        phase: "commentary",
+        delta: "I’ll inspect the file first.",
+      },
+    });
+  });
+
   it("emits approval lifecycle events before policy-gated execution", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
