@@ -57,7 +57,10 @@ function appendReasoningSegment(
   item: WorkflowItem,
 ): ToolActivitySegment | null {
   const hasContent = Boolean(item.safeSummary?.trim() || item.text.trim());
-  if (!hasContent || (item.status !== "active" && item.status !== "completed")) {
+  if (
+    !hasContent ||
+    (item.status !== "active" && item.status !== "completed")
+  ) {
     return null;
   }
   const segment = createSegment(item);
@@ -237,11 +240,84 @@ function getItemFamilyLabel(item: WorkflowItem): string {
 }
 
 export function buildSegmentTitle(segment: ToolActivitySegment): string {
+  if (segment.isActive) {
+    const activeTool = segment.children.find(
+      (item) => item.status === "active" && isToolItem(item),
+    );
+    const activeToolTitle = visibleActivityTitle(activeTool);
+    if (activeToolTitle) {
+      return activeToolTitle;
+    }
+
+    const reasoningTitle = visibleReasoningTitle(segment.reasoning);
+    if (reasoningTitle) {
+      return reasoningTitle;
+    }
+  }
+
   const labels = segment.familyLabels;
   if (labels.length === 0) {
     return segment.reasoning?.safeSummary?.trim() || "Thinking";
   }
   return labels.map(toActivityPhrase).join(", ");
+}
+
+/**
+ * Returns the short, user-visible status for a workflow segment.
+ *
+ * Only display-safe lifecycle fields are considered here. In particular, the
+ * projection never turns private reasoning into a status title. Active tool
+ * display data wins while a command is running; the already-visible reasoning
+ * or plan summary remains as the stable fallback between tool calls.
+ */
+function visibleActivityTitle(item: WorkflowItem | undefined): string | null {
+  if (!item) return null;
+  const visibleTitle = compactActivityTitle(
+    item.safeSummary ?? item.detail ?? item.inputSummary,
+  );
+  if (visibleTitle && wordCount(visibleTitle) >= 4) return visibleTitle;
+  return activeToolFallback(item);
+}
+
+function visibleReasoningTitle(item: WorkflowItem | null): string | null {
+  if (!item) return null;
+  const visibleTitle = compactActivityTitle(
+    item.safeSummary ?? item.text ?? item.detail,
+  );
+  if (visibleTitle && wordCount(visibleTitle) >= 4) return visibleTitle;
+  return "Thinking through the next step";
+}
+
+function compactActivityTitle(value: string | null | undefined): string | null {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  const words = normalized.split(" ");
+  if (words.length <= 6) return normalized;
+  return `${words.slice(0, 6).join(" ")}…`;
+}
+
+function wordCount(value: string): number {
+  return value.replace(/…$/u, "").trim().split(/\s+/u).length;
+}
+
+function activeToolFallback(item: WorkflowItem): string {
+  switch (item.toolFamily) {
+    case "read":
+      return "Reading the selected source file";
+    case "search":
+      return "Searching the relevant project files";
+    case "edit":
+      return "Editing the selected project files";
+    case "shell":
+      return "Running the current command now";
+    case "git":
+      return "Checking the current Git state";
+    case "web":
+    case "browser":
+      return "Searching the web for context";
+    default:
+      return "Running the current tool now";
+  }
 }
 
 function toActivityPhrase(label: string): string {
