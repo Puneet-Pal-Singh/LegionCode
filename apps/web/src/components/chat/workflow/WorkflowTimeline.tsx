@@ -21,7 +21,6 @@ import {
 import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
 import { itemDisplayText } from "./workflowPresentation.js";
-import { ThinkingIndicator } from "./ThinkingIndicator.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
@@ -46,18 +45,67 @@ export function WorkflowTimeline({
   showThinkingState,
   onArtifactOpen,
 }: WorkflowTimelineProps) {
+  const activeTrace = showThinkingState
+    ? [...segments]
+        .reverse()
+        .find(
+          (segment) =>
+            segment.isActive &&
+            (segment.reasoning !== null || segment.children.some(isToolItem)),
+        )
+    : undefined;
   return (
     <div className="space-y-1" data-testid="workflow-tool-viewport">
-      {segments.map((segment) => (
-        <WorkflowSegment
-          key={segment.key}
-          segment={segment}
+      {segments.map((segment) =>
+        segment === activeTrace ? null : (
+          <WorkflowSegment
+            key={segment.key}
+            segment={segment}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
+        ),
+      )}
+      {showThinkingState ? (
+        <ActiveWorkflowTrace
+          key="active-workflow-trace"
+          segment={activeTrace ?? null}
+          turnDiff={turnDiff}
+          onArtifactOpen={onArtifactOpen}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ActiveWorkflowTrace({
+  segment,
+  turnDiff,
+  onArtifactOpen,
+}: {
+  segment: ToolActivitySegment | null;
+  turnDiff: TurnDiffPayload | null;
+  onArtifactOpen?: ArtifactOpenHandler;
+}) {
+  const children = segment?.children.filter(isToolItem) ?? [];
+  return (
+    <ActivityDisclosure
+      title={
+        segment ? buildSegmentTitle(segment) : "Thinking through the next step"
+      }
+      active
+      hasChildren={children.length > 0}
+      titleTestId="active-workflow-title"
+    >
+      {children.map((item) => (
+        <WorkflowItemRow
+          key={item.itemId}
+          item={item}
           turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
       ))}
-      {showThinkingState ? <ThinkingIndicator /> : null}
-    </div>
+    </ActivityDisclosure>
   );
 }
 
@@ -94,24 +142,21 @@ function WorkflowSegment({
 
   return (
     <div className="space-y-1">
-      {segment.reasoning ? (
+      {segment.reasoning && segment.children.length === 0 ? (
         <div className="text-[15px] leading-7 text-zinc-100">
-          <MarkdownMessageContent
-            content={itemDisplayText(segment.reasoning) ?? "Thinking"}
-          />
+          <span
+            className={segment.isActive ? "turn-lifecycle-shimmer" : undefined}
+          >
+            {itemDisplayText(segment.reasoning) ?? "Thinking"}
+          </span>
         </div>
       ) : null}
       {segment.children.length > 0 ? (
-        segment.children.length === 1 ? (
-          <WorkflowItemRow
-            item={segment.children[0]!}
-            turnDiff={turnDiff}
-            onArtifactOpen={onArtifactOpen}
-          />
-        ) : (
+        segment.isActive || segment.reasoning || segment.children.length > 1 ? (
           <ActivityDisclosure
             title={buildSegmentTitle(segment)}
-            active={segment.children.some((item) => item.status === "active")}
+            active={segment.isActive}
+            hasChildren
           >
             <div
               ref={viewportRef}
@@ -135,6 +180,12 @@ function WorkflowSegment({
               ))}
             </div>
           </ActivityDisclosure>
+        ) : (
+          <WorkflowItemRow
+            item={segment.children[0]!}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
         )
       ) : null}
     </div>
@@ -144,21 +195,32 @@ function WorkflowSegment({
 function ActivityDisclosure({
   title,
   active,
+  hasChildren,
+  titleTestId,
   children,
 }: {
   title: string;
   active: boolean;
+  hasChildren: boolean;
+  titleTestId?: string;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(active && hasChildren);
+
+  useEffect(() => {
+    if (active && hasChildren) setExpanded(true);
+  }, [active, hasChildren]);
 
   return (
     <div>
       <button
         type="button"
-        aria-expanded={expanded}
+        aria-expanded={hasChildren ? expanded : undefined}
+        aria-disabled={!hasChildren}
         data-testid="activity-disclosure-row"
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => {
+          if (hasChildren) setExpanded((current) => !current);
+        }}
         className={cn(
           "group flex items-center gap-2 text-zinc-500 transition hover:text-zinc-100",
           WORKFLOW_ROW_CADENCE,
@@ -166,6 +228,7 @@ function ActivityDisclosure({
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
         <span
+          data-testid={titleTestId}
           className={cn(
             "first-letter:uppercase",
             active && "turn-lifecycle-shimmer",
@@ -173,17 +236,29 @@ function ActivityDisclosure({
         >
           {title}
         </span>
-        <ChevronRight
-          data-testid="activity-disclosure-chevron"
-          className={cn(
-            "h-3.5 w-3.5 transition-transform",
-            expanded && "rotate-90",
-          )}
-          aria-hidden="true"
-        />
+        {hasChildren ? (
+          <ChevronRight
+            data-testid="activity-disclosure-chevron"
+            className={cn(
+              "h-3.5 w-3.5 transition-transform",
+              expanded && "rotate-90",
+            )}
+            aria-hidden="true"
+          />
+        ) : null}
       </button>
-      {expanded ? <div className="min-w-0">{children}</div> : null}
+      {hasChildren && expanded ? (
+        <div className="min-w-0">{children}</div>
+      ) : null}
     </div>
+  );
+}
+
+function isToolItem(item: WorkflowItem): boolean {
+  return (
+    item.kind === "tool_call" ||
+    item.kind === "command_execution" ||
+    item.kind === "file_change"
   );
 }
 
@@ -261,7 +336,13 @@ function WorkflowItemRow({
             }}
             className="min-w-0 text-left text-zinc-500 transition-colors hover:text-white"
           >
-            <span>{label}</span>
+            <span
+              className={
+                item.status === "active" ? "turn-lifecycle-shimmer" : undefined
+              }
+            >
+              {label}
+            </span>
             {preview ? (
               <span className="ml-2 break-words text-zinc-400 transition-colors group-hover:text-white">
                 {preview}
