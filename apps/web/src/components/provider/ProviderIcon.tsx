@@ -14,6 +14,8 @@ import { cn } from "../../lib/utils";
 const BRAND_ICONS: Record<string, IconType> = {
   anthropic: SiAnthropic,
   "cloudflare-ai": SiCloudflare,
+  "cloudflare-workers-ai": SiCloudflare,
+  "cloudflare-ai-gateway": SiCloudflare,
   google: SiGoogle,
   openai: AiOutlineOpenAI,
   "opencode-go": SiOpencode,

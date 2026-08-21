@@ -442,6 +442,87 @@ describe("ProviderStore", () => {
       expect(store.getState().manageProviderModels.google).toHaveLength(1);
     });
 
+    it("loads every manage inventory page beyond the initial 150 models", async () => {
+      const firstPage = Array.from({ length: 150 }, (_, index) => ({
+        id: `openrouter/model-${index}`,
+        name: `Model ${index}`,
+        provider: "openrouter",
+      }));
+      vi.mocked(mockApiClient.getProviderModels)
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: firstPage,
+          page: { limit: 150, hasMore: true, nextCursor: "150" },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        })
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: [
+            {
+              id: "openrouter/model-150",
+              name: "Model 150",
+              provider: "openrouter",
+            },
+          ],
+          page: { limit: 150, hasMore: false },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        });
+
+      await store.loadManageProviderModels("openrouter", 150);
+
+      expect(mockApiClient.getProviderModels).toHaveBeenNthCalledWith(
+        1,
+        "openrouter",
+        expect.objectContaining({ surface: "manage", cursor: undefined }),
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenNthCalledWith(
+        2,
+        "openrouter",
+        expect.objectContaining({ surface: "manage", cursor: "150" }),
+      );
+      expect(store.getState().manageProviderModels.openrouter).toHaveLength(
+        151,
+      );
+    });
+
+    it("seeds an unconfigured visibility toggle from the manage inventory", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockResolvedValueOnce({
+        providerId: "openrouter",
+        view: "all",
+        models: [
+          { id: "openrouter/first", name: "First", provider: "openrouter" },
+          {
+            id: "openrouter/second",
+            name: "Second",
+            provider: "openrouter",
+          },
+        ],
+        page: { limit: 150, hasMore: false },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api",
+        },
+      });
+
+      await store.loadManageProviderModels("openrouter", 150);
+      store.toggleModelVisibility("openrouter", "openrouter/first");
+
+      expect(store.getState().visibleModelIds.openrouter).toEqual(
+        new Set(["openrouter/second"]),
+      );
+    });
+
     it("switches model view and reloads selected provider models", async () => {
       await store.bootstrap();
       await store.loadProviderModels("openai");

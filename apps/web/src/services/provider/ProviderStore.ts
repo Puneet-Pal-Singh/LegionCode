@@ -1007,19 +1007,31 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadManageProviderModels] Starting", { providerId, limit });
     try {
-      const result = await this.apiClient.getProviderModels(providerId, {
-        view: "all",
-        surface: "manage",
-        limit,
-      });
+      let cursor: string | undefined;
+      let result: ProviderModelsPageResult | null = null;
+      let models: ProviderModelOption[] = [];
+      do {
+        result = await this.apiClient.getProviderModels(providerId, {
+          view: "all",
+          surface: "manage",
+          limit,
+          cursor,
+        });
+        models = mergeModelsById(models, result.models);
+        cursor = result.page.hasMore ? result.page.nextCursor : undefined;
+      } while (cursor);
+
+      if (!result) {
+        return this.state.manageProviderModels[providerId] ?? [];
+      }
       if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
-        return result.models;
+        return models;
       }
 
       this.setState({
         manageProviderModels: {
           ...this.state.manageProviderModels,
-          [providerId]: result.models,
+          [providerId]: models,
         },
         providerModels: {
           ...this.state.providerModels,
@@ -1027,16 +1039,16 @@ export class ProviderStore {
             providerId,
             this.state.providerModels[providerId] ?? [],
             this.state.visibleModelIds,
-            result.models,
+            models,
           ),
         },
       });
 
       this.log("[loadManageProviderModels] Success", {
         providerId,
-        modelCount: result.models.length,
+        modelCount: models.length,
       });
-      return result.models;
+      return models;
     } catch (error) {
       if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
         return this.state.manageProviderModels[providerId] ?? [];
@@ -1320,11 +1332,14 @@ export class ProviderStore {
         next.add(modelId);
       }
     } else {
-      // Provider was unconfigured. Initialize from all loaded models,
+      // Provider was unconfigured. Initialize from the complete management
+      // inventory (not the intentionally curated picker subset),
       // then remove the toggled model to hide it.
-      const allModelIds = (this.state.providerModels[providerId] ?? []).map(
-        (m) => m.id,
-      );
+      const allModelIds = (
+        this.state.manageProviderModels[providerId] ??
+        this.state.providerModels[providerId] ??
+        []
+      ).map((m) => m.id);
       next = new Set(allModelIds);
       next.delete(modelId);
     }

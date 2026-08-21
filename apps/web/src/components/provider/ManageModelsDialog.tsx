@@ -343,6 +343,10 @@ export function ManageModelsDialog({
                         <h3 className="text-sm font-medium text-neutral-300">
                           {group.displayName}
                         </h3>
+                        <p className="mt-0.5 text-xs text-neutral-500">
+                          {visibleSet?.size ?? group.models.length} enabled ·{" "}
+                          {group.models.length} discovered
+                        </p>
                       </div>
                       <button
                         type="button"
