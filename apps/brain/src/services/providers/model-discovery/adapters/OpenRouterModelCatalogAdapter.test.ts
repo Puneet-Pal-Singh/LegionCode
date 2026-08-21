@@ -55,6 +55,11 @@ describe("OpenRouterModelCatalogAdapter", () => {
       apiKey: "sk-or-test",
     });
 
+    expect(fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models?output_modalities=text",
+      expect.objectContaining({ method: "GET" }),
+    );
+
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("openai/gpt-4o");
     expect(models[0].providerId).toBe("openrouter");
@@ -89,6 +94,24 @@ describe("OpenRouterModelCatalogAdapter", () => {
       confidence: "confirmed",
     });
     expect(models[0].capabilityMetadata?.fetchedAt).toEqual(expect.any(String));
+  });
+
+  it("requests all output modalities for the full management inventory", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: "openai/image-model" }] }), {
+        status: 200,
+      }),
+    );
+
+    await new OpenRouterModelCatalogAdapter().fetchAll("openrouter", {
+      apiKey: "sk-or-test",
+      outputModalities: "all",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models?output_modalities=all",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("does not infer image input from image output", async () => {

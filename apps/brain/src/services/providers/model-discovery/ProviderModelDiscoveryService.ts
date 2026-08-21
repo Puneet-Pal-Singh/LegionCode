@@ -27,10 +27,16 @@ import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatible
 import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter";
 import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter";
 import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
+import {
+  buildCloudflareAIRoute,
+  resolveCloudflareRuntimeModelId,
+  type CloudflareConnectionConfig,
+} from "../cloudflare/CloudflareAIRouteBuilder";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import {
   enrichModelFromModelDev,
+  listCloudflareAIGatewayModels,
   listRunnableModelDevModels,
   type ModelDevCatalogSource,
 } from "./ModelDevCatalog";
@@ -45,7 +51,6 @@ import {
 // hour, while the explicit refresh action remains available to users.
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
-const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
 const OPENROUTER_AUTO_MODEL_ID = "openrouter/auto";
 const OPENROUTER_AUTO_MODEL_NAME = "Auto (Best Model)";
@@ -301,20 +306,62 @@ export class ProviderModelDiscoveryService {
     const enriched = models.map((model) =>
       catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
     );
-    if (!catalog || providerId !== "opencode-zen") {
-      return enriched;
-    }
-    const seen = new Set(
-      enriched.map((model) => model.id.trim().toLowerCase()),
-    );
-    for (const model of listRunnableModelDevModels(catalog, providerId)) {
-      const key = model.id.trim().toLowerCase();
-      if (!seen.has(key)) {
-        enriched.push(model);
-        seen.add(key);
+    if (catalog && providerId === "opencode-zen") {
+      const seen = new Set(
+        enriched.map((model) => model.id.trim().toLowerCase()),
+      );
+      for (const model of listRunnableModelDevModels(catalog, providerId)) {
+        const key = model.id.trim().toLowerCase();
+        if (!seen.has(key)) {
+          enriched.push(model);
+          seen.add(key);
+        }
       }
     }
-    return enriched;
+    return this.applyCloudflareRuntimeRoutes(providerId, enriched);
+  }
+
+  private async applyCloudflareRuntimeRoutes(
+    providerId: string,
+    models: ProviderModelCacheRecord["models"],
+  ): Promise<ProviderModelCacheRecord["models"]> {
+    if (!isCloudflareProvider(providerId)) {
+      return models;
+    }
+    let config: CloudflareConnectionConfig | undefined;
+    try {
+      const candidate = await this.credentialService.getConnectionConfig(
+        providerId,
+      );
+      if (isCloudflareConfigForProvider(providerId, candidate)) {
+        config = candidate;
+      }
+    } catch (_error) {
+      config = undefined;
+    }
+    return models.map((model) => {
+      const next = { ...model };
+      delete next.runtimeRoute;
+      if (!config) {
+        next.availability = "unsupported_transport";
+        next.unavailableReason =
+          "Cloudflare connection configuration is unavailable.";
+        return next;
+      }
+      next.runtimeRoute = {
+        providerId,
+        modelId: resolveCloudflareRuntimeModelId(config, model.id),
+        transport: "openai-chat-completions",
+        endpoint: buildCloudflareAIRoute({
+          config,
+          modelId: model.id,
+          transport: "openai-chat-completions",
+        }),
+      };
+      next.availability = "available";
+      delete next.unavailableReason;
+      return next;
+    });
   }
 
   private async getModelDevCatalog() {
@@ -415,7 +462,9 @@ export class ProviderModelDiscoveryService {
       scienceModels: categoryMap.get("science") ?? [],
       academiaModels: categoryMap.get("academia") ?? [],
       freeModels,
-      limit: Math.max(query.limit, OPENROUTER_MANAGE_MODELS_MAX),
+      // Management is paginated by the client. Build the complete ordered
+      // inventory so pages after the first 150 remain discoverable.
+      limit: Number.MAX_SAFE_INTEGER,
     });
 
     const page = toPage(ordered, query.cursor, query.limit);
@@ -441,13 +490,6 @@ export class ProviderModelDiscoveryService {
   private async fetchAndCacheModels(
     providerId: string,
   ): Promise<ProviderModelCacheRecord> {
-    const adapter = this.adapters.get(providerId);
-    if (!adapter) {
-      throw new ProviderModelCacheError(
-        `No discovery adapter is registered for provider "${providerId}".`,
-      );
-    }
-
     let apiKey: string | null = null;
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
@@ -464,10 +506,33 @@ export class ProviderModelDiscoveryService {
         `${providerId} credentials are not connected for model discovery.`,
       );
     }
-    const discoveredModels = await adapter.fetchAll(providerId, {
-      apiKey,
-      connectionConfig,
-    });
+    let discoveredModels: BYOKDiscoveredProviderModel[];
+    if (providerId === "cloudflare-ai-gateway") {
+      const catalog = await this.getModelDevCatalog();
+      if (!catalog) {
+        throw new ProviderModelCacheError(
+          "Cloudflare AI Gateway model catalog is unavailable.",
+        );
+      }
+      discoveredModels = listCloudflareAIGatewayModels(catalog);
+    } else {
+      const adapter = this.adapters.get(providerId);
+      if (!adapter) {
+        throw new ProviderModelCacheError(
+          `No discovery adapter is registered for provider "${providerId}".`,
+        );
+      }
+      discoveredModels = await adapter.fetchAll(providerId, {
+        apiKey,
+        connectionConfig,
+        // Keep the canonical cached inventory complete. Picker responses are
+        // narrowed to text-output models below, while management must be able
+        // to discover image/audio models as well.
+        ...(providerId === "openrouter"
+          ? { outputModalities: "all" as const }
+          : {}),
+      });
+    }
     // Persist the canonical enriched model record, not the sparse provider
     // inventory. Subsequent picker loads can then render context, pricing, and
     // reasoning metadata immediately without waiting for another catalog
@@ -477,13 +542,13 @@ export class ProviderModelDiscoveryService {
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
     const record: ProviderModelCacheRecord = {
       providerId,
-      models,
+      models: stripCloudflareRuntimeRoutes(providerId, models),
       fetchedAt,
       expiresAt,
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return record;
+    return { ...record, models };
   }
 
   private async getOpenRouterProgrammingModels(): Promise<
@@ -793,7 +858,10 @@ function createAdapterForProvider(
     return new OpenCodeZenModelCatalogAdapter();
   }
 
-  if (provider.providerId === "cloudflare-ai") {
+  if (
+    provider.providerId === "cloudflare-ai" ||
+    provider.providerId === "cloudflare-workers-ai"
+  ) {
     return new CloudflareAIModelCatalogAdapter();
   }
 
@@ -819,6 +887,41 @@ function createAdapterForProvider(
   return undefined;
 }
 
+function isCloudflareProvider(providerId: string): boolean {
+  return (
+    providerId === "cloudflare-ai" ||
+    providerId === "cloudflare-workers-ai" ||
+    providerId === "cloudflare-ai-gateway"
+  );
+}
+
+function isCloudflareConfigForProvider(
+  providerId: string,
+  config: ProviderConnectionConfig | undefined,
+): config is CloudflareConnectionConfig {
+  if (providerId === "cloudflare-workers-ai") {
+    return config?.providerId === "cloudflare-workers-ai";
+  }
+  if (providerId === "cloudflare-ai-gateway") {
+    return config?.providerId === "cloudflare-ai-gateway";
+  }
+  return config?.providerId === "cloudflare-ai";
+}
+
+function stripCloudflareRuntimeRoutes(
+  providerId: string,
+  models: ProviderModelCacheRecord["models"],
+): ProviderModelCacheRecord["models"] {
+  if (!isCloudflareProvider(providerId)) {
+    return models;
+  }
+  return models.map((model) => {
+    const next = { ...model };
+    delete next.runtimeRoute;
+    return next;
+  });
+}
+
 function filterModelsForSurface(
   models: ProviderModelCacheRecord["models"],
   surface: BYOKDiscoveredProviderModelsQuery["surface"],
@@ -828,7 +931,15 @@ function filterModelsForSurface(
   }
   return models.filter((model) => {
     const availability = model.availability ?? "available";
-    return availability === "available";
+    if (availability !== "available") {
+      return false;
+    }
+    // OpenRouter's picker intentionally remains text-output only. Unknown
+    // modality metadata is retained for compatibility with older responses.
+    if (model.providerId === "openrouter") {
+      return model.outputModalities?.text !== false;
+    }
+    return true;
   });
 }
 

@@ -107,4 +107,41 @@ describe("ProviderModelRouteResolver", () => {
       transport: "openai-chat-completions",
     });
   });
+
+  it("accepts split Workers AI and Gateway configs only for their provider", () => {
+    const resolver = new ProviderModelRouteResolver();
+    const route = {
+      providerId: "cloudflare-ai-gateway",
+      modelId: "@cf/meta/llama-3.1-8b-instruct",
+      transport: "openai-chat-completions" as const,
+      endpoint:
+        "https://api.cloudflare.com/client/v4/accounts/acct_123/ai/v1/chat/completions",
+    };
+
+    expect(
+      resolver.resolve({
+        providerId: "cloudflare-ai-gateway",
+        modelId: route.modelId,
+        connectionConfig: {
+          providerId: "cloudflare-ai-gateway",
+          accountId: "acct_123",
+          gatewayId: "gateway",
+        },
+        discoveredRoute: route,
+      }),
+    ).toMatchObject({ providerId: "cloudflare-ai-gateway" });
+
+    expect(() =>
+      resolver.resolve({
+        providerId: "cloudflare-workers-ai",
+        modelId: route.modelId,
+        connectionConfig: {
+          providerId: "cloudflare-ai-gateway",
+          accountId: "acct_123",
+          gatewayId: "gateway",
+        },
+        discoveredRoute: { ...route, providerId: "cloudflare-workers-ai" },
+      }),
+    ).toThrow("Cloudflare AI requires connection config");
+  });
 });

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   BYOKDiscoveredProviderModel,
   CloudflareAIConnectionConfig,
+  CloudflareWorkersAIConnectionConfig,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
@@ -13,12 +14,11 @@ import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
 } from "../errors";
-import {
-  buildCloudflareAIRoute,
-  resolveCloudflareRuntimeModelId,
-} from "../../cloudflare/CloudflareAIRouteBuilder";
 
-const CLOUDFLARE_AI_PROVIDER_ID = "cloudflare-ai";
+const CLOUDFLARE_WORKERS_AI_PROVIDER_IDS = new Set([
+  "cloudflare-ai",
+  "cloudflare-workers-ai",
+]);
 const CLOUDFLARE_AI_FETCH_TIMEOUT_MS = 15_000;
 const CLOUDFLARE_AI_MODELS_PER_PAGE = 100;
 const CLOUDFLARE_AI_MAX_MODEL_PAGES = 20;
@@ -65,7 +65,7 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
     providerId: string,
     credentialContext: ProviderModelCredentialContext,
   ): Promise<BYOKDiscoveredProviderModel[]> {
-    if (providerId !== CLOUDFLARE_AI_PROVIDER_ID) {
+    if (!CLOUDFLARE_WORKERS_AI_PROVIDER_IDS.has(providerId)) {
       throw new ProviderModelDiscoveryApiError(
         `Cloudflare AI adapter received unsupported provider "${providerId}".`,
         { status: 400, retryable: false },
@@ -76,7 +76,7 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
       apiKey: credentialContext.apiKey,
       accountId: config.accountId,
     });
-    return models.map((model) => normalizeCloudflareModel(model, config));
+    return models.map((model) => normalizeCloudflareModel(model, providerId));
   }
 
   async fetchPage(
@@ -100,8 +100,11 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
 
 function resolveCloudflareConfig(
   config: ProviderModelCredentialContext["connectionConfig"],
-): CloudflareAIConnectionConfig {
-  if (config?.providerId === CLOUDFLARE_AI_PROVIDER_ID) {
+): CloudflareAIConnectionConfig | CloudflareWorkersAIConnectionConfig {
+  if (
+    config?.providerId === "cloudflare-ai" ||
+    config?.providerId === "cloudflare-workers-ai"
+  ) {
     return config;
   }
   throw new ProviderModelDiscoveryApiError(
@@ -208,25 +211,14 @@ function hasNextCloudflareModelsPage(
 
 function normalizeCloudflareModel(
   model: CloudflareModelPayload,
-  config: CloudflareAIConnectionConfig,
+  providerId: string,
 ): BYOKDiscoveredProviderModel {
-  const endpoint = buildCloudflareAIRoute({
-    config,
-    modelId: model.id,
-    transport: "openai-chat-completions",
-  });
   return {
     id: model.id,
-    name: model.display_name ?? model.name ?? model.id,
-    providerId: CLOUDFLARE_AI_PROVIDER_ID,
+    name: model.display_name?.trim() || model.name?.trim() || model.id,
+    providerId,
     description: model.description,
     contextWindow: model.contextWindow ?? model.context_window,
-    runtimeRoute: {
-      providerId: CLOUDFLARE_AI_PROVIDER_ID,
-      modelId: resolveCloudflareRuntimeModelId(config, model.id),
-      transport: "openai-chat-completions",
-      endpoint,
-    },
     availability: "available",
   };
 }

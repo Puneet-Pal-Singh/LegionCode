@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderModelCacheStore } from "../stores/ProviderModelCacheStore";
+import type {
+  ProviderModelCacheRecord,
+  ProviderModelCacheStore,
+} from "../stores/ProviderModelCacheStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
@@ -7,31 +10,19 @@ import { ProviderModelDiscoveryAuthError } from "./errors";
 import { parseModelDevCatalog } from "./ModelDevCatalog";
 
 function createStoreStub() {
-  let cache: {
-    providerId: string;
-    models: Array<{ id: string; name: string; providerId: string }>;
-    fetchedAt: string;
-    expiresAt: string;
-    source: "provider_api" | "cache";
-  } | null = null;
-  let userCache: {
-    providerId: string;
-    models: Array<{ id: string; name: string; providerId: string }>;
-    fetchedAt: string;
-    expiresAt: string;
-    source: "provider_api" | "cache";
-  } | null = null;
+  let cache: ProviderModelCacheRecord | null = null;
+  let userCache: ProviderModelCacheRecord | null = null;
 
   return {
     getModelCache: vi.fn(async () => cache),
-    setModelCache: vi.fn(async (record: typeof cache) => {
+    setModelCache: vi.fn(async (record: ProviderModelCacheRecord) => {
       cache = record;
     }),
     invalidateModelCache: vi.fn(async () => {
       cache = null;
     }),
     getUserModelCache: vi.fn(async () => userCache),
-    setUserModelCache: vi.fn(async (_key, record: typeof userCache) => {
+    setUserModelCache: vi.fn(async (_key, record: ProviderModelCacheRecord) => {
       userCache = record;
     }),
     invalidateUserModelCache: vi.fn(async () => {
@@ -70,6 +61,98 @@ describe("ProviderModelDiscoveryService", () => {
     expect(second.models).toHaveLength(1);
     expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
     expect(store.setModelCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("derives Cloudflare routes from the current account and keeps cache metadata account-free", async () => {
+    const store = createStoreStub();
+    let accountId = "account_a";
+    const credentialService = {
+      getApiKey: vi.fn(async () => "cf-token"),
+      getConnectionConfig: vi.fn(async () => ({
+        providerId: "cloudflare-workers-ai" as const,
+        accountId,
+      })),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "@cf/meta/llama-3.1-8b-instruct",
+          name: "Llama 3.1 8B Instruct",
+          providerId: "cloudflare-workers-ai",
+          availability: "available" as const,
+        },
+      ]),
+      fetchPage: vi.fn(),
+    };
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { "cloudflare-workers-ai": adapter },
+    );
+
+    const first = await service.getDiscoveredModels("cloudflare-workers-ai", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+    expect(first.models[0]?.runtimeRoute?.endpoint).toContain("account_a");
+    expect(store.setModelCache.mock.calls[0]?.[0]?.models[0]?.runtimeRoute).toBeUndefined();
+
+    accountId = "account_b";
+    const second = await service.getDiscoveredModels("cloudflare-workers-ai", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+    expect(second.models[0]?.runtimeRoute?.endpoint).toContain("account_b");
+    expect(second.models[0]?.runtimeRoute?.endpoint).not.toContain("account_a");
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("discovers Cloudflare AI Gateway models from models.dev and routes them with current config", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "cf-token"),
+      getConnectionConfig: vi.fn(async () => ({
+        providerId: "cloudflare-ai-gateway" as const,
+        accountId: "account_gateway",
+        gatewayId: "my-gateway",
+      })),
+    } as unknown as ProviderCredentialService;
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      {
+        getCatalog: vi.fn(async () =>
+          parseModelDevCatalog({
+            "cloudflare-ai-gateway": {
+              models: {
+                "@cf/meta/llama-3.1-8b-instruct": {
+                  name: "Llama 3.1 8B Instruct",
+                  modalities: { input: ["text"], output: ["text"] },
+                },
+              },
+            },
+          }),
+        ),
+      },
+    );
+
+    const result = await service.getDiscoveredModels(
+      "cloudflare-ai-gateway",
+      { view: "all", surface: "manage", limit: 50 },
+    );
+
+    expect(result.models[0]?.runtimeRoute).toMatchObject({
+      providerId: "cloudflare-ai-gateway",
+      endpoint:
+        "https://api.cloudflare.com/client/v4/accounts/account_gateway/ai/v1/chat/completions",
+    });
+    expect(store.setModelCache.mock.calls[0]?.[0]?.models[0]?.runtimeRoute).toBeUndefined();
   });
 
   it("returns stale cache when provider API fails", async () => {

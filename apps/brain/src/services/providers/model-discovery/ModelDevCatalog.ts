@@ -453,6 +453,37 @@ export function listRunnableModelDevModels(
   return models;
 }
 
+/**
+ * Projects Cloudflare model metadata from models.dev. Cloudflare AI Gateway
+ * has no account-scoped model-list endpoint; runtime routes are deliberately
+ * added later from the current connection config.
+ */
+export function listCloudflareAIGatewayModels(
+  catalog: ModelDevCatalog,
+  providerId = "cloudflare-ai-gateway",
+): BYOKDiscoveredProviderModel[] {
+  const seen = new Set<string>();
+  const models: BYOKDiscoveredProviderModel[] = [];
+  for (const catalogProviderId of resolveCatalogProviderIds(catalog, providerId)) {
+    const provider = catalog.providers[catalogProviderId];
+    if (!provider) continue;
+    for (const [modelId, entry] of Object.entries(provider.models)) {
+      const normalizedId = modelId.trim().toLowerCase();
+      if (!normalizedId || seen.has(normalizedId)) continue;
+      const enriched = enrichModelFromModelDev(catalog, providerId, {
+        id: modelId,
+        name: entry.name ?? modelId,
+        providerId,
+        availability: "available",
+      });
+      delete enriched.runtimeRoute;
+      models.push(enriched);
+      seen.add(normalizedId);
+    }
+  }
+  return models;
+}
+
 function findModelDevEntry(
   catalog: ModelDevCatalog,
   providerId: string,
@@ -546,6 +577,8 @@ function resolveCatalogProviderIds(
     together: ["togetherai"],
     "opencode-zen": ["opencode"],
     "cloudflare-ai": ["cloudflare-workers-ai", "cloudflare-ai-gateway"],
+    "cloudflare-workers-ai": ["cloudflare-workers-ai"],
+    "cloudflare-ai-gateway": ["cloudflare-ai-gateway", "cloudflare-workers-ai"],
   };
   const candidates = [providerId, ...(aliases[providerId] ?? [])];
   return candidates.filter((candidate, index) => {

@@ -72,8 +72,12 @@ function resolveTransportHeaders(
   connectionConfig: ProviderConnectionConfig | undefined,
 ): Record<string, string> | undefined {
   if (
-    providerId === "cloudflare-ai" &&
-    connectionConfig?.providerId === "cloudflare-ai"
+    (providerId === "cloudflare-ai" &&
+      connectionConfig?.providerId === "cloudflare-ai") ||
+    (providerId === "cloudflare-workers-ai" &&
+      connectionConfig?.providerId === "cloudflare-workers-ai") ||
+    (providerId === "cloudflare-ai-gateway" &&
+      connectionConfig?.providerId === "cloudflare-ai-gateway")
   ) {
     return buildCloudflareAIRouteHeaders(connectionConfig);
   }

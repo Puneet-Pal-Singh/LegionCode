@@ -114,7 +114,10 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
       );
     }
 
-    const response = await requestOpenRouterModels(credentialContext.apiKey);
+    const response = await requestOpenRouterModels(
+      credentialContext.apiKey,
+      credentialContext.outputModalities ?? "text",
+    );
     const payload = await parseOpenRouterModels(response);
     return payload.data.map((entry) => toDiscoveredModel(entry));
   }
@@ -489,8 +492,13 @@ function parseCursor(cursor: string | undefined): number {
   return parsed;
 }
 
-async function requestOpenRouterModels(apiKey: string): Promise<Response> {
-  return makeOpenRouterRequest(OPENROUTER_MODELS_ENDPOINT, apiKey);
+async function requestOpenRouterModels(
+  apiKey: string,
+  outputModalities: "text" | "all",
+): Promise<Response> {
+  const endpoint = new URL(OPENROUTER_MODELS_ENDPOINT);
+  endpoint.searchParams.set("output_modalities", outputModalities);
+  return makeOpenRouterRequest(endpoint.toString(), apiKey);
 }
 
 async function requestOpenRouterUserModels(apiKey: string): Promise<Response> {
