@@ -148,13 +148,13 @@ describe("groupToolActivity", () => {
     ]);
 
     expect(buildActiveWorkflowTrace(segments)).toMatchObject({
-      title: "Identifying the core architecture before editing…",
-      activeChildren: [],
-      consumedSegmentKey: null,
+      title: "Thinking through the next step",
+      children: [],
+      consumedSegmentKeys: [],
     });
   });
 
-  it("shows only active child calls and lets their tool status win", () => {
+  it("keeps cumulative children and lets their active tool status win", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_completed" as ItemId,
@@ -172,10 +172,71 @@ describe("groupToolActivity", () => {
 
     const trace = buildActiveWorkflowTrace(segments);
     expect(trace.title).toBe("Editing the selected project files");
-    expect(trace.activeChildren.map((item) => item.itemId)).toEqual([
+    expect(trace.children.map((item) => item.itemId)).toEqual([
+      "item_completed",
       "item_active",
     ]);
-    expect(trace.consumedSegmentKey).toBe(segments[0]?.key);
+    expect(trace.consumedSegmentKeys).toEqual([segments[0]?.key]);
+  });
+
+  it("merges reasoning and tool segments until a commentary boundary", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_plan_one" as ItemId,
+        kind: "plan",
+        toolFamily: null,
+        status: "completed",
+        safeSummary: "Identifying the core architecture",
+      }),
+      workflowItem({
+        itemId: "item_read" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        status: "completed",
+      }),
+      workflowItem({
+        itemId: "item_plan_two" as ItemId,
+        kind: "plan",
+        toolFamily: null,
+        status: "active",
+        safeSummary: "Refining the implementation details",
+      }),
+      workflowItem({
+        itemId: "item_shell" as ItemId,
+        kind: "command_execution",
+        toolFamily: "shell",
+        status: "active",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.title).toBe("Running the current command now");
+    expect(trace.children.map((item) => item.itemId)).toEqual([
+      "item_read",
+      "item_shell",
+    ]);
+    expect(trace.consumedSegmentKeys).toEqual([
+      "segment:item_plan_one",
+      "segment:item_plan_two",
+    ]);
+  });
+
+  it("keeps the cumulative parent mounted between settled tool calls", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_read" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        status: "completed",
+        safeSummary: "Read package.json",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(segments[0]?.isActive).toBe(false);
+    expect(trace.title).toBe("Reading the selected source file");
+    expect(trace.children.map((item) => item.itemId)).toEqual(["item_read"]);
+    expect(trace.consumedSegmentKeys).toEqual(["segment:item_read"]);
   });
 });
 

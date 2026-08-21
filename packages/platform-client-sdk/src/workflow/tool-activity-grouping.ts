@@ -14,8 +14,8 @@ export interface ToolActivitySegment {
 
 export interface ActiveWorkflowTraceProjection {
   readonly title: string;
-  readonly activeChildren: readonly WorkflowItem[];
-  readonly consumedSegmentKey: string | null;
+  readonly children: readonly WorkflowItem[];
+  readonly consumedSegmentKeys: readonly string[];
 }
 
 const HARD_BOUNDARY_KINDS: ReadonlySet<WorkflowItemKind> = new Set([
@@ -88,7 +88,7 @@ function appendToolItem(
     ...segment,
     children,
     familyLabels: deriveFamilyLabels(children.slice(0, -1), item),
-    isActive: segment.isActive || item.status === "active",
+    isActive: isSegmentActive(segment.reasoning, children),
   };
   segments[segments.length - 1] = next;
   return next;
@@ -271,49 +271,68 @@ export function buildSegmentTitle(segment: ToolActivitySegment): string {
 export function buildActiveWorkflowTrace(
   segments: readonly ToolActivitySegment[],
 ): ActiveWorkflowTraceProjection {
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    const segment = segments[index]!;
-    const activeChildren = segment.children.filter(isActiveToolItem);
-    if (activeChildren.length > 0) {
-      return {
-        title: buildSegmentTitle(segment),
-        activeChildren,
-        consumedSegmentKey: segment.key,
-      };
-    }
+  const traceSegments = collectCurrentTraceSegments(segments);
+  const children = traceSegments.flatMap((segment) =>
+    segment.children.filter(isToolItem),
+  );
+  const activeSegment = [...traceSegments]
+    .reverse()
+    .find((segment) => segment.children.some(isActiveToolItem));
+  const reasoningTitle = [...traceSegments]
+    .reverse()
+    .map((segment) => visibleReasoningTitle(segment.reasoning, false))
+    .find((title): title is string => Boolean(title));
+
+  if (activeSegment) {
+    return {
+      title: buildSegmentTitle(activeSegment),
+      children,
+      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
+    };
   }
 
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    const segment = segments[index]!;
-    const title = providerVisibleStatusTitle(segment);
-    if (title) {
-      return {
-        title,
-        activeChildren: [],
-        consumedSegmentKey: segment.reasoning ? segment.key : null,
-      };
-    }
+  if (reasoningTitle) {
+    return {
+      title: reasoningTitle,
+      children,
+      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
+    };
+  }
+
+  const latestTool = children.at(-1);
+  if (latestTool) {
+    return {
+      title:
+        visibleActivityTitle(latestTool) ?? "Thinking through the next step",
+      children,
+      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
+    };
   }
 
   return {
     title: "Thinking through the next step",
-    activeChildren: [],
-    consumedSegmentKey: null,
+    children: [],
+    consumedSegmentKeys: [],
   };
 }
 
-function providerVisibleStatusTitle(
-  segment: ToolActivitySegment,
-): string | null {
-  const reasoningTitle = visibleReasoningTitle(segment.reasoning, false);
-  if (reasoningTitle) return reasoningTitle;
-
-  const commentary = segment.children.find(
-    (item) => item.kind === "commentary",
-  );
-  return compactActivityTitle(
-    commentary?.safeSummary ?? commentary?.text ?? commentary?.detail,
-  );
+function collectCurrentTraceSegments(
+  segments: readonly ToolActivitySegment[],
+): readonly ToolActivitySegment[] {
+  const current: ToolActivitySegment[] = [];
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index]!;
+    if (segment.children.some((item) => HARD_BOUNDARY_KINDS.has(item.kind))) {
+      break;
+    }
+    if (
+      segment.reasoning ||
+      segment.children.some((item) => isToolItem(item))
+    ) {
+      current.push(segment);
+    }
+  }
+  return current.reverse();
 }
 
 /**
@@ -348,6 +367,13 @@ function visibleReasoningTitle(
 
 function isActiveToolItem(item: WorkflowItem): boolean {
   return item.status === "active" && isToolItem(item);
+}
+
+function isSegmentActive(
+  reasoning: WorkflowItem | null,
+  children: readonly WorkflowItem[],
+): boolean {
+  return reasoning?.status === "active" || children.some(isActiveToolItem);
 }
 
 function compactActivityTitle(value: string | null | undefined): string | null {
