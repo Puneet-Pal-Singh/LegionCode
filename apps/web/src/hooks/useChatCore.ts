@@ -1128,25 +1128,31 @@ function buildPendingUserMessage(
   message: ChatAppendMessage,
   identity?: ConversationScope,
 ): Message {
-  const content = extractTextContent(message.content).trim();
+  const metadata = {
+    ...(identity
+      ? {
+          canonicalIdentity: {
+            workspaceId: identity.workspaceId,
+            threadId: identity.threadId,
+            turnId: identity.turnId,
+            runAttemptId: identity.runAttemptId,
+          },
+        }
+      : {}),
+    ...(message.imageMetadata
+      ? { imageAttachments: message.imageMetadata }
+      : {}),
+  };
   return {
     id: message.id ?? createClientMessageId(),
     role: "user",
-    content: content || "Analyze the attached image(s).",
+    // Preserve typed image parts for the optimistic transcript. The server
+    // intentionally redacts image bytes from durable transcript rows; this
+    // gives the current turn a real preview without creating a second store.
+    content: message.content as Message["content"],
     createdAt: new Date(),
-    ...(identity
-      ? {
-          data: {
-            metadata: {
-              canonicalIdentity: {
-                workspaceId: identity.workspaceId,
-                threadId: identity.threadId,
-                turnId: identity.turnId,
-                runAttemptId: identity.runAttemptId,
-              },
-            },
-          },
-        }
+    ...(Object.keys(metadata).length > 0
+      ? { data: { metadata } }
       : {}),
   } as Message;
 }

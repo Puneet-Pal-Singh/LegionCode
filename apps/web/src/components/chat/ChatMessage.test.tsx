@@ -168,6 +168,59 @@ describe("ChatMessage", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  it("renders typed user image parts and opens an accessible preview", () => {
+    const message = {
+      id: "user-image",
+      role: "user",
+      content: [
+        { type: "text", text: "What do you think?" },
+        {
+          type: "image",
+          image: "data:image/png;base64,aGVsbG8=",
+          mimeType: "image/png",
+          name: "screen.png",
+        },
+      ],
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.getByAltText(/screen\.png/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
+    expect(screen.getByRole("dialog", { name: /screen\.png/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close image preview" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close image preview" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("renders a scoped durable image preview after hydration", () => {
+    const message = {
+      id: "hydrated-user-image",
+      role: "user",
+      content: "Analyze the attached image(s).",
+      data: {
+        metadata: {
+          imageAttachments: [
+            {
+              type: "image_attachment",
+              attachmentId: "img_1234567890abcdef",
+              name: "screen.png",
+              mediaType: "image/png",
+              byteSize: 5,
+              src: "/api/chat/media/img_1234567890abcdef?session=123e4567-e89b-42d3-a456-426614174001",
+            },
+          ],
+        },
+      },
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.getByAltText(/screen\.png/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
+    expect(screen.getByRole("dialog", { name: /screen\.png/ })).toBeInTheDocument();
+  });
+
   it("shows assistant duration and completion time metadata", () => {
     const message = {
       id: "assistant-meta",

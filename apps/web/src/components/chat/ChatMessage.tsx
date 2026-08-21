@@ -10,6 +10,8 @@ import { MessageContent } from "./chat-message/MessageContent";
 import type { ChangedFilesSummary } from "./chat-message/types";
 import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent";
 import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClient";
+import { ChatImageGallery, type ChatImagePreview } from "./ChatImageGallery";
+import { isChatImageMimeType } from "./chatImageAttachments";
 
 interface ChatMessageProps {
   message: Message;
@@ -38,6 +40,7 @@ export function ChatMessage({
     isUser,
     changedFilesSummary,
   );
+  const imagePreviews = isUser ? readMessageImagePreviews(message) : [];
 
   return (
     <div
@@ -54,6 +57,9 @@ export function ChatMessage({
       >
         {isEditing ? (
           <div className="w-full max-w-xl space-y-2">
+            {imagePreviews.length > 0 ? (
+              <ChatImageGallery images={imagePreviews} />
+            ) : null}
             <textarea
               value={editedContent}
               onChange={(event) => setEditedContent(event.target.value)}
@@ -86,7 +92,15 @@ export function ChatMessage({
             </div>
           </div>
         ) : (
-          <MessageContent content={displayContent} isUser={isUser} />
+          <>
+            <MessageContent content={displayContent} isUser={isUser} />
+            {imagePreviews.length > 0 ? (
+              <ChatImageGallery
+                images={imagePreviews}
+                className={displayContent ? "mt-2 justify-end" : "justify-end"}
+              />
+            ) : null}
+          </>
         )}
         {!isUser && (
           <MessageArtifacts message={message} onArtifactOpen={onArtifactOpen} />
@@ -109,5 +123,84 @@ export function ChatMessage({
         />
       </div>
     </div>
+  );
+}
+
+function readMessageImagePreviews(message: Message): ChatImagePreview[] {
+  const metadata = readMessageMetadata(message);
+  const metadataImages = Array.isArray(metadata?.imageAttachments)
+    ? metadata.imageAttachments.flatMap((value, index) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return [];
+        }
+        const record = value as Record<string, unknown>;
+        const name = typeof record.name === "string" ? record.name : `image-${index + 1}`;
+        const mediaType = typeof record.mediaType === "string" ? record.mediaType : "";
+        const id =
+          typeof record.attachmentId === "string"
+            ? record.attachmentId
+            : typeof record.id === "string"
+              ? record.id
+              : `image-${index + 1}`;
+        const src =
+          typeof record.src === "string" && isSafeHydratedImageSource(record.src)
+            ? record.src
+            : undefined;
+        return [{
+          id,
+          name,
+          mediaType,
+          byteSize: typeof record.byteSize === "number" ? record.byteSize : undefined,
+          src,
+        }];
+      })
+    : [];
+  const parts = Array.isArray(message.content) ? message.content : [];
+  const typedImageParts = parts.flatMap((value, index) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const record = value as Record<string, unknown>;
+    if (record.type !== "image" || typeof record.image !== "string") return [];
+    const mediaType =
+      typeof record.mimeType === "string"
+        ? record.mimeType
+        : typeof record.mediaType === "string"
+          ? record.mediaType
+          : "";
+    if (!isChatImageMimeType(mediaType) || !isSafeImagePartSource(record.image, mediaType)) {
+      return [];
+    }
+    return [{
+      id:
+        typeof record.id === "string"
+          ? record.id
+          : metadataImages[index]?.id ?? `image-${index + 1}`,
+      name:
+        typeof record.name === "string"
+          ? record.name
+          : metadataImages[index]?.name ?? `image-${index + 1}`,
+      mediaType,
+      byteSize: metadataImages[index]?.byteSize,
+      src: record.image,
+    }];
+  });
+  return typedImageParts.length > 0 ? typedImageParts : metadataImages;
+}
+
+function readMessageMetadata(message: Message): Record<string, unknown> | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const metadata = (data as Record<string, unknown>).metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : null;
+}
+
+function isSafeImagePartSource(source: string, mediaType: string): boolean {
+  return source.startsWith(`data:${mediaType};base64,`);
+}
+
+function isSafeHydratedImageSource(source: string): boolean {
+  return /^\/api\/chat\/media\/[A-Za-z0-9_-]{16,128}\?session=[0-9a-fA-F-]{36}$/.test(
+    source,
   );
 }
