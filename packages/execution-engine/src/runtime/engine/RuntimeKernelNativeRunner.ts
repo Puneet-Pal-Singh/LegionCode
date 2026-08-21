@@ -9,6 +9,7 @@ import {
   ThreadIdSchema,
   ToolCallItemContentSchema,
   TurnSchema,
+  TurnIdSchema,
   UsageCostSnapshotSchema,
   WorkerIdSchema,
   type ApprovalDecision,
@@ -190,6 +191,8 @@ export interface RuntimeKernelNativeRunnerInput {
   runAttemptId?: string;
   threadId?: string;
   workspaceId?: string;
+  /** The latest terminal turn superseded by this edited/recovery turn. */
+  revisionOfTurnId?: string;
   workspace: {
     filesystemRoot: string;
     workingBranch: string;
@@ -370,6 +373,7 @@ export class RuntimeKernelNativeRunner {
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
+      revisionOfTurnId: input.revisionOfTurnId,
       workspace: input.workspace,
     });
     const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
@@ -1896,6 +1900,7 @@ function buildProtocolEnvelope(input: {
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
+  revisionOfTurnId?: string;
   workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
@@ -1964,7 +1969,9 @@ function buildProtocolEnvelope(input: {
       id: input.turnId,
       threadId,
       runId: input.runId,
-      parentTurnId: null,
+      parentTurnId: input.revisionOfTurnId
+        ? TurnIdSchema.parse(input.revisionOfTurnId)
+        : null,
       status: "queued",
       startedAt: null,
       completedAt: null,

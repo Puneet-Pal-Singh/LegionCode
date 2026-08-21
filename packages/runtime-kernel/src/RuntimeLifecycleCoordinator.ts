@@ -55,6 +55,8 @@ export interface RuntimeLifecycleCoordinatorOptions extends LifecycleIdentity {
   readonly producerId: string;
   readonly clock: RuntimeKernelClock;
   readonly initialSequence?: number;
+  /** The latest terminal turn superseded by this edited/recovery turn. */
+  readonly revisionOfTurnId?: TurnId;
 }
 
 interface EventFields {
@@ -143,7 +145,15 @@ export class RuntimeLifecycleCoordinator {
     );
     const events = [
       this.createEvent({ type: "turn.queued", payload: {} }, 1),
-      this.createEvent({ type: "turn.started", payload: {} }, 2),
+      this.createEvent(
+        {
+          type: "turn.started",
+          payload: this.options.revisionOfTurnId
+            ? { revisionOfTurnId: this.options.revisionOfTurnId }
+            : {},
+        },
+        2,
+      ),
       this.createEvent({ type: "run_attempt.started", payload: {} }, 3),
     ];
     await this.options.sink.appendBatch(events);

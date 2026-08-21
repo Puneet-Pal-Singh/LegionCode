@@ -374,6 +374,8 @@ export const TurnLifecycleSchema = z
     turnId: TurnIdSchema,
     threadId: ThreadIdSchema,
     workspaceId: WorkspaceIdSchema,
+    /** The latest terminal turn replaced by this edited/recovery turn. */
+    revisionOfTurnId: TurnIdSchema.optional(),
     activeRunAttemptId: RunAttemptIdSchema.nullable(),
     status: TurnStatusSchema,
     blockingState: TurnBlockingStateSchema,
@@ -1081,6 +1083,7 @@ export type LifecycleEvent = z.infer<typeof LifecycleEventSchema>;
 
 export interface TurnLifecycleState {
   readonly turnId: TurnId;
+  readonly revisionOfTurnId?: TurnId;
   readonly status: TurnStatus;
   readonly blockingState: TurnBlockingState;
   readonly terminalOutcome: TurnTerminalOutcome | null;

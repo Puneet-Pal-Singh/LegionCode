@@ -663,6 +663,7 @@ export class RuntimeKernel {
       turnId: turn.id,
       runAttemptId,
       initialSequence: turn.lastEventSequence,
+      revisionOfTurnId: turn.parentTurnId ?? undefined,
     });
     this.lifecycles.set(turn.id, lifecycle);
     return lifecycle;

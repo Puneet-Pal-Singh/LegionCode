@@ -34,6 +34,14 @@ describe("LifecycleProjector", () => {
     });
   });
 
+  it("persists the supersession relation from turn.started", () => {
+    const projection = projectLifecycleEvents([
+      event(1, "turn.queued", {}),
+      event(2, "turn.started", { revisionOfTurnId: "trn_previous001" }),
+    ]);
+    expect(projection.revisionOfTurnId).toBe("trn_previous001");
+  });
+
   it("rejects projection gaps and post-terminal events", () => {
     const events = completedEvents();
     expect(() =>
