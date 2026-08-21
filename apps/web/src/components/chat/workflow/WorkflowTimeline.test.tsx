@@ -305,6 +305,7 @@ describe("WorkflowTimeline", () => {
       <WorkflowTimeline segments={[]} turnDiff={null} showThinkingState />,
     );
     const activeTitle = screen.getByTestId("active-workflow-title");
+    const activeDisclosure = screen.getByTestId("activity-disclosure-row");
     expect(activeTitle).toHaveTextContent("Thinking through the next step");
     expect(activeTitle).toHaveClass("turn-lifecycle-shimmer");
 
@@ -350,10 +351,13 @@ describe("WorkflowTimeline", () => {
     );
 
     expect(screen.getByTestId("active-workflow-title")).toBe(activeTitle);
-    expect(activeTitle).toHaveTextContent("I’m checking the test suite now.");
+    expect(screen.getByTestId("activity-disclosure-row")).toBe(
+      activeDisclosure,
+    );
+    expect(activeTitle).toHaveTextContent("Thinking through the next step");
     expect(
       screen.getAllByText("I’m checking the test suite now."),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     rerender(
       <WorkflowTimeline
@@ -453,13 +457,22 @@ describe("WorkflowTimeline", () => {
     );
 
     expect(screen.getByTestId("active-workflow-title")).toBe(activeTitle);
+    expect(screen.getByTestId("activity-disclosure-row")).toBe(
+      activeDisclosure,
+    );
+    expect(screen.getAllByTestId("activity-disclosure-row")).toHaveLength(1);
     expect(activeTitle).toHaveTextContent("Running the current command now");
     expect(activeTitle).toHaveClass("turn-lifecycle-shimmer");
     expect(
       screen.getByText("I’m checking the test suite now."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Running command")).toBeInTheDocument();
-    expect(screen.queryByText("Reading package.json")).toBeNull();
+    expect(screen.getByText("Running command")).toHaveClass(
+      "turn-lifecycle-shimmer",
+    );
+    expect(screen.getByText("Read package.json")).toBeInTheDocument();
+    expect(screen.getByText("Read package.json")).not.toHaveClass(
+      "turn-lifecycle-shimmer",
+    );
 
     rerender(
       <WorkflowTimeline

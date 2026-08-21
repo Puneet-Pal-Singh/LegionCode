@@ -52,7 +52,7 @@ export function WorkflowTimeline({
   return (
     <div className="space-y-1" data-testid="workflow-tool-viewport">
       {segments.map((segment) =>
-        segment.key === activeTrace?.consumedSegmentKey ? null : (
+        activeTrace?.consumedSegmentKeys.includes(segment.key) ? null : (
           <WorkflowSegment
             key={segment.key}
             segment={segment}
@@ -65,7 +65,7 @@ export function WorkflowTimeline({
         <ActiveWorkflowTrace
           key="active-workflow-trace"
           title={activeTrace?.title ?? "Thinking through the next step"}
-          children={activeTrace?.activeChildren ?? []}
+          children={activeTrace?.children ?? []}
           turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
