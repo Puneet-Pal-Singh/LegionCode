@@ -118,7 +118,7 @@ async function fetchCloudflareModels(input: {
   for (let page = 1; page <= CLOUDFLARE_AI_MAX_MODEL_PAGES; page += 1) {
     const response = await requestCloudflareModels({ ...input, page });
     const payload = await parseCloudflareModels(response);
-    models.push(...payload.result.filter(isTextGenerationModel));
+    models.push(...payload.result.filter(isCompatibleTextGenerationModel));
     if (!hasNextCloudflareModelsPage(payload, page)) {
       return models;
     }
@@ -231,12 +231,19 @@ function normalizeCloudflareModel(
   };
 }
 
-function isTextGenerationModel(model: CloudflareModelPayload): boolean {
+function isCompatibleTextGenerationModel(
+  model: CloudflareModelPayload,
+): boolean {
   const task =
     typeof model.task === "string"
       ? model.task
       : (model.task?.id ?? model.task?.name);
-  return normalizeCloudflareTask(task) === "text-generation";
+  const normalizedTask = normalizeCloudflareTask(task);
+  // The request already asks Cloudflare for `task=text-generation`. Some
+  // valid responses omit the optional task echo, so only reject an explicit
+  // conflicting task instead of dropping an otherwise valid server-filtered
+  // model.
+  return normalizedTask === undefined || normalizedTask === "text-generation";
 }
 
 function normalizeCloudflareTask(task: string | undefined): string | undefined {

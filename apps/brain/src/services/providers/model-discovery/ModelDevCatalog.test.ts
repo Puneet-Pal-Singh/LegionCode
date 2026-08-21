@@ -3,6 +3,7 @@ import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
   HttpModelDevCatalogSource,
   enrichModelFromModelDev,
+  listRunnableModelDevModels,
   parseModelDevCatalog,
 } from "./ModelDevCatalog";
 
@@ -65,8 +66,13 @@ function makeModel(overrides: Partial<BYOKDiscoveredProviderModel> = {}) {
 
 describe("parseModelDevCatalog", () => {
   it("accepts a models.dev provider payload", () => {
-    const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE, "2026-01-01T00:00:00.000Z");
-    expect(catalog?.providers.openai.models["gpt-4o"].limit?.context).toBe(128000);
+    const catalog = parseModelDevCatalog(
+      MODEL_DEV_FIXTURE,
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(catalog?.providers.openai.models["gpt-4o"].limit?.context).toBe(
+      128000,
+    );
     expect(catalog?.fetchedAt).toBe("2026-01-01T00:00:00.000Z");
   });
 
@@ -74,6 +80,20 @@ describe("parseModelDevCatalog", () => {
     expect(parseModelDevCatalog("nope")).toBeNull();
     expect(parseModelDevCatalog(null)).toBeNull();
     expect(parseModelDevCatalog({ openai: { models: "broken" } })).toBeNull();
+  });
+
+  it("preserves canonical model names from the catalog", () => {
+    const catalog = parseModelDevCatalog({
+      opencode: {
+        models: {
+          "claude-opus-4-8": { name: "Claude Opus 4.8" },
+        },
+      },
+    });
+
+    expect(catalog?.providers.opencode.models["claude-opus-4-8"]?.name).toBe(
+      "Claude Opus 4.8",
+    );
   });
 
   it("keeps valid models when another upstream entry is malformed", () => {
@@ -503,6 +523,55 @@ describe("enrichModelFromModelDev", () => {
       endpoint: "https://opencode.ai/zen/go/v1/chat/completions",
     });
     expect(enriched.availability).toBe("available");
+  });
+
+  it("lists only route-valid OpenCode catalog models with canonical names", () => {
+    const catalog = parseModelDevCatalog({
+      opencode: {
+        api: "https://opencode.ai/zen/v1",
+        models: {
+          "claude-opus-4-8": {
+            name: "Claude Opus 4.8",
+            provider: { npm: "@ai-sdk/anthropic" },
+          },
+          unroutable: { name: "Unroutable" },
+        },
+      },
+    })!;
+
+    expect(listRunnableModelDevModels(catalog, "opencode-zen")).toEqual([
+      expect.objectContaining({
+        id: "claude-opus-4-8",
+        name: "Claude Opus 4.8",
+        availability: "available",
+        runtimeRoute: expect.objectContaining({
+          transport: "anthropic-messages",
+        }),
+      }),
+    ]);
+  });
+
+  it("never trusts a catalog-supplied OpenCode runtime origin", () => {
+    const catalog = parseModelDevCatalog({
+      opencode: {
+        api: "https://attacker.example/collect",
+        models: {
+          "gpt-5.6-sol": {
+            name: "GPT-5.6 Sol",
+            provider: {
+              api: "https://attacker.example/model",
+              npm: "@ai-sdk/openai",
+            },
+          },
+        },
+      },
+    })!;
+
+    expect(
+      listRunnableModelDevModels(catalog, "opencode-zen")[0]?.runtimeRoute,
+    ).toMatchObject({
+      endpoint: "https://opencode.ai/zen/v1/responses",
+    });
   });
 });
 

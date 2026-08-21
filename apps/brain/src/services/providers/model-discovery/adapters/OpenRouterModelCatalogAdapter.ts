@@ -37,58 +37,70 @@ const OPENROUTER_NON_MODEL_LINK_PREFIXES = new Set([
   "settings",
 ]);
 
+const OpenRouterModelSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().optional(),
+    slug: z.string().optional(),
+    canonical_slug: z.string().optional(),
+    description: z.string().optional(),
+    context_length: z.number().int().positive().optional(),
+    pricing: z
+      .object({
+        prompt: z.string().optional(),
+        completion: z.string().optional(),
+        input_cache_read: z.string().optional(),
+        input_cache_write: z.string().optional(),
+        overrides: z
+          .array(
+            z.object({
+              min_prompt_tokens: z.number().int().nonnegative().optional(),
+              prompt: z.string().optional(),
+              completion: z.string().optional(),
+              input_cache_read: z.string().optional(),
+              input_cache_write: z.string().optional(),
+            }),
+          )
+          .optional(),
+      })
+      .partial()
+      .optional(),
+    supported_parameters: z.array(z.string()).optional(),
+    reasoning_efforts: z.array(z.string().min(1)).optional(),
+    reasoningEfforts: z.array(z.string().min(1)).optional(),
+    architecture: z
+      .object({
+        input_modalities: z.array(z.string()).optional(),
+        modality: z.union([z.string(), z.array(z.string())]).optional(),
+        output_modalities: z.array(z.string()).optional(),
+      })
+      .partial()
+      .optional(),
+    settings: z
+      .object({
+        structured_outputs: z.boolean().optional(),
+        reasoning: z.boolean().optional(),
+        reasoning_efforts: z.array(z.string().min(1)).optional(),
+        reasoningEfforts: z.array(z.string().min(1)).optional(),
+      })
+      .partial()
+      .optional(),
+    expires_at: z.string().min(1).optional(),
+    expiration_date: z.string().min(1).optional(),
+    reasoning: z
+      .object({
+        supported_efforts: z.array(z.string().min(1)).optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
 const OpenRouterModelsEnvelopeSchema = z.object({
-  data: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string().optional(),
-      slug: z.string().optional(),
-      description: z.string().optional(),
-      context_length: z.number().int().positive().optional(),
-      pricing: z
-        .object({
-          prompt: z.string().optional(),
-          completion: z.string().optional(),
-          input_cache_read: z.string().optional(),
-          input_cache_write: z.string().optional(),
-          overrides: z
-            .array(
-              z.object({
-                min_prompt_tokens: z.number().int().nonnegative(),
-                prompt: z.string().optional(),
-                completion: z.string().optional(),
-                input_cache_read: z.string().optional(),
-                input_cache_write: z.string().optional(),
-              }),
-            )
-            .optional(),
-        })
-        .partial()
-        .optional(),
-      supported_parameters: z.array(z.string()).optional(),
-      reasoning_efforts: z.array(z.string().min(1)).optional(),
-      reasoningEfforts: z.array(z.string().min(1)).optional(),
-      architecture: z
-        .object({
-          input_modalities: z.array(z.string()).optional(),
-          modality: z.union([z.string(), z.array(z.string())]).optional(),
-          output_modalities: z.array(z.string()).optional(),
-        })
-        .partial()
-        .optional(),
-      settings: z
-        .object({
-          structured_outputs: z.boolean().optional(),
-          reasoning: z.boolean().optional(),
-          reasoning_efforts: z.array(z.string().min(1)).optional(),
-          reasoningEfforts: z.array(z.string().min(1)).optional(),
-        })
-        .partial()
-        .optional(),
-      expires_at: z.string().datetime().optional(),
-    }),
-  ),
+  data: z.array(z.unknown()),
 });
+
+type OpenRouterModelPayload = z.infer<typeof OpenRouterModelSchema>;
 
 export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
   async fetchAll(
@@ -204,7 +216,7 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
 }
 
 function toDiscoveredModel(
-  entry: z.infer<typeof OpenRouterModelsEnvelopeSchema>["data"][number],
+  entry: OpenRouterModelPayload,
 ): BYOKDiscoveredProviderModel {
   const fetchedAt = new Date().toISOString();
   return {
@@ -213,7 +225,7 @@ function toDiscoveredModel(
     providerId: "openrouter",
     contextWindow: entry.context_length,
     pricing: toPricing(entry.pricing),
-    canonicalSlug: entry.slug,
+    canonicalSlug: entry.canonical_slug ?? entry.slug,
     description: entry.description,
     supportedParameters: entry.supported_parameters,
     inputModalities: toInputModalities(entry.architecture),
@@ -224,11 +236,12 @@ function toDiscoveredModel(
       entry.architecture,
       entry.reasoning_efforts ??
         entry.reasoningEfforts ??
+        entry.reasoning?.supported_efforts ??
         entry.settings?.reasoning_efforts ??
         entry.settings?.reasoningEfforts,
     ),
     capabilityMetadata: toCapabilityMetadata(entry.architecture, fetchedAt),
-    expirationDate: entry.expires_at,
+    expirationDate: toExpirationDate(entry.expiration_date ?? entry.expires_at),
   };
 }
 
@@ -354,7 +367,7 @@ function toPricing(
         input_cache_read?: string | undefined;
         input_cache_write?: string | undefined;
         overrides?: Array<{
-          min_prompt_tokens: number;
+          min_prompt_tokens?: number;
           prompt?: string | undefined;
           completion?: string | undefined;
           input_cache_read?: string | undefined;
@@ -372,6 +385,9 @@ function toPricing(
   const cacheWritePer1M = parsePer1M(pricing.input_cache_write);
   const tiers = pricing.overrides
     ?.map((override) => {
+      if (override.min_prompt_tokens === undefined) {
+        return undefined;
+      }
       const tierInput = parsePer1M(override.prompt);
       const tierOutput = parsePer1M(override.completion);
       if (tierInput === undefined || tierOutput === undefined) {
@@ -418,6 +434,14 @@ function parsePer1M(raw: string | undefined): number | undefined {
     return undefined;
   }
   return asNumber * 1_000_000;
+}
+
+function toExpirationDate(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? `${raw}T00:00:00.000Z`
+    : raw;
+  return Number.isNaN(Date.parse(normalized)) ? undefined : normalized;
 }
 
 function supportsTools(parameters: string[] | undefined): boolean | undefined {
@@ -532,7 +556,7 @@ async function makeOpenRouterRequest(
 
 async function parseOpenRouterModels(
   response: Response,
-): Promise<z.infer<typeof OpenRouterModelsEnvelopeSchema>> {
+): Promise<{ data: OpenRouterModelPayload[] }> {
   let payload: unknown;
   try {
     payload = await response.json();
@@ -548,7 +572,16 @@ async function parseOpenRouterModels(
       "OpenRouter models response failed schema validation.",
     );
   }
-  return parsed.data;
+  const data = parsed.data.data.flatMap((entry) => {
+    const model = OpenRouterModelSchema.safeParse(entry);
+    return model.success ? [model.data] : [];
+  });
+  if (parsed.data.data.length > 0 && data.length === 0) {
+    throw new ProviderModelNormalizationError(
+      "OpenRouter models response contained no valid model entries.",
+    );
+  }
+  return { data };
 }
 
 async function parseTextResponse(response: Response): Promise<string> {

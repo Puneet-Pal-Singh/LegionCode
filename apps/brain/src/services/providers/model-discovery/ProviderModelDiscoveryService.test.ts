@@ -310,13 +310,19 @@ describe("ProviderModelDiscoveryService", () => {
       limit: 50,
     });
 
-    expect(result.models).toHaveLength(3);
+    expect(result.models).toHaveLength(36);
     expect(result.models[0]?.id).toBe("openrouter/auto");
     expect(result.models[1]?.id).toBe("openai/gpt-4.1");
     expect(result.models[2]?.id).toBe("google/gemini-2.5-pro");
-    expect(adapter.fetchUserModels).toHaveBeenCalledTimes(1);
-    expect(adapter.fetchProgrammingModels).toHaveBeenCalledTimes(1);
-    expect(store.setUserModelCache).toHaveBeenCalledTimes(1);
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "random/free-model:free" }),
+        expect.objectContaining({ id: "vendor/model-31" }),
+      ]),
+    );
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+    expect(adapter.fetchUserModels).not.toHaveBeenCalled();
+    expect(store.setModelCache).toHaveBeenCalled();
   });
 
   it("maps credential decryption failures to discovery auth errors", async () => {
@@ -394,6 +400,68 @@ describe("ProviderModelDiscoveryService", () => {
     ]);
   });
 
+  it("merges newer route-valid OpenCode Zen catalog models into live inventory", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "oc-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "gpt-5.6-sol",
+          name: "gpt-5.6-sol",
+          providerId: "opencode-zen",
+          availability: "unsupported_transport",
+        },
+      ]),
+      fetchPage: vi.fn(),
+    };
+    const catalog = parseModelDevCatalog({
+      opencode: {
+        api: "https://opencode.ai/zen/v1",
+        models: {
+          "gpt-5.6-sol": {
+            name: "GPT-5.6 Sol",
+            provider: { npm: "@ai-sdk/openai" },
+          },
+          "claude-opus-4-8": {
+            name: "Claude Opus 4.8",
+            provider: { npm: "@ai-sdk/anthropic" },
+          },
+        },
+      },
+    })!;
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { "opencode-zen": adapter },
+      undefined,
+      undefined,
+      undefined,
+      { getCatalog: vi.fn(async () => catalog) },
+    );
+
+    const result = await service.getDiscoveredModels("opencode-zen", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(result.models).toEqual([
+      expect.objectContaining({
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        availability: "available",
+      }),
+      expect.objectContaining({
+        id: "claude-opus-4-8",
+        name: "Claude Opus 4.8",
+        availability: "available",
+      }),
+    ]);
+  });
+
   it("enriches provider-omitted card metadata from the models.dev catalog", async () => {
     const store = createStoreStub();
     const credentialService = {
@@ -414,7 +482,10 @@ describe("ProviderModelDiscoveryService", () => {
             models: {
               "gpt-4o": {
                 limit: { context: 128000, output: 16384 },
-                modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+                modalities: {
+                  input: ["text", "image", "pdf"],
+                  output: ["text"],
+                },
                 reasoning: false,
                 tool_call: true,
               },
@@ -423,7 +494,10 @@ describe("ProviderModelDiscoveryService", () => {
                 modalities: { input: ["text", "image"], output: ["text"] },
                 reasoning: true,
                 reasoning_options: [
-                  { type: "effort", values: ["minimal", "low", "medium", "high"] },
+                  {
+                    type: "effort",
+                    values: ["minimal", "low", "medium", "high"],
+                  },
                 ],
                 tool_call: true,
               },
@@ -451,7 +525,11 @@ describe("ProviderModelDiscoveryService", () => {
 
     const gpt4o = result.models.find((model) => model.id === "gpt-4o");
     expect(gpt4o?.contextWindow).toBe(128000);
-    expect(gpt4o?.inputModalities).toEqual({ text: true, image: true, file: true });
+    expect(gpt4o?.inputModalities).toEqual({
+      text: true,
+      image: true,
+      file: true,
+    });
     expect(gpt4o?.capabilities?.supportsReasoning).toBe(false);
     expect(gpt4o?.capabilities?.supportsTools).toBe(true);
 

@@ -31,6 +31,7 @@ import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import {
   enrichModelFromModelDev,
+  listRunnableModelDevModels,
   type ModelDevCatalogSource,
 } from "./ModelDevCatalog";
 import type { OpenRouterRecommendationInput } from "./types";
@@ -252,12 +253,13 @@ export class ProviderModelDiscoveryService {
     const programmingKeys = new Set(
       input.programmingModels.flatMap((model) => getOpenRouterMatchKeys(model)),
     );
-    const intersected = input.userModels.filter((model) =>
-      getOpenRouterMatchKeys(model).some((key) => programmingKeys.has(key)),
-    );
-    const scored = intersected.map((model) => ({
+    const scored = input.userModels.map((model) => ({
       model,
-      score: computeOpenRouterRecommendationScore(model),
+      score:
+        computeOpenRouterRecommendationScore(model) +
+        (getOpenRouterMatchKeys(model).some((key) => programmingKeys.has(key))
+          ? 25
+          : 0),
     }));
     const sorted = scored.sort(compareOpenRouterRecommendationScore);
     const topModels = sorted.slice(0, input.limit).map((s) => s.model);
@@ -281,7 +283,9 @@ export class ProviderModelDiscoveryService {
     this.observability.recordOpenRouterRecommendation(
       input.userModels.length,
       input.programmingModels.length,
-      intersected.length,
+      input.userModels.filter((model) =>
+        getOpenRouterMatchKeys(model).some((key) => programmingKeys.has(key)),
+      ).length,
       finalModels.length,
       !hasAuto,
     );
@@ -294,9 +298,23 @@ export class ProviderModelDiscoveryService {
     models: ProviderModelCacheRecord["models"],
   ): Promise<ProviderModelCacheRecord["models"]> {
     const catalog = await this.getModelDevCatalog();
-    return models.map((model) =>
+    const enriched = models.map((model) =>
       catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
     );
+    if (!catalog || providerId !== "opencode-zen") {
+      return enriched;
+    }
+    const seen = new Set(
+      enriched.map((model) => model.id.trim().toLowerCase()),
+    );
+    for (const model of listRunnableModelDevModels(catalog, providerId)) {
+      const key = model.id.trim().toLowerCase();
+      if (!seen.has(key)) {
+        enriched.push(model);
+        seen.add(key);
+      }
+    }
+    return enriched;
   }
 
   private async getModelDevCatalog() {
@@ -338,13 +356,12 @@ export class ProviderModelDiscoveryService {
   private async getOpenRouterRecommendedModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const credential = await this.getProviderCredential("openrouter");
-    const [userInventory, programmingModels] = await Promise.all([
-      this.getOpenRouterUserInventory(credential.cacheKey, credential.apiKey),
+    const inventory = await this.getCatalogWithCache("openrouter");
+    const programmingModels = await this.getOptionalOpenRouterModels(() =>
       this.getOpenRouterProgrammingModels(),
-    ]);
+    );
     const ranked = await this.rankOpenRouterRecommendations({
-      userModels: userInventory.models,
+      userModels: inventory.models,
       programmingModels,
       limit: Math.max(query.limit, OPENROUTER_RECOMMENDED_MAX),
     });
@@ -360,9 +377,9 @@ export class ProviderModelDiscoveryService {
         hasMore: page.nextCursor !== undefined,
       },
       metadata: {
-        fetchedAt: userInventory.fetchedAt,
-        stale: false,
-        source: userInventory.source,
+        fetchedAt: inventory.fetchedAt,
+        stale: inventory.source === "cache" && isExpired(inventory.expiresAt),
+        source: inventory.source,
         status: "available",
       },
     };
@@ -371,24 +388,27 @@ export class ProviderModelDiscoveryService {
   private async getOpenRouterManageModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const credential = await this.getProviderCredential("openrouter");
-    const userInventory = await this.getOpenRouterUserInventory(
-      credential.cacheKey,
-      credential.apiKey,
-    );
+    const inventory = await this.getCatalogWithCache("openrouter");
     const categoryFetches = OPENROUTER_DISCOVERY_CATEGORIES.map(
       async (category) =>
-        [category, await this.getOpenRouterCategoryModels(category)] as const,
+        [
+          category,
+          await this.getOptionalOpenRouterModels(() =>
+            this.getOpenRouterCategoryModels(category),
+          ),
+        ] as const,
     );
     const [leaderboardModels, freeModels, categoryEntries] = await Promise.all([
-      this.getOpenRouterLeaderboardModels(),
-      this.getOpenRouterFreeModels(),
+      this.getOptionalOpenRouterModels(() =>
+        this.getOpenRouterLeaderboardModels(),
+      ),
+      this.getOptionalOpenRouterModels(() => this.getOpenRouterFreeModels()),
       Promise.all(categoryFetches),
     ]);
     const categoryMap = new Map(categoryEntries);
 
     const ordered = buildOpenRouterManageModels({
-      userModels: userInventory.models,
+      userModels: inventory.models,
       leaderboardModels,
       programmingModels: categoryMap.get("programming") ?? [],
       technologyModels: categoryMap.get("technology") ?? [],
@@ -410,9 +430,9 @@ export class ProviderModelDiscoveryService {
         hasMore: page.nextCursor !== undefined,
       },
       metadata: {
-        fetchedAt: userInventory.fetchedAt,
-        stale: false,
-        source: userInventory.source,
+        fetchedAt: inventory.fetchedAt,
+        stale: inventory.source === "cache" && isExpired(inventory.expiresAt),
+        source: inventory.source,
         status: "available",
       },
     };
@@ -473,6 +493,20 @@ export class ProviderModelDiscoveryService {
       OPENROUTER_PROGRAMMING_CACHE_KEY,
       async (adapter) => adapter.fetchProgrammingModels("openrouter"),
     );
+  }
+
+  private async getOptionalOpenRouterModels(
+    loader: () => Promise<BYOKDiscoveredProviderModel[]>,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    try {
+      return await loader();
+    } catch (error) {
+      this.observability.recordAdapterFailure(
+        "openrouter",
+        toDiscoveryErrorCode(error),
+      );
+      return [];
+    }
   }
 
   private async getOpenRouterCategoryModels(

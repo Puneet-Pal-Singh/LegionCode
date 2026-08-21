@@ -235,6 +235,34 @@ describe("CloudflareAIModelCatalogAdapter", () => {
     expect(models.map((model) => model.id)).toEqual(["@cf/meta/generation"]);
   });
 
+  it("keeps models when Cloudflare omits the optional task echo", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: [{ id: "@cf/meta/llama-without-task" }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const models = await new CloudflareAIModelCatalogAdapter().fetchAll(
+      "cloudflare-ai",
+      {
+        apiKey: "cf-token",
+        connectionConfig: {
+          providerId: "cloudflare-ai",
+          accountId: "account_123",
+          routeMode: "workers-ai-direct",
+        },
+      },
+    );
+
+    expect(models.map((model) => model.id)).toEqual([
+      "@cf/meta/llama-without-task",
+    ]);
+  });
+
   it("wraps auth errors as non-retryable discovery errors", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
