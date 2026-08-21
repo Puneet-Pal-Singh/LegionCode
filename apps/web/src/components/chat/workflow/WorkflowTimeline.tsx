@@ -14,6 +14,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import {
+  buildActiveWorkflowTrace,
   buildSegmentTitle,
   type ToolActivitySegment,
   type WorkflowItem,
@@ -46,18 +47,12 @@ export function WorkflowTimeline({
   onArtifactOpen,
 }: WorkflowTimelineProps) {
   const activeTrace = showThinkingState
-    ? [...segments]
-        .reverse()
-        .find(
-          (segment) =>
-            segment.isActive &&
-            (segment.reasoning !== null || segment.children.some(isToolItem)),
-        )
-    : undefined;
+    ? buildActiveWorkflowTrace(segments)
+    : null;
   return (
     <div className="space-y-1" data-testid="workflow-tool-viewport">
       {segments.map((segment) =>
-        segment === activeTrace ? null : (
+        segment.key === activeTrace?.consumedSegmentKey ? null : (
           <WorkflowSegment
             key={segment.key}
             segment={segment}
@@ -69,7 +64,8 @@ export function WorkflowTimeline({
       {showThinkingState ? (
         <ActiveWorkflowTrace
           key="active-workflow-trace"
-          segment={activeTrace ?? null}
+          title={activeTrace?.title ?? "Thinking through the next step"}
+          children={activeTrace?.activeChildren ?? []}
           turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
@@ -79,20 +75,19 @@ export function WorkflowTimeline({
 }
 
 function ActiveWorkflowTrace({
-  segment,
+  title,
+  children,
   turnDiff,
   onArtifactOpen,
 }: {
-  segment: ToolActivitySegment | null;
+  title: string;
+  children: readonly WorkflowItem[];
   turnDiff: TurnDiffPayload | null;
   onArtifactOpen?: ArtifactOpenHandler;
 }) {
-  const children = segment?.children.filter(isToolItem) ?? [];
   return (
     <ActivityDisclosure
-      title={
-        segment ? buildSegmentTitle(segment) : "Thinking through the next step"
-      }
+      title={title}
       active
       hasChildren={children.length > 0}
       titleTestId="active-workflow-title"
@@ -251,14 +246,6 @@ function ActivityDisclosure({
         <div className="min-w-0">{children}</div>
       ) : null}
     </div>
-  );
-}
-
-function isToolItem(item: WorkflowItem): boolean {
-  return (
-    item.kind === "tool_call" ||
-    item.kind === "command_execution" ||
-    item.kind === "file_change"
   );
 }
 

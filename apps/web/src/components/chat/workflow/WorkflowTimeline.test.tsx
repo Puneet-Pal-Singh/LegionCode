@@ -343,6 +343,53 @@ describe("WorkflowTimeline", () => {
               },
             ],
           },
+        ]}
+        turnDiff={null}
+        showThinkingState
+      />,
+    );
+
+    expect(screen.getByTestId("active-workflow-title")).toBe(activeTitle);
+    expect(activeTitle).toHaveTextContent("I’m checking the test suite now.");
+    expect(
+      screen.getAllByText("I’m checking the test suite now."),
+    ).toHaveLength(2);
+
+    rerender(
+      <WorkflowTimeline
+        segments={[
+          {
+            key: "visible-commentary",
+            reasoning: null,
+            familyLabels: ["tool calls"],
+            isActive: false,
+            children: [
+              {
+                itemId: ItemIdSchema.parse("itm_commentary"),
+                sequence: 1,
+                kind: "commentary",
+                status: "completed",
+                text: "I’m checking the test suite now.",
+                detail: null,
+                toolFamily: null,
+                safeSummary: null,
+                inputSummary: null,
+                outputSummary: null,
+                toolName: null,
+                filePath: null,
+                command: null,
+                outputContent: null,
+                diffPreview: null,
+                additions: null,
+                deletions: null,
+                editChange: undefined,
+                planSteps: [],
+                compactionPhase: null,
+                startedAt: "2026-08-09T09:59:59.000Z",
+                completedAt: "2026-08-09T10:00:00.000Z",
+              },
+            ],
+          },
           {
             key: "active-command",
             reasoning: null,
@@ -350,8 +397,32 @@ describe("WorkflowTimeline", () => {
             isActive: true,
             children: [
               {
+                itemId: ItemIdSchema.parse("itm_completed_read"),
+                sequence: 2,
+                kind: "tool_call",
+                status: "completed",
+                text: "",
+                detail: null,
+                toolFamily: "read",
+                safeSummary: "Read package.json",
+                inputSummary: null,
+                outputSummary: null,
+                toolName: "read_file",
+                filePath: "package.json",
+                command: null,
+                outputContent: null,
+                diffPreview: null,
+                additions: null,
+                deletions: null,
+                editChange: undefined,
+                planSteps: [],
+                compactionPhase: null,
+                startedAt: "2026-08-09T10:00:00.000Z",
+                completedAt: "2026-08-09T10:00:01.000Z",
+              },
+              {
                 itemId: ItemIdSchema.parse("itm_continuous"),
-                sequence: 1,
+                sequence: 3,
                 kind: "command_execution",
                 status: "active",
                 text: "",
@@ -388,6 +459,7 @@ describe("WorkflowTimeline", () => {
       screen.getByText("I’m checking the test suite now."),
     ).toBeInTheDocument();
     expect(screen.getByText("Running command")).toBeInTheDocument();
+    expect(screen.queryByText("Reading package.json")).toBeNull();
 
     rerender(
       <WorkflowTimeline
