@@ -12,6 +12,12 @@ export interface ToolActivitySegment {
   readonly isActive: boolean;
 }
 
+export interface ActiveWorkflowTraceProjection {
+  readonly title: string;
+  readonly activeChildren: readonly WorkflowItem[];
+  readonly consumedSegmentKey: string | null;
+}
+
 const HARD_BOUNDARY_KINDS: ReadonlySet<WorkflowItemKind> = new Set([
   "commentary",
   "context_compaction",
@@ -262,6 +268,54 @@ export function buildSegmentTitle(segment: ToolActivitySegment): string {
   return labels.map(toActivityPhrase).join(", ");
 }
 
+export function buildActiveWorkflowTrace(
+  segments: readonly ToolActivitySegment[],
+): ActiveWorkflowTraceProjection {
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index]!;
+    const activeChildren = segment.children.filter(isActiveToolItem);
+    if (activeChildren.length > 0) {
+      return {
+        title: buildSegmentTitle(segment),
+        activeChildren,
+        consumedSegmentKey: segment.key,
+      };
+    }
+  }
+
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index]!;
+    const title = providerVisibleStatusTitle(segment);
+    if (title) {
+      return {
+        title,
+        activeChildren: [],
+        consumedSegmentKey: segment.reasoning ? segment.key : null,
+      };
+    }
+  }
+
+  return {
+    title: "Thinking through the next step",
+    activeChildren: [],
+    consumedSegmentKey: null,
+  };
+}
+
+function providerVisibleStatusTitle(
+  segment: ToolActivitySegment,
+): string | null {
+  const reasoningTitle = visibleReasoningTitle(segment.reasoning, false);
+  if (reasoningTitle) return reasoningTitle;
+
+  const commentary = segment.children.find(
+    (item) => item.kind === "commentary",
+  );
+  return compactActivityTitle(
+    commentary?.safeSummary ?? commentary?.text ?? commentary?.detail,
+  );
+}
+
 /**
  * Returns the short, user-visible status for a workflow segment.
  *
@@ -279,13 +333,21 @@ function visibleActivityTitle(item: WorkflowItem | undefined): string | null {
   return activeToolFallback(item);
 }
 
-function visibleReasoningTitle(item: WorkflowItem | null): string | null {
+function visibleReasoningTitle(
+  item: WorkflowItem | null,
+  useFallback = true,
+): string | null {
   if (!item) return null;
   const visibleTitle = compactActivityTitle(
     item.safeSummary ?? item.text ?? item.detail,
   );
   if (visibleTitle && wordCount(visibleTitle) >= 4) return visibleTitle;
-  return "Thinking through the next step";
+  if (visibleTitle) return visibleTitle;
+  return useFallback ? "Thinking through the next step" : null;
+}
+
+function isActiveToolItem(item: WorkflowItem): boolean {
+  return item.status === "active" && isToolItem(item);
 }
 
 function compactActivityTitle(value: string | null | undefined): string | null {

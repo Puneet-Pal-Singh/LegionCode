@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ItemId } from "@repo/platform-protocol";
 import {
+  buildActiveWorkflowTrace,
   buildSegmentTitle,
   groupToolActivity,
 } from "./tool-activity-grouping.js";
@@ -134,6 +135,47 @@ describe("groupToolActivity", () => {
       text: "I am checking the repository first.",
     });
     expect(segments[1]?.children[0]?.kind).toBe("tool_call");
+  });
+
+  it("uses the latest provider-visible status between tool calls", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_commentary" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "Identifying the core architecture before editing files",
+      }),
+    ]);
+
+    expect(buildActiveWorkflowTrace(segments)).toMatchObject({
+      title: "Identifying the core architecture before editing…",
+      activeChildren: [],
+      consumedSegmentKey: null,
+    });
+  });
+
+  it("shows only active child calls and lets their tool status win", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_completed" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+      }),
+      workflowItem({
+        itemId: "item_active" as ItemId,
+        kind: "tool_call",
+        toolFamily: "edit",
+        status: "active",
+        safeSummary: "Edit landing files",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.title).toBe("Editing the selected project files");
+    expect(trace.activeChildren.map((item) => item.itemId)).toEqual([
+      "item_active",
+    ]);
+    expect(trace.consumedSegmentKey).toBe(segments[0]?.key);
   });
 });
 
