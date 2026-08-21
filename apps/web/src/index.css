@@ -116,16 +116,18 @@
 }
 
 .turn-lifecycle-shimmer {
+  display: inline-block;
   background-image: linear-gradient(
     90deg,
     rgba(113, 113, 122, 0.9) 0%,
     rgba(244, 244, 245, 0.98) 45%,
     rgba(113, 113, 122, 0.9) 100%
   );
-  background-size: 220% 100%;
+  background-size: 280% 100%;
   background-clip: text;
   color: transparent;
-  animation: turn-lifecycle-shimmer 3.2s linear infinite;
+  animation: turn-lifecycle-shimmer 1.8s linear infinite;
+  will-change: background-position;
 }
 
 @media (prefers-reduced-motion: reduce) {

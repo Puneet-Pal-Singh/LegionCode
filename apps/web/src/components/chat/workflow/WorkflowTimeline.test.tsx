@@ -160,14 +160,15 @@ describe("WorkflowTimeline", () => {
     expect(screen.getByText("Reading the selected source file")).toHaveClass(
       "turn-lifecycle-shimmer",
     );
+    expect(chevron).not.toHaveClass("rotate-90");
+    expect(
+      screen.queryByText("Reading src/main.ts"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(disclosure);
     expect(chevron).toHaveClass("rotate-90");
     expect(
       screen.getAllByText("Reading src/main.ts")[0]?.closest("[data-item-id]"),
     ).toHaveClass("py-1", "text-sm", "leading-5");
-    fireEvent.click(disclosure);
-    expect(chevron).not.toHaveClass("rotate-90");
-    fireEvent.click(disclosure);
-    expect(chevron).toHaveClass("rotate-90");
     expect(disclosure.parentElement?.querySelector(".border-l")).toBeNull();
     expect(screen.getByTestId("activity-disclosure-row")).toHaveClass(
       "min-h-7",
@@ -239,6 +240,9 @@ describe("WorkflowTimeline", () => {
         name: /reading the selected source file/i,
       }),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {
+      name: /reading the selected source file/i,
+    }));
     expect(
       screen.getByRole("button", {
         name: /view details for reading registry\.ts/i,
@@ -294,6 +298,9 @@ describe("WorkflowTimeline", () => {
     expect(
       screen.getByRole("button", { name: /running the current command now/i }),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {
+      name: /running the current command now/i,
+    }));
     expect(screen.getByText("Running command")).toHaveClass(
       "turn-lifecycle-shimmer",
     );
@@ -354,6 +361,7 @@ describe("WorkflowTimeline", () => {
     expect(screen.getByTestId("activity-disclosure-row")).toBe(
       activeDisclosure,
     );
+    fireEvent.click(screen.getByTestId("activity-disclosure-row"));
     expect(activeTitle).toHaveTextContent("Thinking through the next step");
     expect(
       screen.getAllByText("I’m checking the test suite now."),
@@ -461,6 +469,7 @@ describe("WorkflowTimeline", () => {
       activeDisclosure,
     );
     expect(screen.getAllByTestId("activity-disclosure-row")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("activity-disclosure-row"));
     expect(activeTitle).toHaveTextContent("Running the current command now");
     expect(activeTitle).toHaveClass("turn-lifecycle-shimmer");
     expect(

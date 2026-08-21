@@ -200,11 +200,10 @@ function ActivityDisclosure({
   titleTestId?: string;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(active && hasChildren);
-
-  useEffect(() => {
-    if (active && hasChildren) setExpanded(true);
-  }, [active, hasChildren]);
+  // Activity is deliberately closed by default. The parent title is the
+  // live status surface; opening it is an explicit inspection action and
+  // should not cause a long tool list to jump open while a turn is running.
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div>
