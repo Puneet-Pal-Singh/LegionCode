@@ -27,8 +27,7 @@ function createCredentialFixture(overrides?: { credentialId?: string }) {
 }
 
 describe("ProviderApiClient", () => {
-  const providerApiBaseUrl =
-    `${window.location.origin}/__legioncode/brain/api/byok`;
+  const providerApiBaseUrl = `${window.location.origin}/__legioncode/brain/api/byok`;
   const testRunId = "run_123456";
   let client: ProviderApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -140,16 +139,16 @@ describe("ProviderApiClient", () => {
       expect(models.providerId).toBe("openrouter");
       expect(models.view).toBe("popular");
       expect(models.models).toEqual([
-          {
-            id: "openai/gpt-4o-mini",
-            name: "GPT-4o Mini",
-            provider: "openrouter",
-            pricing: {
-              inputPer1M: 0.15,
-              outputPer1M: 0.6,
-              currency: "USD",
-            },
+        {
+          id: "openai/gpt-4o-mini",
+          name: "GPT-4o Mini",
+          provider: "openrouter",
+          pricing: {
+            inputPer1M: 0.15,
+            outputPer1M: 0.6,
+            currency: "USD",
           },
+        },
       ]);
       expect(models.page.hasMore).toBe(false);
       expect(models.metadata.stale).toBe(false);
@@ -181,6 +180,45 @@ describe("ProviderApiClient", () => {
         `${providerApiBaseUrl}/providers/openrouter/models?view=popular&limit=50`,
         expect.objectContaining({ method: "GET" }),
       );
+    });
+
+    it("does not cancel concurrent picker and manage inventory requests", async () => {
+      const responseFor = (surface: "picker" | "manage") => ({
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: vi.fn().mockResolvedValue({
+          providerId: "openrouter",
+          view: surface === "picker" ? "popular" : "all",
+          models: [],
+          page: { limit: surface === "picker" ? 50 : 150, hasMore: false },
+          metadata: {
+            fetchedAt: "2026-08-21T00:00:00.000Z",
+            stale: false,
+            source: "provider_api",
+            status: "available",
+          },
+        }),
+      });
+      fetchSpy
+        .mockResolvedValueOnce(responseFor("picker"))
+        .mockResolvedValueOnce(responseFor("manage"));
+
+      const picker = client.getProviderModels("openrouter", {
+        view: "popular",
+        surface: "picker",
+        limit: 50,
+      });
+      const manage = client.getProviderModels("openrouter", {
+        view: "all",
+        surface: "manage",
+        limit: 150,
+      });
+
+      const firstSignal = (fetchSpy.mock.calls[0]?.[1] as RequestInit).signal;
+      const secondSignal = (fetchSpy.mock.calls[1]?.[1] as RequestInit).signal;
+      expect(firstSignal?.aborted).toBe(false);
+      expect(secondSignal?.aborted).toBe(false);
+      await expect(Promise.all([picker, manage])).resolves.toHaveLength(2);
     });
   });
 

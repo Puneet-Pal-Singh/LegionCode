@@ -46,4 +46,13 @@ describe("formatModelDisplayName", () => {
       }),
     ).toBe("GLM 4.5 Air Free");
   });
+
+  it("restores dotted Claude versions from OpenCode Zen ids", () => {
+    expect(
+      formatModelDisplayName({
+        id: "claude-opus-4-8",
+        name: "claude-opus-4-8",
+      }),
+    ).toBe("Claude Opus 4.8");
+  });
 });

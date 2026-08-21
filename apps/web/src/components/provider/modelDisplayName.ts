@@ -34,7 +34,9 @@ export function formatModelDisplayName(model: ModelDisplaySource): string {
     return rawName;
   }
 
-  const unqualifiedName = rawName.split("/").at(-1) ?? rawName;
+  const unqualifiedName = normalizeKnownVersionSeparators(
+    rawName.split("/").at(-1) ?? rawName,
+  );
   const tokens = unqualifiedName.split(/[-_: ]+/).filter(Boolean);
   if (tokens.length === 0) {
     return rawName;
@@ -52,4 +54,11 @@ export function formatModelDisplayName(model: ModelDisplaySource): string {
   }
 
   return formattedTokens.join(" ");
+}
+
+function normalizeKnownVersionSeparators(value: string): string {
+  return value.replace(
+    /\b(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)(?=-|$)/gi,
+    "$1.$2",
+  );
 }

@@ -125,9 +125,7 @@ export class ProviderApiClient {
   private readonly sdkClient;
   private readonly abortControllers = new Map<string, AbortController>();
 
-  constructor(
-    private readonly runIdResolver: RunIdResolver,
-  ) {
+  constructor(private readonly runIdResolver: RunIdResolver) {
     this.sdkClient = createProviderClient(
       createByokHttpTransport({
         baseUrl: `${getBrainHttpBase()}/api/byok`,
@@ -147,7 +145,13 @@ export class ProviderApiClient {
     providerId: string,
     query: ProviderModelsQuery = {},
   ): Promise<ProviderModelsPageResult> {
-    const requestKey = `GET /providers/${encodeURIComponent(providerId)}/models`;
+    const requestKey = [
+      `GET /providers/${encodeURIComponent(providerId)}/models`,
+      query.view ?? "popular",
+      query.surface ?? "picker",
+      query.limit ?? 50,
+      query.cursor ?? "start",
+    ].join(":");
     const response = await this.callWithAbortKey(requestKey, (signal) =>
       this.sdkClient.discoverProviderModels(providerId, query, { signal }),
     );
