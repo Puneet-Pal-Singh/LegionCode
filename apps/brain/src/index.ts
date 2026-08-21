@@ -9,6 +9,7 @@ import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
 import { TranscriptController } from "./controllers/TranscriptController";
+import { ChatMediaController } from "./controllers/ChatMediaController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
 import { TurnController } from "./controllers/TurnController";
@@ -89,6 +90,7 @@ function createRouter(): Router {
     "POST",
   );
   router.add(/^\/api\/chat\/history$/, TranscriptController.getHistory, "GET");
+  router.add(/^\/api\/chat\/media\/[^/]+$/, ChatMediaController.get, "GET");
   router.add(/\/chat/, ChatController.handle, "POST");
   router.add(/^\/turn\/start$/, TurnController.start, "POST");
   router.add(/^\/turn\/scope$/, TurnController.scope, "GET");

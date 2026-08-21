@@ -294,7 +294,7 @@ describe("PersistenceService", () => {
     expect(transcript.messages).toHaveLength(1);
   });
 
-  it("persists image-bearing user messages as redacted text parts", async () => {
+  it("persists image-bearing user messages as typed durable refs", async () => {
     const repository = {
       appendMessage: vi.fn(async () => createTranscriptMessageRecord()),
     } as Partial<TranscriptRepository> as TranscriptRepository;
@@ -305,7 +305,10 @@ describe("PersistenceService", () => {
       ) => callback(repository),
     );
 
-    const service = new PersistenceService(createEnv());
+    const service = new PersistenceService({
+      ...createEnv(),
+      EDIT_ARTIFACTS: { put: vi.fn() } as never,
+    });
     await service.persistUserMessage(
       "123e4567-e89b-42d3-a456-426614174001",
       "123e4567-e89b-42d3-a456-426614174000",
@@ -315,7 +318,8 @@ describe("PersistenceService", () => {
           { type: "text", text: "What is wrong here?" },
           {
             type: "image",
-            image: "data:image/png;base64,aGVsbG8=",
+            image:
+              "data:image/png;base64,iVBORw0KGgo=",
             mimeType: "image/png",
             name: "screen.png",
           },
@@ -332,7 +336,17 @@ describe("PersistenceService", () => {
           {
             type: "text",
             content: {
-              text: "What is wrong here?\n\n[Image attached: screen.png, image/png, 5 B]",
+              text: "What is wrong here?\n\n[Image attached: screen.png, image/png, 8 B]",
+              metadata: {
+                imageAttachments: [
+                  expect.objectContaining({
+                    type: "image_attachment",
+                    name: "screen.png",
+                    mediaType: "image/png",
+                    byteSize: 8,
+                  }),
+                ],
+              },
             },
           },
         ],

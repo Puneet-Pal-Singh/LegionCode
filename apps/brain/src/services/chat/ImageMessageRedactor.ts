@@ -22,7 +22,7 @@ export interface RedactedImageAttachmentMetadata {
   redacted: true;
 }
 
-interface ImagePartLike {
+export interface ImagePartLike {
   type: "image";
   image: string;
   mimeType?: string;
@@ -103,7 +103,7 @@ export function parseImageDataUrl(value: string): {
   };
 }
 
-function extractImageParts(content: unknown[]): ImagePartLike[] {
+export function extractImageParts(content: unknown[]): ImagePartLike[] {
   return content.filter(isImagePartLike);
 }
 

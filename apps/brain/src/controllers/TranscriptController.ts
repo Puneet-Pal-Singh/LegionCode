@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { JsonValue } from "@repo/shared-types";
 import { RunIdSchema } from "@repo/platform-protocol";
+import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
 import type {
   SessionRecord,
   TranscriptMessagePartRecord,
@@ -414,7 +415,7 @@ function toHydrationMessage(message: TranscriptMessageRecord): {
   };
 } {
   const textContent = readSingleTextPart(message.parts);
-  const data = readHydrationData(message.parts);
+  const data = readHydrationData(message.parts, message.sessionId);
   const hydratedMessage = {
     id: message.clientMessageId ?? message.id,
     role: message.role,
@@ -453,6 +454,7 @@ function partToHydrationContent(
 
 function readHydrationData(
   parts: TranscriptMessagePartRecord[],
+  sessionId: string,
 ):
   | {
       metadata?: Record<string, unknown>;
@@ -465,9 +467,31 @@ function readHydrationData(
   if (!metadata) {
     return undefined;
   }
+  const imageAttachments = readImageAttachmentRefs(metadata.imageAttachments)
+    .map((attachment) => ({
+      ...attachment,
+      src: `/api/chat/media/${encodeURIComponent(attachment.attachmentId)}?session=${encodeURIComponent(sessionId)}`,
+    }));
   return {
-    ...(metadata ? { metadata } : {}),
+    metadata: {
+      ...metadata,
+      ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+    },
   };
+}
+
+function readImageAttachmentRefs(value: unknown): Array<{
+  type: "image_attachment";
+  attachmentId: string;
+  name: string;
+  mediaType: string;
+  byteSize: number;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    const parsed = ChatImageAttachmentRefSchema.safeParse(candidate);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 function readPartMetadata(value: JsonValue): Record<string, unknown> | null {
