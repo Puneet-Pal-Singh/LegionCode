@@ -164,7 +164,11 @@ import {
   estimateConversationTokens,
   summarizeConversationForCompaction,
 } from "./NativeProviderContextMessages.js";
-import { runWithProviderRateLimitRecovery } from "./NativeProviderRateLimitRecovery.js";
+import { runWithProviderRequestRecovery } from "./NativeProviderRequestRecovery.js";
+import {
+  buildProviderRecoveryIdempotencyKey,
+  buildProviderRecoveryProgress,
+} from "./NativeProviderRecoveryProgress.js";
 import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -998,7 +1002,7 @@ class KernelAgenticProvider implements ProviderPort {
       );
 
       if (finalRecovery) {
-        const recovered = await this.requestWithRateLimitRecovery(
+        const recovered = await this.requestWithProviderRecovery(
           input,
           context,
           (attemptContext) =>
@@ -1026,7 +1030,7 @@ class KernelAgenticProvider implements ProviderPort {
         ];
         toolCalls = [];
       } else {
-        const response = await this.requestWithRateLimitRecovery(
+        const response = await this.requestWithProviderRecovery(
           input,
           context,
           (attemptContext) =>
@@ -1292,40 +1296,43 @@ class KernelAgenticProvider implements ProviderPort {
     );
   }
 
-  private async requestWithRateLimitRecovery<T>(
+  private async requestWithProviderRecovery<T>(
     input: ProviderCallInput,
     context: NativeProviderCallContext,
     operation: (context: NativeProviderCallContext) => Promise<T>,
   ): Promise<T> {
     try {
-      const result = await runWithProviderRateLimitRecovery(
+      const result = await runWithProviderRequestRecovery(
         (retryCount) =>
           runWithNativeCancellationPolling(
             operation({
               ...context,
-              idempotencyKey:
-                retryCount === 0
-                  ? context.idempotencyKey
-                  : `${context.idempotencyKey}:rate-limit-retry:${retryCount}`,
+              idempotencyKey: buildProviderRecoveryIdempotencyKey(
+                context.idempotencyKey,
+                retryCount,
+              ),
             }),
             this.options.isRunCancelled,
           ),
         {
           signal: input.signal,
-          onRateLimit: async (delayMs, retryCount) => {
-            const seconds = Math.max(1, Math.ceil(delayMs / 1_000));
+          onRetry: async (delayMs, retryCount, reason) => {
+            const progress = buildProviderRecoveryProgress({
+              delayMs,
+              retryCount,
+              reason,
+              turnId: input.turn.id,
+            });
             await this.options.runEventRecorder.recordRunProgress(
               RUN_WORKFLOW_STEPS.EXECUTION,
-              "Provider cooldown",
-              `The model provider asked LegionCode to retry in ${seconds}s. Waiting before the next model request.`,
+              progress.title,
+              progress.detail,
               "active",
               {
                 displayMode: "visible",
                 metadata: {
                   owner: "runtime-kernel-native",
-                  retryCount,
-                  retryAfterSeconds: seconds,
-                  turnId: input.turn.id,
+                  ...progress.metadata,
                 },
               },
             );
@@ -1335,8 +1342,8 @@ class KernelAgenticProvider implements ProviderPort {
       if (result.retryCount > 0) {
         await this.options.runEventRecorder.recordRunProgress(
           RUN_WORKFLOW_STEPS.EXECUTION,
-          "Provider cooldown",
-          "The provider cooldown ended and model execution resumed.",
+          "Provider retry",
+          "The provider retry window ended and model execution resumed.",
           "completed",
           {
             displayMode: "debug",
