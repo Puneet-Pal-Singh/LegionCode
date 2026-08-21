@@ -92,20 +92,30 @@ describe("LifecycleProjection", () => {
     expect(requested.pendingApproval?.options).toEqual(["Approve", "Deny"]);
     expect(requested.phase).toBe("waiting_for_approval");
 
-    const decided = applyLifecycleEvent(
+    const unrelatedDecision = applyLifecycleEvent(
       requested,
       lifecycleEvent(2, "approval.decided", {
+        itemId: APPROVAL_ITEM_ID,
+        approvalId: "appr_other01" as ApprovalId,
+        payload: { decision: "approved" },
+      }),
+    );
+    expect(unrelatedDecision.pendingApproval?.approvalId).toBe(APPROVAL_ID);
+
+    const decided = applyLifecycleEvent(
+      requested,
+      lifecycleEvent(3, "approval.decided", {
         itemId: APPROVAL_ITEM_ID,
         approvalId: APPROVAL_ID,
         payload: { decision: "approved" },
       }),
     );
 
-    expect(decided.pendingApproval?.decision).toBe("approved");
+    expect(decided.pendingApproval).toBeNull();
 
     const resolved = applyLifecycleEvent(
       decided,
-      lifecycleEvent(3, "request.resolved", {
+      lifecycleEvent(4, "request.resolved", {
         itemId: APPROVAL_ITEM_ID,
         requestId: "approval-resolution",
         payload: { resolved: true },

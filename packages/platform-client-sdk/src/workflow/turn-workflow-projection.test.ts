@@ -118,6 +118,38 @@ describe("turn workflow projection", () => {
     });
   });
 
+  it("clears only the approval settled by a matching decision", () => {
+    const requested = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "approval.requested", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { question: "Run command?", options: ["Approve", "Deny"] },
+      }),
+    );
+    const unrelated = applyLifecycleEvent(
+      requested,
+      event(2, "approval.decided", {
+        itemId: "itm_approval02",
+        approvalId: "appr_other001",
+        payload: { decision: "denied" },
+      }),
+    );
+    const settled = applyLifecycleEvent(
+      unrelated,
+      event(3, "approval.decided", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { decision: "approved" },
+      }),
+    );
+
+    expect(unrelated.pendingApproval?.approvalId).toBe("appr_workflow01");
+    expect(unrelated.phase).toBe("waiting_for_approval");
+    expect(settled.pendingApproval).toBeNull();
+    expect(settled.phase).toBe("working");
+  });
+
   it("projects the typed failure reason inside the canonical terminal", () => {
     const projection = applyLifecycleEvent(
       createTurnWorkflowProjection(TURN_ID),
