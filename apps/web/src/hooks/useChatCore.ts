@@ -59,6 +59,7 @@ import {
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 import { attachActiveTurnIdentity } from "./chat/activeTurnMessageIdentity";
+import { readCanonicalTurnId } from "../components/chat/messageMetadata";
 import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
@@ -111,6 +112,7 @@ interface UseChatCoreResult {
   error: string | null;
   clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
+  reviseTurn: (turnId: string, content: string) => Promise<boolean>;
 }
 
 /**
@@ -329,6 +331,9 @@ export function useChatCore(
               threadId: activeConversationScope.threadId,
               turnId: activeConversationScope.turnId,
               runAttemptId: activeConversationScope.runAttemptId,
+              ...(activeConversationScope.revisionOfTurnId
+                ? { revisionOfTurnId: activeConversationScope.revisionOfTurnId }
+                : {}),
             },
           }
         : {}),
@@ -568,6 +573,9 @@ export function useChatCore(
           threadId: identity.threadId,
           turnId: identity.turnId,
           runAttemptId: identity.runAttemptId,
+          ...(identity.revisionOfTurnId
+            ? { revisionOfTurnId: identity.revisionOfTurnId }
+            : {}),
         },
         ...loadRepositoryContextFields(sessionId),
       }),
@@ -638,7 +646,10 @@ export function useChatCore(
   );
 
   const appendWithResolution = useCallback(
-    async (message: ChatAppendMessage): Promise<void> => {
+    async (
+      message: ChatAppendMessage,
+      revisionTarget?: string,
+    ): Promise<void> => {
       const bootstrapScopeKey = runScopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
@@ -717,6 +728,7 @@ export function useChatCore(
           sessionId,
           runId,
           submittedMessage.id,
+          revisionTarget,
         );
         if (!isActiveRunScope(runScopeKey)) {
           return;
@@ -789,6 +801,13 @@ export function useChatCore(
             },
           );
         }
+        if (revisionTarget) {
+          setMessages((current) =>
+            current.filter(
+              (candidate) => readCanonicalTurnId(candidate) !== revisionTarget,
+            ),
+          );
+        }
       } finally {
         if (isActiveRunScope(runScopeKey)) {
           const settledScopeKey = activeScopeKeyRef.current;
@@ -815,6 +834,7 @@ export function useChatCore(
       status,
       stopStream,
       submitResolvedMessage,
+      setMessages,
     ],
   );
 
@@ -997,6 +1017,20 @@ export function useChatCore(
     stopStream,
   ]);
 
+  const reviseTurn = useCallback(
+    async (turnId: string, content: string): Promise<boolean> => {
+      const parsedTurnId = TurnIdSchema.safeParse(turnId);
+      const trimmed = content.trim();
+      if (!parsedTurnId.success || !trimmed) return false;
+      await appendWithResolution(
+        { id: crypto.randomUUID(), role: "user", content: trimmed },
+        parsedTurnId.data,
+      );
+      return true;
+    },
+    [appendWithResolution],
+  );
+
   return {
     messages: scopedMessages,
     optimisticUserMessageId,
@@ -1016,6 +1050,7 @@ export function useChatCore(
     error,
     clearNonCanonicalError,
     debugEvents,
+    reviseTurn,
   };
 }
 

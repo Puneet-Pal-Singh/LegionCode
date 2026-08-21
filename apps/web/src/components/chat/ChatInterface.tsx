@@ -63,6 +63,7 @@ interface ChatInterfaceProps {
       attachments?: ChatSubmitAttachments,
     ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
+    reviseTurn?: (turnId: string, content: string) => Promise<boolean>;
     stop: () => void;
     isLoading: boolean;
     hasHydrated?: boolean;
@@ -465,6 +466,7 @@ export function ChatInterface({
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
       completedTurnReview={completedTurnReview}
       lifecycleProjection={lifecycleProjection}
+      onUserMessageEdit={chatProps.reviseTurn}
       pendingWorkflow={awaitingCanonicalLifecycle}
     />
   );
