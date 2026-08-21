@@ -9,11 +9,13 @@ export function MessageActions({
   metadata,
   isUser,
   hookAudits = [],
+  onEdit,
 }: {
   content: string;
   metadata?: ChatMessageMetadata;
   isUser: boolean;
   hookAudits?: readonly HookInvocationAuditEvent[];
+  onEdit?: () => void;
 }) {
   const metadataText = metadata
     ? isUser
@@ -22,13 +24,14 @@ export function MessageActions({
           .filter((value): value is string => Boolean(value?.trim()))
           .join(" · ")
     : "";
-  if (isUser && !metadataText) return null;
+  if (isUser && !metadataText && !onEdit) return null;
   return (
     <MessageActionRow
       content={content}
       metadataText={metadataText}
       isUser={isUser}
       hookAudits={hookAudits}
+      onEdit={onEdit}
     />
   );
 }
@@ -38,11 +41,13 @@ function MessageActionRow({
   metadataText,
   isUser,
   hookAudits,
+  onEdit,
 }: {
   content: string;
   metadataText: string;
   isUser: boolean;
   hookAudits: readonly HookInvocationAuditEvent[];
+  onEdit?: () => void;
 }) {
   const canCopy = content.length > 0;
   const handleCopy = useCallback(async () => {
@@ -63,6 +68,16 @@ function MessageActionRow({
       {!isUser && canCopy && <CopyButton onCopy={handleCopy} />}
       {!isUser && hookAudits.length > 0 ? (
         <HookAuditAction audits={hookAudits} />
+      ) : null}
+      {isUser && onEdit ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200"
+          aria-label="Edit prompt"
+        >
+          Edit
+        </button>
       ) : null}
       {metadataText ? (
         <span

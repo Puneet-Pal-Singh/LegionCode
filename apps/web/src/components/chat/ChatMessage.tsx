@@ -1,5 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 import type { ArtifactOpenHandler } from "./artifactOpen";
+import { useState } from "react";
 import { cn } from "../../lib/utils";
 import type { ChatMessageMetadata } from "./messageMetadata";
 import { ChangedFilesCard } from "./chat-message/ChangedFilesCard";
@@ -17,6 +18,7 @@ interface ChatMessageProps {
   onReviewOpen?: () => void;
   changedFilesSummary?: ChangedFilesSummary;
   hookAudits?: readonly HookInvocationAuditEvent[];
+  onEdit?: (content: string) => Promise<boolean>;
 }
 
 export function ChatMessage({
@@ -26,8 +28,11 @@ export function ChatMessage({
   onReviewOpen,
   changedFilesSummary,
   hookAudits = [],
+  onEdit,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState(message.content);
   const displayContent = useMessageDisplayContent(
     message,
     isUser,
@@ -47,7 +52,42 @@ export function ChatMessage({
           isUser ? "flex flex-col items-end" : "flex-1",
         )}
       >
-        <MessageContent content={displayContent} isUser={isUser} />
+        {isEditing ? (
+          <div className="w-full max-w-xl space-y-2">
+            <textarea
+              value={editedContent}
+              onChange={(event) => setEditedContent(event.target.value)}
+              className="min-h-24 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-400"
+              aria-label="Edit prompt"
+            />
+            <div className="flex justify-end gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditedContent(message.content);
+                  setIsEditing(false);
+                }}
+                className="rounded-md px-2.5 py-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!editedContent.trim()}
+                onClick={async () => {
+                  if (!onEdit) return;
+                  const accepted = await onEdit(editedContent);
+                  if (accepted) setIsEditing(false);
+                }}
+                className="rounded-md bg-zinc-100 px-2.5 py-1.5 font-medium text-zinc-950 disabled:opacity-50"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        ) : (
+          <MessageContent content={displayContent} isUser={isUser} />
+        )}
         {!isUser && (
           <MessageArtifacts message={message} onArtifactOpen={onArtifactOpen} />
         )}
@@ -65,6 +105,7 @@ export function ChatMessage({
           metadata={metadata}
           isUser={isUser}
           hookAudits={hookAudits}
+          onEdit={onEdit ? () => setIsEditing(true) : undefined}
         />
       </div>
     </div>

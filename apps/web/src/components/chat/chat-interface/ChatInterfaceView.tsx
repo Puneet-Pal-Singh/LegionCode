@@ -71,6 +71,7 @@ interface ChatInterfaceViewProps {
   loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   completedTurnReview: CompletedTurnReview;
   lifecycleProjection: LifecycleProjection | null;
+  onUserMessageEdit?: (turnId: string, content: string) => Promise<boolean>;
   onCompact?: () => void;
   pendingWorkflow: boolean;
 }
@@ -145,12 +146,30 @@ function Transcript(props: ChatInterfaceViewProps) {
               entry.message.id,
             )}
             hookAudits={entry.projection?.hookAudits}
+            onEdit={resolveUserMessageEdit(props, entry)}
           />
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
   );
+}
+
+function resolveUserMessageEdit(
+  props: ChatInterfaceViewProps,
+  entry: Extract<ChatInterfaceEntry, { kind: "message" }>,
+) {
+  if (
+    !props.onUserMessageEdit ||
+    entry.message.role !== "user" ||
+    !entry.projection?.terminal ||
+    (entry.projection.terminal.state !== "interrupted" &&
+      entry.projection.terminal.state !== "failed")
+  ) {
+    return undefined;
+  }
+  const turnId = entry.projection.turnId;
+  return (content: string) => props.onUserMessageEdit!(turnId, content);
 }
 
 function TurnWorkflowEntry({

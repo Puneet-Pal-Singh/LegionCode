@@ -92,6 +92,30 @@ describe("ChatMessage", () => {
     expect(link).toHaveAttribute("href", "https://example.com");
   });
 
+  it("edits and resubmits an eligible terminal prompt in place", async () => {
+    const onEdit = vi.fn().mockResolvedValue(true);
+    const message = {
+      id: "user-revision",
+      role: "user",
+      content: "Original prompt",
+    } as Message;
+
+    render(<ChatMessage message={message} onEdit={onEdit} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit prompt" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit prompt" }), {
+      target: { value: "Revised prompt" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(onEdit).toHaveBeenCalledWith("Revised prompt"),
+    );
+    expect(
+      screen.queryByRole("textbox", { name: "Edit prompt" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows only the basename for user file mentions", () => {
     const message = {
       id: "user-mention",
