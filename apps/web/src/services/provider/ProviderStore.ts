@@ -33,6 +33,10 @@ import {
 } from "../api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { preloadConnectedProviderModels } from "./ConnectedProviderModelPreloader.js";
+import {
+  loadCompletePickerInventory,
+  shouldLoadCompletePickerInventory,
+} from "./ProviderModelInventoryLoader.js";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 const PROVIDER_MODEL_CACHE_MAX_AGE_MS = 60 * 60 * 1_000;
@@ -902,12 +906,22 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
     try {
-      const result = await this.apiClient.getProviderModels(providerId, {
+      const query = {
         view: options.view,
         surface: options.surface,
         limit: options.limit,
         cursor: options.cursor,
-      });
+      };
+      const result = shouldLoadCompletePickerInventory({
+        providerId,
+        ...options,
+      })
+        ? await loadCompletePickerInventory({
+            providerId,
+            loadPage: (pageQuery) =>
+              this.apiClient.getProviderModels(providerId, pageQuery),
+          })
+        : await this.apiClient.getProviderModels(providerId, query);
       if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
         return result.models;
       }
@@ -1615,7 +1629,14 @@ export class ProviderStore {
   ): ResolvedLoadProviderModelsOptions {
     const pageState = this.state.providerModelsPage[providerId];
     return {
-      view: options.view ?? pageState?.view ?? this.state.selectedModelView,
+      view:
+        options.view ??
+        pageState?.view ??
+        (providerId === "openrouter" ||
+        providerId === "cloudflare-ai-gateway" ||
+        providerId === "cloudflare-workers-ai"
+          ? "all"
+          : this.state.selectedModelView),
       cursor: options.cursor ?? undefined,
       surface: options.surface ?? "picker",
       limit: options.limit ?? 50,

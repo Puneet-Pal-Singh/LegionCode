@@ -381,8 +381,8 @@ describe("ProviderStore", () => {
       expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
         "openrouter",
         expect.objectContaining({
-          view: "popular",
-          limit: 50,
+          view: "all",
+          limit: 150,
         }),
       );
       expect(store.getState().providerModels.openrouter).toHaveLength(1);
@@ -404,7 +404,7 @@ describe("ProviderStore", () => {
       expect(state.loadingModelsForProviderId).toBeNull();
       expect(state.providerModels.openrouter).toEqual([]);
       expect(state.providerModelsPage.openrouter).toEqual({
-        view: "popular",
+        view: "all",
         hasMore: false,
         nextCursor: null,
       });
@@ -422,6 +422,57 @@ describe("ProviderStore", () => {
       );
       expect(mockApiClient.getProviderModels).toHaveBeenCalledTimes(2);
       expect(store.getState().providerModels.openrouter).toHaveLength(1);
+    });
+
+    it("hydrates every OpenRouter picker page instead of stopping at recommendations", async () => {
+      const firstPage = Array.from({ length: 150 }, (_, index) => ({
+        id: `openrouter/model-${index}`,
+        name: `Model ${index}`,
+        provider: "openrouter",
+      }));
+      vi.mocked(mockApiClient.getProviderModels)
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: firstPage,
+          page: { limit: 150, hasMore: true, nextCursor: "150" },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        })
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: [
+            {
+              id: "openrouter/model-150",
+              name: "Model 150",
+              provider: "openrouter",
+            },
+          ],
+          page: { limit: 150, hasMore: false },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        });
+
+      await expect(store.loadProviderModels("openrouter")).resolves.toHaveLength(
+        151,
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenNthCalledWith(
+        2,
+        "openrouter",
+        expect.objectContaining({ cursor: "150", view: "all" }),
+      );
+      expect(store.getState().providerModelsPage.openrouter).toEqual({
+        view: "all",
+        hasMore: false,
+        nextCursor: null,
+      });
     });
 
     it("settles failed manage-model hydration and allows an explicit retry", async () => {
