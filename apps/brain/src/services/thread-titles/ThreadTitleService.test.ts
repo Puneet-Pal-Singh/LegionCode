@@ -5,7 +5,10 @@ import {
   MemoryTranscriptRepository,
 } from "@repo/persistence";
 import type { Env } from "../../types/ai";
-import { ThreadTitleGenerationCoordinator } from "./ThreadTitleGenerationCoordinator";
+import {
+  normalizeGeneratedTitle,
+  ThreadTitleGenerationCoordinator,
+} from "./ThreadTitleGenerationCoordinator";
 import { ThreadTitleService } from "./ThreadTitleService";
 
 const USER_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -31,7 +34,7 @@ describe("ThreadTitleService", () => {
     });
 
     expect(preview).toMatchObject({
-      title: "Please i…",
+      title: "Please inspect and fix",
       titleSource: "preview",
       titleVersion: 2,
     });
@@ -54,7 +57,7 @@ describe("ThreadTitleService", () => {
           threadId: THREAD_ID,
           payload: {
             firstMessageId: FIRST_MESSAGE_ID,
-            title: "Please i…",
+            title: "Please inspect and fix",
             titleVersion: 2,
             source: "preview",
           },
@@ -175,6 +178,9 @@ describe("ThreadTitleService", () => {
         previewVersion: 2,
         providerId: "google",
         modelId: "gemma-3-27b",
+        runtimeModelId: "models/gemma-3-27b",
+        providerTransport: "google-generative",
+        providerEndpoint: "https://generativelanguage.googleapis.com/v1beta",
       },
     );
 
@@ -183,6 +189,9 @@ describe("ThreadTitleService", () => {
       expect.objectContaining({
         providerId: "google",
         model: "gemma-3-27b",
+        runtimeModelId: "models/gemma-3-27b",
+        providerTransport: "google-generative",
+        providerEndpoint: "https://generativelanguage.googleapis.com/v1beta",
         temperature: 0,
         maxOutputTokens: 32,
         messages: [
@@ -201,6 +210,120 @@ describe("ThreadTitleService", () => {
         expectedTitleVersion: 2,
       }),
     );
+  });
+
+  it("falls back to the platform OpenRouter free route after selected-model retries", async () => {
+    const selectedGenerateText = vi
+      .fn()
+      .mockRejectedValue(new Error("selected provider unavailable"));
+    const fallbackGenerateText = vi.fn().mockResolvedValue({
+      text: "Improve Durable Chat Titles",
+    });
+    const persist = vi.fn().mockResolvedValue(null);
+    let scheduled: Promise<unknown> | undefined;
+    const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
+      generator: { generateText: selectedGenerateText },
+      fallbackGenerator: { generateText: fallbackGenerateText },
+      titleService: { persist },
+    });
+
+    coordinator.schedule(
+      { waitUntil: (promise) => (scheduled = promise) },
+      {
+        ...titleIdentity(),
+        prompt: "Fix title generation for every provider",
+        previewVersion: 2,
+        providerId: "opencode-zen",
+        modelId: "x-preview-f-free",
+        runtimeModelId: "x-preview-f-free",
+        providerTransport: "openai-chat-completions",
+        providerEndpoint: "https://opencode.ai/zen/v1/chat/completions",
+      },
+    );
+
+    await scheduled;
+    expect(selectedGenerateText).toHaveBeenCalledTimes(2);
+    expect(fallbackGenerateText).toHaveBeenCalledOnce();
+    expect(fallbackGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "openrouter",
+        model: "openrouter/free",
+      }),
+    );
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Improve Durable Chat Titles",
+        source: "generated",
+        expectedTitleVersion: 2,
+      }),
+    );
+  });
+
+  it("does not invoke the OpenRouter fallback when the selected model succeeds", async () => {
+    const generateText = vi.fn().mockResolvedValue({
+      text: "Improve Durable Chat Titles",
+    });
+    const fallbackGenerateText = vi.fn();
+    let scheduled: Promise<unknown> | undefined;
+    const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
+      generator: { generateText },
+      fallbackGenerator: { generateText: fallbackGenerateText },
+      titleService: { persist: vi.fn().mockResolvedValue(null) },
+    });
+
+    coordinator.schedule(
+      { waitUntil: (promise) => (scheduled = promise) },
+      {
+        ...titleIdentity(),
+        prompt: "Fix title generation for every provider",
+        previewVersion: 2,
+        providerId: "google",
+        modelId: "gemma-3-27b",
+      },
+    );
+
+    await scheduled;
+    expect(fallbackGenerateText).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes sensitive prompt data before the OpenRouter fallback", async () => {
+    const fallbackGenerateText = vi.fn().mockResolvedValue({
+      text: "Fix Provider Authentication",
+    });
+    let scheduled: Promise<unknown> | undefined;
+    const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
+      generator: {
+        generateText: vi.fn().mockRejectedValue(new Error("unavailable")),
+      },
+      fallbackGenerator: { generateText: fallbackGenerateText },
+      titleService: { persist: vi.fn().mockResolvedValue(null) },
+    });
+
+    coordinator.schedule(
+      { waitUntil: (promise) => (scheduled = promise) },
+      {
+        ...titleIdentity(),
+        prompt:
+          "Fix /private/worktree login where API_KEY=secret-value for dev@example.com",
+        previewVersion: 2,
+        providerId: "opencode-zen",
+        modelId: "x-preview-f-free",
+      },
+    );
+
+    await scheduled;
+    const fallbackMessages = fallbackGenerateText.mock.calls[0]?.[0].messages;
+    expect(fallbackMessages).toEqual([
+      expect.objectContaining({ role: "system" }),
+      { role: "user", content: "Fix login where for" },
+    ]);
+  });
+
+  it("preserves technical identifiers in concise generated titles", () => {
+    expect(normalizeGeneratedTitle("Fix models.ts 400s")).toBe(
+      "Fix models.ts 400s",
+    );
+    expect(normalizeGeneratedTitle("BYOK recovery")).toBe("BYOK recovery");
   });
 
   it("does not persist instruction-like model output as a title", async () => {
