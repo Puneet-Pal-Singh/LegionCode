@@ -890,18 +890,9 @@ export class RunEngineRequestHandler {
         input.correlationId,
       );
     }
-    if (
-      terminalEvent.type === "turn.failed" &&
-      !terminalEvent.payload.outcome.failure.retryable
-    ) {
-      throw new DomainError(
-        "TURN_REVISION_NOT_RETRYABLE",
-        "This failed turn is not eligible for revision.",
-        409,
-        false,
-        input.correlationId,
-      );
-    }
+    // `retryable` controls unattended runtime recovery. An explicit user edit
+    // is a new run attempt with a new prompt/model choice, so a terminal
+    // provider or billing failure must not prevent the user from revising it.
     const latestTerminal = await this.readLatestTerminalTurn(existingScopes);
     if (latestTerminal && latestTerminal !== revisionOfTurnId) {
       throw new DomainError(
