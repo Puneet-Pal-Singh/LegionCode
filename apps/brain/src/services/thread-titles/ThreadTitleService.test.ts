@@ -198,6 +198,10 @@ describe("ThreadTitleService", () => {
           expect.objectContaining({ role: "system" }),
           {
             role: "user",
+            content: "Generate a title for this conversation:",
+          },
+          {
+            role: "user",
             content: "Review isolated cloud task checkout",
           },
         ],
@@ -315,6 +319,10 @@ describe("ThreadTitleService", () => {
     const fallbackMessages = fallbackGenerateText.mock.calls[0]?.[0].messages;
     expect(fallbackMessages).toEqual([
       expect.objectContaining({ role: "system" }),
+      {
+        role: "user",
+        content: "Generate a title for this conversation:",
+      },
       { role: "user", content: "Fix login where for" },
     ]);
   });
@@ -324,6 +332,14 @@ describe("ThreadTitleService", () => {
       "Fix models.ts 400s",
     );
     expect(normalizeGeneratedTitle("BYOK recovery")).toBe("BYOK recovery");
+    expect(
+      normalizeGeneratedTitle(
+        "We need to generate a concise title for the coding task",
+      ),
+    ).toBeNull();
+    expect(normalizeGeneratedTitle("Fix chat title generation")).toBe(
+      "Fix chat title generation",
+    );
   });
 
   it("does not persist instruction-like model output as a title", async () => {
