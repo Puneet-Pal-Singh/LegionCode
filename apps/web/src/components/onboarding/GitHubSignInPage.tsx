@@ -1,4 +1,5 @@
 import { Github } from "lucide-react";
+import { LegionCodeMark } from "../brand/LegionCodeMark";
 
 interface GitHubSignInPageProps {
   onLogin: () => void;
@@ -6,62 +7,37 @@ interface GitHubSignInPageProps {
 
 export function GitHubSignInPage({ onLogin }: GitHubSignInPageProps) {
   return (
-    <main className="flex min-h-screen w-full items-center justify-center bg-[#090a0c] px-5 py-10 text-[#f2f4f7]">
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-5 py-10 text-text-primary">
       <section
         aria-labelledby="sign-in-title"
-        className="w-full max-w-[420px] rounded-[14px] border border-[#292d35] bg-[#111318] px-7 py-8 shadow-[0_16px_44px_rgba(0,0,0,0.22)] sm:px-9 sm:py-9"
+        className="w-full max-w-[440px] rounded-2xl border border-border-subtle bg-surface px-8 py-10 shadow-[0_24px_70px_rgba(0,0,0,0.4)] sm:px-11 sm:py-11"
       >
         <div
+          role="img"
           aria-label="LegionCode"
-          className="flex items-center justify-center gap-2.5"
+          className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.07] text-white shadow-2xl backdrop-blur-xl"
         >
-          <img
-            src="/agents/assets/legioncode-icon.svg"
-            alt=""
-            aria-hidden="true"
-            className="h-9 w-9"
-          />
-          <span className="text-[15px] font-semibold tracking-[-0.02em]">
-            LegionCode
-          </span>
+          <LegionCodeMark className="h-9 w-9" />
         </div>
 
         <h1
           id="sign-in-title"
-          className="mt-7 text-center text-[25px] font-semibold leading-8 tracking-[-0.035em]"
+          className="mt-8 text-center text-[32px] font-semibold leading-[38px] tracking-[-0.04em]"
         >
           Sign in to LegionCode
         </h1>
-        <p className="mt-2 text-center text-sm leading-6 text-[#969daa]">
+        <p className="mx-auto mt-2.5 max-w-[320px] text-center text-[15px] leading-6 text-text-secondary">
           Brainstorm in Chat. Build in Cloud.
         </p>
 
         <button
           type="button"
           onClick={onLogin}
-          className="mt-7 flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-[#f2f4f7] px-4 text-sm font-semibold text-[#090a0c] transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#65b8ff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111318]"
+          className="mt-8 flex min-h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-zinc-100 px-4 text-[14px] font-semibold text-zinc-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
-          <Github size={17} strokeWidth={2.25} aria-hidden="true" />
+          <Github size={18} strokeWidth={2.2} aria-hidden="true" />
           Continue with GitHub
         </button>
-
-        <p className="mx-auto mt-5 max-w-[330px] text-center text-[11px] leading-[17px] text-[#777e8a]">
-          By continuing, you agree to our{" "}
-          <a
-            className="whitespace-nowrap underline decoration-[#4d535d] underline-offset-2 transition-colors hover:text-[#c7cbd2] focus-visible:text-white focus-visible:outline-none"
-            href="/terms"
-          >
-            Terms
-          </a>{" "}
-          and{" "}
-          <a
-            className="whitespace-nowrap underline decoration-[#4d535d] underline-offset-2 transition-colors hover:text-[#c7cbd2] focus-visible:text-white focus-visible:outline-none"
-            href="/privacy"
-          >
-            Privacy Policy
-          </a>
-          .
-        </p>
       </section>
     </main>
   );

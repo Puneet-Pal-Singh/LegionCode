@@ -15,19 +15,17 @@ describe("GitHubSignInPage", () => {
     expect(
       screen.getByText("Brainstorm in Chat. Build in Cloud."),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "LegionCode" })).toBeInTheDocument();
     expect(screen.queryByText("LC")).not.toBeInTheDocument();
     const action = screen.getByRole("button", { name: "Continue with GitHub" });
     fireEvent.click(action);
     expect(onLogin).toHaveBeenCalledTimes(1);
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute(
-      "href",
-      "/terms",
-    );
-    expect(
-      screen.getByRole("link", { name: "Privacy Policy" }),
-    ).toHaveAttribute("href", "/privacy");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByText(/by continuing/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/private alpha/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/repositories LegionCode/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/repositories LegionCode/i),
+    ).not.toBeInTheDocument();
   });
 });
