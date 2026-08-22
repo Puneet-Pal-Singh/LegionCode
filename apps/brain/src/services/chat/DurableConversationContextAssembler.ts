@@ -140,7 +140,15 @@ function toCoreTextMessage(record: TranscriptMessageRecord): CoreMessage[] {
     .map((part) => readText(part.content))
     .filter((text): text is string => Boolean(text?.trim()))
     .join("\n");
-  return content ? [{ role: record.role, content } as CoreMessage] : [];
+  return content
+    ? [
+        {
+          id: record.clientMessageId ?? record.id,
+          role: record.role,
+          content,
+        } as unknown as CoreMessage,
+      ]
+    : [];
 }
 
 function readCanonicalTurnIds(record: TranscriptMessageRecord): string[] {

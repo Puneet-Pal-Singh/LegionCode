@@ -41,6 +41,7 @@ describe("DurableConversationContextAssembler", () => {
     expect(context[2]?.content).toContain("Read package.json");
     expect(context[2]?.content).toContain("package shadowbox");
     expect(context.at(-1)?.content).toBe("Continue the work");
+    expect(context.at(-1)).toMatchObject({ id: "new-user" });
     expect(replayLifecyclePage).toHaveBeenCalledWith(
       expect.objectContaining({ turnId: "trn_prior001" }),
     );
@@ -70,6 +71,35 @@ describe("DurableConversationContextAssembler", () => {
 
     expect(context.map((entry) => entry.content)).toEqual(["Edited prompt"]);
     expect(replayLifecyclePage).not.toHaveBeenCalled();
+  });
+
+  it("prefers the submitted client message id in restored provider context", async () => {
+    const current = message(
+      "persisted-user",
+      "user",
+      "Keep this identity",
+      "trn_current01",
+      1,
+    );
+    current.clientMessageId = "client_msg_current";
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage: async () => ({ messages: [current], nextCursor: null }),
+      replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
+    });
+
+    const context = await assembler.assemble({
+      sessionId: "session-1",
+      userId: "user-1",
+      currentTurnId: "trn_current01",
+    });
+
+    expect(context).toEqual([
+      {
+        id: "client_msg_current",
+        role: "user",
+        content: "Keep this identity",
+      },
+    ]);
   });
 });
 
