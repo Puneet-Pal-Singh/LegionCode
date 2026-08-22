@@ -431,30 +431,6 @@ export class ProviderStore {
     return result;
   }
 
-  private seedHiddenVisibilityForNewProvider(
-    preferences: ProviderPreference,
-    providerId: string,
-    hasExistingCredential: boolean,
-  ): Record<string, Set<string>> | null {
-    if (hasExistingCredential) {
-      return null;
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(
-        preferences.visibleModelIds,
-        providerId,
-      )
-    ) {
-      return null;
-    }
-
-    return {
-      ...this.copyVisibleModelIds(this.state.visibleModelIds),
-      [providerId]: new Set<string>(),
-    };
-  }
-
   /**
    * Connect a new credential
    */
@@ -492,9 +468,6 @@ export class ProviderStore {
       }
 
       let providerModels = this.state.providerModels;
-      const hasExistingCredential = this.state.credentials.some(
-        (existing) => existing.providerId === req.providerId,
-      );
       try {
         const models = await this.loadProviderModels(req.providerId);
         if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
@@ -506,18 +479,6 @@ export class ProviderStore {
         };
       } catch (error) {
         this.log("[connectCredential] model preload failed", { error });
-      }
-
-      const nextVisibleModelIds = this.seedHiddenVisibilityForNewProvider(
-        preferences,
-        req.providerId,
-        hasExistingCredential,
-      );
-      if (nextVisibleModelIds) {
-        preferences = {
-          ...preferences,
-          visibleModelIds: serializeVisibleModelIds(nextVisibleModelIds),
-        };
       }
 
       const defaultModelId =
@@ -544,7 +505,7 @@ export class ProviderStore {
         credentials: nextCredentials,
         preferences,
         providerModels,
-        visibleModelIds: nextVisibleModelIds ?? this.state.visibleModelIds,
+        visibleModelIds: this.state.visibleModelIds,
         selectedProviderId: this.state.selectedProviderId ?? req.providerId,
         selectedCredentialId:
           this.state.selectedCredentialId ?? credential.credentialId,
@@ -554,28 +515,11 @@ export class ProviderStore {
       this.setState({
         credentials: nextCredentials,
         preferences,
-        ...(nextVisibleModelIds
-          ? { visibleModelIds: nextVisibleModelIds }
-          : undefined),
         providerModels,
         selectedProviderId: selection.selectedProviderId,
         selectedCredentialId: selection.selectedCredentialId,
         selectedModelId: selection.selectedModelId,
       });
-
-      if (nextVisibleModelIds) {
-        void this.persistVisibilityChanges(nextVisibleModelIds).catch(
-          (error) => {
-            this.log(
-              "[connectCredential] failed to persist hidden model defaults",
-              {
-                providerId: req.providerId,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          },
-        );
-      }
 
       this.log("[connectCredential] Success", {
         credentialId: credential.credentialId,

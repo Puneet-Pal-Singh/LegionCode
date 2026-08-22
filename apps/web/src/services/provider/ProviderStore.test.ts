@@ -855,7 +855,7 @@ describe("ProviderStore", () => {
       ).toBe(true);
     });
 
-    it("defaults newly connected provider models to hidden", async () => {
+    it("makes newly connected provider models available by default", async () => {
       await store.bootstrap();
       vi.mocked(mockApiClient.connectCredential).mockResolvedValueOnce({
         credentialId: credential2Id,
@@ -881,12 +881,11 @@ describe("ProviderStore", () => {
       await store.connectCredential(req);
 
       const state = store.getState();
-      expect(state.visibleModelIds.google).toEqual(new Set());
-      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
-        visibleModelIds: {
-          google: [],
-        },
-      });
+      expect(state.providerModels.google).toHaveLength(1);
+      expect(state.visibleModelIds.google).toBeUndefined();
+      expect(mockApiClient.updatePreferences).not.toHaveBeenCalledWith(
+        expect.objectContaining({ visibleModelIds: { google: [] } }),
+      );
     });
 
     it("deduplicates concurrent connect requests", async () => {
