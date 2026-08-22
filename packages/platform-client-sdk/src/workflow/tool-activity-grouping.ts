@@ -47,7 +47,7 @@ function groupWorkflowItem(
   if (item.kind === "approval_request") return null;
   if (item.toolName === "multi_edit") return current;
   if (item.kind === "reasoning" || item.kind === "plan") {
-    return appendReasoningSegment(segments, item) ?? current;
+    return appendReasoningSegment(segments, current, item) ?? current;
   }
   if (isToolItem(item)) {
     return appendToolItem(segments, current, item);
@@ -60,6 +60,7 @@ function groupWorkflowItem(
 
 function appendReasoningSegment(
   segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
   item: WorkflowItem,
 ): ToolActivitySegment | null {
   const hasContent = Boolean(item.safeSummary?.trim() || item.text.trim());
@@ -69,9 +70,18 @@ function appendReasoningSegment(
   ) {
     return null;
   }
-  const segment = createSegment(item);
-  segments.push(segment);
-  return segment;
+  if (current) {
+    const updated = {
+      ...current,
+      reasoning: item,
+      isActive: isSegmentActive(item, current.children),
+    };
+    segments[segments.length - 1] = updated;
+    return updated;
+  }
+  const created = createSegment(item);
+  segments.push(created);
+  return created;
 }
 
 function appendToolItem(

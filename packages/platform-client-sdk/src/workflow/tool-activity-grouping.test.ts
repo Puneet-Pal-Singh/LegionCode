@@ -231,10 +231,62 @@ describe("groupToolActivity", () => {
       "item_read",
       "item_shell",
     ]);
-    expect(trace.consumedSegmentKeys).toEqual([
-      "segment:item_plan_one",
-      "segment:item_plan_two",
+    expect(trace.consumedSegmentKeys).toEqual(["segment:item_plan_one"]);
+  });
+
+  it("keeps a cumulative tool parent intact after every child settles", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_plan_one" as ItemId,
+        kind: "reasoning",
+        toolFamily: null,
+        safeSummary: "Inspecting the workspace",
+      }),
+      workflowItem({
+        itemId: "item_search" as ItemId,
+        kind: "tool_call",
+        toolFamily: "search",
+        safeSummary: "Searched files",
+      }),
+      workflowItem({
+        itemId: "item_plan_two" as ItemId,
+        kind: "reasoning",
+        toolFamily: null,
+        safeSummary: "Reading the matching files",
+      }),
+      workflowItem({
+        itemId: "item_read" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        safeSummary: "Read README.md",
+      }),
+      workflowItem({
+        itemId: "item_plan_three" as ItemId,
+        kind: "reasoning",
+        toolFamily: null,
+        safeSummary: "Verifying the repository state",
+      }),
+      workflowItem({
+        itemId: "item_shell" as ItemId,
+        kind: "command_execution",
+        toolFamily: "shell",
+        command: "git status --short",
+      }),
     ]);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
+      "item_search",
+      "item_read",
+      "item_shell",
+    ]);
+    expect(segments[0]?.reasoning?.safeSummary).toBe(
+      "Verifying the repository state",
+    );
+    expect(segments[0]?.isActive).toBe(false);
+    expect(buildSegmentTitle(segments[0]!)).toBe(
+      "searched files, read files, ran commands",
+    );
   });
 
   it("keeps the cumulative parent mounted between settled tool calls", () => {
