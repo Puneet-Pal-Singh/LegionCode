@@ -107,7 +107,7 @@ describe("ChatMessage", () => {
     expect(pill).toHaveClass("px-3.5", "py-2");
     expect(pill?.parentElement).toHaveClass(
       "w-fit",
-      "max-w-full",
+      "max-w-[92%]",
       "sm:max-w-[68%]",
     );
   });

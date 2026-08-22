@@ -52,7 +52,7 @@ export function ChatMessage({
       <div
         className={cn(
           isUser
-            ? "flex w-fit max-w-full flex-col items-end sm:max-w-[68%]"
+            ? "flex w-fit max-w-[92%] flex-col items-end sm:max-w-[68%]"
             : "max-w-4xl flex-1",
         )}
       >
