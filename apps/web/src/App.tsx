@@ -45,6 +45,7 @@ import {
   type InitialPromptSubmission,
 } from "./lib/initial-prompt-submission";
 import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
+import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
 
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
 const MIN_RIGHT_SIDEBAR_WIDTH = 420;
@@ -615,6 +616,7 @@ function AppContent() {
   ]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { isCompact, isMobile } = useWorkspaceViewport();
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
@@ -632,6 +634,12 @@ function AppContent() {
       String(isRightSidebarOpen),
     );
   }, [isRightSidebarOpen]);
+
+  useEffect(() => {
+    if (!isCompact) return;
+    setIsSidebarOpen(false);
+    setIsRightSidebarOpen(false);
+  }, [isCompact]);
 
   useEffect(() => {
     localStorage.setItem("shadowbox_active_tab", activeTab);
@@ -820,6 +828,7 @@ function AppContent() {
     }
     setActiveSessionId(sessionId);
     void acknowledgeSession(sessionId);
+    if (isCompact) setIsSidebarOpen(false);
   };
 
   /**
@@ -889,35 +898,56 @@ function AppContent() {
   }
 
   return (
-    <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
+    <div className="h-dvh w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
-        <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
-          <AgentSidebar
-            sessions={sessions}
-            repositories={repositories}
-            activeSessionId={activeSessionId}
-            onSelect={handleSelectSession}
-            onCreate={handleNewTask}
-            onRemove={removeSession}
-            onRemoveRepository={removeRepository}
-            onRenameRepository={renameRepository}
-            onClose={handleToggleSidebar}
-            onAddRepository={handleOpenRepositoryPicker}
-            onOpenSettings={() => openSettingsDialog("general")}
-            accountUser={user}
-            onLogout={logout}
-            width={sidebarWidth}
-          />
-          <Resizer
-            side="left"
-            onResize={(delta) =>
-              setSidebarWidth((prev) =>
-                Math.max(160, Math.min(520, prev + delta)),
-              )
+        <>
+          {isCompact ? (
+            <button
+              type="button"
+              aria-label="Close sidebar overlay"
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 z-[70] bg-black/65 backdrop-blur-[2px]"
+            />
+          ) : null}
+          <div
+            className={
+              isCompact
+                ? "fixed inset-y-0 left-0 z-[80] flex max-w-[calc(100vw-3rem)] shadow-[24px_0_70px_rgba(0,0,0,0.65)]"
+                : "relative flex shrink-0"
             }
-          />
-        </div>
+            style={{
+              width: isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth,
+            }}
+          >
+            <AgentSidebar
+              sessions={sessions}
+              repositories={repositories}
+              activeSessionId={activeSessionId}
+              onSelect={handleSelectSession}
+              onCreate={handleNewTask}
+              onRemove={removeSession}
+              onRemoveRepository={removeRepository}
+              onRenameRepository={renameRepository}
+              onClose={handleToggleSidebar}
+              onAddRepository={handleOpenRepositoryPicker}
+              onOpenSettings={() => openSettingsDialog("general")}
+              accountUser={user}
+              onLogout={logout}
+              width={sidebarWidth}
+            />
+            {!isCompact ? (
+              <Resizer
+                side="left"
+                onResize={(delta) =>
+                  setSidebarWidth((prev) =>
+                    Math.max(160, Math.min(520, prev + delta)),
+                  )
+                }
+              />
+            ) : null}
+          </div>
+        </>
       )}
 
       {/* Main Content Area with Top NavBar */}
@@ -958,6 +988,8 @@ function AppContent() {
                 }
               : undefined
           }
+          isCompact={isCompact}
+          isMobile={isMobile}
         />
 
         {/* Main Workspace Layer */}
