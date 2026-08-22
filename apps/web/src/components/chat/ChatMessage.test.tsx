@@ -92,6 +92,26 @@ describe("ChatMessage", () => {
     expect(link).toHaveAttribute("href", "https://example.com");
   });
 
+  it("keeps desktop prompt pills compact and bounded", () => {
+    const message = {
+      id: "user-long-prompt",
+      role: "user",
+      content:
+        "A long prompt that should not stretch across the full transcript width.",
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    const content = screen.getByText(/A long prompt/);
+    const pill = content.closest(".inline-block");
+    expect(pill).toHaveClass("px-3.5", "py-2");
+    expect(pill?.parentElement).toHaveClass(
+      "w-fit",
+      "max-w-full",
+      "sm:max-w-[68%]",
+    );
+  });
+
   it("edits and resubmits an eligible terminal prompt in place", async () => {
     const onEdit = vi.fn().mockResolvedValue(true);
     const message = {
@@ -108,9 +128,7 @@ describe("ChatMessage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    await waitFor(() =>
-      expect(onEdit).toHaveBeenCalledWith("Revised prompt"),
-    );
+    await waitFor(() => expect(onEdit).toHaveBeenCalledWith("Revised prompt"));
     expect(
       screen.queryByRole("textbox", { name: "Edit prompt" }),
     ).not.toBeInTheDocument();
@@ -187,9 +205,15 @@ describe("ChatMessage", () => {
 
     expect(screen.getByAltText(/screen\.png/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
-    expect(screen.getByRole("dialog", { name: /screen\.png/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Close image preview" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close image preview" }));
+    expect(
+      screen.getByRole("dialog", { name: /screen\.png/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Close image preview" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close image preview" }),
+    );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -218,7 +242,9 @@ describe("ChatMessage", () => {
 
     expect(screen.getByAltText(/screen\.png/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
-    expect(screen.getByRole("dialog", { name: /screen\.png/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: /screen\.png/ }),
+    ).toBeInTheDocument();
   });
 
   it("shows assistant duration and completion time metadata", () => {

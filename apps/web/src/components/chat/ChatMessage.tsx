@@ -51,8 +51,9 @@ export function ChatMessage({
     >
       <div
         className={cn(
-          "max-w-4xl",
-          isUser ? "flex flex-col items-end" : "flex-1",
+          isUser
+            ? "flex w-fit max-w-full flex-col items-end sm:max-w-[68%]"
+            : "max-w-4xl flex-1",
         )}
       >
         {isEditing ? (
@@ -134,8 +135,10 @@ function readMessageImagePreviews(message: Message): ChatImagePreview[] {
           return [];
         }
         const record = value as Record<string, unknown>;
-        const name = typeof record.name === "string" ? record.name : `image-${index + 1}`;
-        const mediaType = typeof record.mediaType === "string" ? record.mediaType : "";
+        const name =
+          typeof record.name === "string" ? record.name : `image-${index + 1}`;
+        const mediaType =
+          typeof record.mediaType === "string" ? record.mediaType : "";
         const id =
           typeof record.attachmentId === "string"
             ? record.attachmentId
@@ -143,16 +146,20 @@ function readMessageImagePreviews(message: Message): ChatImagePreview[] {
               ? record.id
               : `image-${index + 1}`;
         const src =
-          typeof record.src === "string" && isSafeHydratedImageSource(record.src)
+          typeof record.src === "string" &&
+          isSafeHydratedImageSource(record.src)
             ? record.src
             : undefined;
-        return [{
-          id,
-          name,
-          mediaType,
-          byteSize: typeof record.byteSize === "number" ? record.byteSize : undefined,
-          src,
-        }];
+        return [
+          {
+            id,
+            name,
+            mediaType,
+            byteSize:
+              typeof record.byteSize === "number" ? record.byteSize : undefined,
+            src,
+          },
+        ];
       })
     : [];
   const parts = Array.isArray(message.content) ? message.content : [];
@@ -166,22 +173,27 @@ function readMessageImagePreviews(message: Message): ChatImagePreview[] {
         : typeof record.mediaType === "string"
           ? record.mediaType
           : "";
-    if (!isChatImageMimeType(mediaType) || !isSafeImagePartSource(record.image, mediaType)) {
+    if (
+      !isChatImageMimeType(mediaType) ||
+      !isSafeImagePartSource(record.image, mediaType)
+    ) {
       return [];
     }
-    return [{
-      id:
-        typeof record.id === "string"
-          ? record.id
-          : metadataImages[index]?.id ?? `image-${index + 1}`,
-      name:
-        typeof record.name === "string"
-          ? record.name
-          : metadataImages[index]?.name ?? `image-${index + 1}`,
-      mediaType,
-      byteSize: metadataImages[index]?.byteSize,
-      src: record.image,
-    }];
+    return [
+      {
+        id:
+          typeof record.id === "string"
+            ? record.id
+            : (metadataImages[index]?.id ?? `image-${index + 1}`),
+        name:
+          typeof record.name === "string"
+            ? record.name
+            : (metadataImages[index]?.name ?? `image-${index + 1}`),
+        mediaType,
+        byteSize: metadataImages[index]?.byteSize,
+        src: record.image,
+      },
+    ];
   });
   return typedImageParts.length > 0 ? typedImageParts : metadataImages;
 }
