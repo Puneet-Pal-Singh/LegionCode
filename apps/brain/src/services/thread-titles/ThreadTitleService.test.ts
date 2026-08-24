@@ -337,6 +337,20 @@ describe("ThreadTitleService", () => {
         "We need to generate a concise title for the coding task",
       ),
     ).toBeNull();
+    expect(
+      normalizeGeneratedTitle(
+        "We need to output a title in user's language (English)",
+      ),
+    ).toBeNull();
+    expect(
+      normalizeGeneratedTitle("Input: what do you think of my landing page"),
+    ).toBeNull();
+    expect(normalizeGeneratedTitle("Return only one plain-text title")).toBeNull();
+    expect(
+      normalizeGeneratedTitle(
+        "We need to output a title in English\n\nReview Landing Page README",
+      ),
+    ).toBe("Review Landing Page README");
     expect(normalizeGeneratedTitle("Fix chat title generation")).toBe(
       "Fix chat title generation",
     );

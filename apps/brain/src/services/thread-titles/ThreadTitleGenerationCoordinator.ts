@@ -206,13 +206,19 @@ export function normalizeGeneratedTitle(value: string): string | null {
   const cleaned = value
     .replace(/<think>[\s\S]*?<\/think>\s*/giu, "")
     .replace(/```[\s\S]*?```/gu, "");
-  const firstLine = cleaned
+  const candidateLines = cleaned
     .split(/\r?\n/u)
     .map((line) => line.trim())
-    .filter((line) => !/^```/u.test(line))
-    .find(Boolean);
-  if (!firstLine) return null;
-  const normalized = firstLine
+    .filter((line) => Boolean(line) && !/^```/u.test(line));
+  for (const candidate of candidateLines) {
+    const title = normalizeGeneratedTitleLine(candidate);
+    if (title) return title;
+  }
+  return null;
+}
+
+function normalizeGeneratedTitleLine(value: string): string | null {
+  const normalized = value
     .replace(/^#{1,6}\s*/u, "")
     .replace(/^(?:[-*+•]|\d+[.)])\s*/u, "")
     .replace(/^title\s*:\s*/iu, "")
@@ -230,9 +236,13 @@ export function normalizeGeneratedTitle(value: string): string | null {
     /^(?:user(?: input| wants? me)|assistant|system|you are|generate|create)\b/iu.test(
       title,
     ) ||
-    /^(?:we|i|let(?:'s| us| me)|the task)\b.{0,32}\b(?:generate|create|write)\b.{0,24}\btitle\b/iu.test(
+    /^(?:write|output|produce|return|provide|respond with)\b.{0,32}\btitle\b/iu.test(
       title,
     ) ||
+    /^(?:we|i|let(?:'s| us| me)|the task)\b.{0,48}\b(?:generate|create|write|output|produce|return|provide)\b.{0,32}\btitle\b/iu.test(
+      title,
+    ) ||
+    /^(?:input|prompt|instructions?)\s*:/iu.test(title) ||
     /^(?:a |the )?(?:concise |brief )?(?:chat |thread |conversation )?title\s+for\b/iu.test(
       title,
     )
