@@ -55,7 +55,7 @@ import {
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const ACTIVE_RUN_SWITCH_WARNING =
-  "Stop the current run before changing mode or model.";
+  "Stop the current run before changing mode.";
 const WARNING_AUTO_DISMISS_MS = 4000;
 const BUILD_PLACEHOLDER =
   "Ask LegionCode anything, @ to add files, / for commands";
@@ -868,9 +868,9 @@ export function ChatInputBar({
                   refreshingModelsForProviderId === selectedProviderId
                 }
                 onSelectModel={async (providerId, modelId) => {
-                  if (guardActiveRunSwitch()) {
-                    return;
-                  }
+                  // Model selection is scoped to the next turn. The current
+                  // run was already admitted with its own model and must not
+                  // be interrupted or rewritten when the picker changes.
                   const credential = findCredentialByProviderId(
                     credentials,
                     providerId,

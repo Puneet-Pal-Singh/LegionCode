@@ -1257,6 +1257,42 @@ describe("ProviderStore", () => {
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
     });
 
+    it("does not let a slow previous model resolution overwrite the newest choice", async () => {
+      await store.bootstrap();
+      const first = createDeferred<BYOKResolution>();
+      const second = createDeferred<BYOKResolution>();
+      vi.mocked(mockApiClient.resolveForChat)
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise);
+
+      store.setSelection("openai", credential1Id, "gpt-4");
+      const firstResolution = store.resolveForChat();
+      store.setSelection("openai", credential1Id, "gpt-4-turbo");
+      const secondResolution = store.resolveForChat();
+
+      first.resolve({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4",
+        resolvedAt: "workspace_preference",
+        resolvedAtTime: new Date().toISOString(),
+      });
+      second.resolve({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+        resolvedAt: "workspace_preference",
+        resolvedAtTime: new Date().toISOString(),
+      });
+
+      await Promise.all([firstResolution, secondResolution]);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(2);
+      expect(store.getState().selectedModelId).toBe("gpt-4-turbo");
+      expect(store.getState().lastResolvedConfig?.modelId).toBe(
+        "gpt-4-turbo",
+      );
+    });
+
     it("reuses cached resolution for stable selection", async () => {
       await store.bootstrap();
 

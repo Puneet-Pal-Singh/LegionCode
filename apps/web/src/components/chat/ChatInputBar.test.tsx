@@ -14,7 +14,7 @@ import * as providerHelpersModule from "../../lib/provider-helpers.js";
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const ACTIVE_RUN_SWITCH_WARNING =
-  "Stop the current run before changing mode or model.";
+  "Stop the current run before changing mode.";
 const HIGH_CONTEXT_BUDGET = {
   providerId: "openai",
   modelId: "gpt-4o",
@@ -341,7 +341,7 @@ describe("ChatInputBar", () => {
       expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
     });
 
-    it("blocks model selection when an open picker becomes stoppable", async () => {
+    it("allows model selection for the next turn when an open picker becomes stoppable", async () => {
       const baseProps = {
         input: "",
         onChange: vi.fn(),
@@ -358,9 +358,9 @@ describe("ChatInputBar", () => {
       fireEvent.click(modelOption);
 
       await waitFor(() => {
-        expect(screen.getByText(ACTIVE_RUN_SWITCH_WARNING)).toBeTruthy();
+        expect(mockStore.applySessionSelection).toHaveBeenCalled();
       });
-      expect(mockStore.applySessionSelection).not.toHaveBeenCalled();
+      expect(screen.queryByText(ACTIVE_RUN_SWITCH_WARNING)).toBeNull();
     });
   });
 

@@ -462,7 +462,7 @@ export class ProviderStore {
 
     try {
       const credential = await this.apiClient.connectCredential(req);
-      let preferences = await this.apiClient.getPreferences();
+      const preferences = await this.apiClient.getPreferences();
       if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
         return;
       }
@@ -1171,15 +1171,13 @@ export class ProviderStore {
       throw this.lastResolveError;
     }
 
-    const key = "resolve";
+    // Dedupe only identical selections. A single global key lets a slow
+    // resolution for model A satisfy a later selection of model B.
+    const key = `resolve:${selectionKey}`;
 
     if (this.inflight.has(key)) {
       this.log("[resolveForChat] Request already in flight");
-      await this.inflight.get(key)?.promise;
-      if (this.state.lastResolvedConfig) {
-        return this.state.lastResolvedConfig;
-      }
-      throw new Error("Provider resolution failed.");
+      return (await this.inflight.get(key)?.promise) as ProviderResolution;
     }
 
     const promise = this.executeResolve(
@@ -1190,10 +1188,11 @@ export class ProviderStore {
     this.trackInflight(key, promise, "run");
 
     try {
-      await promise;
-      return this.state.lastResolvedConfig!;
+      return (await promise) as ProviderResolution;
     } finally {
-      this.inflight.delete(key);
+      if (this.inflight.get(key)?.promise === promise) {
+        this.inflight.delete(key);
+      }
     }
   }
 
@@ -1204,7 +1203,7 @@ export class ProviderStore {
     selection: ProviderSelectionSnapshot,
     selectionKey: string,
     epoch: number,
-  ): Promise<void> {
+  ): Promise<ProviderResolution> {
     this.log("[resolveForChat] Starting");
     const request: {
       providerId?: string;
@@ -1223,10 +1222,6 @@ export class ProviderStore {
 
     try {
       const config = await this.apiClient.resolveForChat(request);
-      if (this.isRunScopeEpochStale("resolveForChat", epoch)) {
-        return;
-      }
-
       const normalizedCredentialId =
         config.credentialId.trim().length > 0 ? config.credentialId : null;
       const effectiveModelId = this.resolveModelForResolvedProvider(
@@ -1239,11 +1234,24 @@ export class ProviderStore {
         );
       }
 
+      const resolvedConfig = {
+        ...config,
+        credentialId: normalizedCredentialId ?? "",
+        modelId: effectiveModelId,
+      } satisfies ProviderResolution;
+
+      // A run-scope switch or a newer picker choice may have happened while
+      // the provider request was in flight. Return this request's result to
+      // its caller, but never let it overwrite the newer canonical selection.
+      if (
+        this.isRunScopeEpochStale("resolveForChat", epoch) ||
+        this.currentResolveSelectionKey() !== selectionKey
+      ) {
+        return resolvedConfig;
+      }
+
       this.setState({
-        lastResolvedConfig: {
-          ...config,
-          modelId: effectiveModelId,
-        },
+        lastResolvedConfig: resolvedConfig,
         selectedProviderId: config.providerId,
         selectedCredentialId: normalizedCredentialId,
         selectedModelId: effectiveModelId,
@@ -1263,14 +1271,17 @@ export class ProviderStore {
         providerId: config.providerId,
         modelId: effectiveModelId,
       });
+      return resolvedConfig;
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Failed to resolve provider configuration";
-      this.lastResolveSelectionKey = selectionKey;
-      this.lastResolveError =
-        error instanceof Error ? error : new Error(message);
+      if (this.currentResolveSelectionKey() === selectionKey) {
+        this.lastResolveSelectionKey = selectionKey;
+        this.lastResolveError =
+          error instanceof Error ? error : new Error(message);
+      }
       this.log("[resolveForChat] Error", { error: message });
       throw error;
     }
@@ -1501,6 +1512,21 @@ export class ProviderStore {
       selection.selectedCredentialId ?? "none",
       selection.selectedModelId ?? "none",
     ].join("|");
+  }
+
+  private currentResolveSelectionKey(): string {
+    return this.buildResolveSelectionKey(
+      this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: this.state.credentials,
+        preferences: this.state.preferences,
+        providerModels: this.state.providerModels,
+        visibleModelIds: this.state.visibleModelIds,
+        selectedProviderId: this.state.selectedProviderId,
+        selectedCredentialId: this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      }),
+    );
   }
 
   private restoreRunScopedSelection(runId: string): boolean {
