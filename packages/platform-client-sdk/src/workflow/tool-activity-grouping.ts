@@ -19,7 +19,6 @@ export interface ActiveWorkflowTraceProjection {
 }
 
 const HARD_BOUNDARY_KINDS: ReadonlySet<WorkflowItemKind> = new Set([
-  "commentary",
   "context_compaction",
   "warning",
 ]);
@@ -44,8 +43,14 @@ function groupWorkflowItem(
   current: ToolActivitySegment | null,
   item: WorkflowItem,
 ): ToolActivitySegment | null {
-  if (item.kind === "approval_request") return null;
+  // Approval is rendered by its dedicated dock, but it does not end the
+  // surrounding tool activity. Resetting here made calls after permission
+  // settlement look like children of a different synthetic parent.
+  if (item.kind === "approval_request") return current;
   if (item.toolName === "multi_edit") return current;
+  if (item.kind === "commentary") {
+    return appendCommentaryItem(segments, current, item);
+  }
   if (item.kind === "reasoning" || item.kind === "plan") {
     return appendReasoningSegment(segments, current, item) ?? current;
   }
@@ -56,6 +61,34 @@ function groupWorkflowItem(
     segments.push(createStandaloneSegment(item));
   }
   return null;
+}
+
+/**
+ * Provider-visible commentary is an ordered transcript part, not a lifecycle
+ * boundary. Keep it in the current activity parent so a streamed commentary
+ * update cannot make the following tool call look like a child of a new
+ * parent. Private reasoning never reaches this branch: it is projected as a
+ * `reasoning` item and remains title-only/display-safe.
+ */
+function appendCommentaryItem(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment {
+  if (!current) {
+    const created = createStandaloneSegment(item);
+    segments.push(created);
+    return created;
+  }
+
+  const children = [...current.children, item];
+  const updated = {
+    ...current,
+    children,
+    isActive: isSegmentActive(current.reasoning, children),
+  };
+  segments[segments.length - 1] = updated;
+  return updated;
 }
 
 function appendReasoningSegment(
@@ -107,7 +140,9 @@ function appendToolItem(
 function shouldStartToolSegment(current: ToolActivitySegment | null): boolean {
   return (
     !current ||
-    (current.children.length > 0 && !current.children.some(isToolItem))
+    (current.children.length > 0 &&
+      !current.children.some(isToolItem) &&
+      !current.children.every((item) => item.kind === "commentary"))
   );
 }
 
@@ -283,7 +318,9 @@ export function buildActiveWorkflowTrace(
 ): ActiveWorkflowTraceProjection {
   const traceSegments = collectCurrentTraceSegments(segments);
   const children = traceSegments.flatMap((segment) =>
-    segment.children.filter(isToolItem),
+    segment.children.filter(
+      (item) => isToolItem(item) || item.kind === "commentary",
+    ),
   );
   const activeSegment = [...traceSegments]
     .reverse()

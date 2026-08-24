@@ -93,6 +93,7 @@ function ActiveWorkflowTrace({
       title={title}
       active
       hasChildren={children.length > 0}
+      defaultExpanded={children.some((item) => item.kind === "commentary")}
       titleTestId="active-workflow-title"
     >
       {children.map((item) => (
@@ -156,6 +157,9 @@ function WorkflowSegment({
             title={buildSegmentTitle(segment)}
             active={segment.isActive}
             hasChildren
+            defaultExpanded={segment.children.some(
+              (item) => item.kind === "commentary",
+            )}
           >
             <div
               ref={viewportRef}
@@ -196,19 +200,21 @@ function ActivityDisclosure({
   title,
   active,
   hasChildren,
+  defaultExpanded = false,
   titleTestId,
   children,
 }: {
   title: string;
   active: boolean;
   hasChildren: boolean;
+  defaultExpanded?: boolean;
   titleTestId?: string;
   children: ReactNode;
 }) {
-  // Activity is deliberately closed by default. The parent title is the
-  // live status surface; opening it is an explicit inspection action and
-  // should not cause a long tool list to jump open while a turn is running.
-  const [expanded, setExpanded] = useState(false);
+  // Activity is deliberately closed by default. Provider-visible commentary
+  // is the exception: it is part of the user-facing transcript and must be
+  // visible without an inspection click even when grouped with tool calls.
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div>

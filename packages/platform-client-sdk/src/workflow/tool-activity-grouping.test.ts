@@ -101,7 +101,7 @@ describe("groupToolActivity", () => {
     expect(buildSegmentTitle(segments[0]!)).toBe("edited files");
   });
 
-  it("keeps approval events out of tool activity presentation", () => {
+  it("keeps approval events hidden without resetting the tool activity parent", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_read" as ItemId,
@@ -120,16 +120,14 @@ describe("groupToolActivity", () => {
       }),
     ]);
 
-    expect(segments).toHaveLength(2);
+    expect(segments).toHaveLength(1);
     expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
       "item_read",
-    ]);
-    expect(segments[1]?.children.map((item) => item.itemId)).toEqual([
       "item_write",
     ]);
   });
 
-  it("keeps visible commentary as its own chronological segment", () => {
+  it("keeps provider commentary ordered inside the tool activity parent", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_commentary" as ItemId,
@@ -142,14 +140,58 @@ describe("groupToolActivity", () => {
         kind: "tool_call",
         toolFamily: "shell",
       }),
+      workflowItem({
+        itemId: "item_commentary_two" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "The repository layout is clear now.",
+      }),
+      workflowItem({
+        itemId: "item_read" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+      }),
     ]);
 
-    expect(segments).toHaveLength(2);
-    expect(segments[0]?.children[0]).toMatchObject({
-      kind: "commentary",
-      text: "I am checking the repository first.",
-    });
-    expect(segments[1]?.children[0]?.kind).toBe("tool_call");
+    expect(segments).toHaveLength(1);
+    expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
+      "item_commentary",
+      "item_shell",
+      "item_commentary_two",
+      "item_read",
+    ]);
+  });
+
+  it("includes provider commentary in the active trace without exposing reasoning", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_reasoning" as ItemId,
+        kind: "reasoning",
+        toolFamily: null,
+        safeSummary: "Choosing the safest inspection path",
+      }),
+      workflowItem({
+        itemId: "item_commentary" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "I am checking the repository first.",
+      }),
+      workflowItem({
+        itemId: "item_shell" as ItemId,
+        kind: "tool_call",
+        toolFamily: "shell",
+        status: "active",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.children.map((item) => item.itemId)).toEqual([
+      "item_commentary",
+      "item_shell",
+    ]);
+    expect(trace.children.some((item) => item.kind === "reasoning")).toBe(
+      false,
+    );
   });
 
   it("uses the latest provider-visible status between tool calls", () => {

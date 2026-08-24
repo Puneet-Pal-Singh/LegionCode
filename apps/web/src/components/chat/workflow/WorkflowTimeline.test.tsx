@@ -105,6 +105,66 @@ describe("WorkflowTimeline", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens grouped activity when it contains provider-visible commentary", () => {
+    const item = {
+      itemId: ItemIdSchema.parse("itm_commentary001"),
+      sequence: 1,
+      kind: "commentary" as const,
+      status: "completed" as const,
+      text: "I am checking the repository first.",
+      detail: null,
+      toolFamily: null,
+      safeSummary: null,
+      inputSummary: null,
+      outputSummary: null,
+      toolName: null,
+      filePath: null,
+      command: null,
+      outputContent: null,
+      diffPreview: null,
+      additions: null,
+      deletions: null,
+      editChange: undefined,
+      planSteps: [],
+      compactionPhase: null,
+      startedAt: "2026-08-09T10:00:00.000Z",
+      completedAt: "2026-08-09T10:00:01.000Z",
+    };
+    render(
+      <WorkflowTimeline
+        segments={[
+          {
+            key: "commentary-group",
+            reasoning: null,
+            familyLabels: ["ran commands"],
+            isActive: false,
+            children: [
+              item,
+              {
+                ...item,
+                itemId: ItemIdSchema.parse("itm_commentary002"),
+                sequence: 2,
+                kind: "tool_call" as const,
+                text: "",
+                toolFamily: "shell" as const,
+                toolName: "run_command",
+                command: "git status --short",
+              },
+            ],
+          },
+        ]}
+        turnDiff={null}
+        showThinkingState={false}
+      />,
+    );
+
+    const disclosure = screen.getByTestId("activity-disclosure-row");
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText("I am checking the repository first."),
+    ).toBeInTheDocument();
+  });
+
   it("shimmers active grouped work and aligns its children with the parent", () => {
     const tool = {
       itemId: ItemIdSchema.parse("itm_active001"),
