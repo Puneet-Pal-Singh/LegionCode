@@ -4,29 +4,36 @@ import type {
   ProviderModelCacheStore,
 } from "../stores/ProviderModelCacheStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
-import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
+import type {
+  OpenRouterModelCatalogPort,
+  ProviderModelCatalogPort,
+} from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
 import { ProviderModelDiscoveryAuthError } from "./errors";
 import { parseModelDevCatalog } from "./ModelDevCatalog";
 
 function createStoreStub() {
-  let cache: ProviderModelCacheRecord | null = null;
-  let userCache: ProviderModelCacheRecord | null = null;
+  const cacheByProvider = new Map<string, ProviderModelCacheRecord>();
+  const userCacheByCredential = new Map<string, ProviderModelCacheRecord>();
 
   return {
-    getModelCache: vi.fn(async () => cache),
+    getModelCache: vi.fn(async (providerId: string) => {
+      return cacheByProvider.get(providerId) ?? null;
+    }),
     setModelCache: vi.fn(async (record: ProviderModelCacheRecord) => {
-      cache = record;
+      cacheByProvider.set(record.providerId, record);
     }),
-    invalidateModelCache: vi.fn(async () => {
-      cache = null;
+    invalidateModelCache: vi.fn(async (providerId: string) => {
+      cacheByProvider.delete(providerId);
     }),
-    getUserModelCache: vi.fn(async () => userCache),
-    setUserModelCache: vi.fn(async (_key, record: ProviderModelCacheRecord) => {
-      userCache = record;
+    getUserModelCache: vi.fn(async (key: { providerId: string; credentialId: string }) => {
+      return userCacheByCredential.get(`${key.providerId}:${key.credentialId}`) ?? null;
     }),
-    invalidateUserModelCache: vi.fn(async () => {
-      userCache = null;
+    setUserModelCache: vi.fn(async (key: { providerId: string; credentialId: string }, record: ProviderModelCacheRecord) => {
+      userCacheByCredential.set(`${key.providerId}:${key.credentialId}`, record);
+    }),
+    invalidateUserModelCache: vi.fn(async (key: { providerId: string; credentialId: string }) => {
+      userCacheByCredential.delete(`${key.providerId}:${key.credentialId}`);
     }),
   };
 }
@@ -61,6 +68,54 @@ describe("ProviderModelDiscoveryService", () => {
     expect(second.models).toHaveLength(1);
     expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
     expect(store.setModelCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps OpenRouter catalog/category models in management inventory even when not enabled by the user", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: OpenRouterModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "openrouter/user-model",
+          name: "User model",
+          providerId: "openrouter",
+        },
+      ]),
+      fetchPage: vi.fn(),
+      fetchUserModels: vi.fn(async () => []),
+      fetchProgrammingModels: vi.fn(async () => []),
+      fetchCategoryModels: vi.fn(async () => [
+        {
+          id: "openrouter/catalog-coding-model",
+          name: "Catalog coding model",
+          providerId: "openrouter",
+        },
+      ]),
+      fetchLeaderboardModels: vi.fn(async () => []),
+      fetchFreeModels: vi.fn(async () => []),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openrouter: adapter },
+    );
+
+    const result = await service.getDiscoveredModels("openrouter", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+
+    expect(result.models.map((model) => model.id)).toContain(
+      "openrouter/catalog-coding-model",
+    );
+    expect(result.models.map((model) => model.id)).toContain(
+      "openrouter/user-model",
+    );
   });
 
   it("derives Cloudflare routes from the current account and keeps cache metadata account-free", async () => {

@@ -1115,13 +1115,15 @@ function buildOpenRouterManageModels(input: {
   ): void => {
     let added = 0;
     for (const model of models) {
+      // Management is a provider catalog, not a projection of the user's
+      // currently enabled models. Keep enriched user-inventory metadata when
+      // a discovery source identifies the same model, but retain catalog
+      // candidates that are not in /models/user so the full coding/category
+      // inventory remains discoverable.
       const matched =
         model.id === OPENROUTER_AUTO_MODEL_ID
           ? model
-          : resolveOpenRouterInventoryModel(userIndex, model);
-      if (!matched) {
-        continue;
-      }
+          : resolveOpenRouterInventoryModel(userIndex, model) ?? model;
       const dedupeKey = buildOpenRouterDedupeKey(matched);
       if (seen.has(dedupeKey)) {
         continue;
