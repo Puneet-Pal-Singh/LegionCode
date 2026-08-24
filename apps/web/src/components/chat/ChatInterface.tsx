@@ -1,7 +1,6 @@
 import {
   useRef,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useCallback,
 } from "react";
@@ -50,6 +49,7 @@ import { useConversationLifecycleProjections } from "../../hooks/useConversation
 import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
 import type { ArtifactOpenHandler } from "./artifactOpen";
 import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoadingIndicator.js";
+import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -223,8 +223,6 @@ export function ChatInterface({
       lifecycleProjection,
     ],
   );
-  const previousScrollScopeKeyRef = useRef<string | null>(null);
-  const previousPlaceholderVisibilityRef = useRef(true);
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -405,33 +403,17 @@ export function ChatInterface({
   );
 
   const latestLifecycleSequence = latestLifecycleProjection?.lastSequence ?? 0;
-
-  // Keep the active turn visible as canonical lifecycle activity arrives.
-  useLayoutEffect(() => {
-    const scrollContainer = scrollRef.current;
-    const isLoaderReveal = previousPlaceholderVisibilityRef.current;
-    previousPlaceholderVisibilityRef.current = showStableSessionPlaceholder;
-    if (!scrollContainer || showStableSessionPlaceholder) {
-      return;
-    }
-
-    const scrollScopeKey = `${sessionId}:${runId}`;
-    const isInitialScopeScroll =
-      previousScrollScopeKeyRef.current !== scrollScopeKey;
-    previousScrollScopeKeyRef.current = scrollScopeKey;
-
-    scrollContainer.scrollTo({
-      top: scrollContainer.scrollHeight,
-      behavior: isInitialScopeScroll || isLoaderReveal ? "auto" : "smooth",
-    });
-  }, [
-    activeRunLoading,
-    latestLifecycleSequence,
-    messages,
-    runId,
-    sessionId,
-    showStableSessionPlaceholder,
-  ]);
+  const latestMessage = messages.at(-1);
+  useChatAutoScroll({
+    activeRun: activeRunLoading,
+    latestMessageKey: latestMessage
+      ? `${latestMessage.id}:${latestMessage.role}`
+      : null,
+    lifecycleSequence: latestLifecycleSequence,
+    placeholderVisible: showStableSessionPlaceholder,
+    scopeKey: `${sessionId}:${runId}`,
+    scrollRef,
+  });
 
   return (
     <ChatInterfaceView
