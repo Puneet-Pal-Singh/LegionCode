@@ -362,6 +362,49 @@ describe("ChatInputBar", () => {
       });
       expect(screen.queryByText(ACTIVE_RUN_SWITCH_WARNING)).toBeNull();
     });
+
+    it("opens manage models from the mounted chat composer picker", async () => {
+      render(
+        <ChatInputBar
+          input=""
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Open model picker"));
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Manage model visibility",
+        }),
+      );
+
+      expect(
+        await screen.findByRole("heading", { name: /manage models/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("renders the docked picker outside the toolbar scroll container", () => {
+      render(
+        <ChatInputBar
+          input=""
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+          layout="docked"
+          hasMessages
+        />,
+      );
+
+      const trigger = screen.getByLabelText("Open model picker");
+      fireEvent.click(trigger);
+      const popover = screen.getByTestId("model-picker-popover");
+
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      expect(popover).toBeInTheDocument();
+      expect(popover.parentElement?.parentElement).toBe(document.body);
+    });
   });
 
   it("surfaces plan mode controls inside the composer options menu", () => {
