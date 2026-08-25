@@ -11,7 +11,10 @@ import {
   createOpenRouterThreadTitleGenerator,
   OPENROUTER_FREE_MODEL_ID,
 } from "./OpenRouterThreadTitleGenerator";
-import { sanitizePromptForTitle } from "./ThreadTitlePreview";
+import {
+  buildThreadTitlePreview,
+  sanitizePromptForTitle,
+} from "./ThreadTitlePreview";
 import { buildThreadTitleMessages } from "./ThreadTitlePrompt";
 
 export interface BackgroundTaskOwner {
@@ -47,6 +50,12 @@ export interface ThreadTitleGenerator {
 
 export interface ThreadTitlePersistence {
   persist(input: PersistThreadTitleInput): Promise<unknown>;
+  persistFailure?(
+    input: Omit<
+      PersistThreadTitleInput,
+      "title" | "source" | "titleStatus"
+    > & { prompt: string },
+  ): Promise<unknown>;
 }
 
 interface ThreadTitleGenerationDependencies {
@@ -117,6 +126,7 @@ export class ThreadTitleGenerationCoordinator {
           providerEndpoint: input.providerEndpoint,
           signal: abortController.signal,
         },
+        input.prompt,
       );
       const fallbackPrompt = sanitizePromptForTitle(input.prompt);
       const fallbackOutcome =
@@ -126,10 +136,11 @@ export class ThreadTitleGenerationCoordinator {
               providerId: "openrouter",
               model: OPENROUTER_FREE_MODEL_ID,
               signal: abortController.signal,
-            })
+            }, input.prompt)
           : undefined;
       const title = selectedOutcome.title ?? fallbackOutcome?.title ?? null;
       if (!title) {
+        await this.settleFailure(input);
         const reason = abortController.signal.aborted
           ? "timeout"
           : (fallbackOutcome ?? selectedOutcome).reason;
@@ -143,6 +154,7 @@ export class ThreadTitleGenerationCoordinator {
         expectedTitleVersion: input.previewVersion,
       });
     } catch (error) {
+      await this.settleFailure(input);
       console.warn(
         `[thread-title] generation_failed reason=${classifyTitleGenerationFailure(
           error,
@@ -151,6 +163,24 @@ export class ThreadTitleGenerationCoordinator {
       );
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async settleFailure(input: GenerateThreadTitleInput): Promise<void> {
+    if (!this.titleService.persistFailure) {
+      return;
+    }
+    try {
+      await this.titleService.persistFailure({
+        ...input,
+        expectedTitleVersion: input.previewVersion,
+      });
+    } catch (error) {
+      console.warn(
+        `[thread-title] failed_settlement_error=${
+          error instanceof Error ? error.message : "unknown"
+        }`,
+      );
     }
   }
 }
@@ -162,6 +192,7 @@ type ThreadTitleGenerationRequest = Parameters<
 async function generateTitleWithRetries(
   generator: ThreadTitleGenerator,
   input: ThreadTitleGenerationRequest,
+  prompt: string,
 ): Promise<{
   title: string | null;
   reason: "invalid_output" | "provider_unavailable";
@@ -175,7 +206,7 @@ async function generateTitleWithRetries(
         temperature: 0,
         maxOutputTokens: 32,
       });
-      const title = normalizeGeneratedTitle(result.text);
+      const title = normalizeGeneratedTitle(result.text, prompt);
       if (title) return { title, reason };
     } catch {
       reason = "provider_unavailable";
@@ -202,7 +233,10 @@ function classifyTitleGenerationFailure(
   return "provider_unavailable";
 }
 
-export function normalizeGeneratedTitle(value: string): string | null {
+export function normalizeGeneratedTitle(
+  value: string,
+  prompt?: string,
+): string | null {
   const cleaned = value
     .replace(/<think>[\s\S]*?<\/think>\s*/giu, "")
     .replace(/```[\s\S]*?```/gu, "");
@@ -212,9 +246,30 @@ export function normalizeGeneratedTitle(value: string): string | null {
     .filter((line) => Boolean(line) && !/^```/u.test(line));
   for (const candidate of candidateLines) {
     const title = normalizeGeneratedTitleLine(candidate);
+    if (title && prompt && isPromptEchoTitle(title, prompt)) {
+      continue;
+    }
     if (title) return title;
   }
   return null;
+}
+
+function isPromptEchoTitle(title: string, prompt: string): boolean {
+  const normalizeForComparison = (value: string): string =>
+    value
+      .toLocaleLowerCase()
+      .replace(/[.…!?,:;\-_'"`]/gu, "")
+      .replace(/\s+/gu, " ")
+      .trim();
+  const candidate = normalizeForComparison(title);
+  const preview = normalizeForComparison(buildThreadTitlePreview(prompt));
+  const fullPrompt = normalizeForComparison(sanitizePromptForTitle(prompt));
+  return (
+    candidate === preview ||
+    (candidate.length >= 20 &&
+      (preview.startsWith(candidate) || fullPrompt.startsWith(candidate))) ||
+    (candidate.length >= 20 && fullPrompt === candidate)
+  );
 }
 
 function normalizeGeneratedTitleLine(value: string): string | null {
@@ -243,6 +298,9 @@ function normalizeGeneratedTitleLine(value: string): string | null {
       title,
     ) ||
     /^(?:input|prompt|instructions?)\s*:/iu.test(title) ||
+    /^(?:the )?user(?:'s)?\s+(?:goal|request|task|wants?|is asking)\b/iu.test(
+      title,
+    ) ||
     /^(?:a |the )?(?:concise |brief )?(?:chat |thread |conversation )?title\s+for\b/iu.test(
       title,
     )

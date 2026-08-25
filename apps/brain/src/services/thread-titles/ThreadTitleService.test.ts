@@ -159,6 +159,73 @@ describe("ThreadTitleService", () => {
     });
   });
 
+  it("settles a failed generation while keeping the preview visible", async () => {
+    const { service, events, transcripts } = await createHarness();
+
+    const settled = await service.persistFailure({
+      ...titleIdentity(),
+      prompt: "Investigate the title generation lifecycle",
+      expectedTitleVersion: 1,
+    });
+
+    expect(settled).toMatchObject({
+      title: "Investigate the title generation lifecycle",
+      titleSource: "generated",
+      titleVersion: 2,
+    });
+    const replay = await events.replay({
+      scope: { scopeType: "thread", scopeId: THREAD_ID },
+      afterCursor: null,
+      limit: 10,
+    });
+    expect(replay.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "thread.title.updated",
+          payload: expect.objectContaining({
+            titleStatus: "failed",
+            source: "generated",
+            title: "Investigate the title generation lifecycle",
+          }),
+        }),
+      ]),
+    );
+    await expect(transcripts.listSessions(USER_ID)).resolves.toMatchObject({
+      sessions: [
+        {
+          title: "Investigate the title generation lifecycle",
+          titleSource: "generated",
+        },
+      ],
+    });
+  });
+
+  it("does not let a late failed generation overwrite a user rename", async () => {
+    const { service, transcripts } = await createHarness();
+    const preview = await service.persistPreview({
+      ...titleIdentity(),
+      prompt: "Investigate the title generation lifecycle",
+    });
+    await service.rename({ ...titleIdentity(), title: "My Task Name" });
+
+    const lateFailure = await service.persistFailure({
+      ...titleIdentity(),
+      prompt: "Investigate the title generation lifecycle",
+      expectedTitleVersion: preview?.titleVersion,
+    });
+
+    expect(lateFailure).toBeNull();
+    await expect(transcripts.listSessions(USER_ID)).resolves.toMatchObject({
+      sessions: [
+        {
+          title: "My Task Name",
+          titleSource: "user",
+          titleVersion: 3,
+        },
+      ],
+    });
+  });
+
   it("uses the selected model for a bounded background title request", async () => {
     const generateText = vi.fn().mockResolvedValue({
       text: '<think>Choose a concise title.</think>\n* Title: "Review Cloud Task Checkout Improvements."\nIgnored explanation',
@@ -361,10 +428,11 @@ describe("ThreadTitleService", () => {
       text: "* User wants me to check readme",
     });
     const persist = vi.fn().mockResolvedValue(null);
+    const persistFailure = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
     const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
       generator: { generateText },
-      titleService: { persist },
+      titleService: { persist, persistFailure },
     });
 
     coordinator.schedule(
@@ -380,6 +448,90 @@ describe("ThreadTitleService", () => {
 
     await scheduled;
     expect(persist).not.toHaveBeenCalled();
+    expect(persistFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Check the README and improve it",
+        expectedTitleVersion: 2,
+      }),
+    );
+  });
+
+  it("rejects model output that only echoes the deterministic preview", async () => {
+    const prompt = "Check the README and improve the landing page copy";
+    const persist = vi.fn().mockResolvedValue(null);
+    const fallbackGenerateText = vi.fn().mockResolvedValue({
+      text: "Improve Landing Page Copy",
+    });
+    let scheduled: Promise<unknown> | undefined;
+    const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
+      generator: {
+        generateText: vi.fn().mockResolvedValue({
+          text: "Check the README and improve the landing page copy",
+        }),
+      },
+      fallbackGenerator: { generateText: fallbackGenerateText },
+      titleService: { persist },
+    });
+
+    coordinator.schedule(
+      { waitUntil: (promise) => (scheduled = promise) },
+      {
+        ...titleIdentity(),
+        prompt,
+        previewVersion: 2,
+        providerId: "openai",
+        modelId: "gpt-5.6-luna",
+      },
+    );
+
+    await scheduled;
+    expect(fallbackGenerateText).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Improve Landing Page Copy",
+        source: "generated",
+      }),
+    );
+  });
+
+  it("rejects a truncated preview echo instead of marking it generated", async () => {
+    const prompt = "Investigate why the chat title generation pipeline fails intermittently";
+    const persist = vi.fn().mockResolvedValue(null);
+    let scheduled: Promise<unknown> | undefined;
+    const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
+      generator: {
+        generateText: vi.fn().mockResolvedValue({
+          text: "Investigate why the chat title generation",
+        }),
+      },
+      titleService: { persist },
+    });
+
+    coordinator.schedule(
+      { waitUntil: (promise) => (scheduled = promise) },
+      {
+        ...titleIdentity(),
+        prompt,
+        previewVersion: 2,
+        providerId: "openai",
+        modelId: "gpt-5.6-luna",
+      },
+    );
+
+    await scheduled;
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "The user is asking for feedback on their docs overview",
+    "User's goal: Get feedback on a documentation overview",
+  ])("rejects Gemini meta narration as a title: %s", async (generated) => {
+    expect(
+      normalizeGeneratedTitle(
+        generated,
+        "Check my docs overview page and tell me if it sounds professional",
+      ),
+    ).toBeNull();
   });
 });
 

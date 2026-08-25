@@ -6,6 +6,7 @@ export interface PersistThreadTitleInput {
   sessionId: string;
   title: string;
   titleSource: "preview" | "generated" | "user";
+  titleStatus?: "pending" | "ready" | "failed";
   expectedTitleVersion?: number;
   initialOnly?: boolean;
   buildEvent(session: SessionRecord): AppendEventInput;

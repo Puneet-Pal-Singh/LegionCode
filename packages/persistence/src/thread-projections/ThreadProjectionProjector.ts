@@ -141,7 +141,7 @@ function projectThreadState(
       ...current,
       title: event.payload.title,
       titleSource: event.payload.source,
-      titleStatus: "ready",
+      titleStatus: event.payload.titleStatus,
       titleVersion: event.payload.titleVersion,
       updatedAt: event.payload.timestamp,
       lastEventSequence: projectionSequence,

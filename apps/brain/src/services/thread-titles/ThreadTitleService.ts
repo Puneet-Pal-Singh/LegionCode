@@ -28,6 +28,7 @@ export interface PersistThreadTitleInput {
   firstMessageId: string;
   title: string;
   source: AutomatedThreadTitleSource;
+  titleStatus?: "pending" | "ready" | "failed";
   expectedTitleVersion?: number;
   initialOnly?: boolean;
 }
@@ -67,6 +68,24 @@ export class ThreadTitleService {
     );
   }
 
+  /**
+   * Settles a failed generator attempt through the same session/event
+   * transaction as successful titles. The preview remains visible, while the
+   * canonical thread projection records that no generated title is pending.
+   */
+  async persistFailure(
+    input: Omit<PersistThreadTitleInput, "title" | "source" | "titleStatus"> & {
+      prompt: string;
+    },
+  ): Promise<SessionRecord | null> {
+    return await this.persist({
+      ...input,
+      title: buildThreadTitlePreview(input.prompt),
+      source: "generated",
+      titleStatus: "failed",
+    });
+  }
+
   async rename(
     input: Omit<PersistThreadTitleInput, "source">,
   ): Promise<SessionRecord | null> {
@@ -93,6 +112,7 @@ export class ThreadTitleService {
       title: session.title,
       titleVersion: session.titleVersion ?? 1,
       source,
+      titleStatus: input.titleStatus ?? "ready",
       timestamp: session.updatedAt,
     });
 
