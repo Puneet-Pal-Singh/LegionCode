@@ -1,7 +1,9 @@
 import {
   ItemIdSchema,
   LifecycleTransitionError,
+  RunAttemptIdSchema,
   ToolCallIdSchema,
+  TurnSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol";
 import { describe, expect, it, vi } from "vitest";
@@ -762,6 +764,81 @@ describe("RuntimeKernel canonical lifecycle", () => {
     );
   });
 
+  it("scopes cancellation to the requested turn while another turn continues", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    const secondTurn = TurnSchema.parse({
+      ...turn,
+      id: "trn_runtime002",
+    });
+    const secondRunAttemptId = RunAttemptIdSchema.parse("attempt_runtime002");
+    const firstWorker = deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
+    const secondWorker = deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
+    const providerCalls = new Map<string, number>();
+
+    ports.provider.generateNext = vi.fn(async ({ turn: currentTurn }) => {
+      const callCount = (providerCalls.get(currentTurn.id) ?? 0) + 1;
+      providerCalls.set(currentTurn.id, callCount);
+      if (callCount === 1) return toolStepFor(currentTurn.id);
+      return {
+        kind: "complete" as const,
+        itemId: ItemIdSchema.parse(`itm_${currentTurn.id.slice(4)}_final`),
+        output: "Done",
+      };
+    });
+    ports.worker.executeTool = vi.fn(async ({ turnId: currentTurnId, signal }) => {
+      if (currentTurnId === turn.id) {
+        signal?.addEventListener(
+          "abort",
+          () => firstWorker.resolve({ kind: "cancelled", reason: "User stopped" }),
+          { once: true },
+        );
+        return await firstWorker.promise;
+      }
+      return await secondWorker.promise;
+    });
+
+    const kernel = await createKernel(sink, ports);
+    const firstExecution = kernel.startTurn({ run, turn, runAttemptId });
+    const secondExecution = kernel.startTurn({
+      run,
+      turn: secondTurn,
+      runAttemptId: secondRunAttemptId,
+    });
+    await vi.waitFor(() => expect(ports.worker.executeTool).toHaveBeenCalledTimes(2));
+
+    await kernel.interruptTurn(turn.id, "User stopped the first turn");
+
+    expect(
+      sink.events.filter(
+        (event) =>
+          event.turnId === secondTurn.id &&
+          ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+            event.type,
+          ),
+      ),
+    ).toHaveLength(0);
+    expect(sink.events.filter((event) => event.type === "turn.interrupted")).toHaveLength(1);
+
+    secondWorker.resolve({ kind: "completed", output: { ok: true } });
+    await expect(firstExecution).rejects.toMatchObject({
+      code: "turn_cancelled",
+    });
+    await expect(secondExecution).resolves.toMatchObject({
+      status: "completed",
+      output: "Done",
+    });
+    expect(
+      sink.events.filter(
+        (event) =>
+          event.turnId === secondTurn.id &&
+          ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+            event.type,
+          ),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("persists a multi-file diff before successful terminal settlement", async () => {
     const sink = createLifecycleSink();
     const artifacts = createArtifactPorts(multiFileDiff());
@@ -904,11 +981,16 @@ function multiFileDiff() {
 }
 
 function toolStep() {
+  return toolStepFor("trn_runtime001");
+}
+
+function toolStepFor(turnId: string) {
+  const suffix = turnId.slice(4);
   return {
     kind: "tool_call" as const,
-    itemId: ItemIdSchema.parse("itm_runtime001"),
+    itemId: ItemIdSchema.parse(`itm_${suffix}`),
     content: {
-      toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+      toolCallId: ToolCallIdSchema.parse(`toolcall_${suffix}`),
       toolName: "write_file",
       input: { path: "src/index.ts" },
     },

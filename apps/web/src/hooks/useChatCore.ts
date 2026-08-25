@@ -750,8 +750,11 @@ export function useChatCore(
           stopRequestedRef.current &&
           preAdmissionStopKeyRef.current === bootstrapScopeKey
         ) {
-          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
-          stopStream();
+          await interruptAndAwaitTerminal(
+            lifecycleClient,
+            requestScope,
+            stopStream,
+          );
           return;
         }
 
@@ -980,8 +983,11 @@ export function useChatCore(
     const cancelRun = async (): Promise<void> => {
       try {
         if (requestScope) {
-          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
-          stopStream();
+          await interruptAndAwaitTerminal(
+            lifecycleClient,
+            requestScope,
+            stopStream,
+          );
         } else {
           preAdmissionStopKeyRef.current = runScopeKey;
           stopStream();
@@ -1054,9 +1060,10 @@ export function useChatCore(
   };
 }
 
-async function interruptAndAwaitTerminal(
+export async function interruptAndAwaitTerminal(
   lifecycleClient: ReturnType<typeof createLifecycleClient>,
   scope: ConversationScope,
+  onInterruptAccepted: () => void,
 ): Promise<void> {
   const settlementAbort = new AbortController();
   const settlementTimeout = window.setTimeout(
@@ -1076,6 +1083,10 @@ async function interruptAndAwaitTerminal(
       runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
       reason: "User stopped the turn.",
     });
+    // The runtime command is now durably admitted. Stop the chat transport
+    // immediately so the composer reflects the user's hard-stop action while
+    // lifecycle continuation independently waits for canonical settlement.
+    onInterruptAccepted();
     if (response.terminalEvent) return;
     for await (const event of lifecycleClient.followTurnLifecycle(
       { turnId: TurnIdSchema.parse(scope.turnId) },
