@@ -696,6 +696,63 @@ describe("ChatInputBar", () => {
     });
   });
 
+  it("removes submitted images from the composer before the run settles", async () => {
+    let settleSubmit: ((value: boolean) => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleSubmit = resolve;
+        }),
+    );
+
+    render(
+      <ChatInputBar
+        input="Inspect this image"
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+      target: {
+        files: [new File(["hello"], "screen.png", { type: "image/png" })],
+      },
+    });
+    expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Attached images")).not.toBeInTheDocument();
+
+    await act(async () => settleSubmit?.(true));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:image-preview");
+  });
+
+  it("restores a detached image when submission is rejected", async () => {
+    const onSubmit = vi.fn(async () => false);
+
+    render(
+      <ChatInputBar
+        input="Inspect this image"
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+      target: {
+        files: [new File(["hello"], "screen.png", { type: "image/png" })],
+      },
+    });
+    expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+  });
+
   it("accepts pasted and dropped images through the composer", async () => {
     render(
       <ChatInputBar

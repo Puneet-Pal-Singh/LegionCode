@@ -25,6 +25,7 @@ import { Resizer } from "../ui/Resizer";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { ChatImageAttachmentStrip } from "../chat/ChatImageAttachmentStrip";
+import { ChatImageDropOverlay } from "../chat/ChatImageDropOverlay";
 import { useChatImageAttachmentDraft } from "../chat/useChatImageAttachmentDraft";
 import {
   CHAT_IMAGE_MIME_TYPES,
@@ -308,15 +309,28 @@ export function AgentSetup({
       return;
     }
 
-    onStart({
-      repo: repo?.full_name || "",
-      branch: branch || "main",
-      task: task.trim() || "Analyze the attached image(s).",
-      mode,
-      attachments: hasImages
-        ? { imageAttachments: imageDraft.attachments }
-        : undefined,
-    });
+    const detachedImages = hasImages ? imageDraft.detachForSubmit() : [];
+    try {
+      onStart({
+        repo: repo?.full_name || "",
+        branch: branch || "main",
+        task: task.trim() || "Analyze the attached image(s).",
+        mode,
+        attachments:
+          detachedImages.length > 0
+            ? { imageAttachments: detachedImages }
+            : undefined,
+      });
+      setTask("");
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, true);
+      }
+    } catch (error) {
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, false);
+      }
+      throw error;
+    }
   };
 
   const handleTaskChange = (value: string, nextCursorPosition?: number) => {
@@ -543,6 +557,9 @@ export function AgentSetup({
               event.currentTarget.value = "";
             }}
           />
+          {imageDraft.isDraggingImages ? (
+            <ChatImageDropOverlay testId="setup-composer-drop-overlay" />
+          ) : null}
           <ChatImageAttachmentStrip
             attachments={imageDraft.attachments}
             onRemove={imageDraft.remove}

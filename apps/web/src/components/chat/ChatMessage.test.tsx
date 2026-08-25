@@ -203,7 +203,12 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.getByAltText(/screen\.png/)).toBeInTheDocument();
+    const image = screen.getByAltText(/screen\.png/);
+    const prompt = screen.getByText("What do you think?");
+    expect(image).toBeInTheDocument();
+    expect(
+      image.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
     expect(
       screen.getByRole("dialog", { name: /screen\.png/ }),
@@ -221,7 +226,8 @@ describe("ChatMessage", () => {
     const message = {
       id: "hydrated-user-image",
       role: "user",
-      content: "Analyze the attached image(s).",
+      content:
+        "Analyze the attached image(s).\n\n[Image attached: screen.png, image/png, 5 B]",
       data: {
         metadata: {
           imageAttachments: [
@@ -240,10 +246,46 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.getByAltText(/screen\.png/)).toBeInTheDocument();
+    const image = screen.getByAltText(/screen\.png/) as HTMLImageElement;
+    expect(image).toBeInTheDocument();
+    expect(image.src).toContain(
+      "/__legioncode/brain/api/chat/media/img_1234567890abcdef?session=123e4567-e89b-42d3-a456-426614174001",
+    );
+    expect(screen.queryByText(/\[Image attached:/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Analyze the attached image(s)."),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
     expect(
       screen.getByRole("dialog", { name: /screen\.png/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render an unscoped hydrated image source", () => {
+    const message = {
+      id: "untrusted-hydrated-user-image",
+      role: "user",
+      content: "Analyze this image.",
+      data: {
+        metadata: {
+          imageAttachments: [
+            {
+              type: "image_attachment",
+              attachmentId: "img_1234567890abcdef",
+              name: "screen.png",
+              mediaType: "image/png",
+              src: "https://attacker.example/collect.png",
+            },
+          ],
+        },
+      },
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Preview unavailable after reload/),
     ).toBeInTheDocument();
   });
 

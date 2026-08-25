@@ -12,6 +12,10 @@ import { useMessageDisplayContent } from "./chat-message/useMessageDisplayConten
 import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClient";
 import { ChatImageGallery, type ChatImagePreview } from "./ChatImageGallery";
 import { isChatImageMimeType } from "./chatImageAttachments";
+import {
+  resolveHydratedChatImageSource,
+  stripRedactedImageMarkers,
+} from "./chatMessageImagePresentation";
 
 interface ChatMessageProps {
   message: Message;
@@ -41,6 +45,10 @@ export function ChatMessage({
     changedFilesSummary,
   );
   const imagePreviews = isUser ? readMessageImagePreviews(message) : [];
+  const visibleContent =
+    isUser && imagePreviews.length > 0
+      ? stripRedactedImageMarkers(displayContent)
+      : displayContent;
 
   return (
     <div
@@ -94,13 +102,13 @@ export function ChatMessage({
           </div>
         ) : (
           <>
-            <MessageContent content={displayContent} isUser={isUser} />
             {imagePreviews.length > 0 ? (
               <ChatImageGallery
                 images={imagePreviews}
-                className={displayContent ? "mt-2 justify-end" : "justify-end"}
+                className={visibleContent ? "mb-2 justify-end" : "justify-end"}
               />
             ) : null}
+            <MessageContent content={visibleContent} isUser={isUser} />
           </>
         )}
         {!isUser && (
@@ -116,7 +124,7 @@ export function ChatMessage({
             />
           )}
         <MessageActions
-          content={displayContent}
+          content={visibleContent}
           metadata={metadata}
           isUser={isUser}
           hookAudits={hookAudits}
@@ -146,9 +154,8 @@ function readMessageImagePreviews(message: Message): ChatImagePreview[] {
               ? record.id
               : `image-${index + 1}`;
         const src =
-          typeof record.src === "string" &&
-          isSafeHydratedImageSource(record.src)
-            ? record.src
+          typeof record.src === "string"
+            ? resolveHydratedChatImageSource(record.src)
             : undefined;
         return [
           {
@@ -209,10 +216,4 @@ function readMessageMetadata(message: Message): Record<string, unknown> | null {
 
 function isSafeImagePartSource(source: string, mediaType: string): boolean {
   return source.startsWith(`data:${mediaType};base64,`);
-}
-
-function isSafeHydratedImageSource(source: string): boolean {
-  return /^\/api\/chat\/media\/[A-Za-z0-9_-]{16,128}\?session=[0-9a-fA-F-]{36}$/.test(
-    source,
-  );
 }

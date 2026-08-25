@@ -136,6 +136,50 @@ describe("useChatPresentation", () => {
     ).toHaveLength(1);
   });
 
+  it("does not duplicate an image-bearing setup prompt with structured content", () => {
+    const userMessage = {
+      id: "client_msg_image",
+      role: "user" as const,
+      content: [
+        { type: "text" as const, text: "Inspect this screenshot" },
+        {
+          type: "image" as const,
+          image: "data:image/png;base64,aGVsbG8=",
+          mimeType: "image/png",
+        },
+      ],
+    } as unknown as import("@ai-sdk/react").Message;
+    const { result } = renderHook(() =>
+      useChatPresentation({
+        messages: [userMessage],
+        conversationTurns: [
+          {
+            key: "turn:client_msg_image",
+            userMessage,
+            assistantMessage: undefined,
+            turnId: undefined,
+          },
+        ],
+        hasHydrated: false,
+        isLoading: true,
+        hasPendingApproval: false,
+        hasStartedSession: true,
+        initialPromptSubmission: {
+          id: createInitialPromptSubmissionId("setup-image"),
+          prompt: "Inspect this screenshot",
+        },
+      }),
+    );
+
+    expect(
+      result.current.chatEntries.filter((entry) => entry.kind === "message"),
+    ).toHaveLength(1);
+    expect(result.current.chatEntries[0]).toMatchObject({
+      kind: "message",
+      message: { id: "client_msg_image" },
+    });
+  });
+
   it("keeps a canonical failed terminal visible instead of replacing it with a final-output placeholder", () => {
     const { result } = renderHook(() =>
       useChatPresentation({

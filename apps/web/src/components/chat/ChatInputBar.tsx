@@ -33,6 +33,7 @@ import {
   type ChatSubmitAttachments,
 } from "./chatImageAttachments";
 import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip";
+import { ChatImageDropOverlay } from "./ChatImageDropOverlay";
 import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import {
@@ -358,13 +359,25 @@ export function ChatInputBar({
       );
       return;
     }
-    const submitted = await onSubmit(
-      hasImageAttachments
-        ? { imageAttachments: imageDraft.attachments }
-        : undefined,
-    );
-    if (hasImageAttachments && submitted !== false) {
-      imageDraft.clear();
+    const detachedImages = hasImageAttachments
+      ? imageDraft.detachForSubmit()
+      : [];
+    try {
+      const submitted = await onSubmit(
+        detachedImages.length > 0
+          ? { imageAttachments: detachedImages }
+          : undefined,
+      );
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, submitted !== false);
+      }
+    } catch (error) {
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, false);
+      }
+      imageDraft.reportError(
+        error instanceof Error ? error.message : "Message could not be sent.",
+      );
     }
   };
 
@@ -658,20 +671,7 @@ export function ChatInputBar({
             }}
           />
           {imageDraft.isDraggingImages ? (
-            <div
-              className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-[inherit] border border-dashed border-cyan-300/90 bg-zinc-950/90 px-5 text-center shadow-[inset_0_0_0_1px_rgba(103,232,249,0.15)]"
-              data-testid="chat-composer-drop-overlay"
-              aria-hidden="true"
-            >
-              <div>
-                <div className="text-sm font-medium text-zinc-100">
-                  Drop files to attach
-                </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  PNG, JPEG, WebP, or GIF · up to 4 images
-                </div>
-              </div>
-            </div>
+            <ChatImageDropOverlay testId="chat-composer-drop-overlay" />
           ) : null}
           {hasReviewComments ? (
             <div className="mb-3 space-y-2">
