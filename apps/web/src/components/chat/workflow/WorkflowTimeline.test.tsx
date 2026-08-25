@@ -105,7 +105,7 @@ describe("WorkflowTimeline", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens grouped activity when it contains provider-visible commentary", () => {
+  it("keeps verbose grouped commentary collapsed until requested", () => {
     const item = {
       itemId: ItemIdSchema.parse("itm_commentary001"),
       sequence: 1,
@@ -159,6 +159,13 @@ describe("WorkflowTimeline", () => {
     );
 
     const disclosure = screen.getByTestId("activity-disclosure-row");
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText("I am checking the repository first."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(disclosure);
+
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
     expect(
       screen.getByText("I am checking the repository first."),

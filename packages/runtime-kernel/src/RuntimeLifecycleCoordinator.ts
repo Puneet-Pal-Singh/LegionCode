@@ -192,6 +192,24 @@ export class RuntimeLifecycleCoordinator {
     });
   }
 
+  async appendAssistantReasoning(
+    itemId: ItemId,
+    text: string,
+    displaySafe: boolean,
+  ): Promise<void> {
+    const bounded = text.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH);
+    if (!displaySafe || !bounded.trim()) return;
+    await this.enqueue(async () => {
+      await this.startItem(itemId, "reasoning", {});
+      await this.emit({
+        type: "reasoning.summary_delta",
+        itemId,
+        payload: { delta: bounded, displaySafe: true },
+      });
+      await this.settleItem(itemId, "completed", { result: { text: bounded } });
+    });
+  }
+
   private async startToolCallNow(
     itemId: ItemId,
     toolCallId: ToolCallId,

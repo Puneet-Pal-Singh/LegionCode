@@ -8,7 +8,25 @@ describe("native provider commentary", () => {
     );
   });
 
-  it("does not fabricate commentary for a tool-only model response", () => {
+  it("keeps a final response without tools free of fabricated commentary", () => {
     expect(resolveModelCommentary("")).toBeNull();
+  });
+
+  it("adds a concise harness fallback when a model omits tool commentary", () => {
+    expect(
+      resolveModelCommentary("", [
+        { toolName: "glob" },
+        { toolName: "read_file" },
+      ]),
+    ).toBe("I’ll inspect the relevant project files next.");
+  });
+
+  it("prefers mutation intent for a mixed tool batch", () => {
+    expect(
+      resolveModelCommentary("", [
+        { toolName: "read_file" },
+        { toolName: "apply_patch" },
+      ]),
+    ).toBe("I’ll update the relevant files next.");
   });
 });

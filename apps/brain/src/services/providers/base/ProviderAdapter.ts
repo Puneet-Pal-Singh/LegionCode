@@ -4,6 +4,7 @@
 import type { CoreMessage, CoreTool, TextStreamPart } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { ReasoningEffort } from "@repo/shared-types";
+import type { ProviderTranscriptPart } from "@shadowbox/execution-engine/runtime/llm";
 
 /**
  * Parameters for generation
@@ -31,6 +32,8 @@ export interface GenerationResult {
     toolName: string;
     args: unknown;
   }>;
+  /** Provider-owned structured parts. Adapters must not mark private reasoning as visible. */
+  transcriptParts?: readonly ProviderTranscriptPart[];
 }
 
 /**

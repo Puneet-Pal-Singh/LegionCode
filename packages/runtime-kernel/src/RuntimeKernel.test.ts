@@ -464,6 +464,62 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
   });
 
+  it("emits only provider-designated safe reasoning summaries", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...toolStep(),
+        reasoning: { text: "Safe provider summary", displaySafe: true },
+      })
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(
+      sink.events.filter((event) => event.type === "reasoning.summary_delta"),
+    ).toHaveLength(1);
+    expect(sink.events).toContainEqual(
+      expect.objectContaining({
+        type: "reasoning.summary_delta",
+        itemId: "itm_runtime001_reasoning_0",
+        payload: { delta: "Safe provider summary", displaySafe: true },
+      }),
+    );
+
+    const hiddenSink = createLifecycleSink();
+    const hiddenPorts = createPorts();
+    hiddenPorts.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...toolStep(),
+        reasoning: { text: "Private chain of thought", displaySafe: false },
+      })
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    await (await createKernel(hiddenSink, hiddenPorts)).startTurn({
+      run,
+      turn,
+      runAttemptId,
+    });
+    expect(
+      hiddenSink.events.some(
+        (event) =>
+          event.type === "reasoning.summary_delta" ||
+          JSON.stringify(event.payload).includes("Private chain of thought"),
+      ),
+    ).toBe(false);
+  });
+
   it("emits approval lifecycle events before policy-gated execution", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();

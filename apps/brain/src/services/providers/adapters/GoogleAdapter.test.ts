@@ -114,6 +114,32 @@ describe("GoogleAdapter", () => {
     );
   });
 
+  it("preserves Gemini step-visible commentary boundaries without promoting reasoning", async () => {
+    mockGenerateText.mockResolvedValueOnce({
+      text: "I will inspect the repository.",
+      steps: [
+        { text: "I will inspect the repository." },
+        { text: "Then I will run the focused check." },
+      ],
+      usage: { promptTokens: 5, completionTokens: 4 },
+      finishReason: "tool-calls",
+      toolCalls: [],
+    });
+
+    const result = await new GoogleAdapter({ apiKey: "google-test-key" }).generate({
+      messages: [],
+      model: "gemini-2.5-flash-lite",
+    });
+
+    expect(result.transcriptParts).toEqual([
+      { type: "visible_text", text: "I will inspect the repository." },
+      { type: "visible_text", text: "Then I will run the focused check." },
+    ]);
+    expect(result.transcriptParts?.some((part) => part.type === "reasoning")).toBe(
+      false,
+    );
+  });
+
   it("configures Google client with the Gemini thought-signature fetch bridge", () => {
     new GoogleAdapter({
       apiKey: "google-test-key",

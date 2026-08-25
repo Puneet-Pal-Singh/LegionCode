@@ -7,6 +7,7 @@
 
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { ProviderTranscriptPart } from "@shadowbox/execution-engine/runtime/llm";
 import type { ProviderAdapter, GenerationParams } from "../providers";
 import type { ReasoningEffort } from "@repo/shared-types";
 
@@ -22,6 +23,7 @@ export interface GenerateTextResult {
     toolName: string;
     args: unknown;
   }>;
+  transcriptParts?: readonly ProviderTranscriptPart[];
 }
 
 /**
@@ -62,5 +64,6 @@ export async function generateText(
     usage: result.usage,
     finishReason: result.finishReason,
     toolCalls: result.toolCalls,
+    transcriptParts: result.transcriptParts,
   };
 }

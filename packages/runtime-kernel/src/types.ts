@@ -54,6 +54,11 @@ export type ProviderStep =
       readonly kind: "complete";
       readonly itemId: ItemId;
       readonly output: string;
+      /** Provider-designated safe summary only; private reasoning must not be set here. */
+      readonly reasoning?: {
+        readonly text: string;
+        readonly displaySafe: boolean;
+      };
       readonly usage?: UsageCostSnapshot;
     }
   | {
@@ -61,6 +66,11 @@ export type ProviderStep =
       readonly itemId: ItemId;
       readonly content: ToolCallItemContent;
       readonly commentary?: string;
+      /** Provider-designated safe summary only; private reasoning must not be set here. */
+      readonly reasoning?: {
+        readonly text: string;
+        readonly displaySafe: boolean;
+      };
       readonly usage?: UsageCostSnapshot;
     };
 

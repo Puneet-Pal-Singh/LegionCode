@@ -93,7 +93,7 @@ function ActiveWorkflowTrace({
       title={title}
       active
       hasChildren={children.length > 0}
-      defaultExpanded={children.some((item) => item.kind === "commentary")}
+      defaultExpanded={false}
       titleTestId="active-workflow-title"
     >
       {children.map((item) => (
@@ -157,9 +157,7 @@ function WorkflowSegment({
             title={buildSegmentTitle(segment)}
             active={segment.isActive}
             hasChildren
-            defaultExpanded={segment.children.some(
-              (item) => item.kind === "commentary",
-            )}
+            defaultExpanded={false}
           >
             <div
               ref={viewportRef}
@@ -211,9 +209,9 @@ function ActivityDisclosure({
   titleTestId?: string;
   children: ReactNode;
 }) {
-  // Activity is deliberately closed by default. Provider-visible commentary
-  // is the exception: it is part of the user-facing transcript and must be
-  // visible without an inspection click even when grouped with tool calls.
+  // Keep full provider commentary available for inspection without allowing
+  // verbose models to expand the transcript by default. Concise standalone
+  // progress updates remain visible as their own transcript segments.
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (

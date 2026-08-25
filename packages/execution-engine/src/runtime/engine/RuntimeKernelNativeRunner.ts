@@ -918,6 +918,8 @@ class KernelAgenticProvider implements ProviderPort {
   private cumulativeTokens = 0;
   private cumulativeCost = 0;
   private pendingCommentary: string | null = null;
+  private pendingReasoningSummary: LLMTextResponse["reasoningSummary"] =
+    undefined;
   private readonly currentBatchResults: AgenticLoopToolResult[] = [];
   private readonly toolNamesByCallId = new Map<string, string>();
   private readonly providerToolCallIdentities =
@@ -980,6 +982,7 @@ class KernelAgenticProvider implements ProviderPort {
       : 0;
     let responseParts: LLMTextResponse["parts"];
     let responseUsage: LLMTextResponse["usage"] | null = null;
+    let responseReasoningSummary: LLMTextResponse["reasoningSummary"];
     let toolCalls: AgenticLoopToolCall[];
     let visibleText: string;
 
@@ -1024,6 +1027,7 @@ class KernelAgenticProvider implements ProviderPort {
         );
         const response = recovered;
         responseUsage = response.usage;
+        responseReasoningSummary = undefined;
         responseParts = [
           buildNativeProviderStructuredFinal({
             runId: this.options.run.id,
@@ -1084,6 +1088,7 @@ class KernelAgenticProvider implements ProviderPort {
             }),
         );
         responseUsage = response.usage;
+        responseReasoningSummary = response.reasoningSummary;
         toolCalls = this.repairToolCalls(response.toolCalls ?? []);
         responseParts = response.parts ?? [];
       }
@@ -1122,6 +1127,9 @@ class KernelAgenticProvider implements ProviderPort {
           toProtocolId("itm", `${input.run.id}-final`),
         ),
         output: terminal.text,
+        ...(responseReasoningSummary
+          ? { reasoning: responseReasoningSummary }
+          : {}),
         usage: toUsageSnapshot(
           responseUsage,
           input,
@@ -1129,7 +1137,7 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    const commentary = resolveModelCommentary(visibleText);
+    const commentary = resolveModelCommentary(visibleText, toolCalls);
     if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
@@ -1150,6 +1158,7 @@ class KernelAgenticProvider implements ProviderPort {
     }
     this.pendingToolCalls.push(...toolCalls);
     this.pendingCommentary = commentary;
+    this.pendingReasoningSummary = responseReasoningSummary;
     this.pendingUsage = toUsageSnapshot(
       responseUsage,
       input,
@@ -1393,6 +1402,8 @@ class KernelAgenticProvider implements ProviderPort {
     }
     const commentary = this.pendingCommentary;
     this.pendingCommentary = null;
+    const reasoning = this.pendingReasoningSummary;
+    this.pendingReasoningSummary = undefined;
     const usage = this.pendingUsage;
     this.pendingUsage = null;
     const protocolToolCallId = toProtocolId("toolcall", toolCall.id);
@@ -1406,6 +1417,7 @@ class KernelAgenticProvider implements ProviderPort {
         input: toolCall.args,
       }),
       ...(commentary ? { commentary } : {}),
+      ...(reasoning ? { reasoning } : {}),
       ...(usage ? { usage } : {}),
     };
   }

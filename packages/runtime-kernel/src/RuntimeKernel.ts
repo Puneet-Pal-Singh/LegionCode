@@ -461,6 +461,22 @@ export class RuntimeKernel {
         }
       }
       if (step.kind === "complete") {
+        if (step.reasoning) {
+          const lifecycle = this.lifecycles.get(turn.id);
+          if (!lifecycle) {
+            throw new RuntimeKernelError(
+              "turn_not_active",
+              `Turn ${turn.id} has no lifecycle coordinator`,
+            );
+          }
+          await lifecycle.appendAssistantReasoning(
+            ItemIdSchema.parse(
+              `itm_${turn.id.slice(4)}_reasoning_${toolCallCount}`,
+            ),
+            step.reasoning.text,
+            step.reasoning.displaySafe,
+          );
+        }
         return {
           status: "completed",
           output: step.output,
@@ -487,6 +503,22 @@ export class RuntimeKernel {
             `itm_${turn.id.slice(4)}_commentary_${toolCallCount}`,
           ),
           step.commentary,
+        );
+      }
+      if (step.reasoning) {
+        const lifecycle = this.lifecycles.get(turn.id);
+        if (!lifecycle) {
+          throw new RuntimeKernelError(
+            "turn_not_active",
+            `Turn ${turn.id} has no lifecycle coordinator`,
+          );
+        }
+        await lifecycle.appendAssistantReasoning(
+          ItemIdSchema.parse(
+            `itm_${turn.id.slice(4)}_reasoning_${toolCallCount}`,
+          ),
+          step.reasoning.text,
+          step.reasoning.displaySafe,
         );
       }
       toolResults.push(

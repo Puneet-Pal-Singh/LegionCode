@@ -19,6 +19,40 @@ const THREAD_ID = "thr_workflow01";
 const ATTEMPT_ID = "attempt_workflow01";
 
 describe("turn workflow projection", () => {
+  it("projects visible provider commentary and display-safe reasoning deltas while filtering hidden reasoning", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "item.started", {
+        itemId: "itm_commentary01",
+        payload: { kind: "commentary" },
+      }),
+      event(2, "assistant_message.delta", {
+        itemId: "itm_commentary01",
+        payload: {
+          phase: "commentary",
+          delta: "I am checking the repository first.",
+        },
+      }),
+      event(3, "item.started", {
+        itemId: "itm_reasoning01",
+        payload: { kind: "reasoning" },
+      }),
+      event(4, "reasoning.summary_delta", {
+        itemId: "itm_reasoning01",
+        payload: { delta: "Safe summary", displaySafe: true },
+      }),
+    ]);
+
+    expect(projection.items).toMatchObject([
+      {
+        itemId: "itm_commentary01",
+        kind: "commentary",
+        text: "I am checking the repository first.",
+      },
+      { itemId: "itm_reasoning01", kind: "reasoning", text: "Safe summary" },
+    ]);
+    expect(projection.items[1]?.text).not.toContain("chain of thought");
+  });
+
   it("preserves typed tool families and repeated ordered children", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
