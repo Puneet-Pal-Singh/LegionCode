@@ -17,6 +17,7 @@ function createStoreStub() {
   const userCacheByCredential = new Map<string, ProviderModelCacheRecord>();
 
   return {
+    cacheByProvider,
     getModelCache: vi.fn(async (providerId: string) => {
       return cacheByProvider.get(providerId) ?? null;
     }),
@@ -68,6 +69,58 @@ describe("ProviderModelDiscoveryService", () => {
     expect(second.models).toHaveLength(1);
     expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
     expect(store.setModelCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes a legacy undersized OpenRouter cache for management", async () => {
+    const store = createStoreStub();
+    store.cacheByProvider.set("openrouter", {
+      providerId: "openrouter",
+      models: Array.from({ length: 9 }, (_, index) => ({
+        id: `openrouter/legacy-${index}`,
+        name: `Legacy ${index}`,
+        providerId: "openrouter",
+      })),
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      source: "provider_api",
+    });
+    const fullCatalog = Array.from({ length: 501 }, (_, index) => ({
+      id: `openrouter/public-${index}`,
+      name: `Public ${index}`,
+      providerId: "openrouter",
+    }));
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: OpenRouterModelCatalogPort = {
+      fetchAll: vi.fn(async () => fullCatalog),
+      fetchPage: vi.fn(),
+      fetchUserModels: vi.fn(async () => []),
+      fetchProgrammingModels: vi.fn(async () => []),
+      fetchCategoryModels: vi.fn(async () => []),
+      fetchLeaderboardModels: vi.fn(async () => []),
+      fetchFreeModels: vi.fn(async () => []),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openrouter: adapter },
+    );
+
+    const result = await service.getDiscoveredModels("openrouter", {
+      view: "all",
+      surface: "manage",
+      limit: 150,
+    });
+
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+    expect(result.models).toHaveLength(150);
+    expect(result.page.hasMore).toBe(true);
+    expect(
+      store.cacheByProvider.get("openrouter:manage-catalog:v2")?.models,
+    ).toHaveLength(501);
   });
 
   it("keeps OpenRouter catalog/category models in management inventory even when not enabled by the user", async () => {

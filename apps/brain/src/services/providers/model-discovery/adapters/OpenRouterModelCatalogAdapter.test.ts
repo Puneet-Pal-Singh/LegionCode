@@ -114,6 +114,42 @@ describe("OpenRouterModelCatalogAdapter", () => {
     );
   });
 
+  it("keeps current public catalog entries with nullable metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: Array.from({ length: 501 }, (_, index) => ({
+            id: `author/model-${index}`,
+            name: `Model ${index}`,
+            context_length: 128_000,
+            pricing: {
+              prompt: "0.000001",
+              completion: "0.000002",
+              input_cache_read: null,
+              input_cache_write: null,
+              overrides: null,
+            },
+            supported_parameters: ["tools"],
+            architecture: {
+              input_modalities: ["text"],
+              output_modalities: ["text"],
+              modality: "text->text",
+            },
+            expiration_date: null,
+          })),
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const models = await new OpenRouterModelCatalogAdapter().fetchAll(
+      "openrouter",
+      { apiKey: "sk-or-test", outputModalities: "all" },
+    );
+
+    expect(models).toHaveLength(501);
+  });
+
   it("does not infer image input from image output", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

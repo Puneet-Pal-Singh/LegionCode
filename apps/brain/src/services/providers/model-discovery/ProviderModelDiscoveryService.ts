@@ -54,6 +54,10 @@ const OPENROUTER_RECOMMENDED_MAX = 10;
 const OPENROUTER_TOP_FREE_MAX = 10;
 const OPENROUTER_AUTO_MODEL_ID = "openrouter/auto";
 const OPENROUTER_AUTO_MODEL_NAME = "Auto (Best Model)";
+// Bump whenever tolerant provider normalization changes. The former v1 cache
+// could contain only the handful of entries whose nullable fields happened to
+// satisfy an overly strict schema.
+const OPENROUTER_MANAGE_CATALOG_CACHE_KEY = "openrouter:manage-catalog:v2";
 const OPENROUTER_PROGRAMMING_CACHE_KEY = "openrouter:programming";
 const OPENROUTER_LEADERBOARD_CACHE_KEY = "openrouter:leaderboard";
 const OPENROUTER_FREE_CACHE_KEY = "openrouter:free";
@@ -435,7 +439,7 @@ export class ProviderModelDiscoveryService {
   private async getOpenRouterManageModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const inventory = await this.getCatalogWithCache("openrouter");
+    const inventory = await this.getOpenRouterManagementCatalog();
     const categoryFetches = OPENROUTER_DISCOVERY_CATEGORIES.map(
       async (category) =>
         [
@@ -485,6 +489,24 @@ export class ProviderModelDiscoveryService {
         status: "available",
       },
     };
+  }
+
+  private async getOpenRouterManagementCatalog(): Promise<
+    ProviderModelCacheRecord & { staleReason?: string }
+  > {
+    // Management has its own versioned cache namespace. This prevents a
+    // recommended/text-only inventory from becoming the source of truth for
+    // the complete public all-modality catalog.
+    const credential = await this.getProviderCredential("openrouter");
+    return this.getOpenRouterSharedCatalog(
+      OPENROUTER_MANAGE_CATALOG_CACHE_KEY,
+      async (adapter) =>
+        adapter.fetchAll("openrouter", {
+          apiKey: credential.apiKey,
+          connectionConfig: credential.connectionConfig,
+          outputModalities: "all",
+        }),
+    );
   }
 
   private async fetchAndCacheModels(
@@ -607,10 +629,23 @@ export class ProviderModelDiscoveryService {
       adapter: OpenRouterModelCatalogPort,
     ) => Promise<BYOKDiscoveredProviderModel[]>,
   ): Promise<BYOKDiscoveredProviderModel[]> {
+    const record = await this.getOpenRouterSharedCatalog(cacheKey, loader);
+    return record.models;
+  }
+
+  private async getOpenRouterSharedCatalog(
+    cacheKey: string,
+    loader: (
+      adapter: OpenRouterModelCatalogPort,
+    ) => Promise<BYOKDiscoveredProviderModel[]>,
+  ): Promise<ProviderModelCacheRecord> {
     const cached = await this.readCache(cacheKey);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(cacheKey);
-      return this.enrichCatalogModels("openrouter", cached.models);
+      return {
+        ...cached,
+        models: await this.enrichCatalogModels("openrouter", cached.models),
+      };
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -625,7 +660,10 @@ export class ProviderModelDiscoveryService {
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return this.enrichCatalogModels("openrouter", record.models);
+    return {
+      ...record,
+      models: await this.enrichCatalogModels("openrouter", record.models),
+    };
   }
 
   private async getOpenRouterUserInventory(
@@ -682,6 +720,7 @@ export class ProviderModelDiscoveryService {
 
   private async invalidateOpenRouterSharedCaches(): Promise<void> {
     const cacheKeys = [
+      OPENROUTER_MANAGE_CATALOG_CACHE_KEY,
       OPENROUTER_PROGRAMMING_CACHE_KEY,
       OPENROUTER_LEADERBOARD_CACHE_KEY,
       OPENROUTER_FREE_CACHE_KEY,

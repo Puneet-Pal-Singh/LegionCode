@@ -49,8 +49,14 @@ const OpenRouterModelSchema = z
       .object({
         prompt: z.string().optional(),
         completion: z.string().optional(),
-        input_cache_read: z.string().optional(),
-        input_cache_write: z.string().optional(),
+        input_cache_read: z
+          .string()
+          .nullish()
+          .transform((value) => value ?? undefined),
+        input_cache_write: z
+          .string()
+          .nullish()
+          .transform((value) => value ?? undefined),
         overrides: z
           .array(
             z.object({
@@ -61,7 +67,8 @@ const OpenRouterModelSchema = z
               input_cache_write: z.string().optional(),
             }),
           )
-          .optional(),
+          .nullish()
+          .transform((value) => value ?? undefined),
       })
       .partial()
       .optional(),
@@ -86,7 +93,11 @@ const OpenRouterModelSchema = z
       .partial()
       .optional(),
     expires_at: z.string().min(1).optional(),
-    expiration_date: z.string().min(1).optional(),
+    expiration_date: z
+      .string()
+      .min(1)
+      .nullish()
+      .transform((value) => value ?? undefined),
     reasoning: z
       .object({
         supported_efforts: z.array(z.string().min(1)).optional(),
