@@ -71,6 +71,7 @@ interface ChatInterfaceViewProps {
   loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   completedTurnReview: CompletedTurnReview;
   lifecycleProjection: LifecycleProjection | null;
+  onUserMessageEdit?: (turnId: string, content: string) => Promise<boolean>;
   onCompact?: () => void;
   pendingWorkflow: boolean;
 }
@@ -94,7 +95,10 @@ export const ChatInterfaceView = forwardRef<
           {props.completedTurnReview.error}
         </div>
       ) : null}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
+      >
         {props.showHeroComposer ? (
           <HeroComposer
             projectName={props.projectName}
@@ -105,7 +109,7 @@ export const ChatInterfaceView = forwardRef<
         ) : props.showSessionPlaceholder ? (
           <ChatLoadingIndicator />
         ) : (
-          <div className="mx-auto max-w-4xl space-y-6">
+          <div className="mx-auto max-w-4xl space-y-5 sm:space-y-6">
             {props.showDebugPanel ? (
               <ChatDebugPanel events={props.debugEvents} />
             ) : null}
@@ -114,7 +118,7 @@ export const ChatInterfaceView = forwardRef<
         )}
       </div>
       {props.showHeroComposer || props.showSessionPlaceholder ? null : (
-        <div className="px-3 pb-4 sm:px-6">
+        <div className="px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}
           </div>
@@ -145,12 +149,30 @@ function Transcript(props: ChatInterfaceViewProps) {
               entry.message.id,
             )}
             hookAudits={entry.projection?.hookAudits}
+            onEdit={resolveUserMessageEdit(props, entry)}
           />
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
   );
+}
+
+function resolveUserMessageEdit(
+  props: ChatInterfaceViewProps,
+  entry: Extract<ChatInterfaceEntry, { kind: "message" }>,
+) {
+  if (
+    !props.onUserMessageEdit ||
+    entry.message.role !== "user" ||
+    !entry.projection?.terminal ||
+    (entry.projection.terminal.state !== "interrupted" &&
+      entry.projection.terminal.state !== "failed")
+  ) {
+    return undefined;
+  }
+  const turnId = entry.projection.turnId;
+  return (content: string) => props.onUserMessageEdit!(turnId, content);
 }
 
 function TurnWorkflowEntry({
@@ -323,7 +345,7 @@ function HeroComposer({
   return (
     <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
       <div className="w-full">
-        <h1 className="mb-5 text-center text-5xl font-semibold tracking-tight text-zinc-100">
+        <h1 className="mb-5 text-center text-3xl font-semibold tracking-tight text-zinc-100 sm:text-5xl">
           What should we build{projectName ? " in " : "?"}
           {projectName ? (
             <button

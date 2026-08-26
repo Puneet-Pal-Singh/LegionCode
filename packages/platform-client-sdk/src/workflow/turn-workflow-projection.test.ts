@@ -19,6 +19,40 @@ const THREAD_ID = "thr_workflow01";
 const ATTEMPT_ID = "attempt_workflow01";
 
 describe("turn workflow projection", () => {
+  it("projects visible provider commentary and display-safe reasoning deltas while filtering hidden reasoning", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "item.started", {
+        itemId: "itm_commentary01",
+        payload: { kind: "commentary" },
+      }),
+      event(2, "assistant_message.delta", {
+        itemId: "itm_commentary01",
+        payload: {
+          phase: "commentary",
+          delta: "I am checking the repository first.",
+        },
+      }),
+      event(3, "item.started", {
+        itemId: "itm_reasoning01",
+        payload: { kind: "reasoning" },
+      }),
+      event(4, "reasoning.summary_delta", {
+        itemId: "itm_reasoning01",
+        payload: { delta: "Safe summary", displaySafe: true },
+      }),
+    ]);
+
+    expect(projection.items).toMatchObject([
+      {
+        itemId: "itm_commentary01",
+        kind: "commentary",
+        text: "I am checking the repository first.",
+      },
+      { itemId: "itm_reasoning01", kind: "reasoning", text: "Safe summary" },
+    ]);
+    expect(projection.items[1]?.text).not.toContain("chain of thought");
+  });
+
   it("preserves typed tool families and repeated ordered children", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
@@ -116,6 +150,38 @@ describe("turn workflow projection", () => {
       status: "active",
       completedAt: null,
     });
+  });
+
+  it("clears only the approval settled by a matching decision", () => {
+    const requested = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "approval.requested", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { question: "Run command?", options: ["Approve", "Deny"] },
+      }),
+    );
+    const unrelated = applyLifecycleEvent(
+      requested,
+      event(2, "approval.decided", {
+        itemId: "itm_approval02",
+        approvalId: "appr_other001",
+        payload: { decision: "denied" },
+      }),
+    );
+    const settled = applyLifecycleEvent(
+      unrelated,
+      event(3, "approval.decided", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { decision: "approved" },
+      }),
+    );
+
+    expect(unrelated.pendingApproval?.approvalId).toBe("appr_workflow01");
+    expect(unrelated.phase).toBe("waiting_for_approval");
+    expect(settled.pendingApproval).toBeNull();
+    expect(settled.phase).toBe("working");
   });
 
   it("projects the typed failure reason inside the canonical terminal", () => {

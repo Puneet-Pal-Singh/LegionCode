@@ -64,7 +64,14 @@ export const BYOKCredentialConnectRequestSchema = z
     config: ProviderConnectionConfigSchema.optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.providerId === "cloudflare-ai" && !value.config) {
+    if (
+      [
+        "cloudflare-ai",
+        "cloudflare-workers-ai",
+        "cloudflare-ai-gateway",
+      ].includes(value.providerId) &&
+      !value.config
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Cloudflare AI requires connection config.",

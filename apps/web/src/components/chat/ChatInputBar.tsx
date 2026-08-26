@@ -33,6 +33,7 @@ import {
   type ChatSubmitAttachments,
 } from "./chatImageAttachments";
 import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip";
+import { ChatImageDropOverlay } from "./ChatImageDropOverlay";
 import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import {
@@ -55,7 +56,7 @@ import {
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const ACTIVE_RUN_SWITCH_WARNING =
-  "Stop the current run before changing mode or model.";
+  "Stop the current run before changing mode.";
 const WARNING_AUTO_DISMISS_MS = 4000;
 const BUILD_PLACEHOLDER =
   "Ask LegionCode anything, @ to add files, / for commands";
@@ -105,6 +106,7 @@ export function ChatInputBar({
   isLoading = false,
   placeholder,
   sessionId,
+  runId,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   hasMessages = false,
@@ -172,7 +174,7 @@ export function ChatInputBar({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore(sessionId);
+  } = useProviderStore(runId);
   const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
@@ -357,13 +359,25 @@ export function ChatInputBar({
       );
       return;
     }
-    const submitted = await onSubmit(
-      hasImageAttachments
-        ? { imageAttachments: imageDraft.attachments }
-        : undefined,
-    );
-    if (hasImageAttachments && submitted !== false) {
-      imageDraft.clear();
+    const detachedImages = hasImageAttachments
+      ? imageDraft.detachForSubmit()
+      : [];
+    try {
+      const submitted = await onSubmit(
+        detachedImages.length > 0
+          ? { imageAttachments: detachedImages }
+          : undefined,
+      );
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, submitted !== false);
+      }
+    } catch (error) {
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, false);
+      }
+      imageDraft.reportError(
+        error instanceof Error ? error.message : "Message could not be sent.",
+      );
     }
   };
 
@@ -656,6 +670,9 @@ export function ChatInputBar({
               event.currentTarget.value = "";
             }}
           />
+          {imageDraft.isDraggingImages ? (
+            <ChatImageDropOverlay testId="chat-composer-drop-overlay" />
+          ) : null}
           {hasReviewComments ? (
             <div className="mb-3 space-y-2">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -811,9 +828,9 @@ export function ChatInputBar({
           ) : null}
 
           {/* Toolbar */}
-          <div className="flex items-center justify-between mt-2 pt-2">
+          <div className="mt-2 flex min-w-0 items-center justify-between gap-2 pt-2">
             {/* Left: Add button + Model picker */}
-            <div className="flex items-center gap-2">
+            <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
               <ChatComposerPlusMenu
                 mode={mode}
                 disabled={isComposerActiveRun}
@@ -851,9 +868,9 @@ export function ChatInputBar({
                   refreshingModelsForProviderId === selectedProviderId
                 }
                 onSelectModel={async (providerId, modelId) => {
-                  if (guardActiveRunSwitch()) {
-                    return;
-                  }
+                  // Model selection is scoped to the next turn. The current
+                  // run was already admitted with its own model and must not
+                  // be interrupted or rewritten when the picker changes.
                   const credential = findCredentialByProviderId(
                     credentials,
                     providerId,
@@ -931,7 +948,7 @@ export function ChatInputBar({
             </div>
 
             {/* Attachment and voice actions stay hidden until they trigger real flows. */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
               {composerPreferences.showContextWindowUsage ? (
                 <ChatComposerContextControl
                   budget={contextBudget}

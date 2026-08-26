@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -68,24 +69,60 @@ export function PermissionModeControl({
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const selectedOption = resolvePermissionModeOption(value);
   const SelectedIcon = selectedOption.Icon;
   const isMenuOpen = isOpen && !disabled;
   const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
+  const [menuStyle, setMenuStyle] = useState<{
+    top: number | null;
+    bottom: number | null;
+    left: number;
+  }>({ top: null, bottom: 16, left: 16 });
+
+  const updateMenuPosition = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(304, window.innerWidth - 32);
+    const left = Math.min(
+      Math.max(16, rect.left),
+      Math.max(16, window.innerWidth - width - 16),
+    );
+    setMenuStyle(
+      menuPlacement === "below"
+        ? { top: rect.bottom + 8, bottom: null, left }
+        : {
+            top: null,
+            bottom: Math.max(16, window.innerHeight - rect.top + 8),
+            left,
+          },
+    );
+  }, [menuPlacement]);
 
   useEffect(() => {
+    const frame = isMenuOpen
+      ? requestAnimationFrame(updateMenuPosition)
+      : undefined;
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
+        !containerRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
       ) {
         setIsOpen(false);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isMenuOpen, updateMenuPosition]);
 
   return (
     <div ref={containerRef} className="relative">
@@ -131,15 +168,19 @@ export function PermissionModeControl({
         />
       </button>
 
-      {isMenuOpen ? (
-        <div
-          role="menu"
-          className={cn(
-            "ui-surface-popover absolute left-0 z-40 w-[19rem] p-1.5",
-            menuPlacement === "below" ? "top-full mt-2" : "bottom-full mb-2",
-          )}
-          data-testid="permission-mode-menu"
-        >
+      {isMenuOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              className="ui-surface-popover fixed z-50 w-[19rem] p-1.5"
+              style={{
+                top: menuStyle.top ?? undefined,
+                bottom: menuStyle.bottom ?? undefined,
+                left: menuStyle.left,
+              }}
+              data-testid="permission-mode-menu"
+            >
           {PERMISSION_MODE_OPTIONS.map((option) => {
             const OptionIcon = option.Icon;
             const isSelected = option.value === selectedOption.value;
@@ -184,8 +225,10 @@ export function PermissionModeControl({
               </button>
             );
           })}
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

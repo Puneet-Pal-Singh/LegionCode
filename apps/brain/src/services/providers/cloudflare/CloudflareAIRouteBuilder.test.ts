@@ -38,6 +38,35 @@ describe("CloudflareAIRouteBuilder", () => {
     );
   });
 
+  it("builds a direct Workers AI route from the split config", () => {
+    expect(
+      buildCloudflareAIRoute({
+        config: {
+          providerId: "cloudflare-workers-ai",
+          accountId: "account_123",
+        },
+        modelId: "@cf/meta/llama-3.1-8b-instruct",
+        transport: "openai-chat-completions",
+      }),
+    ).toContain("/accounts/account_123/ai/v1/chat/completions");
+    expect(
+      buildCloudflareAIRouteHeaders({
+        providerId: "cloudflare-workers-ai",
+        accountId: "account_123",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("adds the required gateway header for the split Gateway config", () => {
+    expect(
+      buildCloudflareAIRouteHeaders({
+        providerId: "cloudflare-ai-gateway",
+        accountId: "account_123",
+        gatewayId: "gateway-123",
+      }),
+    ).toEqual({ "cf-aig-gateway-id": "gateway-123" });
+  });
+
   it("routes a named AI Gateway through the required request header", () => {
     expect(
       buildCloudflareAIRouteHeaders({

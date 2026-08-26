@@ -24,12 +24,14 @@ const MODEL_DEV_CATALOG_FAILURE_TTL_MS = 60 * 1000;
 const MODEL_DEV_REQUEST_TIMEOUT_MS = 10_000;
 const MODEL_DEV_REQUEST_ATTEMPTS = 3;
 
-let sharedCatalogCache:
-  | { catalog: ModelDevCatalog | null; expiresAt: number }
-  | null = null;
+let sharedCatalogCache: {
+  catalog: ModelDevCatalog | null;
+  expiresAt: number;
+} | null = null;
 let sharedCatalogFetchPromise: Promise<ModelDevCatalog | null> | null = null;
 
 const ModelDevModelSchema = z.object({
+  name: z.string().min(1).optional(),
   provider: z
     .object({
       npm: z.string().min(1).optional(),
@@ -106,6 +108,7 @@ export interface ModelDevCatalog {
 }
 
 export interface ModelDevModel {
+  name?: string;
   provider?: { npm?: string; api?: string };
   limit?: { context?: number; input?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
@@ -163,7 +166,11 @@ export function parseModelDevCatalog(
       continue;
     }
     const modelsValue = (providerValue as Record<string, unknown>).models;
-    if (!modelsValue || typeof modelsValue !== "object" || Array.isArray(modelsValue)) {
+    if (
+      !modelsValue ||
+      typeof modelsValue !== "object" ||
+      Array.isArray(modelsValue)
+    ) {
       continue;
     }
     const models: Record<string, ModelDevModel> = {};
@@ -195,7 +202,9 @@ export interface ModelDevCatalogSource {
  */
 export class HttpModelDevCatalogSource implements ModelDevCatalogSource {
   constructor(
-    private readonly fetchJson: (url: string) => Promise<unknown> = defaultFetchJson,
+    private readonly fetchJson: (
+      url: string,
+    ) => Promise<unknown> = defaultFetchJson,
     private readonly url: string = MODEL_DEV_CATALOG_URL,
   ) {}
 
@@ -308,6 +317,14 @@ export function enrichModelFromModelDev(
   const next: BYOKDiscoveredProviderModel = { ...model };
   let metadataChanged = false;
   if (
+    entry.name &&
+    (!next.name.trim() ||
+      next.name.trim().toLowerCase() === next.id.trim().toLowerCase())
+  ) {
+    next.name = entry.name;
+    metadataChanged = true;
+  }
+  if (
     next.contextWindow === undefined &&
     entry.limit?.context !== undefined &&
     entry.limit.context > 0
@@ -333,7 +350,10 @@ export function enrichModelFromModelDev(
 
   const capabilities = { ...next.capabilities };
   let capabilityChanged = false;
-  if (capabilities.supportsReasoning === undefined && entry.reasoning !== undefined) {
+  if (
+    capabilities.supportsReasoning === undefined &&
+    entry.reasoning !== undefined
+  ) {
     capabilities.supportsReasoning = entry.reasoning;
     capabilityChanged = true;
   }
@@ -347,7 +367,10 @@ export function enrichModelFromModelDev(
       capabilityChanged = true;
     }
   }
-  if (capabilities.supportsTools === undefined && entry.tool_call !== undefined) {
+  if (
+    capabilities.supportsTools === undefined &&
+    entry.tool_call !== undefined
+  ) {
     capabilities.supportsTools = entry.tool_call;
     capabilityChanged = true;
   }
@@ -394,16 +417,82 @@ export function enrichModelFromModelDev(
   return next;
 }
 
+/**
+ * Projects route-valid models from the canonical models.dev provider catalog.
+ * OpenCode's live `/models` inventory can lag the catalog, so discovery merges
+ * these entries without making an unroutable catalog record selectable.
+ */
+export function listRunnableModelDevModels(
+  catalog: ModelDevCatalog,
+  providerId: string,
+): BYOKDiscoveredProviderModel[] {
+  const seen = new Set<string>();
+  const models: BYOKDiscoveredProviderModel[] = [];
+  for (const catalogProviderId of resolveCatalogProviderIds(
+    catalog,
+    providerId,
+  )) {
+    const provider = catalog.providers[catalogProviderId];
+    if (!provider) continue;
+    for (const [modelId, entry] of Object.entries(provider.models)) {
+      const normalizedId = modelId.trim().toLowerCase();
+      if (!normalizedId || seen.has(normalizedId)) continue;
+      const enriched = enrichModelFromModelDev(catalog, providerId, {
+        id: modelId,
+        name: entry.name ?? modelId,
+        providerId,
+        availability: "unsupported_transport",
+      });
+      if (!enriched.runtimeRoute || enriched.availability !== "available") {
+        continue;
+      }
+      seen.add(normalizedId);
+      models.push(enriched);
+    }
+  }
+  return models;
+}
+
+/**
+ * Projects Cloudflare model metadata from models.dev. Cloudflare AI Gateway
+ * has no account-scoped model-list endpoint; runtime routes are deliberately
+ * added later from the current connection config.
+ */
+export function listCloudflareAIGatewayModels(
+  catalog: ModelDevCatalog,
+  providerId = "cloudflare-ai-gateway",
+): BYOKDiscoveredProviderModel[] {
+  const seen = new Set<string>();
+  const models: BYOKDiscoveredProviderModel[] = [];
+  for (const catalogProviderId of resolveCatalogProviderIds(catalog, providerId)) {
+    const provider = catalog.providers[catalogProviderId];
+    if (!provider) continue;
+    for (const [modelId, entry] of Object.entries(provider.models)) {
+      const normalizedId = modelId.trim().toLowerCase();
+      if (!normalizedId || seen.has(normalizedId)) continue;
+      const enriched = enrichModelFromModelDev(catalog, providerId, {
+        id: modelId,
+        name: entry.name ?? modelId,
+        providerId,
+        availability: "available",
+      });
+      delete enriched.runtimeRoute;
+      models.push(enriched);
+      seen.add(normalizedId);
+    }
+  }
+  return models;
+}
+
 function findModelDevEntry(
   catalog: ModelDevCatalog,
   providerId: string,
   modelId: string,
 ): ModelDevModel | undefined {
   const normalized = modelId.trim().toLowerCase();
-  const candidates = [
-    normalized,
-    stripKnownProviderPrefix(normalized),
-  ].filter((candidate): candidate is string => candidate !== undefined);
+  const candidates = [normalized, stripKnownProviderPrefix(normalized)].filter(
+    (candidate): candidate is string => candidate !== undefined,
+  );
 
   const providerIds = resolveCatalogProviderIds(catalog, providerId);
   for (const catalogProviderId of providerIds) {
@@ -433,12 +522,17 @@ function resolveModelDevRuntimeRoute(
   const catalogProviderId =
     providerId === "opencode-zen" ? "opencode" : "opencode-go";
   const provider = catalog.providers[catalogProviderId];
-  const api = model.provider?.api ?? provider?.api;
   const npm = model.provider?.npm ?? provider?.npm;
-  if (!api || !npm) {
+  if (!npm) {
     return undefined;
   }
-  const baseUrl = api.replace(/\/$/, "");
+  // Runtime endpoints are security-sensitive because provider credentials are
+  // sent to them. Package metadata may come from models.dev, but the network
+  // origin must come from LegionCode's trusted provider registry contract.
+  const baseUrl =
+    providerId === "opencode-zen"
+      ? "https://opencode.ai/zen/v1"
+      : "https://opencode.ai/zen/go/v1";
   if (npm === "@ai-sdk/openai") {
     return {
       providerId,
@@ -483,6 +577,8 @@ function resolveCatalogProviderIds(
     together: ["togetherai"],
     "opencode-zen": ["opencode"],
     "cloudflare-ai": ["cloudflare-workers-ai", "cloudflare-ai-gateway"],
+    "cloudflare-workers-ai": ["cloudflare-workers-ai"],
+    "cloudflare-ai-gateway": ["cloudflare-ai-gateway", "cloudflare-workers-ai"],
   };
   const candidates = [providerId, ...(aliases[providerId] ?? [])];
   return candidates.filter((candidate, index) => {
@@ -507,10 +603,11 @@ function findModelById(
   return matchingKey ? models[matchingKey] : undefined;
 }
 
-function stripKnownProviderPrefix(
-  normalized: string,
-): string | undefined {
-  const withoutPrefix = normalized.replace(/^(openai|google|gemini|anthropic)\//, "");
+function stripKnownProviderPrefix(normalized: string): string | undefined {
+  const withoutPrefix = normalized.replace(
+    /^(openai|google|gemini|anthropic)\//,
+    "",
+  );
   return withoutPrefix === normalized ? undefined : withoutPrefix;
 }
 
@@ -543,11 +640,7 @@ function toInputModalityKey(modality: string): string | undefined {
 function toOutputModalities(output: string[]): Record<string, boolean> {
   const modalities: Record<string, boolean> = {};
   for (const modality of output) {
-    if (
-      modality === "text" ||
-      modality === "image" ||
-      modality === "audio"
-    ) {
+    if (modality === "text" || modality === "image" || modality === "audio") {
       modalities[modality] = true;
     }
   }
@@ -563,8 +656,7 @@ function toPricing(cost: ModelDevCost): BYOKModelPricing | undefined {
       ? [toPricingTier(200_000, cost.context_over_200k)]
       : []),
   ].sort(
-    (first, second) =>
-      first.minimumContextTokens - second.minimumContextTokens,
+    (first, second) => first.minimumContextTokens - second.minimumContextTokens,
   );
   if (
     cost.input === undefined &&
@@ -598,8 +690,7 @@ function mergePricing(
     return providerPricing;
   }
   const inputPer1M = providerPricing.inputPer1M ?? catalogPricing.inputPer1M;
-  const outputPer1M =
-    providerPricing.outputPer1M ?? catalogPricing.outputPer1M;
+  const outputPer1M = providerPricing.outputPer1M ?? catalogPricing.outputPer1M;
   const cacheReadPer1M =
     providerPricing.cacheReadPer1M ?? catalogPricing.cacheReadPer1M;
   const cacheWritePer1M =

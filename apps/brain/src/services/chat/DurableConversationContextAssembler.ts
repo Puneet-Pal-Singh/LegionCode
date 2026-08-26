@@ -10,6 +10,7 @@ import type {
 import type { Env } from "../../types/ai";
 import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
+import { projectActiveTranscriptBranch } from "./TranscriptBranchProjection";
 
 const TRANSCRIPT_PAGE_SIZE = 100;
 const LIFECYCLE_PAGE_SIZE = 1_000;
@@ -53,8 +54,16 @@ export class DurableConversationContextAssembler {
     sessionId: string;
     userId: string;
     currentTurnId: string;
+    revisionOfTurnId?: string;
   }): Promise<CoreMessage[]> {
-    const transcript = await this.readTranscript(input.sessionId, input.userId);
+    const durableTranscript = await this.readTranscript(
+      input.sessionId,
+      input.userId,
+    );
+    const transcript = projectActiveTranscriptBranch(
+      durableTranscript,
+      input.revisionOfTurnId ? [input.revisionOfTurnId] : [],
+    );
     const messages = transcript.flatMap(toCoreTextMessage);
     const priorTurnIds = transcript
       .flatMap(readCanonicalTurnIds)
@@ -131,7 +140,15 @@ function toCoreTextMessage(record: TranscriptMessageRecord): CoreMessage[] {
     .map((part) => readText(part.content))
     .filter((text): text is string => Boolean(text?.trim()))
     .join("\n");
-  return content ? [{ role: record.role, content } as CoreMessage] : [];
+  return content
+    ? [
+        {
+          id: record.clientMessageId ?? record.id,
+          role: record.role,
+          content,
+        } as unknown as CoreMessage,
+      ]
+    : [];
 }
 
 function readCanonicalTurnIds(record: TranscriptMessageRecord): string[] {

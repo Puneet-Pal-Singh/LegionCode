@@ -14,7 +14,7 @@ import * as providerHelpersModule from "../../lib/provider-helpers.js";
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const ACTIVE_RUN_SWITCH_WARNING =
-  "Stop the current run before changing mode or model.";
+  "Stop the current run before changing mode.";
 const HIGH_CONTEXT_BUDGET = {
   providerId: "openai",
   modelId: "gpt-4o",
@@ -341,7 +341,7 @@ describe("ChatInputBar", () => {
       expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
     });
 
-    it("blocks model selection when an open picker becomes stoppable", async () => {
+    it("allows model selection for the next turn when an open picker becomes stoppable", async () => {
       const baseProps = {
         input: "",
         onChange: vi.fn(),
@@ -358,9 +358,52 @@ describe("ChatInputBar", () => {
       fireEvent.click(modelOption);
 
       await waitFor(() => {
-        expect(screen.getByText(ACTIVE_RUN_SWITCH_WARNING)).toBeTruthy();
+        expect(mockStore.applySessionSelection).toHaveBeenCalled();
       });
-      expect(mockStore.applySessionSelection).not.toHaveBeenCalled();
+      expect(screen.queryByText(ACTIVE_RUN_SWITCH_WARNING)).toBeNull();
+    });
+
+    it("opens manage models from the mounted chat composer picker", async () => {
+      render(
+        <ChatInputBar
+          input=""
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Open model picker"));
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Manage model visibility",
+        }),
+      );
+
+      expect(
+        await screen.findByRole("heading", { name: /manage models/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("renders the docked picker outside the toolbar scroll container", () => {
+      render(
+        <ChatInputBar
+          input=""
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+          layout="docked"
+          hasMessages
+        />,
+      );
+
+      const trigger = screen.getByLabelText("Open model picker");
+      fireEvent.click(trigger);
+      const popover = screen.getByTestId("model-picker-popover");
+
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      expect(popover).toBeInTheDocument();
+      expect(popover.parentElement?.parentElement).toBe(document.body);
     });
   });
 
@@ -653,6 +696,63 @@ describe("ChatInputBar", () => {
     });
   });
 
+  it("removes submitted images from the composer before the run settles", async () => {
+    let settleSubmit: ((value: boolean) => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleSubmit = resolve;
+        }),
+    );
+
+    render(
+      <ChatInputBar
+        input="Inspect this image"
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+      target: {
+        files: [new File(["hello"], "screen.png", { type: "image/png" })],
+      },
+    });
+    expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Attached images")).not.toBeInTheDocument();
+
+    await act(async () => settleSubmit?.(true));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:image-preview");
+  });
+
+  it("restores a detached image when submission is rejected", async () => {
+    const onSubmit = vi.fn(async () => false);
+
+    render(
+      <ChatInputBar
+        input="Inspect this image"
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+      target: {
+        files: [new File(["hello"], "screen.png", { type: "image/png" })],
+      },
+    });
+    expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+  });
+
   it("accepts pasted and dropped images through the composer", async () => {
     render(
       <ChatInputBar
@@ -695,6 +795,42 @@ describe("ChatInputBar", () => {
     });
 
     expect(await screen.findByAltText(/dropped\.webp/)).toBeTruthy();
+  });
+
+  it("shows the full composer drop affordance while files are dragged over it", () => {
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+      />,
+    );
+
+    const dropZone = screen.getByTestId("chat-composer-drop-zone");
+    fireEvent.dragOver(dropZone, {
+      dataTransfer: { types: ["Files"], dropEffect: "none" },
+    });
+
+    expect(screen.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    expect(screen.getByText("Drop files to attach")).toBeInTheDocument();
+  });
+
+  it("keeps the composer drop affordance active while dragging over the chat surface", () => {
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.dragOver(window, {
+      dataTransfer: { types: ["Files"], dropEffect: "none" },
+    });
+
+    expect(screen.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
   });
 
   it("allows sending selected review comments without freeform text", () => {

@@ -256,6 +256,110 @@ describe("RunEngineRequestHandler", () => {
     expect(second.runAttemptId).not.toBe(first.runAttemptId);
   });
 
+  it("admits only an owned latest terminal turn as a revision target", async () => {
+    const lifecycleEventStore = {
+      replay: vi.fn(async () => ({
+        events: [{ type: "turn.interrupted" }],
+        nextSequence: null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore },
+    );
+    const start = (body: Record<string, unknown>) =>
+      handler.handleTurnStartRequest(
+        new Request("https://run-engine/turn/start", {
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            correlationId: "corr-1",
+            ...body,
+          }),
+        }),
+      );
+
+    const originalResponse = await start({
+      clientMessageId: "original-message",
+      userId: "user-1",
+    });
+    const original = (await originalResponse.json()) as Record<string, string>;
+    const revisionResponse = await start({
+      clientMessageId: "revised-message",
+      userId: "user-1",
+      revisionOfTurnId: original.turnId,
+    });
+
+    expect(revisionResponse.status).toBe(201);
+    await expect(revisionResponse.json()).resolves.toMatchObject({
+      revisionOfTurnId: original.turnId,
+    });
+
+    const crossOwnerResponse = await start({
+      clientMessageId: "cross-owner-message",
+      userId: "user-2",
+      revisionOfTurnId: original.turnId,
+    });
+    expect(crossOwnerResponse.status).toBe(409);
+    await expect(crossOwnerResponse.json()).resolves.toMatchObject({
+      code: "TURN_REVISION_SCOPE_MISMATCH",
+    });
+  });
+
+  it("admits an explicit revision after a non-retryable provider failure", async () => {
+    const lifecycleEventStore = {
+      replay: vi.fn(async () => ({
+        events: [
+          {
+            type: "turn.failed",
+            payload: { outcome: { failure: { retryable: false } } },
+          },
+        ],
+        nextSequence: null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore },
+    );
+    const start = (body: Record<string, unknown>) =>
+      handler.handleTurnStartRequest(
+        new Request("https://run-engine/turn/start", {
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            correlationId: "corr-1",
+            userId: "user-1",
+            ...body,
+          }),
+        }),
+      );
+
+    const originalResponse = await start({
+      clientMessageId: "original-message",
+    });
+    const original = (await originalResponse.json()) as Record<string, string>;
+    const revisionResponse = await start({
+      clientMessageId: "revised-message",
+      revisionOfTurnId: original.turnId,
+    });
+
+    expect(revisionResponse.status).toBe(201);
+    await expect(revisionResponse.json()).resolves.toMatchObject({
+      revisionOfTurnId: original.turnId,
+    });
+  });
+
   it("returns the latest server-issued workspace scope for Git callers", async () => {
     const ctx = new MockDurableObjectState();
     const resolveActiveCheckout = vi.fn(async () =>

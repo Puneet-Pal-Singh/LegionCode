@@ -10,6 +10,7 @@ import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
 import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
 
 // Google documents this sentinel for client-generated/replayed function calls
 // that cannot preserve Gemini 3's encrypted thought signature.
@@ -73,6 +74,7 @@ export class GoogleAdapter implements ProviderAdapter {
           toolName: toolCall.toolName,
           args: toolCall.args,
         })),
+        transcriptParts: visiblePartsFromGenerateTextResult(result),
       };
     } catch (error) {
       const unusableResponseError = this.buildUnusableResponseError(

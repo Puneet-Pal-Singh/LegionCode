@@ -34,7 +34,10 @@ import { GitReviewDialog } from "../git/GitReviewDialog";
 import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
-import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
+import {
+  deriveCanonicalRunStatus,
+  deriveWorkspaceRunUiState,
+} from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
 import type {
@@ -46,6 +49,7 @@ import {
   buildHookSettingsAuditReadModel,
   type HookSettingsAuditReadModel,
 } from "../../services/api/lifecycleClient.js";
+import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -107,6 +111,7 @@ export function Workspace({
   summaryActionRequest,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
+  const { isCompact, isMobile } = useWorkspaceViewport();
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
   const [productMode, setProductMode] = useState<ProductMode>(() =>
@@ -142,6 +147,11 @@ export function Workspace({
     setContentError,
   } = useWorkspaceState();
   const sidebarWidth = rightSidebarWidth ?? internalSidebarWidth;
+  const renderedSidebarWidth = isMobile
+    ? "100vw"
+    : isCompact
+      ? "min(560px, 86vw)"
+      : sidebarWidth;
   const setSidebarWidth = setRightSidebarWidth ?? setInternalSidebarWidth;
 
   useEffect(() => {
@@ -181,6 +191,7 @@ export function Workspace({
     handleInputChange,
     handleSubmit,
     append,
+    reviseTurn,
     stop,
     isLoading,
     isHydrating,
@@ -241,11 +252,11 @@ export function Workspace({
     activeTurn.projection,
     latestAssistantMessageId,
   );
-  const canonicalRunStatus = activeTurn.hasCanonicalTurn
-    ? activeTurn.projection?.terminal
-      ? lifecycleStatusToRunStatus(activeTurn.projection.terminal.state)
-      : "RUNNING"
-    : null;
+  const canonicalRunStatus = deriveCanonicalRunStatus({
+    hasCanonicalTurn: activeTurn.hasCanonicalTurn,
+    hasReplay: activeTurn.hasReplay,
+    terminalState: activeTurn.projection?.terminal?.state ?? null,
+  });
   const hasPendingApproval = Boolean(activeTurn.projection?.pendingApproval);
   const pendingApprovalRequestId =
     activeTurn.projection?.pendingApproval?.approvalId ?? null;
@@ -485,6 +496,7 @@ export function Workspace({
                 handleInputChange,
                 handleSubmit: handleSubmitWithSessionMetadata,
                 append,
+                reviseTurn,
                 stop: handleStopRun,
                 isLoading,
                 hasHydrated,
@@ -543,7 +555,7 @@ export function Workspace({
 
           {isConversationSurfaceReady && isRightSidebarOpen ? (
             <SidebarHeader
-              sidebarWidth={sidebarWidth}
+              sidebarWidth={renderedSidebarWidth}
               isViewingContent={isViewingContent}
               contentTabs={contentTabs}
               activeContentTabId={activeContentTabId}
@@ -570,9 +582,7 @@ export function Workspace({
           {/* Combined Sidebar */}
           <motion.aside
             initial={false}
-            animate={{
-              width: isRightSidebarOpen ? sidebarWidth : 0,
-            }}
+            animate={{ width: isRightSidebarOpen ? renderedSidebarWidth : 0 }}
             transition={
               isResizing
                 ? { duration: 0 }
@@ -581,6 +591,7 @@ export function Workspace({
             className={cn(
               "relative flex shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-black",
               "max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-50 max-[1100px]:shadow-[-24px_0_60px_rgba(0,0,0,0.55)]",
+              isMobile && "border-l-0",
               !isRightSidebarOpen && "border-transparent",
             )}
           >
@@ -598,8 +609,8 @@ export function Workspace({
             )}
 
             <div
-              className="flex-1 flex flex-col min-w-[280px]"
-              style={{ width: sidebarWidth }}
+              className="flex flex-1 flex-col min-w-0"
+              style={{ width: renderedSidebarWidth }}
             >
               <SidebarContent
                 isViewingContent={isViewingContent}
@@ -673,19 +684,4 @@ export function Workspace({
       </GitReviewProvider>
     </RunContextProvider>
   );
-}
-
-function lifecycleStatusToRunStatus(
-  state: "completed" | "failed" | "interrupted" | null,
-): "COMPLETED" | "FAILED" | "CANCELLED" | null {
-  switch (state) {
-    case "completed":
-      return "COMPLETED";
-    case "failed":
-      return "FAILED";
-    case "interrupted":
-      return "CANCELLED";
-    default:
-      return null;
-  }
 }

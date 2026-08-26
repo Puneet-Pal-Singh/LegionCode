@@ -148,7 +148,11 @@ export interface RunEngineRequestHandlerDependencies {
   taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
 }
 
-type TurnRuntimeIdentity = RunInterruptIdentity;
+type TurnRuntimeIdentity = RunInterruptIdentity & {
+  /** Owner is retained only inside the runtime scope map for revision checks. */
+  ownerUserId?: string;
+  revisionOfTurnId?: string;
+};
 
 export class RunEngineRequestHandler {
   private readonly turnToRunMap = new Map<string, string>();
@@ -750,6 +754,9 @@ export class RunEngineRequestHandler {
         const requestedTurnId = input.clientMessageId
           ? turnIdFromRunId(input.runId, input.clientMessageId)
           : null;
+        if (input.revisionOfTurnId) {
+          await this.assertRevisionAdmission(input, existingScopes, workspaceId);
+        }
         const existing = requestedTurnId
           ? this.turnRuntimeIdentities.get(requestedTurnId)
           : existingScopes.at(-1);
@@ -788,6 +795,9 @@ export class RunEngineRequestHandler {
               threadId: existing.threadId,
               turnId: existing.turnId,
               runAttemptId: existing.runAttemptId,
+              ...(existing.revisionOfTurnId
+                ? { revisionOfTurnId: existing.revisionOfTurnId }
+                : {}),
             }),
             200,
           );
@@ -801,11 +811,15 @@ export class RunEngineRequestHandler {
           turnId:
             requestedTurnId ?? turnIdFromRunId(input.runId, input.sessionId),
           runAttemptId: createRunAttemptId(),
+          ...(input.revisionOfTurnId
+            ? { revisionOfTurnId: input.revisionOfTurnId }
+            : {}),
         });
         await this.mapTurnToRun(identity.turnId, input.runId, {
           ...identity,
           runId: input.runId,
           sessionId: input.sessionId,
+          ownerUserId: input.userId,
         });
         return runEngineJsonResponse(request, this.env, identity, 201);
       });
@@ -829,6 +843,82 @@ export class RunEngineRequestHandler {
         "TURN_BOOTSTRAP_FAILED",
       );
     }
+  }
+
+  private async assertRevisionAdmission(
+    input: z.infer<typeof TurnScopeBootstrapRequestSchema>,
+    existingScopes: readonly TurnRuntimeIdentity[],
+    workspaceId: string,
+  ): Promise<void> {
+    const revisionOfTurnId = input.revisionOfTurnId;
+    if (!revisionOfTurnId || !input.userId) {
+      throw new DomainError(
+        "TURN_REVISION_OWNER_REQUIRED",
+        "An authenticated owner is required to revise a turn.",
+        409,
+        false,
+        input.correlationId,
+      );
+    }
+    const target = this.turnRuntimeIdentities.get(revisionOfTurnId);
+    if (
+      !target ||
+      target.sessionId !== input.sessionId ||
+      target.workspaceId !== workspaceId ||
+      target.ownerUserId !== input.userId
+    ) {
+      throw new DomainError(
+        "TURN_REVISION_SCOPE_MISMATCH",
+        "The turn revision target is not owned by this session and user.",
+        409,
+        false,
+        input.correlationId,
+      );
+    }
+    const replay = await this.createLifecycleEventStore().replay({
+      turnId: TurnIdSchema.parse(revisionOfTurnId),
+      afterSequence: null,
+      limit: 1_000,
+    });
+    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
+    if (!terminalEvent) {
+      throw new DomainError(
+        "TURN_REVISION_NOT_TERMINAL",
+        "Only a settled turn can be revised.",
+        409,
+        false,
+        input.correlationId,
+      );
+    }
+    // `retryable` controls unattended runtime recovery. An explicit user edit
+    // is a new run attempt with a new prompt/model choice, so a terminal
+    // provider or billing failure must not prevent the user from revising it.
+    const latestTerminal = await this.readLatestTerminalTurn(existingScopes);
+    if (latestTerminal && latestTerminal !== revisionOfTurnId) {
+      throw new DomainError(
+        "TURN_REVISION_NOT_LATEST",
+        "Only the latest terminal turn can be revised.",
+        409,
+        false,
+        input.correlationId,
+      );
+    }
+  }
+
+  private async readLatestTerminalTurn(
+    scopes: readonly TurnRuntimeIdentity[],
+  ): Promise<string | null> {
+    for (let index = scopes.length - 1; index >= 0; index -= 1) {
+      const scope = scopes[index];
+      if (!scope) continue;
+      const replay = await this.createLifecycleEventStore().replay({
+        turnId: TurnIdSchema.parse(scope.turnId),
+        afterSequence: null,
+        limit: 1_000,
+      });
+      if (replay.events.some(isTerminalLifecycleEvent)) return scope.turnId;
+    }
+    return null;
   }
 
   async handleWorkspaceScopeRequest(request: Request): Promise<Response> {
@@ -1018,7 +1108,8 @@ export class RunEngineRequestHandler {
           storedIdentity.workspaceId !== workspaceId.data ||
           storedIdentity.sessionId !== payload.sessionId ||
           storedIdentity.threadId !== identity.threadId ||
-          storedIdentity.runAttemptId !== identity.runAttemptId
+          storedIdentity.runAttemptId !== identity.runAttemptId ||
+          storedIdentity.revisionOfTurnId !== identity.revisionOfTurnId
         ) {
           return runEngineErrorResponse(
             request,
@@ -1202,6 +1293,7 @@ export class RunEngineRequestHandler {
             runAttemptId,
             threadId,
             workspaceId: workspaceId.data,
+            revisionOfTurnId: identity.revisionOfTurnId,
             workspace: {
               filesystemRoot: claimedTaskCheckout.filesystemRoot,
               workingBranch: claimedTaskCheckout.workingBranch,

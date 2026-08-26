@@ -19,6 +19,8 @@ export const TurnScopeBootstrapRequestSchema = z.object({
   userId: z.string().trim().min(1).optional(),
   correlationId: z.string().trim().min(1),
   clientMessageId: z.string().trim().min(1).optional(),
+  /** The latest terminal turn whose prompt this turn supersedes. */
+  revisionOfTurnId: TurnIdSchema.optional(),
 });
 
 export const TurnScopeReadQuerySchema = z.object({
@@ -31,6 +33,8 @@ export const TurnScopeBootstrapSchema = z.object({
   threadId: ThreadIdSchema,
   turnId: TurnIdSchema,
   runAttemptId: RunAttemptIdSchema,
+  /** The latest terminal turn whose prompt this turn supersedes. */
+  revisionOfTurnId: TurnIdSchema.optional(),
 });
 
 export const InterruptTurnIdentitySchema = z.object({

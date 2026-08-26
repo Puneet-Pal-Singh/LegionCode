@@ -201,5 +201,7 @@ export {
 export {
   groupToolActivity,
   buildSegmentTitle,
+  buildActiveWorkflowTrace,
+  type ActiveWorkflowTraceProjection,
   type ToolActivitySegment,
 } from "./workflow/tool-activity-grouping.js";

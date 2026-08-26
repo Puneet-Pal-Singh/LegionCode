@@ -9,7 +9,9 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Search, AlertCircle, CheckCircle, ArrowLeft } from "lucide-react";
 import {
   AXIS_PROVIDER_ID,
+  type CloudflareAIGatewayConnectionConfig,
   type CloudflareAIConnectionConfig,
+  type CloudflareWorkersAIConnectionConfig,
   type ProviderConnectionConfig,
   canShowProviderInPrimaryUi,
   isLaunchSupportedProvider,
@@ -52,6 +54,8 @@ interface ProviderOption {
 const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   anthropic: "Claude models",
   "cloudflare-ai": "Workers AI and AI Gateway",
+  "cloudflare-workers-ai": "Workers-hosted AI models",
+  "cloudflare-ai-gateway": "Unified AI Gateway model routing",
   google: "Gemini models",
   groq: "Fast hosted inference",
   openai: "GPT and reasoning models",
@@ -153,18 +157,41 @@ export function ConnectProviderChooser({
     }
   };
 
-  const isCloudflareSelected = selectedProviderId === "cloudflare-ai";
-  const isGatewayRoute = cloudflareRouteMode === "ai-gateway";
+  const isCloudflareSelected =
+    selectedProviderId === "cloudflare-ai" ||
+    selectedProviderId === "cloudflare-workers-ai" ||
+    selectedProviderId === "cloudflare-ai-gateway";
+  const isLegacyCloudflareSelected = selectedProviderId === "cloudflare-ai";
+  const isGatewayRoute =
+    selectedProviderId === "cloudflare-ai-gateway" ||
+    (isLegacyCloudflareSelected && cloudflareRouteMode === "ai-gateway");
   const isCredentialFormComplete =
-    !isCloudflareSelected || cloudflareAccountId.trim().length > 0;
+    !isCloudflareSelected ||
+    (cloudflareAccountId.trim().length > 0 &&
+      (!isGatewayRoute || cloudflareGatewayId.trim().length > 0));
 
   const buildConnectionConfig = ():
     | CloudflareAIConnectionConfig
+    | CloudflareWorkersAIConnectionConfig
+    | CloudflareAIGatewayConnectionConfig
     | undefined => {
     if (!isCloudflareSelected) {
       return undefined;
     }
     const gatewayId = cloudflareGatewayId.trim();
+    if (selectedProviderId === "cloudflare-workers-ai") {
+      return {
+        providerId: "cloudflare-workers-ai" as const,
+        accountId: cloudflareAccountId.trim(),
+      };
+    }
+    if (selectedProviderId === "cloudflare-ai-gateway") {
+      return {
+        providerId: "cloudflare-ai-gateway" as const,
+        accountId: cloudflareAccountId.trim(),
+        gatewayId,
+      };
+    }
     return {
       providerId: "cloudflare-ai",
       accountId: cloudflareAccountId.trim(),
@@ -338,37 +365,39 @@ export function ConnectProviderChooser({
 
           {isCloudflareSelected && (
             <div className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">
-                  Cloudflare route
-                </label>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {[
-                    {
-                      value: "workers-ai-direct" as const,
-                      label: "Workers AI",
-                    },
-                    {
-                      value: "ai-gateway" as const,
-                      label: "AI Gateway",
-                    },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      disabled={isConnecting}
-                      onClick={() => setCloudflareRouteMode(option.value)}
-                      className={`rounded-md border px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                        cloudflareRouteMode === option.value
-                          ? "border-blue-500 bg-blue-950/40 text-blue-100"
-                          : "border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-neutral-500"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+              {isLegacyCloudflareSelected && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-neutral-200">
+                    Cloudflare route
+                  </label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      {
+                        value: "workers-ai-direct" as const,
+                        label: "Workers AI",
+                      },
+                      {
+                        value: "ai-gateway" as const,
+                        label: "AI Gateway",
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={isConnecting}
+                        onClick={() => setCloudflareRouteMode(option.value)}
+                        className={`rounded-md border px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          cloudflareRouteMode === option.value
+                            ? "border-blue-500 bg-blue-950/40 text-blue-100"
+                            : "border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-neutral-500"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label
@@ -400,7 +429,7 @@ export function ConnectProviderChooser({
                     htmlFor="cloudflare-gateway-id"
                     className="mb-2 block text-sm font-medium text-neutral-200"
                   >
-                    AI Gateway name (optional)
+                    AI Gateway name
                   </label>
                   <input
                     id="cloudflare-gateway-id"
@@ -413,6 +442,7 @@ export function ConnectProviderChooser({
                       }
                     }}
                     placeholder="my-gateway"
+                    required
                     disabled={isConnecting}
                     className="w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />

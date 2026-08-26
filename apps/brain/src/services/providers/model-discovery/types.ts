@@ -10,6 +10,8 @@ export interface ProviderModelCredentialContext {
   workspaceId?: string;
   apiKey: string;
   connectionConfig?: ProviderConnectionConfig;
+  /** OpenRouter's picker is text-only; management/full inventory opts into all outputs. */
+  outputModalities?: "text" | "all";
 }
 
 export interface ProviderModelFetchPageInput {

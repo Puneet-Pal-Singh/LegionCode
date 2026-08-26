@@ -12,6 +12,7 @@ import type {
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { normalizeProviderGenerationError } from "./ProviderGenerationError";
 import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;
@@ -173,6 +174,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
         toolName: tc.toolName,
         args: tc.args,
       })),
+      transcriptParts: visiblePartsFromGenerateTextResult(result),
     };
   }
 

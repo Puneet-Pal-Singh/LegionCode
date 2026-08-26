@@ -22,7 +22,6 @@ import {
   type ThreadProjectionSnapshot,
   type AcknowledgeThreadInput,
   type ThreadReadReceipt,
-  type ApplyGeneratedTitleInput,
 } from "./types.js";
 
 interface ThreadProjectionRow extends SqlRow {
@@ -147,17 +146,6 @@ export class PostgresThreadProjectionRepository implements ThreadProjectionRepos
       );
     }
     return mapThreadReadReceiptRow(row);
-  }
-
-  async applyGeneratedTitle(input: ApplyGeneratedTitleInput): Promise<boolean> {
-    const result = await this.client.query(APPLY_GENERATED_TITLE_SQL, [
-      input.title,
-      input.expectedTitleVersion + 1,
-      input.threadId,
-      input.expectedTitleVersion,
-      input.terminalTurnId,
-    ]);
-    return result.rowCount === 1;
   }
 }
 
@@ -552,11 +540,4 @@ const UPSERT_THREAD_READ_RECEIPT_SQL = `
     last_acknowledged_terminal_turn_id = EXCLUDED.last_acknowledged_terminal_turn_id,
     acknowledged_at = EXCLUDED.acknowledged_at
   RETURNING thread_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at
-`;
-
-const APPLY_GENERATED_TITLE_SQL = `
-  UPDATE canonical_thread_projections
-  SET title = $1, title_version = $2, title_status = 'ready', updated_at = now(), rebuilt_at = now()
-  WHERE thread_id = $3 AND title_source = 'generated'
-    AND title_status = 'pending' AND title_version = $4 AND last_terminal_turn_id = $5
 `;

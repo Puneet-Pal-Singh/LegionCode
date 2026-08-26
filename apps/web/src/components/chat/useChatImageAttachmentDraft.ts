@@ -9,6 +9,7 @@ type AttachmentSource = "paste" | "upload";
 
 export function useChatImageAttachmentDraft() {
   const attachmentsRef = useRef<ChatImageAttachment[]>([]);
+  const detachedAttachmentsRef = useRef(new Map<string, ChatImageAttachment>());
   const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isDraggingImages, setIsDraggingImages] = useState(false);
@@ -87,6 +88,40 @@ export function useChatImageAttachmentDraft() {
     setError(null);
   }, [replaceAttachments]);
 
+  const detachForSubmit = useCallback(() => {
+    const detached = attachmentsRef.current;
+    for (const attachment of detached) {
+      detachedAttachmentsRef.current.set(attachment.id, attachment);
+    }
+    replaceAttachments([]);
+    setError(null);
+    return detached;
+  }, [replaceAttachments]);
+
+  const settleDetached = useCallback(
+    (detached: readonly ChatImageAttachment[], accepted: boolean) => {
+      for (const attachment of detached) {
+        detachedAttachmentsRef.current.delete(attachment.id);
+      }
+
+      if (accepted) {
+        for (const attachment of detached) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+        return;
+      }
+
+      const currentIds = new Set(
+        attachmentsRef.current.map((attachment) => attachment.id),
+      );
+      replaceAttachments([
+        ...detached.filter((attachment) => !currentIds.has(attachment.id)),
+        ...attachmentsRef.current,
+      ]);
+    },
+    [replaceAttachments],
+  );
+
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const files = Array.from(event.clipboardData.items)
@@ -127,12 +162,47 @@ export function useChatImageAttachmentDraft() {
   );
 
   useEffect(
-    () => () => {
-      for (const attachment of attachmentsRef.current) {
-        URL.revokeObjectURL(attachment.previewUrl);
-      }
+    () => {
+      const detachedAttachments = detachedAttachmentsRef.current;
+      const handleWindowDragOver = (event: DragEvent) => {
+        if (!event.dataTransfer?.types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setIsDraggingImages(true);
+      };
+      const handleWindowDrop = (event: DragEvent) => {
+        if (!event.dataTransfer?.types.includes("Files")) return;
+        // A drop on the composer already ran the scoped handler. The window
+        // listener only owns drops over the surrounding chat surface.
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        setIsDraggingImages(false);
+        void addFiles(Array.from(event.dataTransfer.files), "upload");
+      };
+      const clearWindowDragState = () => setIsDraggingImages(false);
+      const handleWindowDragLeave = (event: DragEvent) => {
+        if (event.relatedTarget === null) clearWindowDragState();
+      };
+
+      window.addEventListener("dragover", handleWindowDragOver);
+      window.addEventListener("drop", handleWindowDrop);
+      window.addEventListener("dragend", clearWindowDragState);
+      window.addEventListener("dragleave", handleWindowDragLeave);
+      return () => {
+        window.removeEventListener("dragover", handleWindowDragOver);
+        window.removeEventListener("drop", handleWindowDrop);
+        window.removeEventListener("dragend", clearWindowDragState);
+        window.removeEventListener("dragleave", handleWindowDragLeave);
+        for (const attachment of attachmentsRef.current) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+        for (const attachment of detachedAttachments.values()) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+        detachedAttachments.clear();
+      };
     },
-    [],
+    [addFiles],
   );
 
   return {
@@ -142,6 +212,8 @@ export function useChatImageAttachmentDraft() {
     addFiles,
     remove,
     clear,
+    detachForSubmit,
+    settleDetached,
     handlePaste,
     handleDragOver,
     handleDragLeave,

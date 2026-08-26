@@ -1,16 +1,23 @@
 import type {
+  CloudflareAIGatewayConnectionConfig,
   CloudflareAIConnectionConfig,
+  CloudflareWorkersAIConnectionConfig,
   ProviderModelTransport,
 } from "@repo/shared-types";
 import { ProviderModelDiscoveryApiError } from "../model-discovery/errors";
 
 export interface CloudflareAIRouteInput {
-  config: CloudflareAIConnectionConfig;
+  config: CloudflareConnectionConfig;
   modelId: string;
   transport: ProviderModelTransport;
 }
 
 const DEFAULT_CLOUDFLARE_GATEWAY_ID = "default";
+
+export type CloudflareConnectionConfig =
+  | CloudflareAIConnectionConfig
+  | CloudflareWorkersAIConnectionConfig
+  | CloudflareAIGatewayConnectionConfig;
 
 export function buildCloudflareAIRoute(input: CloudflareAIRouteInput): string {
   if (input.transport !== "openai-chat-completions") {
@@ -23,16 +30,19 @@ export function buildCloudflareAIRoute(input: CloudflareAIRouteInput): string {
 }
 
 export function resolveCloudflareRuntimeModelId(
-  _config: CloudflareAIConnectionConfig,
+  _config: CloudflareConnectionConfig,
   modelId: string,
 ): string {
   return modelId;
 }
 
 export function buildCloudflareAIRouteHeaders(
-  config: CloudflareAIConnectionConfig,
+  config: CloudflareConnectionConfig,
 ): Record<string, string> | undefined {
-  if (config.routeMode !== "ai-gateway") {
+  if (
+    config.providerId !== "cloudflare-ai-gateway" &&
+    !(config.providerId === "cloudflare-ai" && config.routeMode === "ai-gateway")
+  ) {
     return undefined;
   }
   return {
@@ -41,9 +51,12 @@ export function buildCloudflareAIRouteHeaders(
 }
 
 function resolveCloudflareGatewayId(
-  config: CloudflareAIConnectionConfig,
+  config: CloudflareConnectionConfig,
 ): string {
-  const gatewayId = config.gatewayId?.trim();
+  const gatewayId =
+    config.providerId === "cloudflare-workers-ai"
+      ? undefined
+      : config.gatewayId?.trim();
   return gatewayId && gatewayId.length > 0
     ? gatewayId
     : DEFAULT_CLOUDFLARE_GATEWAY_ID;

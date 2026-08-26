@@ -59,6 +59,7 @@ import {
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 import { attachActiveTurnIdentity } from "./chat/activeTurnMessageIdentity";
+import { readCanonicalTurnId } from "../components/chat/messageMetadata";
 import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
@@ -111,6 +112,7 @@ interface UseChatCoreResult {
   error: string | null;
   clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
+  reviseTurn: (turnId: string, content: string) => Promise<boolean>;
 }
 
 /**
@@ -284,7 +286,7 @@ export function useChatCore(
     providerModels,
     manageProviderModels,
     resolveForChat,
-  } = useProviderStore(sessionId);
+  } = useProviderStore(runId);
   const selectedModel =
     selectedProviderId && selectedModelId
       ? (providerModels[selectedProviderId]?.find(
@@ -329,6 +331,9 @@ export function useChatCore(
               threadId: activeConversationScope.threadId,
               turnId: activeConversationScope.turnId,
               runAttemptId: activeConversationScope.runAttemptId,
+              ...(activeConversationScope.revisionOfTurnId
+                ? { revisionOfTurnId: activeConversationScope.revisionOfTurnId }
+                : {}),
             },
           }
         : {}),
@@ -568,6 +573,9 @@ export function useChatCore(
           threadId: identity.threadId,
           turnId: identity.turnId,
           runAttemptId: identity.runAttemptId,
+          ...(identity.revisionOfTurnId
+            ? { revisionOfTurnId: identity.revisionOfTurnId }
+            : {}),
         },
         ...loadRepositoryContextFields(sessionId),
       }),
@@ -638,7 +646,10 @@ export function useChatCore(
   );
 
   const appendWithResolution = useCallback(
-    async (message: ChatAppendMessage): Promise<void> => {
+    async (
+      message: ChatAppendMessage,
+      revisionTarget?: string,
+    ): Promise<void> => {
       const bootstrapScopeKey = runScopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
@@ -717,6 +728,7 @@ export function useChatCore(
           sessionId,
           runId,
           submittedMessage.id,
+          revisionTarget,
         );
         if (!isActiveRunScope(runScopeKey)) {
           return;
@@ -738,8 +750,11 @@ export function useChatCore(
           stopRequestedRef.current &&
           preAdmissionStopKeyRef.current === bootstrapScopeKey
         ) {
-          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
-          stopStream();
+          await interruptAndAwaitTerminal(
+            lifecycleClient,
+            requestScope,
+            stopStream,
+          );
           return;
         }
 
@@ -789,6 +804,13 @@ export function useChatCore(
             },
           );
         }
+        if (revisionTarget) {
+          setMessages((current) =>
+            current.filter(
+              (candidate) => readCanonicalTurnId(candidate) !== revisionTarget,
+            ),
+          );
+        }
       } finally {
         if (isActiveRunScope(runScopeKey)) {
           const settledScopeKey = activeScopeKeyRef.current;
@@ -815,6 +837,7 @@ export function useChatCore(
       status,
       stopStream,
       submitResolvedMessage,
+      setMessages,
     ],
   );
 
@@ -960,8 +983,11 @@ export function useChatCore(
     const cancelRun = async (): Promise<void> => {
       try {
         if (requestScope) {
-          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
-          stopStream();
+          await interruptAndAwaitTerminal(
+            lifecycleClient,
+            requestScope,
+            stopStream,
+          );
         } else {
           preAdmissionStopKeyRef.current = runScopeKey;
           stopStream();
@@ -997,6 +1023,20 @@ export function useChatCore(
     stopStream,
   ]);
 
+  const reviseTurn = useCallback(
+    async (turnId: string, content: string): Promise<boolean> => {
+      const parsedTurnId = TurnIdSchema.safeParse(turnId);
+      const trimmed = content.trim();
+      if (!parsedTurnId.success || !trimmed) return false;
+      await appendWithResolution(
+        { id: crypto.randomUUID(), role: "user", content: trimmed },
+        parsedTurnId.data,
+      );
+      return true;
+    },
+    [appendWithResolution],
+  );
+
   return {
     messages: scopedMessages,
     optimisticUserMessageId,
@@ -1016,12 +1056,14 @@ export function useChatCore(
     error,
     clearNonCanonicalError,
     debugEvents,
+    reviseTurn,
   };
 }
 
-async function interruptAndAwaitTerminal(
+export async function interruptAndAwaitTerminal(
   lifecycleClient: ReturnType<typeof createLifecycleClient>,
   scope: ConversationScope,
+  onInterruptAccepted: () => void,
 ): Promise<void> {
   const settlementAbort = new AbortController();
   const settlementTimeout = window.setTimeout(
@@ -1041,6 +1083,10 @@ async function interruptAndAwaitTerminal(
       runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
       reason: "User stopped the turn.",
     });
+    // The runtime command is now durably admitted. Stop the chat transport
+    // immediately so the composer reflects the user's hard-stop action while
+    // lifecycle continuation independently waits for canonical settlement.
+    onInterruptAccepted();
     if (response.terminalEvent) return;
     for await (const event of lifecycleClient.followTurnLifecycle(
       { turnId: TurnIdSchema.parse(scope.turnId) },
@@ -1093,25 +1139,31 @@ function buildPendingUserMessage(
   message: ChatAppendMessage,
   identity?: ConversationScope,
 ): Message {
-  const content = extractTextContent(message.content).trim();
+  const metadata = {
+    ...(identity
+      ? {
+          canonicalIdentity: {
+            workspaceId: identity.workspaceId,
+            threadId: identity.threadId,
+            turnId: identity.turnId,
+            runAttemptId: identity.runAttemptId,
+          },
+        }
+      : {}),
+    ...(message.imageMetadata
+      ? { imageAttachments: message.imageMetadata }
+      : {}),
+  };
   return {
     id: message.id ?? createClientMessageId(),
     role: "user",
-    content: content || "Analyze the attached image(s).",
+    // Preserve typed image parts for the optimistic transcript. The server
+    // intentionally redacts image bytes from durable transcript rows; this
+    // gives the current turn a real preview without creating a second store.
+    content: message.content as Message["content"],
     createdAt: new Date(),
-    ...(identity
-      ? {
-          data: {
-            metadata: {
-              canonicalIdentity: {
-                workspaceId: identity.workspaceId,
-                threadId: identity.threadId,
-                turnId: identity.turnId,
-                runAttemptId: identity.runAttemptId,
-              },
-            },
-          },
-        }
+    ...(Object.keys(metadata).length > 0
+      ? { data: { metadata } }
       : {}),
   } as Message;
 }

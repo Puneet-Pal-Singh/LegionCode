@@ -203,7 +203,6 @@ export function AgentSidebar({
           status: mapSessionStatus(session, activeSessionId),
           updatedAt: session.updatedAt,
           isActive: session.id === activeSessionId,
-          titlePending: session.titleStatus === "pending",
           context: getRepositoryLabel(repository),
         }));
 
@@ -243,17 +242,11 @@ export function AgentSidebar({
         status: mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
-        titlePending: session.titleStatus === "pending",
       })),
       normalizedQuery,
       statusFilter,
     );
-  }, [
-    activeSessionId,
-    normalizedQuery,
-    sessions,
-    statusFilter,
-  ]);
+  }, [activeSessionId, normalizedQuery, sessions, statusFilter]);
 
   const utility = (
     <div className="space-y-1">

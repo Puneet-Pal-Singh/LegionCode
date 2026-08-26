@@ -23,6 +23,7 @@ import {
   type WorkflowIntent,
   type ReasoningEffort,
   type ProviderModelRuntimeRoute,
+  type ProviderModelTransport,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { TurnScopeBootstrap } from "@repo/platform-protocol";
@@ -43,6 +44,7 @@ import { DurableConversationContextAssembler } from "../../services/chat/Durable
 import {
   builtinProviderRegistry,
   resolveProviderRuntimeRoute,
+  type ResolvedProviderRuntimeRoute,
 } from "@repo/provider-core";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
@@ -179,6 +181,8 @@ export class HandleChatRequest {
       const providerRuntimeRoute =
         input.providerRuntimeRoute ??
         resolveProviderRuntimeRoute(input.providerId, input.modelId);
+      const normalizedProviderRuntimeRoute =
+        normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
@@ -301,6 +305,7 @@ export class HandleChatRequest {
                 previewVersion: preview.titleVersion ?? 1,
                 providerId: input.providerId,
                 modelId: input.modelId,
+                ...normalizedProviderRuntimeRoute,
               },
             );
           }
@@ -312,6 +317,7 @@ export class HandleChatRequest {
             sessionId,
             userId,
             currentTurnId: identity.turnId,
+            revisionOfTurnId: identity.revisionOfTurnId,
           })
         : messages;
 
@@ -331,18 +337,7 @@ export class HandleChatRequest {
           sessionId,
           providerId: input.providerId,
           modelId: input.modelId,
-          runtimeModelId:
-            providerRuntimeRoute && "modelId" in providerRuntimeRoute
-              ? providerRuntimeRoute.modelId
-              : providerRuntimeRoute?.runtimeModelId,
-          providerTransport:
-            providerRuntimeRoute && "transport" in providerRuntimeRoute
-              ? providerRuntimeRoute.transport
-              : providerRuntimeRoute?.providerTransport,
-          providerEndpoint:
-            providerRuntimeRoute && "endpoint" in providerRuntimeRoute
-              ? providerRuntimeRoute.endpoint
-              : providerRuntimeRoute?.providerEndpoint,
+          ...normalizedProviderRuntimeRoute,
           harnessId: input.harnessId,
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
@@ -459,6 +454,28 @@ export class HandleChatRequest {
     const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
+}
+
+function normalizeProviderRuntimeRoute(
+  route: ProviderModelRuntimeRoute | ResolvedProviderRuntimeRoute | undefined,
+): {
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
+} {
+  if (!route) return {};
+  if ("modelId" in route) {
+    return {
+      runtimeModelId: route.modelId,
+      providerTransport: route.transport,
+      providerEndpoint: route.endpoint,
+    };
+  }
+  return {
+    runtimeModelId: route.runtimeModelId,
+    providerTransport: route.providerTransport,
+    providerEndpoint: route.providerEndpoint,
+  };
 }
 
 function readMessageId(message: CoreMessage): string | null {

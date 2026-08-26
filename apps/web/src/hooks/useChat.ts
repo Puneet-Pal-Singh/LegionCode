@@ -21,6 +21,7 @@ interface UseChatResult {
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
   append: (message: ChatAppendMessage) => Promise<void>;
+  reviseTurn: (turnId: string, content: string) => Promise<boolean>;
   isLoading: boolean;
   isHydrating: boolean;
   hasHydrated: boolean;
@@ -58,6 +59,7 @@ export function useChat(
     handleInputChange,
     handleSubmit,
     append,
+    reviseTurn,
     isLoading,
     stop,
     setMessages,
@@ -107,6 +109,7 @@ export function useChat(
     handleInputChange,
     handleSubmit,
     append,
+    reviseTurn,
     isLoading,
     isHydrating,
     hasHydrated,

@@ -2,6 +2,7 @@ import type { CoreMessage } from "ai";
 import {
   TurnScopeBootstrapSchema,
   type TurnScopeBootstrap,
+  type TurnId,
 } from "@repo/platform-protocol";
 import type { RunMode } from "@repo/shared-types";
 import {
@@ -258,6 +259,7 @@ export async function startRunTurn(
     "sessionId" | "workspaceId" | "userId" | "correlationId"
   > & {
     clientMessageId?: string;
+    revisionOfTurnId?: TurnId;
   },
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<TurnScopeBootstrap> {

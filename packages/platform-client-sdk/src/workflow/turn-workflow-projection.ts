@@ -218,7 +218,7 @@ function applyKnownEvent(
         phase: "waiting_for_approval",
       };
     case "approval.decided":
-      return { ...decideApproval(projection, event), phase: "working" };
+      return decideApproval(projection, event);
     case "request.resolved":
       return { ...projection, pendingApproval: null, phase: "working" };
     case "turn.diff_updated":
@@ -489,20 +489,20 @@ function decideApproval(
   projection: TurnWorkflowProjection,
   event: LifecycleEvent,
 ): TurnWorkflowProjection {
-  const payload = readPayload(event);
   const approvalId = requireApprovalId(event);
-  const decision = readString(payload, "decision");
   const pendingApproval = projection.pendingApproval;
   if (!pendingApproval || pendingApproval.approvalId !== approvalId) {
     return projection;
   }
+  // Approval requests are actionable only until the decision event. The
+  // decision remains represented by the canonical lifecycle item/event
+  // history; keeping it in `pendingApproval` makes every client continue to
+  // advertise an already-settled request until a later compatibility event
+  // arrives.
   return {
     ...projection,
-    pendingApproval: {
-      ...pendingApproval,
-      decidedAt: event.createdAt,
-      decision,
-    },
+    pendingApproval: null,
+    phase: "working",
   };
 }
 

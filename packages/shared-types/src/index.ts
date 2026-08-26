@@ -2,6 +2,14 @@
 export { JsonValueSchema, type JsonPrimitive, type JsonValue } from "./json.js";
 
 export {
+  CHAT_MEDIA_IMAGE_TYPES,
+  ChatMediaImageTypeSchema,
+  ChatImageAttachmentRefSchema,
+  type ChatMediaImageType,
+  type ChatImageAttachmentRef,
+} from "./chat-media.js";
+
+export {
   INTERNAL_RUNTIME_EVENT_SIGNATURE_HEADER,
   INTERNAL_RUNTIME_EVENT_TIMESTAMP_HEADER,
   RUNTIME_EVENT_SIGNATURE_VERSION,
@@ -112,6 +120,8 @@ export {
   ProviderCatalogResponseSchema,
   ProviderConnectionStateSchema,
   CloudflareAIConnectionConfigSchema,
+  CloudflareWorkersAIConnectionConfigSchema,
+  CloudflareAIGatewayConnectionConfigSchema,
   EmptyProviderConnectionConfigSchema,
   ProviderConnectionConfigSchema,
   ProviderConnectionSchema,
@@ -143,6 +153,8 @@ export type {
   ProviderCatalogResponse,
   ProviderConnectionState,
   CloudflareAIConnectionConfig,
+  CloudflareWorkersAIConnectionConfig,
+  CloudflareAIGatewayConnectionConfig,
   EmptyProviderConnectionConfig,
   ProviderConnectionConfig,
   ProviderConnection,

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   BYOKDiscoveredProviderModel,
   CloudflareAIConnectionConfig,
+  CloudflareWorkersAIConnectionConfig,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
@@ -13,12 +14,11 @@ import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
 } from "../errors";
-import {
-  buildCloudflareAIRoute,
-  resolveCloudflareRuntimeModelId,
-} from "../../cloudflare/CloudflareAIRouteBuilder";
 
-const CLOUDFLARE_AI_PROVIDER_ID = "cloudflare-ai";
+const CLOUDFLARE_WORKERS_AI_PROVIDER_IDS = new Set([
+  "cloudflare-ai",
+  "cloudflare-workers-ai",
+]);
 const CLOUDFLARE_AI_FETCH_TIMEOUT_MS = 15_000;
 const CLOUDFLARE_AI_MODELS_PER_PAGE = 100;
 const CLOUDFLARE_AI_MAX_MODEL_PAGES = 20;
@@ -65,7 +65,7 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
     providerId: string,
     credentialContext: ProviderModelCredentialContext,
   ): Promise<BYOKDiscoveredProviderModel[]> {
-    if (providerId !== CLOUDFLARE_AI_PROVIDER_ID) {
+    if (!CLOUDFLARE_WORKERS_AI_PROVIDER_IDS.has(providerId)) {
       throw new ProviderModelDiscoveryApiError(
         `Cloudflare AI adapter received unsupported provider "${providerId}".`,
         { status: 400, retryable: false },
@@ -76,7 +76,7 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
       apiKey: credentialContext.apiKey,
       accountId: config.accountId,
     });
-    return models.map((model) => normalizeCloudflareModel(model, config));
+    return models.map((model) => normalizeCloudflareModel(model, providerId));
   }
 
   async fetchPage(
@@ -100,8 +100,11 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
 
 function resolveCloudflareConfig(
   config: ProviderModelCredentialContext["connectionConfig"],
-): CloudflareAIConnectionConfig {
-  if (config?.providerId === CLOUDFLARE_AI_PROVIDER_ID) {
+): CloudflareAIConnectionConfig | CloudflareWorkersAIConnectionConfig {
+  if (
+    config?.providerId === "cloudflare-ai" ||
+    config?.providerId === "cloudflare-workers-ai"
+  ) {
     return config;
   }
   throw new ProviderModelDiscoveryApiError(
@@ -118,7 +121,7 @@ async function fetchCloudflareModels(input: {
   for (let page = 1; page <= CLOUDFLARE_AI_MAX_MODEL_PAGES; page += 1) {
     const response = await requestCloudflareModels({ ...input, page });
     const payload = await parseCloudflareModels(response);
-    models.push(...payload.result.filter(isTextGenerationModel));
+    models.push(...payload.result.filter(isCompatibleTextGenerationModel));
     if (!hasNextCloudflareModelsPage(payload, page)) {
       return models;
     }
@@ -208,35 +211,31 @@ function hasNextCloudflareModelsPage(
 
 function normalizeCloudflareModel(
   model: CloudflareModelPayload,
-  config: CloudflareAIConnectionConfig,
+  providerId: string,
 ): BYOKDiscoveredProviderModel {
-  const endpoint = buildCloudflareAIRoute({
-    config,
-    modelId: model.id,
-    transport: "openai-chat-completions",
-  });
   return {
     id: model.id,
-    name: model.display_name ?? model.name ?? model.id,
-    providerId: CLOUDFLARE_AI_PROVIDER_ID,
+    name: model.display_name?.trim() || model.name?.trim() || model.id,
+    providerId,
     description: model.description,
     contextWindow: model.contextWindow ?? model.context_window,
-    runtimeRoute: {
-      providerId: CLOUDFLARE_AI_PROVIDER_ID,
-      modelId: resolveCloudflareRuntimeModelId(config, model.id),
-      transport: "openai-chat-completions",
-      endpoint,
-    },
     availability: "available",
   };
 }
 
-function isTextGenerationModel(model: CloudflareModelPayload): boolean {
+function isCompatibleTextGenerationModel(
+  model: CloudflareModelPayload,
+): boolean {
   const task =
     typeof model.task === "string"
       ? model.task
       : (model.task?.id ?? model.task?.name);
-  return normalizeCloudflareTask(task) === "text-generation";
+  const normalizedTask = normalizeCloudflareTask(task);
+  // The request already asks Cloudflare for `task=text-generation`. Some
+  // valid responses omit the optional task echo, so only reject an explicit
+  // conflicting task instead of dropping an otherwise valid server-filtered
+  // model.
+  return normalizedTask === undefined || normalizedTask === "text-generation";
 }
 
 function normalizeCloudflareTask(task: string | undefined): string | undefined {

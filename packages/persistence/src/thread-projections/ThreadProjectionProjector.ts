@@ -75,14 +75,6 @@ function applyProjectionInput(
 
   if (isTerminalTurnEvent(input.event)) {
     state.lastTerminalTurnId = input.event.payload.turn.id;
-    if (isFirstEligibleTitleTurn(state.thread, input.event)) {
-      state.thread = ThreadSchema.parse({
-        ...state.thread,
-        titleStatus: "pending",
-        lastTerminalTurnId: state.lastTerminalTurnId,
-        lastEventSequence: input.projectionSequence,
-      });
-    }
   }
 }
 
@@ -132,18 +124,6 @@ function isTerminalTurnEvent(
   return event.type === "turn.completed" || event.type === "turn.failed";
 }
 
-function isFirstEligibleTitleTurn(
-  thread: Thread | null,
-  event: PlatformEvent,
-): boolean {
-  return (
-    event.type === "turn.completed" &&
-    thread?.titleSource === "generated" &&
-    thread.titleVersion === 1 &&
-    thread.titleStatus === "ready"
-  );
-}
-
 function projectThreadState(
   current: Thread | null,
   event: Extract<PlatformEvent, { type: `thread.${string}` }>,
@@ -161,7 +141,7 @@ function projectThreadState(
       ...current,
       title: event.payload.title,
       titleSource: event.payload.source,
-      titleStatus: "ready",
+      titleStatus: event.payload.titleStatus,
       titleVersion: event.payload.titleVersion,
       updatedAt: event.payload.timestamp,
       lastEventSequence: projectionSequence,

@@ -6,6 +6,7 @@ import {
   FilePenLine,
   GitBranch,
   Globe,
+  Images,
   Search,
   Square,
   Terminal,
@@ -14,6 +15,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import {
+  buildActiveWorkflowTrace,
   buildSegmentTitle,
   type ToolActivitySegment,
   type WorkflowItem,
@@ -21,17 +23,18 @@ import {
 import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
 import { itemDisplayText } from "./workflowPresentation.js";
-import { ThinkingIndicator } from "./ThinkingIndicator.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
 import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
 
-// Keep the disclosure trigger and each child on the same row cadence. A
-// shared min-height/padding contract prevents the first child from appearing
-// farther away than subsequent children when a grouped tool call opens.
-const WORKFLOW_ROW_CADENCE = "min-h-7 py-1 text-sm leading-5";
+// Parent activity groups are intentionally airy enough to read as separate
+// phases in the trace. Once a group is opened, its child calls use a shorter
+// cadence so the list reads as one compact execution rather than a second
+// stack of cards.
+const WORKFLOW_PARENT_CADENCE = "min-h-8 py-1.5 text-sm leading-5";
+const WORKFLOW_CHILD_CADENCE = "min-h-6 py-0.5 text-sm leading-5";
 
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
@@ -46,18 +49,63 @@ export function WorkflowTimeline({
   showThinkingState,
   onArtifactOpen,
 }: WorkflowTimelineProps) {
+  const activeTrace = showThinkingState
+    ? buildActiveWorkflowTrace(segments)
+    : null;
   return (
-    <div className="space-y-1" data-testid="workflow-tool-viewport">
-      {segments.map((segment) => (
-        <WorkflowSegment
-          key={segment.key}
-          segment={segment}
+    <div className="space-y-3" data-testid="workflow-tool-viewport">
+      {segments.map((segment) =>
+        activeTrace?.consumedSegmentKeys.includes(segment.key) ? null : (
+          <WorkflowSegment
+            key={segment.key}
+            segment={segment}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
+        ),
+      )}
+      {showThinkingState ? (
+        <ActiveWorkflowTrace
+          key="active-workflow-trace"
+          title={activeTrace?.title ?? "Thinking through the next step"}
+          children={activeTrace?.children ?? []}
           turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
-      ))}
-      {showThinkingState ? <ThinkingIndicator /> : null}
+      ) : null}
     </div>
+  );
+}
+
+function ActiveWorkflowTrace({
+  title,
+  children,
+  turnDiff,
+  onArtifactOpen,
+}: {
+  title: string;
+  children: readonly WorkflowItem[];
+  turnDiff: TurnDiffPayload | null;
+  onArtifactOpen?: ArtifactOpenHandler;
+}) {
+  return (
+    <ActivityDisclosure
+      title={title}
+      active
+      hasChildren={children.length > 0}
+      defaultExpanded={false}
+      titleTestId="active-workflow-title"
+    >
+      {children.map((item) => (
+        <WorkflowItemRow
+          key={item.itemId}
+          item={item}
+          turnDiff={turnDiff}
+          nested
+          onArtifactOpen={onArtifactOpen}
+        />
+      ))}
+    </ActivityDisclosure>
   );
 }
 
@@ -94,24 +142,22 @@ function WorkflowSegment({
 
   return (
     <div className="space-y-1">
-      {segment.reasoning ? (
+      {segment.reasoning && segment.children.length === 0 ? (
         <div className="text-[15px] leading-7 text-zinc-100">
-          <MarkdownMessageContent
-            content={itemDisplayText(segment.reasoning) ?? "Thinking"}
-          />
+          <span
+            className={segment.isActive ? "turn-lifecycle-shimmer" : undefined}
+          >
+            {itemDisplayText(segment.reasoning) ?? "Thinking"}
+          </span>
         </div>
       ) : null}
       {segment.children.length > 0 ? (
-        segment.children.length === 1 ? (
-          <WorkflowItemRow
-            item={segment.children[0]!}
-            turnDiff={turnDiff}
-            onArtifactOpen={onArtifactOpen}
-          />
-        ) : (
+        segment.isActive || segment.reasoning || segment.children.length > 1 ? (
           <ActivityDisclosure
             title={buildSegmentTitle(segment)}
-            active={segment.children.some((item) => item.status === "active")}
+            active={segment.isActive}
+            hasChildren
+            defaultExpanded={false}
           >
             <div
               ref={viewportRef}
@@ -123,18 +169,25 @@ function WorkflowSegment({
                     viewport.clientHeight <
                   24;
               }}
-              className="max-h-60 space-y-1 overflow-y-auto pr-2"
+              className="max-h-60 space-y-0 overflow-y-auto pr-2"
             >
               {segment.children.map((item) => (
                 <WorkflowItemRow
                   key={item.itemId}
                   item={item}
                   turnDiff={turnDiff}
+                  nested
                   onArtifactOpen={onArtifactOpen}
                 />
               ))}
             </div>
           </ActivityDisclosure>
+        ) : (
+          <WorkflowItemRow
+            item={segment.children[0]!}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
         )
       ) : null}
     </div>
@@ -144,28 +197,41 @@ function WorkflowSegment({
 function ActivityDisclosure({
   title,
   active,
+  hasChildren,
+  defaultExpanded = false,
+  titleTestId,
   children,
 }: {
   title: string;
   active: boolean;
+  hasChildren: boolean;
+  defaultExpanded?: boolean;
+  titleTestId?: string;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Keep full provider commentary available for inspection without allowing
+  // verbose models to expand the transcript by default. Concise standalone
+  // progress updates remain visible as their own transcript segments.
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div>
       <button
         type="button"
-        aria-expanded={expanded}
+        aria-expanded={hasChildren ? expanded : undefined}
+        aria-disabled={!hasChildren}
         data-testid="activity-disclosure-row"
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => {
+          if (hasChildren) setExpanded((current) => !current);
+        }}
         className={cn(
           "group flex items-center gap-2 text-zinc-500 transition hover:text-zinc-100",
-          WORKFLOW_ROW_CADENCE,
+          WORKFLOW_PARENT_CADENCE,
         )}
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
         <span
+          data-testid={titleTestId}
           className={cn(
             "first-letter:uppercase",
             active && "turn-lifecycle-shimmer",
@@ -173,16 +239,20 @@ function ActivityDisclosure({
         >
           {title}
         </span>
-        <ChevronRight
-          data-testid="activity-disclosure-chevron"
-          className={cn(
-            "h-3.5 w-3.5 transition-transform",
-            expanded && "rotate-90",
-          )}
-          aria-hidden="true"
-        />
+        {hasChildren ? (
+          <ChevronRight
+            data-testid="activity-disclosure-chevron"
+            className={cn(
+              "h-3.5 w-3.5 transition-transform",
+              expanded && "rotate-90",
+            )}
+            aria-hidden="true"
+          />
+        ) : null}
       </button>
-      {expanded ? <div className="min-w-0">{children}</div> : null}
+      {hasChildren && expanded ? (
+        <div className="min-w-0">{children}</div>
+      ) : null}
     </div>
   );
 }
@@ -192,11 +262,13 @@ function WorkflowItemRow({
   turnDiff,
   reasoning = false,
   onArtifactOpen,
+  nested = false,
 }: {
   item: WorkflowItem;
   turnDiff: TurnDiffPayload | null;
   reasoning?: boolean;
   onArtifactOpen?: ArtifactOpenHandler;
+  nested?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
@@ -229,7 +301,10 @@ function WorkflowItemRow({
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className={cn("group", WORKFLOW_ROW_CADENCE)}
+      className={cn(
+        "group",
+        nested ? WORKFLOW_CHILD_CADENCE : WORKFLOW_PARENT_CADENCE,
+      )}
     >
       <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
         <WorkflowStatusIcon item={item} />
@@ -261,7 +336,13 @@ function WorkflowItemRow({
             }}
             className="min-w-0 text-left text-zinc-500 transition-colors hover:text-white"
           >
-            <span>{label}</span>
+            <span
+              className={
+                item.status === "active" ? "turn-lifecycle-shimmer" : undefined
+              }
+            >
+              {label}
+            </span>
             {preview ? (
               <span className="ml-2 break-words text-zinc-400 transition-colors group-hover:text-white">
                 {preview}
@@ -418,6 +499,9 @@ function resolveItemLabel(item: WorkflowItem): string {
   if (item.toolFamily === "shell") {
     return item.status === "active" ? "Running command" : "Ran command";
   }
+  if (item.toolFamily === "image") {
+    return item.safeSummary ?? (item.status === "active" ? "Viewing images" : "Viewed images");
+  }
   return item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
 }
 
@@ -453,6 +537,8 @@ function WorkflowStatusIcon({ item }: { item: WorkflowItem }) {
     case "web":
     case "browser":
       return <Globe aria-hidden="true" className={className} />;
+    case "image":
+      return <Images aria-hidden="true" className={className} />;
     default:
       return <Wrench aria-hidden="true" className={className} />;
   }

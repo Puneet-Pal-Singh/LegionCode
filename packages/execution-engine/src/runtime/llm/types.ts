@@ -64,6 +64,11 @@ export interface LLMTextResponse {
   providerRequestId?: string;
   finishReason?: string;
   toolCalls?: LLMToolCall[];
+  /** Provider-designated safe summary only; private reasoning is never projected here. */
+  reasoningSummary?: {
+    text: string;
+    displaySafe: true;
+  };
 }
 
 export interface LLMStructuredResponse<T> {

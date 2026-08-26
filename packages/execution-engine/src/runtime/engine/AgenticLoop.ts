@@ -46,6 +46,7 @@ import {
 } from "../capabilities/index.js";
 import { PermissionGateError } from "./PermissionGateError.js";
 import { buildAgenticLoopSystemPrompt } from "./AgenticLoopSystemPrompt.js";
+import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 export { buildAgenticLoopSystemPrompt } from "./AgenticLoopSystemPrompt.js";
 import {
   buildReadOnlyToolFingerprint,
@@ -358,7 +359,13 @@ export class AgenticLoop {
       // Add LLM response to messages
       messages.push(buildAssistantMessage(responseText, response.toolCalls));
       if (response.toolCalls && response.toolCalls.length > 0) {
-        await context.onAssistantMessage?.(responseText);
+        const commentary = resolveModelCommentary(
+          responseText,
+          response.toolCalls,
+        );
+        if (commentary) {
+          await context.onAssistantMessage?.(commentary);
+        }
       }
 
       // Check if LLM requested tool calls

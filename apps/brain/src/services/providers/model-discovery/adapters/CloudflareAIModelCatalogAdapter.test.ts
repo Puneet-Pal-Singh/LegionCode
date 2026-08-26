@@ -7,7 +7,7 @@ describe("CloudflareAIModelCatalogAdapter", () => {
     vi.restoreAllMocks();
   });
 
-  it("normalizes Workers AI text-generation models with direct routes", async () => {
+  it("normalizes Workers AI text-generation models without account routes", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -40,14 +40,8 @@ describe("CloudflareAIModelCatalogAdapter", () => {
       id: "@cf/meta/llama-3.1-8b-instruct",
       providerId: "cloudflare-ai",
       availability: "available",
-      runtimeRoute: {
-        providerId: "cloudflare-ai",
-        modelId: "@cf/meta/llama-3.1-8b-instruct",
-        transport: "openai-chat-completions",
-        endpoint:
-          "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
-      },
     });
+    expect(models[0]?.runtimeRoute).toBeUndefined();
   });
 
   it("requires Cloudflare connection config", async () => {
@@ -60,42 +54,18 @@ describe("CloudflareAIModelCatalogAdapter", () => {
     ).rejects.toThrow("account connection config");
   });
 
-  it("normalizes AI Gateway models with current REST routes", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          success: true,
-          result: [
-            {
-              id: "@cf/meta/llama-3.1-8b-instruct",
-              display_name: "Llama 3.1 8B Instruct",
-              task: { id: "text-generation", name: "Text Generation" },
-            },
-          ],
-        }),
-        { status: 200 },
-      ),
-    );
-
+  it("does not use the account model API for AI Gateway discovery", async () => {
     const adapter = new CloudflareAIModelCatalogAdapter();
-    const models = await adapter.fetchAll("cloudflare-ai", {
-      apiKey: "cf-token",
-      connectionConfig: {
-        providerId: "cloudflare-ai",
-        accountId: "account_123",
-        routeMode: "ai-gateway",
-      },
-    });
-
-    expect(models[0]?.runtimeRoute).toMatchObject({
-      providerId: "cloudflare-ai",
-      modelId: "@cf/meta/llama-3.1-8b-instruct",
-      transport: "openai-chat-completions",
-      endpoint:
-        "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
-    });
-    expect(models[0]?.name).toBe("Llama 3.1 8B Instruct");
-    expect(models[0]?.capabilities).toBeUndefined();
+    await expect(
+      adapter.fetchAll("cloudflare-ai-gateway", {
+        apiKey: "cf-token",
+        connectionConfig: {
+          providerId: "cloudflare-ai-gateway",
+          accountId: "account_123",
+          gatewayId: "gateway",
+        },
+      }),
+    ).rejects.toThrow("unsupported provider");
   });
 
   it("requests the full non-experimental text-generation page", async () => {
@@ -233,6 +203,34 @@ describe("CloudflareAIModelCatalogAdapter", () => {
     );
 
     expect(models.map((model) => model.id)).toEqual(["@cf/meta/generation"]);
+  });
+
+  it("keeps models when Cloudflare omits the optional task echo", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: [{ id: "@cf/meta/llama-without-task" }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const models = await new CloudflareAIModelCatalogAdapter().fetchAll(
+      "cloudflare-ai",
+      {
+        apiKey: "cf-token",
+        connectionConfig: {
+          providerId: "cloudflare-ai",
+          accountId: "account_123",
+          routeMode: "workers-ai-direct",
+        },
+      },
+    );
+
+    expect(models.map((model) => model.id)).toEqual([
+      "@cf/meta/llama-without-task",
+    ]);
   });
 
   it("wraps auth errors as non-retryable discovery errors", async () => {

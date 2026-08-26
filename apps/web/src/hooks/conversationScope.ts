@@ -20,6 +20,8 @@ export interface ConversationScope {
   /** Transport correlation fields; never used as the scope key. */
   readonly sessionId: string;
   readonly runId: string;
+  /** The latest terminal turn this turn supersedes, when editing/retrying. */
+  readonly revisionOfTurnId?: string;
 }
 
 export function createConversationScope(input: {
@@ -29,17 +31,24 @@ export function createConversationScope(input: {
   runAttemptId: string;
   sessionId: string;
   runId: string;
+  revisionOfTurnId?: string;
 }): ConversationScope {
   const identity = TurnScopeBootstrapSchema.parse({
     workspaceId: input.workspaceId,
     threadId: input.threadId,
     turnId: input.turnId,
     runAttemptId: input.runAttemptId,
+    ...(input.revisionOfTurnId
+      ? { revisionOfTurnId: input.revisionOfTurnId }
+      : {}),
   });
   return Object.freeze({
     ...identity,
     sessionId: input.sessionId,
     runId: input.runId,
+    ...(identity.revisionOfTurnId
+      ? { revisionOfTurnId: identity.revisionOfTurnId }
+      : {}),
   });
 }
 
@@ -61,6 +70,7 @@ export async function bootstrapConversationScope(
   sessionId: string,
   runId: string,
   clientMessageId?: string,
+  revisionOfTurnId?: string,
 ): Promise<ConversationScope> {
   const response = await fetch(`${getBrainHttpBase()}/turn/start`, {
     method: "POST",
@@ -69,7 +79,12 @@ export async function bootstrapConversationScope(
       "Content-Type": "application/json",
       "X-Correlation-Id": crypto.randomUUID(),
     },
-    body: JSON.stringify({ sessionId, runId, clientMessageId }),
+    body: JSON.stringify({
+      sessionId,
+      runId,
+      clientMessageId,
+      ...(revisionOfTurnId ? { revisionOfTurnId } : {}),
+    }),
   });
 
   if (!response.ok) {

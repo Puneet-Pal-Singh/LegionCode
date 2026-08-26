@@ -34,7 +34,7 @@ describe("OpenRouterModelCatalogAdapter", () => {
               slug: "gpt-4o",
               description: "General-purpose multimodal model",
               architecture: {
-                 input_modalities: ["text", "image", "pdf"],
+                input_modalities: ["text", "image", "pdf"],
                 output_modalities: ["text"],
               },
               settings: {
@@ -54,6 +54,11 @@ describe("OpenRouterModelCatalogAdapter", () => {
       workspaceId: "ws-1",
       apiKey: "sk-or-test",
     });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models?output_modalities=text",
+      expect.objectContaining({ method: "GET" }),
+    );
 
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("openai/gpt-4o");
@@ -91,6 +96,60 @@ describe("OpenRouterModelCatalogAdapter", () => {
     expect(models[0].capabilityMetadata?.fetchedAt).toEqual(expect.any(String));
   });
 
+  it("requests all output modalities for the full management inventory", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: "openai/image-model" }] }), {
+        status: 200,
+      }),
+    );
+
+    await new OpenRouterModelCatalogAdapter().fetchAll("openrouter", {
+      apiKey: "sk-or-test",
+      outputModalities: "all",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models?output_modalities=all",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("keeps current public catalog entries with nullable metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: Array.from({ length: 501 }, (_, index) => ({
+            id: `author/model-${index}`,
+            name: `Model ${index}`,
+            context_length: 128_000,
+            pricing: {
+              prompt: "0.000001",
+              completion: "0.000002",
+              input_cache_read: null,
+              input_cache_write: null,
+              overrides: null,
+            },
+            supported_parameters: ["tools"],
+            architecture: {
+              input_modalities: ["text"],
+              output_modalities: ["text"],
+              modality: "text->text",
+            },
+            expiration_date: null,
+          })),
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const models = await new OpenRouterModelCatalogAdapter().fetchAll(
+      "openrouter",
+      { apiKey: "sk-or-test", outputModalities: "all" },
+    );
+
+    expect(models).toHaveLength(501);
+  });
+
   it("does not infer image input from image output", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -120,6 +179,54 @@ describe("OpenRouterModelCatalogAdapter", () => {
     expect(models[0].inputModalities?.image).toBe(false);
     expect(models[0].outputModalities?.image).toBe(true);
     expect(models[0].capabilities?.supportsVision).toBe(false);
+  });
+
+  it("accepts current OpenRouter fields and skips isolated malformed entries", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            { id: "", name: "Malformed" },
+            {
+              id: "deepseek/deepseek-v4-flash-vision-exp",
+              name: "DeepSeek: DeepSeek V4 Flash Vision Exp",
+              canonical_slug: "deepseek/deepseek-v4-flash-vision-exp-20260821",
+              expiration_date: "2098-12-31T00:00:00.000Z",
+              reasoning: { supported_efforts: ["low", "high", "max"] },
+              pricing: {
+                prompt: "0.00000022",
+                completion: "0.00000066",
+                overrides: [
+                  {
+                    utc_start: 100,
+                    utc_end: 400,
+                    prompt: "0.00000044",
+                    completion: "0.00000132",
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const models = await new OpenRouterModelCatalogAdapter().fetchAll(
+      "openrouter",
+      {
+        apiKey: "sk-or-test",
+      },
+    );
+
+    expect(models).toHaveLength(1);
+    expect(models[0]).toMatchObject({
+      id: "deepseek/deepseek-v4-flash-vision-exp",
+      canonicalSlug: "deepseek/deepseek-v4-flash-vision-exp-20260821",
+      expirationDate: "2098-12-31T00:00:00.000Z",
+      capabilities: { reasoningEfforts: ["low", "high", "max"] },
+    });
+    expect(models[0]?.pricing?.tiers).toBeUndefined();
   });
 
   it("uses legacy modality only as declared capability metadata", async () => {

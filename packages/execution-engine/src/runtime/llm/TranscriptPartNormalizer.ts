@@ -16,6 +16,8 @@ export interface ProviderTranscriptPart {
   path?: string;
   change?: "created" | "modified" | "deleted" | "unchanged";
   reason?: string;
+  /** Explicit provider designation for a short user-visible reasoning summary. */
+  displaySafe?: boolean;
 }
 
 export interface TranscriptPartNormalizerInput {

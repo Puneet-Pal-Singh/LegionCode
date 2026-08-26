@@ -18,7 +18,7 @@ interface WorkspaceSurfaceHeaderProps {
   onOpenFiles: () => void;
   onOpenChanges: () => void;
   trailingActions: ReactNode;
-  width?: number;
+  width?: number | string;
   addTabLabel?: string;
 }
 

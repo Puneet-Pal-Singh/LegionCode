@@ -24,11 +24,17 @@ export function buildChatEntries(
   const entries: ChatInterfaceEntry[] = [];
   const emittedWorkflowTurnIds = new Set<string>();
   for (const conversationTurn of conversationTurns) {
-    if (conversationTurn.userMessage) {
-      entries.push({ kind: "message", message: conversationTurn.userMessage });
-    }
     const turnId = conversationTurn.turnId;
     const projection = turnId ? projectionsByTurnId[turnId] : undefined;
+    if (conversationTurn.userMessage) {
+      entries.push({
+        kind: "message",
+        message: conversationTurn.userMessage,
+        ...(projection
+          ? { projection }
+          : {}),
+      });
+    }
     if (turnId && projection && projection.lastSequence > 0) {
       entries.push({
         kind: "workflow",

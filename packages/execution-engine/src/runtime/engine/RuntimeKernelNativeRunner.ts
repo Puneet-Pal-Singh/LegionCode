@@ -9,6 +9,7 @@ import {
   ThreadIdSchema,
   ToolCallItemContentSchema,
   TurnSchema,
+  TurnIdSchema,
   UsageCostSnapshotSchema,
   WorkerIdSchema,
   type ApprovalDecision,
@@ -164,7 +165,11 @@ import {
   estimateConversationTokens,
   summarizeConversationForCompaction,
 } from "./NativeProviderContextMessages.js";
-import { runWithProviderRateLimitRecovery } from "./NativeProviderRateLimitRecovery.js";
+import { runWithProviderRequestRecovery } from "./NativeProviderRequestRecovery.js";
+import {
+  buildProviderRecoveryIdempotencyKey,
+  buildProviderRecoveryProgress,
+} from "./NativeProviderRecoveryProgress.js";
 import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -186,6 +191,8 @@ export interface RuntimeKernelNativeRunnerInput {
   runAttemptId?: string;
   threadId?: string;
   workspaceId?: string;
+  /** The latest terminal turn superseded by this edited/recovery turn. */
+  revisionOfTurnId?: string;
   workspace: {
     filesystemRoot: string;
     workingBranch: string;
@@ -366,6 +373,7 @@ export class RuntimeKernelNativeRunner {
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
+      revisionOfTurnId: input.revisionOfTurnId,
       workspace: input.workspace,
     });
     const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
@@ -910,6 +918,8 @@ class KernelAgenticProvider implements ProviderPort {
   private cumulativeTokens = 0;
   private cumulativeCost = 0;
   private pendingCommentary: string | null = null;
+  private pendingReasoningSummary: LLMTextResponse["reasoningSummary"] =
+    undefined;
   private readonly currentBatchResults: AgenticLoopToolResult[] = [];
   private readonly toolNamesByCallId = new Map<string, string>();
   private readonly providerToolCallIdentities =
@@ -972,6 +982,7 @@ class KernelAgenticProvider implements ProviderPort {
       : 0;
     let responseParts: LLMTextResponse["parts"];
     let responseUsage: LLMTextResponse["usage"] | null = null;
+    let responseReasoningSummary: LLMTextResponse["reasoningSummary"];
     let toolCalls: AgenticLoopToolCall[];
     let visibleText: string;
 
@@ -998,7 +1009,7 @@ class KernelAgenticProvider implements ProviderPort {
       );
 
       if (finalRecovery) {
-        const recovered = await this.requestWithRateLimitRecovery(
+        const recovered = await this.requestWithProviderRecovery(
           input,
           context,
           (attemptContext) =>
@@ -1016,6 +1027,7 @@ class KernelAgenticProvider implements ProviderPort {
         );
         const response = recovered;
         responseUsage = response.usage;
+        responseReasoningSummary = undefined;
         responseParts = [
           buildNativeProviderStructuredFinal({
             runId: this.options.run.id,
@@ -1026,7 +1038,7 @@ class KernelAgenticProvider implements ProviderPort {
         ];
         toolCalls = [];
       } else {
-        const response = await this.requestWithRateLimitRecovery(
+        const response = await this.requestWithProviderRecovery(
           input,
           context,
           (attemptContext) =>
@@ -1076,6 +1088,7 @@ class KernelAgenticProvider implements ProviderPort {
             }),
         );
         responseUsage = response.usage;
+        responseReasoningSummary = response.reasoningSummary;
         toolCalls = this.repairToolCalls(response.toolCalls ?? []);
         responseParts = response.parts ?? [];
       }
@@ -1114,6 +1127,9 @@ class KernelAgenticProvider implements ProviderPort {
           toProtocolId("itm", `${input.run.id}-final`),
         ),
         output: terminal.text,
+        ...(responseReasoningSummary
+          ? { reasoning: responseReasoningSummary }
+          : {}),
         usage: toUsageSnapshot(
           responseUsage,
           input,
@@ -1121,7 +1137,7 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    const commentary = resolveModelCommentary(visibleText);
+    const commentary = resolveModelCommentary(visibleText, toolCalls);
     if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
@@ -1142,6 +1158,7 @@ class KernelAgenticProvider implements ProviderPort {
     }
     this.pendingToolCalls.push(...toolCalls);
     this.pendingCommentary = commentary;
+    this.pendingReasoningSummary = responseReasoningSummary;
     this.pendingUsage = toUsageSnapshot(
       responseUsage,
       input,
@@ -1292,40 +1309,43 @@ class KernelAgenticProvider implements ProviderPort {
     );
   }
 
-  private async requestWithRateLimitRecovery<T>(
+  private async requestWithProviderRecovery<T>(
     input: ProviderCallInput,
     context: NativeProviderCallContext,
     operation: (context: NativeProviderCallContext) => Promise<T>,
   ): Promise<T> {
     try {
-      const result = await runWithProviderRateLimitRecovery(
+      const result = await runWithProviderRequestRecovery(
         (retryCount) =>
           runWithNativeCancellationPolling(
             operation({
               ...context,
-              idempotencyKey:
-                retryCount === 0
-                  ? context.idempotencyKey
-                  : `${context.idempotencyKey}:rate-limit-retry:${retryCount}`,
+              idempotencyKey: buildProviderRecoveryIdempotencyKey(
+                context.idempotencyKey,
+                retryCount,
+              ),
             }),
             this.options.isRunCancelled,
           ),
         {
           signal: input.signal,
-          onRateLimit: async (delayMs, retryCount) => {
-            const seconds = Math.max(1, Math.ceil(delayMs / 1_000));
+          onRetry: async (delayMs, retryCount, reason) => {
+            const progress = buildProviderRecoveryProgress({
+              delayMs,
+              retryCount,
+              reason,
+              turnId: input.turn.id,
+            });
             await this.options.runEventRecorder.recordRunProgress(
               RUN_WORKFLOW_STEPS.EXECUTION,
-              "Provider cooldown",
-              `The model provider asked LegionCode to retry in ${seconds}s. Waiting before the next model request.`,
+              progress.title,
+              progress.detail,
               "active",
               {
                 displayMode: "visible",
                 metadata: {
                   owner: "runtime-kernel-native",
-                  retryCount,
-                  retryAfterSeconds: seconds,
-                  turnId: input.turn.id,
+                  ...progress.metadata,
                 },
               },
             );
@@ -1335,8 +1355,8 @@ class KernelAgenticProvider implements ProviderPort {
       if (result.retryCount > 0) {
         await this.options.runEventRecorder.recordRunProgress(
           RUN_WORKFLOW_STEPS.EXECUTION,
-          "Provider cooldown",
-          "The provider cooldown ended and model execution resumed.",
+          "Provider retry",
+          "The provider retry window ended and model execution resumed.",
           "completed",
           {
             displayMode: "debug",
@@ -1382,6 +1402,8 @@ class KernelAgenticProvider implements ProviderPort {
     }
     const commentary = this.pendingCommentary;
     this.pendingCommentary = null;
+    const reasoning = this.pendingReasoningSummary;
+    this.pendingReasoningSummary = undefined;
     const usage = this.pendingUsage;
     this.pendingUsage = null;
     const protocolToolCallId = toProtocolId("toolcall", toolCall.id);
@@ -1395,6 +1417,7 @@ class KernelAgenticProvider implements ProviderPort {
         input: toolCall.args,
       }),
       ...(commentary ? { commentary } : {}),
+      ...(reasoning ? { reasoning } : {}),
       ...(usage ? { usage } : {}),
     };
   }
@@ -1889,6 +1912,7 @@ function buildProtocolEnvelope(input: {
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
+  revisionOfTurnId?: string;
   workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
@@ -1957,7 +1981,9 @@ function buildProtocolEnvelope(input: {
       id: input.turnId,
       threadId,
       runId: input.runId,
-      parentTurnId: null,
+      parentTurnId: input.revisionOfTurnId
+        ? TurnIdSchema.parse(input.revisionOfTurnId)
+        : null,
       status: "queued",
       startedAt: null,
       completedAt: null,

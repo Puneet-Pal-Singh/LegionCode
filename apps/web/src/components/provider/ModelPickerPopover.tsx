@@ -12,6 +12,7 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Check,
   ChevronDown,
@@ -46,8 +47,9 @@ const ESTIMATED_MODEL_DETAILS_HEIGHT_PX = 184;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
-  vertical: "up" | "down";
-  horizontal: "start" | "end";
+  topPx: number | null;
+  bottomPx: number | null;
+  leftPx: number;
   widthPx: number;
 }
 
@@ -56,8 +58,9 @@ function isSamePlacement(
   second: PopoverPlacement,
 ): boolean {
   return (
-    first.vertical === second.vertical &&
-    first.horizontal === second.horizontal &&
+    first.topPx === second.topPx &&
+    first.bottomPx === second.bottomPx &&
+    first.leftPx === second.leftPx &&
     first.widthPx === second.widthPx
   );
 }
@@ -298,8 +301,9 @@ export function ModelPickerPopover({
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const [placement, setPlacement] = useState<PopoverPlacement>({
-    vertical: "down",
-    horizontal: "start",
+    topPx: VIEWPORT_PADDING_PX,
+    bottomPx: null,
+    leftPx: VIEWPORT_PADDING_PX,
     widthPx: PREFERRED_POPOVER_WIDTH_PX,
   });
   const [searchQuery, setSearchQuery] = useState("");
@@ -523,9 +527,10 @@ export function ModelPickerPopover({
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent): void => {
+      const target = event.target as Node;
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(event.target as Node)
+        !popoverRef.current?.contains(target) &&
+        !popoverContentRef.current?.contains(target)
       ) {
         setIsOpen(false);
       }
@@ -546,8 +551,9 @@ export function ModelPickerPopover({
     const triggerRect = triggerButtonRef.current?.getBoundingClientRect();
     if (!triggerRect) {
       return {
-        vertical: "down",
-        horizontal: "start",
+        topPx: VIEWPORT_PADDING_PX,
+        bottomPx: null,
+        leftPx: VIEWPORT_PADDING_PX,
         widthPx: PREFERRED_POPOVER_WIDTH_PX,
       };
     }
@@ -571,10 +577,23 @@ export function ModelPickerPopover({
       MIN_POPOVER_WIDTH_PX,
       Math.min(PREFERRED_POPOVER_WIDTH_PX, Math.floor(availableWidth)),
     );
+    const preferredLeft =
+      horizontal === "start" ? triggerRect.left : triggerRect.right - widthPx;
+    const leftPx = Math.min(
+      Math.max(VIEWPORT_PADDING_PX, preferredLeft),
+      Math.max(
+        VIEWPORT_PADDING_PX,
+        window.innerWidth - widthPx - VIEWPORT_PADDING_PX,
+      ),
+    );
 
     return {
-      vertical,
-      horizontal,
+      topPx: vertical === "down" ? triggerRect.bottom + POPOVER_GAP_PX : null,
+      bottomPx:
+        vertical === "up"
+          ? window.innerHeight - triggerRect.top + POPOVER_GAP_PX
+          : null,
+      leftPx,
       widthPx,
     };
   };
@@ -654,19 +673,19 @@ export function ModelPickerPopover({
       </button>
 
       {/* Popover Content */}
-      {isOpen && (
-        <div
-          ref={popoverContentRef}
-          className={`
-            absolute z-50
-            ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
-            ${placement.horizontal === "start" ? "left-0" : "right-0"}
-          `}
-          style={{
-            width: `${placement.widthPx}px`,
-            maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
-          }}
-        >
+      {isOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={popoverContentRef}
+              className="fixed z-50"
+              style={{
+                top: placement.topPx ?? undefined,
+                bottom: placement.bottomPx ?? undefined,
+                left: placement.leftPx,
+                width: `${placement.widthPx}px`,
+                maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
+              }}
+            >
           <div
             data-testid="model-picker-popover"
             className="ui-surface-popover flex max-h-96 flex-col overflow-hidden"
@@ -922,6 +941,7 @@ export function ModelPickerPopover({
                   <div className="border-t border-neutral-800 p-2">
                     <button
                       type="button"
+                      onMouseDown={(event) => event.stopPropagation()}
                       onClick={() => {
                         void handleLoadMore();
                       }}
@@ -974,8 +994,10 @@ export function ModelPickerPopover({
               topPx={hoveredModel.topPx}
             />
           ) : null}
-        </div>
-      )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

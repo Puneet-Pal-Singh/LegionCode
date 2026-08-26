@@ -2,6 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   LifecycleEventSchema,
+  type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
   type ItemId,
@@ -17,6 +18,7 @@ const THREAD_ID = "thr_hook01" as ThreadId;
 const TURN_ID = "trn_hook01" as TurnId;
 const RUN_ATTEMPT_ID = "attempt_hook01" as RunAttemptId;
 const ITEM_ID = "itm_hook01" as ItemId;
+const APPROVAL_ID = "appr_hook01" as ApprovalId;
 
 describe("useTurnLifecycleProjection", () => {
   it("follows canonical lifecycle events into a projection", async () => {
@@ -48,6 +50,49 @@ describe("useTurnLifecycleProjection", () => {
     );
 
     expect(result.current.projection).toBeNull();
+    expect(client.followTurnLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("publishes historical approval replay atomically without obsolete pending state", async () => {
+    const events = [
+      lifecycleEvent(1, "approval.requested", {
+        itemId: ITEM_ID,
+        approvalId: APPROVAL_ID,
+        payload: {
+          question: "Run command?",
+          options: [{ id: "approved", label: "Approve" }, "Deny"],
+        },
+      }),
+      lifecycleEvent(2, "approval.decided", {
+        itemId: ITEM_ID,
+        approvalId: APPROVAL_ID,
+        payload: { decision: "approved" },
+      }),
+      lifecycleEvent(3, "request.resolved", {
+        itemId: ITEM_ID,
+        requestId: "approval-resolution",
+        payload: { resolved: true },
+      }),
+      lifecycleEvent(4, "turn.completed", {
+        payload: { outcome: { status: "completed" } },
+      }),
+    ];
+    const client = createClient(events);
+    const observedPendingApprovals: Array<string | null> = [];
+
+    const { result } = renderHook(() => {
+      const lifecycle = useTurnLifecycleProjection(TURN_ID, true, client);
+      observedPendingApprovals.push(
+        lifecycle.projection?.pendingApproval?.approvalId ?? null,
+      );
+      return lifecycle;
+    });
+
+    await waitFor(() => {
+      expect(result.current.projection?.terminal?.state).toBe("completed");
+    });
+    expect(observedPendingApprovals).not.toContain(APPROVAL_ID);
+    expect(result.current.projection?.pendingApproval).toBeNull();
     expect(client.followTurnLifecycle).not.toHaveBeenCalled();
   });
 });

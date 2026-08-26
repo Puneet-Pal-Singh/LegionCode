@@ -12,6 +12,10 @@ export const TurnScopeBootstrapSchema = z
     runAttemptId: z
       .string()
       .regex(/^attempt_[a-zA-Z0-9][a-zA-Z0-9_-]{5,127}$/),
+    revisionOfTurnId: z
+      .string()
+      .regex(/^trn_[a-zA-Z0-9][a-zA-Z0-9_-]{5,127}$/)
+      .optional(),
   })
   .strict();
 

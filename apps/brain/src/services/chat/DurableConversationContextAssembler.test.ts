@@ -41,9 +41,65 @@ describe("DurableConversationContextAssembler", () => {
     expect(context[2]?.content).toContain("Read package.json");
     expect(context[2]?.content).toContain("package shadowbox");
     expect(context.at(-1)?.content).toBe("Continue the work");
+    expect(context.at(-1)).toMatchObject({ id: "new-user" });
     expect(replayLifecyclePage).toHaveBeenCalledWith(
       expect.objectContaining({ turnId: "trn_prior001" }),
     );
+  });
+
+  it("excludes the superseded turn from model context while retaining the new prompt", async () => {
+    const transcript = [
+      message("old-user", "user", "Original prompt", "trn_prior001", 1),
+      message("old-answer", "assistant", "Original answer", "trn_prior001", 2),
+      message("new-user", "user", "Edited prompt", "trn_current01", 3),
+    ];
+    const replayLifecyclePage = vi.fn(async () => ({
+      events: [],
+      nextSequence: null,
+    }));
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage: async () => ({ messages: transcript, nextCursor: null }),
+      replayLifecyclePage,
+    });
+
+    const context = await assembler.assemble({
+      sessionId: "session-1",
+      userId: "user-1",
+      currentTurnId: "trn_current01",
+      revisionOfTurnId: "trn_prior001",
+    });
+
+    expect(context.map((entry) => entry.content)).toEqual(["Edited prompt"]);
+    expect(replayLifecyclePage).not.toHaveBeenCalled();
+  });
+
+  it("prefers the submitted client message id in restored provider context", async () => {
+    const current = message(
+      "persisted-user",
+      "user",
+      "Keep this identity",
+      "trn_current01",
+      1,
+    );
+    current.clientMessageId = "client_msg_current";
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage: async () => ({ messages: [current], nextCursor: null }),
+      replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
+    });
+
+    const context = await assembler.assemble({
+      sessionId: "session-1",
+      userId: "user-1",
+      currentTurnId: "trn_current01",
+    });
+
+    expect(context).toEqual([
+      {
+        id: "client_msg_current",
+        role: "user",
+        content: "Keep this identity",
+      },
+    ]);
   });
 });
 

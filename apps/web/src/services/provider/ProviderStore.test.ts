@@ -381,8 +381,8 @@ describe("ProviderStore", () => {
       expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
         "openrouter",
         expect.objectContaining({
-          view: "popular",
-          limit: 50,
+          view: "all",
+          limit: 150,
         }),
       );
       expect(store.getState().providerModels.openrouter).toHaveLength(1);
@@ -391,7 +391,7 @@ describe("ProviderStore", () => {
       );
     });
 
-    it("does not retain a client-side model fallback when discovery request fails", async () => {
+    it("settles failed model discovery without a fallback or automatic retry trigger", async () => {
       vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
         new Error("Internal server error"),
       );
@@ -402,14 +402,9 @@ describe("ProviderStore", () => {
 
       const state = store.getState();
       expect(state.loadingModelsForProviderId).toBeNull();
-      expect(
-        Object.prototype.hasOwnProperty.call(
-          state.providerModels,
-          "openrouter",
-        ),
-      ).toBe(false);
+      expect(state.providerModels.openrouter).toEqual([]);
       expect(state.providerModelsPage.openrouter).toEqual({
-        view: "popular",
+        view: "all",
         hasMore: false,
         nextCursor: null,
       });
@@ -420,6 +415,162 @@ describe("ProviderStore", () => {
       );
       expect(state.providerModelsMetadata.openrouter?.statusReason).toBe(
         "cache_unavailable",
+      );
+
+      await expect(store.loadProviderModels("openrouter")).resolves.toHaveLength(
+        1,
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledTimes(2);
+      expect(store.getState().providerModels.openrouter).toHaveLength(1);
+    });
+
+    it("hydrates every OpenRouter picker page instead of stopping at recommendations", async () => {
+      const firstPage = Array.from({ length: 150 }, (_, index) => ({
+        id: `openrouter/model-${index}`,
+        name: `Model ${index}`,
+        provider: "openrouter",
+      }));
+      vi.mocked(mockApiClient.getProviderModels)
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: firstPage,
+          page: { limit: 150, hasMore: true, nextCursor: "150" },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        })
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: [
+            {
+              id: "openrouter/model-150",
+              name: "Model 150",
+              provider: "openrouter",
+            },
+          ],
+          page: { limit: 150, hasMore: false },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        });
+
+      await expect(store.loadProviderModels("openrouter")).resolves.toHaveLength(
+        151,
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenNthCalledWith(
+        2,
+        "openrouter",
+        expect.objectContaining({ cursor: "150", view: "all" }),
+      );
+      expect(store.getState().providerModelsPage.openrouter).toEqual({
+        view: "all",
+        hasMore: false,
+        nextCursor: null,
+      });
+    });
+
+    it("settles failed manage-model hydration and allows an explicit retry", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
+        new Error("Brain unavailable"),
+      );
+
+      await expect(
+        store.loadManageProviderModels("google"),
+      ).rejects.toThrow("Brain unavailable");
+
+      expect(store.getState().manageProviderModels.google).toEqual([]);
+
+      await expect(
+        store.loadManageProviderModels("google"),
+      ).resolves.toHaveLength(1);
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledTimes(2);
+      expect(store.getState().manageProviderModels.google).toHaveLength(1);
+    });
+
+    it("loads every manage inventory page beyond the initial 150 models", async () => {
+      const firstPage = Array.from({ length: 150 }, (_, index) => ({
+        id: `openrouter/model-${index}`,
+        name: `Model ${index}`,
+        provider: "openrouter",
+      }));
+      vi.mocked(mockApiClient.getProviderModels)
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: firstPage,
+          page: { limit: 150, hasMore: true, nextCursor: "150" },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        })
+        .mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "all",
+          models: [
+            {
+              id: "openrouter/model-150",
+              name: "Model 150",
+              provider: "openrouter",
+            },
+          ],
+          page: { limit: 150, hasMore: false },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        });
+
+      await store.loadManageProviderModels("openrouter", 150);
+
+      expect(mockApiClient.getProviderModels).toHaveBeenNthCalledWith(
+        1,
+        "openrouter",
+        expect.objectContaining({ surface: "manage", cursor: undefined }),
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenNthCalledWith(
+        2,
+        "openrouter",
+        expect.objectContaining({ surface: "manage", cursor: "150" }),
+      );
+      expect(store.getState().manageProviderModels.openrouter).toHaveLength(
+        151,
+      );
+    });
+
+    it("seeds an unconfigured visibility toggle from the manage inventory", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockResolvedValueOnce({
+        providerId: "openrouter",
+        view: "all",
+        models: [
+          { id: "openrouter/first", name: "First", provider: "openrouter" },
+          {
+            id: "openrouter/second",
+            name: "Second",
+            provider: "openrouter",
+          },
+        ],
+        page: { limit: 150, hasMore: false },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api",
+        },
+      });
+
+      await store.loadManageProviderModels("openrouter", 150);
+      store.toggleModelVisibility("openrouter", "openrouter/first");
+
+      expect(store.getState().visibleModelIds.openrouter).toEqual(
+        new Set(["openrouter/second"]),
       );
     });
 
@@ -704,7 +855,7 @@ describe("ProviderStore", () => {
       ).toBe(true);
     });
 
-    it("defaults newly connected provider models to hidden", async () => {
+    it("makes newly connected provider models available by default", async () => {
       await store.bootstrap();
       vi.mocked(mockApiClient.connectCredential).mockResolvedValueOnce({
         credentialId: credential2Id,
@@ -730,12 +881,11 @@ describe("ProviderStore", () => {
       await store.connectCredential(req);
 
       const state = store.getState();
-      expect(state.visibleModelIds.google).toEqual(new Set());
-      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
-        visibleModelIds: {
-          google: [],
-        },
-      });
+      expect(state.providerModels.google).toHaveLength(1);
+      expect(state.visibleModelIds.google).toBeUndefined();
+      expect(mockApiClient.updatePreferences).not.toHaveBeenCalledWith(
+        expect.objectContaining({ visibleModelIds: { google: [] } }),
+      );
     });
 
     it("deduplicates concurrent connect requests", async () => {
@@ -1105,6 +1255,42 @@ describe("ProviderStore", () => {
       await Promise.all([store.resolveForChat(), store.resolveForChat()]);
 
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not let a slow previous model resolution overwrite the newest choice", async () => {
+      await store.bootstrap();
+      const first = createDeferred<BYOKResolution>();
+      const second = createDeferred<BYOKResolution>();
+      vi.mocked(mockApiClient.resolveForChat)
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise);
+
+      store.setSelection("openai", credential1Id, "gpt-4");
+      const firstResolution = store.resolveForChat();
+      store.setSelection("openai", credential1Id, "gpt-4-turbo");
+      const secondResolution = store.resolveForChat();
+
+      first.resolve({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4",
+        resolvedAt: "workspace_preference",
+        resolvedAtTime: new Date().toISOString(),
+      });
+      second.resolve({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+        resolvedAt: "workspace_preference",
+        resolvedAtTime: new Date().toISOString(),
+      });
+
+      await Promise.all([firstResolution, secondResolution]);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(2);
+      expect(store.getState().selectedModelId).toBe("gpt-4-turbo");
+      expect(store.getState().lastResolvedConfig?.modelId).toBe(
+        "gpt-4-turbo",
+      );
     });
 
     it("reuses cached resolution for stable selection", async () => {

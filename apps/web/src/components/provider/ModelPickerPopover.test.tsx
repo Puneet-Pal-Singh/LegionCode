@@ -286,7 +286,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         const popover = screen.getByTestId("model-picker-popover");
-        expect(popover.parentElement?.className).toContain("bottom-full");
+        expect(popover.parentElement).toHaveStyle({ bottom: "88px" });
       });
 
       Object.defineProperty(window, "innerHeight", {
@@ -329,7 +329,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         const popover = screen.getByTestId("model-picker-popover");
-        expect(popover.parentElement?.className).toContain("right-0");
+        expect(popover.parentElement).toHaveStyle({ left: "376px" });
       });
 
       Object.defineProperty(window, "innerWidth", {

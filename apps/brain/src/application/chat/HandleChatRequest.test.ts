@@ -305,6 +305,12 @@ describe("HandleChatRequest", () => {
       messages: [{ role: "user", content: "edit the readme" }],
       providerId: "openrouter",
       modelId: "poolside/laguna-s-2.1:free",
+      providerRuntimeRoute: {
+        providerId: "openrouter",
+        modelId: "poolside/laguna-s-2.1:free",
+        transport: "openai-chat-completions",
+        endpoint: "https://openrouter.ai/api/v1/chat/completions",
+      },
       identity: {
         workspaceId: "123e4567-e89b-42d3-a456-426614174003",
         threadId: "thr_title001",
@@ -322,6 +328,9 @@ describe("HandleChatRequest", () => {
         previewVersion: 1,
         providerId: "openrouter",
         modelId: "poolside/laguna-s-2.1:free",
+        runtimeModelId: "poolside/laguna-s-2.1:free",
+        providerTransport: "openai-chat-completions",
+        providerEndpoint: "https://openrouter.ai/api/v1/chat/completions",
       }),
     );
   });

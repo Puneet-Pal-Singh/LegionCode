@@ -29,8 +29,7 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
   const alreadyProjected = input.messages.some(
     (message) =>
       message.role === "user" &&
-      typeof message.content === "string" &&
-      message.content.trim() === initialPrompt,
+      readMessageText(message).trim() === initialPrompt,
   );
   if (!initialPrompt || alreadyProjected) return canonicalEntries;
   return [
@@ -44,6 +43,26 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
     },
     ...canonicalEntries,
   ];
+}
+
+function readMessageText(message: Message): string {
+  const content: unknown = message.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .filter(
+      (part): part is { type: "text"; text: string } => {
+        if (!part || typeof part !== "object") return false;
+        const candidate = part as { type?: unknown; text?: unknown };
+        return candidate.type === "text" && typeof candidate.text === "string";
+      },
+    )
+    .map((part) => part.text)
+    .join("\n");
 }
 
 function derivePresentationVisibility(

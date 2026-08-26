@@ -55,6 +55,8 @@ export interface RuntimeLifecycleCoordinatorOptions extends LifecycleIdentity {
   readonly producerId: string;
   readonly clock: RuntimeKernelClock;
   readonly initialSequence?: number;
+  /** The latest terminal turn superseded by this edited/recovery turn. */
+  readonly revisionOfTurnId?: TurnId;
 }
 
 interface EventFields {
@@ -143,7 +145,15 @@ export class RuntimeLifecycleCoordinator {
     );
     const events = [
       this.createEvent({ type: "turn.queued", payload: {} }, 1),
-      this.createEvent({ type: "turn.started", payload: {} }, 2),
+      this.createEvent(
+        {
+          type: "turn.started",
+          payload: this.options.revisionOfTurnId
+            ? { revisionOfTurnId: this.options.revisionOfTurnId }
+            : {},
+        },
+        2,
+      ),
       this.createEvent({ type: "run_attempt.started", payload: {} }, 3),
     ];
     await this.options.sink.appendBatch(events);
@@ -177,6 +187,24 @@ export class RuntimeLifecycleCoordinator {
         type: "assistant_message.delta",
         itemId,
         payload: { phase: "commentary", delta: bounded },
+      });
+      await this.settleItem(itemId, "completed", { result: { text: bounded } });
+    });
+  }
+
+  async appendAssistantReasoning(
+    itemId: ItemId,
+    text: string,
+    displaySafe: boolean,
+  ): Promise<void> {
+    const bounded = text.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH);
+    if (!displaySafe || !bounded.trim()) return;
+    await this.enqueue(async () => {
+      await this.startItem(itemId, "reasoning", {});
+      await this.emit({
+        type: "reasoning.summary_delta",
+        itemId,
+        payload: { delta: bounded, displaySafe: true },
       });
       await this.settleItem(itemId, "completed", { result: { text: bounded } });
     });

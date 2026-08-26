@@ -19,7 +19,6 @@ export interface SidebarTaskItem {
   status: SidebarTaskStatus;
   updatedAt: string;
   isActive: boolean;
-  titlePending?: boolean;
   context?: string;
   metrics?: SidebarTaskMetrics;
 }

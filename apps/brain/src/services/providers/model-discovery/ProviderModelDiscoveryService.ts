@@ -27,10 +27,17 @@ import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatible
 import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter";
 import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter";
 import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
+import {
+  buildCloudflareAIRoute,
+  resolveCloudflareRuntimeModelId,
+  type CloudflareConnectionConfig,
+} from "../cloudflare/CloudflareAIRouteBuilder";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import {
   enrichModelFromModelDev,
+  listCloudflareAIGatewayModels,
+  listRunnableModelDevModels,
   type ModelDevCatalogSource,
 } from "./ModelDevCatalog";
 import type { OpenRouterRecommendationInput } from "./types";
@@ -44,10 +51,13 @@ import {
 // hour, while the explicit refresh action remains available to users.
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
-const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
 const OPENROUTER_AUTO_MODEL_ID = "openrouter/auto";
 const OPENROUTER_AUTO_MODEL_NAME = "Auto (Best Model)";
+// Bump whenever tolerant provider normalization changes. The former v1 cache
+// could contain only the handful of entries whose nullable fields happened to
+// satisfy an overly strict schema.
+const OPENROUTER_MANAGE_CATALOG_CACHE_KEY = "openrouter:manage-catalog:v2";
 const OPENROUTER_PROGRAMMING_CACHE_KEY = "openrouter:programming";
 const OPENROUTER_LEADERBOARD_CACHE_KEY = "openrouter:leaderboard";
 const OPENROUTER_FREE_CACHE_KEY = "openrouter:free";
@@ -252,12 +262,13 @@ export class ProviderModelDiscoveryService {
     const programmingKeys = new Set(
       input.programmingModels.flatMap((model) => getOpenRouterMatchKeys(model)),
     );
-    const intersected = input.userModels.filter((model) =>
-      getOpenRouterMatchKeys(model).some((key) => programmingKeys.has(key)),
-    );
-    const scored = intersected.map((model) => ({
+    const scored = input.userModels.map((model) => ({
       model,
-      score: computeOpenRouterRecommendationScore(model),
+      score:
+        computeOpenRouterRecommendationScore(model) +
+        (getOpenRouterMatchKeys(model).some((key) => programmingKeys.has(key))
+          ? 25
+          : 0),
     }));
     const sorted = scored.sort(compareOpenRouterRecommendationScore);
     const topModels = sorted.slice(0, input.limit).map((s) => s.model);
@@ -281,7 +292,9 @@ export class ProviderModelDiscoveryService {
     this.observability.recordOpenRouterRecommendation(
       input.userModels.length,
       input.programmingModels.length,
-      intersected.length,
+      input.userModels.filter((model) =>
+        getOpenRouterMatchKeys(model).some((key) => programmingKeys.has(key)),
+      ).length,
       finalModels.length,
       !hasAuto,
     );
@@ -294,9 +307,65 @@ export class ProviderModelDiscoveryService {
     models: ProviderModelCacheRecord["models"],
   ): Promise<ProviderModelCacheRecord["models"]> {
     const catalog = await this.getModelDevCatalog();
-    return models.map((model) =>
+    const enriched = models.map((model) =>
       catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
     );
+    if (catalog && providerId === "opencode-zen") {
+      const seen = new Set(
+        enriched.map((model) => model.id.trim().toLowerCase()),
+      );
+      for (const model of listRunnableModelDevModels(catalog, providerId)) {
+        const key = model.id.trim().toLowerCase();
+        if (!seen.has(key)) {
+          enriched.push(model);
+          seen.add(key);
+        }
+      }
+    }
+    return this.applyCloudflareRuntimeRoutes(providerId, enriched);
+  }
+
+  private async applyCloudflareRuntimeRoutes(
+    providerId: string,
+    models: ProviderModelCacheRecord["models"],
+  ): Promise<ProviderModelCacheRecord["models"]> {
+    if (!isCloudflareProvider(providerId)) {
+      return models;
+    }
+    let config: CloudflareConnectionConfig | undefined;
+    try {
+      const candidate = await this.credentialService.getConnectionConfig(
+        providerId,
+      );
+      if (isCloudflareConfigForProvider(providerId, candidate)) {
+        config = candidate;
+      }
+    } catch (_error) {
+      config = undefined;
+    }
+    return models.map((model) => {
+      const next = { ...model };
+      delete next.runtimeRoute;
+      if (!config) {
+        next.availability = "unsupported_transport";
+        next.unavailableReason =
+          "Cloudflare connection configuration is unavailable.";
+        return next;
+      }
+      next.runtimeRoute = {
+        providerId,
+        modelId: resolveCloudflareRuntimeModelId(config, model.id),
+        transport: "openai-chat-completions",
+        endpoint: buildCloudflareAIRoute({
+          config,
+          modelId: model.id,
+          transport: "openai-chat-completions",
+        }),
+      };
+      next.availability = "available";
+      delete next.unavailableReason;
+      return next;
+    });
   }
 
   private async getModelDevCatalog() {
@@ -338,13 +407,12 @@ export class ProviderModelDiscoveryService {
   private async getOpenRouterRecommendedModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const credential = await this.getProviderCredential("openrouter");
-    const [userInventory, programmingModels] = await Promise.all([
-      this.getOpenRouterUserInventory(credential.cacheKey, credential.apiKey),
+    const inventory = await this.getCatalogWithCache("openrouter");
+    const programmingModels = await this.getOptionalOpenRouterModels(() =>
       this.getOpenRouterProgrammingModels(),
-    ]);
+    );
     const ranked = await this.rankOpenRouterRecommendations({
-      userModels: userInventory.models,
+      userModels: inventory.models,
       programmingModels,
       limit: Math.max(query.limit, OPENROUTER_RECOMMENDED_MAX),
     });
@@ -360,9 +428,9 @@ export class ProviderModelDiscoveryService {
         hasMore: page.nextCursor !== undefined,
       },
       metadata: {
-        fetchedAt: userInventory.fetchedAt,
-        stale: false,
-        source: userInventory.source,
+        fetchedAt: inventory.fetchedAt,
+        stale: inventory.source === "cache" && isExpired(inventory.expiresAt),
+        source: inventory.source,
         status: "available",
       },
     };
@@ -371,31 +439,36 @@ export class ProviderModelDiscoveryService {
   private async getOpenRouterManageModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const credential = await this.getProviderCredential("openrouter");
-    const userInventory = await this.getOpenRouterUserInventory(
-      credential.cacheKey,
-      credential.apiKey,
-    );
+    const inventory = await this.getOpenRouterManagementCatalog();
     const categoryFetches = OPENROUTER_DISCOVERY_CATEGORIES.map(
       async (category) =>
-        [category, await this.getOpenRouterCategoryModels(category)] as const,
+        [
+          category,
+          await this.getOptionalOpenRouterModels(() =>
+            this.getOpenRouterCategoryModels(category),
+          ),
+        ] as const,
     );
     const [leaderboardModels, freeModels, categoryEntries] = await Promise.all([
-      this.getOpenRouterLeaderboardModels(),
-      this.getOpenRouterFreeModels(),
+      this.getOptionalOpenRouterModels(() =>
+        this.getOpenRouterLeaderboardModels(),
+      ),
+      this.getOptionalOpenRouterModels(() => this.getOpenRouterFreeModels()),
       Promise.all(categoryFetches),
     ]);
     const categoryMap = new Map(categoryEntries);
 
     const ordered = buildOpenRouterManageModels({
-      userModels: userInventory.models,
+      userModels: inventory.models,
       leaderboardModels,
       programmingModels: categoryMap.get("programming") ?? [],
       technologyModels: categoryMap.get("technology") ?? [],
       scienceModels: categoryMap.get("science") ?? [],
       academiaModels: categoryMap.get("academia") ?? [],
       freeModels,
-      limit: Math.max(query.limit, OPENROUTER_MANAGE_MODELS_MAX),
+      // Management is paginated by the client. Build the complete ordered
+      // inventory so pages after the first 150 remain discoverable.
+      limit: Number.MAX_SAFE_INTEGER,
     });
 
     const page = toPage(ordered, query.cursor, query.limit);
@@ -410,24 +483,35 @@ export class ProviderModelDiscoveryService {
         hasMore: page.nextCursor !== undefined,
       },
       metadata: {
-        fetchedAt: userInventory.fetchedAt,
-        stale: false,
-        source: userInventory.source,
+        fetchedAt: inventory.fetchedAt,
+        stale: inventory.source === "cache" && isExpired(inventory.expiresAt),
+        source: inventory.source,
         status: "available",
       },
     };
   }
 
+  private async getOpenRouterManagementCatalog(): Promise<
+    ProviderModelCacheRecord & { staleReason?: string }
+  > {
+    // Management has its own versioned cache namespace. This prevents a
+    // recommended/text-only inventory from becoming the source of truth for
+    // the complete public all-modality catalog.
+    const credential = await this.getProviderCredential("openrouter");
+    return this.getOpenRouterSharedCatalog(
+      OPENROUTER_MANAGE_CATALOG_CACHE_KEY,
+      async (adapter) =>
+        adapter.fetchAll("openrouter", {
+          apiKey: credential.apiKey,
+          connectionConfig: credential.connectionConfig,
+          outputModalities: "all",
+        }),
+    );
+  }
+
   private async fetchAndCacheModels(
     providerId: string,
   ): Promise<ProviderModelCacheRecord> {
-    const adapter = this.adapters.get(providerId);
-    if (!adapter) {
-      throw new ProviderModelCacheError(
-        `No discovery adapter is registered for provider "${providerId}".`,
-      );
-    }
-
     let apiKey: string | null = null;
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
@@ -444,10 +528,33 @@ export class ProviderModelDiscoveryService {
         `${providerId} credentials are not connected for model discovery.`,
       );
     }
-    const discoveredModels = await adapter.fetchAll(providerId, {
-      apiKey,
-      connectionConfig,
-    });
+    let discoveredModels: BYOKDiscoveredProviderModel[];
+    if (providerId === "cloudflare-ai-gateway") {
+      const catalog = await this.getModelDevCatalog();
+      if (!catalog) {
+        throw new ProviderModelCacheError(
+          "Cloudflare AI Gateway model catalog is unavailable.",
+        );
+      }
+      discoveredModels = listCloudflareAIGatewayModels(catalog);
+    } else {
+      const adapter = this.adapters.get(providerId);
+      if (!adapter) {
+        throw new ProviderModelCacheError(
+          `No discovery adapter is registered for provider "${providerId}".`,
+        );
+      }
+      discoveredModels = await adapter.fetchAll(providerId, {
+        apiKey,
+        connectionConfig,
+        // Keep the canonical cached inventory complete. Picker responses are
+        // narrowed to text-output models below, while management must be able
+        // to discover image/audio models as well.
+        ...(providerId === "openrouter"
+          ? { outputModalities: "all" as const }
+          : {}),
+      });
+    }
     // Persist the canonical enriched model record, not the sparse provider
     // inventory. Subsequent picker loads can then render context, pricing, and
     // reasoning metadata immediately without waiting for another catalog
@@ -457,13 +564,13 @@ export class ProviderModelDiscoveryService {
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
     const record: ProviderModelCacheRecord = {
       providerId,
-      models,
+      models: stripCloudflareRuntimeRoutes(providerId, models),
       fetchedAt,
       expiresAt,
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return record;
+    return { ...record, models };
   }
 
   private async getOpenRouterProgrammingModels(): Promise<
@@ -473,6 +580,20 @@ export class ProviderModelDiscoveryService {
       OPENROUTER_PROGRAMMING_CACHE_KEY,
       async (adapter) => adapter.fetchProgrammingModels("openrouter"),
     );
+  }
+
+  private async getOptionalOpenRouterModels(
+    loader: () => Promise<BYOKDiscoveredProviderModel[]>,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    try {
+      return await loader();
+    } catch (error) {
+      this.observability.recordAdapterFailure(
+        "openrouter",
+        toDiscoveryErrorCode(error),
+      );
+      return [];
+    }
   }
 
   private async getOpenRouterCategoryModels(
@@ -508,10 +629,23 @@ export class ProviderModelDiscoveryService {
       adapter: OpenRouterModelCatalogPort,
     ) => Promise<BYOKDiscoveredProviderModel[]>,
   ): Promise<BYOKDiscoveredProviderModel[]> {
+    const record = await this.getOpenRouterSharedCatalog(cacheKey, loader);
+    return record.models;
+  }
+
+  private async getOpenRouterSharedCatalog(
+    cacheKey: string,
+    loader: (
+      adapter: OpenRouterModelCatalogPort,
+    ) => Promise<BYOKDiscoveredProviderModel[]>,
+  ): Promise<ProviderModelCacheRecord> {
     const cached = await this.readCache(cacheKey);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(cacheKey);
-      return this.enrichCatalogModels("openrouter", cached.models);
+      return {
+        ...cached,
+        models: await this.enrichCatalogModels("openrouter", cached.models),
+      };
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -526,7 +660,10 @@ export class ProviderModelDiscoveryService {
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return this.enrichCatalogModels("openrouter", record.models);
+    return {
+      ...record,
+      models: await this.enrichCatalogModels("openrouter", record.models),
+    };
   }
 
   private async getOpenRouterUserInventory(
@@ -583,6 +720,7 @@ export class ProviderModelDiscoveryService {
 
   private async invalidateOpenRouterSharedCaches(): Promise<void> {
     const cacheKeys = [
+      OPENROUTER_MANAGE_CATALOG_CACHE_KEY,
       OPENROUTER_PROGRAMMING_CACHE_KEY,
       OPENROUTER_LEADERBOARD_CACHE_KEY,
       OPENROUTER_FREE_CACHE_KEY,
@@ -759,7 +897,10 @@ function createAdapterForProvider(
     return new OpenCodeZenModelCatalogAdapter();
   }
 
-  if (provider.providerId === "cloudflare-ai") {
+  if (
+    provider.providerId === "cloudflare-ai" ||
+    provider.providerId === "cloudflare-workers-ai"
+  ) {
     return new CloudflareAIModelCatalogAdapter();
   }
 
@@ -785,6 +926,41 @@ function createAdapterForProvider(
   return undefined;
 }
 
+function isCloudflareProvider(providerId: string): boolean {
+  return (
+    providerId === "cloudflare-ai" ||
+    providerId === "cloudflare-workers-ai" ||
+    providerId === "cloudflare-ai-gateway"
+  );
+}
+
+function isCloudflareConfigForProvider(
+  providerId: string,
+  config: ProviderConnectionConfig | undefined,
+): config is CloudflareConnectionConfig {
+  if (providerId === "cloudflare-workers-ai") {
+    return config?.providerId === "cloudflare-workers-ai";
+  }
+  if (providerId === "cloudflare-ai-gateway") {
+    return config?.providerId === "cloudflare-ai-gateway";
+  }
+  return config?.providerId === "cloudflare-ai";
+}
+
+function stripCloudflareRuntimeRoutes(
+  providerId: string,
+  models: ProviderModelCacheRecord["models"],
+): ProviderModelCacheRecord["models"] {
+  if (!isCloudflareProvider(providerId)) {
+    return models;
+  }
+  return models.map((model) => {
+    const next = { ...model };
+    delete next.runtimeRoute;
+    return next;
+  });
+}
+
 function filterModelsForSurface(
   models: ProviderModelCacheRecord["models"],
   surface: BYOKDiscoveredProviderModelsQuery["surface"],
@@ -794,7 +970,15 @@ function filterModelsForSurface(
   }
   return models.filter((model) => {
     const availability = model.availability ?? "available";
-    return availability === "available";
+    if (availability !== "available") {
+      return false;
+    }
+    // OpenRouter's picker intentionally remains text-output only. Unknown
+    // modality metadata is retained for compatibility with older responses.
+    if (model.providerId === "openrouter") {
+      return model.outputModalities?.text !== false;
+    }
+    return true;
   });
 }
 
@@ -970,13 +1154,15 @@ function buildOpenRouterManageModels(input: {
   ): void => {
     let added = 0;
     for (const model of models) {
+      // Management is a provider catalog, not a projection of the user's
+      // currently enabled models. Keep enriched user-inventory metadata when
+      // a discovery source identifies the same model, but retain catalog
+      // candidates that are not in /models/user so the full coding/category
+      // inventory remains discoverable.
       const matched =
         model.id === OPENROUTER_AUTO_MODEL_ID
           ? model
-          : resolveOpenRouterInventoryModel(userIndex, model);
-      if (!matched) {
-        continue;
-      }
+          : resolveOpenRouterInventoryModel(userIndex, model) ?? model;
       const dedupeKey = buildOpenRouterDedupeKey(matched);
       if (seen.has(dedupeKey)) {
         continue;

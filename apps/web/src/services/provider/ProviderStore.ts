@@ -33,6 +33,10 @@ import {
 } from "../api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { preloadConnectedProviderModels } from "./ConnectedProviderModelPreloader.js";
+import {
+  loadCompletePickerInventory,
+  shouldLoadCompletePickerInventory,
+} from "./ProviderModelInventoryLoader.js";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 const PROVIDER_MODEL_CACHE_MAX_AGE_MS = 60 * 60 * 1_000;
@@ -223,11 +227,17 @@ export class ProviderStore {
    */
   static getInstance(options?: ProviderStoreOptions): ProviderStore {
     if (!ProviderStore.instance) {
-      const apiClient = options?.apiClient || new ProviderApiClient();
-      ProviderStore.instance = new ProviderStore(
+      let store: ProviderStore | null = null;
+      const apiClient =
+        options?.apiClient ??
+        new ProviderApiClient({
+          getRunId: () => store?.activeRunId ?? null,
+        });
+      store = new ProviderStore(
         apiClient,
         options?.enableLogging ?? false,
       );
+      ProviderStore.instance = store;
     }
     return ProviderStore.instance;
   }
@@ -421,30 +431,6 @@ export class ProviderStore {
     return result;
   }
 
-  private seedHiddenVisibilityForNewProvider(
-    preferences: ProviderPreference,
-    providerId: string,
-    hasExistingCredential: boolean,
-  ): Record<string, Set<string>> | null {
-    if (hasExistingCredential) {
-      return null;
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(
-        preferences.visibleModelIds,
-        providerId,
-      )
-    ) {
-      return null;
-    }
-
-    return {
-      ...this.copyVisibleModelIds(this.state.visibleModelIds),
-      [providerId]: new Set<string>(),
-    };
-  }
-
   /**
    * Connect a new credential
    */
@@ -476,15 +462,12 @@ export class ProviderStore {
 
     try {
       const credential = await this.apiClient.connectCredential(req);
-      let preferences = await this.apiClient.getPreferences();
+      const preferences = await this.apiClient.getPreferences();
       if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
         return;
       }
 
       let providerModels = this.state.providerModels;
-      const hasExistingCredential = this.state.credentials.some(
-        (existing) => existing.providerId === req.providerId,
-      );
       try {
         const models = await this.loadProviderModels(req.providerId);
         if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
@@ -496,18 +479,6 @@ export class ProviderStore {
         };
       } catch (error) {
         this.log("[connectCredential] model preload failed", { error });
-      }
-
-      const nextVisibleModelIds = this.seedHiddenVisibilityForNewProvider(
-        preferences,
-        req.providerId,
-        hasExistingCredential,
-      );
-      if (nextVisibleModelIds) {
-        preferences = {
-          ...preferences,
-          visibleModelIds: serializeVisibleModelIds(nextVisibleModelIds),
-        };
       }
 
       const defaultModelId =
@@ -534,7 +505,7 @@ export class ProviderStore {
         credentials: nextCredentials,
         preferences,
         providerModels,
-        visibleModelIds: nextVisibleModelIds ?? this.state.visibleModelIds,
+        visibleModelIds: this.state.visibleModelIds,
         selectedProviderId: this.state.selectedProviderId ?? req.providerId,
         selectedCredentialId:
           this.state.selectedCredentialId ?? credential.credentialId,
@@ -544,28 +515,11 @@ export class ProviderStore {
       this.setState({
         credentials: nextCredentials,
         preferences,
-        ...(nextVisibleModelIds
-          ? { visibleModelIds: nextVisibleModelIds }
-          : undefined),
         providerModels,
         selectedProviderId: selection.selectedProviderId,
         selectedCredentialId: selection.selectedCredentialId,
         selectedModelId: selection.selectedModelId,
       });
-
-      if (nextVisibleModelIds) {
-        void this.persistVisibilityChanges(nextVisibleModelIds).catch(
-          (error) => {
-            this.log(
-              "[connectCredential] failed to persist hidden model defaults",
-              {
-                providerId: req.providerId,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          },
-        );
-      }
 
       this.log("[connectCredential] Success", {
         credentialId: credential.credentialId,
@@ -896,12 +850,22 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
     try {
-      const result = await this.apiClient.getProviderModels(providerId, {
+      const query = {
         view: options.view,
         surface: options.surface,
         limit: options.limit,
         cursor: options.cursor,
-      });
+      };
+      const result = shouldLoadCompletePickerInventory({
+        providerId,
+        ...options,
+      })
+        ? await loadCompletePickerInventory({
+            providerId,
+            loadPage: (pageQuery) =>
+              this.apiClient.getProviderModels(providerId, pageQuery),
+          })
+        : await this.apiClient.getProviderModels(providerId, query);
       if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
         return result.models;
       }
@@ -960,11 +924,11 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to load provider models";
-      const providerModels = { ...this.state.providerModels };
-      delete providerModels[providerId];
-
       this.setState({
-        providerModels,
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: this.state.providerModels[providerId] ?? [],
+        },
         providerModelsPage: {
           ...this.state.providerModelsPage,
           [providerId]: {
@@ -1001,19 +965,31 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadManageProviderModels] Starting", { providerId, limit });
     try {
-      const result = await this.apiClient.getProviderModels(providerId, {
-        view: "all",
-        surface: "manage",
-        limit,
-      });
+      let cursor: string | undefined;
+      let result: ProviderModelsPageResult | null = null;
+      let models: ProviderModelOption[] = [];
+      do {
+        result = await this.apiClient.getProviderModels(providerId, {
+          view: "all",
+          surface: "manage",
+          limit,
+          cursor,
+        });
+        models = mergeModelsById(models, result.models);
+        cursor = result.page.hasMore ? result.page.nextCursor : undefined;
+      } while (cursor);
+
+      if (!result) {
+        return this.state.manageProviderModels[providerId] ?? [];
+      }
       if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
-        return result.models;
+        return models;
       }
 
       this.setState({
         manageProviderModels: {
           ...this.state.manageProviderModels,
-          [providerId]: result.models,
+          [providerId]: models,
         },
         providerModels: {
           ...this.state.providerModels,
@@ -1021,16 +997,16 @@ export class ProviderStore {
             providerId,
             this.state.providerModels[providerId] ?? [],
             this.state.visibleModelIds,
-            result.models,
+            models,
           ),
         },
       });
 
       this.log("[loadManageProviderModels] Success", {
         providerId,
-        modelCount: result.models.length,
+        modelCount: models.length,
       });
-      return result.models;
+      return models;
     } catch (error) {
       if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
         return this.state.manageProviderModels[providerId] ?? [];
@@ -1039,7 +1015,13 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to load management models";
-      this.setState({ error: message });
+      this.setState({
+        manageProviderModels: {
+          ...this.state.manageProviderModels,
+          [providerId]: this.state.manageProviderModels[providerId] ?? [],
+        },
+        error: message,
+      });
       this.log("[loadManageProviderModels] Error", {
         providerId,
         error: message,
@@ -1189,15 +1171,13 @@ export class ProviderStore {
       throw this.lastResolveError;
     }
 
-    const key = "resolve";
+    // Dedupe only identical selections. A single global key lets a slow
+    // resolution for model A satisfy a later selection of model B.
+    const key = `resolve:${selectionKey}`;
 
     if (this.inflight.has(key)) {
       this.log("[resolveForChat] Request already in flight");
-      await this.inflight.get(key)?.promise;
-      if (this.state.lastResolvedConfig) {
-        return this.state.lastResolvedConfig;
-      }
-      throw new Error("Provider resolution failed.");
+      return (await this.inflight.get(key)?.promise) as ProviderResolution;
     }
 
     const promise = this.executeResolve(
@@ -1208,10 +1188,11 @@ export class ProviderStore {
     this.trackInflight(key, promise, "run");
 
     try {
-      await promise;
-      return this.state.lastResolvedConfig!;
+      return (await promise) as ProviderResolution;
     } finally {
-      this.inflight.delete(key);
+      if (this.inflight.get(key)?.promise === promise) {
+        this.inflight.delete(key);
+      }
     }
   }
 
@@ -1222,7 +1203,7 @@ export class ProviderStore {
     selection: ProviderSelectionSnapshot,
     selectionKey: string,
     epoch: number,
-  ): Promise<void> {
+  ): Promise<ProviderResolution> {
     this.log("[resolveForChat] Starting");
     const request: {
       providerId?: string;
@@ -1241,10 +1222,6 @@ export class ProviderStore {
 
     try {
       const config = await this.apiClient.resolveForChat(request);
-      if (this.isRunScopeEpochStale("resolveForChat", epoch)) {
-        return;
-      }
-
       const normalizedCredentialId =
         config.credentialId.trim().length > 0 ? config.credentialId : null;
       const effectiveModelId = this.resolveModelForResolvedProvider(
@@ -1257,11 +1234,24 @@ export class ProviderStore {
         );
       }
 
+      const resolvedConfig = {
+        ...config,
+        credentialId: normalizedCredentialId ?? "",
+        modelId: effectiveModelId,
+      } satisfies ProviderResolution;
+
+      // A run-scope switch or a newer picker choice may have happened while
+      // the provider request was in flight. Return this request's result to
+      // its caller, but never let it overwrite the newer canonical selection.
+      if (
+        this.isRunScopeEpochStale("resolveForChat", epoch) ||
+        this.currentResolveSelectionKey() !== selectionKey
+      ) {
+        return resolvedConfig;
+      }
+
       this.setState({
-        lastResolvedConfig: {
-          ...config,
-          modelId: effectiveModelId,
-        },
+        lastResolvedConfig: resolvedConfig,
         selectedProviderId: config.providerId,
         selectedCredentialId: normalizedCredentialId,
         selectedModelId: effectiveModelId,
@@ -1281,14 +1271,17 @@ export class ProviderStore {
         providerId: config.providerId,
         modelId: effectiveModelId,
       });
+      return resolvedConfig;
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Failed to resolve provider configuration";
-      this.lastResolveSelectionKey = selectionKey;
-      this.lastResolveError =
-        error instanceof Error ? error : new Error(message);
+      if (this.currentResolveSelectionKey() === selectionKey) {
+        this.lastResolveSelectionKey = selectionKey;
+        this.lastResolveError =
+          error instanceof Error ? error : new Error(message);
+      }
       this.log("[resolveForChat] Error", { error: message });
       throw error;
     }
@@ -1308,11 +1301,14 @@ export class ProviderStore {
         next.add(modelId);
       }
     } else {
-      // Provider was unconfigured. Initialize from all loaded models,
+      // Provider was unconfigured. Initialize from the complete management
+      // inventory (not the intentionally curated picker subset),
       // then remove the toggled model to hide it.
-      const allModelIds = (this.state.providerModels[providerId] ?? []).map(
-        (m) => m.id,
-      );
+      const allModelIds = (
+        this.state.manageProviderModels[providerId] ??
+        this.state.providerModels[providerId] ??
+        []
+      ).map((m) => m.id);
       next = new Set(allModelIds);
       next.delete(modelId);
     }
@@ -1518,6 +1514,21 @@ export class ProviderStore {
     ].join("|");
   }
 
+  private currentResolveSelectionKey(): string {
+    return this.buildResolveSelectionKey(
+      this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: this.state.credentials,
+        preferences: this.state.preferences,
+        providerModels: this.state.providerModels,
+        visibleModelIds: this.state.visibleModelIds,
+        selectedProviderId: this.state.selectedProviderId,
+        selectedCredentialId: this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      }),
+    );
+  }
+
   private restoreRunScopedSelection(runId: string): boolean {
     const persistedSelection = readRunScopedSelection(runId);
     if (!persistedSelection) {
@@ -1588,7 +1599,14 @@ export class ProviderStore {
   ): ResolvedLoadProviderModelsOptions {
     const pageState = this.state.providerModelsPage[providerId];
     return {
-      view: options.view ?? pageState?.view ?? this.state.selectedModelView,
+      view:
+        options.view ??
+        pageState?.view ??
+        (providerId === "openrouter" ||
+        providerId === "cloudflare-ai-gateway" ||
+        providerId === "cloudflare-workers-ai"
+          ? "all"
+          : this.state.selectedModelView),
       cursor: options.cursor ?? undefined,
       surface: options.surface ?? "picker",
       limit: options.limit ?? 50,

@@ -54,8 +54,14 @@ describe("TaskListRow product identity contract", () => {
       screen.queryByRole("button", { name: /Open review/ }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Archive Review sidebar actions" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm archive for Review sidebar actions" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Review sidebar actions" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Confirm archive for Review sidebar actions",
+      }),
+    );
     expect(onRemove).toHaveBeenCalledOnce();
   });
 
@@ -76,10 +82,44 @@ describe("TaskListRow product identity contract", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
-      "Awaiting approval",
+    expect(
+      screen.getByTestId("task-status-label-needs_approval"),
+    ).toHaveTextContent("Awaiting approval");
+    expect(
+      screen.queryByTestId("task-status-needs_approval"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("task-status-completed"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uses one hover action slot for a running spinner and archive", () => {
+    render(
+      <TaskListRow
+        task={{
+          id: "thr_running001",
+          title: "Running task",
+          status: "running",
+          updatedAt: "2026-07-16T10:00:00.000Z",
+          isActive: true,
+        }}
+        tabIndex={0}
+        onFocus={vi.fn()}
+        onSelect={vi.fn()}
+        onRemove={vi.fn()}
+        onMoveFocus={vi.fn()}
+      />,
     );
-    expect(screen.getByTestId("task-status-needs_approval")).toBeInTheDocument();
-    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
+
+    expect(screen.getByTestId("task-running-action")).toHaveClass(
+      "group-hover:opacity-0",
+    );
+    expect(screen.getByTestId("task-status-running")).toHaveClass(
+      "animate-spin",
+    );
+    expect(screen.getByTestId("task-archive-action")).toHaveClass(
+      "opacity-0",
+      "group-hover:opacity-100",
+    );
   });
 });
