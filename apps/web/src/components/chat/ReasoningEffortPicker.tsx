@@ -52,7 +52,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
 
   useEffect(() => {
     if (!open) return;
-    updateMenuPosition();
+    const frame = requestAnimationFrame(updateMenuPosition);
     const close = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
@@ -66,6 +66,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", close);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);

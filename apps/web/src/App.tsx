@@ -637,8 +637,11 @@ function AppContent() {
 
   useEffect(() => {
     if (!isCompact) return;
-    setIsSidebarOpen(false);
-    setIsRightSidebarOpen(false);
+    const frame = requestAnimationFrame(() => {
+      setIsSidebarOpen(false);
+      setIsRightSidebarOpen(false);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [isCompact]);
 
   useEffect(() => {

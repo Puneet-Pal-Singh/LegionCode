@@ -100,7 +100,9 @@ export function PermissionModeControl({
   }, [menuPlacement]);
 
   useEffect(() => {
-    if (isMenuOpen) updateMenuPosition();
+    const frame = isMenuOpen
+      ? requestAnimationFrame(updateMenuPosition)
+      : undefined;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
@@ -115,6 +117,7 @@ export function PermissionModeControl({
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
     return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", handleClickOutside);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
