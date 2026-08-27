@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/planning-engine",
+  "name": "@legioncode/planning-engine",
   "version": "1.0.0",
   "description": "Structured planning engine for deterministic task orchestration",
   "type": "module",

@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/execution-engine",
+  "name": "@legioncode/execution-engine",
   "version": "1.0.0",
   "description": "Deterministic execution engine for orchestrating agent tasks",
   "type": "module",
@@ -83,7 +83,7 @@
     "@repo/platform-protocol": "workspace:*",
     "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
-    "@shadowbox/orchestrator-core": "workspace:*",
+    "@legioncode/orchestrator-core": "workspace:*",
     "safe-regex": "^2.1.1",
     "zod": "^3.22.0"
   },

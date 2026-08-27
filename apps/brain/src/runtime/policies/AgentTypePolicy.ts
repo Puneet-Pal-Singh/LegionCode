@@ -10,7 +10,7 @@ import { PolicyError } from "../../domain/errors";
 import {
   AgentRegistry,
   type AgentType,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 
 interface AgentTypePolicyOptions {
   /**

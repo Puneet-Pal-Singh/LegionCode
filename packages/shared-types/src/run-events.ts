@@ -1,5 +1,5 @@
 /**
- * Run Events - Canonical event types and envelopes for Shadowbox runs
+ * Run Events - Canonical event types and envelopes for LegionCode runs
  * Shared contract used across web, brain, and muscle layers
  */
 

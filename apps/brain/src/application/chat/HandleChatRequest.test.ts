@@ -55,11 +55,11 @@ describe("HandleChatRequest", () => {
         contextWindowTokens: 999,
         harnessId: "cloudflare-sandbox",
         repositoryOwner: "sourcegraph",
-        repositoryName: "shadowbox",
+        repositoryName: "legioncode",
         repositoryBranch: "dev",
-        repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
+        repositoryBaseUrl: "https://github.com/sourcegraph/legioncode",
       },
-      "https://shadowbox.local",
+      "https://legioncode.local",
     );
 
     expect(result.success).toBe(true);
@@ -88,12 +88,12 @@ describe("HandleChatRequest", () => {
     });
     expect(result.executionPayload.input.repositoryContext).toEqual({
       owner: "sourcegraph",
-      repo: "shadowbox",
+      repo: "legioncode",
       branch: "dev",
-      baseUrl: "https://github.com/sourcegraph/shadowbox",
+      baseUrl: "https://github.com/sourcegraph/legioncode",
     });
     expect(result.executionPayload.requestOrigin).toBe(
-      "https://shadowbox.local",
+      "https://legioncode.local",
     );
     expect(result.executionPayload.messages).toEqual(messages);
     expect(persistSpy).toHaveBeenCalledWith(
@@ -101,7 +101,7 @@ describe("HandleChatRequest", () => {
       "123e4567-e89b-42d3-a456-426614174000",
       { role: "user", content: "latest user prompt" },
       {
-        repository: "sourcegraph/shadowbox",
+        repository: "sourcegraph/legioncode",
         userId: undefined,
         workspaceId: undefined,
       },

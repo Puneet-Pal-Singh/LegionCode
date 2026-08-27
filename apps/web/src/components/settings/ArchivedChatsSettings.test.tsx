@@ -34,7 +34,7 @@ describe("ArchivedChatsSettings", () => {
   beforeEach(() => {
     mockUseArchivedSessions.mockReturnValue({
       sessions: [
-        archivedSession("1", "Fix model picker", "Puneet/shadowbox"),
+        archivedSession("1", "Fix model picker", "Puneet/legioncode"),
         archivedSession("2", "Document agents", "Puneet/codex"),
       ],
       isLoading: false,
@@ -53,7 +53,7 @@ describe("ArchivedChatsSettings", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "shadowbox" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "legioncode" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "codex" })).toBeVisible();
 
     fireEvent.change(screen.getByPlaceholderText("Search archived chats"), {

@@ -10,7 +10,7 @@ describe("RepositoryPermissionPolicy", () => {
   it("detects cross-repo targets from repository references", () => {
     const selectedRepo = getSelectedRepoRef({
       owner: "sourcegraph",
-      repo: "shadowbox",
+      repo: "legioncode",
     });
     const prompt = "Please check repository acme/platform-core for regressions.";
 
@@ -22,9 +22,9 @@ describe("RepositoryPermissionPolicy", () => {
   it("ignores repo references that match the selected repository", () => {
     const selectedRepo = getSelectedRepoRef({
       owner: "sourcegraph",
-      repo: "shadowbox",
+      repo: "legioncode",
     });
-    const prompt = "Inspect repository sourcegraph/shadowbox for README issues.";
+    const prompt = "Inspect repository sourcegraph/legioncode for README issues.";
 
     const detected = detectCrossRepoTarget(prompt, selectedRepo);
 
@@ -34,7 +34,7 @@ describe("RepositoryPermissionPolicy", () => {
   it("ignores non-repository owner/repo-like tokens such as api/gh", () => {
     const selectedRepo = getSelectedRepoRef({
       owner: "puneet-pal-singh",
-      repo: "shadowbox",
+      repo: "legioncode",
     });
     const prompt = "Use github api/gh to fetch checks.";
 

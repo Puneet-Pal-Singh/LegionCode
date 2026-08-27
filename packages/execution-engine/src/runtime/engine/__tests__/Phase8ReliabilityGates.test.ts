@@ -421,7 +421,7 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
         sessionId: "recycle-session",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
       });
@@ -454,7 +454,7 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
           sessionId: "recycle-session",
           repositoryContext: {
             owner: "sourcegraph",
-            repo: "shadowbox",
+            repo: "legioncode",
             branch: "main",
           },
         },

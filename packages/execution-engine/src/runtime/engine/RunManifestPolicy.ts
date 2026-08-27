@@ -1,6 +1,6 @@
 import { DEFAULT_RUN_MODE } from "@repo/shared-types";
-import type { OrchestratorBackend } from "@shadowbox/orchestrator-core";
-import { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
+import type { OrchestratorBackend } from "@legioncode/orchestrator-core";
+import { RunManifestMismatchError } from "@legioncode/orchestrator-core";
 import type {
   RunInput,
   RunManifest,
@@ -10,7 +10,7 @@ import type {
   RuntimeHarnessMode,
 } from "../types.js";
 
-export { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
+export { RunManifestMismatchError } from "@legioncode/orchestrator-core";
 
 /**
  * Creates a run manifest with deterministic configuration.

@@ -13,7 +13,7 @@ export type {
   TaskInput,
   TaskResult,
 } from "./ExecutionRuntimePort";
-export type { RunOrchestratorPort } from "@shadowbox/orchestrator-core";
+export type { RunOrchestratorPort } from "@legioncode/orchestrator-core";
 export type {
   ProviderAuthPort,
   ModelProviderPort,

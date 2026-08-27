@@ -4,7 +4,7 @@
  * Single responsibility: Convert GitDiff to string representation
  * No truncation, no decisions, pure serialization
  */
-import type { GitDiff } from "@shadowbox/context-assembly";
+import type { GitDiff } from "@legioncode/context-assembly";
 
 export interface DiffFormatOptions {
   includeStats?: boolean;

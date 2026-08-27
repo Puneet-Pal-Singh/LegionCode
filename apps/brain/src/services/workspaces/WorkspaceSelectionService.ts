@@ -4,7 +4,7 @@ import type {
   WorkspaceListItem,
   WorkspaceRepository,
 } from "@repo/persistence";
-import type { Repository } from "@shadowbox/github-bridge";
+import type { Repository } from "@legioncode/github-bridge";
 
 export interface SelectGitHubWorkspaceInput {
   userId: string;

@@ -5,16 +5,16 @@
     "moduleResolution": "bundler",
     "paths": {
       "@repo/hook-protocol": ["../../packages/hook-protocol/src/index.ts"],
-      "@shadowbox/execution-engine/runtime": [
+      "@legioncode/execution-engine/runtime": [
         "../../packages/execution-engine/src/runtime/index.ts"
       ],
-      "@shadowbox/execution-engine/runtime/*": [
+      "@legioncode/execution-engine/runtime/*": [
         "../../packages/execution-engine/src/runtime/*"
       ],
-      "@shadowbox/github-bridge": [
+      "@legioncode/github-bridge": [
         "../../packages/github-bridge/src/index.ts"
       ],
-      "@shadowbox/github-bridge/*": [
+      "@legioncode/github-bridge/*": [
         "../../packages/github-bridge/src/*"
       ],
       "@repo/shared-types": ["../../packages/shared-types/src/index.ts"],

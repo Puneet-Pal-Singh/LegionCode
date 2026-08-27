@@ -4,7 +4,7 @@ import type {
   ContextBuildInput,
   AgentDescriptor,
   ToolDescriptor,
-} from "@shadowbox/context-assembly";
+} from "@legioncode/context-assembly";
 
 describe("ContextBuilder", () => {
   const createMockInput = (

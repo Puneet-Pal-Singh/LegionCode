@@ -2,7 +2,7 @@
  * GitHub Bridge - Main Export Module
  *
  * This package provides a clean abstraction for GitHub OAuth and API operations,
- * designed to work across the Shadowbox Control Plane (Brain) and Data Plane (Muscle).
+ * designed to work across the LegionCode Control Plane (Brain) and Data Plane (Muscle).
  */
 
 // OAuth Flow

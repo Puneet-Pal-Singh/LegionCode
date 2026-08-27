@@ -1,5 +1,5 @@
 /**
- * @shadowbox/execution-engine
+ * @legioncode/execution-engine
  * Deterministic execution engine for orchestrating agent tasks
  */
 
@@ -85,6 +85,6 @@ export { CostTracker, CostCalculator } from './cost/index.js'
 export type { Cost, CostSummary } from './cost/index.js'
 
 /**
- * @deprecated Import runtime symbols from `@shadowbox/execution-engine/runtime` instead.
+ * @deprecated Import runtime symbols from `@legioncode/execution-engine/runtime` instead.
  */
 export * as Runtime from './runtime/index.js'

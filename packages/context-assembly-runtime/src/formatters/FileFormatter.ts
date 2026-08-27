@@ -4,7 +4,7 @@
  * Single responsibility: Convert FileDescriptor to string representation
  * No truncation, no decisions, pure serialization
  */
-import type { FileDescriptor } from "@shadowbox/context-assembly";
+import type { FileDescriptor } from "@legioncode/context-assembly";
 
 export interface FileFormatOptions {
   includePath?: boolean;

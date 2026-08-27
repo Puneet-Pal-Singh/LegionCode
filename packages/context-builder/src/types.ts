@@ -6,8 +6,8 @@
  */
 
 // Import from workspace packages where available, otherwise define locally
-import type { IntentClassification } from '@shadowbox/intent-classifier';
-import type { RepoSummary } from '@shadowbox/repo-awareness';
+import type { IntentClassification } from '@legioncode/intent-classifier';
+import type { RepoSummary } from '@legioncode/repo-awareness';
 
 /**
  * Input to ContextBuilder.build()

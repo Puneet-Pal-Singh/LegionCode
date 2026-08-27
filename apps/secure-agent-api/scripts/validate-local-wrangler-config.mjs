@@ -1,16 +1,39 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  hasWorkerIdentityParity,
+  readJsonc,
+} from "../../../scripts/local-dev/local-wrangler-config.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const appDirectory = path.resolve(scriptDirectory, "..");
 const localConfigPath = path.join(appDirectory, "wrangler.local.jsonc");
 const defaultConfigPath = path.join(appDirectory, "wrangler.jsonc");
+export const LOCAL_WRANGLER_CONFIG_REMEDIATION =
+  "Secure runtime local development is blocked: reconcile wrangler.local.jsonc with the tracked Wrangler config names and service bindings while preserving private options.";
 
-export function validateSecureRuntimeLocalCapacity() {
-  const localCapacity = readCapacity(localConfigPath, "local secure runtime");
+/** @typedef {{ canonical: string, local: string }} SecureRuntimeConfigPaths */
+
+export function validateSecureRuntimeLocalCapacity(
+  paths = { canonical: defaultConfigPath, local: localConfigPath },
+) {
+  let canonicalConfig;
+  let localConfig;
+  try {
+    canonicalConfig = readJsonc(paths.canonical);
+    localConfig = readJsonc(paths.local);
+  } catch (error) {
+    throw new Error(LOCAL_WRANGLER_CONFIG_REMEDIATION, { cause: error });
+  }
+
+  if (!hasWorkerIdentityParity(canonicalConfig, localConfig)) {
+    throw new Error(LOCAL_WRANGLER_CONFIG_REMEDIATION);
+  }
+
+  const localCapacity = readCapacity(paths.local, "local secure runtime");
   const defaultCapacity = readCapacity(
-    defaultConfigPath,
+    paths.canonical,
     "default secure runtime",
   );
 
@@ -49,8 +72,17 @@ function readCapacity(configPath, label) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const capacity = validateSecureRuntimeLocalCapacity();
-  console.log(
-    `[secure-runtime/dev] local parallel capacity verified: ${capacity}`,
-  );
+  try {
+    const capacity = validateSecureRuntimeLocalCapacity();
+    console.log(
+      `[secure-runtime/dev] local parallel capacity verified: ${capacity}`,
+    );
+  } catch (error) {
+    console.error(
+      error instanceof Error
+        ? error.message
+        : LOCAL_WRANGLER_CONFIG_REMEDIATION,
+    );
+    process.exitCode = 1;
+  }
 }

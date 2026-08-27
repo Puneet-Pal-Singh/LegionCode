@@ -21,13 +21,13 @@ vi.mock("../../../services/GitHubService", async (importOriginal) => ({
 
 const repo: Repository = {
   id: 1,
-  name: "shadowbox",
-  full_name: "legion/shadowbox",
+  name: "legioncode",
+  full_name: "legion/legioncode",
   owner: { login: "legion", avatar_url: "" },
   description: null,
   private: false,
-  html_url: "https://github.com/legion/shadowbox",
-  clone_url: "https://github.com/legion/shadowbox.git",
+  html_url: "https://github.com/legion/legioncode",
+  clone_url: "https://github.com/legion/legioncode.git",
   default_branch: "main",
   stargazers_count: 0,
   language: "TypeScript",
@@ -93,7 +93,7 @@ describe("EnvironmentSummaryMenu", () => {
       {
         number: 42,
         title: "feat(web): add environment summary",
-        url: "https://github.com/legion/shadowbox/pull/42",
+        url: "https://github.com/legion/legioncode/pull/42",
         state: "open",
         head: "main",
         base: "main",
@@ -116,7 +116,7 @@ describe("EnvironmentSummaryMenu", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("link", { name: /add environment summary/i }),
-      ).toHaveAttribute("href", "https://github.com/legion/shadowbox/pull/42"),
+      ).toHaveAttribute("href", "https://github.com/legion/legioncode/pull/42"),
     );
     fireEvent.click(screen.getByRole("button", { name: "main" }));
     expect(

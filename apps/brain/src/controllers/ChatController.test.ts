@@ -26,16 +26,16 @@ describe("ChatController DO runtime migration", () => {
     expect(runtime.get).toHaveBeenCalledTimes(1);
     expect(runtime.fetch).toHaveBeenCalledTimes(1);
     expect(response.headers.get("X-Run-Engine-Runtime")).toBe("do");
-    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+    expect(response.headers.get("X-LegionCode-Runtime-Name")).toBe(
       "brain-worker",
     );
-    expect(response.headers.get("X-Shadowbox-Runtime-Fingerprint")).toContain(
+    expect(response.headers.get("X-LegionCode-Runtime-Fingerprint")).toContain(
       "brain-worker:",
     );
-    expect(response.headers.get("X-Shadowbox-Run-Engine-Name")).toBe(
+    expect(response.headers.get("X-LegionCode-Run-Engine-Name")).toBe(
       "brain-run-engine-do",
     );
-    expect(response.headers.get("X-Shadowbox-Run-Engine-Fingerprint")).toBe(
+    expect(response.headers.get("X-LegionCode-Run-Engine-Fingerprint")).toBe(
       "brain-run-engine-do:run-engine-sha:run-engine-boot",
     );
   });
@@ -216,9 +216,9 @@ describe("ChatController DO runtime migration", () => {
     const env = createEnv(runtime.namespace);
     const requestWithRepoContext = await createChatRequest(env, {
       repositoryOwner: "sourcegraph",
-      repositoryName: "shadowbox",
+      repositoryName: "legioncode",
       repositoryBranch: "dev",
-      repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
+      repositoryBaseUrl: "https://github.com/sourcegraph/legioncode",
       messages: [
         {
           role: "user",
@@ -246,9 +246,9 @@ describe("ChatController DO runtime migration", () => {
     };
     expect(payload.input.repositoryContext).toEqual({
       owner: "sourcegraph",
-      repo: "shadowbox",
+      repo: "legioncode",
       branch: "dev",
-      baseUrl: "https://github.com/sourcegraph/shadowbox",
+      baseUrl: "https://github.com/sourcegraph/legioncode",
     });
   });
 
@@ -412,7 +412,7 @@ describe("ChatController DO runtime migration", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Cookie: `shadowbox_session=${token}`,
+        Cookie: `legioncode_session=${token}`,
       },
       body: JSON.stringify({
         sessionId: "session-1",
@@ -487,7 +487,7 @@ async function createChatRequest(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Cookie: `shadowbox_session=${token}`,
+      Cookie: `legioncode_session=${token}`,
     },
     body: JSON.stringify({
       sessionId: "session-1",
@@ -530,11 +530,11 @@ function createMockRuntimeNamespace() {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "X-Shadowbox-Runtime-Name": "brain-run-engine-do",
-        "X-Shadowbox-Runtime-Git-Sha": "run-engine-sha",
-        "X-Shadowbox-Runtime-Started-At": "2026-03-23T00:00:00.000Z",
-        "X-Shadowbox-Runtime-Boot-Id": "run-engine-boot",
-        "X-Shadowbox-Runtime-Fingerprint":
+        "X-LegionCode-Runtime-Name": "brain-run-engine-do",
+        "X-LegionCode-Runtime-Git-Sha": "run-engine-sha",
+        "X-LegionCode-Runtime-Started-At": "2026-03-23T00:00:00.000Z",
+        "X-LegionCode-Runtime-Boot-Id": "run-engine-boot",
+        "X-LegionCode-Runtime-Fingerprint":
           "brain-run-engine-do:run-engine-sha:run-engine-boot",
       },
     });

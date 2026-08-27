@@ -1,6 +1,11 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  durableObjectConfiguration,
+  hasLocalHyperdriveConfiguration,
+  hasWorkerIdentityParity,
+  readJsonc,
+} from "../../../scripts/local-dev/local-wrangler-config.mjs";
 
 const brainDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -10,156 +15,13 @@ const brainDir = path.resolve(
 /** @typedef {{ canonical: string, local: string }} LocalWranglerConfigPaths */
 
 export const LOCAL_WRANGLER_CONFIG_REMEDIATION =
-  "Brain local development is blocked: copy apps/brain/wrangler.local.example.jsonc to apps/brain/wrangler.local.jsonc and keep its Hyperdrive, Durable Object bindings, and migrations unchanged.";
+  "Brain local development is blocked: reconcile apps/brain/wrangler.local.jsonc with the tracked wrangler.jsonc names and service bindings. If it is absent, copy wrangler.local.example.jsonc first; preserve private Hyperdrive settings, Durable Object bindings, and migrations.";
 
 /** @type {LocalWranglerConfigPaths} */
 export const defaultLocalWranglerConfigPaths = {
   canonical: path.join(brainDir, "wrangler.jsonc"),
   local: path.join(brainDir, "wrangler.local.jsonc"),
 };
-
-/** @param {string} source */
-function stripJsonCommentsAndTrailingCommas(source) {
-  let withoutComments = "";
-  let inString = false;
-  let escaped = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index];
-    const nextCharacter = source[index + 1];
-
-    if (inString) {
-      withoutComments += character;
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (character === '"') {
-      inString = true;
-      withoutComments += character;
-      continue;
-    }
-
-    if (character === "/" && nextCharacter === "/") {
-      index += 1;
-      while (index + 1 < source.length && source[index + 1] !== "\n") {
-        index += 1;
-      }
-      continue;
-    }
-
-    if (character === "/" && nextCharacter === "*") {
-      index += 1;
-      while (
-        index + 1 < source.length &&
-        !(source[index] === "*" && source[index + 1] === "/")
-      ) {
-        index += 1;
-      }
-      index += 1;
-      continue;
-    }
-
-    withoutComments += character;
-  }
-
-  let withoutTrailingCommas = "";
-  inString = false;
-  escaped = false;
-
-  for (let index = 0; index < withoutComments.length; index += 1) {
-    const character = withoutComments[index];
-
-    if (inString) {
-      withoutTrailingCommas += character;
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (character === '"') {
-      inString = true;
-      withoutTrailingCommas += character;
-      continue;
-    }
-
-    if (character === ",") {
-      const remainder = withoutComments.slice(index + 1);
-      if (/^\s*[}\]]/.test(remainder)) {
-        continue;
-      }
-    }
-
-    withoutTrailingCommas += character;
-  }
-
-  return withoutTrailingCommas;
-}
-
-/** @param {string} filePath */
-function readJsonc(filePath) {
-  return JSON.parse(
-    stripJsonCommentsAndTrailingCommas(readFileSync(filePath, "utf8")),
-  );
-}
-
-/** @param {unknown} value */
-function sortObjectKeys(value) {
-  if (Array.isArray(value)) {
-    return value.map(sortObjectKeys);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, sortObjectKeys(entry)]),
-    );
-  }
-  return value;
-}
-
-/** @param {unknown} config */
-export function durableObjectConfiguration(config) {
-  const root =
-    config !== null && typeof config === "object" && !Array.isArray(config)
-      ? config
-      : {};
-
-  return sortObjectKeys({
-    bindings: root.durable_objects?.bindings ?? [],
-    migrations: root.migrations ?? [],
-  });
-}
-
-/** @param {unknown} config */
-export function hasLocalHyperdriveConfiguration(config) {
-  const root =
-    config !== null && typeof config === "object" && !Array.isArray(config)
-      ? config
-      : {};
-  const bindings = Array.isArray(root.hyperdrive) ? root.hyperdrive : [];
-
-  return bindings.some(
-    (entry) =>
-      entry !== null &&
-      typeof entry === "object" &&
-      !Array.isArray(entry) &&
-      entry.binding === "HYPERDRIVE" &&
-      typeof entry.localConnectionString === "string" &&
-      entry.localConnectionString.trim().length > 0,
-  );
-}
 
 /** @param {LocalWranglerConfigPaths} paths */
 export function validateLocalWranglerConfig(
@@ -170,6 +32,7 @@ export function validateLocalWranglerConfig(
     const localConfig = readJsonc(paths.local);
 
     return (
+      hasWorkerIdentityParity(canonicalConfig, localConfig) &&
       hasLocalHyperdriveConfiguration(localConfig) &&
       JSON.stringify(durableObjectConfiguration(localConfig)) ===
         JSON.stringify(durableObjectConfiguration(canonicalConfig))

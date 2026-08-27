@@ -17,7 +17,7 @@ import {
   createToolRequestedEvent,
   createToolStartedEvent,
   tagRuntimeStateSemantics,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
 import { TaskCheckoutSchema, TurnIdSchema } from "@repo/platform-protocol";
@@ -535,10 +535,10 @@ describe("RunEngineRequestHandler", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+    expect(response.headers.get("X-LegionCode-Runtime-Name")).toBe(
       "brain-run-engine-do",
     );
-    expect(response.headers.get("X-Shadowbox-Runtime-Fingerprint")).toContain(
+    expect(response.headers.get("X-LegionCode-Runtime-Fingerprint")).toContain(
       "brain-run-engine-do:run-engine-sha:",
     );
 

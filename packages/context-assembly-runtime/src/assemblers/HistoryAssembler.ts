@@ -7,7 +7,7 @@
 import type {
   MemorySnapshot,
   ContextMessage,
-} from "@shadowbox/context-assembly";
+} from "@legioncode/context-assembly";
 
 export function assembleHistory(memory: MemorySnapshot): ContextMessage[] {
   const messages: ContextMessage[] = [];

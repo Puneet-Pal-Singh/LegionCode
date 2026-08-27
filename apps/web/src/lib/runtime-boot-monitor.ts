@@ -1,5 +1,5 @@
-const RUNTIME_BOOT_CHANGED_EVENT = "shadowbox:runtime-boot-changed";
-const RUNTIME_BOOT_STORAGE_KEY = "shadowbox:brain-runtime-boot-id";
+const RUNTIME_BOOT_CHANGED_EVENT = "legioncode:runtime-boot-changed";
+const RUNTIME_BOOT_STORAGE_KEY = "legioncode:brain-runtime-boot-id";
 
 type RuntimeBootListener = (bootId: string) => void;
 

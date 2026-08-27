@@ -7,7 +7,7 @@
 import type {
   AgentDescriptor,
   ToolDescriptor,
-} from "@shadowbox/context-assembly";
+} from "@legioncode/context-assembly";
 
 export interface SystemAssemblyInput {
   agent: AgentDescriptor;

@@ -25,7 +25,7 @@ describe('DockerExecutor', () => {
   beforeEach(() => {
     executor = new DockerExecutor({
       image: 'node:18-alpine',
-      baseContainerName: 'test-shadowbox'
+      baseContainerName: 'test-legioncode'
     })
 
     mockExecSync = execSync as ReturnType<typeof vi.fn>
@@ -85,7 +85,7 @@ describe('DockerExecutor', () => {
 
       const env = await executor.createEnvironment(config)
 
-      expect(env.metadata?.containerName).toContain('test-shadowbox')
+      expect(env.metadata?.containerName).toContain('test-legioncode')
       expect(env.metadata?.containerName).toContain('my-run-id')
     })
 

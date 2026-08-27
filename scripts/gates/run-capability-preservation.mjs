@@ -14,7 +14,7 @@ const REQUIRED_CAPABILITIES = [
 const CAPABILITIES = [
   {
     id: "session-reload",
-    owner: "@shadowbox/web",
+    owner: "@legioncode/web",
     requiredTests: [
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
@@ -41,7 +41,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/web",
+        "@legioncode/web",
         "test",
         "--",
         "src/hooks/useChatHydration.test.tsx",
@@ -51,7 +51,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/brain",
+        "@legioncode/brain",
         "test",
         "--",
         "src/services/PersistenceService.test.ts",
@@ -69,7 +69,7 @@ const CAPABILITIES = [
   },
   {
     id: "live-workflow-projection",
-    owner: "@shadowbox/web",
+    owner: "@legioncode/web",
     requiredTests: [
       [
         "apps/web/src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
@@ -92,7 +92,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/web",
+        "@legioncode/web",
         "test",
         "--",
         "src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
@@ -111,7 +111,7 @@ const CAPABILITIES = [
   },
   {
     id: "prompt-terminal-state",
-    owner: "@shadowbox/execution-engine",
+    owner: "@legioncode/execution-engine",
     requiredTests: [
       [
         "packages/execution-engine/src/runtime/engine/RunEngine.test.ts",
@@ -138,7 +138,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/execution-engine",
+        "@legioncode/execution-engine",
         "test",
         "--",
         "src/runtime/engine/RunEngine.test.ts",
@@ -153,7 +153,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/web",
+        "@legioncode/web",
         "test",
         "--",
         "src/services/lifecycle/LifecycleTerminalViewModel.test.ts",
@@ -162,7 +162,7 @@ const CAPABILITIES = [
   },
   {
     id: "multi-file-review",
-    owner: "@shadowbox/web",
+    owner: "@legioncode/web",
     requiredTests: [
       [
         "apps/web/src/components/git/GitReviewContext.test.tsx",
@@ -177,7 +177,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/web",
+        "@legioncode/web",
         "test",
         "--",
         "src/components/git/GitReviewContext.test.tsx",
@@ -210,7 +210,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/execution-engine",
+        "@legioncode/execution-engine",
         "test",
         "--",
         "src/runtime/engine/RunEngine.test.ts",
@@ -221,7 +221,7 @@ const CAPABILITIES = [
   },
   {
     id: "runtime-artifact-recovery",
-    owner: "@shadowbox/execution-engine",
+    owner: "@legioncode/execution-engine",
     requiredTests: [
       [
         "packages/execution-engine/src/runtime/engine/RunEngine.test.ts",
@@ -236,7 +236,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/execution-engine",
+        "@legioncode/execution-engine",
         "test",
         "--",
         "src/runtime/engine/RunEngine.test.ts",
@@ -246,7 +246,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/execution-engine",
+        "@legioncode/execution-engine",
         "test",
         "--",
         "tests/integration/artifact-store.test.ts",
@@ -266,7 +266,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@shadowbox/web",
+        "@legioncode/web",
         "test",
         "--",
         "src/lib/git-client.test.ts",

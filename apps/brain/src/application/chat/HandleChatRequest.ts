@@ -39,7 +39,7 @@ import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
   RepositoryContext,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
 import {
   builtinProviderRegistry,

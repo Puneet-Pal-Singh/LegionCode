@@ -14,7 +14,7 @@ describe("RuntimeController", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+    expect(response.headers.get("X-LegionCode-Runtime-Name")).toBe(
       "brain-worker",
     );
 

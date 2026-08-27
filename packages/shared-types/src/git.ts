@@ -1,5 +1,5 @@
 /**
- * Git Types - Shared types for git operations across Shadowbox apps
+ * Git Types - Shared types for git operations across LegionCode apps
  * Used by Web, Brain, and Muscle layers
  */
 
