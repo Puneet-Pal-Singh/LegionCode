@@ -76,7 +76,18 @@ only provision replacement resources when an explicit state migration plan
 proves that identity and data are preserved. Explicitly migrate Durable Object
 namespaces and state rather than using an empty namespace, and recreate or
 transfer secrets, OAuth callbacks, CORS origins, and encrypted credentials.
-Switch traffic only after all upstream health checks pass together.
+Before switching traffic, suspend the Brain schedule with an explicit schedules
+API `PUT` body of `[]` and capture its prior value. Set Brain
+`LAUNCH_EMERGENCY_SHUTOFF_MODE=block_runs`, drain canonical active runs and
+leases, then set Secure API to `block_session_and_execute` until internal
+execution and transcript settlement are quiet. Include canonical and legacy
+chat history POST routes as writers. Use `block_all` only for the final rename
+and R2 copy window; verify both append routes return typed 503 responses while
+authorized cancellation and replay remain available. Restore the exact captured
+schedule only after paginated R2 listing, streamed byte hashes, HTTP/custom
+metadata verification, and a final delta check pass. Keep the old bucket and
+stop on any identity or drain mismatch. Switch traffic only after all upstream
+health checks pass together.
 
 Run the Postgres migration worker from one target at a time. Do not run old and
 new migration workers concurrently: the advisory lock serializes SQL

@@ -78,6 +78,32 @@ not provision or rename Cloudflare resources. Before switching traffic:
    landing, docs, Web, Brain, and secure runtime paths. Keep rollback records
    for every binding and route change.
 
+Before step 5, execute this explicit freeze and drain sequence. Launch flags do
+not stop in-flight executions, scheduled retention, or transcript settlement
+writes by themselves:
+
+1. GET the Brain Worker schedules, record the exact response, then PUT an
+   explicit empty schedule array (`[]`). Verify the readback is empty and wait
+   for trigger propagation. Restore the captured schedule only after the final
+   R2 delta check.
+2. Set Brain `LAUNCH_EMERGENCY_SHUTOFF_MODE=block_runs`, then query canonical
+   lifecycle state until active runs, pending captures, checkouts, and
+   admission leases are drained. Do not use sampled logs or container health as
+   drain proof.
+3. Set Secure API to
+   `LAUNCH_EMERGENCY_SHUTOFF_MODE=block_session_and_execute`. Let authorized
+   cancellation and event settlement finish. Include both canonical and legacy
+   chat history POST routes in the writer drain; authenticated history GET and
+   replay remain available.
+4. Set Secure API to `block_all` only after settlement is quiet. Verify both
+   append routes return typed 503 responses while authorized cancellation and
+   replay still work. The scheduled retention handler must return before any
+   repository or R2 access when `block_runs` is active.
+5. While all writers remain frozen, list every R2 object through the paginated
+   API, stream and record its byte hash, and copy while preserving HTTP and
+   custom metadata. Re-list for a final delta before switching bindings. Keep
+   the old bucket and stop on any identity, metadata, hash, or drain mismatch.
+
 During the cutover, run exactly one migration worker against the shared
 Postgres database. The old and new migration targets must never run at the
 same time, even though the runner uses a Postgres advisory lock. The lock
