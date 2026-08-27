@@ -27,8 +27,8 @@ import type {
   CostLedger,
   CostTracker,
   BudgetManager,
-} from "@shadowbox/execution-engine/runtime";
-import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
+import { LLMGateway as LLMGatewayImpl } from "@legioncode/execution-engine/runtime";
 
 /**
  * Build LLM gateway and AI service for runtime execution.

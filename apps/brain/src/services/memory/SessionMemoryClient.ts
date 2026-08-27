@@ -3,7 +3,7 @@ import {
   MemorySnapshotSchema,
   type MemoryEvent,
   type MemorySnapshot,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import type { JsonValue } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { withContextRepository } from "../context/ContextPersistenceFactory";

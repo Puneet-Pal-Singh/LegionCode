@@ -60,16 +60,16 @@ importers:
       '@repo/runtime-kernel':
         specifier: workspace:*
         version: link:../../packages/runtime-kernel
-      '@shadowbox/context-pruner':
+      '@legioncode/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
-      '@shadowbox/execution-engine':
+      '@legioncode/execution-engine':
         specifier: workspace:*
         version: link:../../packages/execution-engine
-      '@shadowbox/github-bridge':
+      '@legioncode/github-bridge':
         specifier: workspace:*
         version: link:../../packages/github-bridge
-      '@shadowbox/orchestrator-core':
+      '@legioncode/orchestrator-core':
         specifier: workspace:*
         version: link:../../packages/orchestrator-core
       ai:
@@ -441,7 +441,7 @@ importers:
 
   packages/context-assembly-runtime:
     dependencies:
-      '@shadowbox/context-assembly':
+      '@legioncode/context-assembly':
         specifier: workspace:*
         version: link:../context-assembly
     devDependencies:
@@ -457,13 +457,13 @@ importers:
 
   packages/context-builder:
     dependencies:
-      '@shadowbox/intent-classifier':
+      '@legioncode/intent-classifier':
         specifier: workspace:*
         version: link:../intent-classifier
-      '@shadowbox/repo-awareness':
+      '@legioncode/repo-awareness':
         specifier: workspace:*
         version: link:../repo-awareness
-      '@shadowbox/token-budgeting':
+      '@legioncode/token-budgeting':
         specifier: workspace:*
         version: link:../token-budgeting
       js-tiktoken:
@@ -580,7 +580,7 @@ importers:
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
-      '@shadowbox/orchestrator-core':
+      '@legioncode/orchestrator-core':
         specifier: workspace:*
         version: link:../orchestrator-core
       safe-regex:

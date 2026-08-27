@@ -62,14 +62,46 @@ VITE_MUSCLE_BASE_URL=http://localhost:8787
 VITE_MUSCLE_WS_URL=ws://localhost:8787
 ```
 
+### Rename cutover safety
+
+The `legioncode-*` Wrangler names are the repository's forward-only deployment
+targets. Local configuration does not rename or migrate existing Cloudflare
+resources. Before using a renamed target for a real environment, record Worker,
+Durable Object, container, Pages, route, domain, DNS, bucket, database, and
+secret identities. Prefer verified in-place Worker or Pages renames that retain
+those identities; stop if the provider cannot prove that dependencies remain
+attached. R2 requires a new `legioncode-artifacts` bucket and a copy-and-verify
+operation with the old bucket retained. Preserve existing D1/KV/Hyperdrive IDs;
+only provision replacement resources when an explicit state migration plan
+proves that identity and data are preserved. Explicitly migrate Durable Object
+namespaces and state rather than using an empty namespace, and recreate or
+transfer secrets, OAuth callbacks, CORS origins, and encrypted credentials.
+Switch traffic only after all upstream health checks pass together.
+
+Run the Postgres migration worker from one target at a time. Do not run old and
+new migration workers concurrently: the advisory lock serializes SQL
+statements, but it does not coordinate deployment cutover, Durable Object
+state, or artifact migration. The existing migration tags remain immutable.
+
+After pulling this rename, stop any workers started with the previous local
+configuration before restarting. If ignored local files exist, update their
+worker names and cross service bindings to match the tracked configs: Brain
+uses `legioncode-brain` and `SECURE_API=legioncode-api`; the secure runtime uses
+`legioncode-api` and `BRAIN=legioncode-brain`. Preserve private database URLs,
+credentials, resource IDs, and other options. Update the branding in any
+private `.dev.vars` system prompt and update local staging smoke environment
+values for the new worker URLs and `legioncode_session` cookie; do not copy
+private values into the repository. Restart both workers so an old-name
+process cannot be reused by port detection.
+
 ## Run and verify
 
 Start each service in its own terminal:
 
 ```bash
-pnpm --filter @shadowbox/secure-agent-api dev  # 8787
-pnpm --filter @shadowbox/brain dev             # 8788
-pnpm --filter @shadowbox/web dev               # 5174
+pnpm --filter @legioncode/secure-agent-api dev  # 8787
+pnpm --filter @legioncode/brain dev             # 8788
+pnpm --filter @legioncode/web dev               # 5174
 ```
 
 Verify runtime fingerprints before testing a task:
@@ -82,8 +114,8 @@ curl http://localhost:8788/api/debug/runtime
 The public site and docs can be developed independently:
 
 ```bash
-pnpm --filter @shadowbox/landing dev
-pnpm --filter @shadowbox/docs dev
+pnpm --filter @legioncode/landing dev
+pnpm --filter @legioncode/docs dev
 ```
 
 Use the Cloudflare Pages local commands from [deployment](/docs/deployment/) when you need to test edge functions, `/agents/` routing, `/docs/` routing, or the Cloud waitlist form.

@@ -3,8 +3,8 @@ import {
   ApprovalDecisionKindSchema,
   type ApprovalDecisionKind,
 } from "@repo/shared-types";
-import { projectRunActivityFeed } from "@shadowbox/execution-engine/runtime";
-import type { RunStatus as RuntimeRunStatus } from "@shadowbox/orchestrator-core";
+import { projectRunActivityFeed } from "@legioncode/execution-engine/runtime";
+import type { RunStatus as RuntimeRunStatus } from "@legioncode/orchestrator-core";
 import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";

@@ -40,7 +40,7 @@ export class PostgresMigrationRunner implements MigrationRunner {
 
 async function acquireMigrationLock(client: SqlClient): Promise<void> {
   await client.query(
-    "SELECT pg_advisory_xact_lock(hashtext('shadowbox:persistence:migrations')::bigint)",
+    "SELECT pg_advisory_xact_lock(hashtext('legioncode:persistence:migrations')::bigint)",
   );
 }
 

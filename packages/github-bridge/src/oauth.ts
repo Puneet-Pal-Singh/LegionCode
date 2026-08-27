@@ -127,7 +127,7 @@ export async function fetchGitHubUser(
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github.v3+json",
-      "User-Agent": "Shadowbox-GitHub-Bridge/0.1.0",
+      "User-Agent": "LegionCode-GitHub-Bridge/0.1.0",
     },
   });
 

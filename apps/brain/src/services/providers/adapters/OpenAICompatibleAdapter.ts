@@ -9,7 +9,7 @@ import type {
   GenerationResult,
   StreamChunk,
 } from "../base/ProviderAdapter";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import { normalizeProviderGenerationError } from "./ProviderGenerationError";
 import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";

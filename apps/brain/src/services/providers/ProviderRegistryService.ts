@@ -12,7 +12,7 @@ import type {
   ProviderExecutionLaneSupport,
   LLMExecutionLatencyTier,
   LLMExecutionReliabilityTier,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 
 // Plan 82: latencyTier and reliabilityTier are informational only.
 // They must NOT be used as lane rejection criteria.

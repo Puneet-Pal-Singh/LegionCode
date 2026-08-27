@@ -27,7 +27,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 };
 
 export const APP_IMPORT_POLICY = {
-  "@shadowbox/brain": [
+  "@legioncode/brain": [
     "@repo/hook-protocol",
     "@repo/observability",
     "@repo/persistence",
@@ -36,13 +36,13 @@ export const APP_IMPORT_POLICY = {
     "@repo/runtime-kernel",
     "@repo/shared-types",
   ],
-  "@shadowbox/secure-agent-api": [
+  "@legioncode/secure-agent-api": [
     "@repo/git-service",
     "@repo/observability",
     "@repo/shared-types",
     "@repo/worker-protocol",
   ],
-  "@shadowbox/web": [
+  "@legioncode/web": [
     "@repo/observability",
     "@repo/platform-client-sdk",
     "@repo/shared-types",

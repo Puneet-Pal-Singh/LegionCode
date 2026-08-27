@@ -21,7 +21,7 @@ describe("MemoryIdentitySessionRepository", () => {
     await expect(
       repository.findSessionByHash("session-hash-1", "2026-05-14T00:00:00Z"),
     ).resolves.toMatchObject({
-      login: "shadowbox-user",
+      login: "legioncode-user",
       email: "user@example.com",
     });
   });
@@ -40,10 +40,10 @@ describe("MemoryIdentitySessionRepository", () => {
 function createInput(sessionHash: string) {
   return {
     providerAccountId: "123",
-    login: "shadowbox-user",
+    login: "legioncode-user",
     avatarUrl: "https://example.com/avatar.png",
     email: "user@example.com",
-    displayName: "Shadowbox User",
+    displayName: "LegionCode User",
     encryptedAccessToken: {
       ciphertext: "ciphertext",
       iv: "iv",

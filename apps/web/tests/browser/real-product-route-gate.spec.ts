@@ -11,11 +11,11 @@ test.describe("real product Plan 049 route gate", () => {
   test("runs two isolated chats, refreshes replay, and settles Stop", async ({
     browser,
   }) => {
-    const storageState = process.env.SHADOWBOX_PLAYWRIGHT_STORAGE_STATE;
+    const storageState = process.env.LEGIONCODE_PLAYWRIGHT_STORAGE_STATE;
     if (!storageState) {
       test.skip(
         true,
-        "requires SHADOWBOX_PLAYWRIGHT_STORAGE_STATE with an authenticated deterministic repository fixture",
+        "requires LEGIONCODE_PLAYWRIGHT_STORAGE_STATE with an authenticated deterministic repository fixture",
       );
       return;
     }

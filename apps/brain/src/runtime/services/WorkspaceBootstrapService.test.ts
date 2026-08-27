@@ -7,7 +7,7 @@ const CLEAN_GIT_STATUS_OUTPUT = JSON.stringify({
   files: [],
   ahead: 0,
   behind: 0,
-  repoIdentity: "github.com/sourcegraph/shadowbox",
+  repoIdentity: "github.com/sourcegraph/legioncode",
   hasStaged: false,
   hasUnstaged: false,
   gitAvailable: true,
@@ -50,7 +50,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "read_only",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -90,7 +90,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "dev",
       },
     });
@@ -103,7 +103,7 @@ describe("WorkspaceBootstrapService", () => {
       "git",
       "git_clone",
       {
-        url: "https://github.com/sourcegraph/shadowbox.git",
+        url: "https://github.com/sourcegraph/legioncode.git",
       },
       WORKSPACE_SCOPE_OPTIONS,
     );
@@ -148,7 +148,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "dev",
       },
     });
@@ -162,7 +162,7 @@ describe("WorkspaceBootstrapService", () => {
       "git",
       "git_clone",
       {
-        url: "https://github.com/sourcegraph/shadowbox.git",
+        url: "https://github.com/sourcegraph/legioncode.git",
         startPoint: authorizedCommitId,
       },
       WORKSPACE_SCOPE_OPTIONS,
@@ -201,7 +201,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -226,7 +226,7 @@ describe("WorkspaceBootstrapService", () => {
       .fn()
       .mockResolvedValueOnce({
         success: false,
-        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
       })
       .mockResolvedValueOnce({
         success: true,
@@ -242,7 +242,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -258,15 +258,15 @@ describe("WorkspaceBootstrapService", () => {
       .fn()
       .mockResolvedValueOnce({
         success: false,
-        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
       })
       .mockResolvedValueOnce({
         success: false,
-        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
       })
       .mockResolvedValueOnce({
         success: false,
-        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+        error: 'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
       });
     const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
@@ -275,7 +275,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -322,7 +322,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "dev",
       },
     });
@@ -335,7 +335,7 @@ describe("WorkspaceBootstrapService", () => {
       "git",
       "git_clone",
       {
-        url: "https://github.com/sourcegraph/shadowbox.git",
+        url: "https://github.com/sourcegraph/legioncode.git",
       },
       WORKSPACE_SCOPE_OPTIONS,
     );
@@ -360,7 +360,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "dev",
       },
     });
@@ -394,7 +394,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "feature/bootstrap",
       },
     });
@@ -431,7 +431,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     } as const;
@@ -497,7 +497,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     } as const;
@@ -514,7 +514,7 @@ describe("WorkspaceBootstrapService", () => {
       "git",
       "git_clone",
       {
-        url: "https://github.com/sourcegraph/shadowbox.git",
+        url: "https://github.com/sourcegraph/legioncode.git",
       },
       WORKSPACE_SCOPE_OPTIONS,
     );
@@ -541,7 +541,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     } as const;
@@ -610,7 +610,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -619,7 +619,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -704,7 +704,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -713,7 +713,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
       },
     });
 
@@ -749,7 +749,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     } as const;
@@ -758,7 +758,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     } as const;
@@ -798,7 +798,7 @@ describe("WorkspaceBootstrapService", () => {
         ],
         ahead: 0,
         behind: 0,
-        repoIdentity: "github.com/sourcegraph/shadowbox",
+        repoIdentity: "github.com/sourcegraph/legioncode",
         hasStaged: false,
         hasUnstaged: true,
         gitAvailable: true,
@@ -811,7 +811,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -829,7 +829,7 @@ describe("WorkspaceBootstrapService", () => {
         files: [],
         ahead: 1,
         behind: 0,
-        repoIdentity: "github.com/sourcegraph/shadowbox",
+        repoIdentity: "github.com/sourcegraph/legioncode",
         hasStaged: false,
         hasUnstaged: false,
         gitAvailable: true,
@@ -842,7 +842,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -864,7 +864,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -885,7 +885,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -929,7 +929,7 @@ describe("WorkspaceBootstrapService", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });

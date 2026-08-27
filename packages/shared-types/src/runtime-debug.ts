@@ -63,13 +63,13 @@ export function buildRuntimeHeaders(
   const gitSha = resolveRuntimeGitSha(source);
 
   return {
-    "X-Shadowbox-Runtime-Boot-Id": identity.bootId,
-    "X-Shadowbox-Runtime-Fingerprint": buildRuntimeFingerprint(
+    "X-LegionCode-Runtime-Boot-Id": identity.bootId,
+    "X-LegionCode-Runtime-Fingerprint": buildRuntimeFingerprint(
       identity,
       gitSha,
     ),
-    "X-Shadowbox-Runtime-Git-Sha": gitSha,
-    "X-Shadowbox-Runtime-Name": identity.name,
-    "X-Shadowbox-Runtime-Started-At": identity.startedAt,
+    "X-LegionCode-Runtime-Git-Sha": gitSha,
+    "X-LegionCode-Runtime-Name": identity.name,
+    "X-LegionCode-Runtime-Started-At": identity.startedAt,
   };
 }

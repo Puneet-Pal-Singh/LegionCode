@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Secure Agent API (`apps/secure-agent-api`) serves as the execution layer (Muscle) for Shadowbox. It handles file operations, git operations, and execution isolation via Durable Objects. Since the web app (`apps/web`) runs on a different origin in local development, proper CORS configuration is essential.
+The Secure Agent API (`apps/secure-agent-api`) serves as the execution layer (Muscle) for LegionCode. It handles file operations, git operations, and execution isolation via Durable Objects. Since the web app (`apps/web`) runs on a different origin in local development, proper CORS configuration is essential.
 
 ## Local Development
 
@@ -24,13 +24,13 @@ The Secure Agent API (`apps/secure-agent-api`) serves as the execution layer (Mu
 
    ```bash
    # Terminal 1: Secure API (Muscle)
-   pnpm --filter @shadowbox/secure-agent-api dev
+   pnpm --filter @legioncode/secure-agent-api dev
 
    # Terminal 2: Brain
-   pnpm --filter @shadowbox/brain dev
+   pnpm --filter @legioncode/brain dev
 
    # Terminal 3: Web
-   pnpm --filter @shadowbox/web dev
+   pnpm --filter @legioncode/web dev
    ```
 
 ### What It Does
@@ -137,7 +137,7 @@ curl -i -X OPTIONS -H "Origin: http://localhost:5173" \
 
 ```bash
 # Run CORS integration tests
-pnpm --filter @shadowbox/secure-agent-api test -- cors.test.js
+pnpm --filter @legioncode/secure-agent-api test -- cors.test.js
 ```
 
 ## Common Issues

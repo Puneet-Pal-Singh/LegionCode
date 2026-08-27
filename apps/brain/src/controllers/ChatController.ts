@@ -1,4 +1,4 @@
-import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type { AgentType } from "@legioncode/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
 import {

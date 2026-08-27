@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/orchestrator-core",
+  "name": "@legioncode/orchestrator-core",
   "version": "1.0.0",
   "description": "Canonical orchestrator contracts, workflow step envelopes, and typed orchestration errors",
   "type": "module",

@@ -215,7 +215,7 @@ function AppContent() {
   } | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     try {
-      const stored = localStorage.getItem("shadowbox_active_tab");
+      const stored = localStorage.getItem("legioncode_active_tab");
       if (stored === "review" || stored === "changes" || stored === "files") {
         return stored as TabType;
       }
@@ -618,7 +618,7 @@ function AppContent() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const { isCompact, isMobile } = useWorkspaceViewport();
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
-    return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
+    return localStorage.getItem("legioncode_right_sidebar_open") === "true";
   });
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_LEFT_SIDEBAR_WIDTH);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(
@@ -630,7 +630,7 @@ function AppContent() {
 
   useEffect(() => {
     localStorage.setItem(
-      "shadowbox_right_sidebar_open",
+      "legioncode_right_sidebar_open",
       String(isRightSidebarOpen),
     );
   }, [isRightSidebarOpen]);
@@ -645,7 +645,7 @@ function AppContent() {
   }, [isCompact]);
 
   useEffect(() => {
-    localStorage.setItem("shadowbox_active_tab", activeTab);
+    localStorage.setItem("legioncode_active_tab", activeTab);
   }, [activeTab]);
 
   // A session is considered to have "started" if:

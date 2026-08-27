@@ -1,10 +1,10 @@
-# @shadowbox/context-assembly-runtime
+# @legioncode/context-assembly-runtime
 
 Minimal implementation of the Context Assembly Engine.
 
 ## Overview
 
-This package provides a working implementation of the Context Assembly interfaces defined in `@shadowbox/context-assembly`. It assembles LLM context from:
+This package provides a working implementation of the Context Assembly interfaces defined in `@legioncode/context-assembly`. It assembles LLM context from:
 
 - System prompts
 - Repository files
@@ -25,14 +25,14 @@ This package provides a working implementation of the Context Assembly interface
 ## Installation
 
 ```bash
-pnpm add @shadowbox/context-assembly-runtime
+pnpm add @legioncode/context-assembly-runtime
 ```
 
 ## Usage
 
 ```typescript
-import { ContextBuilder } from "@shadowbox/context-assembly-runtime";
-import type { ContextBuildInput } from "@shadowbox/context-assembly";
+import { ContextBuilder } from "@legioncode/context-assembly-runtime";
+import type { ContextBuildInput } from "@legioncode/context-assembly";
 
 const builder = new ContextBuilder();
 
@@ -92,11 +92,11 @@ const total = counter.countBatch(texts: string[]): number;
 Dumb transformation functions that convert input data to context messages.
 
 ```typescript
-import { assembleSystem } from "@shadowbox/context-assembly-runtime";
-import { assembleHistory } from "@shadowbox/context-assembly-runtime";
-import { assembleRepo } from "@shadowbox/context-assembly-runtime";
-import { assembleDiffs } from "@shadowbox/context-assembly-runtime";
-import { assembleEvents } from "@shadowbox/context-assembly-runtime";
+import { assembleSystem } from "@legioncode/context-assembly-runtime";
+import { assembleHistory } from "@legioncode/context-assembly-runtime";
+import { assembleRepo } from "@legioncode/context-assembly-runtime";
+import { assembleDiffs } from "@legioncode/context-assembly-runtime";
+import { assembleEvents } from "@legioncode/context-assembly-runtime";
 ```
 
 ### Formatters
@@ -104,9 +104,9 @@ import { assembleEvents } from "@shadowbox/context-assembly-runtime";
 Pure string serializers for converting data structures to strings.
 
 ```typescript
-import { formatFile, formatFiles } from "@shadowbox/context-assembly-runtime";
-import { formatDiff, formatDiffs } from "@shadowbox/context-assembly-runtime";
-import { formatEvent, formatEvents } from "@shadowbox/context-assembly-runtime";
+import { formatFile, formatFiles } from "@legioncode/context-assembly-runtime";
+import { formatDiff, formatDiffs } from "@legioncode/context-assembly-runtime";
+import { formatEvent, formatEvents } from "@legioncode/context-assembly-runtime";
 ```
 
 ## Assembly Order
@@ -175,4 +175,4 @@ Future iterations may include:
 
 ## License
 
-Private - Shadowbox project
+Private - LegionCode project

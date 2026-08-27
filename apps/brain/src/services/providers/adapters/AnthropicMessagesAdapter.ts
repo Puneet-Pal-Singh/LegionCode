@@ -1,6 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, streamText } from "ai";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import type {
   GenerationParams,
   GenerationResult,

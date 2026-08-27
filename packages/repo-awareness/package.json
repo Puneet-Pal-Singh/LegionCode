@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/repo-awareness",
+  "name": "@legioncode/repo-awareness",
   "version": "0.1.0",
   "description": "Lightweight repository structure awareness without loading file contents",
   "private": true,

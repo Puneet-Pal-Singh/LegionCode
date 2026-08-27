@@ -7,6 +7,8 @@ toc:
     text: Deployment shape
   - id: required-bindings
     text: Required bindings
+  - id: rename-cutover
+    text: Rename cutover
   - id: deploy-order
     text: Deploy order
   - id: verify
@@ -43,6 +45,44 @@ Set secrets with Wrangler rather than committing them:
 The landing Pages project requires a D1 binding named `WAITLIST_DB` for Cloud access requests. Apply `apps/landing/migrations/0001_waitlist.sql` before enabling the waitlist form.
 
 For private alpha, set `PRIVATE_ALPHA_ACCESS_MODE=allowlist` in production and list approved GitHub logins in `PRIVATE_ALPHA_GITHUB_LOGINS`.
+
+## Rename cutover
+
+Changing deployment names from the former product name to the `legioncode-*`
+targets is a coordinated infrastructure cutover. This repository change does
+not provision or rename Cloudflare resources. Before switching traffic:
+
+1. Inventory and record the current Worker UUIDs and versions, Durable Object
+   namespace IDs and classes, container application IDs, service bindings,
+   routes, domains, DNS records, Pages project IDs and domains, R2 bucket
+   metadata, D1/KV/Hyperdrive IDs, and required secret names. Prefer an
+   in-place Worker or Pages rename when the provider preserves those identities;
+   fetch the resources after each rename and stop if any dependency identity is
+   not preserved.
+2. R2 buckets do not have a rename operation. Create the `legioncode-artifacts`
+   bucket only after recording the old bucket, copy objects without deleting
+   the source, and verify every key, size, checksum, and custom metadata before
+   directing reads to the new binding. Retain the old bucket for rollback.
+3. If a Worker, Pages project, container, route, or Durable Object namespace
+   cannot preserve its identity in place, provision a destination only with an
+   explicit migration plan. Migrate Durable Object namespaces and state
+   explicitly, including `RUN_ENGINE_RUNTIME`, `RUN_ADMISSION_LIMITER`,
+   `AGENT_RUNTIME`, and `Sandbox`; preserve the existing migration tags and
+   record source and destination IDs. Never fall back to an empty namespace.
+4. Recreate or transfer secrets and encrypted credentials, service bindings,
+   OAuth callbacks, CORS origins, and deployment variables. Verify every
+   dependency against the recorded inventory before traffic moves. Preserve
+   the existing D1, KV, and Hyperdrive IDs rather than creating empty
+   replacements.
+5. Switch traffic in one coordinated window after health checks pass for the
+   landing, docs, Web, Brain, and secure runtime paths. Keep rollback records
+   for every binding and route change.
+
+During the cutover, run exactly one migration worker against the shared
+Postgres database. The old and new migration targets must never run at the
+same time, even though the runner uses a Postgres advisory lock. The lock
+protects statements; it does not coordinate an operational deployment or
+state and artifact copying.
 
 ## Deploy order
 

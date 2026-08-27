@@ -50,10 +50,10 @@ describe("PostgresIdentitySessionRepository", () => {
 
     const session = await repository.createGitHubSession({
       providerAccountId: "123",
-      login: "shadowbox-user",
+      login: "legioncode-user",
       avatarUrl: "https://example.com/avatar.png",
       email: "user@example.com",
-      displayName: "Shadowbox User",
+      displayName: "LegionCode User",
       encryptedAccessToken: {
         ciphertext: "ciphertext",
         iv: "iv",

@@ -30,7 +30,7 @@ async function main() {
 
   await runCommand(
     "pnpm",
-    ["--filter", "@shadowbox/execution-engine", "build"],
+    ["--filter", "@legioncode/execution-engine", "build"],
     {
       cwd: repoRoot,
     },
@@ -42,11 +42,11 @@ async function main() {
       "pnpm",
       ["dev"],
       { cwd: secureAgentApiDir },
-      "@shadowbox/secure-agent-api",
+      "@legioncode/secure-agent-api",
     );
   } else {
     console.log(
-      `[brain/dev] detected secure runtime on port ${secureRuntimePort}; reusing existing shadowbox-api session`,
+      `[brain/dev] detected secure runtime on port ${secureRuntimePort}; reusing existing legioncode-api session`,
     );
   }
 
@@ -64,7 +64,7 @@ async function main() {
       "9230",
     ],
     { cwd: brainDir },
-    "@shadowbox/brain",
+    "@legioncode/brain",
   );
 }
 

@@ -1,4 +1,4 @@
-# Shadowbox Agent Configuration
+# LegionCode Agent Configuration
 
 This directory contains agent-specific configuration and skills.
 

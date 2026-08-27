@@ -39,7 +39,7 @@ describe("DurableConversationContextAssembler", () => {
       "user",
     ]);
     expect(context[2]?.content).toContain("Read package.json");
-    expect(context[2]?.content).toContain("package shadowbox");
+    expect(context[2]?.content).toContain("package legioncode");
     expect(context.at(-1)?.content).toBe("Continue the work");
     expect(context.at(-1)).toMatchObject({ id: "new-user" });
     expect(replayLifecyclePage).toHaveBeenCalledWith(
@@ -151,7 +151,7 @@ function failedTurnEvents(): LifecycleEvent[] {
     event(2, "tool_call.output_delta", {
       itemId: "itm_prior001_read",
       toolCallId: "toolcall_prior001_read",
-      payload: { output: "package shadowbox" },
+      payload: { output: "package legioncode" },
     }),
     event(3, "tool_call.completed", {
       itemId: "itm_prior001_read",

@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/context-assembly-runtime",
+  "name": "@legioncode/context-assembly-runtime",
   "version": "0.1.0",
   "description": "Context Assembly Engine - Runtime implementation",
   "private": true,
@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@shadowbox/context-assembly": "workspace:*"
+    "@legioncode/context-assembly": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -1,7 +1,7 @@
 // apps/brain/src/services/providers/adapters/LiteLLMAdapter.ts
 // Phase 3.1: LiteLLM provider adapter with standardized usage
 
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import {
   OpenAICompatibleAdapter,
   type OpenAICompatibleConfig,

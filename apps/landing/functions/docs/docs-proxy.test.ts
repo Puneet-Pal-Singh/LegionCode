@@ -27,7 +27,7 @@ describe("buildDocsTarget", () => {
 describe("resolveDocsOrigin", () => {
   it("uses the production docs origin by default", () => {
     expect(resolveDocsOrigin(undefined)).toBe(
-      "https://shadowbox-docs.pages.dev",
+      "https://legioncode-docs.pages.dev",
     );
   });
 

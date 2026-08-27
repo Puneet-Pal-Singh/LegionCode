@@ -110,7 +110,7 @@ export class GitHubAPIClient {
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
         Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Shadowbox-GitHub-Bridge/0.1.0",
+        "User-Agent": "LegionCode-GitHub-Bridge/0.1.0",
         "Content-Type": "application/json",
         ...options.headers,
       },

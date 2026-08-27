@@ -57,7 +57,7 @@ describe("secure-agent-api chat history routing", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+    expect(response.headers.get("X-LegionCode-Runtime-Name")).toBe(
       "secure-agent-api-worker",
     );
     expect(runtimeStub.getHistory).toHaveBeenCalledWith(
@@ -81,7 +81,7 @@ describe("secure-agent-api chat history routing", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+    expect(response.headers.get("X-LegionCode-Runtime-Name")).toBe(
       "secure-agent-api-worker",
     );
 

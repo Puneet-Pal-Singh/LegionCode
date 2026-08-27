@@ -37,7 +37,7 @@ test("rejects forbidden app imports", async (context) => {
 
   assert.match(
     (await validateArchitecture(root)).join("\n"),
-    /@shadowbox\/web must not import @repo\/runtime-kernel/,
+    /@legioncode\/web must not import @repo\/runtime-kernel/,
   );
 });
 
@@ -377,12 +377,12 @@ async function createFixture(context) {
       "];",
     ].join("\n"),
   );
-  await writeManifest(fixtureRoot, "apps", "brain", "@shadowbox/brain", {});
+  await writeManifest(fixtureRoot, "apps", "brain", "@legioncode/brain", {});
   await writeManifest(
     fixtureRoot,
     "apps",
     "secure-agent-api",
-    "@shadowbox/secure-agent-api",
+    "@legioncode/secure-agent-api",
     {},
   );
   await writeSource(
@@ -417,7 +417,7 @@ async function createFixture(context) {
       "}",
     ].join("\n"),
   );
-  await writeManifest(fixtureRoot, "apps", "web", "@shadowbox/web", {});
+  await writeManifest(fixtureRoot, "apps", "web", "@legioncode/web", {});
   await writePolicyInventory(fixtureRoot, [
     {
       path: "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",

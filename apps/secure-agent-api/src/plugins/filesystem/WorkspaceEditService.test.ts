@@ -40,7 +40,7 @@ describe("WorkspaceEditService", () => {
       truncated: false,
     });
     expect(sandbox.writeFile).toHaveBeenCalledWith(
-      expect.stringMatching(/src\/\.shadowbox-edit-.+\.tmp$/),
+      expect.stringMatching(/src\/\.legioncode-edit-.+\.tmp$/),
       "const value = 2;\n",
     );
     expect(findCommand("mv")?.args?.at(-1)).toBe(
@@ -204,7 +204,7 @@ describe("WorkspaceEditService", () => {
       ]),
     ).rejects.toThrow(/move failed/);
     expect(sandbox.writeFile).toHaveBeenLastCalledWith(
-      expect.stringMatching(/src\/\.shadowbox-edit-.+\.tmp$/),
+      expect.stringMatching(/src\/\.legioncode-edit-.+\.tmp$/),
       "old-a",
     );
     expect(moveCount).toBe(3);

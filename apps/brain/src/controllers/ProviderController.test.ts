@@ -495,7 +495,7 @@ async function withByokHeaders(
   return {
     "Content-Type": "application/json",
     "X-Run-Id": TEST_RUN_ID,
-    Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+    Cookie: `legioncode_session=${TEST_SESSION_TOKEN}`,
     ...headers,
   };
 }

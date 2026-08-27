@@ -41,14 +41,14 @@ function getContentTabId(kind: "file" | "diff", path: string): string {
 export function useWorkspaceState() {
   // Sidebar states
   const [activeTab, setActiveTab] = useState<TabType>(() => {
-    const storedTab = localStorage.getItem("shadowbox_active_tab");
+    const storedTab = localStorage.getItem("legioncode_active_tab");
     return storedTab && VALID_TABS.has(storedTab)
       ? (storedTab as TabType)
       : "files";
   });
 
   useEffect(() => {
-    localStorage.setItem("shadowbox_active_tab", activeTab);
+    localStorage.setItem("legioncode_active_tab", activeTab);
   }, [activeTab]);
 
   const [sidebarWidth, setSidebarWidth] = useState(520);
@@ -59,7 +59,7 @@ export function useWorkspaceState() {
     null,
   );
   const [isViewingContent, setIsViewingContent] = useState(() => {
-    return localStorage.getItem("shadowbox_is_viewing_content") === "true";
+    return localStorage.getItem("legioncode_is_viewing_content") === "true";
   });
 
   const [isLoadingContent, setIsLoadingContent] = useState(false);
@@ -166,7 +166,7 @@ export function useWorkspaceState() {
 
   useEffect(() => {
     localStorage.setItem(
-      "shadowbox_is_viewing_content",
+      "legioncode_is_viewing_content",
       String(isViewingContent),
     );
   }, [isViewingContent]);
