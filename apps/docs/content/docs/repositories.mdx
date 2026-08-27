@@ -21,12 +21,12 @@ LegionCode does not ask you to paste a GitHub token into the browser. Use the no
 
 ## Select repository context
 
-Choose a repository and base branch before starting a task. That selection is attached to the run so the agent works from the correct source context.
+Choose a repository and base branch before starting a task. That selection is attached to the task workspace so the agent works from the correct source context.
 
-Use the branch that should act as the task's base. A run creates its own isolated workspace, but it still needs an unambiguous repository and starting revision.
+Use the branch that should act as the task's base. The task receives an isolated workspace, but it still needs an unambiguous repository and starting revision.
 
 <Callout variant="tip" title="Keep tasks branch-specific">
-  If two tasks need different base branches, create separate runs instead of
+  If two tasks need different base branches, create separate tasks instead of
   changing repository context midway through one task.
 </Callout>
 

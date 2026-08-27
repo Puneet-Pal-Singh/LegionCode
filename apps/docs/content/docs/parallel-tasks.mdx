@@ -11,11 +11,11 @@ toc:
     text: Reconcile results
 ---
 
-Parallel work in LegionCode means running multiple independent tasks at the same time. Each task has its own conversation, workspace, event stream, and review state.
+Parallel work in LegionCode means running multiple independent tasks at the same time. Each task has its own conversation, workspace, lifecycle, and review history.
 
 ## What parallel means
 
-Two browser conversations can execute concurrently when each maps to a separate run. They may start from the same repository and branch, but they do not share a writable workspace.
+Two tasks can execute concurrently. They may start from the same repository and branch, but they do not share a writable workspace.
 
 Parallel execution does **not** mean multiple agents collaboratively editing one working tree. Coordination happens when a developer reviews and reconciles the resulting changes.
 
@@ -31,7 +31,7 @@ Avoid running two tasks that both rewrite the same component, migration, or shar
 
 ## Reconcile results
 
-Review every run independently. Before merging more than one result:
+Review every task independently. Before merging more than one result:
 
 1. compare changed paths for overlap;
 2. choose a merge order;

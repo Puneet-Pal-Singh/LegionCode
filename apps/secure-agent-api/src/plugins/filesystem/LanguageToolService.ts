@@ -26,7 +26,6 @@ const PRETTIER_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
 ]);
-const TYPESCRIPT_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx"]);
 
 export class LanguageToolService {
   private readonly pathResolver = new WorkspacePathResolver();
@@ -44,7 +43,8 @@ export class LanguageToolService {
     const before = await readTextFile(context.sandbox, targetPath);
     const result = await runLanguageCommand(
       context,
-      ["exec", "prettier", "--write", "--", targetPath],
+      "prettier",
+      ["--write", "--", targetPath],
       "filesystem.format_file",
     );
     if (result.exitCode !== 0) {
@@ -62,38 +62,6 @@ export class LanguageToolService {
       },
       truncated: output.truncated,
     };
-  }
-
-  async diagnostics(
-    context: WorkspaceToolContext,
-    inputPath: string,
-  ): Promise<PluginResult> {
-    await this.resolveSupportedPath(
-      context,
-      inputPath,
-      TYPESCRIPT_EXTENSIONS,
-      "language diagnostics",
-    );
-    const result = await runLanguageCommand(
-      context,
-      [
-        "exec",
-        "tsc",
-        "--noEmit",
-        "--pretty",
-        "false",
-        "--incremental",
-        "false",
-      ],
-      "filesystem.language_diagnostics",
-    );
-    if (![0, 2].includes(result.exitCode)) {
-      return {
-        success: false,
-        error: result.stderr || "TypeScript diagnostics failed",
-      };
-    }
-    return buildDiagnosticsResult(inputPath, result.stdout, result.stderr);
   }
 
   private async resolveSupportedPath(
@@ -118,6 +86,7 @@ export class LanguageToolService {
 
 async function runLanguageCommand(
   context: WorkspaceToolContext,
+  command: "prettier",
   args: string[],
   operation: string,
 ) {
@@ -125,7 +94,7 @@ async function runLanguageCommand(
     context.sandbox,
     withToolboxCommandContext(
       {
-        command: "pnpm",
+        command,
         args,
         cwd: context.workspaceRoot,
         runId: context.runId,
@@ -134,7 +103,7 @@ async function runLanguageCommand(
       context.toolboxContext,
       operation,
     ),
-    ["pnpm"],
+    [command],
   );
 }
 
@@ -149,38 +118,9 @@ async function readTextFile(
   return result.content;
 }
 
-function buildDiagnosticsResult(
-  inputPath: string,
-  stdout: string,
-  stderr: string,
-): PluginResult {
-  const combined = [stdout, stderr].filter(Boolean).join("\n");
-  const output = capLanguageOutput(
-    combined || "No TypeScript diagnostics found",
-  );
-  return {
-    success: true,
-    output: output.value,
-    metadata: {
-      path: inputPath,
-      languageService: "typescript",
-      diagnosticCount: countDiagnostics(combined),
-    },
-    truncated: output.truncated,
-  };
-}
-
-function countDiagnostics(output: string): number {
-  return output.split("\n").filter((line) => /error TS\d+:/u.test(line)).length;
-}
-
 function capLanguageOutput(value: string): {
   value: string;
   truncated: boolean;
 } {
-  return truncateUtf8(
-    value,
-    MAX_LANGUAGE_OUTPUT_BYTES,
-    "\n[output truncated]",
-  );
+  return truncateUtf8(value, MAX_LANGUAGE_OUTPUT_BYTES, "\n[output truncated]");
 }

@@ -1,0 +1,10 @@
+{
+  "name": "legioncode-secure-container-tools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "prettier": "3.7.4",
+    "tsx": "4.20.6",
+    "typescript": "5.9.2"
+  }
+}

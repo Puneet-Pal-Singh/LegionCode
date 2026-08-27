@@ -12,10 +12,12 @@ import type {
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { normalizeProviderGenerationError } from "./ProviderGenerationError";
 import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;
   baseURL?: string;
+  headers?: Record<string, string>;
   defaultModel: string;
   supportedModels: string[];
 }
@@ -115,6 +117,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       ? createOpenAI({
           baseURL: config.baseURL,
           apiKey: config.apiKey,
+          headers: config.headers,
         })
       : createOpenAI({
           apiKey: config.apiKey,
@@ -141,6 +144,14 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
         system: params.system,
         tools: params.tools,
         temperature: params.temperature,
+        maxTokens: params.maxOutputTokens ?? 4096,
+        ...(params.reasoningEffort
+          ? {
+              experimental_providerMetadata: {
+                openai: { reasoningEffort: params.reasoningEffort },
+              },
+            }
+          : {}),
         abortSignal: params.signal,
         maxRetries: PROVIDER_SDK_MAX_RETRIES,
       });
@@ -163,6 +174,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
         toolName: tc.toolName,
         args: tc.args,
       })),
+      transcriptParts: visiblePartsFromGenerateTextResult(result),
     };
   }
 
@@ -177,6 +189,14 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      maxTokens: params.maxOutputTokens ?? 4096,
+      ...(params.reasoningEffort
+        ? {
+            experimental_providerMetadata: {
+              openai: { reasoningEffort: params.reasoningEffort },
+            },
+          }
+        : {}),
       abortSignal: params.signal,
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });

@@ -83,11 +83,25 @@ describe("CanonicalWorkflowSurface", () => {
     expect(surface).toHaveAttribute("data-terminal-state", "completed");
     expect(
       screen.getByRole("button", { name: /worked for 2s/i }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.queryByText("Read README.md")).not.toBeInTheDocument();
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.getByTestId("workflow-summary-chevron-right"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /read files/i }),
+    ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /read files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /worked for 2s/i }));
+    expect(
+      screen.getByRole("button", { name: /worked for 2s/i }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByTestId("workflow-summary-chevron-down"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /read files/i }),
+    ).not.toBeInTheDocument();
     const toolDetails = screen.getByRole("button", {
       name: /view details for read readme/i,
     });
@@ -98,5 +112,26 @@ describe("CanonicalWorkflowSurface", () => {
     expect(
       screen.queryByRole("button", { name: /review finalized changes/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps active workflow details visible without a disclosure chevron", () => {
+    const projection = {
+      ...createTurnWorkflowProjection(TurnIdSchema.parse("trn_active01")),
+      phase: "working" as const,
+      startedAt: "2026-07-27T10:00:00.000Z",
+    };
+
+    render(<CanonicalWorkflowSurface projection={projection} />);
+
+    expect(screen.getByText(/working for/i)).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-summary-chevron-right"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-summary-chevron-down"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking through the next step")).toHaveClass(
+      "turn-lifecycle-shimmer",
+    );
   });
 });

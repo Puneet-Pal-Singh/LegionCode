@@ -1,11 +1,10 @@
 import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
-import {
-  buildLifecycleTerminalViewModel,
-} from "../../../services/lifecycle/LifecycleTerminalViewModel";
+import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
+import type { InitialPromptSubmission } from "../../../lib/initial-prompt-submission";
 
 interface ChatPresentationInput {
   messages: Message[];
@@ -16,17 +15,79 @@ interface ChatPresentationInput {
   hasStartedSession: boolean;
   lifecycleProjection?: LifecycleProjection | null;
   lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
+  initialPromptSubmission?: InitialPromptSubmission | null;
+  hasImmediateUserSubmission?: boolean;
+}
+
+function buildPresentedChatEntries(input: ChatPresentationInput) {
+  const canonicalEntries = buildChatEntries(
+    input.conversationTurns,
+    input.lifecycleProjectionsByTurnId,
+    input.lifecycleProjection?.turnId,
+  );
+  const initialPrompt = input.initialPromptSubmission?.prompt.trim();
+  const alreadyProjected = input.messages.some(
+    (message) =>
+      message.role === "user" &&
+      readMessageText(message).trim() === initialPrompt,
+  );
+  if (!initialPrompt || alreadyProjected) return canonicalEntries;
+  return [
+    {
+      kind: "message" as const,
+      message: {
+        id: `initial-prompt:${input.initialPromptSubmission?.id}`,
+        role: "user" as const,
+        content: initialPrompt,
+      },
+    },
+    ...canonicalEntries,
+  ];
+}
+
+function readMessageText(message: Message): string {
+  const content: unknown = message.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .filter(
+      (part): part is { type: "text"; text: string } => {
+        if (!part || typeof part !== "object") return false;
+        const candidate = part as { type?: unknown; text?: unknown };
+        return candidate.type === "text" && typeof candidate.text === "string";
+      },
+    )
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function derivePresentationVisibility(
+  input: ChatPresentationInput,
+  hasConversation: boolean,
+) {
+  const showHeroComposer =
+    input.hasHydrated &&
+    !hasConversation &&
+    !input.isLoading &&
+    !input.hasPendingApproval &&
+    !input.hasStartedSession;
+  const isTranscriptHydrating = !input.hasHydrated;
+  const hasImmediatePrompt =
+    input.hasImmediateUserSubmission ||
+    Boolean(input.initialPromptSubmission?.prompt.trim());
+  return {
+    showHeroComposer,
+    isTranscriptHydrating,
+    showSessionPlaceholder: isTranscriptHydrating && !hasImmediatePrompt,
+  };
 }
 
 export function useChatPresentation(input: ChatPresentationInput) {
-  const chatEntries = useMemo(
-    () =>
-      buildChatEntries(
-        input.conversationTurns,
-        input.lifecycleProjectionsByTurnId,
-      ),
-    [input.conversationTurns, input.lifecycleProjectionsByTurnId],
-  );
+  const chatEntries = buildPresentedChatEntries(input);
   const terminalViewModel = useMemo(
     () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
     [input.lifecycleProjection],
@@ -38,27 +99,11 @@ export function useChatPresentation(input: ChatPresentationInput) {
       message.content.trim().length > 0,
   );
   const hasConversation = hasUserMessage || chatEntries.length > 0;
-  const showHeroComposer =
-    input.hasHydrated &&
-    !hasConversation &&
-    !input.isLoading &&
-    !input.hasPendingApproval &&
-    !input.hasStartedSession;
-  const isTranscriptHydrating =
-    !input.hasHydrated && !hasConversation && !input.hasPendingApproval;
-  const showSessionPlaceholder =
-    isTranscriptHydrating ||
-    (input.hasStartedSession &&
-      input.hasHydrated &&
-      !hasConversation &&
-      !input.hasPendingApproval &&
-      !showHeroComposer);
+  const visibility = derivePresentationVisibility(input, hasConversation);
 
   return {
     chatEntries,
     terminalViewModel,
-    showHeroComposer,
-    isTranscriptHydrating,
-    showSessionPlaceholder,
+    ...visibility,
   };
 }

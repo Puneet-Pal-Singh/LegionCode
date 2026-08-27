@@ -208,7 +208,7 @@ export function GitReviewProvider({
     fileSelection.setSelectedFilePath(null);
     onReviewOpenChange(true);
   }, [fileSelection, onReviewOpenChange, openLiveGitReviewSource]);
-  const openPromptArtifactReview = useCallback(
+  const selectPromptArtifactReview = useCallback(
     (
       artifactId: string,
       assistantMessageId?: string,
@@ -216,9 +216,19 @@ export function GitReviewProvider({
     ): void => {
       openPromptArtifactReviewSource(artifactId, assistantMessageId, identity);
       fileSelection.setSelectedFilePath(null);
+    },
+    [fileSelection, openPromptArtifactReviewSource],
+  );
+  const openPromptArtifactReview = useCallback(
+    (
+      artifactId: string,
+      assistantMessageId?: string,
+      identity?: EditArtifactIdentity,
+    ): void => {
+      selectPromptArtifactReview(artifactId, assistantMessageId, identity);
       onReviewOpenChange(true);
     },
-    [fileSelection, onReviewOpenChange, openPromptArtifactReviewSource],
+    [onReviewOpenChange, selectPromptArtifactReview],
   );
   const setReviewScope = useCallback(
     (scope: Parameters<typeof selectReviewScope>[0]): void => {
@@ -315,8 +325,10 @@ export function GitReviewProvider({
     reviewSource,
     reviewSourceLoading,
     reviewSourceError,
+    canonicalReviewAvailable: canonicalTurnReview !== null,
     openReview,
     openPromptArtifactReview,
+    selectPromptArtifactReview,
     openLiveGitReview,
     closeReview,
     selectFile: fileSelection.selectFile,

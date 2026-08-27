@@ -7,10 +7,8 @@ import type {
 import type { ProviderId } from "../../../types/provider";
 import type { ChatSubmitAttachments } from "../chatImageAttachments";
 import type { ReviewCommentDraft } from "../../git/reviewComments";
-import { PRODUCT_MODES } from "@repo/shared-types";
 import { ApprovalDock } from "../approval/ApprovalDock.js";
 import { ChatInputBar } from "../ChatInputBar";
-import { PermissionModeControl } from "../PermissionModeControl";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
@@ -31,8 +29,6 @@ interface ChatComposerControlsProps {
     decisions: ApprovalDecisionKind[];
     busyDecision: ApprovalDecisionKind | null;
     error: string | null;
-    notice: string | null;
-    isResolutionPending: boolean;
     onResolve: (decision: ApprovalDecisionKind) => Promise<void>;
   };
   input: string;
@@ -74,8 +70,6 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           decisions={props.approval.decisions}
           busyDecision={props.approval.busyDecision}
           error={props.approval.error}
-          notice={props.approval.notice}
-          isResolutionPending={props.approval.isResolutionPending}
           onResolve={props.approval.onResolve}
         />
       ) : (
@@ -102,22 +96,10 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           usage={props.usage}
           onCompact={props.onCompact}
           onContextOpen={props.onContextOpen}
+          permissionMode={props.permissionMode}
+          onPermissionModeChange={props.onPermissionModeChange}
         />
       )}
-      <div
-        className={
-          props.layout === "hero"
-            ? "mt-2 flex items-center gap-2 pl-2"
-            : "mt-1 flex items-center gap-2 pl-6"
-        }
-      >
-        <PermissionModeControl
-          value={props.permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
-          onChange={(mode) => props.onPermissionModeChange?.(mode)}
-          disabled={props.isLoading || !props.onPermissionModeChange}
-          appearance="ghost"
-        />
-      </div>
     </>
   );
 }

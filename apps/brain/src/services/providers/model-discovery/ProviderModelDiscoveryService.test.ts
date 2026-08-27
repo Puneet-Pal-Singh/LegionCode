@@ -1,40 +1,40 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderModelCacheStore } from "../stores/ProviderModelCacheStore";
+import type {
+  ProviderModelCacheRecord,
+  ProviderModelCacheStore,
+} from "../stores/ProviderModelCacheStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
-import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
+import type {
+  OpenRouterModelCatalogPort,
+  ProviderModelCatalogPort,
+} from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
 import { ProviderModelDiscoveryAuthError } from "./errors";
+import { parseModelDevCatalog } from "./ModelDevCatalog";
 
 function createStoreStub() {
-  let cache: {
-    providerId: string;
-    models: Array<{ id: string; name: string; providerId: string }>;
-    fetchedAt: string;
-    expiresAt: string;
-    source: "provider_api" | "cache";
-  } | null = null;
-  let userCache: {
-    providerId: string;
-    models: Array<{ id: string; name: string; providerId: string }>;
-    fetchedAt: string;
-    expiresAt: string;
-    source: "provider_api" | "cache";
-  } | null = null;
+  const cacheByProvider = new Map<string, ProviderModelCacheRecord>();
+  const userCacheByCredential = new Map<string, ProviderModelCacheRecord>();
 
   return {
-    getModelCache: vi.fn(async () => cache),
-    setModelCache: vi.fn(async (record: typeof cache) => {
-      cache = record;
+    cacheByProvider,
+    getModelCache: vi.fn(async (providerId: string) => {
+      return cacheByProvider.get(providerId) ?? null;
     }),
-    invalidateModelCache: vi.fn(async () => {
-      cache = null;
+    setModelCache: vi.fn(async (record: ProviderModelCacheRecord) => {
+      cacheByProvider.set(record.providerId, record);
     }),
-    getUserModelCache: vi.fn(async () => userCache),
-    setUserModelCache: vi.fn(async (_key, record: typeof userCache) => {
-      userCache = record;
+    invalidateModelCache: vi.fn(async (providerId: string) => {
+      cacheByProvider.delete(providerId);
     }),
-    invalidateUserModelCache: vi.fn(async () => {
-      userCache = null;
+    getUserModelCache: vi.fn(async (key: { providerId: string; credentialId: string }) => {
+      return userCacheByCredential.get(`${key.providerId}:${key.credentialId}`) ?? null;
+    }),
+    setUserModelCache: vi.fn(async (key: { providerId: string; credentialId: string }, record: ProviderModelCacheRecord) => {
+      userCacheByCredential.set(`${key.providerId}:${key.credentialId}`, record);
+    }),
+    invalidateUserModelCache: vi.fn(async (key: { providerId: string; credentialId: string }) => {
+      userCacheByCredential.delete(`${key.providerId}:${key.credentialId}`);
     }),
   };
 }
@@ -69,6 +69,198 @@ describe("ProviderModelDiscoveryService", () => {
     expect(second.models).toHaveLength(1);
     expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
     expect(store.setModelCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes a legacy undersized OpenRouter cache for management", async () => {
+    const store = createStoreStub();
+    store.cacheByProvider.set("openrouter", {
+      providerId: "openrouter",
+      models: Array.from({ length: 9 }, (_, index) => ({
+        id: `openrouter/legacy-${index}`,
+        name: `Legacy ${index}`,
+        providerId: "openrouter",
+      })),
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      source: "provider_api",
+    });
+    const fullCatalog = Array.from({ length: 501 }, (_, index) => ({
+      id: `openrouter/public-${index}`,
+      name: `Public ${index}`,
+      providerId: "openrouter",
+    }));
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: OpenRouterModelCatalogPort = {
+      fetchAll: vi.fn(async () => fullCatalog),
+      fetchPage: vi.fn(),
+      fetchUserModels: vi.fn(async () => []),
+      fetchProgrammingModels: vi.fn(async () => []),
+      fetchCategoryModels: vi.fn(async () => []),
+      fetchLeaderboardModels: vi.fn(async () => []),
+      fetchFreeModels: vi.fn(async () => []),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openrouter: adapter },
+    );
+
+    const result = await service.getDiscoveredModels("openrouter", {
+      view: "all",
+      surface: "manage",
+      limit: 150,
+    });
+
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+    expect(result.models).toHaveLength(150);
+    expect(result.page.hasMore).toBe(true);
+    expect(
+      store.cacheByProvider.get("openrouter:manage-catalog:v2")?.models,
+    ).toHaveLength(501);
+  });
+
+  it("keeps OpenRouter catalog/category models in management inventory even when not enabled by the user", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: OpenRouterModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "openrouter/user-model",
+          name: "User model",
+          providerId: "openrouter",
+        },
+      ]),
+      fetchPage: vi.fn(),
+      fetchUserModels: vi.fn(async () => []),
+      fetchProgrammingModels: vi.fn(async () => []),
+      fetchCategoryModels: vi.fn(async () => [
+        {
+          id: "openrouter/catalog-coding-model",
+          name: "Catalog coding model",
+          providerId: "openrouter",
+        },
+      ]),
+      fetchLeaderboardModels: vi.fn(async () => []),
+      fetchFreeModels: vi.fn(async () => []),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openrouter: adapter },
+    );
+
+    const result = await service.getDiscoveredModels("openrouter", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+
+    expect(result.models.map((model) => model.id)).toContain(
+      "openrouter/catalog-coding-model",
+    );
+    expect(result.models.map((model) => model.id)).toContain(
+      "openrouter/user-model",
+    );
+  });
+
+  it("derives Cloudflare routes from the current account and keeps cache metadata account-free", async () => {
+    const store = createStoreStub();
+    let accountId = "account_a";
+    const credentialService = {
+      getApiKey: vi.fn(async () => "cf-token"),
+      getConnectionConfig: vi.fn(async () => ({
+        providerId: "cloudflare-workers-ai" as const,
+        accountId,
+      })),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "@cf/meta/llama-3.1-8b-instruct",
+          name: "Llama 3.1 8B Instruct",
+          providerId: "cloudflare-workers-ai",
+          availability: "available" as const,
+        },
+      ]),
+      fetchPage: vi.fn(),
+    };
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { "cloudflare-workers-ai": adapter },
+    );
+
+    const first = await service.getDiscoveredModels("cloudflare-workers-ai", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+    expect(first.models[0]?.runtimeRoute?.endpoint).toContain("account_a");
+    expect(store.setModelCache.mock.calls[0]?.[0]?.models[0]?.runtimeRoute).toBeUndefined();
+
+    accountId = "account_b";
+    const second = await service.getDiscoveredModels("cloudflare-workers-ai", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+    expect(second.models[0]?.runtimeRoute?.endpoint).toContain("account_b");
+    expect(second.models[0]?.runtimeRoute?.endpoint).not.toContain("account_a");
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("discovers Cloudflare AI Gateway models from models.dev and routes them with current config", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "cf-token"),
+      getConnectionConfig: vi.fn(async () => ({
+        providerId: "cloudflare-ai-gateway" as const,
+        accountId: "account_gateway",
+        gatewayId: "my-gateway",
+      })),
+    } as unknown as ProviderCredentialService;
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      {
+        getCatalog: vi.fn(async () =>
+          parseModelDevCatalog({
+            "cloudflare-ai-gateway": {
+              models: {
+                "@cf/meta/llama-3.1-8b-instruct": {
+                  name: "Llama 3.1 8B Instruct",
+                  modalities: { input: ["text"], output: ["text"] },
+                },
+              },
+            },
+          }),
+        ),
+      },
+    );
+
+    const result = await service.getDiscoveredModels(
+      "cloudflare-ai-gateway",
+      { view: "all", surface: "manage", limit: 50 },
+    );
+
+    expect(result.models[0]?.runtimeRoute).toMatchObject({
+      providerId: "cloudflare-ai-gateway",
+      endpoint:
+        "https://api.cloudflare.com/client/v4/accounts/account_gateway/ai/v1/chat/completions",
+    });
+    expect(store.setModelCache.mock.calls[0]?.[0]?.models[0]?.runtimeRoute).toBeUndefined();
   });
 
   it("returns stale cache when provider API fails", async () => {
@@ -140,6 +332,78 @@ describe("ProviderModelDiscoveryService", () => {
     expect(
       metrics.model_discovery_requests_total.openrouter_provider_api_success,
     ).toBe(1);
+  });
+
+  it("enriches cached OpenAI models with catalog-declared variants", async () => {
+    const store = createStoreStub();
+    const now = Date.now();
+    await store.setModelCache({
+      providerId: "openai",
+      models: [
+        {
+          id: "gpt-5.6-luna",
+          name: "GPT-5.6 Luna",
+          providerId: "openai",
+        },
+      ],
+      fetchedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 60_000).toISOString(),
+      source: "provider_api",
+    });
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(),
+      fetchPage: vi.fn(),
+    };
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      {
+        getCatalog: vi.fn(async () =>
+          parseModelDevCatalog({
+            openai: {
+              models: {
+                "gpt-5.6-luna": {
+                  reasoning: true,
+                  reasoning_options: [
+                    {
+                      type: "effort",
+                      values: ["none", "low", "medium", "high", "xhigh", "max"],
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+        ),
+      },
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(result.models[0]?.capabilities?.reasoningEfforts).toEqual([
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(result.models[0]?.capabilityMetadata).toMatchObject({
+      source: "platform_registry",
+      confidence: "declared",
+    });
   });
 
   it("applies launch-safe OpenRouter curation for popular model discovery", async () => {
@@ -237,13 +501,19 @@ describe("ProviderModelDiscoveryService", () => {
       limit: 50,
     });
 
-    expect(result.models).toHaveLength(3);
+    expect(result.models).toHaveLength(36);
     expect(result.models[0]?.id).toBe("openrouter/auto");
     expect(result.models[1]?.id).toBe("openai/gpt-4.1");
     expect(result.models[2]?.id).toBe("google/gemini-2.5-pro");
-    expect(adapter.fetchUserModels).toHaveBeenCalledTimes(1);
-    expect(adapter.fetchProgrammingModels).toHaveBeenCalledTimes(1);
-    expect(store.setUserModelCache).toHaveBeenCalledTimes(1);
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "random/free-model:free" }),
+        expect.objectContaining({ id: "vendor/model-31" }),
+      ]),
+    );
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+    expect(adapter.fetchUserModels).not.toHaveBeenCalled();
+    expect(store.setModelCache).toHaveBeenCalled();
   });
 
   it("maps credential decryption failures to discovery auth errors", async () => {
@@ -319,5 +589,193 @@ describe("ProviderModelDiscoveryService", () => {
       "kimi-k2.6",
       "qwen3.6-plus",
     ]);
+  });
+
+  it("merges newer route-valid OpenCode Zen catalog models into live inventory", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "oc-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "gpt-5.6-sol",
+          name: "gpt-5.6-sol",
+          providerId: "opencode-zen",
+          availability: "unsupported_transport",
+        },
+      ]),
+      fetchPage: vi.fn(),
+    };
+    const catalog = parseModelDevCatalog({
+      opencode: {
+        api: "https://opencode.ai/zen/v1",
+        models: {
+          "gpt-5.6-sol": {
+            name: "GPT-5.6 Sol",
+            provider: { npm: "@ai-sdk/openai" },
+          },
+          "claude-opus-4-8": {
+            name: "Claude Opus 4.8",
+            provider: { npm: "@ai-sdk/anthropic" },
+          },
+        },
+      },
+    })!;
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { "opencode-zen": adapter },
+      undefined,
+      undefined,
+      undefined,
+      { getCatalog: vi.fn(async () => catalog) },
+    );
+
+    const result = await service.getDiscoveredModels("opencode-zen", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(result.models).toEqual([
+      expect.objectContaining({
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        availability: "available",
+      }),
+      expect.objectContaining({
+        id: "claude-opus-4-8",
+        name: "Claude Opus 4.8",
+        availability: "available",
+      }),
+    ]);
+  });
+
+  it("enriches provider-omitted card metadata from the models.dev catalog", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        { id: "gpt-5", name: "GPT-5", providerId: "openai" },
+        { id: "gpt-4o", name: "GPT-4o", providerId: "openai" },
+      ]),
+      fetchPage: vi.fn(),
+    };
+    const modelDevCatalog = {
+      getCatalog: vi.fn(async () => ({
+        providers: {
+          openai: {
+            models: {
+              "gpt-4o": {
+                limit: { context: 128000, output: 16384 },
+                modalities: {
+                  input: ["text", "image", "pdf"],
+                  output: ["text"],
+                },
+                reasoning: false,
+                tool_call: true,
+              },
+              "gpt-5": {
+                limit: { context: 400000, input: 272000, output: 128000 },
+                modalities: { input: ["text", "image"], output: ["text"] },
+                reasoning: true,
+                reasoning_options: [
+                  {
+                    type: "effort",
+                    values: ["minimal", "low", "medium", "high"],
+                  },
+                ],
+                tool_call: true,
+              },
+            },
+          },
+        },
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+      })),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      modelDevCatalog,
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      limit: 50,
+    });
+
+    const gpt4o = result.models.find((model) => model.id === "gpt-4o");
+    expect(gpt4o?.contextWindow).toBe(128000);
+    expect(gpt4o?.inputModalities).toEqual({
+      text: true,
+      image: true,
+      file: true,
+    });
+    expect(gpt4o?.capabilities?.supportsReasoning).toBe(false);
+    expect(gpt4o?.capabilities?.supportsTools).toBe(true);
+
+    const gpt5 = result.models.find((model) => model.id === "gpt-5");
+    expect(gpt5?.contextWindow).toBe(400000);
+    expect(gpt5?.capabilities?.supportsReasoning).toBe(true);
+    expect(gpt5?.capabilities?.reasoningEfforts).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
+    expect(modelDevCatalog.getCatalog).toHaveBeenCalledTimes(1);
+    expect(store.setModelCache).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.arrayContaining([
+          expect.objectContaining({
+            id: "gpt-5",
+            contextWindow: 400000,
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("serves un-enriched models when the models.dev catalog is unavailable", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        { id: "gpt-4o", name: "GPT-4o", providerId: "openai" },
+      ]),
+      fetchPage: vi.fn(),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      { getCatalog: vi.fn(async () => null) },
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      limit: 50,
+    });
+
+    expect(result.models[0]?.contextWindow).toBeUndefined();
+    expect(result.models[0]?.capabilities).toBeUndefined();
+    expect(result.models).toHaveLength(1);
   });
 });

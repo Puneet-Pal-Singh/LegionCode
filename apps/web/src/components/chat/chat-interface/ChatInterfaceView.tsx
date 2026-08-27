@@ -5,11 +5,18 @@ import type {
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import type { ChatMessageMetadata } from "../messageMetadata";
+import {
+  buildLifecycleMessageMetadata,
+  type ChatMessageMetadata,
+} from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
+import {
+  buildLifecycleTerminalViewModel,
+  collectLifecycleTurnDiffFiles,
+} from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
@@ -23,6 +30,7 @@ import {
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
 import type { ArtifactOpenHandler } from "../artifactOpen";
+import { ChevronDown, Folder } from "lucide-react";
 
 interface ChatInterfaceViewProps {
   workspaceId: string | null;
@@ -30,12 +38,16 @@ interface ChatInterfaceViewProps {
   runAttemptId: string | null;
   artifactIdentity?: EditArtifactIdentity | null;
   showHeroComposer: boolean;
+  projectName?: string;
+  onProjectClick?: () => void;
   showSessionPlaceholder: boolean;
   renderComposer: (layout: ComposerLayout) => ReactNode;
   showDebugPanel: boolean;
   debugEvents: ChatDebugEvent[];
   chatEntries: ChatInterfaceEntry[];
   messageMetadataById: Record<string, ChatMessageMetadata>;
+  modeLabel: string;
+  resolveModelLabel: (modelId: string) => string;
   onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   snapshots: Record<string, FileStatus[]>;
@@ -44,7 +56,7 @@ interface ChatInterfaceViewProps {
     messageId: string,
     file: FileStatus,
   ) => Promise<DiffContent>;
-  openPromptArtifactReview: (
+  selectPromptArtifactReview: (
     artifactId: string,
     messageId?: string,
     identity?: EditArtifactIdentity,
@@ -59,6 +71,7 @@ interface ChatInterfaceViewProps {
   loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   completedTurnReview: CompletedTurnReview;
   lifecycleProjection: LifecycleProjection | null;
+  onUserMessageEdit?: (turnId: string, content: string) => Promise<boolean>;
   onCompact?: () => void;
   pendingWorkflow: boolean;
 }
@@ -82,13 +95,21 @@ export const ChatInterfaceView = forwardRef<
           {props.completedTurnReview.error}
         </div>
       ) : null}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
+      >
         {props.showHeroComposer ? (
-          <HeroComposer>{props.renderComposer("hero")}</HeroComposer>
+          <HeroComposer
+            projectName={props.projectName}
+            onProjectClick={props.onProjectClick}
+          >
+            {props.renderComposer("hero")}
+          </HeroComposer>
         ) : props.showSessionPlaceholder ? (
           <ChatLoadingIndicator />
         ) : (
-          <div className="mx-auto max-w-4xl space-y-6">
+          <div className="mx-auto max-w-4xl space-y-5 sm:space-y-6">
             {props.showDebugPanel ? (
               <ChatDebugPanel events={props.debugEvents} />
             ) : null}
@@ -96,8 +117,8 @@ export const ChatInterfaceView = forwardRef<
           </div>
         )}
       </div>
-      {props.showHeroComposer ? null : (
-        <div className="px-3 pb-4 sm:px-6">
+      {props.showHeroComposer || props.showSessionPlaceholder ? null : (
+        <div className="px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}
           </div>
@@ -127,12 +148,31 @@ function Transcript(props: ChatInterfaceViewProps) {
               props,
               entry.message.id,
             )}
+            hookAudits={entry.projection?.hookAudits}
+            onEdit={resolveUserMessageEdit(props, entry)}
           />
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
   );
+}
+
+function resolveUserMessageEdit(
+  props: ChatInterfaceViewProps,
+  entry: Extract<ChatInterfaceEntry, { kind: "message" }>,
+) {
+  if (
+    !props.onUserMessageEdit ||
+    entry.message.role !== "user" ||
+    !entry.projection?.terminal ||
+    (entry.projection.terminal.state !== "interrupted" &&
+      entry.projection.terminal.state !== "failed")
+  ) {
+    return undefined;
+  }
+  const turnId = entry.projection.turnId;
+  return (content: string) => props.onUserMessageEdit!(turnId, content);
 }
 
 function TurnWorkflowEntry({
@@ -148,6 +188,7 @@ function TurnWorkflowEntry({
     : null;
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
   const terminal = entry.projection.terminal;
+  const terminalViewModel = buildLifecycleTerminalViewModel(entry.projection);
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -172,9 +213,23 @@ function TurnWorkflowEntry({
           {terminal.errorCode}
         </span>
       ) : null}
-      {props.terminalViewModel && isCurrentTurn ? (
+      {terminalViewModel ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
-          <TerminalMessage {...props} />
+          <TerminalMessage
+            {...props}
+            terminalViewModel={terminalViewModel}
+            includeCurrentTurnReview={isCurrentTurn}
+            projection={entry.projection}
+            hookAudits={entry.projection.hookAudits}
+            metadata={buildLifecycleMessageMetadata(
+              entry.projection,
+              entry.assistantMessage
+                ? props.messageMetadataById[entry.assistantMessage.id]
+                : undefined,
+              props.resolveModelLabel,
+              props.modeLabel,
+            )}
+          />
         </div>
       ) : null}
     </section>
@@ -191,7 +246,7 @@ function resolveMessageChangedFilesSummary(
     artifacts: props.artifacts,
     loadFileDiff: (file) => props.loadChangedFileDiff(messageId, file),
     onPromptArtifactReview: (artifactId) => {
-      props.openPromptArtifactReview(
+      props.selectPromptArtifactReview(
         artifactId,
         messageId,
         props.artifactIdentity ?? undefined,
@@ -201,7 +256,15 @@ function resolveMessageChangedFilesSummary(
   });
 }
 
-function TerminalMessage(props: ChatInterfaceViewProps) {
+function TerminalMessage(
+  props: ChatInterfaceViewProps & {
+    terminalViewModel: LifecycleTerminalViewModel;
+    includeCurrentTurnReview: boolean;
+    projection: LifecycleProjection;
+    hookAudits: LifecycleProjection["hookAudits"];
+    metadata?: ChatMessageMetadata;
+  },
+) {
   const terminal = props.terminalViewModel;
   if (!terminal) return null;
 
@@ -229,33 +292,86 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
         role: "assistant",
         content: terminal.content,
       }}
-      changedFilesSummary={resolveTerminalChangedFilesSummary({
-        terminalViewModel: terminal,
-        files: props.terminalReviewFiles,
-        turnDiff: props.terminalTurnDiff,
-        loadArtifactFileDiff: (_artifactId, file) =>
-          props.loadCompletedTurnFileDiff(file),
-        onPromptArtifactReview: (artifactId) => {
-          props.openPromptArtifactReview(
-            artifactId,
-            undefined,
-            props.artifactIdentity ?? undefined,
-          );
-          props.onReviewOpen?.();
-        },
-        onReviewOpen: props.onReviewOpen,
-      })}
+      changedFilesSummary={
+        props.includeCurrentTurnReview
+          ? resolveTerminalChangedFilesSummary({
+              terminalViewModel: terminal,
+              files: props.terminalReviewFiles,
+              turnDiff: props.terminalTurnDiff,
+              loadArtifactFileDiff: (_artifactId, file) =>
+                props.loadCompletedTurnFileDiff(file),
+              onPromptArtifactReview: (artifactId) => {
+                props.selectPromptArtifactReview(
+                  artifactId,
+                  undefined,
+                  props.artifactIdentity ?? undefined,
+                );
+                props.onReviewOpen?.();
+              },
+              onReviewOpen: props.onReviewOpen,
+            })
+          : resolveTerminalChangedFilesSummary({
+              terminalViewModel: terminal,
+              files: collectLifecycleTurnDiffFiles(props.projection),
+              turnDiff: props.projection.turnDiff,
+              loadArtifactFileDiff: (artifactId, file) =>
+                props.loadArtifactChangedFileDiff(artifactId, file),
+              onPromptArtifactReview: (artifactId) => {
+                props.selectPromptArtifactReview(
+                  artifactId,
+                  undefined,
+                  props.artifactIdentity ?? undefined,
+                );
+                props.onReviewOpen?.();
+              },
+              onReviewOpen: props.onReviewOpen,
+            })
+      }
+      hookAudits={props.hookAudits}
+      metadata={props.metadata}
     />
   );
 }
 
-function HeroComposer({ children }: { children: ReactNode }) {
+function HeroComposer({
+  children,
+  projectName,
+  onProjectClick,
+}: {
+  children: ReactNode;
+  projectName?: string;
+  onProjectClick?: () => void;
+}) {
   return (
     <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
       <div className="w-full">
-        <h1 className="mb-8 text-center text-5xl font-semibold tracking-tight text-zinc-100">
-          What should we build?
+        <h1 className="mb-5 text-center text-3xl font-semibold tracking-tight text-zinc-100 sm:text-5xl">
+          What should we build{projectName ? " in " : "?"}
+          {projectName ? (
+            <button
+              type="button"
+              onClick={onProjectClick}
+              className="inline-flex items-center gap-2 text-zinc-400 underline decoration-zinc-700 decoration-dotted underline-offset-8 transition hover:text-zinc-100"
+              aria-label={`Change project from ${projectName}`}
+            >
+              {projectName}?
+              <ChevronDown size={22} aria-hidden="true" />
+            </button>
+          ) : null}
         </h1>
+        {projectName ? (
+          <div className="mb-4 flex justify-center">
+            <button
+              type="button"
+              onClick={onProjectClick}
+              className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800"
+            >
+              <Folder size={15} aria-hidden="true" />
+              {projectName}
+              <ChevronDown size={14} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
         {children}
       </div>
     </div>

@@ -36,6 +36,24 @@ describe("RunAdmissionPolicy", () => {
     );
   });
 
+  it("admits the product contract of three isolated chats per user and workspace", () => {
+    const policy = buildAdmissionPolicy(
+      {
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        threadId: "thread-1",
+        runAttemptId: "run-1",
+        mode: "build",
+        workflowIntent: "build",
+      },
+      {},
+    );
+
+    expect(policy.concurrencyConstraints.map(({ limit }) => limit)).toEqual([
+      1, 3, 3, 3,
+    ]);
+  });
+
   it("does not replace missing canonical identity with a fingerprint", () => {
     expect(() =>
       assertCanonicalRunAdmissionIdentity(

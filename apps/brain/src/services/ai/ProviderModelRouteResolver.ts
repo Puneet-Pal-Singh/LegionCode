@@ -6,7 +6,13 @@ import type {
 import { ValidationError } from "../../domain/errors";
 import { ProviderRegistryService } from "../providers";
 
-const MIXED_TRANSPORT_PROVIDERS = new Set(["opencode-zen", "cloudflare-ai"]);
+const MIXED_TRANSPORT_PROVIDERS = new Set([
+  "opencode-go",
+  "opencode-zen",
+  "cloudflare-ai",
+  "cloudflare-workers-ai",
+  "cloudflare-ai-gateway",
+]);
 
 export interface ProviderModelRoute {
   providerId: string;
@@ -52,8 +58,8 @@ export class ProviderModelRouteResolver {
         "INVALID_PROVIDER_SELECTION",
       );
     }
-    if (input.providerId === "cloudflare-ai") {
-      this.assertCloudflareConfig(input.connectionConfig);
+    if (isCloudflareProvider(input.providerId)) {
+      this.assertCloudflareConfig(input.providerId, input.connectionConfig);
     }
     return {
       providerId: input.providerId,
@@ -125,9 +131,16 @@ export class ProviderModelRouteResolver {
   }
 
   private assertCloudflareConfig(
+    providerId: string,
     config: ProviderConnectionConfig | undefined,
   ): void {
-    if (config?.providerId === "cloudflare-ai") {
+    if (
+      (providerId === "cloudflare-workers-ai" &&
+        config?.providerId === "cloudflare-workers-ai") ||
+      (providerId === "cloudflare-ai-gateway" &&
+        config?.providerId === "cloudflare-ai-gateway") ||
+      (providerId === "cloudflare-ai" && config?.providerId === "cloudflare-ai")
+    ) {
       return;
     }
     throw new ValidationError(
@@ -135,6 +148,14 @@ export class ProviderModelRouteResolver {
       "INVALID_PROVIDER_SELECTION",
     );
   }
+}
+
+function isCloudflareProvider(providerId: string): boolean {
+  return (
+    providerId === "cloudflare-ai" ||
+    providerId === "cloudflare-workers-ai" ||
+    providerId === "cloudflare-ai-gateway"
+  );
 }
 
 function normalizeRuntimeModelId(providerId: string, modelId: string): string {

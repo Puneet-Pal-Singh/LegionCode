@@ -149,7 +149,9 @@ describe("ChatController DO runtime migration", () => {
     const response = await ChatController.handle(requestWithProviderModel, env);
 
     expect(response.status).toBe(200);
-    const fetchCall = runtime.fetch.mock.calls[0];
+    const fetchCall = runtime.fetch.mock.calls.find(
+      ([input]) => new URL(String(input)).pathname === "/execute",
+    );
     expect(fetchCall).toBeDefined();
 
     // Verify the payload sent to runtime includes provider/model

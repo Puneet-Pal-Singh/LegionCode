@@ -17,10 +17,7 @@ describe("ThreadProjectionProjector", () => {
   it("rebuilds thread state from title pin and archive events", () => {
     const snapshot = projectThreadEvents(threadId, [
       projectionInput(createThreadEvent("thread.created", thread, 1), 1),
-      projectionInput(
-        createTitleEvent("Renamed thread", "user", 2),
-        2,
-      ),
+      projectionInput(createTitleEvent("Renamed thread", "user", 2), 2),
       projectionInput(
         createThreadEvent(
           "thread.pinned",
@@ -84,10 +81,7 @@ describe("ThreadProjectionProjector", () => {
     const snapshot = projectThreadEvents(threadId, [
       projectionInput(createThreadEvent("thread.created", thread, 1), 1),
       projectionInput(createTurnEvent("turn.completed", firstTurn, 2), 2),
-      projectionInput(
-        createTitleEvent("Durable title", "generated", 3),
-        3,
-      ),
+      projectionInput(createTitleEvent("Durable title", "generated", 3), 3),
       projectionInput(createTurnEvent("turn.completed", secondTurn, 4), 4),
     ]);
 
@@ -96,6 +90,21 @@ describe("ThreadProjectionProjector", () => {
       titleVersion: 2,
       titleStatus: "ready",
       lastTerminalTurnId: secondTurn.id,
+    });
+  });
+
+  it("keeps an already generated title ready when its turn completes", () => {
+    const snapshot = projectThreadEvents(threadId, [
+      projectionInput(createThreadEvent("thread.created", thread, 1), 1),
+      projectionInput(createTitleEvent("Durable title", "generated", 2), 2),
+      projectionInput(createTurnEvent("turn.completed", firstTurn, 3), 3),
+    ]);
+
+    expect(snapshot?.thread).toMatchObject({
+      title: "Durable title",
+      titleVersion: 1,
+      titleStatus: "ready",
+      lastTerminalTurnId: firstTurn.id,
     });
   });
 
@@ -142,10 +151,7 @@ function projectionInput(event: PlatformEvent, projectionSequence: number) {
 }
 
 function createThreadEvent(
-  type:
-    | "thread.created"
-    | "thread.pinned"
-    | "thread.archived",
+  type: "thread.created" | "thread.pinned" | "thread.archived",
   threadPayload: typeof thread,
   sequence: number,
 ): PlatformEvent {

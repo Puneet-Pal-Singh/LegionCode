@@ -47,6 +47,8 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+const browserFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+
 export interface HookDefinitionsClient {
   list(workspaceId: string, signal?: AbortSignal): Promise<HookDefinition[]>;
   update(
@@ -76,7 +78,7 @@ export class HookDefinitionsClientError extends Error {
 }
 
 export function createHookDefinitionsClient(
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = browserFetch,
 ): HookDefinitionsClient {
   return new HttpHookDefinitionsClient(fetchImpl);
 }

@@ -50,6 +50,132 @@ describe("AgenticLoopToolExecutor", () => {
     ]);
   });
 
+  it("drops a synthesized hash guard when write_file creates a new path", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        if (plugin === "filesystem" && action === "read_file") {
+          return { success: false, error: "File not found" };
+        }
+        return { success: true, output: "Wrote file" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-create-1",
+      toolName: "write_file",
+      toolInput: {
+        path: "local/new-file.txt",
+        content: "created",
+        expectedSha256: "0".repeat(64),
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(result.output?.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        family: "edit",
+        change: "created",
+        filePath: "local/new-file.txt",
+      }),
+    });
+    expect(calls).toEqual([
+      {
+        plugin: "filesystem",
+        action: "read_file",
+        payload: { path: "local/new-file.txt" },
+      },
+      {
+        plugin: "filesystem",
+        action: "write_file",
+        payload: {
+          path: "local/new-file.txt",
+          content: "created",
+          expectedSha256: undefined,
+        },
+      },
+    ]);
+  });
+
+  it("preserves a hash guard when write_file replaces an empty file", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const expectedSha256 =
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        if (plugin === "filesystem" && action === "read_file") {
+          return { success: true, output: "" };
+        }
+        return { success: true, output: "Wrote file" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-replace-empty-1",
+      toolName: "write_file",
+      toolInput: {
+        path: "local/empty.txt",
+        content: "updated",
+        expectedSha256,
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(result.output?.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        family: "edit",
+        change: "modified",
+        filePath: "local/empty.txt",
+      }),
+    });
+    expect(calls[1]).toEqual({
+      plugin: "filesystem",
+      action: "write_file",
+      payload: {
+        path: "local/empty.txt",
+        content: "updated",
+        expectedSha256,
+      },
+    });
+  });
+
+  it("fails closed when the write preflight cannot read an existing target", async () => {
+    const calls: Array<{ action: string; payload: Record<string, unknown> }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (_plugin, action, payload) => {
+        calls.push({ action, payload });
+        return action === "read_file"
+          ? { success: false, error: "permission denied" }
+          : { success: true, output: "should not write" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-preflight-denied",
+      toolName: "write_file",
+      toolInput: {
+        path: "local/protected.txt",
+        content: "replacement",
+        expectedSha256: "0".repeat(64),
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("permission denied");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.action).toBe("read_file");
+  });
+
   it("rejects traversal in edit paths before plugin execution", async () => {
     let executeCallCount = 0;
     const executionService: RuntimeExecutionService = {
@@ -103,7 +229,7 @@ describe("AgenticLoopToolExecutor", () => {
     ]);
   });
 
-  it("routes formatter and diagnostics hooks through filesystem actions", async () => {
+  it("routes formatter hooks through filesystem actions", async () => {
     const calls: Array<{ plugin: string; action: string }> = [];
     const executionService: RuntimeExecutionService = {
       execute: async (plugin, action) => {
@@ -117,18 +243,8 @@ describe("AgenticLoopToolExecutor", () => {
       toolName: "format_file",
       toolInput: { path: "src/app.ts" },
     });
-    const diagnosticsResult = await executeAgenticLoopTool(executionService, {
-      taskId: "task-diagnostics-1",
-      toolName: "language_diagnostics",
-      toolInput: { path: "src/app.ts" },
-    });
-
     expect(formatResult.status).toBe("DONE");
-    expect(diagnosticsResult.status).toBe("DONE");
-    expect(calls).toEqual([
-      { plugin: "filesystem", action: "format_file" },
-      { plugin: "filesystem", action: "language_diagnostics" },
-    ]);
+    expect(calls).toEqual([{ plugin: "filesystem", action: "format_file" }]);
   });
 
   it("executes github_pr_list through the github bridge route", async () => {

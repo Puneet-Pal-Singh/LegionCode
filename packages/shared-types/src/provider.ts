@@ -21,6 +21,8 @@ export const PROVIDER_IDS = [
   "opencode-go",
   "opencode-zen",
   "cloudflare-ai",
+  "cloudflare-workers-ai",
+  "cloudflare-ai-gateway",
 ] as const;
 
 export const ProviderIdSchema = z
@@ -98,23 +100,43 @@ export const ProviderErrorCodeSchema = z.enum([
 ]);
 export type ProviderErrorCode = z.infer<typeof ProviderErrorCodeSchema>;
 
+const CloudflareAccountIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+const CloudflareGatewayIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+/** Legacy combined config retained for existing stored credentials. */
 export const CloudflareAIConnectionConfigSchema = z.object({
   providerId: z.literal("cloudflare-ai"),
-  accountId: z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[A-Za-z0-9_-]+$/),
-  gatewayId: z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[A-Za-z0-9_-]+$/)
-    .optional(),
+  accountId: CloudflareAccountIdSchema,
+  gatewayId: CloudflareGatewayIdSchema.optional(),
   routeMode: z.enum(["workers-ai-direct", "ai-gateway"]),
 });
 export type CloudflareAIConnectionConfig = z.infer<
   typeof CloudflareAIConnectionConfigSchema
+>;
+
+export const CloudflareWorkersAIConnectionConfigSchema = z.object({
+  providerId: z.literal("cloudflare-workers-ai"),
+  accountId: CloudflareAccountIdSchema,
+});
+export type CloudflareWorkersAIConnectionConfig = z.infer<
+  typeof CloudflareWorkersAIConnectionConfigSchema
+>;
+
+export const CloudflareAIGatewayConnectionConfigSchema = z.object({
+  providerId: z.literal("cloudflare-ai-gateway"),
+  accountId: CloudflareAccountIdSchema,
+  gatewayId: CloudflareGatewayIdSchema,
+});
+export type CloudflareAIGatewayConnectionConfig = z.infer<
+  typeof CloudflareAIGatewayConnectionConfigSchema
 >;
 
 export const EmptyProviderConnectionConfigSchema = z.object({
@@ -126,7 +148,12 @@ export type EmptyProviderConnectionConfig = z.infer<
 
 export const ProviderConnectionConfigSchema = z.discriminatedUnion(
   "providerId",
-  [CloudflareAIConnectionConfigSchema, EmptyProviderConnectionConfigSchema],
+  [
+    CloudflareAIConnectionConfigSchema,
+    CloudflareWorkersAIConnectionConfigSchema,
+    CloudflareAIGatewayConnectionConfigSchema,
+    EmptyProviderConnectionConfigSchema,
+  ],
 );
 export type ProviderConnectionConfig = z.infer<
   typeof ProviderConnectionConfigSchema
@@ -158,7 +185,14 @@ export const BYOKConnectRequestSchema = z
     config: ProviderConnectionConfigSchema.optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.providerId === "cloudflare-ai" && !value.config) {
+    if (
+      [
+        "cloudflare-ai",
+        "cloudflare-workers-ai",
+        "cloudflare-ai-gateway",
+      ].includes(value.providerId) &&
+      !value.config
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Cloudflare AI requires connection config.",

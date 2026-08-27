@@ -29,14 +29,14 @@ describe("provider client cross-client parity", () => {
     const webClient = createProviderClient(
       createByokHttpTransport({
         baseUrl: BASE_URL,
-        getRunId: () => "run-web",
+        getRunId: () => "run_web001",
         fetchImpl,
       }),
     );
     const desktopClient = createProviderClient(
       createByokCloudTransport({
         baseUrl: BASE_URL,
-        getRunId: () => "run-desktop",
+        getRunId: () => "run_desktop001",
         getAccessToken: () => "desktop-token",
         fetchImpl,
       }),
@@ -64,14 +64,14 @@ describe("provider client cross-client parity", () => {
     const webClient = createProviderClient(
       createByokHttpTransport({
         baseUrl: BASE_URL,
-        getRunId: () => "run-web",
+        getRunId: () => "run_web001",
         fetchImpl,
       }),
     );
     const desktopClient = createProviderClient(
       createByokCloudTransport({
         baseUrl: BASE_URL,
-        getRunId: () => "run-desktop",
+        getRunId: () => "run_desktop001",
         getAccessToken: () => "desktop-token",
         fetchImpl,
       }),

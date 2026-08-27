@@ -196,6 +196,14 @@ async function preserveExistingMode(
   targetPath: string,
   tempPath: string,
 ): Promise<void> {
+  const existence = await runSafeCommand(
+    context.sandbox,
+    { command: "test", args: ["-e", targetPath], runId: context.runId },
+    ["test"],
+  );
+  if (existence.exitCode !== 0) {
+    return;
+  }
   const result = await runSafeCommand(
     context.sandbox,
     { command: "stat", args: ["-c", "%a", targetPath], runId: context.runId },

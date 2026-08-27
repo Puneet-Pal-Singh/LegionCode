@@ -128,13 +128,13 @@ export function ChangesPanel({
       onReviewScopeChange={review.setReviewScope}
       showToolbar={mode === "sidebar" && showToolbar}
       searchable
-      canonicalAvailable={review.reviewSource.kind === "turn_diff"}
+      canonicalAvailable={review.canonicalReviewAvailable}
       sourceBadgeLabel={
         review.reviewScope === "turn-diff"
           ? REVIEW_SOURCE_LABELS.turn_diff.badge
           : review.reviewScope === "prompt-artifact"
-          ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
-          : REVIEW_SOURCE_LABELS.live_git.badge
+            ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
+            : REVIEW_SOURCE_LABELS.live_git.badge
       }
       emptyLabel={emptyReviewLabel}
     />
@@ -172,7 +172,7 @@ export function ChangesPanel({
           onReviewChanges={onReviewChanges}
           isFilesOpen={isFilesOpen}
           onToggleFiles={onToggleFiles}
-          canonicalAvailable={review.reviewSource.kind === "turn_diff"}
+          canonicalAvailable={review.canonicalReviewAvailable}
         />
       ) : null}
       <div

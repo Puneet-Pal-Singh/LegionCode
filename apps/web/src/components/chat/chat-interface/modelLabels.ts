@@ -19,5 +19,8 @@ function summarizeModelId(modelId: string): string {
   const withoutProvider = trimmed.includes("/")
     ? (trimmed.split("/").pop() ?? trimmed)
     : trimmed;
-  return withoutProvider.replace(/:free$/i, "").replace(/-/g, " ");
+  return withoutProvider
+    .replace(/\b(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)(?=-|$)/gi, "$1.$2")
+    .replace(/:free$/i, "")
+    .replace(/-/g, " ");
 }

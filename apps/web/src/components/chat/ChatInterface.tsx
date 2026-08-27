@@ -1,4 +1,9 @@
-import { useRef, useEffect, useMemo, useCallback } from "react";
+import {
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import {
   RunIdSchema,
   RunAttemptIdSchema,
@@ -29,7 +34,7 @@ import { useApprovalController } from "./chat-interface/useApprovalController";
 import {
   useActiveTurnProjection,
   type ActiveTurnProjection,
-} from "./chat-interface/useActiveTurnProjection.js";
+} from "../../hooks/useActiveTurnProjection.js";
 import { useCompletedTurnReview } from "./chat-interface/useCompletedTurnReview.js";
 import { useReviewCommentSubmission } from "./chat-interface/useReviewCommentSubmission";
 import {
@@ -39,17 +44,17 @@ import {
 import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
-import {
-  hasArtifactChangedFileSnapshot,
-  hasChangedFileSnapshot,
-} from "./chat-interface/changedFiles";
+import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
 import type { ArtifactOpenHandler } from "./artifactOpen";
+import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoadingIndicator.js";
+import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";
 
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
+    optimisticUserMessageId?: string | null;
     runId: string;
     input: string;
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -58,6 +63,7 @@ interface ChatInterfaceProps {
       attachments?: ChatSubmitAttachments,
     ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
+    reviseTurn?: (turnId: string, content: string) => Promise<boolean>;
     stop: () => void;
     isLoading: boolean;
     hasHydrated?: boolean;
@@ -68,12 +74,12 @@ interface ChatInterfaceProps {
     activeTurnProjection?: ActiveTurnProjection;
   };
   sessionId: string;
+  initialPromptSubmission?: InitialPromptSubmission | null;
   hasStartedSession?: boolean;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   permissionMode?: ProductMode;
   onPermissionModeChange?: (mode: ProductMode) => void;
-  onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   onContextOpen?: (
@@ -83,26 +89,33 @@ interface ChatInterfaceProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  projectName?: string;
+  onProjectClick?: () => void;
+  onPresentationReadyChange?: (ready: boolean) => void;
 }
 
 export function ChatInterface({
   chatProps,
   sessionId,
+  initialPromptSubmission = null,
   hasStartedSession = false,
   mode = "build",
   onModeChange,
   permissionMode,
   onPermissionModeChange,
-  onPendingApprovalChange,
   onArtifactOpen,
   onReviewOpen,
   onContextOpen,
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
+  projectName,
+  onProjectClick,
+  onPresentationReadyChange,
 }: ChatInterfaceProps) {
   const {
     messages,
+    optimisticUserMessageId = null,
     runId,
     input,
     handleInputChange,
@@ -139,7 +152,10 @@ export function ChatInterface({
   }, [conversationScope, runId]);
   // The canonical lifecycle projection is the only workflow/activity source.
   // RunEvent and persisted activity backfills are deliberately not rendered.
-  const awaitingCanonicalLifecycle = isLoading && !activeTurn.hasReplay;
+  const awaitingCanonicalLifecycle =
+    activeTurn.isTransportPending ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
+    (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
     activeTurn.isTransportPending ||
@@ -154,7 +170,7 @@ export function ChatInterface({
   }, [messages]);
   const {
     selectedReviewComments,
-    openPromptArtifactReview,
+    selectPromptArtifactReview,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
     markReviewCommentsDispatched,
@@ -207,7 +223,6 @@ export function ChatInterface({
       lifecycleProjection,
     ],
   );
-  const previousScrollScopeKeyRef = useRef<string | null>(null);
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -222,12 +237,10 @@ export function ChatInterface({
     decisions: displayedApprovalDecisions,
     busyDecision: approvalBusyDecision,
     error: approvalError,
-    notice: approvalNoticeText,
-    isResolutionPending: isApprovalResolutionPending,
     resolve: resolveApprovalDecision,
   } = useApprovalController({
     lifecycleProjection,
-    onPendingApprovalChange,
+    sessionId,
   });
   const completedTurnReview = useCompletedTurnReview(
     lifecycleProjection,
@@ -237,7 +250,16 @@ export function ChatInterface({
     () => buildConversationTurns(messages),
     [messages],
   );
-  const historicalLifecycleProjections = useConversationLifecycleProjections(
+  const hasImmediateUserSubmission = useMemo(
+    () =>
+      optimisticUserMessageId !== null &&
+      messages.some((message) => message.id === optimisticUserMessageId),
+    [messages, optimisticUserMessageId],
+  );
+  const {
+    projections: historicalLifecycleProjections,
+    isLoading: areHistoricalLifecyclesLoading,
+  } = useConversationLifecycleProjections(
     conversationTurns,
     lifecycleProjection?.turnId,
   );
@@ -297,13 +319,26 @@ export function ChatInterface({
   } = useChatPresentation({
     messages,
     conversationTurns,
-    hasHydrated,
+    hasHydrated:
+      hasHydrated &&
+      !areHistoricalLifecyclesLoading &&
+      (!activeTurn.hasCanonicalTurn || activeTurn.hasReplay),
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
     lifecycleProjection,
     lifecycleProjectionsByTurnId,
+    initialPromptSubmission,
+    hasImmediateUserSubmission,
   });
+  const showStableSessionPlaceholder = useStableChatLoadingIndicator(
+    showSessionPlaceholder,
+    hasImmediateUserSubmission ||
+      Boolean(initialPromptSubmission?.prompt.trim()),
+  );
+  useEffect(() => {
+    onPresentationReadyChange?.(!showStableSessionPlaceholder);
+  }, [onPresentationReadyChange, showStableSessionPlaceholder]);
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
@@ -323,8 +358,6 @@ export function ChatInterface({
         decisions: displayedApprovalDecisions,
         busyDecision: approvalBusyDecision,
         error: approvalError,
-        notice: approvalNoticeText,
-        isResolutionPending: isApprovalResolutionPending,
         onResolve: resolveApprovalDecision,
       }}
       input={input}
@@ -370,30 +403,25 @@ export function ChatInterface({
   );
 
   const latestLifecycleSequence = latestLifecycleProjection?.lastSequence ?? 0;
-
-  // Keep the active turn visible as canonical lifecycle activity arrives.
-  useEffect(() => {
-    const scrollContainer = scrollRef.current;
-    if (!scrollContainer) {
-      return;
-    }
-
-    const scrollScopeKey = `${sessionId}:${runId}`;
-    const isInitialScopeScroll =
-      previousScrollScopeKeyRef.current !== scrollScopeKey;
-    previousScrollScopeKeyRef.current = scrollScopeKey;
-
-    scrollContainer.scrollTo({
-      top: scrollContainer.scrollHeight,
-      behavior: isInitialScopeScroll ? "auto" : "smooth",
-    });
-  }, [activeRunLoading, latestLifecycleSequence, messages, runId, sessionId]);
+  const latestMessage = messages.at(-1);
+  useChatAutoScroll({
+    activeRun: activeRunLoading,
+    latestMessageKey: latestMessage
+      ? `${latestMessage.id}:${latestMessage.role}`
+      : null,
+    lifecycleSequence: latestLifecycleSequence,
+    placeholderVisible: showStableSessionPlaceholder,
+    scopeKey: `${sessionId}:${runId}`,
+    scrollRef,
+  });
 
   return (
     <ChatInterfaceView
       ref={scrollRef}
       showHeroComposer={showHeroComposer}
-      showSessionPlaceholder={showSessionPlaceholder}
+      projectName={projectName}
+      onProjectClick={onProjectClick}
+      showSessionPlaceholder={showStableSessionPlaceholder}
       renderComposer={renderComposerControls}
       showDebugPanel={showDebugPanel}
       debugEvents={debugEvents}
@@ -403,25 +431,24 @@ export function ChatInterface({
       runAttemptId={conversationScope?.runAttemptId ?? null}
       artifactIdentity={conversationScope}
       messageMetadataById={messageMetadataById}
+      modeLabel={mode === "plan" ? "Plan" : "Build"}
+      resolveModelLabel={(modelId) =>
+        resolveModelLabel(modelId, providerModels)
+      }
       onArtifactOpen={onArtifactOpen}
       onReviewOpen={onReviewOpen}
       snapshots={changedFileSnapshotsByAssistantMessageId}
       artifacts={artifactSourcesByAssistantMessageId}
       loadChangedFileDiff={loadChangedFileDiff}
-      openPromptArtifactReview={openPromptArtifactReview}
+      selectPromptArtifactReview={selectPromptArtifactReview}
       terminalViewModel={terminalViewModel}
-      terminalReviewFiles={
-        terminalViewModel &&
-        (hasChangedFileSnapshot(changedFileSnapshotsByAssistantMessageId) ||
-          hasArtifactChangedFileSnapshot(artifactSourcesByAssistantMessageId))
-          ? []
-          : completedTurnReview.files
-      }
+      terminalReviewFiles={terminalViewModel ? completedTurnReview.files : []}
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
       completedTurnReview={completedTurnReview}
       lifecycleProjection={lifecycleProjection}
+      onUserMessageEdit={chatProps.reviseTurn}
       pendingWorkflow={awaitingCanonicalLifecycle}
     />
   );

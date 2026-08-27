@@ -139,6 +139,39 @@ describe("TranscriptPartNormalizer", () => {
     expect(visibleTextFromTranscriptParts(parts)).toBe("OK.");
   });
 
+  it("preserves visible provider commentary beside private reasoning", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerParts: [
+        {
+          type: "reasoning",
+          text: "Private provider reasoning",
+          reason: "provider_reasoning",
+        },
+        { type: "visible_text", text: "I’ll inspect the route first." },
+      ],
+      outputIntent: "intermediate",
+    });
+
+    expect(parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "reasoning",
+          visibility: "audit_only",
+          text: "Private provider reasoning",
+        }),
+        expect.objectContaining({
+          type: "visible_text",
+          visibility: "visible",
+          text: "I’ll inspect the route first.",
+        }),
+      ]),
+    );
+    expect(visibleTextFromTranscriptParts(parts)).toBe(
+      "I’ll inspect the route first.",
+    );
+  });
+
   it("quarantines provider final markers until runtime declares terminal output", () => {
     const parts = normalizer.normalize({
       ...input,

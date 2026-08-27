@@ -57,8 +57,14 @@ export interface GitReviewContextValue {
   reviewSource: ReviewSourceSelection;
   reviewSourceLoading: boolean;
   reviewSourceError: string | null;
+  canonicalReviewAvailable: boolean;
   openReview: (path?: string) => void;
   openPromptArtifactReview: (
+    artifactId: string,
+    assistantMessageId?: string,
+    identity?: EditArtifactIdentity,
+  ) => void;
+  selectPromptArtifactReview: (
     artifactId: string,
     assistantMessageId?: string,
     identity?: EditArtifactIdentity,

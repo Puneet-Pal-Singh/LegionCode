@@ -15,6 +15,7 @@
     "gate:golden-repo-to-pr": "bash scripts/gates/run-golden-repo-to-pr.sh",
     "gate:runtime-conformance": "bash scripts/gate-runtime-conformance.sh",
     "gate:cloudflare-capacity": "node scripts/gates/check-cloudflare-capacity.mjs",
+    "gate:secure-container-image": "node scripts/gates/check-secure-container-image.mjs",
     "e2e:phase-3.2": "bash scripts/e2e/phase-3.2-readiness.sh",
     "gate:m1.3c": "bash scripts/e2e/m1.3c-closure.sh",
     "review:sync": "bash scripts/review-script/fetch-review-comments.sh",

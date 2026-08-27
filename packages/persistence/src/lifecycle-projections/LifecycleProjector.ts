@@ -23,6 +23,7 @@ import {
 
 interface MutableProjection {
   turnId: string;
+  revisionOfTurnId?: string;
   status: LifecycleProjectionSnapshot["status"];
   blockingState: LifecycleProjectionSnapshot["blockingState"];
   terminalOutcome: LifecycleProjectionSnapshot["terminalOutcome"];
@@ -71,6 +72,8 @@ function applyLifecycleProjectionEvent(
 function applyTurn(state: MutableProjection, event: LifecycleEvent): void {
   if (event.type === "turn.started") {
     state.status = transitionTurnStatus(state.status, "in_progress");
+    const revisionOfTurnId = readString(event.payload.revisionOfTurnId);
+    if (revisionOfTurnId) state.revisionOfTurnId = revisionOfTurnId;
   } else if (event.type === "turn.blocking_changed") {
     const value = event.payload.blockingState;
     const blockingState =
@@ -268,6 +271,9 @@ function createState(turnId: string): MutableProjection {
 function snapshot(state: MutableProjection): LifecycleProjectionSnapshot {
   return LifecycleProjectionSnapshotSchema.parse({
     turnId: state.turnId,
+    ...(state.revisionOfTurnId
+      ? { revisionOfTurnId: state.revisionOfTurnId }
+      : {}),
     status: state.status,
     blockingState: state.blockingState,
     terminalOutcome: state.terminalOutcome,

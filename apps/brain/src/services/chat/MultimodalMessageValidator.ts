@@ -1,5 +1,4 @@
 import type { CoreMessage } from "ai";
-import type { RunMode } from "@repo/shared-types";
 import { ValidationError } from "../../domain/errors";
 import {
   SUPPORTED_IMAGE_MIME_TYPES,
@@ -13,14 +12,10 @@ const MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export interface MultimodalValidationResult {
   messages: CoreMessage[];
-  hasImages: boolean;
-  imageCount: number;
-  totalImageBytes: number;
 }
 
 export function validateMultimodalMessages(
   rawMessages: unknown[] | undefined,
-  mode: RunMode,
   correlationId: string,
 ): MultimodalValidationResult {
   if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
@@ -33,20 +28,16 @@ export function validateMultimodalMessages(
 
   const counters = { imageCount: 0, totalImageBytes: 0 };
   for (const message of rawMessages) {
-    validateMessage(message, mode, counters, correlationId);
+    validateMessage(message, counters, correlationId);
   }
 
   return {
     messages: rawMessages as CoreMessage[],
-    hasImages: counters.imageCount > 0,
-    imageCount: counters.imageCount,
-    totalImageBytes: counters.totalImageBytes,
   };
 }
 
 function validateMessage(
   message: unknown,
-  mode: RunMode,
   counters: { imageCount: number; totalImageBytes: number },
   correlationId: string,
 ): void {
@@ -72,14 +63,13 @@ function validateMessage(
   }
 
   for (const part of record.content) {
-    validateContentPart(part, record.role, mode, counters, correlationId);
+    validateContentPart(part, record.role, counters, correlationId);
   }
 }
 
 function validateContentPart(
   part: unknown,
   role: string,
-  mode: RunMode,
   counters: { imageCount: number; totalImageBytes: number },
   correlationId: string,
 ): void {
@@ -99,14 +89,6 @@ function validateContentPart(
       correlationId,
     );
   }
-  if (mode !== "build") {
-    throw new ValidationError(
-      "Image attachments are only supported in build mode.",
-      "IMAGE_ATTACHMENT_MODE_UNSUPPORTED",
-      correlationId,
-    );
-  }
-
   validateImagePart(record, counters, correlationId);
 }
 

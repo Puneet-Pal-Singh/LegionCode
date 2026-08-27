@@ -61,7 +61,6 @@ export const ToolBackendCapabilitySchema = z.enum([
   "github",
   "github_cli",
   "formatter",
-  "language_services",
   "approval",
 ]);
 export type ToolBackendCapability = z.infer<typeof ToolBackendCapabilitySchema>;
@@ -248,10 +247,6 @@ export const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
 export const WRITE_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
   content: z.string().min(1).max(MAX_TOOL_WRITE_CONTENT_LENGTH),
-  expectedSha256: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/i)
-    .optional(),
 });
 
 export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -260,10 +255,6 @@ export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   newText: z.string().max(MAX_TOOL_WRITE_CONTENT_LENGTH),
   replaceAll: z.boolean().optional(),
   expectedReplacements: z.number().int().min(1).max(10_000).optional(),
-  expectedSha256: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/i)
-    .optional(),
 });
 
 export const MULTI_EDIT_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -276,10 +267,6 @@ export const APPLY_PATCH_TOOL_INPUT_SCHEMA = createToolInputSchema({
 });
 
 export const FORMAT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
-  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
-});
-
-export const LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
 });
 
@@ -403,7 +390,6 @@ export const CODING_TOOL_IDS = [
   "multi_edit",
   "apply_patch",
   "format_file",
-  "language_diagnostics",
   "bash",
   "git_stage",
   "git_commit",
@@ -439,7 +425,6 @@ export type CodingToolInputByName = {
   multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
   apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
   format_file: z.infer<typeof FORMAT_FILE_TOOL_INPUT_SCHEMA>;
-  language_diagnostics: z.infer<typeof LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
   git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
   git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
@@ -918,19 +903,6 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     preferredFor: ["deterministic formatting after code edits"],
     evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "format_file" },
-  }),
-  createRoutedToolDefinition({
-    id: "language_diagnostics",
-    title: "Language Diagnostics",
-    description: "Run bounded TypeScript diagnostics for the workspace.",
-    inputSchema: LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA,
-    permission: WORKSPACE_READ_PERMISSION,
-    sandboxClass: "read",
-    requiredBackendCapabilities: ["language_services", "filesystem_read"],
-    tokenPolicy: READ_TOKEN_POLICY,
-    outputRenderer: "text",
-    preferredFor: ["TypeScript diagnostics after code edits"],
-    route: { plugin: "filesystem", action: "language_diagnostics" },
   }),
   createRoutedToolDefinition({
     id: "bash",

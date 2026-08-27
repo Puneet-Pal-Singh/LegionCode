@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -68,24 +69,60 @@ export function PermissionModeControl({
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const selectedOption = resolvePermissionModeOption(value);
   const SelectedIcon = selectedOption.Icon;
   const isMenuOpen = isOpen && !disabled;
   const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
+  const [menuStyle, setMenuStyle] = useState<{
+    top: number | null;
+    bottom: number | null;
+    left: number;
+  }>({ top: null, bottom: 16, left: 16 });
+
+  const updateMenuPosition = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(304, window.innerWidth - 32);
+    const left = Math.min(
+      Math.max(16, rect.left),
+      Math.max(16, window.innerWidth - width - 16),
+    );
+    setMenuStyle(
+      menuPlacement === "below"
+        ? { top: rect.bottom + 8, bottom: null, left }
+        : {
+            top: null,
+            bottom: Math.max(16, window.innerHeight - rect.top + 8),
+            left,
+          },
+    );
+  }, [menuPlacement]);
 
   useEffect(() => {
+    const frame = isMenuOpen
+      ? requestAnimationFrame(updateMenuPosition)
+      : undefined;
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
+        !containerRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
       ) {
         setIsOpen(false);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isMenuOpen, updateMenuPosition]);
 
   return (
     <div ref={containerRef} className="relative">
@@ -100,14 +137,14 @@ export function PermissionModeControl({
         disabled={disabled}
         className={cn(
           appearance === "ghost"
-            ? "inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-all duration-200 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
+            ? "inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-zinc-400 transition-all duration-200 hover:bg-zinc-800/50 hover:text-zinc-100"
             : "inline-flex items-center gap-1.5 rounded-full border border-zinc-700/70 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium text-zinc-300 transition",
           appearance === "pill" &&
             "hover:border-zinc-500/70 hover:bg-zinc-800/70 hover:text-zinc-100",
           appearance === "ghost" &&
             isFullAccess &&
             "text-orange-400 hover:text-orange-300",
-          disabled && "cursor-not-allowed opacity-60 hover:border-zinc-700/70",
+          disabled && "cursor-not-allowed opacity-45 hover:border-zinc-700/70",
         )}
         aria-haspopup="menu"
         aria-expanded={isMenuOpen}
@@ -131,15 +168,19 @@ export function PermissionModeControl({
         />
       </button>
 
-      {isMenuOpen ? (
-        <div
-          role="menu"
-          className={cn(
-            "ui-surface-popover absolute left-0 z-40 w-[19rem] p-2",
-            menuPlacement === "below" ? "top-full mt-2" : "bottom-full mb-2",
-          )}
-          data-testid="permission-mode-menu"
-        >
+      {isMenuOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              className="ui-surface-popover fixed z-50 w-[19rem] p-1.5"
+              style={{
+                top: menuStyle.top ?? undefined,
+                bottom: menuStyle.bottom ?? undefined,
+                left: menuStyle.left,
+              }}
+              data-testid="permission-mode-menu"
+            >
           {PERMISSION_MODE_OPTIONS.map((option) => {
             const OptionIcon = option.Icon;
             const isSelected = option.value === selectedOption.value;
@@ -158,7 +199,7 @@ export function PermissionModeControl({
                 }}
                 disabled={disabled}
                 className={cn(
-                  "flex w-full items-start justify-between rounded-2xl px-3 py-2 text-left transition",
+                  "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition",
                   isSelected
                     ? "bg-zinc-800/70 text-zinc-100"
                     : "text-zinc-200 hover:bg-zinc-800/50",
@@ -166,26 +207,28 @@ export function PermissionModeControl({
               >
                 <span className="flex items-start gap-2.5">
                   <OptionIcon
-                    size={16}
+                    size={15}
                     className="mt-0.5 shrink-0 text-zinc-400"
                   />
                   <span className="space-y-0.5">
                     <span className="block text-sm font-medium">
                       {option.label}
                     </span>
-                    <span className="block text-xs text-zinc-400">
+                    <span className="block text-xs leading-4 text-zinc-400">
                       {option.description}
                     </span>
                   </span>
                 </span>
                 {isSelected ? (
-                  <Check size={17} className="mt-0.5 shrink-0 text-zinc-100" />
+                  <Check size={15} className="mt-0.5 shrink-0 text-zinc-100" />
                 ) : null}
               </button>
             );
           })}
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

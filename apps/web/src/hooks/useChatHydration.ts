@@ -25,15 +25,19 @@ export function useChatHydration(
   scope: ConversationScope | null,
   messages: Message[],
   setMessages: (messages: Message[]) => void,
+  replayRevision: string | null = null,
 ): UseChatHydrationResult {
   const sessionId = scope?.sessionId ?? null;
   const runId = scope?.runId ?? null;
   const [isHydrating, setIsHydrating] = useState(false);
-  const [hasHydrated, setHasHydrated] = useState(false);
+  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeRef = useRef(scope);
   const scopeKey = scope ? conversationScopeKey(scope) : null;
+  const hydrationKey = scopeKey
+    ? `${scopeKey}:${replayRevision ?? "initial"}`
+    : null;
   const activeScopeKeyRef = useRef(scopeKey);
   const messagesRef = useRef(messages);
 
@@ -52,19 +56,19 @@ export function useChatHydration(
   } = useRetry({
     delayMs: HYDRATION_RETRY_DELAY_MS,
     maxAttempts: MAX_HYDRATION_ATTEMPTS,
-    scopeKey,
+    scopeKey: hydrationKey,
   });
 
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
-    setHasHydrated(false);
+    setHydratedKey(null);
     setIsHydrating(false);
     logClientEvent("chat/hydration", "scope-reset", {
       runId,
       liveMessageCount: messagesRef.current.length,
     });
-  }, [runId, scopeKey]);
+  }, [hydrationKey, replayRevision, runId, scopeKey]);
 
   // Perform hydration
   useEffect(() => {
@@ -78,6 +82,7 @@ export function useChatHydration(
       runId,
       liveMessageCount: requestStartMessageIds.length,
       retrySignal,
+      replayRevision,
     });
     const isCurrentScope = () =>
       !cancelled && activeScopeKeyRef.current === requestScopeKey;
@@ -146,7 +151,7 @@ export function useChatHydration(
 
         hasHydratedRef.current = true;
         resetRetry();
-        setHasHydrated(true);
+        setHydratedKey(hydrationKey);
       } catch (error) {
         if (isCurrentScope()) {
           retryOnError(error);
@@ -164,8 +169,10 @@ export function useChatHydration(
       cancelled = true;
     };
   }, [
+    hydrationKey,
     resetRetry,
     retrySignal,
+    replayRevision,
     runId,
     scheduleRetry,
     scopeKey,
@@ -173,7 +180,17 @@ export function useChatHydration(
     setMessages,
   ]);
 
-  return { isHydrating, hasHydrated };
+  return {
+    isHydrating,
+    // A completed hydration belongs only to the exact conversation scope that
+    // produced it. This prevents the previous task from appearing hydrated for
+    // one render while a newly selected task is settling.
+    // Readiness belongs to the exact transcript revision, not only the thread.
+    // A terminal lifecycle update can require a second canonical history read;
+    // keeping the old scope-level readiness for that render exposed stale
+    // messages before the replacement request even started.
+    hasHydrated: Boolean(hydrationKey) && hydratedKey === hydrationKey,
+  };
 }
 
 function summarizeMessageRoles(messages: Message[]): string {

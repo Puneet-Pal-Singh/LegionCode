@@ -24,7 +24,15 @@ import { useFileLoader } from "../layout/workspace/useFileLoader";
 import { Resizer } from "../ui/Resizer";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
+import { ChatImageAttachmentStrip } from "../chat/ChatImageAttachmentStrip";
+import { ChatImageDropOverlay } from "../chat/ChatImageDropOverlay";
+import { useChatImageAttachmentDraft } from "../chat/useChatImageAttachmentDraft";
+import {
+  CHAT_IMAGE_MIME_TYPES,
+  type ChatSubmitAttachments,
+} from "../chat/chatImageAttachments";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
+import { ReasoningEffortPicker } from "../chat/ReasoningEffortPicker.js";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import {
   applyFileMention,
@@ -36,6 +44,8 @@ import { GitReviewProvider } from "../git/GitReviewContext";
 import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootstrap-loading.js";
 import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
+import { ProjectChooser } from "./ProjectChooser";
+import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -44,14 +54,17 @@ interface AgentSetupProps {
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
   reviewSidebarFocusRequest?: number;
-  showOnboardingHighlights?: boolean;
   onStart: (config: {
     repo: string;
     branch: string;
     task: string;
     mode: RunMode;
+    attachments?: ChatSubmitAttachments;
   }) => void;
   onRepoClick?: () => void;
+  projects?: readonly string[];
+  onProjectSelect?: (project: string) => void;
+  onNoProject?: () => void;
 }
 
 export function AgentSetup({
@@ -61,13 +74,16 @@ export function AgentSetup({
   onModeChange,
   requiresRepository = false,
   reviewSidebarFocusRequest = 0,
-  showOnboardingHighlights = false,
   onStart,
   onRepoClick,
+  projects = [],
+  onProjectSelect,
+  onNoProject,
 }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const [task, setTask] = useState("");
+  const imageDraft = useChatImageAttachmentDraft();
   const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -121,6 +137,18 @@ export function AgentSetup({
       }),
     [status, providerModels, selectedProviderId],
   );
+  const selectedModel = useMemo(
+    () =>
+      selectedProviderId && selectedModelId
+        ? (providerModels[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          ) ??
+          manageProviderModels?.[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          ))
+        : undefined,
+    [manageProviderModels, providerModels, selectedModelId, selectedProviderId],
+  );
   const { isSelectedProviderModelHydrationPending } =
     useSelectedProviderModelHydration({
       selectedProviderId,
@@ -131,6 +159,7 @@ export function AgentSetup({
       loadManageProviderModels,
     });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
   const activeRunId = runId ?? "";
   const {
@@ -178,7 +207,12 @@ export function AgentSetup({
 
   const hasTask = task.trim().length > 0;
   const hasRepositoryContext = Boolean(repo?.full_name);
-  const canStart = hasTask && (!requiresRepository || hasRepositoryContext);
+  const hasProviderConnection = credentials.length > 0;
+  const hasImages = imageDraft.attachments.length > 0;
+  const canStart =
+    (hasTask || hasImages) &&
+    hasProviderConnection &&
+    (!requiresRepository || hasRepositoryContext);
   const suggestionEntries = useMemo(
     () =>
       repoTree.map((entry) => ({
@@ -275,19 +309,40 @@ export function AgentSetup({
       return;
     }
 
-    if (task.trim()) {
+    const detachedImages = hasImages ? imageDraft.detachForSubmit() : [];
+    try {
       onStart({
         repo: repo?.full_name || "",
         branch: branch || "main",
-        task,
+        task: task.trim() || "Analyze the attached image(s).",
         mode,
+        attachments:
+          detachedImages.length > 0
+            ? { imageAttachments: detachedImages }
+            : undefined,
       });
+      setTask("");
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, true);
+      }
+    } catch (error) {
+      if (detachedImages.length > 0) {
+        imageDraft.settleDetached(detachedImages, false);
+      }
+      throw error;
     }
   };
 
   const handleTaskChange = (value: string, nextCursorPosition?: number) => {
     setTask(value);
     setCursorPosition(nextCursorPosition ?? value.length);
+  };
+
+  const openProviderConnection = () => {
+    setProviderDialogInitialTab("available");
+    setProviderDialogInitialView("default");
+    setProviderDialogVariant("connect-only");
+    setShowProviderDialog(true);
   };
 
   const selectSuggestedFile = (filePath: string) => {
@@ -473,10 +528,15 @@ export function AgentSetup({
           </div>
         ) : null}
         <motion.div
+          data-testid="setup-composer-drop-zone"
+          onDragOver={imageDraft.handleDragOver}
+          onDragLeave={imageDraft.handleDragLeave}
+          onDrop={imageDraft.handleDrop}
           className={`
             ui-control-surface relative z-10 p-3
             transition-all duration-200
             ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
+            ${imageDraft.isDraggingImages ? "ring-1 ring-cyan-400/70" : ""}
           `}
           animate={{
             boxShadow: isInputFocused
@@ -484,6 +544,31 @@ export function AgentSetup({
               : "0 0 0 0px rgba(0, 0, 0, 0)",
           }}
         >
+          <input
+            ref={imageInputRef}
+            type="file"
+            multiple
+            accept={CHAT_IMAGE_MIME_TYPES.join(",")}
+            className="sr-only"
+            aria-label="Choose images to attach"
+            onChange={(event) => {
+              const files = event.currentTarget.files;
+              if (files) void imageDraft.addFiles(Array.from(files), "upload");
+              event.currentTarget.value = "";
+            }}
+          />
+          {imageDraft.isDraggingImages ? (
+            <ChatImageDropOverlay testId="setup-composer-drop-overlay" />
+          ) : null}
+          <ChatImageAttachmentStrip
+            attachments={imageDraft.attachments}
+            onRemove={imageDraft.remove}
+          />
+          {imageDraft.error ? (
+            <div className="mb-3 text-xs text-amber-200">
+              {imageDraft.error}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             value={task}
@@ -493,13 +578,14 @@ export function AgentSetup({
                 e.currentTarget.selectionStart ?? e.target.value.length,
               )
             }
+            onPaste={imageDraft.handlePaste}
             onKeyDown={handleTaskKeyDown}
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
             onSelect={syncCursorPosition}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            placeholder="Ask LegionCode anything, @ to add files, / for commands"
+            placeholder="Ask LegionCode to work on this repository…"
             rows={1}
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -513,19 +599,13 @@ export function AgentSetup({
               <ChatComposerPlusMenu
                 mode={mode}
                 onModeChange={onModeChange}
-                onAddFiles={insertMentionTrigger}
+                onAttachImages={() => imageInputRef.current?.click()}
+                onAddRepositoryContext={insertMentionTrigger}
               />
 
               <div className="h-3.5 w-px bg-zinc-800" />
 
-              <div
-                data-onboarding-target="setup-provider"
-                className={
-                  showOnboardingHighlights
-                    ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black"
-                    : undefined
-                }
-              >
+              <div>
                 <ModelPickerPopover
                   catalog={catalog}
                   credentials={credentials}
@@ -592,6 +672,16 @@ export function AgentSetup({
                   }
                 />
               </div>
+              {selectedProviderId &&
+              selectedModelId &&
+              selectedModel?.capabilities?.reasoningEfforts?.length ? (
+                <ReasoningEffortPicker
+                  providerId={selectedProviderId}
+                  modelId={selectedModelId}
+                  efforts={selectedModel.capabilities.reasoningEfforts}
+                  disabled={false}
+                />
+              ) : null}
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -623,6 +713,24 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
+              <ProjectChooser
+                currentProject={repo?.full_name}
+                projects={projects}
+                onSelect={(project) => onProjectSelect?.(project)}
+                onNewProject={() => onRepoClick?.()}
+                onNoProject={() => onNoProject?.()}
+              >
+                <button
+                  type="button"
+                  aria-label={`Select project, current project ${repoName}`}
+                  className="flex min-w-0 max-w-48 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800/50 hover:text-zinc-100"
+                >
+                  <Folder size={14} className="shrink-0" />
+                  <span className="truncate">{repoName}</span>
+                  <ChevronDown size={14} className="shrink-0 text-zinc-500" />
+                </button>
+              </ProjectChooser>
+              <div className="h-4 w-px bg-zinc-800/80" />
               <ChatBranchSelector placement="below" />
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
@@ -641,23 +749,8 @@ export function AgentSetup({
           add your provider key now.
         </div>
       ) : null}
-      {credentials.length === 0 ? (
-        <div className="mt-2 pl-2 text-xs text-zinc-500">
-          BYOK provider required before model selection.
-          <button
-            type="button"
-            onClick={() => {
-              setProviderDialogInitialTab("available");
-              setProviderDialogInitialView("default");
-              setProviderDialogVariant("connect-only");
-              setShowProviderDialog(true);
-            }}
-            className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
-          >
-            Connect provider
-          </button>
-          .
-        </div>
+      {!hasProviderConnection ? (
+        <ProviderRequiredInline onConnect={openProviderConnection} />
       ) : null}
     </motion.div>
   );
@@ -726,23 +819,26 @@ export function AgentSetup({
               </h1>
 
               {/* Project Name with Dropdown */}
-              <motion.button
-                onClick={onRepoClick}
-                data-onboarding-target="setup-repo"
-                className={`flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group ${
-                  showOnboardingHighlights
-                    ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black px-1.5 py-0.5"
-                    : ""
-                }`}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+              <ProjectChooser
+                currentProject={repo?.full_name}
+                projects={projects}
+                onSelect={(project) => onProjectSelect?.(project)}
+                onNewProject={() => onRepoClick?.()}
+                onNoProject={() => onNoProject?.()}
               >
-                <span>{repoName}</span>
-                <ChevronDown
-                  size={18}
-                  className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
-                />
-              </motion.button>
+                <motion.button
+                  type="button"
+                  className="group mt-0.5 flex items-center gap-1.5 text-2xl font-medium text-zinc-500 transition-colors duration-200 hover:text-zinc-400"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <span>{repoName}</span>
+                  <ChevronDown
+                    size={18}
+                    className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
+                  />
+                </motion.button>
+              </ProjectChooser>
             </motion.div>
 
             <div className="mb-6 w-full max-w-4xl">

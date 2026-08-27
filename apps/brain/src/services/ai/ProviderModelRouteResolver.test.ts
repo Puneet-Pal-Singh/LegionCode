@@ -3,21 +3,15 @@ import { ValidationError } from "../../domain/errors";
 import { ProviderModelRouteResolver } from "./ProviderModelRouteResolver";
 
 describe("ProviderModelRouteResolver", () => {
-  it("resolves OpenAI-compatible providers to chat completions", () => {
+  it("requires discovered route metadata for OpenCode Go", () => {
     const resolver = new ProviderModelRouteResolver();
 
-    expect(
+    expect(() =>
       resolver.resolve({
         providerId: "opencode-go",
         modelId: "opencode-go/kimi-k2.6",
       }),
-    ).toEqual({
-      providerId: "opencode-go",
-      modelId: "opencode-go/kimi-k2.6",
-      runtimeModelId: "kimi-k2.6",
-      transport: "openai-chat-completions",
-      endpoint: "https://opencode.ai/zen/go/v1/chat/completions",
-    });
+    ).toThrow(ValidationError);
   });
 
   it("resolves Google-native providers to generative transport", () => {
@@ -112,5 +106,42 @@ describe("ProviderModelRouteResolver", () => {
       runtimeModelId: "@cf/meta/llama-3.1-8b-instruct",
       transport: "openai-chat-completions",
     });
+  });
+
+  it("accepts split Workers AI and Gateway configs only for their provider", () => {
+    const resolver = new ProviderModelRouteResolver();
+    const route = {
+      providerId: "cloudflare-ai-gateway",
+      modelId: "@cf/meta/llama-3.1-8b-instruct",
+      transport: "openai-chat-completions" as const,
+      endpoint:
+        "https://api.cloudflare.com/client/v4/accounts/acct_123/ai/v1/chat/completions",
+    };
+
+    expect(
+      resolver.resolve({
+        providerId: "cloudflare-ai-gateway",
+        modelId: route.modelId,
+        connectionConfig: {
+          providerId: "cloudflare-ai-gateway",
+          accountId: "acct_123",
+          gatewayId: "gateway",
+        },
+        discoveredRoute: route,
+      }),
+    ).toMatchObject({ providerId: "cloudflare-ai-gateway" });
+
+    expect(() =>
+      resolver.resolve({
+        providerId: "cloudflare-workers-ai",
+        modelId: route.modelId,
+        connectionConfig: {
+          providerId: "cloudflare-ai-gateway",
+          accountId: "acct_123",
+          gatewayId: "gateway",
+        },
+        discoveredRoute: { ...route, providerId: "cloudflare-workers-ai" },
+      }),
+    ).toThrow("Cloudflare AI requires connection config");
   });
 });

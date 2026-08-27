@@ -32,70 +32,11 @@ describe("LanguageToolService", () => {
       metadata: { path: "src/app.ts", formatter: "prettier", changed: true },
       truncated: false,
     });
-    const command = findCommand("pnpm");
+    const command = findCommand("prettier");
     expect(command).toMatchObject({
-      args: [
-        "exec",
-        "prettier",
-        "--write",
-        "--",
-        `${WORKSPACE_ROOT}/src/app.ts`,
-      ],
+      args: ["--write", "--", `${WORKSPACE_ROOT}/src/app.ts`],
       cwd: WORKSPACE_ROOT,
     });
-  });
-
-  it("treats TypeScript exit code two as diagnostic output", async () => {
-    const sandbox = createSandbox([]);
-    mockResolvedPathAndCommand({
-      exitCode: 2,
-      stdout: [
-        "src/a.ts(1,1): error TS2322: Type mismatch",
-        "src/b.ts(2,2): error TS2304: Missing name",
-      ].join("\n"),
-      stderr: "",
-    });
-
-    const result = await new LanguageToolService().diagnostics(
-      createContext(sandbox),
-      "src/app.ts",
-    );
-
-    expect(result).toMatchObject({
-      success: true,
-      metadata: { languageService: "typescript", diagnosticCount: 2 },
-      truncated: false,
-    });
-  });
-
-  it("caps broad diagnostic output", async () => {
-    const sandbox = createSandbox([]);
-    mockResolvedPathAndCommand({
-      exitCode: 2,
-      stdout: "x".repeat(30_000),
-      stderr: "",
-    });
-
-    const result = await new LanguageToolService().diagnostics(
-      createContext(sandbox),
-      "src/app.ts",
-    );
-
-    expect(String(result.output)).toContain("[output truncated]");
-    expect(String(result.output).length).toBeLessThan(24_100);
-    expect(result.truncated).toBe(true);
-  });
-
-  it("rejects unsupported extensions before command execution", async () => {
-    const sandbox = createSandbox([]);
-
-    await expect(
-      new LanguageToolService().diagnostics(
-        createContext(sandbox),
-        "image.png",
-      ),
-    ).rejects.toThrow(/does not support/i);
-    expect(runSafeCommand).not.toHaveBeenCalled();
   });
 
   it("rejects resolved formatter paths outside the workspace", async () => {

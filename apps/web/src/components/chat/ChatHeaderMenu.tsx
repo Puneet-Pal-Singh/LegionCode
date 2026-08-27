@@ -172,7 +172,7 @@ function MenuButton({
       type="button"
       role="menuitem"
       onClick={() => void onClick()}
-      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+      className="ui-popover-item gap-2.5"
     >
       <span className="text-zinc-400">{icon}</span>
       {label}

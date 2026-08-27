@@ -407,6 +407,39 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.kind).toBe("allow");
   });
 
+  it("asks again in supervised mode after a run-scoped grant", async () => {
+    const approvalStore = new PermissionApprovalStore(
+      new MockRuntimeState(),
+      "run-risk-supervised",
+    );
+    const input = {
+      runId: "run-risk-supervised",
+      sessionId: "session-1",
+      origin: "agent" as const,
+      productMode: "ask_always" as const,
+      workflowIntent: "build" as const,
+      toolName: "write_file" as const,
+      toolArgs: { path: "src/index.ts", content: "export const ok = true;" },
+      hasMutationEvidence: true,
+      ownerUserId: "user-1",
+      approvalStore,
+    };
+
+    const first = await evaluateToolPermission(input);
+    expect(first.kind).toBe("ask");
+    if (first.kind !== "ask") {
+      throw new Error("Expected supervised mode to ask");
+    }
+
+    await approvalStore.resolveDecision(
+      { kind: "allow_for_run", requestId: first.request.requestId },
+      "user-1",
+    );
+
+    const repeated = await evaluateToolPermission(input);
+    expect(repeated.kind).toBe("ask");
+  });
+
   it("escalates repeated risky retries into dangerous_retry interruption", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-5");
 

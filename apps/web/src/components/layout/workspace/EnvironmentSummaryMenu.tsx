@@ -76,7 +76,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           branches={branches}
           currentBranch={props.branch}
           isLoading={loading}
-          className="left-2 top-[72px]"
+          className="right-[348px] top-10"
           onBranchSelect={(branch) => {
             props.onBranchChange(branch);
             setIsBranchOpen(false);
@@ -123,7 +123,7 @@ function EnvironmentPanelView({
     <div
       role="dialog"
       aria-label="Environment summary"
-      className="absolute right-0 top-10 z-50 w-[340px] rounded-xl border border-zinc-700/80 bg-[#171719] p-1.5 shadow-2xl"
+      className="ui-surface-popover absolute right-0 top-10 z-50 w-[340px] p-2"
     >
       <div className="px-2.5 py-1.5 text-xs text-zinc-400">Environment</div>
       <EnvironmentActions {...actions} />

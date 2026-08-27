@@ -60,6 +60,29 @@ describe("WorkspaceEditService", () => {
     expect(result.metadata).toMatchObject({ bytes: 3 });
   });
 
+  it("creates a new file without probing permissions on a missing target", async () => {
+    vi.mocked(runSafeCommand).mockImplementation(async (_sandbox, spec) => ({
+      exitCode: spec.command === "test" ? 1 : 0,
+      stdout:
+        spec.command === "realpath"
+          ? `${spec.args?.at(-1) ?? WORKSPACE_ROOT}\n`
+          : "",
+      stderr: "",
+    }));
+    const sandbox = createSandbox({});
+
+    const result = await new WorkspaceEditService().write(
+      createContext(sandbox),
+      { path: "local/new.txt", content: "created" },
+    );
+
+    expect(result.success).toBe(true);
+    expect(findCommand("stat")).toBeUndefined();
+    expect(findCommand("mv")?.args?.at(-1)).toBe(
+      `${WORKSPACE_ROOT}/local/new.txt`,
+    );
+  });
+
   it("rejects resolved paths outside the workspace", async () => {
     vi.mocked(runSafeCommand).mockResolvedValue({
       exitCode: 0,
@@ -110,6 +133,37 @@ describe("WorkspaceEditService", () => {
     expect(sandbox.writeFile).not.toHaveBeenCalled();
   });
 
+  it("keeps three concurrent chat edits on distinct checkout roots", async () => {
+    const roots = [
+      "/home/sandbox/checkouts/chat-one",
+      "/home/sandbox/checkouts/chat-two",
+      "/home/sandbox/checkouts/chat-three",
+    ];
+    const service = new WorkspaceEditService();
+
+    await Promise.all(
+      roots.map((workspaceRoot, index) => {
+        const sandbox = createSandbox(
+          { "src/app.ts": `const chat = ${index};\n` },
+          workspaceRoot,
+        );
+        return service.edit(createContext(sandbox, workspaceRoot), {
+          path: "src/app.ts",
+          oldText: `chat = ${index}`,
+          newText: `chat = ${index + 10}`,
+        });
+      }),
+    );
+
+    const editDestinations = vi
+      .mocked(runSafeCommand)
+      .mock.calls.filter(([, spec]) => spec.command === "mv")
+      .map(([, spec]) => spec.args?.at(-1));
+    expect(new Set(editDestinations)).toEqual(
+      new Set(roots.map((root) => `${root}/src/app.ts`)),
+    );
+  });
+
   it("rejects ambiguous single replacements", async () => {
     const sandbox = createSandbox({ "src/app.ts": "same same" });
 
@@ -157,19 +211,22 @@ describe("WorkspaceEditService", () => {
   });
 });
 
-function createContext(sandbox: Sandbox) {
+function createContext(sandbox: Sandbox, workspaceRoot = WORKSPACE_ROOT) {
   return {
     sandbox,
-    workspaceRoot: WORKSPACE_ROOT,
+    workspaceRoot,
     toolboxContext: {},
     runId: "run-edit",
   };
 }
 
-function createSandbox(files: Record<string, string>): Sandbox {
+function createSandbox(
+  files: Record<string, string>,
+  workspaceRoot = WORKSPACE_ROOT,
+): Sandbox {
   return {
     readFile: vi.fn(async (targetPath: string) => {
-      const relativePath = targetPath.replace(`${WORKSPACE_ROOT}/`, "");
+      const relativePath = targetPath.replace(`${workspaceRoot}/`, "");
       const content = files[relativePath];
       return content === undefined
         ? { success: false, content: "" }

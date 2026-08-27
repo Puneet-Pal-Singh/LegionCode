@@ -446,6 +446,54 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       );
     });
 
+    it("emits concise fallback commentary for a tool-only model response", async () => {
+      const onAssistantMessage = vi.fn();
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "",
+          parts: [],
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "README.md" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done.",
+          parts: [visiblePart("Done.", 1)],
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "readme content" },
+        completedAt: new Date(),
+      });
+
+      await loop.execute(
+        [{ role: "user", content: "inspect the readme" }],
+        {
+          read_file: {
+            description: "Read a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        {
+          agentType: "coding",
+          onAssistantMessage,
+        },
+      );
+
+      expect(onAssistantMessage).toHaveBeenCalledTimes(1);
+      expect(onAssistantMessage).toHaveBeenCalledWith(
+        "I’ll inspect the relevant project files next.",
+      );
+    });
+
     it("executes tool calls and appends tool results for next LLM step", async () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({

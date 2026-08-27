@@ -1,10 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
+import { GoogleAdapter } from "../providers/adapters/GoogleAdapter";
 import {
   createTransportAdapter,
   toOpenAICompatibleBaseURL,
 } from "./ProviderTransportAdapterFactory";
+
+const { mockCreateOpenAI } = vi.hoisted(() => ({
+  mockCreateOpenAI: vi.fn(() => vi.fn()),
+}));
+
+vi.mock("@ai-sdk/openai", () => ({
+  createOpenAI: mockCreateOpenAI,
+}));
 
 describe("ProviderTransportAdapterFactory", () => {
   it("creates a responses adapter for openai-responses routes", () => {
@@ -45,6 +54,21 @@ describe("ProviderTransportAdapterFactory", () => {
     ).toBe("https://opencode.ai/zen/go/v1");
   });
 
+  it("creates a Google adapter with the logical OpenCode provider identity", () => {
+    const adapter = createTransportAdapter(
+      {
+        providerId: "opencode-zen",
+        transport: "google-generative",
+        endpoint: "https://opencode.ai/zen/v1",
+      },
+      createEnv(),
+      "oc-test",
+    );
+
+    expect(adapter).toBeInstanceOf(GoogleAdapter);
+    expect(adapter.provider).toBe("opencode-zen");
+  });
+
   it("preserves the logical provider for OpenAI-compatible transports", () => {
     const adapter = createTransportAdapter(
       {
@@ -57,6 +81,34 @@ describe("ProviderTransportAdapterFactory", () => {
     );
 
     expect(adapter.provider).toBe("openrouter");
+  });
+
+  it("passes the trusted Cloudflare gateway ID as an SDK request header", () => {
+    createTransportAdapter(
+      {
+        providerId: "cloudflare-ai",
+        transport: "openai-chat-completions",
+        endpoint:
+          "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
+      },
+      createEnv(),
+      "cf-test",
+      {
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        gatewayId: "gateway-123",
+        routeMode: "ai-gateway",
+      },
+    );
+
+    expect(mockCreateOpenAI).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        apiKey: "cf-test",
+        baseURL:
+          "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1",
+        headers: { "cf-aig-gateway-id": "gateway-123" },
+      }),
+    );
   });
 
   it("rejects unwired transports", () => {

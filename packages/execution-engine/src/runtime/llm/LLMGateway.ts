@@ -21,6 +21,7 @@ import type {
 } from "./types.js";
 import {
   LegacyProviderTranscriptPartNormalizer,
+  type ProviderTranscriptPart,
   type TranscriptPartNormalizer,
 } from "./TranscriptPartNormalizer.js";
 import { describeLLMFailure } from "./LLMFailureDiagnostic.js";
@@ -33,6 +34,17 @@ const DEFAULT_FILE_INPUT_TOKENS = DEFAULT_IMAGE_INPUT_TOKENS;
 const DEFAULT_UNKNOWN_PART_TOKENS = 1;
 const DEFAULT_COMPLETION_TOKENS = 500;
 const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
+
+function extractSafeReasoningSummary(
+  parts: readonly ProviderTranscriptPart[] | undefined,
+): LLMTextResponse["reasoningSummary"] {
+  const summary = parts?.find(
+    (part) =>
+      part.type === "reasoning" && part.displaySafe === true && part.text?.trim(),
+  )?.text?.trim();
+  if (!summary) return undefined;
+  return { text: summary.slice(0, 16_000), displaySafe: true };
+}
 const FAST_TASK_TEXT_TIMEOUT_MS = 60_000;
 const STANDARD_TASK_TEXT_TIMEOUT_MS = 90_000;
 const SLOW_TASK_TEXT_TIMEOUT_MS = 150_000;
@@ -157,6 +169,7 @@ export class LLMGateway implements ILLMGateway {
           providerTransport: req.providerTransport,
           providerEndpoint: req.providerEndpoint,
           temperature: req.temperature,
+          reasoningEffort: req.reasoningEffort,
           system: req.system,
           tools: req.tools,
           signal: req.signal,
@@ -253,6 +266,7 @@ export class LLMGateway implements ILLMGateway {
       usage: measuredUsage,
       finishReason: result.finishReason,
       toolCalls,
+      reasoningSummary: extractSafeReasoningSummary(result.transcriptParts),
     };
   }
 
@@ -387,6 +401,7 @@ export class LLMGateway implements ILLMGateway {
       providerTransport: req.providerTransport,
       providerEndpoint: req.providerEndpoint,
       temperature: req.temperature,
+      reasoningEffort: req.reasoningEffort,
       onFinish: async (finalResult) => {
         const usage = this.normalizeUsage(finalResult.usage, req.model);
         await persistOnce(usage);

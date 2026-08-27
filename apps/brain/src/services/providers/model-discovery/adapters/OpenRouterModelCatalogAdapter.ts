@@ -7,6 +7,7 @@ import type {
   BYOKModelOutputModality,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
+import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts";
 import type {
   ProviderModelCredentialContext,
   OpenRouterDiscoveryCategory,
@@ -36,41 +37,81 @@ const OPENROUTER_NON_MODEL_LINK_PREFIXES = new Set([
   "settings",
 ]);
 
+const OpenRouterModelSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().optional(),
+    slug: z.string().optional(),
+    canonical_slug: z.string().optional(),
+    description: z.string().optional(),
+    context_length: z.number().int().positive().optional(),
+    pricing: z
+      .object({
+        prompt: z.string().optional(),
+        completion: z.string().optional(),
+        input_cache_read: z
+          .string()
+          .nullish()
+          .transform((value) => value ?? undefined),
+        input_cache_write: z
+          .string()
+          .nullish()
+          .transform((value) => value ?? undefined),
+        overrides: z
+          .array(
+            z.object({
+              min_prompt_tokens: z.number().int().nonnegative().optional(),
+              prompt: z.string().optional(),
+              completion: z.string().optional(),
+              input_cache_read: z.string().optional(),
+              input_cache_write: z.string().optional(),
+            }),
+          )
+          .nullish()
+          .transform((value) => value ?? undefined),
+      })
+      .partial()
+      .optional(),
+    supported_parameters: z.array(z.string()).optional(),
+    reasoning_efforts: z.array(z.string().min(1)).optional(),
+    reasoningEfforts: z.array(z.string().min(1)).optional(),
+    architecture: z
+      .object({
+        input_modalities: z.array(z.string()).optional(),
+        modality: z.union([z.string(), z.array(z.string())]).optional(),
+        output_modalities: z.array(z.string()).optional(),
+      })
+      .partial()
+      .optional(),
+    settings: z
+      .object({
+        structured_outputs: z.boolean().optional(),
+        reasoning: z.boolean().optional(),
+        reasoning_efforts: z.array(z.string().min(1)).optional(),
+        reasoningEfforts: z.array(z.string().min(1)).optional(),
+      })
+      .partial()
+      .optional(),
+    expires_at: z.string().min(1).optional(),
+    expiration_date: z
+      .string()
+      .min(1)
+      .nullish()
+      .transform((value) => value ?? undefined),
+    reasoning: z
+      .object({
+        supported_efforts: z.array(z.string().min(1)).optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
 const OpenRouterModelsEnvelopeSchema = z.object({
-  data: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string().optional(),
-      slug: z.string().optional(),
-      description: z.string().optional(),
-      context_length: z.number().int().positive().optional(),
-      pricing: z
-        .object({
-          prompt: z.string().optional(),
-          completion: z.string().optional(),
-        })
-        .partial()
-        .optional(),
-      supported_parameters: z.array(z.string()).optional(),
-      architecture: z
-        .object({
-          input_modalities: z.array(z.string()).optional(),
-          modality: z.union([z.string(), z.array(z.string())]).optional(),
-          output_modalities: z.array(z.string()).optional(),
-        })
-        .partial()
-        .optional(),
-      settings: z
-        .object({
-          structured_outputs: z.boolean().optional(),
-          reasoning: z.boolean().optional(),
-        })
-        .partial()
-        .optional(),
-      expires_at: z.string().datetime().optional(),
-    }),
-  ),
+  data: z.array(z.unknown()),
 });
+
+type OpenRouterModelPayload = z.infer<typeof OpenRouterModelSchema>;
 
 export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
   async fetchAll(
@@ -84,7 +125,10 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
       );
     }
 
-    const response = await requestOpenRouterModels(credentialContext.apiKey);
+    const response = await requestOpenRouterModels(
+      credentialContext.apiKey,
+      credentialContext.outputModalities ?? "text",
+    );
     const payload = await parseOpenRouterModels(response);
     return payload.data.map((entry) => toDiscoveredModel(entry));
   }
@@ -186,7 +230,7 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
 }
 
 function toDiscoveredModel(
-  entry: z.infer<typeof OpenRouterModelsEnvelopeSchema>["data"][number],
+  entry: OpenRouterModelPayload,
 ): BYOKDiscoveredProviderModel {
   const fetchedAt = new Date().toISOString();
   return {
@@ -195,7 +239,7 @@ function toDiscoveredModel(
     providerId: "openrouter",
     contextWindow: entry.context_length,
     pricing: toPricing(entry.pricing),
-    canonicalSlug: entry.slug,
+    canonicalSlug: entry.canonical_slug ?? entry.slug,
     description: entry.description,
     supportedParameters: entry.supported_parameters,
     inputModalities: toInputModalities(entry.architecture),
@@ -204,9 +248,14 @@ function toDiscoveredModel(
       entry.supported_parameters,
       entry.settings,
       entry.architecture,
+      entry.reasoning_efforts ??
+        entry.reasoningEfforts ??
+        entry.reasoning?.supported_efforts ??
+        entry.settings?.reasoning_efforts ??
+        entry.settings?.reasoningEfforts,
     ),
     capabilityMetadata: toCapabilityMetadata(entry.architecture, fetchedAt),
-    expirationDate: entry.expires_at,
+    expirationDate: toExpirationDate(entry.expiration_date ?? entry.expires_at),
   };
 }
 
@@ -225,16 +274,33 @@ function toCapabilities(
         output_modalities?: string[] | undefined;
       }
     | undefined,
+  providerReasoningEfforts: string[] | undefined,
 ): BYOKModelCapability | undefined {
-  if (!parameters?.length && !settings && !architecture) {
+  if (
+    !parameters?.length &&
+    !settings &&
+    !architecture &&
+    !providerReasoningEfforts?.length
+  ) {
     return undefined;
   }
   const inputModalities = toInputModalities(architecture);
+  const supportsReasoning =
+    settings?.reasoning === true ||
+    parameters?.some((parameter) =>
+      ["reasoning", "reasoning_effort"].includes(parameter),
+    ) === true;
+  const reasoningEfforts = normalizeReasoningEfforts(providerReasoningEfforts);
   return {
     supportsTools: supportsTools(parameters),
     supportsVision: inputModalities?.image,
     supportsStructuredOutputs: settings?.structured_outputs,
-    supportsReasoning: settings?.reasoning,
+    supportsReasoning,
+    ...(reasoningEfforts.length > 0
+      ? {
+          reasoningEfforts,
+        }
+      : {}),
   };
 }
 
@@ -312,6 +378,15 @@ function toPricing(
     | {
         prompt?: string | undefined;
         completion?: string | undefined;
+        input_cache_read?: string | undefined;
+        input_cache_write?: string | undefined;
+        overrides?: Array<{
+          min_prompt_tokens?: number;
+          prompt?: string | undefined;
+          completion?: string | undefined;
+          input_cache_read?: string | undefined;
+          input_cache_write?: string | undefined;
+        }>;
       }
     | undefined,
 ) {
@@ -320,12 +395,46 @@ function toPricing(
   }
   const inputPer1M = parsePer1M(pricing.prompt);
   const outputPer1M = parsePer1M(pricing.completion);
-  if (inputPer1M === undefined && outputPer1M === undefined) {
+  const cacheReadPer1M = parsePer1M(pricing.input_cache_read);
+  const cacheWritePer1M = parsePer1M(pricing.input_cache_write);
+  const tiers = pricing.overrides
+    ?.map((override) => {
+      if (override.min_prompt_tokens === undefined) {
+        return undefined;
+      }
+      const tierInput = parsePer1M(override.prompt);
+      const tierOutput = parsePer1M(override.completion);
+      if (tierInput === undefined || tierOutput === undefined) {
+        return undefined;
+      }
+      const tierCacheRead = parsePer1M(override.input_cache_read);
+      const tierCacheWrite = parsePer1M(override.input_cache_write);
+      return {
+        minimumContextTokens: override.min_prompt_tokens,
+        inputPer1M: tierInput,
+        outputPer1M: tierOutput,
+        ...(tierCacheRead !== undefined
+          ? { cacheReadPer1M: tierCacheRead }
+          : {}),
+        ...(tierCacheWrite !== undefined
+          ? { cacheWritePer1M: tierCacheWrite }
+          : {}),
+      };
+    })
+    .filter((tier): tier is NonNullable<typeof tier> => tier !== undefined);
+  if (
+    inputPer1M === undefined &&
+    outputPer1M === undefined &&
+    (tiers?.length ?? 0) === 0
+  ) {
     return undefined;
   }
   return {
-    inputPer1M,
-    outputPer1M,
+    ...(inputPer1M !== undefined ? { inputPer1M } : {}),
+    ...(outputPer1M !== undefined ? { outputPer1M } : {}),
+    ...(cacheReadPer1M !== undefined ? { cacheReadPer1M } : {}),
+    ...(cacheWritePer1M !== undefined ? { cacheWritePer1M } : {}),
+    ...(tiers?.length ? { tiers } : {}),
     currency: "USD",
   };
 }
@@ -339,6 +448,14 @@ function parsePer1M(raw: string | undefined): number | undefined {
     return undefined;
   }
   return asNumber * 1_000_000;
+}
+
+function toExpirationDate(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? `${raw}T00:00:00.000Z`
+    : raw;
+  return Number.isNaN(Date.parse(normalized)) ? undefined : normalized;
 }
 
 function supportsTools(parameters: string[] | undefined): boolean | undefined {
@@ -355,14 +472,21 @@ function normalizeModalities(
     return [];
   }
   if (Array.isArray(modalities)) {
-    return modalities.map((value) => value.toLowerCase());
+    return modalities.map(normalizeModality);
   }
   return modalities
     .toLowerCase()
     .replace(/->/g, "+")
     .split("+")
     .map((value) => value.trim())
+    .map(normalizeModality)
     .filter((value) => value.length > 0);
+}
+
+function normalizeModality(value: string): string {
+  return value.trim().toLowerCase() === "pdf"
+    ? "file"
+    : value.trim().toLowerCase();
 }
 
 function parseCursor(cursor: string | undefined): number {
@@ -379,8 +503,13 @@ function parseCursor(cursor: string | undefined): number {
   return parsed;
 }
 
-async function requestOpenRouterModels(apiKey: string): Promise<Response> {
-  return makeOpenRouterRequest(OPENROUTER_MODELS_ENDPOINT, apiKey);
+async function requestOpenRouterModels(
+  apiKey: string,
+  outputModalities: "text" | "all",
+): Promise<Response> {
+  const endpoint = new URL(OPENROUTER_MODELS_ENDPOINT);
+  endpoint.searchParams.set("output_modalities", outputModalities);
+  return makeOpenRouterRequest(endpoint.toString(), apiKey);
 }
 
 async function requestOpenRouterUserModels(apiKey: string): Promise<Response> {
@@ -446,7 +575,7 @@ async function makeOpenRouterRequest(
 
 async function parseOpenRouterModels(
   response: Response,
-): Promise<z.infer<typeof OpenRouterModelsEnvelopeSchema>> {
+): Promise<{ data: OpenRouterModelPayload[] }> {
   let payload: unknown;
   try {
     payload = await response.json();
@@ -462,7 +591,16 @@ async function parseOpenRouterModels(
       "OpenRouter models response failed schema validation.",
     );
   }
-  return parsed.data;
+  const data = parsed.data.data.flatMap((entry) => {
+    const model = OpenRouterModelSchema.safeParse(entry);
+    return model.success ? [model.data] : [];
+  });
+  if (parsed.data.data.length > 0 && data.length === 0) {
+    throw new ProviderModelNormalizationError(
+      "OpenRouter models response contained no valid model entries.",
+    );
+  }
+  return { data };
 }
 
 async function parseTextResponse(response: Response): Promise<string> {

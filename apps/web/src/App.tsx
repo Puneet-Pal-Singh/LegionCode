@@ -11,7 +11,7 @@ import {
   GitHubContextProvider,
   useGitHub,
 } from "./components/github/GitHubContextProvider";
-import { RepoPicker } from "./components/github/RepoPicker";
+import { AuthorizedRepositoryPicker } from "./components/github/AuthorizedRepositoryPicker";
 import type {
   Repository,
   WorkspaceListItem,
@@ -25,29 +25,38 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
-import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import {
   isSessionContextPending,
   resolveShellStartupState,
 } from "./lib/startup-shell-state";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
-import { LockedShellCard } from "./components/startup/LockedShellCard";
 import { AuthShellLoading } from "./components/startup/AuthShellLoading";
 import type { SetupSessionState } from "./types/session";
-import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
+import { GitHubSignInPage } from "./components/onboarding/GitHubSignInPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
 import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
+import {
+  createInitialPromptSubmissionId,
+  type InitialPromptSubmission,
+} from "./lib/initial-prompt-submission";
+import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
+import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
 
-function buildOnboardingSeenKey(userId: string | null): string {
-  if (!userId) {
-    return "shadowbox:startup-onboarding:seen:anonymous";
-  }
-  return `shadowbox:startup-onboarding:seen:${userId}`;
+const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
+const MIN_RIGHT_SIDEBAR_WIDTH = 420;
+const MAX_RIGHT_SIDEBAR_WIDTH = 720;
+
+function getInitialRightSidebarWidth(): number {
+  const availableWidth = window.innerWidth - DEFAULT_LEFT_SIDEBAR_WIDTH;
+  return Math.max(
+    MIN_RIGHT_SIDEBAR_WIDTH,
+    Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
+  );
 }
 
 function buildRepositoryFromWorkspace(
@@ -173,6 +182,7 @@ function AppContent() {
     unpinSession,
     archiveSession,
     unarchiveSession,
+    acknowledgeSession,
     updateSession,
     repositories,
     removeRepository,
@@ -188,13 +198,16 @@ function AppContent() {
     clearContext,
     saveSessionContext,
   } = useGitHub();
+  const workspaceSelectionBootstrapStatus = useWorkspaceSelectionBootstrap({
+    enabled: isAuthenticated && !isLoading,
+    currentRepository: repo,
+    setContext,
+  });
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
   );
-  const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
-    usePendingApprovalStateBySession();
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
   const [summaryActionRequest, setSummaryActionRequest] = useState<{
     id: number;
@@ -232,19 +245,6 @@ function AppContent() {
     },
     [activeSessionId],
   );
-  const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
-    useState(false);
-  const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
-    try {
-      const key = buildOnboardingSeenKey(user?.id ?? null);
-      return localStorage.getItem(key) === "true";
-    } catch (error) {
-      console.warn("[App] Failed to read onboarding seen state:", error);
-      return false;
-    }
-  });
-  const [isOnboardingReopened, setIsOnboardingReopened] =
-    useState<boolean>(false);
   const [isWorkspaceContextRepairing, setIsWorkspaceContextRepairing] =
     useState(false);
   const workspaceContextRepairGenerationRef = useRef(0);
@@ -262,38 +262,6 @@ function AppContent() {
     },
     [],
   );
-  useEffect(() => {
-    let cancelled = false;
-    try {
-      const key = buildOnboardingSeenKey(user?.id ?? null);
-      const nextValue = localStorage.getItem(key) === "true";
-      window.setTimeout(() => {
-        if (cancelled) {
-          return;
-        }
-        setHasSeenOnboarding(nextValue);
-      }, 0);
-    } catch (error) {
-      console.warn("[App] Failed to hydrate onboarding seen state:", error);
-      window.setTimeout(() => {
-        if (cancelled) {
-          return;
-        }
-        setHasSeenOnboarding(false);
-      }, 0);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-  const persistOnboardingSeen = useCallback(() => {
-    try {
-      const key = buildOnboardingSeenKey(user?.id ?? null);
-      localStorage.setItem(key, "true");
-    } catch (error) {
-      console.warn("[App] Failed to persist onboarding seen state:", error);
-    }
-  }, [user]);
   const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
   const openSettingsDialog = useCallback(
@@ -648,24 +616,17 @@ function AppContent() {
   ]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { isCompact, isMobile } = useWorkspaceViewport();
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
-  const [sidebarWidth, setSidebarWidth] = useState(320);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
-  const [initialPromptSubmission, setInitialPromptSubmission] = useState<{
-    id: string;
-    sessionId: string;
-    prompt: string;
-  } | null>(null);
-
-  const scopedApprovalStatesBySessionId = useMemo(() => {
-    const validSessionIds = new Set(sessions.map((session) => session.id));
-    const nextEntries = Object.entries(approvalStatesBySessionId).filter(
-      ([sessionId]) => validSessionIds.has(sessionId),
-    );
-    return Object.fromEntries(nextEntries);
-  }, [approvalStatesBySessionId, sessions]);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_LEFT_SIDEBAR_WIDTH);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+    getInitialRightSidebarWidth,
+  );
+  const [initialPromptSubmission, setInitialPromptSubmission] = useState<
+    (InitialPromptSubmission & { sessionId: string }) | null
+  >(null);
 
   useEffect(() => {
     localStorage.setItem(
@@ -673,6 +634,15 @@ function AppContent() {
       String(isRightSidebarOpen),
     );
   }, [isRightSidebarOpen]);
+
+  useEffect(() => {
+    if (!isCompact) return;
+    const frame = requestAnimationFrame(() => {
+      setIsSidebarOpen(false);
+      setIsRightSidebarOpen(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isCompact]);
 
   useEffect(() => {
     localStorage.setItem("shadowbox_active_tab", activeTab);
@@ -699,9 +669,9 @@ function AppContent() {
     !!isSessionStarted;
   const hasProviderConnection = isAuthenticated && credentials.length > 0;
   const hasRealSession = sessions.length > 0;
-  const hasRepoContext = sessions.some(
-    (session) => (session.repository?.trim() ?? "").length > 0,
-  );
+  const hasRepoContext =
+    Boolean(repo?.full_name) ||
+    sessions.some((session) => (session.repository?.trim() ?? "").length > 0);
   const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(
     () =>
@@ -726,62 +696,6 @@ function AppContent() {
     (shellStartupState === "shell_authenticated_setup" ||
       shellStartupState === "shell_authenticated_repo_missing");
   const isPreparingSetupShell = showShellSetupSurface && setupSession === null;
-  const isStartupSetupVisible =
-    showSetup || (showShellSetupSurface && setupSession !== null);
-  const isOnboardingComplete = hasProviderConnection && hasRepoContext;
-  const shouldOfferOnboardingOverlay =
-    isAuthenticated && isStartupSetupVisible && !isOnboardingComplete;
-  const showOnboardingOverlay =
-    shouldOfferOnboardingOverlay &&
-    !isPreparingSetupShell &&
-    ((isOnboardingReopened && isOnboardingOverlayDelayElapsed) ||
-      (!hasSeenOnboarding && isOnboardingOverlayDelayElapsed));
-  const showOnboardingReopenButton =
-    shouldOfferOnboardingOverlay &&
-    hasSeenOnboarding &&
-    !showOnboardingOverlay &&
-    !isPreparingSetupShell;
-  const onboardingWasShownRef = useRef(false);
-  useEffect(() => {
-    onboardingWasShownRef.current = false;
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!shouldOfferOnboardingOverlay) {
-      onboardingWasShownRef.current = false;
-      window.setTimeout(() => {
-        setIsOnboardingReopened(false);
-      }, 0);
-    }
-  }, [shouldOfferOnboardingOverlay]);
-
-  useEffect(() => {
-    if (!showOnboardingOverlay || onboardingWasShownRef.current) {
-      return;
-    }
-    onboardingWasShownRef.current = true;
-    if (!hasSeenOnboarding) {
-      persistOnboardingSeen();
-    }
-  }, [hasSeenOnboarding, persistOnboardingSeen, showOnboardingOverlay]);
-
-  useEffect(() => {
-    if (!shouldOfferOnboardingOverlay) {
-      return;
-    }
-
-    if (isOnboardingOverlayDelayElapsed) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setIsOnboardingOverlayDelayElapsed(true);
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [isOnboardingOverlayDelayElapsed, shouldOfferOnboardingOverlay]);
 
   // Get active session name for the header
   const taskTitle = activeSession?.name;
@@ -824,28 +738,12 @@ function AppContent() {
     setShowRepoPicker(true);
   };
 
-  const handleOpenProviderSetup = () => {
-    openSettingsDialog("connect");
-  };
-
   useEffect(() => {
     return subscribeToOpenSettingsDialog((section) => {
       openSettingsDialog(section);
     });
   }, [openSettingsDialog]);
 
-  const handleDismissOnboardingOverlay = () => {
-    setIsOnboardingOverlayDelayElapsed(false);
-    setIsOnboardingReopened(false);
-    setHasSeenOnboarding(true);
-    persistOnboardingSeen();
-  };
-
-  const handleReopenOnboardingOverlay = () => {
-    setIsOnboardingReopened(true);
-    setIsOnboardingOverlayDelayElapsed(true);
-    onboardingWasShownRef.current = true;
-  };
   const handleNewTask = (repositoryName?: string) => {
     if (!isAuthenticated) {
       login();
@@ -893,6 +791,16 @@ function AppContent() {
     }
   };
 
+  const handleChooseExistingProject = (repository: string) => {
+    handleNewTask(repository);
+  };
+
+  const handleChooseNoProject = () => {
+    clearContext();
+    clearSetupSessionState();
+    createSession("New Task", "New Project");
+  };
+
   const focusReviewSidebar = () => {
     setReviewSidebarFocusRequest((previous) => previous + 1);
   };
@@ -922,6 +830,8 @@ function AppContent() {
       setGitReviewSessionId(null);
     }
     setActiveSessionId(sessionId);
+    void acknowledgeSession(sessionId);
+    if (isCompact) setIsSidebarOpen(false);
   };
 
   /**
@@ -944,7 +854,7 @@ function AppContent() {
           },
         }),
       );
-      return;
+      throw error;
     }
 
     setIsGitReviewOpen(false);
@@ -966,57 +876,81 @@ function AppContent() {
     });
   };
 
-  /**
-   * Handle skip - allow user to proceed without GitHub
-   */
-  const handleSkipRepoPicker = () => {
-    setShowRepoPicker(false);
-  };
-
   const isSessionContextLoading = isSessionContextPending({
     isAuthenticated,
     isAuthLoading: isLoading,
     sessionHydrationStatus,
   });
   const isShellContextLoading =
-    isLoading || isSessionContextLoading || isWorkspaceContextRepairing;
+    isLoading ||
+    isSessionContextLoading ||
+    isWorkspaceContextRepairing ||
+    workspaceSelectionBootstrapStatus === "loading";
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
     return <AuthShellLoading />;
   }
 
+  if (!isAuthenticated) {
+    return <GitHubSignInPage onLogin={login} />;
+  }
+
+  if (!hasRepoContext) {
+    return <AuthorizedRepositoryPicker onRepoSelect={handleRepoSelect} />;
+  }
+
   return (
-    <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
+    <div className="h-dvh w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
-        <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
-          <AgentSidebar
-            sessions={sessions}
-            repositories={repositories}
-            activeSessionId={activeSessionId}
-            approvalStatesBySessionId={scopedApprovalStatesBySessionId}
-            onSelect={handleSelectSession}
-            onCreate={handleNewTask}
-            onRemove={removeSession}
-            onRemoveRepository={removeRepository}
-            onRenameRepository={renameRepository}
-            onClose={handleToggleSidebar}
-            onAddRepository={handleOpenRepositoryPicker}
-            onOpenSettings={() => openSettingsDialog("general")}
-            accountUser={user}
-            onLogout={logout}
-            width={sidebarWidth}
-          />
-          <Resizer
-            side="left"
-            onResize={(delta) =>
-              setSidebarWidth((prev) =>
-                Math.max(160, Math.min(520, prev + delta)),
-              )
+        <>
+          {isCompact ? (
+            <button
+              type="button"
+              aria-label="Close sidebar overlay"
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 z-[70] bg-black/65 backdrop-blur-[2px]"
+            />
+          ) : null}
+          <div
+            className={
+              isCompact
+                ? "fixed inset-y-0 left-0 z-[80] flex max-w-[calc(100vw-3rem)] shadow-[24px_0_70px_rgba(0,0,0,0.65)]"
+                : "relative flex shrink-0"
             }
-          />
-        </div>
+            style={{
+              width: isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth,
+            }}
+          >
+            <AgentSidebar
+              sessions={sessions}
+              repositories={repositories}
+              activeSessionId={activeSessionId}
+              onSelect={handleSelectSession}
+              onCreate={handleNewTask}
+              onRemove={removeSession}
+              onRemoveRepository={removeRepository}
+              onRenameRepository={renameRepository}
+              onClose={handleToggleSidebar}
+              onAddRepository={handleOpenRepositoryPicker}
+              onOpenSettings={() => openSettingsDialog("general")}
+              accountUser={user}
+              onLogout={logout}
+              width={sidebarWidth}
+            />
+            {!isCompact ? (
+              <Resizer
+                side="left"
+                onResize={(delta) =>
+                  setSidebarWidth((prev) =>
+                    Math.max(160, Math.min(520, prev + delta)),
+                  )
+                }
+              />
+            ) : null}
+          </div>
+        </>
       )}
 
       {/* Main Content Area with Top NavBar */}
@@ -1057,23 +991,14 @@ function AppContent() {
                 }
               : undefined
           }
+          isCompact={isCompact}
+          isMobile={isMobile}
         />
 
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative bg-black">
           <AnimatePresence initial={false} mode="wait">
-            {shellStartupState === "shell_locked_unauthenticated" ? (
-              <motion.div
-                key="locked-shell"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="absolute inset-0"
-              >
-                <LockedShellCard onLogin={login} />
-              </motion.div>
-            ) : showSetup ? (
+            {showSetup ? (
               <motion.div
                 key={`setup-${activeSessionId}`}
                 initial={{ opacity: 0 }}
@@ -1094,17 +1019,24 @@ function AppContent() {
                     }
                     isRightSidebarOpen={isRightSidebarOpen}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
-                    showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
+                    projects={repositories.filter(
+                      (repository) => repository !== "New Project",
+                    )}
+                    onProjectSelect={handleChooseExistingProject}
+                    onNoProject={handleChooseNoProject}
                     onStart={(config) => {
                       updateSession(activeSessionId, {
                         status: "running",
                         mode: config.mode,
                       });
                       setInitialPromptSubmission({
-                        id: crypto.randomUUID(),
+                        id: createInitialPromptSubmissionId(
+                          crypto.randomUUID(),
+                        ),
                         sessionId: activeSessionId,
                         prompt: config.task,
+                        attachments: config.attachments,
                       });
                     }}
                   />
@@ -1128,8 +1060,12 @@ function AppContent() {
                     isRightSidebarOpen={isRightSidebarOpen}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     requiresRepository
-                    showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
+                    projects={repositories.filter(
+                      (repository) => repository !== "New Project",
+                    )}
+                    onProjectSelect={handleChooseExistingProject}
+                    onNoProject={handleChooseNoProject}
                     onStart={() => {
                       handleOpenRepositoryPicker();
                     }}
@@ -1138,7 +1074,7 @@ function AppContent() {
               </motion.div>
             ) : showWorkspace ? (
               <motion.div
-                key="workspace"
+                key={`workspace-${activeSessionId}-${activeSession.activeRunId}`}
                 initial={false}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 1 }}
@@ -1146,7 +1082,11 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <Workspace
+                  key={`${activeSessionId}:${activeSession.activeRunId}`}
                   sessionId={activeSessionId}
+                  sessionTitle={activeSession.name}
+                  sessionCreatedAt={activeSession.createdAt}
+                  sessionUpdatedAt={activeSession.updatedAt}
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}
                   mode={activeSession?.mode}
@@ -1156,7 +1096,13 @@ function AppContent() {
                     updateSession(activeSessionId, { mode })
                   }
                   onSessionStatusChange={(status) => {
-                    updateSession(activeSessionId, { status });
+                    // Lifecycle replay changes status, but it is not new task
+                    // activity. The server thread projection owns ordering.
+                    updateSession(
+                      activeSessionId,
+                      { status },
+                      { preserveActivityTimestamp: true },
+                    );
                     if (status === "completed" || status === "failed") {
                       void refreshSessionProjection(activeSessionId);
                     }
@@ -1176,11 +1122,8 @@ function AppContent() {
                       updateSession(activeSessionId, { status: "running" });
                     }
                   }}
-                  onPendingApprovalStateChange={(hasPendingApproval) => {
-                    handlePendingApprovalStateChange(
-                      activeSessionId,
-                      hasPendingApproval,
-                    );
+                  onServerProjectionAvailable={() => {
+                    void refreshSessionProjection(activeSessionId);
                   }}
                   onHookSettingsContextChange={handleHookSettingsContextChange}
                   isRightSidebarOpen={isRightSidebarOpen}
@@ -1197,6 +1140,7 @@ function AppContent() {
                   }}
                   onTabChange={setActiveTab}
                   summaryActionRequest={summaryActionRequest}
+                  onOpenRepositoryPicker={handleOpenRepositoryPicker}
                 />
               </motion.div>
             ) : isPreparingSetupShell ? (
@@ -1221,38 +1165,22 @@ function AppContent() {
             )}
           </AnimatePresence>
 
-          {showOnboardingOverlay ? (
-            <StartupOnboardingOverlay
-              isRepositoryStepComplete={hasRepoContext}
-              isProviderStepComplete={hasProviderConnection}
-              onOpenRepositoryPicker={handleOpenRepositoryPicker}
-              onOpenProviderSetup={handleOpenProviderSetup}
-              onDismiss={handleDismissOnboardingOverlay}
-            />
-          ) : null}
-
-          {showOnboardingReopenButton ? (
-            <button
-              type="button"
-              onClick={handleReopenOnboardingOverlay}
-              className="absolute bottom-5 right-5 z-20 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
-            >
-              Show setup guide
-            </button>
-          ) : null}
-
           {showRepoPicker && isAuthenticated ? (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-              <RepoPicker
+              <AuthorizedRepositoryPicker
                 onRepoSelect={handleRepoSelect}
-                onSkip={handleSkipRepoPicker}
+                onClose={() => setShowRepoPicker(false)}
               />
             </div>
           ) : null}
 
           <SettingsDialog
             isOpen={isSettingsDialogOpen}
-            runId={isAuthenticated ? providerScopeRunId : undefined}
+            runId={
+              isAuthenticated
+                ? (activeSessionId ?? providerScopeRunId)
+                : undefined
+            }
             workspaceId={
               hookSettingsContext?.sessionId === activeSessionId
                 ? hookSettingsContext.workspaceId

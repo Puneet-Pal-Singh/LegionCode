@@ -1,40 +1,68 @@
 ---
 title: System architecture
-description: Understand the public architecture behind the hosted workspace and self-hosted development stack.
+description: Understand the public architecture behind LegionCode clients, runtime, execution, and review.
 category: Architecture
 toc:
+  - id: core-model
+    text: Core model
   - id: service-boundaries
     text: Service boundaries
   - id: request-flow
     text: Request flow
+  - id: execution-backends
+    text: Execution backends
   - id: self-hosting-notes
     text: Self-hosting notes
 ---
 
-LegionCode separates the browser workspace from the services that authenticate users, coordinate runs, and execute repository commands. That separation keeps review, policy, and execution responsibilities clear.
+LegionCode is designed around one runtime, one protocol, one lifecycle log, one workspace authority, and one Git owner. Web, Desktop, and CLI clients use the same runtime model.
+
+## Core model
+
+LegionCode keeps its main identities separate:
+
+- A **workspace** is the repository and execution environment.
+- A **task** is a durable conversation. It is also called a thread or session in protocol and adapter code.
+- A **turn** is one user request and its response.
+- A **run attempt** is one execution attempt for a turn.
+- A **tool call** is one recorded action inside a run attempt.
+- An **artifact** is a durable result, such as a finalized diff.
+
+A retry creates another run attempt for the same turn. It does not create a second task or replace the original history.
 
 ## Service boundaries
 
-| Area          | Responsibility                                           |
-| ------------- | -------------------------------------------------------- |
-| Web workspace | User interface, review surface, and browser state        |
-| API service   | Authentication, workspace policy, provider selection     |
-| Secure runner | Repository checkout, command execution, tools, and Git   |
-| Persistence   | Users, repositories, runs, credentials, and review state |
-| Public site   | Landing page, docs, changelog, and edge routing          |
+| Area                      | Responsibility                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| Clients                   | Send commands and render lifecycle, transcript, and review projections                     |
+| Platform SDK and protocol | Share typed commands, events, replay, and projections across clients                       |
+| Brain control plane       | Authenticate requests, apply product access rules, and route provider and runtime commands |
+| Runtime kernel            | Own turn, tool, approval, artifact, and terminal lifecycle events                          |
+| Secure runtime            | Execute filesystem, command, and Git operations through a scoped workspace backend         |
+| Persistence               | Store lifecycle events, transcripts, artifacts, credentials, and product records           |
 
-The browser does not execute repository commands. The secure runner does not decide product access or provider policy. The API service coordinates the run and records the state needed for review.
+Clients do not infer whether a turn completed, failed, stopped, or needs approval. They render the state produced by the runtime and reconstructed from durable records.
 
 ## Request flow
 
-1. The browser sends an authenticated request to start or continue a run.
-2. The API service validates the user, repository, branch, provider, and model.
-3. The secure runner prepares the isolated workspace and executes approved tools.
-4. Streaming events update the conversation and review surface.
-5. Changed files and artifacts remain attached to the run for inspection.
+1. A client sends an authenticated command through the platform SDK.
+2. Brain validates access, repository context, provider, and model selection.
+3. The runtime opens or resumes the workspace and starts a turn.
+4. Approved tool calls run through the selected execution backend.
+5. The runtime records lifecycle events through one append path.
+6. Clients render durable replay and live continuation from the same lifecycle.
+7. A completed turn produces a finalized artifact for review.
+
+## Execution backends
+
+Cloud and local execution use the same backend contract. The backend can open a workspace, execute a tool, stream progress, interrupt work, read an artifact, and release the workspace.
+
+The hosted cloud path uses the secure-agent API and Cloudflare Sandbox. Desktop local execution will implement the same contract without creating a separate lifecycle or review model.
+
+Agent harnesses such as Codex, OpenCode, and Claude Code connect through adapters. An adapter translates the harness into LegionCode commands and events; it does not own lifecycle, approvals, persistence, Git, or workspace truth.
 
 ## Self-hosting notes
 
-The repository is a pnpm monorepo with separate applications for the public site, documentation, workspace UI, API service, and secure runner. Local development runs those services on separate ports; production deploys them as Cloudflare Workers and Pages projects.
+LegionCode is a pnpm monorepo with separate applications for the public site, documentation, workspace UI, Brain control plane, and secure cloud runtime. Local development runs these services separately. Production deploys the hosted services on Cloudflare.
 
-If you self-host, keep the same boundary: the browser talks to the API service, the API service coordinates execution, and repository commands run only through the secure runner.
+When self-hosting, keep repository commands behind the secure execution boundary and keep secrets out of browser-visible state and logs.

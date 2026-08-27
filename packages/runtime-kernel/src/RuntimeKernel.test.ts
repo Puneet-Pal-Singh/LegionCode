@@ -1,7 +1,9 @@
 import {
   ItemIdSchema,
   LifecycleTransitionError,
+  RunAttemptIdSchema,
   ToolCallIdSchema,
+  TurnSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol";
 import { describe, expect, it, vi } from "vitest";
@@ -48,28 +50,32 @@ describe("RuntimeKernel canonical lifecycle", () => {
       async runSessionStart(input): Promise<void> {
         order.push("session");
         triggerIds.push(input.triggerEventId);
-        await input.auditAppender.appendHookAudit(
-          "hook.invocation.started",
-          { eventName: "SessionStart" },
-        );
+        await input.auditAppender.appendHookAudit("hook.invocation.started", {
+          eventName: "SessionStart",
+        });
       },
       async runUserPromptSubmit(input): Promise<void> {
         order.push("prompt");
         triggerIds.push(input.triggerEventId);
-        await input.auditAppender.appendHookAudit(
-          "hook.invocation.completed",
-          { eventName: "UserPromptSubmit" },
-        );
+        await input.auditAppender.appendHookAudit("hook.invocation.completed", {
+          eventName: "UserPromptSubmit",
+        });
       },
     };
-    const kernel = await createKernel(sink, ports, createArtifactPorts(), hooks);
+    const kernel = await createKernel(
+      sink,
+      ports,
+      createArtifactPorts(),
+      hooks,
+    );
 
     await kernel.startTurn({ run, turn, runAttemptId });
 
     expect(order).toEqual(["session", "prompt", "provider"]);
     expect(triggerIds).toEqual([
       sink.events.find((event) => event.type === "turn.started")?.eventId,
-      sink.events.find((event) => event.type === "run_attempt.started")?.eventId,
+      sink.events.find((event) => event.type === "run_attempt.started")
+        ?.eventId,
     ]);
     expect(eventTypes(sink).slice(0, 6)).toEqual([
       "turn.queued",
@@ -109,6 +115,89 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "turn.completed",
     ]);
     expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("emits long final answers as schema-bounded deltas without truncation", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    const output = "x".repeat(8_137);
+    ports.provider.generateNext = vi.fn(async () => ({
+      kind: "complete" as const,
+      itemId: finalItemId,
+      output,
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      output,
+    });
+
+    const deltas = sink.events.flatMap((event) =>
+      event.type === "assistant_message.delta" &&
+      typeof event.payload.delta === "string"
+        ? [event.payload.delta]
+        : [],
+    );
+    expect(deltas.map((delta) => delta.length)).toEqual([4_000, 4_000, 137]);
+    expect(deltas.join("")).toBe(output);
+    expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("settles provider failures with a replayable sanitized reason", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new Error("Provider route rejected token-secretvalue123456");
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "Provider route rejected",
+    );
+
+    const failed = sink.events.find((event) => event.type === "turn.failed");
+    expect(failed?.payload).toMatchObject({
+      outcome: {
+        failure: {
+          code: "provider_unavailable",
+          message: "Provider route rejected [redacted]",
+        },
+      },
+    });
+  });
+
+  it("does not expose raw provider quota diagnostics in failed-turn output", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw Object.assign(
+        new Error(
+          "Quota exceeded for generativelanguage.googleapis.com/generate_content_free_tier_input_token_count; retry in 49s",
+        ),
+        { statusCode: 429 },
+      );
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "Quota exceeded",
+    );
+
+    const failed = sink.events.find((event) => event.type === "turn.failed");
+    expect(failed?.payload).toMatchObject({
+      outcome: {
+        failure: {
+          code: "provider_unavailable",
+          message: expect.stringContaining("temporarily rate limited"),
+        },
+      },
+    });
+    expect(JSON.stringify(failed?.payload)).not.toContain(
+      "generate_content_free_tier_input_token_count",
+    );
   });
 
   it("automatically compacts once at the model-aware threshold and replays its settlement", async () => {
@@ -166,7 +255,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(eventTypes(sink)).toContain("context_compaction.requested");
     expect(eventTypes(sink)).toContain("context_compaction.completed");
     expect(
-      eventTypes(sink).filter((type) => type === "context_compaction.completed"),
+      eventTypes(sink).filter(
+        (type) => type === "context_compaction.completed",
+      ),
     ).toHaveLength(1);
   });
 
@@ -333,6 +424,102 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
   });
 
+  it("persists provider commentary before the canonical child tool lifecycle", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...toolStep(),
+        commentary: "I’ll inspect the file first.",
+      })
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    const commentaryDeltaIndex = sink.events.findIndex(
+      (event) =>
+        event.type === "assistant_message.delta" &&
+        event.payload.phase === "commentary",
+    );
+    const toolStartedIndex = sink.events.findIndex(
+      (event) => event.type === "tool_call.started",
+    );
+
+    expect(commentaryDeltaIndex).toBeGreaterThan(0);
+    expect(toolStartedIndex).toBeGreaterThan(commentaryDeltaIndex);
+    expect(sink.events[commentaryDeltaIndex - 1]?.type).toBe("item.started");
+    expect(sink.events[commentaryDeltaIndex + 1]?.type).toBe("item.completed");
+    expect(sink.events[commentaryDeltaIndex]).toMatchObject({
+      itemId: "itm_runtime001_commentary_0",
+      payload: {
+        phase: "commentary",
+        delta: "I’ll inspect the file first.",
+      },
+    });
+  });
+
+  it("emits only provider-designated safe reasoning summaries", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...toolStep(),
+        reasoning: { text: "Safe provider summary", displaySafe: true },
+      })
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(
+      sink.events.filter((event) => event.type === "reasoning.summary_delta"),
+    ).toHaveLength(1);
+    expect(sink.events).toContainEqual(
+      expect.objectContaining({
+        type: "reasoning.summary_delta",
+        itemId: "itm_runtime001_reasoning_0",
+        payload: { delta: "Safe provider summary", displaySafe: true },
+      }),
+    );
+
+    const hiddenSink = createLifecycleSink();
+    const hiddenPorts = createPorts();
+    hiddenPorts.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...toolStep(),
+        reasoning: { text: "Private chain of thought", displaySafe: false },
+      })
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    await (await createKernel(hiddenSink, hiddenPorts)).startTurn({
+      run,
+      turn,
+      runAttemptId,
+    });
+    expect(
+      hiddenSink.events.some(
+        (event) =>
+          event.type === "reasoning.summary_delta" ||
+          JSON.stringify(event.payload).includes("Private chain of thought"),
+      ),
+    ).toBe(false);
+  });
+
   it("emits approval lifecycle events before policy-gated execution", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
@@ -380,9 +567,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       toolCall,
       request: approvalRequest,
     }));
-    ports.approvals.waitForDecision = vi.fn(
-      () => new Promise(() => undefined),
-    );
+    ports.approvals.waitForDecision = vi.fn(() => new Promise(() => undefined));
     const kernel = await createKernel(sink, ports);
 
     const execution = kernel.startTurn({ run, turn, runAttemptId });
@@ -587,14 +772,22 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const ports = createPorts();
     const kernel = await createKernel(sink, ports);
 
-    kernel.requestInterruptBeforeStart(turn.id, "User stopped before execution");
+    kernel.requestInterruptBeforeStart(
+      turn.id,
+      "User stopped before execution",
+    );
     await kernel.startTurn({ run, turn, runAttemptId });
 
     expect(ports.provider.generateNext).not.toHaveBeenCalled();
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events.at(-1)).toMatchObject({
       type: "turn.interrupted",
-      payload: { outcome: { status: "interrupted", reason: "User stopped before execution" } },
+      payload: {
+        outcome: {
+          status: "interrupted",
+          reason: "User stopped before execution",
+        },
+      },
     });
   });
 
@@ -625,6 +818,81 @@ describe("RuntimeKernel canonical lifecycle", () => {
         diff: expect.objectContaining({ files: partialDiff().files }),
       }),
     );
+  });
+
+  it("scopes cancellation to the requested turn while another turn continues", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    const secondTurn = TurnSchema.parse({
+      ...turn,
+      id: "trn_runtime002",
+    });
+    const secondRunAttemptId = RunAttemptIdSchema.parse("attempt_runtime002");
+    const firstWorker = deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
+    const secondWorker = deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
+    const providerCalls = new Map<string, number>();
+
+    ports.provider.generateNext = vi.fn(async ({ turn: currentTurn }) => {
+      const callCount = (providerCalls.get(currentTurn.id) ?? 0) + 1;
+      providerCalls.set(currentTurn.id, callCount);
+      if (callCount === 1) return toolStepFor(currentTurn.id);
+      return {
+        kind: "complete" as const,
+        itemId: ItemIdSchema.parse(`itm_${currentTurn.id.slice(4)}_final`),
+        output: "Done",
+      };
+    });
+    ports.worker.executeTool = vi.fn(async ({ turnId: currentTurnId, signal }) => {
+      if (currentTurnId === turn.id) {
+        signal?.addEventListener(
+          "abort",
+          () => firstWorker.resolve({ kind: "cancelled", reason: "User stopped" }),
+          { once: true },
+        );
+        return await firstWorker.promise;
+      }
+      return await secondWorker.promise;
+    });
+
+    const kernel = await createKernel(sink, ports);
+    const firstExecution = kernel.startTurn({ run, turn, runAttemptId });
+    const secondExecution = kernel.startTurn({
+      run,
+      turn: secondTurn,
+      runAttemptId: secondRunAttemptId,
+    });
+    await vi.waitFor(() => expect(ports.worker.executeTool).toHaveBeenCalledTimes(2));
+
+    await kernel.interruptTurn(turn.id, "User stopped the first turn");
+
+    expect(
+      sink.events.filter(
+        (event) =>
+          event.turnId === secondTurn.id &&
+          ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+            event.type,
+          ),
+      ),
+    ).toHaveLength(0);
+    expect(sink.events.filter((event) => event.type === "turn.interrupted")).toHaveLength(1);
+
+    secondWorker.resolve({ kind: "completed", output: { ok: true } });
+    await expect(firstExecution).rejects.toMatchObject({
+      code: "turn_cancelled",
+    });
+    await expect(secondExecution).resolves.toMatchObject({
+      status: "completed",
+      output: "Done",
+    });
+    expect(
+      sink.events.filter(
+        (event) =>
+          event.turnId === secondTurn.id &&
+          ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+            event.type,
+          ),
+      ),
+    ).toHaveLength(1);
   });
 
   it("persists a multi-file diff before successful terminal settlement", async () => {
@@ -769,11 +1037,16 @@ function multiFileDiff() {
 }
 
 function toolStep() {
+  return toolStepFor("trn_runtime001");
+}
+
+function toolStepFor(turnId: string) {
+  const suffix = turnId.slice(4);
   return {
     kind: "tool_call" as const,
-    itemId: ItemIdSchema.parse("itm_runtime001"),
+    itemId: ItemIdSchema.parse(`itm_${suffix}`),
     content: {
-      toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+      toolCallId: ToolCallIdSchema.parse(`toolcall_${suffix}`),
       toolName: "write_file",
       input: { path: "src/index.ts" },
     },

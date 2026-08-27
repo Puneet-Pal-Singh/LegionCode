@@ -48,6 +48,8 @@ export interface LifecycleRequestProjection {
 
 export interface LifecycleProjectionSnapshot {
   readonly turnId: string;
+  /** The latest terminal turn replaced by this edited/recovery turn. */
+  readonly revisionOfTurnId?: string;
   readonly status:
     | "queued"
     | "in_progress"
@@ -90,6 +92,7 @@ export const LifecycleApprovalProjectionSchema = z.object({
 
 export const LifecycleProjectionSnapshotSchema = z.object({
   turnId: z.string().min(1),
+  revisionOfTurnId: z.string().min(1).optional(),
   status: z.enum([
     "queued",
     "in_progress",

@@ -9,7 +9,6 @@ export default function AnnouncementBanner() {
         href="/cloud" 
         className="inline-flex items-center gap-2 group text-xs text-zinc-400 hover:text-white transition-colors tracking-tight font-mono"
       >
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
         <span>Introducing LegionCode Cloud →</span>
       </a>
     </div>

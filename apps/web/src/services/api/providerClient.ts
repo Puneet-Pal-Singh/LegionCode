@@ -25,13 +25,14 @@ import {
 } from "@repo/platform-client-sdk";
 import type {
   BYOKModelCapabilityMetadata,
+  BYOKModelCapability,
   BYOKModelInputModality,
+  BYOKModelPricing,
   BYOKModelDiscoverySource,
   BYOKModelDiscoverySurface,
   ProviderModelAvailability,
 } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
-import { SessionStateService } from "../SessionStateService";
 
 export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
 export type UpdateCredentialRequest = BYOKCredentialUpdateRequest;
@@ -46,6 +47,10 @@ export interface ProviderModelOption {
   unavailableReason?: string;
   inputModalities?: BYOKModelInputModality;
   capabilityMetadata?: BYOKModelCapabilityMetadata;
+  capabilities?: BYOKModelCapability;
+  contextWindow?: number;
+  pricing?: BYOKModelPricing;
+  description?: string;
 }
 
 export type ProviderModelDiscoveryView =
@@ -116,16 +121,11 @@ export class ProviderApiError extends Error {
 }
 
 export class ProviderApiClient {
-  private static readonly sessionRunIdKey = "currentRunId";
   private static readonly requestTimeoutMs = 15_000;
   private readonly sdkClient;
   private readonly abortControllers = new Map<string, AbortController>();
 
-  constructor(
-    private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
-      ProviderApiClient.sessionRunIdKey,
-    ),
-  ) {
+  constructor(private readonly runIdResolver: RunIdResolver) {
     this.sdkClient = createProviderClient(
       createByokHttpTransport({
         baseUrl: `${getBrainHttpBase()}/api/byok`,
@@ -145,7 +145,13 @@ export class ProviderApiClient {
     providerId: string,
     query: ProviderModelsQuery = {},
   ): Promise<ProviderModelsPageResult> {
-    const requestKey = `GET /providers/${encodeURIComponent(providerId)}/models`;
+    const requestKey = [
+      `GET /providers/${encodeURIComponent(providerId)}/models`,
+      query.view ?? "popular",
+      query.surface ?? "picker",
+      query.limit ?? 50,
+      query.cursor ?? "start",
+    ].join(":");
     const response = await this.callWithAbortKey(requestKey, (signal) =>
       this.sdkClient.discoverProviderModels(providerId, query, { signal }),
     );
@@ -160,6 +166,10 @@ export class ProviderApiClient {
         unavailableReason: model.unavailableReason,
         inputModalities: model.inputModalities,
         capabilityMetadata: model.capabilityMetadata,
+        capabilities: model.capabilities,
+        contextWindow: model.contextWindow,
+        pricing: model.pricing,
+        description: model.description,
       })),
       page: response.page,
       metadata: response.metadata,
@@ -356,23 +366,4 @@ function deriveStatusCodeFromOperationError(
     return 500;
   }
   return 400;
-}
-
-class DefaultRunIdResolver implements RunIdResolver {
-  constructor(private readonly runIdStorageKey: string) {}
-
-  getRunId(): string | null {
-    try {
-      const runId = sessionStorage.getItem(this.runIdStorageKey);
-      if (runId) {
-        return runId;
-      }
-    } catch (error) {
-      console.warn(
-        "[provider/resolveRunId] Failed to read sessionStorage",
-        error,
-      );
-    }
-    return SessionStateService.loadActiveSessionRunId();
-  }
 }

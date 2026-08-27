@@ -18,6 +18,21 @@ const definition: HookDefinition = {
 const brainBaseUrl = `${window.location.origin}/__legioncode/brain`;
 
 describe("HookDefinitionsClient", () => {
+  it("keeps the browser fetch receiver when using the default client", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ hooks: [definition] }), { status: 200 }),
+      );
+
+    await expect(
+      createHookDefinitionsClient().list("workspace_1"),
+    ).resolves.toEqual([definition]);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    fetchSpy.mockRestore();
+  });
+
   it("reads authenticated workspace definitions through the narrow API facade", async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ hooks: [definition] }), { status: 200 }),

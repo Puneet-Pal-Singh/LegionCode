@@ -12,7 +12,14 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { ChevronDown, Search, Plus, Settings, RefreshCw } from "lucide-react";
+import { createPortal } from "react-dom";
+import {
+  Check,
+  ChevronDown,
+  Plus,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import {
   AXIS_PROVIDER_ID,
   BYOKCredential as ProviderCredential,
@@ -26,17 +33,23 @@ import {
 } from "../../services/api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { isProviderModelAvailable } from "./providerModelAvailability";
+import { formatModelDisplayName } from "./modelDisplayName";
+import { ModelPickerDetailsPanel } from "./ModelPickerDetailsPanel";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
-const ESTIMATED_POPOVER_HEIGHT_PX = 360;
+const ESTIMATED_POPOVER_HEIGHT_PX = 352;
 const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
+const MODEL_DETAILS_GAP_PX = 8;
+const MODEL_DETAILS_WIDTH_PX = 256;
+const ESTIMATED_MODEL_DETAILS_HEIGHT_PX = 184;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
-  vertical: "up" | "down";
-  horizontal: "start" | "end";
+  topPx: number | null;
+  bottomPx: number | null;
+  leftPx: number;
   widthPx: number;
 }
 
@@ -45,8 +58,9 @@ function isSamePlacement(
   second: PopoverPlacement,
 ): boolean {
   return (
-    first.vertical === second.vertical &&
-    first.horizontal === second.horizontal &&
+    first.topPx === second.topPx &&
+    first.bottomPx === second.bottomPx &&
+    first.leftPx === second.leftPx &&
     first.widthPx === second.widthPx
   );
 }
@@ -99,21 +113,45 @@ interface EffectiveSelection {
   modelId: string | null;
 }
 
+interface HoveredModelDetails {
+  model: ProviderModelOption;
+  providerName: string;
+  side: "left" | "right";
+  topPx: number;
+}
+
+function resolveModelDetailsSide(
+  rowRect: DOMRect,
+): "left" | "right" {
+  const spaceRight = window.innerWidth - rowRect.right - VIEWPORT_PADDING_PX;
+  const spaceLeft = rowRect.left - VIEWPORT_PADDING_PX;
+  const requiredWidth = MODEL_DETAILS_WIDTH_PX + MODEL_DETAILS_GAP_PX;
+
+  if (spaceRight >= requiredWidth) return "right";
+  if (spaceLeft >= requiredWidth) return "left";
+  return spaceRight >= spaceLeft ? "right" : "left";
+}
+
+function resolveModelDetailsTop(
+  rowRect: DOMRect,
+  popoverRect: DOMRect,
+): number {
+  const maxViewportTop = Math.max(
+    VIEWPORT_PADDING_PX,
+    window.innerHeight - ESTIMATED_MODEL_DETAILS_HEIGHT_PX - VIEWPORT_PADDING_PX,
+  );
+  const viewportTop = Math.min(
+    Math.max(VIEWPORT_PADDING_PX, rowRect.top),
+    maxViewportTop,
+  );
+  return Math.max(0, viewportTop - popoverRect.top);
+}
+
 function formatProviderDisplayName(
   providerId: string,
   displayName: string,
 ): string {
   return providerId === AXIS_PROVIDER_ID ? "Axis (Free)" : displayName;
-}
-
-function getViewLabel(
-  view: ProviderModelDiscoveryView,
-  providerId: string | null,
-): string {
-  if (view === "popular") {
-    return providerId === "openrouter" ? "Recommended" : "Popular";
-  }
-  return "All";
 }
 
 function resolveEffectiveSelection(
@@ -251,15 +289,11 @@ export function ModelPickerPopover({
   visibleModelIds,
   selectedProviderId,
   selectedModelId,
-  selectedModelView = "popular",
   hasMoreSelectedProviderModels = false,
   isLoadingMoreSelectedProviderModels = false,
-  isRefreshingSelectedProviderModels = false,
   onSelectModel,
-  onSelectModelView,
   onLoadMoreSelectedProviderModels,
   onEnsureSelectedProviderModels,
-  onRefreshSelectedProviderModels,
   onConnectProvider,
   onManageModels,
   isLoading = false,
@@ -267,14 +301,18 @@ export function ModelPickerPopover({
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const [placement, setPlacement] = useState<PopoverPlacement>({
-    vertical: "down",
-    horizontal: "start",
+    topPx: VIEWPORT_PADDING_PX,
+    bottomPx: null,
+    leftPx: VIEWPORT_PADDING_PX,
     widthPx: PREFERRED_POPOVER_WIDTH_PX,
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
-  const [isSwitchingView, setIsSwitchingView] = useState(false);
+  const [hoveredModel, setHoveredModel] = useState<HoveredModelDetails | null>(
+    null,
+  );
   const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverContentRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const connectedProviderIds = useMemo(
@@ -413,7 +451,7 @@ export function ModelPickerPopover({
       return "Select Model";
     }
 
-    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
+    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${formatModelDisplayName(model)}`;
   }, [connectedProviderIds, effectiveSelection, catalog, providerModels]);
   const modelLoadingLabel = isHydratingVisibleModels
     ? "Loading selected models..."
@@ -440,29 +478,6 @@ export function ModelPickerPopover({
     }
   };
 
-  const handleModelViewChange = async (
-    nextView: ProviderModelDiscoveryView,
-  ): Promise<void> => {
-    if (
-      !onSelectModelView ||
-      nextView === selectedModelView ||
-      isSwitchingView
-    ) {
-      return;
-    }
-    setIsSwitchingView(true);
-    try {
-      await onSelectModelView(nextView);
-    } catch (error) {
-      console.error(
-        "[model-picker/view-change] Failed to switch model view:",
-        error,
-      );
-    } finally {
-      setIsSwitchingView(false);
-    }
-  };
-
   const handleLoadMore = async (): Promise<void> => {
     const providerId = selectedProviderId ?? effectiveSelection.providerId;
     if (!providerId || !onLoadMoreSelectedProviderModels) {
@@ -478,30 +493,12 @@ export function ModelPickerPopover({
     }
   };
 
-  const handleRefresh = async (): Promise<void> => {
-    const providerId = selectedProviderId ?? effectiveSelection.providerId;
-    if (!providerId || !onRefreshSelectedProviderModels) {
-      return;
-    }
-    try {
-      await onRefreshSelectedProviderModels(providerId);
-    } catch (error) {
-      console.error("[model-picker/refresh] Failed to refresh models:", error);
-    }
-  };
-
-  const canSelectModelView = Boolean(onSelectModelView);
-  const canRefreshSelectedProviderModels = Boolean(
-    onRefreshSelectedProviderModels,
-  );
   const canLoadMoreSelectedProviderModels = Boolean(
     onLoadMoreSelectedProviderModels,
   );
   const isLoadingModelsInline =
     !isLoading &&
-    (isLoadingMoreSelectedProviderModels ||
-      isRefreshingSelectedProviderModels ||
-      isHydratingVisibleModels);
+    (isLoadingMoreSelectedProviderModels || isHydratingVisibleModels);
 
   useEffect(() => {
     if (!isOpen || !onEnsureSelectedProviderModels) {
@@ -530,9 +527,10 @@ export function ModelPickerPopover({
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent): void => {
+      const target = event.target as Node;
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(event.target as Node)
+        !popoverRef.current?.contains(target) &&
+        !popoverContentRef.current?.contains(target)
       ) {
         setIsOpen(false);
       }
@@ -553,8 +551,9 @@ export function ModelPickerPopover({
     const triggerRect = triggerButtonRef.current?.getBoundingClientRect();
     if (!triggerRect) {
       return {
-        vertical: "down",
-        horizontal: "start",
+        topPx: VIEWPORT_PADDING_PX,
+        bottomPx: null,
+        leftPx: VIEWPORT_PADDING_PX,
         widthPx: PREFERRED_POPOVER_WIDTH_PX,
       };
     }
@@ -578,10 +577,23 @@ export function ModelPickerPopover({
       MIN_POPOVER_WIDTH_PX,
       Math.min(PREFERRED_POPOVER_WIDTH_PX, Math.floor(availableWidth)),
     );
+    const preferredLeft =
+      horizontal === "start" ? triggerRect.left : triggerRect.right - widthPx;
+    const leftPx = Math.min(
+      Math.max(VIEWPORT_PADDING_PX, preferredLeft),
+      Math.max(
+        VIEWPORT_PADDING_PX,
+        window.innerWidth - widthPx - VIEWPORT_PADDING_PX,
+      ),
+    );
 
     return {
-      vertical,
-      horizontal,
+      topPx: vertical === "down" ? triggerRect.bottom + POPOVER_GAP_PX : null,
+      bottomPx:
+        vertical === "up"
+          ? window.innerHeight - triggerRect.top + POPOVER_GAP_PX
+          : null,
+      leftPx,
       widthPx,
     };
   };
@@ -590,7 +602,24 @@ export function ModelPickerPopover({
     if (!isOpen) {
       setPlacement(resolvePlacement());
     }
+    setHoveredModel(null);
     setIsOpen((current) => !current);
+  };
+
+  const showModelDetails = (
+    model: ProviderModelOption,
+    providerName: string,
+    row: HTMLButtonElement,
+  ): void => {
+    const popoverRect = popoverContentRef.current?.getBoundingClientRect();
+    if (!popoverRect) return;
+    const rowRect = row.getBoundingClientRect();
+    setHoveredModel({
+      model,
+      providerName,
+      side: resolveModelDetailsSide(rowRect),
+      topPx: resolveModelDetailsTop(rowRect, popoverRect),
+    });
   };
 
   useEffect(() => {
@@ -600,6 +629,7 @@ export function ModelPickerPopover({
 
     const handleViewportChange = (): void => {
       const nextPlacement = resolvePlacement();
+      setHoveredModel(null);
       setPlacement((currentPlacement) =>
         isSamePlacement(currentPlacement, nextPlacement)
           ? currentPlacement
@@ -624,16 +654,16 @@ export function ModelPickerPopover({
         type="button"
         onClick={handleToggle}
         className={`
-          inline-flex h-7 max-w-[min(16rem,calc(100vw-6rem))] items-center gap-1.5 rounded-md
-          bg-transparent px-2 text-xs font-medium text-neutral-400
-          transition-colors hover:bg-neutral-800/50 hover:text-neutral-200
-          focus:outline-none focus:ring-2 focus:ring-blue-500
+          inline-flex h-8 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-lg
+          px-2 text-sm font-medium text-neutral-400
+          transition-colors hover:bg-neutral-800/70 hover:text-neutral-100
+          focus:outline-none focus:ring-1 focus:ring-zinc-400
         `}
         aria-label="Open model picker"
         aria-expanded={isOpen}
         title={triggerLabel}
       >
-        <span className="truncate max-w-[13rem]">{triggerLabel}</span>
+        <span className="truncate max-w-[14rem]">{triggerLabel}</span>
         <ChevronDown
           size={14}
           className={`shrink-0 transition-transform ${
@@ -643,179 +673,124 @@ export function ModelPickerPopover({
       </button>
 
       {/* Popover Content */}
-      {isOpen && (
-        <div
-          data-testid="model-picker-popover"
-          className={`
-            absolute z-50 flex max-h-[18rem] flex-col overflow-hidden rounded-xl
-            border border-neutral-700/80 bg-neutral-900/95 shadow-2xl backdrop-blur
-            ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
-            ${placement.horizontal === "start" ? "left-0" : "right-0"}
-          `}
-          style={{
-            width: `${placement.widthPx}px`,
-            maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
-          }}
-        >
-          {!isLoading && (
-            <>
-              {/* Search + Actions */}
-              <div className="flex items-center gap-1.5 border-b border-neutral-800 p-1.5">
-                <div className="relative flex-1">
-                  <Search
-                    size={14}
-                    className="absolute left-2.5 top-2.5 text-neutral-500"
-                  />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    placeholder="Search models or providers..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`
-                      h-8 w-full rounded-md
-                      bg-neutral-800 border border-neutral-700
-                      pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
-                      focus:outline-none focus:ring-2 focus:ring-blue-500
-                    `}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    onConnectProvider();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-                  aria-label="Connect provider"
-                  title="Connect provider"
-                >
-                  <Plus size={12} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    onManageModels();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-                  aria-label="Manage model visibility"
-                  title="Manage model visibility"
-                >
-                  <Settings size={12} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-2 py-1.5">
-                <div className="inline-flex rounded-md border border-neutral-700 p-0.5">
-                  {(["popular", "all"] as const).map((view) => (
-                    <button
-                      key={view}
-                      type="button"
-                      onClick={() => {
-                        void handleModelViewChange(view);
-                      }}
-                      disabled={
-                        !canSelectModelView || isSwitchingView || isLoading
-                      }
-                      className={`rounded px-2 py-1 text-[11px] font-medium transition ${
-                        selectedModelView === view
-                          ? "bg-neutral-200 text-neutral-900"
-                          : "text-neutral-300 hover:bg-neutral-800"
-                      }`}
-                    >
-                      {getViewLabel(view, selectedProviderId)}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleRefresh();
-                    }}
-                    disabled={
-                      !canRefreshSelectedProviderModels ||
-                      !(effectiveSelection.providerId ?? selectedProviderId) ||
-                      isRefreshingSelectedProviderModels ||
-                      isLoading
-                    }
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-700 px-2 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      size={11}
-                      className={
-                        isRefreshingSelectedProviderModels ? "animate-spin" : ""
-                      }
-                    />
-                    Refresh
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Provider Groups */}
-          <div
-            className={`flex flex-1 flex-col overflow-hidden ${
-              isLoading ? "min-h-[12rem]" : ""
-            }`}
-          >
-            {isLoadingModelsInline && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
-              >
-                {modelLoadingLabel}
-              </div>
-            )}
+      {isOpen && typeof document !== "undefined"
+        ? createPortal(
             <div
-              className={`overflow-y-auto flex-1 ${
-                isLoading ? "flex items-center justify-center" : ""
+              ref={popoverContentRef}
+              className="fixed z-50"
+              style={{
+                top: placement.topPx ?? undefined,
+                bottom: placement.bottomPx ?? undefined,
+                left: placement.leftPx,
+                width: `${placement.widthPx}px`,
+                maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
+              }}
+            >
+          <div
+            data-testid="model-picker-popover"
+            className="ui-surface-popover flex max-h-96 flex-col overflow-hidden"
+          >
+            {!isLoading && (
+              <>
+                <div className="border-b border-neutral-800 p-2">
+                  <div className="relative flex-1">
+                    <Search
+                      size={15}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
+                    />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Search models or providers..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className={`
+                      ui-input h-9 w-full bg-black/20
+                      pl-9 pr-3 text-sm text-neutral-100 placeholder-neutral-500
+                    `}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Provider Groups */}
+            <div
+              className={`flex flex-1 flex-col overflow-hidden ${
+                isLoading ? "min-h-[12rem]" : ""
               }`}
             >
-              {isLoading ? (
-                <div className="px-6 py-8 text-center">
-                  <p className="text-sm font-medium text-neutral-200">
-                    {modelLoadingLabel}
-                  </p>
-                  <p className="mt-1 text-xs text-neutral-500">
-                    Fetching available models from your providers.
-                  </p>
+              {isLoadingModelsInline && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
+                >
+                  {modelLoadingLabel}
                 </div>
-              ) : filteredGroups.length === 0 ? (
-                <div className="p-6 text-center text-neutral-400 text-sm">
-                  {searchQuery
-                    ? "No models match your search"
-                    : WEB_PROVIDER_POLICY.isByokFirstProduction &&
-                        connectedProviderIds.size === 0
-                      ? "Connect a BYOK provider to choose models."
-                      : "No models available yet."}
-                </div>
-              ) : (
-                <>
-                  {axisDefaultGroup && (
-                    <div className="border-b border-neutral-800/80">
-                      <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                        <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                          LegionCode Axis
-                        </h3>
-                      </div>
-                      <div className="py-1">
-                        {axisDefaultGroup.models.map((model) => (
-                          <button
-                            type="button"
-                            key={model.id}
-                            onClick={() =>
-                              handleSelectModel(
-                                axisDefaultGroup.providerId,
-                                model.id,
-                              )
-                            }
-                            disabled={selectingModelId === model.id}
-                            className={`
-                            w-full px-3 py-2 text-left text-xs
+              )}
+              <div
+                data-testid="model-picker-model-list"
+                onScroll={() => setHoveredModel(null)}
+                className={`overflow-y-auto flex-1 ${
+                  isLoading ? "flex items-center justify-center" : ""
+                }`}
+              >
+                {isLoading ? (
+                  <div className="px-6 py-8 text-center">
+                    <p className="text-sm font-medium text-neutral-200">
+                      {modelLoadingLabel}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Fetching available models from your providers.
+                    </p>
+                  </div>
+                ) : filteredGroups.length === 0 ? (
+                  <div className="p-6 text-center text-neutral-400 text-sm">
+                    {searchQuery
+                      ? "No models match your search"
+                      : WEB_PROVIDER_POLICY.isByokFirstProduction &&
+                          connectedProviderIds.size === 0
+                        ? "Connect a BYOK provider to choose models."
+                        : "No models available yet."}
+                  </div>
+                ) : (
+                  <>
+                    {axisDefaultGroup && (
+                      <div className="border-b border-neutral-800/80">
+                        <div className="sticky top-0 bg-[#111112] px-3 py-2">
+                          <h3 className="text-xs font-medium text-neutral-500">
+                            LegionCode Axis
+                          </h3>
+                        </div>
+                        <div className="py-1">
+                          {axisDefaultGroup.models.map((model) => (
+                            <button
+                              type="button"
+                              key={model.id}
+                              onClick={() =>
+                                handleSelectModel(
+                                  axisDefaultGroup.providerId,
+                                  model.id,
+                                )
+                              }
+                              disabled={selectingModelId === model.id}
+                              onPointerEnter={(event) =>
+                                showModelDetails(
+                                  model,
+                                  axisDefaultGroup.displayName,
+                                  event.currentTarget,
+                                )
+                              }
+                              onFocus={(event) =>
+                                showModelDetails(
+                                  model,
+                                  axisDefaultGroup.displayName,
+                                  event.currentTarget,
+                                )
+                              }
+                              className={`
+                            min-h-9 w-full px-3 py-1.5 text-left text-sm
                             transition-colors disabled:opacity-50
                             ${
                               effectiveSelection.providerId ===
@@ -825,71 +800,90 @@ export function ModelPickerPopover({
                                 : "text-neutral-400 hover:bg-neutral-800/50"
                             }
                           `}
-                            title={`${model.name} (${model.id})`}
-                          >
-                            <div className="flex min-w-0 items-center gap-2">
-                              <p className="truncate font-medium">
-                                {model.name}
-                              </p>
-                              {effectiveSelection.providerId ===
-                                axisDefaultGroup.providerId &&
-                                effectiveSelection.modelId === model.id && (
-                                  <span className="ml-auto text-neutral-200">
-                                    ✓
-                                  </span>
-                                )}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {connectedProviderGroups.length > 0 &&
-                    connectedProviderGroups.map((group) => (
-                      <div
-                        key={group.providerId}
-                        className="border-b border-neutral-800/80 last:border-b-0"
-                      >
-                        <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                          <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                            {group.displayName}
-                          </h3>
-                        </div>
-                        <div className="py-1">
-                          {effectiveSelection.providerId === group.providerId &&
-                            effectiveSelection.modelId !== null &&
-                            !providerModels[group.providerId]?.some(
-                              (model) =>
-                                model.id === effectiveSelection.modelId,
-                            ) && (
-                              <div
-                                className="px-3 py-2 text-left text-xs bg-neutral-800 text-neutral-100"
-                                title={effectiveSelection.modelId}
-                              >
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <p className="truncate font-medium">
-                                    {effectiveSelection.modelId}
-                                  </p>
-                                </div>
+                              title={`${formatModelDisplayName(model)} (${model.id})`}
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <p className="truncate font-medium">
+                                  {formatModelDisplayName(model)}
+                                </p>
+                                {effectiveSelection.providerId ===
+                                  axisDefaultGroup.providerId &&
+                                  effectiveSelection.modelId === model.id && (
+                                    <>
+                                      <span className="sr-only">✓</span>
+                                      <Check
+                                        className="ml-auto text-neutral-100"
+                                        size={14}
+                                      />
+                                    </>
+                                  )}
                               </div>
-                            )}
-                          {group.models.map((model) => (
-                            <button
-                              type="button"
-                              key={model.id}
-                              onClick={() => {
-                                if (!isProviderModelAvailable(model)) {
-                                  return;
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {connectedProviderGroups.length > 0 &&
+                      connectedProviderGroups.map((group) => (
+                        <div
+                          key={group.providerId}
+                          className="border-b border-neutral-800/80 last:border-b-0"
+                        >
+                          <div className="sticky top-0 bg-[#111112] px-3 py-2">
+                            <h3 className="text-xs font-medium text-neutral-500">
+                              {group.displayName}
+                            </h3>
+                          </div>
+                          <div className="py-1">
+                            {effectiveSelection.providerId ===
+                              group.providerId &&
+                              effectiveSelection.modelId !== null &&
+                              !providerModels[group.providerId]?.some(
+                                (model) =>
+                                  model.id === effectiveSelection.modelId,
+                              ) && (
+                                <div
+                                  className="px-3 py-2 text-left text-xs bg-neutral-800 text-neutral-100"
+                                  title={effectiveSelection.modelId}
+                                >
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <p className="truncate font-medium">
+                                      {effectiveSelection.modelId}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            {group.models.map((model) => (
+                              <button
+                                type="button"
+                                key={model.id}
+                                onClick={() => {
+                                  if (!isProviderModelAvailable(model)) {
+                                    return;
+                                  }
+                                  handleSelectModel(group.providerId, model.id);
+                                }}
+                                disabled={
+                                  selectingModelId === model.id ||
+                                  !isProviderModelAvailable(model)
                                 }
-                                handleSelectModel(group.providerId, model.id);
-                              }}
-                              disabled={
-                                selectingModelId === model.id ||
-                                !isProviderModelAvailable(model)
-                              }
-                              className={`
-                              w-full px-3 py-2 text-left text-xs
+                                onPointerEnter={(event) =>
+                                  showModelDetails(
+                                    model,
+                                    group.displayName,
+                                    event.currentTarget,
+                                  )
+                                }
+                                onFocus={(event) =>
+                                  showModelDetails(
+                                    model,
+                                    group.displayName,
+                                    event.currentTarget,
+                                  )
+                                }
+                                className={`
+                              min-h-9 w-full px-3 py-1.5 text-left text-sm
                               transition-colors disabled:opacity-50
                               ${
                                 effectiveSelection.providerId ===
@@ -899,65 +893,111 @@ export function ModelPickerPopover({
                                   : "text-neutral-400 hover:bg-neutral-800/50"
                               }
                             `}
-                              title={`${model.name} (${model.id})`}
-                            >
-                              <div className="flex min-w-0 items-center gap-2">
-                                <p className="truncate font-medium">
-                                  {model.name}
-                                </p>
-                                {!isProviderModelAvailable(model) && (
-                                  <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
-                                    Unavailable
-                                  </span>
-                                )}
-                                {effectiveSelection.providerId ===
-                                  group.providerId &&
-                                  effectiveSelection.modelId === model.id && (
-                                    <span className="ml-auto text-neutral-200">
-                                      ✓
+                                title={`${formatModelDisplayName(model)} (${model.id})`}
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <p className="min-w-0 flex-1 truncate font-medium text-neutral-200">
+                                    {formatModelDisplayName(model)}
+                                  </p>
+                                  {!isProviderModelAvailable(model) && (
+                                    <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
+                                      Unavailable
                                     </span>
                                   )}
-                              </div>
-                            </button>
-                          ))}
-                          {group.models.length === 0 &&
-                            !(
-                              effectiveSelection.providerId ===
-                                group.providerId &&
-                              effectiveSelection.modelId !== null
-                            ) && (
-                              <div className="px-3 py-2 text-xs text-neutral-500">
-                                {group.isModelListLoaded
-                                  ? "No models available yet."
-                                  : "Models loading..."}
-                              </div>
-                            )}
+                                  {effectiveSelection.providerId ===
+                                    group.providerId &&
+                                    effectiveSelection.modelId === model.id && (
+                                      <>
+                                        <span className="sr-only">✓</span>
+                                        <Check
+                                          className="ml-auto shrink-0 text-neutral-100"
+                                          size={14}
+                                        />
+                                      </>
+                                    )}
+                                </div>
+                              </button>
+                            ))}
+                            {group.models.length === 0 &&
+                              !(
+                                effectiveSelection.providerId ===
+                                  group.providerId &&
+                                effectiveSelection.modelId !== null
+                              ) && (
+                                <div className="px-3 py-2 text-xs text-neutral-500">
+                                  {group.isModelListLoaded
+                                    ? "No models available yet."
+                                    : "Models loading..."}
+                                </div>
+                              )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                </>
-              )}
-            </div>
-            {hasMoreSelectedProviderModels &&
-              canLoadMoreSelectedProviderModels && (
-                <div className="border-t border-neutral-800 p-2">
+                      ))}
+                  </>
+                )}
+              </div>
+              {hasMoreSelectedProviderModels &&
+                canLoadMoreSelectedProviderModels && (
+                  <div className="border-t border-neutral-800 p-2">
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={() => {
+                        void handleLoadMore();
+                      }}
+                      disabled={
+                        isLoadingMoreSelectedProviderModels || isLoading
+                      }
+                      className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                    >
+                      {isLoadingMoreSelectedProviderModels
+                        ? "Loading..."
+                        : "Load more"}
+                    </button>
+                  </div>
+                )}
+              {!isLoading ? (
+                <div className="flex items-center justify-between border-t border-neutral-800 p-2">
                   <button
                     type="button"
                     onClick={() => {
-                      void handleLoadMore();
+                      setIsOpen(false);
+                      onManageModels();
                     }}
-                    disabled={isLoadingMoreSelectedProviderModels || isLoading}
-                    className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                    className="ui-popover-item flex-1 gap-2"
+                    aria-label="Manage model visibility"
                   >
-                    {isLoadingMoreSelectedProviderModels
-                      ? "Loading..."
-                      : "Load more"}
+                    <SlidersHorizontal size={15} className="text-neutral-400" />
+                    Manage models
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onConnectProvider();
+                    }}
+                    className="flex size-9 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+                    aria-label="Connect provider"
+                    title="Connect provider"
+                  >
+                    <Plus size={15} />
                   </button>
                 </div>
-              )}
+              ) : null}
+            </div>
           </div>
-        </div>
-      )}
+          {hoveredModel ? (
+            <ModelPickerDetailsPanel
+              model={hoveredModel.model}
+              providerName={hoveredModel.providerName}
+              side={hoveredModel.side}
+              topPx={hoveredModel.topPx}
+            />
+          ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

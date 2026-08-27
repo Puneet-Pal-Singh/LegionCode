@@ -27,6 +27,7 @@ describe("AdapterSelectionService", () => {
       getApiKey: vi.fn(async (providerId: string) =>
         providerId === "google" ? "AIzaGoogleTestKey1234567890" : null,
       ),
+      getConnectionConfig: vi.fn(async () => undefined),
     };
 
     const adapter = await selectAdapter(
@@ -51,6 +52,7 @@ describe("AdapterSelectionService", () => {
       getApiKey: vi.fn(async (providerId: string) =>
         providerId === "opencode-zen" ? "oc-test" : null,
       ),
+      getConnectionConfig: vi.fn(async () => undefined),
     };
 
     const adapter = await selectAdapter(
@@ -81,6 +83,7 @@ describe("AdapterSelectionService", () => {
       getApiKey: vi.fn(async (providerId: string) =>
         providerId === "openrouter" ? "sk-or-test-key" : null,
       ),
+      getConnectionConfig: vi.fn(async () => undefined),
     };
 
     const adapter = await selectAdapter(
@@ -97,5 +100,41 @@ describe("AdapterSelectionService", () => {
     );
 
     expect(adapter.provider).toBe("openrouter");
+  });
+
+  it("loads trusted Cloudflare connection config for gateway routing", async () => {
+    const getConnectionConfig = vi.fn(async () => ({
+      providerId: "cloudflare-ai" as const,
+      accountId: "account_123",
+      gatewayId: "gateway-123",
+      routeMode: "ai-gateway" as const,
+    }));
+    const providerConfigService = {
+      getApiKey: vi.fn(async () => "cf-test-token"),
+      getConnectionConfig,
+    };
+
+    const adapter = await selectAdapter(
+      {
+        model: "@cf/zai-org/glm-4.7-flash",
+        provider: "cloudflare-ai",
+        runtimeProvider: "custom-http",
+        fallback: false,
+        providerId: "cloudflare-ai",
+      },
+      createDefaultAdapter(),
+      createEnv(),
+      providerConfigService as never,
+      undefined,
+      {
+        providerId: "cloudflare-ai",
+        transport: "openai-chat-completions",
+        endpoint:
+          "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
+      },
+    );
+
+    expect(adapter.provider).toBe("cloudflare-ai");
+    expect(getConnectionConfig).toHaveBeenCalledWith("cloudflare-ai");
   });
 });

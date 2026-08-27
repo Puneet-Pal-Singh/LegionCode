@@ -82,9 +82,6 @@ class ThreadProjectionSqlClient implements SqlClient {
     if (statement.includes("INSERT INTO thread_read_receipts")) {
       return rowsResult<Row>(this.upsertReadReceipt(params));
     }
-    if (statement.includes("UPDATE canonical_thread_projections")) {
-      return rowsResult<Row>(this.applyGeneratedTitle(params));
-    }
     if (statement.includes("DELETE FROM canonical_thread_item_projections")) {
       this.deleteThreadItems(params);
       return emptyResult();
@@ -189,32 +186,6 @@ class ThreadProjectionSqlClient implements SqlClient {
     const receipt = this.readReceipts.get(key);
     return receipt ? [receipt] : [];
   }
-
-  private applyGeneratedTitle(
-    params: readonly SqlValue[],
-  ): ThreadProjectionRow[] {
-    const threadIdParam = readStringParam(params[2], "thread_id");
-    const thread = this.threads.get(threadIdParam);
-    if (
-      !thread ||
-      thread.title_source !== "generated" ||
-      thread.title_status !== "pending" ||
-      thread.title_version !==
-        readNumberParam(params[3], "expected_title_version") ||
-      thread.last_terminal_turn_id !==
-        readStringParam(params[4], "terminal_turn_id")
-    ) {
-      return [];
-    }
-    const updated = {
-      ...thread,
-      title: readStringParam(params[0], "title"),
-      title_version: readNumberParam(params[1], "next_title_version"),
-      title_status: "ready",
-    };
-    this.threads.set(threadIdParam, updated);
-    return [updated];
-  }
 }
 
 describe("PostgresThreadProjectionRepository", () => {
@@ -292,48 +263,6 @@ describe("PostgresThreadProjectionRepository", () => {
         acknowledgedAt: timestamp,
       }),
     ).rejects.toMatchObject({ code: "acknowledgement_turn_mismatch" });
-  });
-
-  it("accepts a generated title exactly once for its current terminal version", async () => {
-    const client = new ThreadProjectionSqlClient();
-    const repository = new PostgresThreadProjectionRepository(client);
-    await repository.rebuildFromEvents({
-      threadId,
-      events: [
-        projectionInput(createThreadEvent("thread.created", thread, 1), 1),
-        projectionInput(createTurnEvent(firstTurn, 2), 2),
-      ],
-    });
-
-    await expect(
-      repository.applyGeneratedTitle({
-        threadId,
-        title: "Durable title",
-        expectedTitleVersion: 1,
-        terminalTurnId: firstTurn.id,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      repository.applyGeneratedTitle({
-        threadId,
-        title: "Stale duplicate",
-        expectedTitleVersion: 1,
-        terminalTurnId: firstTurn.id,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      repository.applyGeneratedTitle({
-        threadId,
-        title: "Stale terminal",
-        expectedTitleVersion: 2,
-        terminalTurnId: "trn_wrong999",
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      repository.getThreadProjection(threadId),
-    ).resolves.toMatchObject({
-      thread: { title: "Durable title", titleVersion: 2, titleStatus: "ready" },
-    });
   });
 
   it("rolls back when item materialization fails", async () => {

@@ -47,6 +47,7 @@ export function WorkspaceSurfaceBody({
       <ContextDetailsPanel
         budget={selectedContext.budget}
         usage={selectedContext.usage}
+        session={selectedContext.session}
       />
     );
   }

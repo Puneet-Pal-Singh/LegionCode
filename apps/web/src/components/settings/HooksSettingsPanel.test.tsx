@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { HookDefinition, HookDefinitionsClient } from "../../services/api/hookDefinitionsClient.js";
+import type {
+  HookDefinition,
+  HookDefinitionsClient,
+} from "../../services/api/hookDefinitionsClient.js";
 import { HooksSettingsPanel } from "./HooksSettingsPanel.js";
 
 const userDefinition: HookDefinition = {
@@ -37,26 +40,32 @@ describe("HooksSettingsPanel", () => {
       />,
     );
 
-    expect(await screen.findByText("Personal startup check")).toBeInTheDocument();
-    expect(screen.getByText("Project startup check")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /User config/ }));
+    expect(screen.getByText("Personal startup check")).toBeInTheDocument();
     expect(screen.queryByText("hooks.personal.start")).not.toBeInTheDocument();
 
     const userToggle = screen.getByRole("switch", {
       name: "Disable Personal startup check",
     });
-    const projectToggle = screen.getByRole("switch", {
-      name: "Disable Project startup check",
-    });
-    expect(projectToggle).toBeDisabled();
-
     fireEvent.click(userToggle);
     await waitFor(() =>
       expect(client.update).toHaveBeenCalledWith(
         "workspace_1",
-        expect.objectContaining({ handlerId: "personal.start", enabled: false }),
+        expect.objectContaining({
+          handlerId: "personal.start",
+          enabled: false,
+        }),
       ),
     );
     expect(client.update).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Project config/ }));
+    expect(screen.getByText("Project startup check")).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", {
+        name: "Disable Project startup check",
+      }),
+    ).toBeDisabled();
   });
 
   it("requires a second explicit action before deleting a user hook", async () => {
@@ -73,12 +82,18 @@ describe("HooksSettingsPanel", () => {
       />,
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: /User config/ }));
     await screen.findByText("Personal startup check");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Personal startup check" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Personal startup check" }),
+    );
     expect(client.delete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }));
     await waitFor(() =>
-      expect(client.delete).toHaveBeenCalledWith("workspace_1", "personal.start"),
+      expect(client.delete).toHaveBeenCalledWith(
+        "workspace_1",
+        "personal.start",
+      ),
     );
   });
 });

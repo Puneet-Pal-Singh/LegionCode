@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
+import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
 import {
   ThreadTitleGenerationCoordinator,
   ThreadTitleService,
@@ -12,6 +13,10 @@ import { HandleChatRequest } from "./HandleChatRequest";
 describe("HandleChatRequest", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(
+      DurableConversationContextAssembler.prototype,
+      "assemble",
+    ).mockImplementation(async ({ currentTurnId: _currentTurnId }) => []);
   });
 
   afterEach(() => {
@@ -72,7 +77,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.harnessMode).toBe("platform_owned");
     expect(result.executionPayload.input.authMode).toBe("api_key");
     expect(result.executionPayload.input.metadata).toEqual({
-      contextWindowTokens: 128_000,
+      contextWindowTokens: 999,
       featureFlags: {
         agenticLoopV1: false,
         reviewerPassV1: false,
@@ -101,6 +106,90 @@ describe("HandleChatRequest", () => {
         workspaceId: undefined,
       },
     );
+  });
+
+  it("routes new OpenAI reasoning models and preserves selected effort", async () => {
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue({ id: "message-luna" } as Awaited<
+      ReturnType<PersistenceService["persistUserMessage"]>
+    >);
+    const result = await new HandleChatRequest(createEnv()).execute({
+      sessionId: "session-luna",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-luna",
+      agentType: "coding",
+      prompt: "inspect",
+      messages: [{ role: "user", content: "inspect" }],
+      providerId: "openai",
+      modelId: "gpt-5.6-luna",
+      contextWindowTokens: 400_000,
+      pricing: {
+        inputPer1M: 1.25,
+        outputPer1M: 10,
+        currency: "USD",
+      },
+      reasoningEffort: "high",
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_luna01",
+        turnId: "trn_luna01",
+        runAttemptId: "attempt_luna01",
+      },
+    });
+
+    expect(result.executionPayload.input).toMatchObject({
+      runtimeModelId: "gpt-5.6-luna",
+      providerTransport: "openai-responses",
+      providerEndpoint: "https://api.openai.com/v1/responses",
+      metadata: {
+        contextWindowTokens: 400_000,
+        pricing: {
+          inputPer1M: 1.25,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+        reasoningEffort: "high",
+      },
+    });
+  });
+
+  it("preserves the trusted discovered route for mixed-transport providers", async () => {
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue({ id: "message-zen" } as Awaited<
+      ReturnType<PersistenceService["persistUserMessage"]>
+    >);
+    const result = await new HandleChatRequest(createEnv()).execute({
+      sessionId: "session-zen",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-zen",
+      agentType: "coding",
+      prompt: "inspect",
+      messages: [{ role: "user", content: "inspect" }],
+      providerId: "opencode-zen",
+      modelId: "claude-sonnet-4-5",
+      providerRuntimeRoute: {
+        providerId: "opencode-zen",
+        modelId: "claude-sonnet-4-5",
+        transport: "anthropic-messages",
+        endpoint: "https://opencode.ai/zen/v1/messages",
+      },
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_zen001",
+        turnId: "trn_zen001",
+        runAttemptId: "attempt_zen001",
+      },
+    });
+
+    expect(result.executionPayload.input).toMatchObject({
+      runtimeModelId: "claude-sonnet-4-5",
+      providerTransport: "anthropic-messages",
+      providerEndpoint: "https://opencode.ai/zen/v1/messages",
+    });
   });
 
   it("ensures authenticated sessions and runs before persisting transcript messages", async () => {
@@ -216,6 +305,12 @@ describe("HandleChatRequest", () => {
       messages: [{ role: "user", content: "edit the readme" }],
       providerId: "openrouter",
       modelId: "poolside/laguna-s-2.1:free",
+      providerRuntimeRoute: {
+        providerId: "openrouter",
+        modelId: "poolside/laguna-s-2.1:free",
+        transport: "openai-chat-completions",
+        endpoint: "https://openrouter.ai/api/v1/chat/completions",
+      },
       identity: {
         workspaceId: "123e4567-e89b-42d3-a456-426614174003",
         threadId: "thr_title001",
@@ -233,6 +328,9 @@ describe("HandleChatRequest", () => {
         previewVersion: 1,
         providerId: "openrouter",
         modelId: "poolside/laguna-s-2.1:free",
+        runtimeModelId: "poolside/laguna-s-2.1:free",
+        providerTransport: "openai-chat-completions",
+        providerEndpoint: "https://openrouter.ai/api/v1/chat/completions",
       }),
     );
   });

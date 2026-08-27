@@ -4,7 +4,9 @@ import AnnouncementBanner from "@/components/layout/announcement-banner";
 import Header from "@/components/layout/header";
 import LandingHero from "@/components/hero/landing-hero";
 import WorkspacePlayground from "@/components/playground/workspace-playground";
-import FeaturesBento from "@/components/features/features-bento";
+// import FeaturesBento from "@/components/features/features-bento";
+import WorkflowSteps from '@/components/features/workflow-steps';
+import CloudSection from '@/components/features/cloud-section';
 import ByokSection from "@/components/features/byok-section";
 import SurfacesSection from "@/components/features/surfaces-section";
 import ExperienceLiftoff from "@/components/features/experience-liftoff";
@@ -35,14 +37,20 @@ export default function Page() {
         {/* WORKSPACE PLAYGROUND SECTION */}
         <WorkspacePlayground />
 
+        {/* WORKFLOW STEPS SECTION */}
+        <WorkflowSteps />
+
+        {/* PARALLEL CLOUD AGENTS SECTION */}
+        <CloudSection />
+
         {/* FEATURES GRID SECTION */}
-        <FeaturesBento />
+        {/* <FeaturesBento /> */}
 
         {/* BRING YOUR OWN KEY SECTION */}
         <ByokSection />
 
         {/* CHOOSE YOUR AGENT WORKSPACE SECTION */}
-        <SurfacesSection />
+        {/* <SurfacesSection /> */}
 
         {/* EXPERIENCE LIFTOFF SECTION - 3D Starfield Galaxy Graphics */}
         <ExperienceLiftoff />

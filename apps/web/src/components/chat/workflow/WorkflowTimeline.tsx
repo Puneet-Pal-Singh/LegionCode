@@ -6,13 +6,16 @@ import {
   FilePenLine,
   GitBranch,
   Globe,
+  Images,
   Search,
   Square,
   Terminal,
   Wrench,
   ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
+  buildActiveWorkflowTrace,
   buildSegmentTitle,
   type ToolActivitySegment,
   type WorkflowItem,
@@ -20,12 +23,18 @@ import {
 import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
 import { itemDisplayText } from "./workflowPresentation.js";
-import { ThinkingIndicator } from "./ThinkingIndicator.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
 import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
+
+// Parent activity groups are intentionally airy enough to read as separate
+// phases in the trace. Once a group is opened, its child calls use a shorter
+// cadence so the list reads as one compact execution rather than a second
+// stack of cards.
+const WORKFLOW_PARENT_CADENCE = "min-h-8 py-1.5 text-sm leading-5";
+const WORKFLOW_CHILD_CADENCE = "min-h-6 py-0.5 text-sm leading-5";
 
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
@@ -40,18 +49,63 @@ export function WorkflowTimeline({
   showThinkingState,
   onArtifactOpen,
 }: WorkflowTimelineProps) {
+  const activeTrace = showThinkingState
+    ? buildActiveWorkflowTrace(segments)
+    : null;
   return (
     <div className="space-y-3" data-testid="workflow-tool-viewport">
-      {segments.map((segment) => (
-        <WorkflowSegment
-          key={segment.key}
-          segment={segment}
+      {segments.map((segment) =>
+        activeTrace?.consumedSegmentKeys.includes(segment.key) ? null : (
+          <WorkflowSegment
+            key={segment.key}
+            segment={segment}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
+        ),
+      )}
+      {showThinkingState ? (
+        <ActiveWorkflowTrace
+          key="active-workflow-trace"
+          title={activeTrace?.title ?? "Thinking through the next step"}
+          children={activeTrace?.children ?? []}
           turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
-      ))}
-      {showThinkingState ? <ThinkingIndicator /> : null}
+      ) : null}
     </div>
+  );
+}
+
+function ActiveWorkflowTrace({
+  title,
+  children,
+  turnDiff,
+  onArtifactOpen,
+}: {
+  title: string;
+  children: readonly WorkflowItem[];
+  turnDiff: TurnDiffPayload | null;
+  onArtifactOpen?: ArtifactOpenHandler;
+}) {
+  return (
+    <ActivityDisclosure
+      title={title}
+      active
+      hasChildren={children.length > 0}
+      defaultExpanded={false}
+      titleTestId="active-workflow-title"
+    >
+      {children.map((item) => (
+        <WorkflowItemRow
+          key={item.itemId}
+          item={item}
+          turnDiff={turnDiff}
+          nested
+          onArtifactOpen={onArtifactOpen}
+        />
+      ))}
+    </ActivityDisclosure>
   );
 }
 
@@ -87,41 +141,54 @@ function WorkflowSegment({
   }
 
   return (
-    <div className="space-y-2">
-      {segment.reasoning ? (
+    <div className="space-y-1">
+      {segment.reasoning && segment.children.length === 0 ? (
         <div className="text-[15px] leading-7 text-zinc-100">
-          <MarkdownMessageContent
-            content={itemDisplayText(segment.reasoning) ?? "Thinking"}
-          />
+          <span
+            className={segment.isActive ? "turn-lifecycle-shimmer" : undefined}
+          >
+            {itemDisplayText(segment.reasoning) ?? "Thinking"}
+          </span>
         </div>
       ) : null}
       {segment.children.length > 0 ? (
-        <ActivityDisclosure
-          title={buildSegmentTitle(segment)}
-          active={segment.isActive}
-        >
-          <div
-            ref={viewportRef}
-            onScroll={(event) => {
-              const viewport = event.currentTarget;
-              followRef.current =
-                viewport.scrollHeight -
-                  viewport.scrollTop -
-                  viewport.clientHeight <
-                24;
-            }}
-            className="max-h-60 space-y-1 overflow-y-auto pr-2"
+        segment.isActive || segment.reasoning || segment.children.length > 1 ? (
+          <ActivityDisclosure
+            title={buildSegmentTitle(segment)}
+            active={segment.isActive}
+            hasChildren
+            defaultExpanded={false}
           >
-            {segment.children.map((item) => (
-              <WorkflowItemRow
-                key={item.itemId}
-                item={item}
-                turnDiff={turnDiff}
-                onArtifactOpen={onArtifactOpen}
-              />
-            ))}
-          </div>
-        </ActivityDisclosure>
+            <div
+              ref={viewportRef}
+              onScroll={(event) => {
+                const viewport = event.currentTarget;
+                followRef.current =
+                  viewport.scrollHeight -
+                    viewport.scrollTop -
+                    viewport.clientHeight <
+                  24;
+              }}
+              className="max-h-60 space-y-0 overflow-y-auto pr-2"
+            >
+              {segment.children.map((item) => (
+                <WorkflowItemRow
+                  key={item.itemId}
+                  item={item}
+                  turnDiff={turnDiff}
+                  nested
+                  onArtifactOpen={onArtifactOpen}
+                />
+              ))}
+            </div>
+          </ActivityDisclosure>
+        ) : (
+          <WorkflowItemRow
+            item={segment.children[0]!}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
+        )
       ) : null}
     </div>
   );
@@ -130,39 +197,61 @@ function WorkflowSegment({
 function ActivityDisclosure({
   title,
   active,
+  hasChildren,
+  defaultExpanded = false,
+  titleTestId,
   children,
 }: {
   title: string;
   active: boolean;
+  hasChildren: boolean;
+  defaultExpanded?: boolean;
+  titleTestId?: string;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(active);
-  useEffect(() => {
-    setExpanded(active);
-  }, [active]);
+  // Keep full provider commentary available for inspection without allowing
+  // verbose models to expand the transcript by default. Concise standalone
+  // progress updates remain visible as their own transcript segments.
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div>
       <button
         type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-        className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-100"
+        aria-expanded={hasChildren ? expanded : undefined}
+        aria-disabled={!hasChildren}
+        data-testid="activity-disclosure-row"
+        onClick={() => {
+          if (hasChildren) setExpanded((current) => !current);
+        }}
+        className={cn(
+          "group flex items-center gap-2 text-zinc-500 transition hover:text-zinc-100",
+          WORKFLOW_PARENT_CADENCE,
+        )}
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
-        <span className="first-letter:uppercase">{title}</span>
-        <ChevronDown
+        <span
+          data-testid={titleTestId}
           className={cn(
-            "h-3.5 w-3.5 transition-transform",
-            expanded && "rotate-180",
+            "first-letter:uppercase",
+            active && "turn-lifecycle-shimmer",
           )}
-          aria-hidden="true"
-        />
+        >
+          {title}
+        </span>
+        {hasChildren ? (
+          <ChevronRight
+            data-testid="activity-disclosure-chevron"
+            className={cn(
+              "h-3.5 w-3.5 transition-transform",
+              expanded && "rotate-90",
+            )}
+            aria-hidden="true"
+          />
+        ) : null}
       </button>
-      {expanded ? (
-        <div className="mt-1 min-w-0 border-l border-zinc-800 py-1 pl-3 sm:ml-2 sm:pl-4">
-          {children}
-        </div>
+      {hasChildren && expanded ? (
+        <div className="min-w-0">{children}</div>
       ) : null}
     </div>
   );
@@ -173,11 +262,13 @@ function WorkflowItemRow({
   turnDiff,
   reasoning = false,
   onArtifactOpen,
+  nested = false,
 }: {
   item: WorkflowItem;
   turnDiff: TurnDiffPayload | null;
   reasoning?: boolean;
   onArtifactOpen?: ArtifactOpenHandler;
+  nested?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
@@ -210,7 +301,10 @@ function WorkflowItemRow({
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className="group py-0.5 text-[13px]"
+      className={cn(
+        "group",
+        nested ? WORKFLOW_CHILD_CADENCE : WORKFLOW_PARENT_CADENCE,
+      )}
     >
       <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
         <WorkflowStatusIcon item={item} />
@@ -242,7 +336,13 @@ function WorkflowItemRow({
             }}
             className="min-w-0 text-left text-zinc-500 transition-colors hover:text-white"
           >
-            <span>{label}</span>
+            <span
+              className={
+                item.status === "active" ? "turn-lifecycle-shimmer" : undefined
+              }
+            >
+              {label}
+            </span>
             {preview ? (
               <span className="ml-2 break-words text-zinc-400 transition-colors group-hover:text-white">
                 {preview}
@@ -250,7 +350,7 @@ function WorkflowItemRow({
             ) : null}
             {item.toolFamily === "edit" &&
             (item.additions != null || item.deletions != null) ? (
-              <span className="ml-2 inline-flex gap-1.5 font-mono">
+              <span className="ml-2 inline-flex gap-1.5 font-mono text-xs font-normal">
                 <span className="text-emerald-400">+{item.additions ?? 0}</span>
                 <span className="text-red-400">-{item.deletions ?? 0}</span>
               </span>
@@ -321,7 +421,7 @@ function InlineEditPreview({
 
   if (diff) {
     return (
-      <div className="mt-2 min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-black sm:ml-6">
+      <div className="mt-2 min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-black">
         <DiffViewer
           diff={diff}
           className="max-h-80 min-w-0"
@@ -329,13 +429,14 @@ function InlineEditPreview({
           wordWrap={false}
           showHeader={false}
           showFileSummary
+          fileSummaryLayout="inline"
         />
       </div>
     );
   }
 
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e] sm:ml-6">
+    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e]">
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2 text-xs">
         <span className="truncate font-mono text-zinc-300">
           {item.filePath ?? "Edited file"}
@@ -390,17 +491,23 @@ function resolveItemLabel(item: WorkflowItem): string {
     return `${item.status === "active" ? "Reading" : "Read"} ${target}`;
   }
   if (target && item.toolFamily === "edit") {
+    if (item.editChange === "created") {
+      return `${item.status === "active" ? "Creating" : "Created"} ${target}`;
+    }
     return `${item.status === "active" ? "Editing" : "Edited"} ${target}`;
   }
   if (item.toolFamily === "shell") {
     return item.status === "active" ? "Running command" : "Ran command";
+  }
+  if (item.toolFamily === "image") {
+    return item.safeSummary ?? (item.status === "active" ? "Viewing images" : "Viewed images");
   }
   return item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
 }
 
 function WorkflowStatusIcon({ item }: { item: WorkflowItem }) {
   const className = cn(
-    "mt-0.5 h-3.5 w-3.5 text-zinc-600",
+    "mt-0.5 h-4 w-4 text-zinc-600",
     item.status === "active" &&
       "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
     item.status === "completed" && "text-zinc-500",
@@ -430,6 +537,8 @@ function WorkflowStatusIcon({ item }: { item: WorkflowItem }) {
     case "web":
     case "browser":
       return <Globe aria-hidden="true" className={className} />;
+    case "image":
+      return <Images aria-hidden="true" className={className} />;
     default:
       return <Wrench aria-hidden="true" className={className} />;
   }

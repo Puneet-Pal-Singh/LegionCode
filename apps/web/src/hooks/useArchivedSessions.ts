@@ -7,6 +7,8 @@ export function useArchivedSessions(isEnabled: boolean): {
   isLoading: boolean;
   error: string | null;
   removeSession: (sessionId: string) => void;
+  deleteSession: (sessionId: string) => Promise<void>;
+  deleteAllSessions: () => Promise<void>;
   refresh: () => Promise<void>;
 } {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
@@ -43,5 +45,50 @@ export function useArchivedSessions(isEnabled: boolean): {
     );
   }, []);
 
-  return { sessions, isLoading, error, removeSession, refresh };
+  const deleteSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      setError(null);
+      try {
+        await SessionStateService.deleteArchivedSession(sessionId);
+        removeSession(sessionId);
+      } catch (deleteError) {
+        setError(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Failed to delete archived chat",
+        );
+        throw deleteError;
+      }
+    },
+    [removeSession],
+  );
+
+  const deleteAllSessions = useCallback(async (): Promise<void> => {
+    setError(null);
+    try {
+      await Promise.all(
+        sessions.map((session) =>
+          SessionStateService.deleteArchivedSession(session.id),
+        ),
+      );
+      setSessions([]);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete all archived chats",
+      );
+      throw deleteError;
+    }
+  }, [sessions]);
+
+  return {
+    sessions,
+    isLoading,
+    error,
+    removeSession,
+    deleteSession,
+    deleteAllSessions,
+    refresh,
+  };
 }

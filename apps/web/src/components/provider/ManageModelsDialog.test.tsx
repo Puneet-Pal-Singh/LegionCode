@@ -74,6 +74,26 @@ describe("ManageModelsDialog", () => {
     expect(onSetProviderVisibleModels).toHaveBeenCalledWith("google", []);
   });
 
+  it("shows explicit enabled count separately from discovered inventory count", () => {
+    render(
+      <ManageModelsDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        catalog={catalog}
+        credentials={credentials}
+        providerModels={providerModels}
+        visibleModelIds={{
+          google: new Set(["gemini-2.5-pro"]),
+        }}
+        loadingProviderModelIds={{}}
+        onToggleModelVisibility={vi.fn()}
+        onSetProviderVisibleModels={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("1 enabled · 2 discovered")).toBeInTheDocument();
+  });
+
   it("restores all provider models when re-enabling a hidden provider", () => {
     const onSetProviderVisibleModels = vi.fn();
 

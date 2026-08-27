@@ -14,6 +14,16 @@ import {
 
 type ProjectionMap = Readonly<Record<string, LifecycleProjection>>;
 
+interface ConversationLifecycleProjectionState {
+  readonly key: string;
+  readonly projections: ProjectionMap;
+}
+
+export interface ConversationLifecycleProjections {
+  readonly projections: ProjectionMap;
+  readonly isLoading: boolean;
+}
+
 /**
  * Replays settled transcript turns from canonical lifecycle storage.
  *
@@ -25,52 +35,77 @@ export function useConversationLifecycleProjections(
   turns: readonly ConversationTurn[],
   activeTurnId: string | null | undefined,
   injectedClient?: LifecycleClient,
-): ProjectionMap {
+): ConversationLifecycleProjections {
   const client = useMemo(
     () => injectedClient ?? createLifecycleClient(),
     [injectedClient],
   );
   const turnIds = useMemo(
-    () =>
-      [...new Set(
+    () => [
+      ...new Set(
         turns
           .map((turn) => TurnIdSchema.safeParse(turn.turnId))
           .filter((result) => result.success)
           .map((result) => result.data)
           .filter((turnId) => turnId !== activeTurnId),
-      )],
+      ),
+    ],
     [activeTurnId, turns],
   );
   const turnIdsKey = turnIds.join("\u0000");
-  const [projections, setProjections] = useState<ProjectionMap>({});
+  const [state, setState] =
+    useState<ConversationLifecycleProjectionState | null>(null);
 
   useEffect(() => {
     const abortController = new AbortController();
-    for (const turnId of turnIds) {
-      void replaySettledTurn(client, turnId, abortController, setProjections);
-    }
+    void Promise.all(
+      turnIds.map((turnId) =>
+        replaySettledTurn(client, turnId, abortController),
+      ),
+    ).then((replayed) => {
+      if (abortController.signal.aborted) return;
+      setState({
+        key: turnIdsKey,
+        projections: Object.fromEntries(
+          replayed
+            .filter(
+              (projection): projection is LifecycleProjection =>
+                projection !== null,
+            )
+            .map((projection) => [projection.turnId, projection]),
+        ),
+      });
+    });
     return () => abortController.abort();
-  }, [client, turnIdsKey]);
+  }, [client, turnIds, turnIdsKey]);
 
-  return projections;
+  const isCurrent = state?.key === turnIdsKey;
+  return {
+    projections: isCurrent ? state.projections : {},
+    isLoading: turnIds.length > 0 && !isCurrent,
+  };
 }
 
 async function replaySettledTurn(
   client: LifecycleClient,
   turnId: TurnId,
   abortController: AbortController,
-  setProjections: React.Dispatch<React.SetStateAction<ProjectionMap>>,
-): Promise<void> {
+): Promise<LifecycleProjection | null> {
   let projection = createLifecycleProjection(turnId);
   try {
-    for await (const event of client.followTurnLifecycle(
-      { turnId },
-      { signal: abortController.signal },
-    )) {
-      if (abortController.signal.aborted) return;
-      projection = applyLifecycleEvent(projection, event);
-      setProjections((current) => ({ ...current, [turnId]: projection }));
-    }
+    let afterSequence = null;
+    do {
+      const replay = await client.replayLifecycleEvents(
+        { turnId, afterSequence, limit: 1_000 },
+        { signal: abortController.signal },
+      );
+      if (abortController.signal.aborted) return null;
+      for (const event of replay.events) {
+        projection = applyLifecycleEvent(projection, event);
+      }
+      afterSequence = replay.nextSequence;
+    } while (afterSequence !== null);
+    return projection;
   } catch (error) {
     // The transcript remains usable if an old lifecycle is unavailable.
     // Current-turn failures are surfaced by useActiveTurnProjection.
@@ -80,5 +115,6 @@ async function replaySettledTurn(
         error,
       );
     }
+    return null;
   }
 }

@@ -5,7 +5,7 @@ import type { SidebarContentTab } from "./useWorkspaceState";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 interface SidebarHeaderProps {
-  sidebarWidth: number;
+  sidebarWidth: number | string;
   isViewingContent: boolean;
   contentTabs: SidebarContentTab[];
   activeContentTabId: string | null;

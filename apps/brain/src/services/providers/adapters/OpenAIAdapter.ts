@@ -13,6 +13,7 @@ interface OpenAIConfig {
   baseURL?: string;
   defaultModel?: string;
   providerId?: string;
+  headers?: Record<string, string>;
 }
 
 export class OpenAIAdapter extends OpenAICompatibleAdapter {
@@ -25,6 +26,7 @@ export class OpenAIAdapter extends OpenAICompatibleAdapter {
       baseURL: config.baseURL,
       defaultModel: config.defaultModel ?? "gpt-4o-mini",
       supportedModels: [],
+      headers: config.headers,
     };
     super(adapterConfig);
     this.provider = config.providerId ?? "openai";

@@ -218,11 +218,8 @@ describe("ProviderDialog", () => {
       const availableTab = screen.getByText("Available");
       fireEvent.click(availableTab);
 
-      // ConnectProviderChooser shows "Find Provider" label
-      expect(screen.getByText("Find Provider")).toBeInTheDocument();
-      // And the search input
       expect(
-        screen.getByPlaceholderText(/search providers/i),
+        screen.getByRole("textbox", { name: /find provider/i }),
       ).toBeInTheDocument();
     });
 
@@ -262,10 +259,14 @@ describe("ProviderDialog", () => {
           screen.getByText("OpenAI connected. Choose your models next."),
         ).toBeInTheDocument();
         expect(
-          screen.getByText(/Choose the models you want to show in the model selector next/i),
+          screen.getByText(
+            /Choose the models you want to show in the model selector next/i,
+          ),
         ).toBeInTheDocument();
         expect(
-          screen.getByText(/Select which models from this provider should appear in the model picker before you continue/i),
+          screen.getByText(
+            /Select which models from this provider should appear in the model picker before you continue/i,
+          ),
         ).toBeInTheDocument();
       });
     });
@@ -279,7 +280,9 @@ describe("ProviderDialog", () => {
         />,
       );
 
-      expect(screen.getByText("Find Provider")).toBeInTheDocument();
+      expect(
+        screen.getByRole("textbox", { name: /find provider/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -468,10 +471,14 @@ describe("ProviderDialog", () => {
           screen.getByText("OpenAI connected. Choose your models next."),
         ).toBeInTheDocument();
         expect(
-          screen.getByText(/Choose the models you want to show in the model selector next/i),
+          screen.getByText(
+            /Choose the models you want to show in the model selector next/i,
+          ),
         ).toBeInTheDocument();
         expect(
-          screen.getByText(/Select which models from this provider should appear in the model picker before you continue/i),
+          screen.getByText(
+            /Select which models from this provider should appear in the model picker before you continue/i,
+          ),
         ).toBeInTheDocument();
       });
     });

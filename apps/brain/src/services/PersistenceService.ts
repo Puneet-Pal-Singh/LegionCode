@@ -1,5 +1,5 @@
 import type { CoreMessage } from "ai";
-import type { JsonValue } from "@repo/shared-types";
+import type { ChatImageAttachmentRef, JsonValue } from "@repo/shared-types";
 import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import type {
   AppendRunEventInput,
@@ -20,8 +20,10 @@ import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactor
 import { withRunRepository } from "./runs/RunPersistenceFactory";
 import {
   buildRedactedMessageText,
+  extractImageParts,
   messageHasImageParts,
 } from "./chat/ImageMessageRedactor";
+import { ChatMediaStore } from "./chat/ChatMediaStore";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 
 interface PersistMessageContext {
@@ -208,13 +210,18 @@ export class PersistenceService {
         }),
       );
       const content = buildPersistenceDedupeContent(message);
-
       const idempotencyKey = await this.generateMessageIdempotencyKey(
         sessionId,
         runId,
         message,
         content,
       );
+      const imageRefs = await this.persistImageAttachments({
+        sessionId,
+        userId: context.userId,
+        message,
+        idempotencyKey,
+      });
 
       const persistedMessage = await this.persistMessage({
         sessionId,
@@ -222,6 +229,7 @@ export class PersistenceService {
         message,
         idempotencyKey,
         context,
+        imageRefs,
       });
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-persisted", {
@@ -414,6 +422,7 @@ export class PersistenceService {
       message: CoreMessage;
       idempotencyKey: string;
       context: PersistMessageContext;
+      imageRefs?: ChatImageAttachmentRef[];
     },
     repository?: TranscriptRepository,
   ): Promise<TranscriptMessageRecord> {
@@ -433,12 +442,14 @@ export class PersistenceService {
       message: CoreMessage;
       idempotencyKey: string;
       context: PersistMessageContext;
+      imageRefs?: ChatImageAttachmentRef[];
     },
     repository: TranscriptRepository,
   ): Promise<TranscriptMessageRecord> {
     const parts = coreMessageToTranscriptParts(
       input.message,
       input.context.identity,
+      input.imageRefs,
     );
     const clientMessageId = readClientMessageId(input.message);
     console.log(
@@ -492,6 +503,34 @@ export class PersistenceService {
       content,
     );
   }
+
+  private async persistImageAttachments(input: {
+    sessionId: string;
+    userId?: string;
+    message: CoreMessage;
+    idempotencyKey: string;
+  }): Promise<ChatImageAttachmentRef[]> {
+    if (!messageHasImageParts(input.message)) return [];
+    if (!input.userId || !this.env.EDIT_ARTIFACTS) {
+      throw new Error("Chat image persistence requires an authenticated R2 binding.");
+    }
+
+    const store = new ChatMediaStore(this.env.EDIT_ARTIFACTS);
+    const images = extractImageParts(input.message.content as unknown[]);
+    return await Promise.all(
+      images.map((image, index) =>
+        store.putImage({
+          userId: input.userId!,
+          sessionId: input.sessionId,
+          // The transcript append is idempotent on this same key. Deriving the
+          // object identity from it makes a retried append overwrite the same
+          // private object instead of leaking an orphan on every attempt.
+          attachmentId: `img_${input.idempotencyKey.slice(0, 48)}_${index}`,
+          image,
+        }),
+      ),
+    );
+  }
 }
 
 function resolveRunStepIndex(
@@ -526,6 +565,7 @@ function mapRunStatusToSessionStatus(status: RunStatus): SessionStatus {
 function coreMessageToTranscriptParts(
   message: CoreMessage,
   identity?: TurnScopeBootstrap,
+  imageRefs: ChatImageAttachmentRef[] = [],
 ): Array<{
   type: "text" | "raw";
   content: JsonValue;
@@ -546,6 +586,7 @@ function coreMessageToTranscriptParts(
         content: buildTranscriptTextContent(
           buildRedactedMessageText(message),
           identity,
+          imageRefs,
         ),
       },
     ];
@@ -571,11 +612,19 @@ function buildAssistantTurnParts(input: {
 function buildTranscriptTextContent(
   text: string,
   identity?: TurnScopeBootstrap,
+  imageRefs: ChatImageAttachmentRef[] = [],
 ): Record<string, JsonValue> {
   return {
     text,
-    ...(identity
-      ? { metadata: { canonicalIdentity: toJsonValue(identity) } }
+    ...(identity || imageRefs.length > 0
+      ? {
+          metadata: {
+            ...(identity ? { canonicalIdentity: toJsonValue(identity) } : {}),
+            ...(imageRefs.length > 0
+              ? { imageAttachments: toJsonValue(imageRefs) }
+              : {}),
+          },
+        }
       : {}),
   };
 }

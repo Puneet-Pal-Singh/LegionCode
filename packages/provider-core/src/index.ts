@@ -50,3 +50,8 @@ export {
   type ModelCostClass,
   type ProviderModelDefinition,
 } from "./registry.js";
+export {
+  resolveProviderRuntimeRoute,
+  type ResolvedProviderRuntimeRoute,
+  type ProviderRuntimeRouteRegistry,
+} from "./runtime-route.js";

@@ -1,6 +1,21 @@
-import { describe, expect, it } from "vitest";
-import { PgSqlClient, type PgConnection } from "./PgSqlClient.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createPostgresSqlClient,
+  PgSqlClient,
+  type PgConnection,
+} from "./PgSqlClient.js";
 import type { QueryResult, QueryResultRow } from "pg";
+
+const mockedPools = vi.hoisted(() => [] as Array<{ connectionString: string }>);
+
+vi.mock("pg", () => ({
+  Client: class MockClient {},
+  Pool: class MockPool {
+    constructor(options: { connectionString: string }) {
+      mockedPools.push(options);
+    }
+  },
+}));
 
 class RecordingPgConnection implements PgConnection {
   public readonly statements: string[] = [];
@@ -29,6 +44,18 @@ class RecordingPgConnection implements PgConnection {
 }
 
 describe("PgSqlClient", () => {
+  it("does not share pools between explicitly scoped runtime clients", () => {
+    mockedPools.length = 0;
+
+    createPostgresSqlClient("postgres://db", "run-a");
+    createPostgresSqlClient("postgres://db", "run-b");
+
+    expect(mockedPools).toEqual([
+      { connectionString: "postgres://db" },
+      { connectionString: "postgres://db" },
+    ]);
+  });
+
   it("maps pg query results to the SqlClient contract", async () => {
     const connection = new RecordingPgConnection();
     const client = new PgSqlClient(connection);

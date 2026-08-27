@@ -60,6 +60,14 @@
       "gate": "corepack pnpm --filter @shadowbox/brain test"
     },
     {
+      "path": "apps/brain/src/services/chat/ChatReasoningEffortPolicy.ts",
+      "owner": "brain-chat-ingress",
+      "category": "provider",
+      "disposition": "keep-pure-policy",
+      "purpose": "Validate a requested reasoning effort against provider-declared model capabilities.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test -- src/services/chat/ChatReasoningEffortPolicy.test.ts"
+    },
+    {
       "path": "apps/brain/src/services/chat/SubmittedClientMessagePolicy.ts",
       "owner": "brain-chat-ingress",
       "category": "conversation",

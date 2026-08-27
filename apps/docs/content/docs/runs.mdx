@@ -1,35 +1,37 @@
 ---
-title: Runs and tasks
-description: Learn how to scope tasks, read run state, and keep agent work reviewable.
+title: Tasks and turns
+description: Learn how to scope tasks, follow turn state, and keep agent work reviewable.
 category: Core workflow
 toc:
-  - id: run-identity
-    text: Run identity
-  - id: run-lifecycle
-    text: Run lifecycle
+  - id: task-identity
+    text: Task identity
+  - id: turn-lifecycle
+    text: Turn lifecycle
   - id: writing-effective-tasks
     text: Writing effective tasks
 ---
 
-A **run** is one task conversation connected to one repository context and one isolated workspace.
+A **task** is a durable conversation connected to one repository context and workspace. Each request inside the task is a **turn**.
 
-## Run identity
+## Task identity
 
-Each run has its own identifier, transcript, workspace, tool activity, and review state. That separation is what lets multiple tasks run without sharing writable files.
+A task keeps its own identifier, transcript, workspace, and review history. Each turn records the user request, agent response, tool activity, and outcome.
 
-You normally do not need the internal run identifier. Include it only when reporting a bug or debugging a failed run.
+If a turn must be retried, LegionCode creates another **run attempt** for that turn. The retry does not replace the task or its earlier history.
 
-## Run lifecycle
+You normally do not need internal identifiers. Include sanitized task, turn, or run-attempt identifiers only when reporting a problem.
 
-A typical run moves through these stages:
+## Turn lifecycle
 
-1. **Context:** resolve the user, repository, branch, provider, and model.
-2. **Workspace:** prepare the isolated cloud workspace for the task.
-3. **Execution:** stream the agent response and approved tool activity.
-4. **Review:** collect changed files and diffs for inspection.
-5. **Outcome:** complete, fail, or stop with a visible state.
+A typical turn moves through these stages:
 
-If a run fails, keep the run open long enough to read the error and changed files. Starting another run may be useful, but it should be a deliberate retry with a clear scope.
+1. **Context:** resolve the workspace, provider, model, permissions, and relevant history.
+2. **Execution:** stream the agent response and approved tool activity.
+3. **Artifact:** finalize changed files and the turn diff.
+4. **Outcome:** complete, fail, cancel, interrupt, or time out with a recorded terminal state.
+5. **Review:** inspect the final response and artifact before taking a Git action.
+
+If a turn fails, keep the task open long enough to read the error and inspect any recorded artifacts. Retry deliberately instead of assuming the previous attempt made no changes.
 
 ## Writing effective tasks
 
@@ -39,4 +41,4 @@ State the outcome, scope, and verification together:
 Fix the empty-state copy in the repository picker. Reuse the existing component styles, do not change authentication behavior, and run its focused test.
 ```
 
-Avoid combining unrelated refactors, deployment changes, and product work in one task. Smaller run scopes produce clearer diffs and make recovery easier.
+Avoid combining unrelated refactors, deployment changes, and product work in one task. Smaller scopes produce clearer diffs and make recovery easier.

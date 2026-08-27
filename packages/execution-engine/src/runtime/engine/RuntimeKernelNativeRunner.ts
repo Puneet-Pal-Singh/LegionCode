@@ -9,6 +9,7 @@ import {
   ThreadIdSchema,
   ToolCallItemContentSchema,
   TurnSchema,
+  TurnIdSchema,
   UsageCostSnapshotSchema,
   WorkerIdSchema,
   type ApprovalDecision,
@@ -42,11 +43,11 @@ import type {
 import { RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
 import {
   RISKY_ACTION_CATEGORIES,
+  ReasoningEffortSchema,
   RUN_WORKFLOW_STEPS,
   type ApprovalRequest,
   RUN_TERMINAL_STATES,
 } from "@repo/shared-types";
-import type { PermissionPolicy, RuleSetPolicy } from "@repo/permission-policy";
 import { BaseAgent } from "../agents/BaseAgent.js";
 import {
   enforceCodingToolFloor,
@@ -78,6 +79,7 @@ import {
   CostTracker,
   PricingRegistry,
   PricingResolver,
+  registerRuntimeModelPricing,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -98,6 +100,10 @@ import {
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
+import {
+  getNativeToolCallSafetyLimit,
+  shouldForceNativeFinalSynthesis,
+} from "./NativeProviderStepBudget.js";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildNativeProviderMessages } from "./NativeProviderFinalRecoveryMessages.js";
 import {
@@ -125,6 +131,7 @@ import {
   persistPlanArtifact,
 } from "./RunPlanModePolicy.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import { NativePermissionPolicyResolver } from "./NativePermissionPolicyResolver.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
   buildNativeKernelTerminalMessage,
@@ -146,6 +153,7 @@ import type {
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
+import { requirePersistedPermissionContext } from "./RuntimePermissionContext.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
@@ -157,6 +165,12 @@ import {
   estimateConversationTokens,
   summarizeConversationForCompaction,
 } from "./NativeProviderContextMessages.js";
+import { runWithProviderRequestRecovery } from "./NativeProviderRequestRecovery.js";
+import {
+  buildProviderRecoveryIdempotencyKey,
+  buildProviderRecoveryProgress,
+} from "./NativeProviderRecoveryProgress.js";
+import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -177,6 +191,8 @@ export interface RuntimeKernelNativeRunnerInput {
   runAttemptId?: string;
   threadId?: string;
   workspaceId?: string;
+  /** The latest terminal turn superseded by this edited/recovery turn. */
+  revisionOfTurnId?: string;
   workspace: {
     filesystemRoot: string;
     workingBranch: string;
@@ -185,6 +201,14 @@ export interface RuntimeKernelNativeRunnerInput {
   };
   now?: () => string;
 }
+
+type NativeProviderCallContext = {
+  runId: string;
+  sessionId: string;
+  agentType: string;
+  phase: "task" | "synthesis";
+  idempotencyKey: string;
+};
 
 export class RuntimeKernelNativeRunner {
   private activeTurn: {
@@ -282,6 +306,12 @@ export class RuntimeKernelNativeRunner {
   async execute(input: RuntimeKernelNativeRunnerInput): Promise<Response> {
     this.beginActiveTurn(input.turnId);
     try {
+      registerRuntimeModelPricing(this.pricingRegistry, {
+        providerId: input.input.providerId,
+        modelId: input.input.modelId,
+        runtimeModelId: input.input.runtimeModelId,
+        pricing: input.input.metadata?.pricing,
+      });
       return await this.executeActiveTurn(input);
     } finally {
       this.endActiveTurn(input.turnId);
@@ -343,8 +373,10 @@ export class RuntimeKernelNativeRunner {
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
+      revisionOfTurnId: input.revisionOfTurnId,
       workspace: input.workspace,
     });
+    const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
     const provider = new KernelAgenticProvider({
       run,
       input: input.input,
@@ -355,6 +387,7 @@ export class RuntimeKernelNativeRunner {
       runRepo: this.runRepo,
       runEventRecorder: this.runEventRecorder,
       isRunCancelled: this.isRunCancelled.bind(this),
+      maxSteps,
     });
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: protocol.run.id,
@@ -396,7 +429,9 @@ export class RuntimeKernelNativeRunner {
       provider,
       worker,
       toolAuthorization: new RegistryToolAuthorization(
-        new NativePermissionPolicyResolver(),
+        new NativePermissionPolicyResolver(
+          requirePersistedPermissionContext(run).state.productMode,
+        ),
       ),
       approvals: new NativeApprovalWaitPort({
         env: this.options.env,
@@ -409,7 +444,7 @@ export class RuntimeKernelNativeRunner {
       }),
       hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
-      maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
+      maxToolCalls: getNativeToolCallSafetyLimit(maxSteps),
       clock: { now },
       signal: this.activeTurn?.abortController.signal,
     });
@@ -632,12 +667,15 @@ export class RuntimeKernelNativeRunner {
           cause: describeRuntimeErrorCause(error),
         }),
       );
-      return await finalizeRunWithAssistantMessage({
+      await finalizeRunWithAssistantMessage({
         run,
         runtimeFinal: createRuntimeFinalText(message),
         metadata: { terminalState },
         deps: this.getRunCompletionDependencies(),
       });
+      // The lifecycle terminal is the canonical failed-turn renderer. Do not
+      // stream a second assistant bubble above the failed workflow surface.
+      return createStreamResponse("");
     }
   }
 
@@ -880,6 +918,8 @@ class KernelAgenticProvider implements ProviderPort {
   private cumulativeTokens = 0;
   private cumulativeCost = 0;
   private pendingCommentary: string | null = null;
+  private pendingReasoningSummary: LLMTextResponse["reasoningSummary"] =
+    undefined;
   private readonly currentBatchResults: AgenticLoopToolResult[] = [];
   private readonly toolNamesByCallId = new Map<string, string>();
   private readonly providerToolCallIdentities =
@@ -910,6 +950,7 @@ class KernelAgenticProvider implements ProviderPort {
       runRepo: RunRepository;
       runEventRecorder: RunEventRecorder;
       isRunCancelled: () => Promise<boolean>;
+      maxSteps: number;
     },
   ) {
     this.messages = [...options.messages];
@@ -933,9 +974,15 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    let finalOnlyRecoveryAttempts = 0;
+    let finalOnlyRecoveryAttempts = shouldForceNativeFinalSynthesis(
+      this.stepsExecuted,
+      this.options.maxSteps,
+    )
+      ? 1
+      : 0;
     let responseParts: LLMTextResponse["parts"];
     let responseUsage: LLMTextResponse["usage"] | null = null;
+    let responseReasoningSummary: LLMTextResponse["reasoningSummary"];
     let toolCalls: AgenticLoopToolCall[];
     let visibleText: string;
 
@@ -962,21 +1009,25 @@ class KernelAgenticProvider implements ProviderPort {
       );
 
       if (finalRecovery) {
-        const response = await runWithNativeCancellationPolling(
-          this.options.llmGateway.generateStructured({
-            context,
-            messages,
-            schema: NativeProviderFinalAnswerSchema,
-            model: this.options.input.modelId,
-            providerId: this.options.input.providerId,
-            runtimeModelId: this.options.input.runtimeModelId,
-            providerTransport: this.options.input.providerTransport,
-            providerEndpoint: this.options.input.providerEndpoint,
-            temperature: 0,
-          }),
-          this.options.isRunCancelled,
+        const recovered = await this.requestWithProviderRecovery(
+          input,
+          context,
+          (attemptContext) =>
+            this.options.llmGateway.generateStructured({
+              context: attemptContext,
+              messages,
+              schema: NativeProviderFinalAnswerSchema,
+              model: this.options.input.modelId,
+              providerId: this.options.input.providerId,
+              runtimeModelId: this.options.input.runtimeModelId,
+              providerTransport: this.options.input.providerTransport,
+              providerEndpoint: this.options.input.providerEndpoint,
+              temperature: 0,
+            }),
         );
+        const response = recovered;
         responseUsage = response.usage;
+        responseReasoningSummary = undefined;
         responseParts = [
           buildNativeProviderStructuredFinal({
             runId: this.options.run.id,
@@ -987,48 +1038,57 @@ class KernelAgenticProvider implements ProviderPort {
         ];
         toolCalls = [];
       } else {
-        const response = await runWithNativeCancellationPolling(
-          this.options.llmGateway.generateText({
-            context,
-            messages,
-            system: buildAgenticLoopSystemPrompt({
-              workspaceContext: buildAgenticLoopWorkspaceContext({
-                repositoryContext:
-                  readContextRecord(
-                    input.context.metadata,
-                    "repositoryContext",
-                  ) ?? this.options.input.repositoryContext,
-                prompt: [
-                  input.context.instructions,
-                  readContextString(input.context.metadata, "compactedContext"),
-                ]
-                  .filter(Boolean)
-                  .join("\n\n"),
-                continuation: this.options.run.metadata.continuation,
-                workspaceBootstrap:
-                  this.options.run.metadata.workspaceBootstrap,
-                gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+        const response = await this.requestWithProviderRecovery(
+          input,
+          context,
+          (attemptContext) =>
+            this.options.llmGateway.generateText({
+              context: attemptContext,
+              messages,
+              system: buildAgenticLoopSystemPrompt({
+                workspaceContext: buildAgenticLoopWorkspaceContext({
+                  repositoryContext:
+                    readContextRecord(
+                      input.context.metadata,
+                      "repositoryContext",
+                    ) ?? this.options.input.repositoryContext,
+                  prompt: [
+                    input.context.instructions,
+                    readContextString(
+                      input.context.metadata,
+                      "compactedContext",
+                    ),
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n"),
+                  continuation: this.options.run.metadata.continuation,
+                  workspaceBootstrap:
+                    this.options.run.metadata.workspaceBootstrap,
+                  gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+                }),
+                finalSynthesisOnly: false,
+                requiresMutation: this.requiresMutation,
+                completedMutatingToolCount: this.completedMutatingToolCount,
+                completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+                explicitCiLogRequest: false,
+                encounteredCiLogsAuthorizationBoundary: false,
+                attemptedCiLogsCliFallback: false,
               }),
-              finalSynthesisOnly: false,
-              requiresMutation: this.requiresMutation,
-              completedMutatingToolCount: this.completedMutatingToolCount,
-              completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-              explicitCiLogRequest: false,
-              encounteredCiLogsAuthorizationBoundary: false,
-              attemptedCiLogsCliFallback: false,
+              tools: this.options.tools,
+              model: this.options.input.modelId,
+              providerId: this.options.input.providerId,
+              runtimeModelId: this.options.input.runtimeModelId,
+              providerTransport: this.options.input.providerTransport,
+              providerEndpoint: this.options.input.providerEndpoint,
+              temperature: 0.2,
+              reasoningEffort: parseReasoningEffort(
+                this.options.input.metadata?.reasoningEffort,
+              ),
+              signal: input.signal,
             }),
-            tools: this.options.tools,
-            model: this.options.input.modelId,
-            providerId: this.options.input.providerId,
-            runtimeModelId: this.options.input.runtimeModelId,
-            providerTransport: this.options.input.providerTransport,
-            providerEndpoint: this.options.input.providerEndpoint,
-            temperature: 0.2,
-            signal: input.signal,
-          }),
-          this.options.isRunCancelled,
         );
         responseUsage = response.usage;
+        responseReasoningSummary = response.reasoningSummary;
         toolCalls = this.repairToolCalls(response.toolCalls ?? []);
         responseParts = response.parts ?? [];
       }
@@ -1067,6 +1127,9 @@ class KernelAgenticProvider implements ProviderPort {
           toProtocolId("itm", `${input.run.id}-final`),
         ),
         output: terminal.text,
+        ...(responseReasoningSummary
+          ? { reasoning: responseReasoningSummary }
+          : {}),
         usage: toUsageSnapshot(
           responseUsage,
           input,
@@ -1074,10 +1137,11 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    if (visibleText.trim()) {
+    const commentary = resolveModelCommentary(visibleText, toolCalls);
+    if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
-        visibleText.trim(),
+        commentary,
         undefined,
         { phase: "commentary", status: "completed" },
       );
@@ -1093,7 +1157,8 @@ class KernelAgenticProvider implements ProviderPort {
       });
     }
     this.pendingToolCalls.push(...toolCalls);
-    this.pendingCommentary = visibleText.trim() || null;
+    this.pendingCommentary = commentary;
+    this.pendingReasoningSummary = responseReasoningSummary;
     this.pendingUsage = toUsageSnapshot(
       responseUsage,
       input,
@@ -1244,6 +1309,72 @@ class KernelAgenticProvider implements ProviderPort {
     );
   }
 
+  private async requestWithProviderRecovery<T>(
+    input: ProviderCallInput,
+    context: NativeProviderCallContext,
+    operation: (context: NativeProviderCallContext) => Promise<T>,
+  ): Promise<T> {
+    try {
+      const result = await runWithProviderRequestRecovery(
+        (retryCount) =>
+          runWithNativeCancellationPolling(
+            operation({
+              ...context,
+              idempotencyKey: buildProviderRecoveryIdempotencyKey(
+                context.idempotencyKey,
+                retryCount,
+              ),
+            }),
+            this.options.isRunCancelled,
+          ),
+        {
+          signal: input.signal,
+          onRetry: async (delayMs, retryCount, reason) => {
+            const progress = buildProviderRecoveryProgress({
+              delayMs,
+              retryCount,
+              reason,
+              turnId: input.turn.id,
+            });
+            await this.options.runEventRecorder.recordRunProgress(
+              RUN_WORKFLOW_STEPS.EXECUTION,
+              progress.title,
+              progress.detail,
+              "active",
+              {
+                displayMode: "visible",
+                metadata: {
+                  owner: "runtime-kernel-native",
+                  ...progress.metadata,
+                },
+              },
+            );
+          },
+        },
+      );
+      if (result.retryCount > 0) {
+        await this.options.runEventRecorder.recordRunProgress(
+          RUN_WORKFLOW_STEPS.EXECUTION,
+          "Provider retry",
+          "The provider retry window ended and model execution resumed.",
+          "completed",
+          {
+            displayMode: "debug",
+            metadata: {
+              owner: "runtime-kernel-native",
+              retryCount: result.retryCount,
+              turnId: input.turn.id,
+            },
+          },
+        );
+      }
+      return result.value;
+    } catch (error) {
+      assertSignalNotAborted(input.signal);
+      throw error;
+    }
+  }
+
   private async collectNewToolResults(
     results: readonly ToolResult[],
   ): Promise<void> {
@@ -1271,6 +1402,8 @@ class KernelAgenticProvider implements ProviderPort {
     }
     const commentary = this.pendingCommentary;
     this.pendingCommentary = null;
+    const reasoning = this.pendingReasoningSummary;
+    this.pendingReasoningSummary = undefined;
     const usage = this.pendingUsage;
     this.pendingUsage = null;
     const protocolToolCallId = toProtocolId("toolcall", toolCall.id);
@@ -1284,6 +1417,7 @@ class KernelAgenticProvider implements ProviderPort {
         input: toolCall.args,
       }),
       ...(commentary ? { commentary } : {}),
+      ...(reasoning ? { reasoning } : {}),
       ...(usage ? { usage } : {}),
     };
   }
@@ -1324,6 +1458,11 @@ class KernelAgenticProvider implements ProviderPort {
       args: repairToolCallArgs(toolCall, this.lastToolArgsByName),
     }));
   }
+}
+
+function parseReasoningEffort(value: unknown) {
+  const parsed = ReasoningEffortSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function repairToolCallArgs(
@@ -1744,23 +1883,6 @@ class NativeApprovalWaitPort implements ApprovalWaitPort {
   }
 }
 
-class NativePermissionPolicyResolver {
-  async resolve(): Promise<PermissionPolicy> {
-    const allowLow = ruleSet("allow", "low");
-    const askHigh = ruleSet("ask", "high");
-    return {
-      commands: askHigh,
-      paths: allowLow,
-      network: askHigh,
-      git: askHigh,
-      packageManagers: askHigh,
-      secrets: ruleSet("deny", "critical"),
-      externalServices: askHigh,
-      tools: allowLow,
-    };
-  }
-}
-
 function mapSharedApprovalDecision(
   outcome: Awaited<ReturnType<typeof waitForApprovalDecision>>,
   resolution: ApprovalResolution,
@@ -1780,14 +1902,6 @@ function mapSharedApprovalStatus(
   return resolution.decision === "cancelled" ? "aborted" : "denied";
 }
 
-function ruleSet(
-  defaultEffect: RuleSetPolicy["defaultEffect"],
-  defaultRiskLevel: RuleSetPolicy["defaultRiskLevel"],
-  rules: RuleSetPolicy["rules"] = [],
-): RuleSetPolicy {
-  return { defaultEffect, defaultRiskLevel, rules };
-}
-
 function buildProtocolEnvelope(input: {
   runId: string;
   sessionId: string;
@@ -1798,6 +1912,7 @@ function buildProtocolEnvelope(input: {
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
+  revisionOfTurnId?: string;
   workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
@@ -1866,7 +1981,9 @@ function buildProtocolEnvelope(input: {
       id: input.turnId,
       threadId,
       runId: input.runId,
-      parentTurnId: null,
+      parentTurnId: input.revisionOfTurnId
+        ? TurnIdSchema.parse(input.revisionOfTurnId)
+        : null,
       status: "queued",
       startedAt: null,
       completedAt: null,

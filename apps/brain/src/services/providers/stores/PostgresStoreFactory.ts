@@ -20,15 +20,17 @@ import { DependencyError } from "../../../domain/errors";
 import type { Env } from "../../../types/ai";
 import { getProviderEncryptionConfig } from "./ProviderEncryptionConfig";
 
-const autoMigrationRuns = new Map<string, Promise<void>>();
-
 export function createPostgresProviderConfigService(
   env: Env,
   userId: string,
   workspaceId: string,
+  scopeKey?: string,
 ): ProviderConfigService {
   const databaseConfig = readBrainDatabaseConfig(env);
-  const sqlClient = createPostgresSqlClient(databaseConfig.connectionString);
+  const sqlClient = createPostgresSqlClient(
+    databaseConfig.connectionString,
+    scopeKey,
+  );
   const encryptionConfig = getProviderEncryptionConfig(
     env as unknown as Record<string, unknown>,
   );
@@ -77,19 +79,7 @@ async function runAutomaticMigrations(
     return;
   }
 
-  const key = databaseConfig.connectionString;
-  const existing = autoMigrationRuns.get(key);
-  if (existing) {
-    await existing;
-    return;
-  }
-
-  const migrationRun = runPendingMigrations(client).catch((error: unknown) => {
-    autoMigrationRuns.delete(key);
-    throw error;
-  });
-  autoMigrationRuns.set(key, migrationRun);
-  await migrationRun;
+  await runPendingMigrations(client);
 }
 
 async function runPendingMigrations(client: SqlClient): Promise<void> {

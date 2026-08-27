@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import type { ChatMessage } from "./agent-chat-panel";
+import type { ChatMessage } from "./types";
 import { MOCK_TASKS } from "./mock-tasks";
 
 function buildAgentReply(input: string): string {

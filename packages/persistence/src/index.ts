@@ -110,7 +110,6 @@ export {
   type ThreadProjectionSnapshot,
   type ThreadReadReceipt,
   type AcknowledgeThreadInput,
-  type ApplyGeneratedTitleInput,
 } from "./thread-projections/types.js";
 export {
   ApprovalProjectionStatusSchema,

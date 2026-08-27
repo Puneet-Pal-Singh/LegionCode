@@ -69,6 +69,7 @@ interface PreparedTurn {
   readonly lifecycle: RuntimeLifecycleCoordinator;
   readonly artifacts: TurnArtifactSettlementCoordinator;
   readonly tools: ToolExecutionCoordinator;
+  readonly executionSignal: AbortSignal;
   readonly hookTriggerEvents: {
     readonly sessionStart: LifecycleEvent;
     readonly userPromptSubmit: LifecycleEvent;
@@ -80,7 +81,10 @@ export class RuntimeKernel {
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
   private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
-  private readonly approvalCoordinators = new Map<string, ApprovalCoordinator>();
+  private readonly approvalCoordinators = new Map<
+    string,
+    ApprovalCoordinator
+  >();
   private readonly artifactSettlements = new Map<
     string,
     TurnArtifactSettlementCoordinator
@@ -92,25 +96,26 @@ export class RuntimeKernel {
   private readonly pendingInterrupts = new Map<string, string>();
   private readonly executions = new Map<string, Promise<StartTurnResult>>();
   private readonly preparedTurns = new Map<string, PreparedTurn>();
-  private readonly activeContexts = new Map<string, Awaited<ReturnType<ContextAssemblyPort["assemble"]>>>();
+  private readonly activeContexts = new Map<
+    string,
+    Awaited<ReturnType<ContextAssemblyPort["assemble"]>>
+  >();
   private readonly compactedContexts = new Set<string>();
   private readonly compactions = new Map<string, Promise<void>>();
   private readonly automaticCompactions = new Set<string>();
-  private readonly interruptController = new AbortController();
-  private readonly executionSignal: AbortSignal;
+  private readonly executionControllers = new Map<string, AbortController>();
 
   constructor(private readonly dependencies: RuntimeKernelDependencies) {
     this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
     this.maxToolCalls = dependencies.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
     this.clock = dependencies.clock ?? systemClock;
-    this.executionSignal = this.interruptController.signal;
     if (dependencies.signal) {
       if (dependencies.signal.aborted) {
-        this.interruptController.abort(dependencies.signal.reason);
+        this.abortAllExecutions(dependencies.signal.reason);
       } else {
         dependencies.signal.addEventListener(
           "abort",
-          () => this.interruptController.abort(dependencies.signal?.reason),
+          () => this.abortAllExecutions(dependencies.signal?.reason),
           { once: true },
         );
       }
@@ -124,6 +129,7 @@ export class RuntimeKernel {
     if (pendingReason) {
       this.pendingInterrupts.delete(prepared.turn.id);
       await this.interruptPreparedTurn(prepared, pendingReason);
+      this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
       return {
         status: "completed",
@@ -138,6 +144,7 @@ export class RuntimeKernel {
       return await execution;
     } finally {
       this.executions.delete(prepared.turn.id);
+      this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
     }
   }
@@ -172,6 +179,11 @@ export class RuntimeKernel {
       approvals,
       lifecycle,
     );
+    const executionController = new AbortController();
+    if (this.dependencies.signal?.aborted) {
+      executionController.abort(this.dependencies.signal.reason);
+    }
+    this.executionControllers.set(turn.id, executionController);
     const lifecycleStart = await lifecycle.start();
     await lifecycle.captureWorkspaceSnapshot(startArtifacts);
     return {
@@ -182,6 +194,7 @@ export class RuntimeKernel {
       lifecycle,
       artifacts: artifactSettlement,
       tools,
+      executionSignal: executionController.signal,
       hookTriggerEvents: {
         sessionStart: lifecycleStart.turnStarted,
         userPromptSubmit: lifecycleStart.runAttemptStarted,
@@ -204,7 +217,13 @@ export class RuntimeKernel {
         };
       }
       await this.runHooks(prepared);
-      const context = await this.assembleContext(run, turn, workspace, []);
+      const context = await this.assembleContext(
+        run,
+        turn,
+        workspace,
+        [],
+        prepared.executionSignal,
+      );
       this.activeContexts.set(turn.id, context);
       const result = await this.executeLoop(
         prepared,
@@ -215,7 +234,7 @@ export class RuntimeKernel {
         context,
         tools,
       );
-      if (this.executionSignal.aborted || lifecycle.isTerminal) {
+      if (prepared.executionSignal.aborted || lifecycle.isTerminal) {
         throw new LifecycleTransitionError(
           "turn",
           "interrupted",
@@ -236,9 +255,10 @@ export class RuntimeKernel {
         if (!isArtifactSettlementError(error)) {
           await this.settleArtifacts(turn.id, lifecycle, artifacts);
         }
-        if (isTurnCancelled(error) || this.executionSignal.aborted) {
+        if (isTurnCancelled(error) || prepared.executionSignal.aborted) {
           await lifecycle.interrupt(
             this.pendingInterrupts.get(turn.id) ??
+              cancellationReason(prepared.executionSignal) ??
               (error instanceof Error ? error.message : "Run interrupted"),
           );
         } else {
@@ -287,7 +307,9 @@ export class RuntimeKernel {
     if (lifecycle.isTerminal) return;
 
     this.pendingInterrupts.set(turnId, reason);
-    this.interruptController.abort(new DOMException(reason, "AbortError"));
+    this.executionControllers
+      .get(turnId)
+      ?.abort(new DOMException(reason, "AbortError"));
     const execution = this.executions.get(turnId);
     if (execution) {
       try {
@@ -323,6 +345,12 @@ export class RuntimeKernel {
    */
   requestInterruptBeforeStart(turnId: Turn["id"], reason: string): void {
     this.pendingInterrupts.set(turnId, reason);
+  }
+
+  private abortAllExecutions(reason: unknown): void {
+    for (const controller of this.executionControllers.values()) {
+      controller.abort(reason);
+    }
   }
 
   async resolveApproval(
@@ -380,18 +408,36 @@ export class RuntimeKernel {
       const currentContext = this.activeContexts.get(turn.id) ?? context;
       const effectiveContext = this.compactedContexts.has(turn.id)
         ? currentContext
-        : await this.assembleContext(run, turn, workspace, toolResults);
+        : await this.assembleContext(
+            run,
+            turn,
+            workspace,
+            toolResults,
+            prepared.executionSignal,
+          );
       this.activeContexts.set(turn.id, effectiveContext);
       await this.maybeAutomaticallyCompact(prepared, effectiveContext);
-      const step = await this.dependencies.provider.generateNext({
-        run,
-        runAttemptId,
-        turn,
-        workspace,
-        context: this.activeContexts.get(turn.id) ?? effectiveContext,
-        toolResults,
-        signal: this.executionSignal,
-      });
+      let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
+      try {
+        step = await this.dependencies.provider.generateNext({
+          run,
+          runAttemptId,
+          turn,
+          workspace,
+          context: this.activeContexts.get(turn.id) ?? effectiveContext,
+          toolResults,
+          signal: prepared.executionSignal,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeKernelError) throw error;
+        throw new RuntimeKernelError(
+          "provider_failed",
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Model provider request failed",
+          error,
+        );
+      }
       if (step.usage) {
         const lifecycle = this.lifecycles.get(turn.id);
         if (!lifecycle) {
@@ -415,6 +461,22 @@ export class RuntimeKernel {
         }
       }
       if (step.kind === "complete") {
+        if (step.reasoning) {
+          const lifecycle = this.lifecycles.get(turn.id);
+          if (!lifecycle) {
+            throw new RuntimeKernelError(
+              "turn_not_active",
+              `Turn ${turn.id} has no lifecycle coordinator`,
+            );
+          }
+          await lifecycle.appendAssistantReasoning(
+            ItemIdSchema.parse(
+              `itm_${turn.id.slice(4)}_reasoning_${toolCallCount}`,
+            ),
+            step.reasoning.text,
+            step.reasoning.displaySafe,
+          );
+        }
         return {
           status: "completed",
           output: step.output,
@@ -443,6 +505,22 @@ export class RuntimeKernel {
           step.commentary,
         );
       }
+      if (step.reasoning) {
+        const lifecycle = this.lifecycles.get(turn.id);
+        if (!lifecycle) {
+          throw new RuntimeKernelError(
+            "turn_not_active",
+            `Turn ${turn.id} has no lifecycle coordinator`,
+          );
+        }
+        await lifecycle.appendAssistantReasoning(
+          ItemIdSchema.parse(
+            `itm_${turn.id.slice(4)}_reasoning_${toolCallCount}`,
+          ),
+          step.reasoning.text,
+          step.reasoning.displaySafe,
+        );
+      }
       toolResults.push(
         await tools.execute(
           run,
@@ -451,7 +529,7 @@ export class RuntimeKernel {
           workspace,
           step.itemId,
           step.content,
-          this.dependencies.signal,
+          prepared.executionSignal,
         ),
       );
     }
@@ -466,13 +544,14 @@ export class RuntimeKernel {
     turn: Turn,
     workspace: WorkspaceManifest,
     toolResults: readonly ToolResult[],
+    signal: AbortSignal,
   ): Promise<Awaited<ReturnType<ContextAssemblyPort["assemble"]>>> {
     const context = await this.dependencies.contextAssembly.assemble({
       run,
       turn,
       workspace,
       toolResults,
-      signal: this.executionSignal,
+      signal,
     });
     const lifecycle = this.lifecycles.get(turn.id);
     if (!lifecycle) {
@@ -558,12 +637,14 @@ export class RuntimeKernel {
         turn: prepared.turn,
         context,
         mode,
-        signal: this.executionSignal,
+        signal: prepared.executionSignal,
       });
       this.activeContexts.set(prepared.turn.id, result.context);
       this.compactedContexts.add(prepared.turn.id);
       if (result.context.budgetSnapshot) {
-        await prepared.lifecycle.updateContextBudget(result.context.budgetSnapshot);
+        await prepared.lifecycle.updateContextBudget(
+          result.context.budgetSnapshot,
+        );
       }
       await prepared.lifecycle.settleContextCompaction({
         ...base,
@@ -575,7 +656,8 @@ export class RuntimeKernel {
       await prepared.lifecycle.settleContextCompaction({
         ...base,
         phase: "failed",
-        error: error instanceof Error ? error.message : "Context compaction failed",
+        error:
+          error instanceof Error ? error.message : "Context compaction failed",
       });
       throw error;
     }
@@ -586,7 +668,11 @@ export class RuntimeKernel {
     reason: string,
   ): Promise<void> {
     try {
-      await this.settleArtifacts(prepared.turn.id, prepared.lifecycle, prepared.artifacts);
+      await this.settleArtifacts(
+        prepared.turn.id,
+        prepared.lifecycle,
+        prepared.artifacts,
+      );
       await prepared.lifecycle.interrupt(reason);
     } finally {
       this.approvalCoordinators.delete(prepared.turn.id);
@@ -638,6 +724,7 @@ export class RuntimeKernel {
       turnId: turn.id,
       runAttemptId,
       initialSequence: turn.lastEventSequence,
+      revisionOfTurnId: turn.parentTurnId ?? undefined,
     });
     this.lifecycles.set(turn.id, lifecycle);
     return lifecycle;
@@ -701,6 +788,17 @@ function isArtifactSettlementError(error: unknown): boolean {
     error instanceof RuntimeKernelError &&
     error.code === "turn_artifact_settlement_failed"
   );
+}
+
+function cancellationReason(signal: AbortSignal): string | null {
+  const reason = signal.reason;
+  if (reason instanceof Error && reason.message.trim()) {
+    return reason.message;
+  }
+  if (typeof reason === "string" && reason.trim()) {
+    return reason;
+  }
+  return null;
 }
 
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 2_000;

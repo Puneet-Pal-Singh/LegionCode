@@ -193,6 +193,7 @@ export interface TranscriptRepository {
     userId: string,
     sessionId: string,
   ): Promise<SessionRecord | null>;
+  deleteArchivedSession(userId: string, sessionId: string): Promise<boolean>;
   appendMessage(
     input: AppendTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord>;

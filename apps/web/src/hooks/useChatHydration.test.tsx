@@ -26,6 +26,48 @@ describe("useChatHydration", () => {
     vi.useRealTimers();
   });
 
+  it("rehydrates the canonical transcript when terminal replay advances", async () => {
+    const setMessages = vi.fn<[Message[]], void>();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(createHistoryResponse([]))
+      .mockResolvedValueOnce(
+        createHistoryResponse([
+          { id: "canonical-user", role: "user", content: "Read README" },
+          {
+            id: "canonical-assistant",
+            role: "assistant",
+            content: "# LegionCode",
+          },
+        ]),
+      );
+    const scope = scopeFor("session-terminal", "run-terminal");
+    const { result, rerender } = renderHook(
+      ({ revision }) => useChatHydration(scope, [], setMessages, revision),
+      { initialProps: { revision: null as string | null } },
+    );
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(result.current.hasHydrated).toBe(true);
+    });
+    rerender({ revision: `${scope.turnId}:9` });
+
+    // The old transcript must become non-presentable in the same render as
+    // the revision change. Waiting for the reset effect causes a one-frame
+    // transcript flash followed by a second loading screen.
+    expect(result.current.hasHydrated).toBe(false);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(setMessages).toHaveBeenLastCalledWith([
+        expect.objectContaining({ id: "canonical-user" }),
+        expect.objectContaining({ id: "canonical-assistant" }),
+      ]);
+      expect(result.current.hasHydrated).toBe(true);
+    });
+  });
+
   it("does not apply stale history after switching session scope", async () => {
     let resolveRunOneFetch: ((response: Response) => void) | null = null;
     const setMessages = vi.fn<[Message[]], void>();
@@ -103,19 +145,21 @@ describe("useChatHydration", () => {
   it("keeps reused run ids isolated by the full conversation scope", async () => {
     let resolveOldFetch: ((response: Response) => void) | null = null;
     const setMessages = vi.fn<[Message[]], void>();
-    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.includes("session=thread-a")) {
-        return new Promise<Response>((resolve) => {
-          resolveOldFetch = resolve;
-        });
-      }
-      return Promise.resolve(
-        createHistoryResponse([
-          { id: "thread-b-message", role: "assistant", content: "B" },
-        ]),
-      );
-    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes("session=thread-a")) {
+          return new Promise<Response>((resolve) => {
+            resolveOldFetch = resolve;
+          });
+        }
+        return Promise.resolve(
+          createHistoryResponse([
+            { id: "thread-b-message", role: "assistant", content: "B" },
+          ]),
+        );
+      },
+    );
 
     const { rerender } = renderHook(
       ({ sessionId }) =>
@@ -228,7 +272,11 @@ describe("useChatHydration", () => {
     const initialMessages: Message[] = [];
     const { rerender } = renderHook(
       ({ messages }) =>
-        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+        useChatHydration(
+          scopeFor("session-live", "run-live"),
+          messages,
+          setMessages,
+        ),
       { initialProps: { messages: initialMessages } },
     );
 
@@ -258,7 +306,11 @@ describe("useChatHydration", () => {
     );
     const { rerender } = renderHook(
       ({ messages }) =>
-        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+        useChatHydration(
+          scopeFor("session-live", "run-live"),
+          messages,
+          setMessages,
+        ),
       { initialProps: { messages: [] as Message[] } },
     );
 
@@ -295,7 +347,11 @@ describe("useChatHydration", () => {
     );
     const { rerender } = renderHook(
       ({ messages }) =>
-        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+        useChatHydration(
+          scopeFor("session-live", "run-live"),
+          messages,
+          setMessages,
+        ),
       { initialProps: { messages: [] as Message[] } },
     );
 
@@ -328,7 +384,11 @@ describe("useChatHydration", () => {
     const liveRepeat = createMessage("client_msg_repeat", "user", "try again");
     const { rerender } = renderHook(
       ({ messages }) =>
-        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+        useChatHydration(
+          scopeFor("session-live", "run-live"),
+          messages,
+          setMessages,
+        ),
       { initialProps: { messages: [] as Message[] } },
     );
 

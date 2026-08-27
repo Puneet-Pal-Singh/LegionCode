@@ -52,7 +52,7 @@ export class ProviderValidationService {
     this.validateCriticalSecurity(env, errors);
 
     // Provider validation: known providers get specific checks, unknown get warnings
-    const provider = (env.LLM_PROVIDER ?? "litellm").trim().toLowerCase();
+    const provider = (env.LLM_PROVIDER ?? "openai").trim().toLowerCase();
     const activeProviderId = options?.activeProviderId?.trim().toLowerCase();
     const providerToValidate =
       activeProviderId && activeProviderId.length > 0

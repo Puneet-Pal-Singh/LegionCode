@@ -28,6 +28,24 @@ describe("LifecycleTerminalViewModel", () => {
     });
   });
 
+  it("renders completed assistant output inside its canonical turn surface", () => {
+    const terminal = buildLifecycleTerminalViewModel({
+      ...emptyProjection(),
+      assistantText: "Done from canonical replay",
+      terminal: {
+        state: "completed",
+        eventId: "evt_terminal002",
+        content: "",
+        occurredAt: "2026-06-23T00:00:00.000Z",
+      },
+    });
+
+    expect(terminal).toMatchObject({
+      state: "completed",
+      content: "Done from canonical replay",
+    });
+  });
+
   it("uses canonical turn diff files for review summaries", () => {
     const files = collectLifecycleTurnDiffFiles({
       ...emptyProjection(),

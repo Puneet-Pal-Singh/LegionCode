@@ -7,7 +7,9 @@
 
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { ProviderTranscriptPart } from "@shadowbox/execution-engine/runtime/llm";
 import type { ProviderAdapter, GenerationParams } from "../providers";
+import type { ReasoningEffort } from "@repo/shared-types";
 
 /**
  * Result from text generation with usage
@@ -21,6 +23,7 @@ export interface GenerateTextResult {
     toolName: string;
     args: unknown;
   }>;
+  transcriptParts?: readonly ProviderTranscriptPart[];
 }
 
 /**
@@ -37,6 +40,8 @@ export async function generateText(
     system?: string;
     tools?: Record<string, CoreTool>;
     temperature?: number;
+    maxOutputTokens?: number;
+    reasoningEffort?: ReasoningEffort;
     model: string;
     signal?: AbortSignal;
   },
@@ -46,6 +51,8 @@ export async function generateText(
     system: params.system,
     tools: params.tools,
     temperature: params.temperature,
+    maxOutputTokens: params.maxOutputTokens,
+    reasoningEffort: params.reasoningEffort,
     model: params.model,
     signal: params.signal,
   };
@@ -57,5 +64,6 @@ export async function generateText(
     usage: result.usage,
     finishReason: result.finishReason,
     toolCalls: result.toolCalls,
+    transcriptParts: result.transcriptParts,
   };
 }

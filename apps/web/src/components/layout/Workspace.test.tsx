@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { Workspace } from "./Workspace";
 import { clearInitialPromptSubmissionClaimsForTests } from "./workspace/initialPromptSubmissionGuard";
+import { createInitialPromptSubmissionId } from "../../lib/initial-prompt-submission";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
 const mockUseGitStatusInputs = vi.hoisted(
@@ -23,6 +24,16 @@ const mockChatState = vi.hoisted(() => ({
   isHydrating: false,
   hasHydrated: true,
   runId: "run-123",
+  activeTurnProjection: {
+    scope: null,
+    serverTurnId: null,
+    projection: null,
+    hasCanonicalTurn: false,
+    hasReplay: false,
+    isActive: false,
+    isTerminal: false,
+    isTransportPending: false,
+  },
   isModelConfigReady: true,
   error: null as string | null,
   debugEvents: [],
@@ -88,7 +99,6 @@ vi.mock("../../hooks/useGitStatus", () => ({
     };
   },
 }));
-
 
 vi.mock("../../hooks/useGitDiff", () => ({
   useGitDiff: () => ({
@@ -281,8 +291,9 @@ describe("Workspace", () => {
     mockChatState.append.mockResolvedValue(undefined);
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
-      id: "setup-prompt-1",
-      prompt: "Hey, read my readme and tell what do you think of this project??",
+      id: createInitialPromptSubmissionId("setup-prompt-1"),
+      prompt:
+        "Hey, read my readme and tell what do you think of this project??",
     };
     const firstRender = render(
       <Workspace
@@ -325,7 +336,7 @@ describe("Workspace", () => {
     mockChatState.append.mockClear();
     mockChatState.isModelConfigReady = false;
     const initialPromptSubmission = {
-      id: "setup-prompt-2",
+      id: createInitialPromptSubmissionId("setup-prompt-2"),
       prompt: "Read README",
     };
     const { rerender } = render(
@@ -351,6 +362,61 @@ describe("Workspace", () => {
 
     await waitFor(() => {
       expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("preserves setup-composer images in the first workspace message", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockResolvedValue(undefined);
+    const initialPromptSubmission = {
+      id: createInitialPromptSubmissionId("setup-image-1"),
+      prompt: "Inspect this screenshot",
+      attachments: {
+        imageAttachments: [
+          {
+            id: "image-1",
+            name: "screen.png",
+            mediaType: "image/png" as const,
+            dataUrl: "data:image/png;base64,aGVsbG8=",
+            previewUrl: "blob:image-preview",
+            byteSize: 5,
+            source: "upload" as const,
+          },
+        ],
+      },
+    };
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockChatState.append).toHaveBeenCalledWith({
+        role: "user",
+        content: [
+          { type: "text", text: "Inspect this screenshot" },
+          {
+            type: "image",
+            image: "data:image/png;base64,aGVsbG8=",
+            mimeType: "image/png",
+            name: "screen.png",
+          },
+        ],
+        imageMetadata: [
+          {
+            id: "image-1",
+            name: "screen.png",
+            mediaType: "image/png",
+            byteSize: 5,
+            source: "upload",
+          },
+        ],
+      });
     });
   });
 
@@ -493,6 +559,34 @@ describe("Workspace", () => {
     );
 
     expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
+      "review",
+    );
+  });
+
+  it("opens the right sidebar review tab from a completed edit", () => {
+    const onGitReviewOpenChange = vi.fn();
+    const setIsRightSidebarOpen = vi.fn();
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onGitReviewOpenChange={onGitReviewOpenChange}
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+      />,
+    );
+
+    const chatProps = mockChatInterface.mock.calls.at(-1)?.[0] as {
+      onReviewOpen?: () => void;
+    };
+    chatProps.onReviewOpen?.();
+
+    expect(onGitReviewOpenChange).not.toHaveBeenCalled();
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mockWorkspaceStateSetters.setIsViewingContent).toHaveBeenCalledWith(
+      false,
+    );
     expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
       "review",
     );

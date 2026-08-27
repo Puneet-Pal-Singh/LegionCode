@@ -9,6 +9,7 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "workspace_not_found",
   "workspace_not_executable",
   "model_final_missing",
+  "provider_failed",
   "tool_loop_limit_exceeded",
   "worker_failed",
   "tool_not_registered",
@@ -56,6 +57,9 @@ export function toProtocolError(error: unknown): ProtocolError {
     if (error.code === "worker_failed") {
       return mapWorkerFailure(error);
     }
+    if (error.code === "provider_failed") {
+      return mapProviderFailure(error);
+    }
     return {
       code: mapProtocolErrorCode(error.code),
       message: error.message,
@@ -72,6 +76,51 @@ export function toProtocolError(error: unknown): ProtocolError {
     correlationId: null,
     details: null,
   };
+}
+
+function mapProviderFailure(error: RuntimeKernelError): ProtocolError {
+  const statusCode = readProviderStatusCode(error.causeError);
+  return {
+    code: "provider_unavailable",
+    message:
+      statusCode === 429
+        ? "The model provider is temporarily rate limited. LegionCode exhausted its bounded cooldown retry; retry later or choose another model."
+        : safeRuntimeErrorMessage(error.causeError),
+    retryable: true,
+    correlationId: null,
+    details: {
+      runtimeKernelCode: error.code,
+      ...(statusCode !== null ? { providerStatusCode: statusCode } : {}),
+    },
+  };
+}
+
+function readProviderStatusCode(error: unknown): number | null {
+  const visited = new Set<unknown>();
+  let current = error;
+  let depth = 0;
+  while (current && depth < 8 && !visited.has(current)) {
+    visited.add(current);
+    if (typeof current === "object") {
+      const record = current as Record<string, unknown>;
+      if (typeof record.statusCode === "number") return record.statusCode;
+      current =
+        record.causeError ?? record.cause ?? record.lastError ?? record.error;
+      depth += 1;
+      continue;
+    }
+    break;
+  }
+  return null;
+}
+
+function safeRuntimeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "The model provider request failed.";
+  const message = error.message.replace(/\s+/g, " ").trim();
+  if (!message) return "The model provider request failed.";
+  return message
+    .replace(/\b(sk|key|token)-[A-Za-z0-9_-]{12,}\b/gi, "[redacted]")
+    .slice(0, 500);
 }
 
 function mapWorkerFailure(error: RuntimeKernelError): ProtocolError {
@@ -108,6 +157,8 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
       return "conflict";
     case "worker_failed":
       return "command_failed";
+    case "provider_failed":
+      return "provider_unavailable";
     case "tool_not_registered":
       return "not_found";
     case "invalid_tool_input":
@@ -134,5 +185,9 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
 }
 
 function isRetryable(code: RuntimeKernelErrorCode): boolean {
-  return code === "worker_failed" || code === "approval_retry_required";
+  return (
+    code === "worker_failed" ||
+    code === "provider_failed" ||
+    code === "approval_retry_required"
+  );
 }

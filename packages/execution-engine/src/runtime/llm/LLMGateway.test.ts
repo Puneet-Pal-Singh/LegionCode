@@ -25,6 +25,49 @@ const baseRequest = {
 };
 
 describe("LLMGateway provider capabilities", () => {
+  it("forwards only an explicitly display-safe provider reasoning summary", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateText.mockResolvedValueOnce({
+      text: "I will inspect the repository.",
+      usage: {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      transcriptParts: [
+        {
+          type: "reasoning",
+          text: "Private chain of thought",
+          displaySafe: false,
+        },
+        {
+          type: "reasoning",
+          text: "I am checking the repository structure.",
+          displaySafe: true,
+        },
+        { type: "visible_text", text: "I will inspect the repository." },
+      ],
+    });
+
+    const response = await new LLMGateway(deps).generateText(baseRequest);
+
+    expect(response.reasoningSummary).toEqual({
+      text: "I am checking the repository structure.",
+      displaySafe: true,
+    });
+    expect(response.parts.some((part) => part.type === "reasoning")).toBe(true);
+    expect(response.parts.some((part) => part.type === "reasoning" && part.text.includes("Private"))).toBe(true);
+  });
   it("throws INVALID_PROVIDER_SELECTION when provider/model are missing", async () => {
     const gateway = new LLMGateway(
       createDependencies({

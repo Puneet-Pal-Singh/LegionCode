@@ -20,22 +20,18 @@ import type {
 } from "../../../services/lifecycle/LifecycleProjection";
 import { getDisplayedApprovalDecisions } from "../approval/approvalDecisions.js";
 
-const APPROVAL_NOTICE_CLEAR_DELAY_MS = 5_000;
-type ApprovalNotice = { kind: "resolved"; requestId: string } | null;
-
 interface ApprovalControllerInput {
   lifecycleProjection: LifecycleProjection | null;
-  onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
+  sessionId: string;
   lifecycleClient?: LifecycleClient;
 }
 
-type PendingApprovalState =
-  | {
-      source: "lifecycle";
-      request: ApprovalRequest;
-      approval: LifecycleProjectionApproval;
-      turnId: LifecycleProjection["turnId"];
-    };
+type PendingApprovalState = {
+  source: "lifecycle";
+  request: ApprovalRequest;
+  approval: LifecycleProjectionApproval;
+  turnId: LifecycleProjection["turnId"];
+};
 
 export function useApprovalController(input: ApprovalControllerInput) {
   const lifecycleClient = useMemo(
@@ -46,7 +42,9 @@ export function useApprovalController(input: ApprovalControllerInput) {
     null,
   );
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<ApprovalNotice>(null);
+  const [resolvedRequestId, setResolvedRequestId] = useState<string | null>(
+    null,
+  );
   const submittingRef = useRef(false);
   const pendingApprovalState = useMemo(
     () =>
@@ -55,13 +53,19 @@ export function useApprovalController(input: ApprovalControllerInput) {
       }),
     [input.lifecycleProjection],
   );
-  const pendingApproval = pendingApprovalState?.request ?? null;
+  const projectedApproval = pendingApprovalState?.request ?? null;
+  const approvalIdentity = projectedApproval
+    ? `${input.sessionId}:${projectedApproval.turnId}:${projectedApproval.requestId}`
+    : null;
+  const pendingApproval =
+    approvalIdentity === resolvedRequestId
+      ? null
+      : projectedApproval;
 
   useApprovalLifecycle(
-    pendingApproval,
-    notice,
-    input.onPendingApprovalChange,
-    setNotice,
+    projectedApproval,
+    input.sessionId,
+    setResolvedRequestId,
     setError,
   );
 
@@ -74,9 +78,10 @@ export function useApprovalController(input: ApprovalControllerInput) {
         submittingRef,
         setBusyDecision,
         setError,
-        setNotice,
+        setResolvedRequestId,
+        resolvedApprovalIdentity: approvalIdentity,
       }),
-    [lifecycleClient, pendingApprovalState],
+    [approvalIdentity, lifecycleClient, pendingApprovalState],
   );
 
   return {
@@ -84,10 +89,6 @@ export function useApprovalController(input: ApprovalControllerInput) {
     decisions: getDisplayedApprovalDecisions(pendingApproval),
     busyDecision,
     error,
-    notice: getApprovalNoticeText(notice),
-    isResolutionPending:
-      notice?.kind === "resolved" &&
-      pendingApproval?.requestId === notice.requestId,
     resolve,
   };
 }
@@ -136,33 +137,22 @@ function getCanonicalApprovalDecisions(
 }
 
 function useApprovalLifecycle(
-  pending: ApprovalRequest | null,
-  notice: ApprovalNotice,
-  onPendingChange: ApprovalControllerInput["onPendingApprovalChange"],
-  setNotice: Dispatch<SetStateAction<ApprovalNotice>>,
+  projected: ApprovalRequest | null,
+  sessionId: string,
+  setResolvedRequestId: Dispatch<SetStateAction<string | null>>,
   setError: Dispatch<SetStateAction<string | null>>,
 ) {
+  const approvalIdentity = projected
+    ? `${sessionId}:${projected.turnId}:${projected.requestId}`
+    : null;
   useEffect(() => {
     setError(null);
-  }, [pending?.requestId, setError]);
+  }, [approvalIdentity, setError]);
   useEffect(() => {
-    if (!notice) return;
-    const timeoutId = window.setTimeout(
-      () =>
-        setNotice((current) =>
-          current?.kind === notice.kind &&
-          current.requestId === notice.requestId
-            ? null
-            : current,
-        ),
-      APPROVAL_NOTICE_CLEAR_DELAY_MS,
-    );
-    return () => window.clearTimeout(timeoutId);
-  }, [notice, setNotice]);
-  useEffect(
-    () => onPendingChange?.(Boolean(pending)),
-    [onPendingChange, pending],
-  );
+    if (!projected) {
+      setResolvedRequestId(null);
+    }
+  }, [projected, setResolvedRequestId]);
 }
 
 interface ResolveDecisionInput {
@@ -174,18 +164,17 @@ interface ResolveDecisionInput {
     SetStateAction<ApprovalDecisionKind | null>
   >;
   readonly setError: Dispatch<SetStateAction<string | null>>;
-  readonly setNotice: Dispatch<SetStateAction<ApprovalNotice>>;
+  readonly setResolvedRequestId: Dispatch<SetStateAction<string | null>>;
+  readonly resolvedApprovalIdentity: string | null;
 }
 
 async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   if (input.submittingRef.current || !input.pendingApprovalState) {
     return;
   }
-  const pendingApproval = input.pendingApprovalState.request;
   input.submittingRef.current = true;
   input.setBusyDecision(input.decision);
   input.setError(null);
-  input.setNotice(null);
   try {
     if (input.pendingApprovalState.source === "lifecycle") {
       await input.lifecycleClient.submitApproval({
@@ -198,12 +187,10 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
         reason: null,
       });
     }
-    input.setNotice({
-      kind: "resolved",
-      requestId: pendingApproval.requestId,
-    });
+    if (input.resolvedApprovalIdentity) {
+      input.setResolvedRequestId(input.resolvedApprovalIdentity);
+    }
   } catch (error) {
-    input.setNotice(null);
     input.setError(
       error instanceof Error
         ? error.message
@@ -228,8 +215,4 @@ function mapApprovalDecision(
     case "allow_persistent_rule":
       return "approved";
   }
-}
-
-function getApprovalNoticeText(notice: ApprovalNotice): string | null {
-  return notice ? "Approval recorded. Continuing..." : null;
 }

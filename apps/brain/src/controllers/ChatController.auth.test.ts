@@ -56,10 +56,65 @@ describe("ChatController auth contract", () => {
     expect(payload.userId).toBe(TEST_USER_ID);
     expect(payload.workspaceId).toBe(TEST_WORKSPACE_ID);
   });
+
+  it("rejects client-owned context and pricing metadata", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      createChatRequest({
+        headers: {
+          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+        },
+        body: {
+          providerId: "openai",
+          modelId: "gpt-5",
+          contextWindowTokens: 1,
+          pricing: { inputPer1M: 0, outputPer1M: 0 },
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts the AI SDK transport id without using it as lifecycle identity", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      createChatRequest({
+        headers: {
+          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+        },
+        body: { id: "web-chat-instance" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+    const payload = JSON.parse((fetchCall?.[1] as { body: string }).body) as {
+      identity?: {
+        threadId?: string;
+        turnId?: string;
+        runAttemptId?: string;
+      };
+    };
+    expect(payload.identity).toMatchObject({
+      threadId: "thr_test001",
+      turnId: "trn_test001",
+      runAttemptId: "attempt_test001",
+    });
+  });
 });
 
 function createChatRequest(options?: {
   headers?: Record<string, string>;
+  body?: Record<string, unknown>;
 }): Request {
   return new Request("https://brain.local/chat", {
     method: "POST",
@@ -71,7 +126,7 @@ function createChatRequest(options?: {
       sessionId: "session-1",
       runId: VALID_RUN_ID,
       identity: {
-          workspaceId: TEST_WORKSPACE_ID,
+        workspaceId: TEST_WORKSPACE_ID,
         threadId: "thr_test001",
         turnId: "trn_test001",
         runAttemptId: "attempt_test001",
@@ -82,6 +137,7 @@ function createChatRequest(options?: {
           content: "hello",
         },
       ],
+      ...options?.body,
     }),
   });
 }

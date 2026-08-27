@@ -19,7 +19,7 @@ export function formatExecutionResult(result: unknown): string {
   }
   if (isRecord(result)) {
     const directText = findPrimaryText(result);
-    if (directText) {
+    if (directText !== null) {
       return redactInternalRuntimeDetails(directText);
     }
     if ("data" in result) {
@@ -115,10 +115,14 @@ function defaultExecutionStatusMessage(
 }
 
 function findPrimaryText(record: Record<string, unknown>): string | null {
+  let hasEmptyPrimaryText = false;
   for (const key of PRIMARY_TEXT_KEYS) {
     const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
+    if (typeof value === "string") {
+      if (value.trim().length > 0) {
+        return value;
+      }
+      hasEmptyPrimaryText = true;
     }
     if (isRecord(value) && typeof value.content === "string") {
       const nested = value.content.trim();
@@ -127,7 +131,7 @@ function findPrimaryText(record: Record<string, unknown>): string | null {
       }
     }
   }
-  return null;
+  return hasEmptyPrimaryText ? "" : null;
 }
 
 function safeStringify(value: unknown): string {
@@ -178,7 +182,7 @@ function readStringField(value: unknown): string | null {
             ? value.message
             : typeof value.code === "string"
               ? value.code
-          : null;
+              : null;
     if (typeof content === "string" && content.trim().length > 0) {
       return content.trim();
     }

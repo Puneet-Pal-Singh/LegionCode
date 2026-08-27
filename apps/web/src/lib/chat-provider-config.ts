@@ -1,3 +1,5 @@
+import type { BYOKModelPricing } from "@repo/shared-types";
+
 type ProviderConfigResolutionSource =
   | "store_selection"
   | "provider_resolve_api";
@@ -7,6 +9,7 @@ interface ProviderConfigFields {
   modelId?: string | null;
   credentialId?: string | null;
   contextWindow?: number;
+  pricing?: BYOKModelPricing;
 }
 
 export interface ResolvedProviderConfig {
@@ -15,12 +18,15 @@ export interface ResolvedProviderConfig {
   credentialId: string;
   source: ProviderConfigResolutionSource;
   contextWindow?: number;
+  pricing?: BYOKModelPricing;
 }
 
 export function resolveSelectedProviderConfig(input: {
   selectedProviderId?: string | null;
   selectedModelId?: string | null;
   selectedCredentialId?: string | null;
+  selectedModelContextWindow?: number;
+  selectedModelPricing?: BYOKModelPricing;
   lastResolvedConfig?: ProviderConfigFields | null;
 }): ResolvedProviderConfig | null {
   const selected = toProviderConfig(
@@ -28,6 +34,8 @@ export function resolveSelectedProviderConfig(input: {
       providerId: input.selectedProviderId,
       modelId: input.selectedModelId,
       credentialId: input.selectedCredentialId,
+      contextWindow: input.selectedModelContextWindow,
+      pricing: input.selectedModelPricing,
     },
     "store_selection",
   );
@@ -40,17 +48,25 @@ export function resolveSelectedProviderConfig(input: {
     return resolved;
   }
 
-  const contextWindow =
+  const hasSameResolvedSelection =
     resolved &&
     resolved.providerId === selected.providerId &&
     resolved.modelId === selected.modelId &&
-    resolved.credentialId === selected.credentialId
-      ? resolved.contextWindow
+    resolved.credentialId === selected.credentialId;
+
+  const contextWindow =
+    selected.contextWindow === undefined && hasSameResolvedSelection
+      ? resolved?.contextWindow
+      : undefined;
+  const pricing =
+    selected.pricing === undefined && hasSameResolvedSelection
+      ? resolved?.pricing
       : undefined;
 
   return {
     ...selected,
     ...(contextWindow ? { contextWindow } : {}),
+    ...(pricing ? { pricing } : {}),
   };
 }
 
@@ -74,6 +90,7 @@ function toProviderConfig(
   const modelId = input?.modelId?.trim();
   const credentialId = input?.credentialId?.trim();
   const contextWindow = input?.contextWindow;
+  const pricing = input?.pricing;
 
   if (!providerId || !modelId || !credentialId) {
     return null;
@@ -85,5 +102,6 @@ function toProviderConfig(
     credentialId,
     source,
     ...(contextWindow ? { contextWindow } : {}),
+    ...(pricing ? { pricing } : {}),
   };
 }

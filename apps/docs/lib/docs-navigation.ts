@@ -25,7 +25,7 @@ export const sidebarStructure: DocsNavigationCategory[] = [
     title: "Core workflow",
     pages: [
       { title: "Repositories", slug: "repositories" },
-      { title: "Runs and tasks", slug: "runs" },
+      { title: "Tasks and turns", slug: "runs" },
       { title: "Review and Git", slug: "review" },
       { title: "Parallel tasks", slug: "parallel-tasks" },
     ],

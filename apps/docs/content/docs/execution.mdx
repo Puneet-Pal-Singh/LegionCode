@@ -1,35 +1,43 @@
 ---
 title: Execution and isolation
-description: Understand how LegionCode keeps each task isolated and why review remains required.
+description: Understand how LegionCode separates task workspaces and keeps execution behind a controlled boundary.
 category: Architecture
 toc:
   - id: isolated-workspaces
     text: Isolated workspaces
-  - id: tools-and-filesystem
-    text: Tools and filesystem
+  - id: execution-boundary
+    text: Execution boundary
+  - id: interruption-and-settlement
+    text: Interruption and settlement
   - id: review-boundary
     text: Review boundary
 ---
 
-Each LegionCode run works in its own cloud workspace. This keeps tasks separated while still allowing you to review and decide what, if anything, should move back into your repository.
+LegionCode runs repository tools inside a scoped workspace. Concurrent tasks do not share writable files, and clients do not execute repository commands directly.
 
 ## Isolated workspaces
 
-Every run receives a separate checkout and execution context. Concurrent tasks can start from the same repository, but they do not share a writable working directory.
+A workspace defines the repository and execution environment for a task. Two tasks can start from the same repository and branch while keeping separate writable state.
 
-Isolation reduces accidental cross-task interference. It does not guarantee that two separate diffs will merge cleanly; you still review and reconcile the results.
+Isolation reduces accidental interference. It does not guarantee that two independent diffs will merge cleanly; review and reconcile them before taking Git actions.
 
-## Tools and filesystem
+## Execution boundary
 
-File reads, writes, commands, and Git operations are executed through the run workspace. Paths are resolved relative to that workspace and checked before use.
+File reads, writes, commands, and Git operations run through the execution backend. Paths are resolved against the assigned workspace and checked before use.
 
-The event stream updates the conversation, tool activity, changed files, and review panel as work progresses.
+The runtime owns tool policy and records tool calls in the turn lifecycle. Cloud execution uses Cloudflare Sandbox through the secure-agent API. Local execution will use the same backend contract.
 
 <Callout variant="info" title="Isolation is not approval">
-  Sandbox isolation reduces blast radius. Permission policy and human diff
-  review still decide whether an action is appropriate.
+  Sandbox isolation reduces the effect of a bad command. Permission policy and
+  human review still decide whether an action is appropriate.
 </Callout>
+
+## Interruption and settlement
+
+Stopping work sends a runtime command to interrupt the active provider, tool, and execution backend. The turn then records one terminal result: completed, failed, cancelled, interrupted, or timed out.
+
+Clients render that result from the lifecycle. They do not mark a turn complete because a stream closed or a request ended.
 
 ## Review boundary
 
-Treat generated changes as proposed code. Review the diff, run the checks required by your repository, and use explicit Git actions only when the result is acceptable.
+Treat generated changes as proposed code. The review surface uses the finalized artifact for the selected turn. Review the diff, run the checks required by the repository, and take explicit Git actions only when the result is acceptable.

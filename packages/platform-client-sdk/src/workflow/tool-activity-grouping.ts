@@ -12,9 +12,13 @@ export interface ToolActivitySegment {
   readonly isActive: boolean;
 }
 
+export interface ActiveWorkflowTraceProjection {
+  readonly title: string;
+  readonly children: readonly WorkflowItem[];
+  readonly consumedSegmentKeys: readonly string[];
+}
+
 const HARD_BOUNDARY_KINDS: ReadonlySet<WorkflowItemKind> = new Set([
-  "commentary",
-  "approval_request",
   "context_compaction",
   "warning",
 ]);
@@ -28,51 +32,118 @@ export function groupToolActivity(
 
   for (const sourceItem of items) {
     const item = enrichEditFromCanonicalTurnDiff(sourceItem, turnDiff);
-    if (item.toolName === "multi_edit") {
-      continue;
-    }
-    if (item.kind === "reasoning" || item.kind === "plan") {
-      if (
-        (item.safeSummary?.trim() || item.text.trim()) &&
-        (item.status === "active" || item.status === "completed")
-      ) {
-        current = createSegment(item);
-        segments.push(current);
-      }
-      continue;
-    }
-
-    if (isToolItem(item)) {
-      if (
-        !current ||
-        (current.children.length > 0 &&
-          !current.children.some((c) => isToolItem(c)))
-      ) {
-        current = createSegment(item);
-        segments.push(current);
-      }
-      const children = coalesceRepeatedFileActivity(current.children, item);
-      current = {
-        key: current.key,
-        reasoning: current.reasoning,
-        children,
-        familyLabels: deriveFamilyLabels(children.slice(0, -1), item),
-        isActive: current.isActive || item.status === "active",
-      };
-      segments[segments.length - 1] = current;
-      continue;
-    }
-
-    if (HARD_BOUNDARY_KINDS.has(item.kind)) {
-      current = null;
-      segments.push(createStandaloneSegment(item));
-      continue;
-    }
-
-    current = null;
+    current = groupWorkflowItem(segments, current, item);
   }
 
   return segments;
+}
+
+function groupWorkflowItem(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment | null {
+  // Approval is rendered by its dedicated dock, but it does not end the
+  // surrounding tool activity. Resetting here made calls after permission
+  // settlement look like children of a different synthetic parent.
+  if (item.kind === "approval_request") return current;
+  if (item.toolName === "multi_edit") return current;
+  if (item.kind === "commentary") {
+    return appendCommentaryItem(segments, current, item);
+  }
+  if (item.kind === "reasoning" || item.kind === "plan") {
+    return appendReasoningSegment(segments, current, item) ?? current;
+  }
+  if (isToolItem(item)) {
+    return appendToolItem(segments, current, item);
+  }
+  if (HARD_BOUNDARY_KINDS.has(item.kind)) {
+    segments.push(createStandaloneSegment(item));
+  }
+  return null;
+}
+
+/**
+ * Provider-visible commentary is an ordered transcript part, not a lifecycle
+ * boundary. Keep it in the current activity parent so a streamed commentary
+ * update cannot make the following tool call look like a child of a new
+ * parent. Private reasoning never reaches this branch: it is projected as a
+ * `reasoning` item and remains title-only/display-safe.
+ */
+function appendCommentaryItem(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment {
+  if (!current) {
+    const created = createStandaloneSegment(item);
+    segments.push(created);
+    return created;
+  }
+
+  const children = [...current.children, item];
+  const updated = {
+    ...current,
+    children,
+    isActive: isSegmentActive(current.reasoning, children),
+  };
+  segments[segments.length - 1] = updated;
+  return updated;
+}
+
+function appendReasoningSegment(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment | null {
+  const hasContent = Boolean(item.safeSummary?.trim() || item.text.trim());
+  if (
+    !hasContent ||
+    (item.status !== "active" && item.status !== "completed")
+  ) {
+    return null;
+  }
+  if (current) {
+    const updated = {
+      ...current,
+      reasoning: item,
+      isActive: isSegmentActive(item, current.children),
+    };
+    segments[segments.length - 1] = updated;
+    return updated;
+  }
+  const created = createSegment(item);
+  segments.push(created);
+  return created;
+}
+
+function appendToolItem(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment {
+  const segment = shouldStartToolSegment(current)
+    ? createSegment(item)
+    : current!;
+  if (segment !== current) segments.push(segment);
+  const children = coalesceRepeatedFileActivity(segment.children, item);
+  const next = {
+    ...segment,
+    children,
+    familyLabels: deriveFamilyLabels(children.slice(0, -1), item),
+    isActive: isSegmentActive(segment.reasoning, children),
+  };
+  segments[segments.length - 1] = next;
+  return next;
+}
+
+function shouldStartToolSegment(current: ToolActivitySegment | null): boolean {
+  return (
+    !current ||
+    (current.children.length > 0 &&
+      !current.children.some(isToolItem) &&
+      !current.children.every((item) => item.kind === "commentary"))
+  );
 }
 
 function enrichEditFromCanonicalTurnDiff(
@@ -209,8 +280,6 @@ function deriveFamilyLabels(
 
 function getItemFamilyLabel(item: WorkflowItem): string {
   switch (item.kind) {
-    case "approval_request":
-      return "approval";
     case "context_compaction":
       return "context compaction";
     case "warning":
@@ -222,11 +291,220 @@ function getItemFamilyLabel(item: WorkflowItem): string {
 }
 
 export function buildSegmentTitle(segment: ToolActivitySegment): string {
+  if (segment.isActive) {
+    const activeTool = segment.children.find(
+      (item) => item.status === "active" && isToolItem(item),
+    );
+    const activeToolTitle = visibleActivityTitle(activeTool);
+    if (activeToolTitle) {
+      return activeToolTitle;
+    }
+
+    const reasoningTitle = visibleReasoningTitle(segment.reasoning);
+    if (reasoningTitle) {
+      return reasoningTitle;
+    }
+  }
+
   const labels = segment.familyLabels;
   if (labels.length === 0) {
     return segment.reasoning?.safeSummary?.trim() || "Thinking";
   }
   return labels.map(toActivityPhrase).join(", ");
+}
+
+export function buildActiveWorkflowTrace(
+  segments: readonly ToolActivitySegment[],
+): ActiveWorkflowTraceProjection {
+  const traceSegments = collectCurrentTraceSegments(segments);
+  const children = traceSegments.flatMap((segment) =>
+    segment.children.filter(
+      (item) => isToolItem(item) || item.kind === "commentary",
+    ),
+  );
+  const activeSegment = [...traceSegments]
+    .reverse()
+    .find((segment) => segment.children.some(isActiveToolItem));
+  const reasoningTitle = [...traceSegments]
+    .reverse()
+    .map((segment) => visibleReasoningTitle(segment.reasoning, false))
+    .find((title): title is string => Boolean(title));
+
+  if (activeSegment) {
+    return {
+      title: buildSegmentTitle(activeSegment),
+      children,
+      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
+    };
+  }
+
+  if (reasoningTitle) {
+    return {
+      title: reasoningTitle,
+      children,
+      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
+    };
+  }
+
+  const latestTool = children.at(-1);
+  if (latestTool) {
+    return {
+      title:
+        visibleActivityTitle(latestTool) ?? "Thinking through the next step",
+      children,
+      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
+    };
+  }
+
+  return {
+    title: "Thinking through the next step",
+    children: [],
+    consumedSegmentKeys: [],
+  };
+}
+
+function collectCurrentTraceSegments(
+  segments: readonly ToolActivitySegment[],
+): readonly ToolActivitySegment[] {
+  const current: ToolActivitySegment[] = [];
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index]!;
+    if (segment.children.some((item) => HARD_BOUNDARY_KINDS.has(item.kind))) {
+      break;
+    }
+    if (
+      segment.reasoning ||
+      segment.children.some((item) => isToolItem(item))
+    ) {
+      current.push(segment);
+    }
+  }
+  return current.reverse();
+}
+
+/**
+ * Returns the short, user-visible status for a workflow segment.
+ *
+ * Only display-safe lifecycle fields are considered here. In particular, the
+ * projection never turns private reasoning into a status title. Active tool
+ * display data wins while a command is running; the already-visible reasoning
+ * or plan summary remains as the stable fallback between tool calls.
+ */
+function visibleActivityTitle(item: WorkflowItem | undefined): string | null {
+  if (!item) return null;
+  return compactActivityTitle(
+    structuredToolActivityTitle(item) ??
+      item.safeSummary ??
+      item.detail ??
+      item.inputSummary ??
+      humanizeToolName(item.toolName),
+  );
+}
+
+function visibleReasoningTitle(
+  item: WorkflowItem | null,
+  useFallback = true,
+): string | null {
+  if (!item) return null;
+  const visibleTitle = compactActivityTitle(
+    item.safeSummary ?? item.text ?? item.detail,
+  );
+  if (visibleTitle && wordCount(visibleTitle) >= 4) return visibleTitle;
+  if (visibleTitle) return visibleTitle;
+  return useFallback ? "Thinking through the next step" : null;
+}
+
+function isActiveToolItem(item: WorkflowItem): boolean {
+  return item.status === "active" && isToolItem(item);
+}
+
+function isSegmentActive(
+  reasoning: WorkflowItem | null,
+  children: readonly WorkflowItem[],
+): boolean {
+  return reasoning?.status === "active" || children.some(isActiveToolItem);
+}
+
+function compactActivityTitle(value: string | null | undefined): string | null {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  const words = normalized.split(" ");
+  if (words.length <= 6) return normalized;
+  return `${words.slice(0, 6).join(" ")}…`;
+}
+
+function wordCount(value: string): number {
+  return value.replace(/…$/u, "").trim().split(/\s+/u).length;
+}
+
+function structuredToolActivityTitle(item: WorkflowItem): string | null {
+  const active = item.status === "active";
+  const inputTarget = stripToolActionPrefix(item.inputSummary);
+  const displayTarget = stripToolActionPrefix(item.safeSummary ?? item.detail);
+  const toolTarget = stripToolActionPrefix(humanizeToolName(item.toolName));
+  switch (item.toolFamily) {
+    case "read":
+      return formatToolTarget(
+        active ? "Reading" : "Read",
+        item.filePath ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
+    case "search":
+      return formatToolTarget(
+        active ? "Searching" : "Searched",
+        inputTarget ?? displayTarget ?? toolTarget,
+      );
+    case "edit":
+      return formatToolTarget(
+        editActivityVerb(active, item.editChange),
+        item.filePath ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
+    case "shell":
+      return formatToolTarget(
+        active ? "Running" : "Ran",
+        item.command ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
+    case "git":
+      return formatToolTarget(
+        active ? "Running" : "Ran",
+        item.command ?? inputTarget ?? displayTarget ?? toolTarget,
+      );
+    case "web":
+    case "browser":
+      return formatToolTarget(
+        active ? "Searching" : "Searched",
+        inputTarget ?? displayTarget ?? toolTarget,
+      );
+    default:
+      return null;
+  }
+}
+
+function editActivityVerb(
+  active: boolean,
+  change: WorkflowItem["editChange"],
+): string {
+  if (change === "created") return active ? "Creating" : "Created";
+  return active ? "Editing" : "Edited";
+}
+
+function formatToolTarget(verb: string, target: string | null): string | null {
+  const normalized = target?.replace(/\s+/gu, " ").trim();
+  return normalized ? `${verb} ${normalized}` : null;
+}
+
+function stripToolActionPrefix(value: string | null): string | null {
+  const normalized = value?.replace(/\s+/gu, " ").trim();
+  if (!normalized) return null;
+  return normalized.replace(
+    /^(?:read(?:ing)?|search(?:ed|ing)?|edit(?:ed|ing)?|creat(?:ed|ing)|run(?:ning)?|ran|list(?:ed|ing)?|view(?:ed|ing)?)\s+/iu,
+    "",
+  );
+}
+
+function humanizeToolName(value: string | null): string | null {
+  const normalized = value?.replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
+  if (!normalized) return null;
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function toActivityPhrase(label: string): string {
@@ -244,8 +522,6 @@ function toActivityPhrase(label: string): string {
     case "web":
     case "browser":
       return "searched the web";
-    case "approval":
-      return "requested approval";
     case "context compaction":
       return "compacted context";
     case "warning":

@@ -19,6 +19,40 @@ const THREAD_ID = "thr_workflow01";
 const ATTEMPT_ID = "attempt_workflow01";
 
 describe("turn workflow projection", () => {
+  it("projects visible provider commentary and display-safe reasoning deltas while filtering hidden reasoning", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "item.started", {
+        itemId: "itm_commentary01",
+        payload: { kind: "commentary" },
+      }),
+      event(2, "assistant_message.delta", {
+        itemId: "itm_commentary01",
+        payload: {
+          phase: "commentary",
+          delta: "I am checking the repository first.",
+        },
+      }),
+      event(3, "item.started", {
+        itemId: "itm_reasoning01",
+        payload: { kind: "reasoning" },
+      }),
+      event(4, "reasoning.summary_delta", {
+        itemId: "itm_reasoning01",
+        payload: { delta: "Safe summary", displaySafe: true },
+      }),
+    ]);
+
+    expect(projection.items).toMatchObject([
+      {
+        itemId: "itm_commentary01",
+        kind: "commentary",
+        text: "I am checking the repository first.",
+      },
+      { itemId: "itm_reasoning01", kind: "reasoning", text: "Safe summary" },
+    ]);
+    expect(projection.items[1]?.text).not.toContain("chain of thought");
+  });
+
   it("preserves typed tool families and repeated ordered children", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
@@ -44,6 +78,50 @@ describe("turn workflow projection", () => {
     ]);
     expect(segments[0]?.children[0]?.detail).toBe("Read README.md");
     expect(buildSegmentTitle(segments[0]!)).toBe("read files");
+  });
+
+  it("does not duplicate a lifecycle item when the exact event is replayed twice", () => {
+    const started = toolStarted(
+      1,
+      "itm_gitcall01",
+      "toolcall_gitcall01",
+      "git",
+      "Git diff",
+    );
+
+    const projection = replayTurnWorkflowProjection(TURN_ID, [started, started]);
+
+    expect(projection.items).toHaveLength(1);
+    expect(projection.items[0]?.itemId).toBe("itm_gitcall01");
+    expect(projection.items[0]?.sequence).toBe(1);
+  });
+
+  it("keeps distinct repeated Git tool calls auditable", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      toolStarted(
+        1,
+        "itm_gitcall01",
+        "toolcall_gitcall01",
+        "git",
+        "Git diff",
+      ),
+      toolStarted(
+        2,
+        "itm_gitcall02",
+        "toolcall_gitcall02",
+        "git",
+        "Git diff",
+      ),
+    ]);
+
+    const children = groupToolActivity(projection.items).flatMap(
+      (segment) => segment.children,
+    );
+
+    expect(children.map((item) => item.itemId)).toEqual([
+      "itm_gitcall01",
+      "itm_gitcall02",
+    ]);
   });
 
   it("does not synthesize item settlement from a terminal event", () => {
@@ -74,6 +152,64 @@ describe("turn workflow projection", () => {
     });
   });
 
+  it("clears only the approval settled by a matching decision", () => {
+    const requested = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "approval.requested", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { question: "Run command?", options: ["Approve", "Deny"] },
+      }),
+    );
+    const unrelated = applyLifecycleEvent(
+      requested,
+      event(2, "approval.decided", {
+        itemId: "itm_approval02",
+        approvalId: "appr_other001",
+        payload: { decision: "denied" },
+      }),
+    );
+    const settled = applyLifecycleEvent(
+      unrelated,
+      event(3, "approval.decided", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { decision: "approved" },
+      }),
+    );
+
+    expect(unrelated.pendingApproval?.approvalId).toBe("appr_workflow01");
+    expect(unrelated.phase).toBe("waiting_for_approval");
+    expect(settled.pendingApproval).toBeNull();
+    expect(settled.phase).toBe("working");
+  });
+
+  it("projects the typed failure reason inside the canonical terminal", () => {
+    const projection = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "turn.failed", {
+        payload: {
+          outcome: {
+            status: "failed",
+            failure: {
+              code: "provider_unavailable",
+              message: "OpenCode Zen route failed",
+              retryable: true,
+              correlationId: null,
+              details: null,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(projection.terminal).toMatchObject({
+      state: "failed",
+      content: "OpenCode Zen route failed",
+      errorCode: "provider_unavailable",
+    });
+  });
+
   it("projects canonical file, diff and shell details for interactive renderers", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       event(1, "tool_call.started", {
@@ -97,6 +233,7 @@ describe("turn workflow projection", () => {
             content: "Applied patch.",
             metadata: {
               activity: {
+                change: "created",
                 filePath: "src/Hero.tsx",
                 diffPreview: "-old\\n+new",
                 additions: 1,
@@ -132,6 +269,7 @@ describe("turn workflow projection", () => {
       diffPreview: "-old\\n+new",
       additions: 1,
       deletions: 1,
+      editChange: "created",
     });
     expect(projection.items[1]).toMatchObject({
       toolName: "bash",

@@ -16,6 +16,7 @@ import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
 import { createRunId } from "../lib/run-id";
 import { mergeServerSessionProjection } from "./session-title-ordering";
+import { usePendingTitleProjectionRefresh } from "./usePendingTitleProjectionRefresh";
 
 export type { AgentSession } from "../types/session";
 export type SessionHydrationStatus = "idle" | "loading" | "ready" | "failed";
@@ -245,6 +246,31 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       cancelled = true;
     };
   }, [hydrateFromServer]);
+
+  const mergeTitleServerSessions = useCallback(
+    (
+      serverSessions: Awaited<
+        ReturnType<typeof SessionStateService.hydrateSessionsFromServer>
+      >,
+    ) => {
+      setSessions((current) => {
+        const next = current.map((session) => {
+          const serverSession = serverSessions[session.id];
+          return serverSession
+            ? mergeServerSessionProjection(session, serverSession)
+            : session;
+        });
+        sessionsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  usePendingTitleProjectionRefresh({
+    enabled: hydrateFromServer && sessionHydrationStatus === "ready",
+    sessions,
+    onServerSessions: mergeTitleServerSessions,
+  });
 
   /**
    * Create a new session with v2 schema
@@ -524,13 +550,86 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     [reconcileSessionMutation],
   );
 
+  const acknowledgeSession = useCallback(async (id: string): Promise<void> => {
+    const session = sessionsRef.current.find(
+      (candidate) => candidate.id === id,
+    );
+    const terminalTurnId = session?.lastTerminalTurnId;
+    if (
+      !terminalTurnId ||
+      terminalTurnId === session?.lastAcknowledgedTerminalTurnId
+    ) {
+      return;
+    }
+
+    const previousAcknowledgedTurnId =
+      session.lastAcknowledgedTerminalTurnId ?? null;
+    const updateAcknowledgement = (
+      current: AgentSession,
+      acknowledgedTurnId: string | null,
+    ): AgentSession => ({
+      ...current,
+      lastAcknowledgedTerminalTurnId: acknowledgedTurnId,
+    });
+
+    // A read receipt is not thread activity. Keep title ordering metadata
+    // untouched while optimistically clearing the unread marker.
+    setSessions((current) => {
+      const next = current.map((candidate) =>
+        candidate.id === id
+          ? updateAcknowledgement(candidate, terminalTurnId)
+          : candidate,
+      );
+      sessionsRef.current = next;
+      return next;
+    });
+
+    try {
+      const serverSession = await SessionStateService.acknowledgeSession(
+        id,
+        terminalTurnId,
+      );
+      if (serverSession.id !== id) {
+        throw new Error("Session read receipt response id mismatch");
+      }
+      setSessions((current) => {
+        const next = current.map((candidate) =>
+          candidate.id === id
+            ? updateAcknowledgement(
+                candidate,
+                serverSession.lastAcknowledgedTerminalTurnId ?? terminalTurnId,
+              )
+            : candidate,
+        );
+        sessionsRef.current = next;
+        return next;
+      });
+    } catch (error) {
+      console.warn("[useSessionManager] Failed to acknowledge session:", error);
+      setSessions((current) => {
+        const next = current.map((candidate) =>
+          candidate.id === id &&
+          candidate.lastAcknowledgedTerminalTurnId === terminalTurnId
+            ? updateAcknowledgement(candidate, previousAcknowledgedTurnId)
+            : candidate,
+        );
+        sessionsRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+
   /**
    * Update session metadata
    * Validates updates and maintains timestamps
    * Prevents accidental corruption by disallowing id overwrites
    */
   const updateSession = useCallback(
-    (id: string, updates: Partial<Omit<AgentSession, "id">>) => {
+    (
+      id: string,
+      updates: Partial<Omit<AgentSession, "id">>,
+      options?: { preserveActivityTimestamp?: boolean },
+    ) => {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== id) return s;
@@ -542,7 +641,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
             ...s,
             ...updates,
             id: s.id, // Preserve original id
-            updatedAt: new Date().toISOString(),
+            updatedAt: options?.preserveActivityTimestamp
+              ? s.updatedAt
+              : new Date().toISOString(),
           };
           // Validate session invariants
           if (!SessionStateService.validateSession(updated)) {
@@ -603,6 +704,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     unpinSession,
     archiveSession,
     unarchiveSession,
+    acknowledgeSession,
     updateSession,
     clearAllSessions,
     addRepository,

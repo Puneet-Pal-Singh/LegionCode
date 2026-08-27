@@ -40,4 +40,20 @@ describe("turn scope bootstrap protocol", () => {
       }),
     ).toThrow();
   });
+
+  it("preserves an explicit revision relation in the server-owned scope", () => {
+    const revisionOfTurnId = "trn_previous001";
+    expect(
+      TurnScopeBootstrapRequestSchema.parse({ ...REQUEST, revisionOfTurnId }),
+    ).toMatchObject({ revisionOfTurnId });
+    expect(
+      TurnScopeBootstrapSchema.parse({
+        workspaceId: REQUEST.workspaceId,
+        threadId: "thr_123456",
+        turnId: "trn_123456",
+        runAttemptId: "attempt_123456",
+        revisionOfTurnId,
+      }),
+    ).toMatchObject({ revisionOfTurnId });
+  });
 });

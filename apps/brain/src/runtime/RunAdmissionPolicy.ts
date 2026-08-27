@@ -38,7 +38,9 @@ export interface AdmissionConstraint {
 
 export interface AdmissionPolicy {
   rateLimit: {
-    bucket: typeof RUN_ADMISSION_BUCKETS.submission | typeof RUN_ADMISSION_BUCKETS.mutationSubmission;
+    bucket:
+      | typeof RUN_ADMISSION_BUCKETS.submission
+      | typeof RUN_ADMISSION_BUCKETS.mutationSubmission;
     limit: number;
     windowSeconds: number;
   };
@@ -51,9 +53,9 @@ const DEFAULT_RUN_SUBMISSION_WINDOW_SECONDS = 600;
 const DEFAULT_MUTATION_RUN_SUBMISSION_LIMIT = 20;
 const DEFAULT_MUTATION_RUN_SUBMISSION_WINDOW_SECONDS = 600;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX = 1;
-const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX = 2;
+const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX = 3;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX = 3;
-const DEFAULT_CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS = 2;
+const DEFAULT_CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS = 3;
 const DEFAULT_ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS = 900;
 
 export function buildAdmissionPolicy(

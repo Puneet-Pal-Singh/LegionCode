@@ -31,6 +31,8 @@ interface TopNavBarProps {
     onOpenChanges: () => void;
     onOpenCommit: () => void;
   };
+  isCompact?: boolean;
+  isMobile?: boolean;
 }
 
 export function TopNavBar(props: TopNavBarProps) {
@@ -39,7 +41,7 @@ export function TopNavBar(props: TopNavBarProps) {
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="h-12 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0 z-50 shadow-sm shadow-black/20"
+      className="h-12 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-2.5 sm:px-3 shrink-0 z-50 shadow-sm shadow-black/20"
     >
       <TopNavLeft {...props} />
       <div className="flex-1" />
@@ -57,6 +59,7 @@ function TopNavLeft({
   onPinSession,
   onUnpinSession,
   onArchiveSession,
+  isMobile,
 }: Pick<
   TopNavBarProps,
   | "isSidebarOpen"
@@ -67,9 +70,10 @@ function TopNavLeft({
   | "onPinSession"
   | "onUnpinSession"
   | "onArchiveSession"
+  | "isMobile"
 >) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-2 sm:gap-3">
       {!isSidebarOpen ? (
         <motion.button
           onClick={onToggleSidebar}
@@ -82,15 +86,19 @@ function TopNavLeft({
         </motion.button>
       ) : null}
       {taskTitle ? (
-        <span className="text-sm font-medium text-white">{taskTitle}</span>
+        <span className="max-w-[52vw] truncate text-sm font-medium text-white sm:max-w-[38vw]">
+          {taskTitle}
+        </span>
       ) : null}
-      <ChatHeaderMenu
-        session={activeSession ?? null}
-        onRename={onRenameSession ?? (async () => undefined)}
-        onPin={onPinSession ?? (async () => undefined)}
-        onUnpin={onUnpinSession ?? (async () => undefined)}
-        onArchive={onArchiveSession ?? (async () => undefined)}
-      />
+      {!isMobile ? (
+        <ChatHeaderMenu
+          session={activeSession ?? null}
+          onRename={onRenameSession ?? (async () => undefined)}
+          onPin={onPinSession ?? (async () => undefined)}
+          onUnpin={onUnpinSession ?? (async () => undefined)}
+          onArchive={onArchiveSession ?? (async () => undefined)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -104,6 +112,8 @@ function TopNavActions({
   isAuthenticated = false,
   onConnectGitHub,
   environmentSummary,
+  isCompact = false,
+  isMobile = false,
 }: Pick<
   TopNavBarProps,
   | "onOpenIde"
@@ -114,12 +124,16 @@ function TopNavActions({
   | "isAuthenticated"
   | "onConnectGitHub"
   | "environmentSummary"
+  | "isCompact"
+  | "isMobile"
 >) {
   return (
     <div
       data-testid="top-nav-actions"
       className="flex items-center gap-2 transition-[margin] duration-150"
-      style={{ marginRight: isRightSidebarOpen ? rightSidebarWidth : 0 }}
+      style={{
+        marginRight: isRightSidebarOpen && !isCompact ? rightSidebarWidth : 0,
+      }}
     >
       {!isAuthenticated && onConnectGitHub ? (
         <GitHubLoginButton
@@ -128,8 +142,10 @@ function TopNavActions({
           variant="secondary"
         />
       ) : null}
-      <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
-      {environmentSummary ? (
+      {!isMobile ? (
+        <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
+      ) : null}
+      {environmentSummary && !isCompact ? (
         <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
       {!isRightSidebarOpen ? (

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import zodToJsonSchema from "zod-to-json-schema";
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type {
@@ -187,11 +188,14 @@ function buildResponsesRequestBody(
   const body: Record<string, unknown> = {
     model,
     input: buildResponsesInput(params.messages, params.system),
-    temperature: params.temperature,
+    max_output_tokens: params.maxOutputTokens ?? 4096,
   };
   const tools = buildResponsesTools(params.tools);
   if (tools) {
     body.tools = tools;
+  }
+  if (params.reasoningEffort) {
+    body.reasoning = { effort: params.reasoningEffort };
   }
   return body;
 }
@@ -271,12 +275,33 @@ function toResponsesInputItems(
     });
   }
 
+  const inputContent = message.content.flatMap(toResponsesUserContentPart);
   return [
     {
       role: message.role,
-      content: stringifyCoreMessageContent(message.content),
+      content: inputContent.length > 0 ? inputContent : " ",
     },
   ];
+}
+
+function toResponsesUserContentPart(
+  value: unknown,
+): Array<Record<string, unknown>> {
+  if (isTextPart(value)) {
+    return value.text.length > 0
+      ? [{ type: "input_text", text: value.text }]
+      : [];
+  }
+  if (isImagePart(value)) {
+    return [
+      {
+        type: "input_image",
+        image_url: value.image,
+        detail: "auto",
+      },
+    ];
+  }
+  return [];
 }
 
 function stringifyCoreMessageContent(content: CoreMessage["content"]): string {
@@ -362,8 +387,18 @@ function readJsonSchemaRecord(value: unknown): Record<string, unknown> | null {
     return null;
   }
   const record = value as Record<string, unknown>;
-  if (typeof record.safeParse === "function" || "_def" in record) {
-    return null;
+  if (typeof record.safeParse === "function" && "_def" in record) {
+    const schema = zodToJsonSchema(value as z.ZodTypeAny, {
+      $refStrategy: "none",
+    });
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+      return null;
+    }
+    const { $schema: _schema, ...jsonSchema } = schema as Record<
+      string,
+      unknown
+    >;
+    return jsonSchema;
   }
   return record;
 }
@@ -384,9 +419,18 @@ function isTextPart(value: unknown): value is { type: "text"; text: string } {
   );
 }
 
-function isToolCallPart(
+function isImagePart(
   value: unknown,
-): value is {
+): value is { type: "image"; image: string } {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "image" &&
+    typeof (value as { image?: unknown }).image === "string"
+  );
+}
+
+function isToolCallPart(value: unknown): value is {
   type: "tool-call";
   toolCallId: string;
   toolName: string;
@@ -401,9 +445,7 @@ function isToolCallPart(
   );
 }
 
-function isToolResultPart(
-  value: unknown,
-): value is {
+function isToolResultPart(value: unknown): value is {
   type: "tool-result";
   toolCallId: string;
   result: unknown;

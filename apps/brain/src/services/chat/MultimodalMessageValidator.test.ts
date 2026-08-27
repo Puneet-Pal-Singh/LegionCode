@@ -17,17 +17,14 @@ describe("validateMultimodalMessages", () => {
           ],
         },
       ],
-      "build",
       "corr-1",
     );
 
-    expect(result.hasImages).toBe(true);
-    expect(result.imageCount).toBe(1);
-    expect(result.totalImageBytes).toBe(5);
+    expect(result.messages).toHaveLength(1);
   });
 
-  it("rejects image parts in plan mode", () => {
-    expect(() =>
+  it("accepts image parts without classifying model or run-mode support", () => {
+    expect(
       validateMultimodalMessages(
         [
           {
@@ -41,10 +38,9 @@ describe("validateMultimodalMessages", () => {
             ],
           },
         ],
-        "plan",
         "corr-1",
-      ),
-    ).toThrow("Image attachments are only supported in build mode");
+      ).messages,
+    ).toHaveLength(1);
   });
 
   it("rejects mismatched data URL MIME type", () => {
@@ -62,7 +58,6 @@ describe("validateMultimodalMessages", () => {
             ],
           },
         ],
-        "build",
         "corr-1",
       ),
     ).toThrow("does not match mimeType");

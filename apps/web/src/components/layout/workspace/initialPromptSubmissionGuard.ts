@@ -1,22 +1,26 @@
-const CLAIM_PREFIX = "legioncode:initial-prompt-submission:";
-const claimedSubmissionIds = new Set<string>();
+import type { InitialPromptSubmissionId } from "../../../lib/initial-prompt-submission";
 
-export function claimInitialPromptSubmission(id: string): boolean {
+const CLAIM_PREFIX = "legioncode:initial-prompt-submission:";
+const claimedSubmissionIds = new Set<InitialPromptSubmissionId>();
+
+export function claimInitialPromptSubmission(
+  id: InitialPromptSubmissionId,
+): boolean {
   const normalizedId = id.trim();
   if (!normalizedId) {
     return false;
   }
-  if (claimedSubmissionIds.has(normalizedId)) {
+  if (claimedSubmissionIds.has(id)) {
     return false;
   }
 
   const storageKey = buildClaimKey(normalizedId);
   if (isSessionClaimed(storageKey)) {
-    claimedSubmissionIds.add(normalizedId);
+    claimedSubmissionIds.add(id);
     return false;
   }
 
-  claimedSubmissionIds.add(normalizedId);
+  claimedSubmissionIds.add(id);
   writeSessionClaim(storageKey);
   return true;
 }

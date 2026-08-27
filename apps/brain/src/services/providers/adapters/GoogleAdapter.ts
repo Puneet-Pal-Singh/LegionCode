@@ -10,6 +10,7 @@ import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
 import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
 
 // Google documents this sentinel for client-generated/replayed function calls
 // that cannot preserve Gemini 3's encrypted thought signature.
@@ -20,10 +21,11 @@ interface GoogleAdapterConfig {
   apiKey: string;
   baseURL?: string;
   defaultModel?: string;
+  providerId?: string;
 }
 
 export class GoogleAdapter implements ProviderAdapter {
-  readonly provider = "google";
+  readonly provider: string;
   readonly supportedModels: string[];
   private readonly client: ReturnType<typeof createGoogleGenerativeAI>;
   private readonly defaultModel: string;
@@ -37,6 +39,7 @@ export class GoogleAdapter implements ProviderAdapter {
       baseURL: config.baseURL,
       fetch: createGeminiThoughtSignatureFetchBridge(),
     });
+    this.provider = config.providerId ?? "google";
     this.defaultModel = config.defaultModel ?? "gemini-2.5-flash-lite";
     this.supportedModels = [];
   }
@@ -57,6 +60,7 @@ export class GoogleAdapter implements ProviderAdapter {
         system: params.system,
         tools: params.tools,
         temperature: params.temperature,
+        maxTokens: params.maxOutputTokens,
         abortSignal: params.signal,
         maxRetries: PROVIDER_SDK_MAX_RETRIES,
       });
@@ -70,9 +74,13 @@ export class GoogleAdapter implements ProviderAdapter {
           toolName: toolCall.toolName,
           args: toolCall.args,
         })),
+        transcriptParts: visiblePartsFromGenerateTextResult(result),
       };
     } catch (error) {
-      const unusableResponseError = this.buildUnusableResponseError(error, model);
+      const unusableResponseError = this.buildUnusableResponseError(
+        error,
+        model,
+      );
       if (unusableResponseError) {
         console.warn(
           "[provider/google] Classified unusable Gemini response from Gemini API",
@@ -99,6 +107,7 @@ export class GoogleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      maxTokens: params.maxOutputTokens,
       abortSignal: params.signal,
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
@@ -108,12 +117,7 @@ export class GoogleAdapter implements ProviderAdapter {
     let finishReason: string | undefined;
 
     for await (const chunk of streamResult.fullStream) {
-      const state = this.handleStreamChunk(
-        chunk,
-        model,
-        fullText,
-        finalUsage,
-      );
+      const state = this.handleStreamChunk(chunk, model, fullText, finalUsage);
       fullText = state.fullText;
       finalUsage = state.finalUsage;
       finishReason = state.finishReason;
@@ -336,7 +340,9 @@ interface GoogleResponsePayload {
   };
 }
 
-function isGoogleResponsePayload(value: unknown): value is GoogleResponsePayload {
+function isGoogleResponsePayload(
+  value: unknown,
+): value is GoogleResponsePayload {
   if (!isRecord(value)) {
     return false;
   }
@@ -344,7 +350,9 @@ function isGoogleResponsePayload(value: unknown): value is GoogleResponsePayload
   return Array.isArray(value.candidates);
 }
 
-function normalizeGoogleFinishReason(finishReason: string | undefined): string | undefined {
+function normalizeGoogleFinishReason(
+  finishReason: string | undefined,
+): string | undefined {
   if (!finishReason) {
     return undefined;
   }

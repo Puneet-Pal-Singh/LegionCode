@@ -1,138 +1,82 @@
 <!--
-Title format (required):
-<type>(<scope>): <imperative summary>
+Title: <type>(<scope>): <imperative summary>
 
 Examples:
-- feat(web): add composer model picker popover
-- fix(runtime): enforce runId isolation in harness adapter
-- refactor(brain): extract run lifecycle collaborators
+- feat(web): add composer model picker
+- fix(runtime): enforce run isolation
+- refactor(brain): extract lifecycle collaborators
 
-Type guide:
-- feat = new behavior/capability
-- fix = bug/regression correction
-- refactor = structure change only (no behavior change)
-
-Safety:
-- Do not include internal IDs/references (SHA-*, internal plans, internal Linear-only links).
-- Do not include internal/local file names or paths, especially from ignored/private directories.
+Do not include private/internal IDs, links, file names, or paths.
 -->
 
-## Description
+## Summary
 
-<!-- Provide a clear and concise description of what this PR does -->
+<!-- Briefly describe the outcome of this PR. -->
 
-## What was accomplished
+## Why
 
-## Why this change
+<!-- What problem does this solve, and why is this approach appropriate? -->
 
-## What changed?
+## What changed
 
-<!-- Describe the changes made in this PR -->
+<!-- List the meaningful changes and deliberate exclusions. -->
 
-## Breaking changes
+-
 
-<!-- If this PR contains breaking changes, describe them here -->
+Breaking changes: <!-- None, or describe the required migration. -->
 
-## Canonical wiring and replacement
+Related public issues / PRs: <!-- N/A, or add links. -->
+
+## Verification
+
+<!-- Include focused tests, type checks, gates, and relevant manual/E2E evidence. -->
+
+- [ ] Tests:
+- [ ] Type / lint / build:
+- [ ] Architecture or conformance gates:
+- [ ] Manual or product-path verification:
+
+## Risks and rollback
+
+<!-- State meaningful risks and the safe rollback/recovery path. Write None when not applicable. -->
+
+<details>
+<summary>Architecture and lifecycle details (required only when applicable)</summary>
 
 <!--
-Required for changes to runtime, lifecycle, workflow, tools, approvals, context,
-persistence, Git, execution backends, harnesses, SDKs, or clients. Read
-architecture/RUNTIME-ARCHITECTURE.md and
-architecture/CAPABILITY-OWNERSHIP.md. Write N/A only when the PR is not
-architecture-sensitive.
+Complete this section for runtime, lifecycle, workflow, tools, approvals,
+context, persistence, Git, execution backends, harnesses, SDKs, or client-state
+changes. Otherwise write N/A. Keep answers concise and link architecture docs
+when deeper explanation is needed.
 -->
 
-Product responsibility:
+Coordination:
 
-Current owner(s):
+- Merge independence:
+- Remaining integration:
+- Temporary mechanism deletion criteria:
 
-Canonical owner after change:
+Canonical wiring:
 
-Active producers migrated:
+- Product responsibility:
+- Current owner(s):
+- Canonical owner after change:
+- Active producers migrated:
+- Active consumers migrated:
+- Code or path removed:
+- Replacement for removed behavior:
+- Remaining duplicate authority: <!-- Include owner and deletion trigger when applicable. -->
+- Capability ownership ledger update: <!-- Updated row, or why ownership is unchanged. -->
 
-Active consumers migrated:
+Lifecycle evidence: <!-- Complete for lifecycle fixes; otherwise N/A. -->
 
-Code or path removed:
+- User-visible symptom:
+- Full affected lifecycle:
+- Canonical owner:
+- Violated invariant:
+- Architectural root cause:
+- Duplicate authority or fallback removed:
+- Boundary regression test:
+- Lifecycle/conformance regression test:
 
-Replacement for removed behavior:
-
-Remaining duplicate authority:
-
-<!-- If any remains, include owner and deletion trigger. Otherwise write None. -->
-
-Capability ownership ledger update:
-
-<!-- Name the updated row, or explain why ownership is unchanged. -->
-
-## Rebuild governance
-
-Merge independence:
-
-<!-- State whether this PR can merge independently into dev, or name its prerequisite PRs. -->
-
-Remaining integration:
-
-<!-- State what later PRs must still do. If none, write N/A. -->
-
-Temporary mechanism deletion criteria:
-
-<!-- For feature flags, report-only gates, migration aids, or temporary scaffolding, state owner and deletion criteria. If none, write N/A. -->
-
-## Lifecycle-first bug-fix evidence
-
-Lifecycle impact:
-
-<!-- Write "None" only when this PR does not affect run, chat, approval, interruption, artifact, reload/replay, or git-status/diff lifecycle behavior. -->
-
-User-visible symptom:
-
-<!-- Required for lifecycle-affecting fixes. If not lifecycle-affecting, write N/A. -->
-
-Full affected lifecycle:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Canonical owner:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Violated invariant:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Architectural root cause:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Duplicate authority or fallback removed:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Boundary regression test:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Lifecycle/conformance regression test:
-
-<!-- Required for lifecycle-affecting fixes. -->
-
-Deliberately deferred correction and deletion criteria:
-
-<!-- If none, write N/A. -->
-
-<!-- ## Verification -->
-
-<!-- ## **Test Results** (code block)
-   ```
-   ✓ test-file.test.ts ({N} tests)
-   ───────────────────────
-   Total: {X}/{Y} tests PASSING ✅
-   ```  -->
-
-<!-- ## **Code Quality Metrics** (simple table)
-   - TypeScript strict, zero `any`, Zod validation, etc. -->
-
-## Related
-
-<!-- Public GitHub PRs/issues only. If none, write N/A. -->
+</details>

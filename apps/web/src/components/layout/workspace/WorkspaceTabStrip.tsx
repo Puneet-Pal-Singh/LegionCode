@@ -2,6 +2,7 @@ import { FileDiff, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../../lib/utils";
 import { FileTypeIcon } from "../../ui/FileTypeIcon";
+import { ContextUsageRing } from "../../chat/context/ContextUsageRing";
 import type { SidebarContentTab } from "./useWorkspaceState";
 
 interface WorkspaceTabStripProps {
@@ -49,7 +50,7 @@ export function WorkspaceTabStrip({
         <WorkspaceTab
           key={tab.id}
           label={formatContentTitle(tab.path)}
-          icon={<FileTypeIcon path={tab.path} size={15} />}
+          icon={<WorkspaceTabIcon tab={tab} />}
           active={!reviewActive && activeContentTabId === tab.id}
           size={size}
           onSelect={() => onSelectContent(tab.id)}
@@ -58,6 +59,19 @@ export function WorkspaceTabStrip({
       ))}
     </div>
   );
+}
+
+function WorkspaceTabIcon({ tab }: { tab: SidebarContentTab }) {
+  if (tab.kind === "context") {
+    return (
+      <ContextUsageRing
+        percent={Math.round(tab.budget.utilizationPercent)}
+        size={16}
+        className="text-current"
+      />
+    );
+  }
+  return <FileTypeIcon path={tab.path} size={15} />;
 }
 
 function WorkspaceTab({
@@ -102,10 +116,10 @@ function WorkspaceTab({
         <button
           type="button"
           onClick={onClose}
-          className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-zinc-600 text-zinc-950 opacity-0 transition-all duration-150 hover:bg-zinc-400 hover:text-black group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+          className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-md text-zinc-500 opacity-0 transition-all duration-150 hover:bg-zinc-700 hover:text-zinc-100 group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500"
           aria-label={`Close ${label} tab`}
         >
-          <X size={14} strokeWidth={2.5} />
+          <X size={14} strokeWidth={1.75} />
         </button>
       ) : null}
     </div>

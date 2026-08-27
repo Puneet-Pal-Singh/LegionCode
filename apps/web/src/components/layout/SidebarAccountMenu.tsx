@@ -96,9 +96,7 @@ export function SidebarAccountMenu({
               <p className="truncate text-sm font-medium text-zinc-200">
                 {displayName}
               </p>
-              <p className="truncate text-[11px] text-zinc-500">
-                @{user.login}
-              </p>
+              <p className="truncate text-sm text-zinc-500">@{user.login}</p>
             </div>
           </div>
           <div className="pt-1.5">
@@ -109,7 +107,7 @@ export function SidebarAccountMenu({
                 setIsOpen(false);
                 onOpenSettings();
               }}
-              className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+              className="ui-popover-item gap-2.5"
             >
               <Settings
                 size={16}
@@ -123,7 +121,7 @@ export function SidebarAccountMenu({
               role="menuitem"
               onClick={() => void handleLogout()}
               disabled={isLoggingOut}
-              className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-wait disabled:text-zinc-500"
+              className="ui-popover-item gap-2.5 disabled:cursor-wait disabled:text-zinc-500"
             >
               <LogOut size={16} className="text-zinc-400" aria-hidden="true" />
               {isLoggingOut ? "Logging out…" : "Log out"}

@@ -2,6 +2,8 @@ import { z } from "zod";
 import { ProtocolTimestampSchema } from "./common.js";
 import { ThreadIdSchema } from "./ids.js";
 
+const ThreadTitleStatusSchema = z.enum(["pending", "ready", "failed"]);
+
 /**
  * The origin of a durable title update. A preview is deterministic server-side
  * copy; generated copy is produced by the selected model; a user title always
@@ -28,6 +30,7 @@ export const ThreadTitleUpdatedPayloadSchema = z
     title: z.string().trim().min(1).max(80),
     titleVersion: z.number().int().positive(),
     source: ThreadTitleUpdateSourceSchema,
+    titleStatus: ThreadTitleStatusSchema.default("ready"),
     timestamp: ProtocolTimestampSchema,
   })
   .strict();

@@ -376,7 +376,7 @@ function getTaskActionMapping(action: string): TaskActionMapping | null {
   const legacy: Record<string, TaskActionMapping> = {
     read_file: { pluginName: "filesystem", method: "execute" }, write_file: { pluginName: "filesystem", method: "execute" },
     edit_file: { pluginName: "filesystem", method: "execute" }, multi_edit: { pluginName: "filesystem", method: "execute" },
-    format_file: { pluginName: "filesystem", method: "execute" }, language_diagnostics: { pluginName: "filesystem", method: "execute" },
+    format_file: { pluginName: "filesystem", method: "execute" },
     list_files: { pluginName: "filesystem", method: "execute" }, make_dir: { pluginName: "filesystem", method: "execute" },
     git_status: { pluginName: "git", method: "execute" }, git_diff: { pluginName: "git", method: "execute" }, git_commit: { pluginName: "git", method: "execute" }, git_push: { pluginName: "git", method: "execute" },
     execute_python: { pluginName: "python", method: "execute" }, execute_node: { pluginName: "node", method: "execute" }, execute_rust: { pluginName: "rust", method: "execute" },

@@ -36,6 +36,45 @@ describe("RunEngine runId isolation", () => {
     expect(runB?.metadata.manifest).toBeDefined();
   });
 
+  it("keeps three different-model runs on independent execution roots", async () => {
+    const state = new MockRuntimeState();
+    const scenarios = [
+      { runId: "run_mixed_a", providerId: "openai", modelId: "gpt-5.6-luna" },
+      { runId: "run_mixed_b", providerId: "google", modelId: "gemma-4-31b" },
+      { runId: "run_mixed_c", providerId: "opencode", modelId: "big-pickle" },
+    ];
+    const engines = scenarios.map(({ runId }) =>
+      createEngine(state, runId, `session-${runId}`),
+    );
+
+    await Promise.all(
+      engines.map((engine, index) => {
+        const scenario = scenarios[index]!;
+        return engine.execute(
+          {
+            agentType: "coding",
+            prompt: "inspect independently",
+            sessionId: `session-${scenario.runId}`,
+            providerId: scenario.providerId,
+            modelId: scenario.modelId,
+          },
+          [{ role: "user", content: "inspect independently" }],
+          {},
+        );
+      }),
+    );
+
+    const runs = await Promise.all(
+      engines.map((engine, index) => engine.getRun(scenarios[index]!.runId)),
+    );
+    expect(runs.map((run) => run?.id)).toEqual(
+      scenarios.map(({ runId }) => runId),
+    );
+    expect(
+      new Set(scenarios.map(({ runId }) => `/home/sandbox/checkouts/${runId}`))
+        .size,
+    ).toBe(3);
+  });
 });
 
 function createEngine(

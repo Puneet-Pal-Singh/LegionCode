@@ -16,10 +16,14 @@
 import type { CoreMessage } from "ai";
 import {
   DEFAULT_RUN_MODE,
+  type BYOKModelPricing,
   type ProductMode,
   type RunMode,
   type WorkflowEntrypoint,
   type WorkflowIntent,
+  type ReasoningEffort,
+  type ProviderModelRuntimeRoute,
+  type ProviderModelTransport,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { TurnScopeBootstrap } from "@repo/platform-protocol";
@@ -36,7 +40,12 @@ import type {
   AgentType,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
-import { builtinProviderRegistry } from "@repo/provider-core";
+import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
+import {
+  builtinProviderRegistry,
+  resolveProviderRuntimeRoute,
+  type ResolvedProviderRuntimeRoute,
+} from "@repo/provider-core";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -71,7 +80,10 @@ export interface HandleChatRequestInput {
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
   contextWindowTokens?: number;
+  pricing?: BYOKModelPricing;
+  reasoningEffort?: ReasoningEffort;
   tools?: Record<string, SerializableToolDefinition>;
+  providerRuntimeRoute?: ProviderModelRuntimeRoute;
   identity: TurnScopeBootstrap;
   backgroundTaskOwner?: BackgroundTaskOwner;
 }
@@ -95,6 +107,9 @@ export interface HandleChatRequestOutput {
       sessionId: string;
       providerId?: string;
       modelId?: string;
+      runtimeModelId?: string;
+      providerTransport?: import("@repo/shared-types").ProviderModelTransport;
+      providerEndpoint?: string;
       harnessId?: RuntimeHarnessId;
       orchestratorBackend: RuntimeOrchestratorBackend;
       executionBackend: RuntimeExecutionBackend;
@@ -163,6 +178,11 @@ export class HandleChatRequest {
           : undefined;
       const taskId = input.taskId ?? sessionId;
       const contextWindowTokens = resolveContextWindowTokens(input);
+      const providerRuntimeRoute =
+        input.providerRuntimeRoute ??
+        resolveProviderRuntimeRoute(input.providerId, input.modelId);
+      const normalizedProviderRuntimeRoute =
+        normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
@@ -285,11 +305,21 @@ export class HandleChatRequest {
                 previewVersion: preview.titleVersion ?? 1,
                 providerId: input.providerId,
                 modelId: input.modelId,
+                ...normalizedProviderRuntimeRoute,
               },
             );
           }
         }
       }
+
+      const executionMessages = userId
+        ? await new DurableConversationContextAssembler(this.env).assemble({
+            sessionId,
+            userId,
+            currentTurnId: identity.turnId,
+            revisionOfTurnId: identity.revisionOfTurnId,
+          })
+        : messages;
 
       // Build execution payload with repository context
       const executionPayload = {
@@ -307,6 +337,7 @@ export class HandleChatRequest {
           sessionId,
           providerId: input.providerId,
           modelId: input.modelId,
+          ...normalizedProviderRuntimeRoute,
           harnessId: input.harnessId,
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
@@ -314,6 +345,10 @@ export class HandleChatRequest {
           authMode: runtimeSelections.authMode,
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
+            ...(input.pricing ? { pricing: input.pricing } : {}),
+            ...(input.reasoningEffort
+              ? { reasoningEffort: input.reasoningEffort }
+              : {}),
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
@@ -348,7 +383,7 @@ export class HandleChatRequest {
                 }
               : undefined,
         },
-        messages,
+        messages: executionMessages,
         tools: input.tools,
       };
 
@@ -419,6 +454,28 @@ export class HandleChatRequest {
     const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
+}
+
+function normalizeProviderRuntimeRoute(
+  route: ProviderModelRuntimeRoute | ResolvedProviderRuntimeRoute | undefined,
+): {
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
+} {
+  if (!route) return {};
+  if ("modelId" in route) {
+    return {
+      runtimeModelId: route.modelId,
+      providerTransport: route.transport,
+      providerEndpoint: route.endpoint,
+    };
+  }
+  return {
+    runtimeModelId: route.runtimeModelId,
+    providerTransport: route.providerTransport,
+    providerEndpoint: route.providerEndpoint,
+  };
 }
 
 function readMessageId(message: CoreMessage): string | null {
@@ -506,6 +563,9 @@ function resolveContextWindowTokens(
     "providerId" | "modelId" | "contextWindowTokens"
   >,
 ): number | undefined {
+  if (input.contextWindowTokens) {
+    return input.contextWindowTokens;
+  }
   if (input.providerId && input.modelId) {
     const catalogLimit = builtinProviderRegistry.getModel(
       input.providerId,
@@ -515,5 +575,5 @@ function resolveContextWindowTokens(
       return catalogLimit;
     }
   }
-  return input.contextWindowTokens;
+  return undefined;
 }

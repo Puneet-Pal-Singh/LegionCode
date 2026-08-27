@@ -4,8 +4,8 @@ interface ThinkingIndicatorProps {
 
 /**
  * Presentation-only wait state. Runtime activity still comes exclusively from
- * canonical lifecycle replay; this indicator fills only the quiet interval
- * before the next canonical item arrives.
+ * canonical lifecycle replay. It remains mounted for the complete nonterminal
+ * turn so tool-item transitions cannot restart or flash the shimmer.
  */
 export function ThinkingIndicator({
   label = "Thinking",

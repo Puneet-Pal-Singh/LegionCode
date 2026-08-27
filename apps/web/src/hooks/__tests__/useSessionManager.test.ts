@@ -28,6 +28,14 @@ describe("useSessionManager", () => {
       async (sessionId) =>
         createArchivedServerSession(sessionId, "2026-05-15T00:00:00.000Z"),
     );
+    vi.spyOn(SessionStateService, "acknowledgeSession").mockImplementation(
+      async (sessionId, terminalTurnId) => ({
+        ...createArchivedServerSession(sessionId, "2026-05-15T00:00:00.000Z"),
+        archivedAt: null,
+        lastTerminalTurnId: terminalTurnId,
+        lastAcknowledgedTerminalTurnId: terminalTurnId,
+      }),
+    );
   });
 
   afterEach(() => {
@@ -38,10 +46,11 @@ describe("useSessionManager", () => {
 
   describe("Session Creation", () => {
     it("defers server hydration until explicitly enabled", () => {
-      const hydrateSpy = vi.mocked(SessionStateService.hydrateSessionsFromServer);
+      const hydrateSpy = vi.mocked(
+        SessionStateService.hydrateSessionsFromServer,
+      );
       const { result, rerender } = renderHook(
-        ({ enabled }) =>
-          useSessionManager({ hydrateFromServer: enabled }),
+        ({ enabled }) => useSessionManager({ hydrateFromServer: enabled }),
         { initialProps: { enabled: false } },
       );
 
@@ -146,6 +155,38 @@ describe("useSessionManager", () => {
       });
 
       expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
+    });
+
+    it("does not treat acknowledging an unread task as recent activity", async () => {
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Unread task", "repo");
+        result.current.updateSession(sessionId, {
+          lastTerminalTurnId: "trn_terminal001",
+        });
+      });
+      const activityTimestamp = result.current.sessions.find(
+        (session) => session.id === sessionId,
+      )!.updatedAt;
+
+      vi.mocked(SessionStateService.acknowledgeSession).mockResolvedValueOnce({
+        ...result.current.sessions.find((session) => session.id === sessionId)!,
+        updatedAt: "2099-01-01T00:00:00.000Z",
+        lastAcknowledgedTerminalTurnId: "trn_terminal001",
+      });
+
+      await act(async () => {
+        await result.current.acknowledgeSession(sessionId);
+      });
+
+      const acknowledged = result.current.sessions.find(
+        (session) => session.id === sessionId,
+      );
+      expect(acknowledged?.lastAcknowledgedTerminalTurnId).toBe(
+        "trn_terminal001",
+      );
+      expect(acknowledged?.updatedAt).toBe(activityTimestamp);
     });
   });
 
@@ -294,6 +335,26 @@ describe("useSessionManager", () => {
         (s: AgentSession) => s.id === sessionId,
       );
       expect(afterNoOp?.updatedAt).toBe(original?.updatedAt);
+    });
+
+    it("can project lifecycle status without reordering recent activity", () => {
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Task", "repo");
+      });
+      const originalUpdatedAt = result.current.sessions[0]!.updatedAt;
+
+      act(() => {
+        result.current.updateSession(
+          sessionId,
+          { status: "waiting_for_approval" },
+          { preserveActivityTimestamp: true },
+        );
+      });
+
+      expect(result.current.sessions[0]?.status).toBe("waiting_for_approval");
+      expect(result.current.sessions[0]?.updatedAt).toBe(originalUpdatedAt);
     });
 
     it("should reject invalid session updates", () => {
@@ -519,6 +580,37 @@ describe("useSessionManager", () => {
       expect(SessionStateService.loadSessions()).toEqual({});
       expect(SessionStateService.loadActiveSessionId()).toBeNull();
     });
+
+    it("refreshes a pending preview until the canonical generated title arrives", async () => {
+      const pending = createTitleSession({
+        name: "Check my…",
+        titleSource: "preview",
+        titleVersion: 2,
+      });
+      const ready = createTitleSession({
+        name: "Refine Landing Page Hero",
+        titleSource: "generated",
+        titleVersion: 3,
+      });
+      vi.mocked(SessionStateService.hydrateSessionsFromServer)
+        .mockResolvedValueOnce({ [pending.id]: pending })
+        .mockResolvedValueOnce({ [ready.id]: ready });
+
+      const { result } = renderHook(() => useSessionManager());
+
+      await waitFor(() => {
+        expect(result.current.sessions[0]?.titleSource).toBe("preview");
+      });
+      await waitFor(
+        () => {
+          expect(result.current.sessions[0]?.name).toBe(
+            "Refine Landing Page Hero",
+          );
+          expect(result.current.sessions[0]?.titleSource).toBe("generated");
+        },
+        { timeout: 2_000 },
+      );
+    });
   });
 
   describe("Multi-Session Isolation", () => {
@@ -634,6 +726,24 @@ function createArchivedServerSession(
     archivedAt,
     createdAt: "2026-05-14T00:00:00.000Z",
     updatedAt: archivedAt,
+  };
+}
+
+function createTitleSession(overrides: Partial<AgentSession>): AgentSession {
+  return {
+    id: "session-title-1",
+    name: "New Task",
+    repository: "repo",
+    activeRunId: "run-title-1",
+    runIds: ["run-title-1"],
+    status: "running",
+    mode: "build",
+    pinnedAt: null,
+    archivedAt: null,
+    createdAt: "2026-08-16T00:00:00.000Z",
+    updatedAt: "2026-08-16T00:00:00.000Z",
+    ...overrides,
+    titleSource: overrides.titleSource ?? "generated",
   };
 }
 

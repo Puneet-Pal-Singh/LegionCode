@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
-import type { ProviderConnectionConfig, ProviderId } from "@repo/shared-types";
+import type {
+  BYOKModelPricing,
+  ProviderConnectionConfig,
+  ProviderId,
+} from "@repo/shared-types";
 
 const TEST_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
@@ -39,7 +43,15 @@ function createMockEnv(options?: {
   >();
   const oauthState = new Map<string, string>();
 
-  const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
+  const catalog: Record<
+    ProviderId,
+    Array<{
+      id: string;
+      name: string;
+      contextWindow?: number;
+      pricing?: BYOKModelPricing;
+    }>
+  > = {
     axis: [
       { id: "z-ai/glm-4.5-air:free", name: "z-ai/glm-4.5-air:free" },
       {
@@ -63,7 +75,18 @@ function createMockEnv(options?: {
         name: "qwen/qwen3.6-plus:free",
       },
     ],
-    openai: [{ id: "gpt-4o", name: "GPT-4o" }],
+    openai: [
+      {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        contextWindow: 128_000,
+        pricing: {
+          inputPer1M: 2.5,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+      },
+    ],
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
     groq: [{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" }],
     "cloudflare-ai": [
@@ -194,9 +217,8 @@ function createMockEnv(options?: {
           const view = url.searchParams.get("view");
           if (view) {
             const models = catalog[providerId].map((model) => ({
-              id: model.id,
-              name: model.name,
-              providerId: providerId,
+              ...model,
+              providerId,
             }));
             return jsonOk({
               providerId,
@@ -1065,6 +1087,11 @@ describe("ProviderController", () => {
       expect(resolveData.credentialId).toBe(connectData.credentialId);
       expect(resolveData.modelId).toBe("gpt-4o");
       expect(resolveData.contextWindow).toBe(128_000);
+      expect(resolveData.pricing).toEqual({
+        inputPer1M: 2.5,
+        outputPer1M: 10,
+        currency: "USD",
+      });
     });
 
     it("connects credential when model discovery returns no selectable models", async () => {

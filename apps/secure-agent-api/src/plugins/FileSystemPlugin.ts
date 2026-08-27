@@ -110,11 +110,6 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
     runId: z.string().optional(),
   }),
   z.object({
-    action: z.literal("language_diagnostics"),
-    path: z.string().min(1),
-    runId: z.string().optional(),
-  }),
-  z.object({
     action: z.literal("make_dir"),
     path: z.string().min(1),
     runId: z.string().optional(),
@@ -273,17 +268,6 @@ export class FileSystemPlugin implements IPlugin {
           parsedPayload.action,
           startedAt,
           await this.languageToolService.formatFile(
-            { sandbox, workspaceRoot, toolboxContext, runId },
-            parsedPayload.path,
-          ),
-        );
-      }
-      if (parsedPayload.action === "language_diagnostics") {
-        return logFilesystemResult(
-          runId,
-          parsedPayload.action,
-          startedAt,
-          await this.languageToolService.diagnostics(
             { sandbox, workspaceRoot, toolboxContext, runId },
             parsedPayload.path,
           ),

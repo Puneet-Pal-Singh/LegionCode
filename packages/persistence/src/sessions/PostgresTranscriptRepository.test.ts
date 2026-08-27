@@ -24,6 +24,10 @@ class CapturingSqlClient implements SqlClient {
       return createResult<Row>(createSessionRow(params));
     }
 
+    if (statement.includes("DELETE FROM sessions")) {
+      return createResult<Row>({ task_id: "task-1" });
+    }
+
     return { rows: [], rowCount: 0 };
   }
 
@@ -101,6 +105,29 @@ describe("PostgresTranscriptRepository", () => {
     expect(statement).not.toContain("UPDATE tasks");
   });
 
+  it("permanently deletes only archived user sessions and cleans orphan tasks", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client);
+
+    await expect(
+      repository.deleteArchivedSession(
+        "123e4567-e89b-42d3-a456-426614174001",
+        "123e4567-e89b-42d3-a456-426614174000",
+      ),
+    ).resolves.toBe(true);
+
+    expect(client.queries[0]?.statement).toContain("archived_at IS NOT NULL");
+    expect(client.queries[0]?.params).toEqual([
+      "123e4567-e89b-42d3-a456-426614174001",
+      "123e4567-e89b-42d3-a456-426614174000",
+    ]);
+    expect(client.queries[1]?.statement).toContain("NOT EXISTS");
+    expect(client.queries[1]?.params).toEqual([
+      "123e4567-e89b-42d3-a456-426614174001",
+      "task-1",
+    ]);
+  });
+
   it("keeps session upserts from overwriting titles", async () => {
     const client = new CapturingSqlClient();
     const repository = new PostgresTranscriptRepository(client, {
@@ -155,6 +182,27 @@ describe("PostgresTranscriptRepository", () => {
       "AND ($2::text IS NULL OR p.run_id = $2 OR m.run_id = $2)",
     );
     expect(statement).toContain("AND ($5::uuid IS NULL OR s2.user_id = $5)");
+  });
+
+  it("includes canonical title metadata in session list projections", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.listSessions("123e4567-e89b-42d3-a456-426614174001");
+    await repository.listArchivedSessions(
+      "123e4567-e89b-42d3-a456-426614174001",
+    );
+
+    expect(client.queries[0]?.statement).toContain(
+      "s.thread_id AS session_thread_id",
+    );
+    expect(client.queries[0]?.statement).toContain("s.title_version");
+    expect(client.queries[1]?.statement).toContain(
+      "s.thread_id AS session_thread_id",
+    );
+    expect(client.queries[1]?.statement).toContain("s.title_version");
   });
 });
 

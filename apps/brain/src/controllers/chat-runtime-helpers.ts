@@ -2,8 +2,15 @@ import type { CoreMessage } from "ai";
 import {
   TurnScopeBootstrapSchema,
   type TurnScopeBootstrap,
+  type TurnId,
 } from "@repo/platform-protocol";
 import type { RunMode } from "@repo/shared-types";
+import {
+  BYOKDiscoveredProviderModelsResponseSchema,
+  type BYOKDiscoveredProviderModelsQuery,
+  type BYOKDiscoveredProviderModelsResponse,
+  type ProviderId,
+} from "@repo/shared-types";
 import type {
   AgentType,
   RepositoryContext,
@@ -199,6 +206,51 @@ export async function executeViaRunEngineDurableObject(
   });
 }
 
+export async function fetchRunProviderModels(
+  env: Env,
+  input: {
+    runId: string;
+    userId: string;
+    workspaceId: string;
+    providerId: ProviderId;
+    query: BYOKDiscoveredProviderModelsQuery;
+    requestedBackend: RuntimeOrchestratorBackend;
+  },
+): Promise<BYOKDiscoveredProviderModelsResponse> {
+  const params = new URLSearchParams({
+    providerId: input.providerId,
+    view: input.query.view,
+    surface: input.query.surface,
+    limit: String(input.query.limit),
+  });
+  if (input.query.cursor) {
+    params.set("cursor", input.query.cursor);
+  }
+  const response = await fetchRunRuntimeRoute(
+    env,
+    input.runId,
+    input.requestedBackend,
+    {
+      method: "GET",
+      path: `/providers/models?${params.toString()}`,
+      headers: {
+        "X-Run-Id": input.runId,
+        "X-User-Id": input.userId,
+        "X-Workspace-Id": input.workspaceId,
+        Accept: "application/json",
+      },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Provider model metadata request failed with HTTP ${response.status}.`,
+    );
+  }
+  return BYOKDiscoveredProviderModelsResponseSchema.parse(
+    await response.json(),
+  );
+}
+
 export async function startRunTurn(
   env: Env,
   runId: string,
@@ -207,6 +259,7 @@ export async function startRunTurn(
     "sessionId" | "workspaceId" | "userId" | "correlationId"
   > & {
     clientMessageId?: string;
+    revisionOfTurnId?: TurnId;
   },
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<TurnScopeBootstrap> {

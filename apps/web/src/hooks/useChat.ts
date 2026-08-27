@@ -1,7 +1,7 @@
 import { type FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
-import { useChatCore } from "./useChatCore";
+import { useChatCore, type ChatAppendMessage } from "./useChatCore";
 import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
@@ -9,16 +9,19 @@ import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
 import type { ConversationScope } from "./conversationScope";
+import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 interface UseChatResult {
   messages: Message[];
+  optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
-  append: (message: { role: "user"; content: string }) => Promise<void>;
+  append: (message: ChatAppendMessage) => Promise<void>;
+  reviseTurn: (turnId: string, content: string) => Promise<boolean>;
   isLoading: boolean;
   isHydrating: boolean;
   hasHydrated: boolean;
@@ -27,6 +30,7 @@ interface UseChatResult {
   runId: string;
   scope: ConversationScope | null;
   serverTurnId: string | null;
+  activeTurnProjection: ActiveTurnProjection;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
@@ -45,32 +49,45 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
+  onServerProjectionAvailable?: () => void,
 ): UseChatResult {
   // Core chat functionality
   const {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
     append,
+    reviseTurn,
     isLoading,
     stop,
     setMessages,
     runId: activeRunId,
     scope,
     serverTurnId,
+    activeTurnProjection,
     resetRun,
     isModelConfigReady,
     error,
     clearNonCanonicalError,
     debugEvents,
-  } = useChatCore(sessionId, runId, mode, productMode);
+  } = useChatCore(
+    sessionId,
+    runId,
+    mode,
+    productMode,
+    onServerProjectionAvailable,
+  );
 
   // Handle message hydration
   const { isHydrating, hasHydrated } = useChatHydration(
     scope,
     messages,
     setMessages,
+    activeTurnProjection.isTerminal && activeTurnProjection.projection
+      ? `${activeTurnProjection.turnId}:${activeTurnProjection.projection.lastSequence}`
+      : null,
   );
 
   // Handle message persistence
@@ -87,10 +104,12 @@ export function useChat(
 
   return {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
     append,
+    reviseTurn,
     isLoading,
     isHydrating,
     hasHydrated,
@@ -99,6 +118,7 @@ export function useChat(
     runId: activeRunId,
     scope,
     serverTurnId,
+    activeTurnProjection,
     resetRun,
     isModelConfigReady,
     error,

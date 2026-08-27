@@ -162,7 +162,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       structuredOutputs: true,
     },
     adapterFamily: "openai-compatible",
-    modelSource: "static",
+    modelSource: "remote",
     modelsEndpoint: "https://api.openai.com/v1/models",
     validation: {
       endpoint: "https://api.openai.com/v1/models",
@@ -188,7 +188,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       structuredOutputs: false,
     },
     adapterFamily: "openai-compatible",
-    modelSource: "static",
+    modelSource: "remote",
     modelsEndpoint: "https://api.groq.com/openai/v1/models",
     validation: {
       endpoint: "https://api.groq.com/openai/v1/models",
@@ -420,9 +420,48 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "cloudflare-ai",
     displayName: "Cloudflare AI",
     authModes: ["api_key"],
+    // Transitional read compatibility for credentials created before Workers
+    // AI and AI Gateway became separate provider identities. New connections
+    // use the two explicit entries below.
+    launchStage: "hidden",
+    keyFormat: {
+      description: "Cloudflare API token with Workers AI access",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "custom-http",
+    modelSource: "remote",
+  },
+
+  "cloudflare-workers-ai": {
+    providerId: "cloudflare-workers-ai",
+    displayName: "Cloudflare Workers AI",
+    authModes: ["api_key"],
     launchStage: "supported",
     keyFormat: {
       description: "Cloudflare API token with Workers AI access",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "custom-http",
+    modelSource: "remote",
+  },
+
+  "cloudflare-ai-gateway": {
+    providerId: "cloudflare-ai-gateway",
+    displayName: "Cloudflare AI Gateway",
+    authModes: ["api_key"],
+    launchStage: "supported",
+    keyFormat: {
+      description: "Cloudflare API token with AI Gateway access",
     },
     capabilities: {
       streaming: true,

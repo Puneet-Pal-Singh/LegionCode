@@ -104,4 +104,23 @@ describe("isProviderVisibleModelHydrationPending", () => {
       }),
     ).toBe(false);
   });
+
+  it("returns false after manage-model hydration settles unavailable", () => {
+    expect(
+      isProviderVisibleModelHydrationPending({
+        selectedProviderId: "openrouter",
+        providerModels: {
+          openrouter: [
+            { id: "model-a", name: "Model A", provider: "openrouter" },
+          ],
+        },
+        visibleModelIds: {
+          openrouter: new Set(["model-a", "model-b"]),
+        },
+        manageProviderModels: {
+          openrouter: [],
+        },
+      }),
+    ).toBe(false);
+  });
 });

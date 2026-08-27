@@ -93,6 +93,9 @@ export interface CalculatedCost {
 export interface PricingEntry {
   inputPrice: number;
   outputPrice: number;
+  cacheReadPrice?: number;
+  cacheWritePrice?: number;
+  tiers?: PricingTierEntry[];
   currency: string;
   effectiveDate?: string;
   lastUpdated?: string;
@@ -100,6 +103,14 @@ export interface PricingEntry {
     source?: string;
     version?: string;
   };
+}
+
+export interface PricingTierEntry {
+  minimumContextTokens: number;
+  inputPrice: number;
+  outputPrice: number;
+  cacheReadPrice?: number;
+  cacheWritePrice?: number;
 }
 
 export interface BudgetConfig {

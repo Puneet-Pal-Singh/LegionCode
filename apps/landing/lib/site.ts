@@ -4,6 +4,7 @@ export const site = {
   description:
     "Open-source workspace for running coding-agent tasks in isolated cloud sandboxes and reviewing every changed file.",
   githubUrl: "https://github.com/Puneet-Pal-Singh/LegionCode",
+  docsUrl: "https://legioncode.dev/docs/",
   ogImage: "/assets/legioncode-og-final.png",
 } as const;
 

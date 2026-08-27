@@ -102,6 +102,11 @@ describe("Provider Capabilities", () => {
     }
   });
 
+  it("discovers OpenAI and Groq inventories from their model APIs", () => {
+    expect(BUILTIN_PROVIDERS.openai?.modelSource).toBe("remote");
+    expect(BUILTIN_PROVIDERS.groq?.modelSource).toBe("remote");
+  });
+
   it("axis uses platform managed auth mode", () => {
     const axis = BUILTIN_PROVIDERS["axis"];
     expect(axis).toBeDefined();
@@ -119,7 +124,13 @@ describe("Provider Capabilities", () => {
     expect(BUILTIN_PROVIDERS.cerebras?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS["opencode-go"]?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS["opencode-zen"]?.launchStage).toBe("supported");
-    expect(BUILTIN_PROVIDERS["cloudflare-ai"]?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS["cloudflare-ai"]?.launchStage).toBe("hidden");
+    expect(BUILTIN_PROVIDERS["cloudflare-workers-ai"]?.launchStage).toBe(
+      "supported",
+    );
+    expect(BUILTIN_PROVIDERS["cloudflare-ai-gateway"]?.launchStage).toBe(
+      "supported",
+    );
   });
 
   it("registers OpenCode and Cloudflare providers with truthful runtime families", () => {
@@ -154,7 +165,9 @@ describe("Provider launch visibility", () => {
     expect(visibleProviderIds).toContain("cerebras");
     expect(visibleProviderIds).toContain("opencode-go");
     expect(visibleProviderIds).toContain("opencode-zen");
-    expect(visibleProviderIds).toContain("cloudflare-ai");
+    expect(visibleProviderIds).not.toContain("cloudflare-ai");
+    expect(visibleProviderIds).toContain("cloudflare-workers-ai");
+    expect(visibleProviderIds).toContain("cloudflare-ai-gateway");
     expect(visibleProviderIds).not.toContain("mistral");
     expect(visibleProviderIds).not.toContain("cohere");
   });
@@ -170,7 +183,9 @@ describe("Provider launch visibility", () => {
     expect(supportedProviderIds).toContain("cerebras");
     expect(supportedProviderIds).toContain("opencode-go");
     expect(supportedProviderIds).toContain("opencode-zen");
-    expect(supportedProviderIds).toContain("cloudflare-ai");
+    expect(supportedProviderIds).not.toContain("cloudflare-ai");
+    expect(supportedProviderIds).toContain("cloudflare-workers-ai");
+    expect(supportedProviderIds).toContain("cloudflare-ai-gateway");
     expect(supportedProviderIds).not.toContain("mistral");
     expect(supportedProviderIds).not.toContain("cohere");
   });

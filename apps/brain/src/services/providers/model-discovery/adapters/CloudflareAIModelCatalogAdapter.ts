@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   BYOKDiscoveredProviderModel,
   CloudflareAIConnectionConfig,
+  CloudflareWorkersAIConnectionConfig,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
@@ -13,20 +14,30 @@ import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
 } from "../errors";
-import {
-  buildCloudflareAIRoute,
-  resolveCloudflareRuntimeModelId,
-} from "../../cloudflare/CloudflareAIRouteBuilder";
 
-const CLOUDFLARE_AI_PROVIDER_ID = "cloudflare-ai";
+const CLOUDFLARE_WORKERS_AI_PROVIDER_IDS = new Set([
+  "cloudflare-ai",
+  "cloudflare-workers-ai",
+]);
 const CLOUDFLARE_AI_FETCH_TIMEOUT_MS = 15_000;
+const CLOUDFLARE_AI_MODELS_PER_PAGE = 100;
+const CLOUDFLARE_AI_MAX_MODEL_PAGES = 20;
 
 const CloudflareModelSchema = z
   .object({
     id: z.string().min(1),
     name: z.string().min(1).optional(),
+    display_name: z.string().min(1).optional(),
     description: z.string().optional(),
-    task: z.string().optional(),
+    task: z
+      .union([
+        z.string(),
+        z.object({
+          id: z.string().optional(),
+          name: z.string().optional(),
+        }),
+      ])
+      .optional(),
     context_window: z.number().int().positive().optional(),
     contextWindow: z.number().int().positive().optional(),
   })
@@ -35,28 +46,37 @@ const CloudflareModelSchema = z
 const CloudflareModelsSchema = z.object({
   success: z.boolean().optional(),
   result: z.array(CloudflareModelSchema),
+  result_info: z
+    .object({
+      page: z.number().int().positive().optional(),
+      per_page: z.number().int().positive().optional(),
+      count: z.number().int().nonnegative().optional(),
+      total_count: z.number().int().nonnegative().optional(),
+      total_pages: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 type CloudflareModelPayload = z.infer<typeof CloudflareModelSchema>;
+type CloudflareModelsPayload = z.infer<typeof CloudflareModelsSchema>;
 
 export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort {
   async fetchAll(
     providerId: string,
     credentialContext: ProviderModelCredentialContext,
   ): Promise<BYOKDiscoveredProviderModel[]> {
-    if (providerId !== CLOUDFLARE_AI_PROVIDER_ID) {
+    if (!CLOUDFLARE_WORKERS_AI_PROVIDER_IDS.has(providerId)) {
       throw new ProviderModelDiscoveryApiError(
         `Cloudflare AI adapter received unsupported provider "${providerId}".`,
         { status: 400, retryable: false },
       );
     }
     const config = resolveCloudflareConfig(credentialContext.connectionConfig);
-    const response = await requestCloudflareModels({
+    const models = await fetchCloudflareModels({
       apiKey: credentialContext.apiKey,
       accountId: config.accountId,
     });
-    const models = await parseCloudflareModels(response);
-    return models.map((model) => normalizeCloudflareModel(model, config));
+    return models.map((model) => normalizeCloudflareModel(model, providerId));
   }
 
   async fetchPage(
@@ -80,8 +100,11 @@ export class CloudflareAIModelCatalogAdapter implements ProviderModelCatalogPort
 
 function resolveCloudflareConfig(
   config: ProviderModelCredentialContext["connectionConfig"],
-): CloudflareAIConnectionConfig {
-  if (config?.providerId === CLOUDFLARE_AI_PROVIDER_ID) {
+): CloudflareAIConnectionConfig | CloudflareWorkersAIConnectionConfig {
+  if (
+    config?.providerId === "cloudflare-ai" ||
+    config?.providerId === "cloudflare-workers-ai"
+  ) {
     return config;
   }
   throw new ProviderModelDiscoveryApiError(
@@ -90,9 +113,29 @@ function resolveCloudflareConfig(
   );
 }
 
+async function fetchCloudflareModels(input: {
+  apiKey: string;
+  accountId: string;
+}): Promise<CloudflareModelPayload[]> {
+  const models: CloudflareModelPayload[] = [];
+  for (let page = 1; page <= CLOUDFLARE_AI_MAX_MODEL_PAGES; page += 1) {
+    const response = await requestCloudflareModels({ ...input, page });
+    const payload = await parseCloudflareModels(response);
+    models.push(...payload.result.filter(isCompatibleTextGenerationModel));
+    if (!hasNextCloudflareModelsPage(payload, page)) {
+      return models;
+    }
+  }
+  throw new ProviderModelDiscoveryApiError(
+    `Cloudflare AI model discovery exceeded the ${CLOUDFLARE_AI_MAX_MODEL_PAGES}-page safety limit.`,
+    { retryable: false },
+  );
+}
+
 async function requestCloudflareModels(input: {
   apiKey: string;
   accountId: string;
+  page: number;
 }): Promise<Response> {
   const abortController = new AbortController();
   const timeoutId = setTimeout(
@@ -101,7 +144,7 @@ async function requestCloudflareModels(input: {
   );
   try {
     const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.accountId)}/ai/models/search?task=Text%20Generation`,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.accountId)}/ai/models/search?task=text-generation&per_page=${CLOUDFLARE_AI_MODELS_PER_PAGE}&hide_experimental=true&page=${input.page}`,
       {
         method: "GET",
         headers: {
@@ -129,7 +172,7 @@ async function requestCloudflareModels(input: {
 
 async function parseCloudflareModels(
   response: Response,
-): Promise<CloudflareModelPayload[]> {
+): Promise<CloudflareModelsPayload> {
   let payload: unknown;
   try {
     payload = await response.json();
@@ -145,41 +188,61 @@ async function parseCloudflareModels(
       "Cloudflare AI models response failed schema validation.",
     );
   }
-  return parsed.data.result.filter(isTextGenerationModel);
+  return parsed.data;
+}
+
+function hasNextCloudflareModelsPage(
+  payload: CloudflareModelsPayload,
+  requestedPage: number,
+): boolean {
+  const currentPage = payload.result_info?.page ?? requestedPage;
+  const totalPages = payload.result_info?.total_pages;
+  if (totalPages !== undefined) {
+    return currentPage < totalPages;
+  }
+  const perPage =
+    payload.result_info?.per_page ?? CLOUDFLARE_AI_MODELS_PER_PAGE;
+  const totalCount = payload.result_info?.total_count;
+  if (totalCount !== undefined) {
+    return currentPage * perPage < totalCount;
+  }
+  return payload.result.length >= perPage;
 }
 
 function normalizeCloudflareModel(
   model: CloudflareModelPayload,
-  config: CloudflareAIConnectionConfig,
+  providerId: string,
 ): BYOKDiscoveredProviderModel {
-  const endpoint = buildCloudflareAIRoute({
-    config,
-    modelId: model.id,
-    transport: "openai-chat-completions",
-  });
   return {
     id: model.id,
-    name: model.name ?? model.id,
-    providerId: CLOUDFLARE_AI_PROVIDER_ID,
+    name: model.display_name?.trim() || model.name?.trim() || model.id,
+    providerId,
     description: model.description,
     contextWindow: model.contextWindow ?? model.context_window,
-    capabilities: {
-      supportsTools: true,
-      supportsStructuredOutputs: true,
-    },
-    runtimeRoute: {
-      providerId: CLOUDFLARE_AI_PROVIDER_ID,
-      modelId: resolveCloudflareRuntimeModelId(config, model.id),
-      transport: "openai-chat-completions",
-      endpoint,
-    },
     availability: "available",
   };
 }
 
-function isTextGenerationModel(model: CloudflareModelPayload): boolean {
-  const task = model.task?.trim().toLowerCase();
-  return !task || task.includes("text") || task.includes("chat");
+function isCompatibleTextGenerationModel(
+  model: CloudflareModelPayload,
+): boolean {
+  const task =
+    typeof model.task === "string"
+      ? model.task
+      : (model.task?.id ?? model.task?.name);
+  const normalizedTask = normalizeCloudflareTask(task);
+  // The request already asks Cloudflare for `task=text-generation`. Some
+  // valid responses omit the optional task echo, so only reject an explicit
+  // conflicting task instead of dropping an otherwise valid server-filtered
+  // model.
+  return normalizedTask === undefined || normalizedTask === "text-generation";
+}
+
+function normalizeCloudflareTask(task: string | undefined): string | undefined {
+  return task
+    ?.trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
 }
 
 async function toProviderApiError(

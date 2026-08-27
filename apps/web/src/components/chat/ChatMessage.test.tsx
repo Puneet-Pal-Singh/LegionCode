@@ -92,6 +92,48 @@ describe("ChatMessage", () => {
     expect(link).toHaveAttribute("href", "https://example.com");
   });
 
+  it("keeps desktop prompt pills compact and bounded", () => {
+    const message = {
+      id: "user-long-prompt",
+      role: "user",
+      content:
+        "A long prompt that should not stretch across the full transcript width.",
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    const content = screen.getByText(/A long prompt/);
+    const pill = content.closest(".inline-block");
+    expect(pill).toHaveClass("px-3.5", "py-2");
+    expect(pill?.parentElement).toHaveClass(
+      "w-fit",
+      "max-w-[92%]",
+      "sm:max-w-[68%]",
+    );
+  });
+
+  it("edits and resubmits an eligible terminal prompt in place", async () => {
+    const onEdit = vi.fn().mockResolvedValue(true);
+    const message = {
+      id: "user-revision",
+      role: "user",
+      content: "Original prompt",
+    } as Message;
+
+    render(<ChatMessage message={message} onEdit={onEdit} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit prompt" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit prompt" }), {
+      target: { value: "Revised prompt" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onEdit).toHaveBeenCalledWith("Revised prompt"));
+    expect(
+      screen.queryByRole("textbox", { name: "Edit prompt" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows only the basename for user file mentions", () => {
     const message = {
       id: "user-mention",
@@ -142,6 +184,109 @@ describe("ChatMessage", () => {
     const { container } = render(<ChatMessage message={message} />);
 
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("renders typed user image parts and opens an accessible preview", () => {
+    const message = {
+      id: "user-image",
+      role: "user",
+      content: [
+        { type: "text", text: "What do you think?" },
+        {
+          type: "image",
+          image: "data:image/png;base64,aGVsbG8=",
+          mimeType: "image/png",
+          name: "screen.png",
+        },
+      ],
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    const image = screen.getByAltText(/screen\.png/);
+    const prompt = screen.getByText("What do you think?");
+    expect(image).toBeInTheDocument();
+    expect(
+      image.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
+    expect(
+      screen.getByRole("dialog", { name: /screen\.png/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Close image preview" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close image preview" }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("renders a scoped durable image preview after hydration", () => {
+    const message = {
+      id: "hydrated-user-image",
+      role: "user",
+      content:
+        "Analyze the attached image(s).\n\n[Image attached: screen.png, image/png, 5 B]",
+      data: {
+        metadata: {
+          imageAttachments: [
+            {
+              type: "image_attachment",
+              attachmentId: "img_1234567890abcdef",
+              name: "screen.png",
+              mediaType: "image/png",
+              byteSize: 5,
+              src: "/api/chat/media/img_1234567890abcdef?session=123e4567-e89b-42d3-a456-426614174001",
+            },
+          ],
+        },
+      },
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    const image = screen.getByAltText(/screen\.png/) as HTMLImageElement;
+    expect(image).toBeInTheDocument();
+    expect(image.src).toContain(
+      "/__legioncode/brain/api/chat/media/img_1234567890abcdef?session=123e4567-e89b-42d3-a456-426614174001",
+    );
+    expect(screen.queryByText(/\[Image attached:/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Analyze the attached image(s)."),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Open image 1/ }));
+    expect(
+      screen.getByRole("dialog", { name: /screen\.png/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render an unscoped hydrated image source", () => {
+    const message = {
+      id: "untrusted-hydrated-user-image",
+      role: "user",
+      content: "Analyze this image.",
+      data: {
+        metadata: {
+          imageAttachments: [
+            {
+              type: "image_attachment",
+              attachmentId: "img_1234567890abcdef",
+              name: "screen.png",
+              mediaType: "image/png",
+              src: "https://attacker.example/collect.png",
+            },
+          ],
+        },
+      },
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Preview unavailable after reload/),
+    ).toBeInTheDocument();
   });
 
   it("shows assistant duration and completion time metadata", () => {

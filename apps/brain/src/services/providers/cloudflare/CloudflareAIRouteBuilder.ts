@@ -1,17 +1,23 @@
 import type {
+  CloudflareAIGatewayConnectionConfig,
   CloudflareAIConnectionConfig,
+  CloudflareWorkersAIConnectionConfig,
   ProviderModelTransport,
 } from "@repo/shared-types";
 import { ProviderModelDiscoveryApiError } from "../model-discovery/errors";
 
 export interface CloudflareAIRouteInput {
-  config: CloudflareAIConnectionConfig;
+  config: CloudflareConnectionConfig;
   modelId: string;
   transport: ProviderModelTransport;
 }
 
 const DEFAULT_CLOUDFLARE_GATEWAY_ID = "default";
-const WORKERS_AI_GATEWAY_MODEL_PREFIX = "workers-ai/";
+
+export type CloudflareConnectionConfig =
+  | CloudflareAIConnectionConfig
+  | CloudflareWorkersAIConnectionConfig
+  | CloudflareAIGatewayConnectionConfig;
 
 export function buildCloudflareAIRoute(input: CloudflareAIRouteInput): string {
   if (input.transport !== "openai-chat-completions") {
@@ -20,29 +26,37 @@ export function buildCloudflareAIRoute(input: CloudflareAIRouteInput): string {
       { status: 400, retryable: false },
     );
   }
-  if (input.config.routeMode === "workers-ai-direct") {
-    return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.config.accountId)}/ai/v1/chat/completions`;
-  }
-  return `https://gateway.ai.cloudflare.com/v1/${encodeURIComponent(input.config.accountId)}/${encodeURIComponent(resolveCloudflareGatewayId(input.config))}/compat/chat/completions`;
+  return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.config.accountId)}/ai/v1/chat/completions`;
 }
 
 export function resolveCloudflareRuntimeModelId(
-  config: CloudflareAIConnectionConfig,
+  _config: CloudflareConnectionConfig,
   modelId: string,
 ): string {
-  if (config.routeMode === "workers-ai-direct") {
-    return modelId;
+  return modelId;
+}
+
+export function buildCloudflareAIRouteHeaders(
+  config: CloudflareConnectionConfig,
+): Record<string, string> | undefined {
+  if (
+    config.providerId !== "cloudflare-ai-gateway" &&
+    !(config.providerId === "cloudflare-ai" && config.routeMode === "ai-gateway")
+  ) {
+    return undefined;
   }
-  if (modelId.startsWith(WORKERS_AI_GATEWAY_MODEL_PREFIX)) {
-    return modelId;
-  }
-  return `${WORKERS_AI_GATEWAY_MODEL_PREFIX}${modelId}`;
+  return {
+    "cf-aig-gateway-id": resolveCloudflareGatewayId(config),
+  };
 }
 
 function resolveCloudflareGatewayId(
-  config: CloudflareAIConnectionConfig,
+  config: CloudflareConnectionConfig,
 ): string {
-  const gatewayId = config.gatewayId?.trim();
+  const gatewayId =
+    config.providerId === "cloudflare-workers-ai"
+      ? undefined
+      : config.gatewayId?.trim();
   return gatewayId && gatewayId.length > 0
     ? gatewayId
     : DEFAULT_CLOUDFLARE_GATEWAY_ID;

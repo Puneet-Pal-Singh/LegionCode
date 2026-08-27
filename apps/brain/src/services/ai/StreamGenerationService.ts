@@ -8,6 +8,7 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { ProviderAdapter, GenerationParams } from "../providers";
+import type { ReasoningEffort } from "@repo/shared-types";
 import type { GenerateTextResult } from "./TextGenerationService";
 
 /**
@@ -25,6 +26,7 @@ export function createChatStream(
     system?: string;
     tools?: Record<string, CoreTool>;
     temperature?: number;
+    reasoningEffort?: ReasoningEffort;
     model: string;
   },
   callbacks?: {
@@ -40,6 +42,7 @@ export function createChatStream(
     system: params.system,
     tools: params.tools,
     temperature: params.temperature,
+    reasoningEffort: params.reasoningEffort,
     model: params.model,
   };
 

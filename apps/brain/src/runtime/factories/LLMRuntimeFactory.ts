@@ -69,6 +69,7 @@ export function buildLLMGateway(
     env,
     userId,
     workspaceId,
+    providerScope.runId,
   );
   const providerRegistryService = new ProviderRegistryService();
   const aiService = new AIService(env, providerConfigService);
@@ -107,6 +108,7 @@ function createProviderConfigService(
   env: Env,
   userId: string,
   workspaceId: string,
+  scopeKey: string,
 ): ProviderConfigService {
-  return createPostgresProviderConfigService(env, userId, workspaceId);
+  return createPostgresProviderConfigService(env, userId, workspaceId, scopeKey);
 }

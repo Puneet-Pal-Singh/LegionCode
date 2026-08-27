@@ -13,6 +13,7 @@ import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
+import { buildChatAppendMessage } from "../../hooks/useChatCore";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { Resizer } from "../ui/Resizer";
@@ -33,18 +34,28 @@ import { GitReviewDialog } from "../git/GitReviewDialog";
 import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
-import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
+import {
+  deriveCanonicalRunStatus,
+  deriveWorkspaceRunUiState,
+} from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
-import { useActiveTurnProjection } from "../chat/chat-interface/useActiveTurnProjection.js";
+import type {
+  InitialPromptSubmission,
+  InitialPromptSubmissionId,
+} from "../../lib/initial-prompt-submission";
 import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
 import {
   buildHookSettingsAuditReadModel,
   type HookSettingsAuditReadModel,
 } from "../../services/api/lifecycleClient.js";
+import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 
 interface WorkspaceProps {
   sessionId: string;
+  sessionTitle?: string;
+  sessionCreatedAt?: string;
+  sessionUpdatedAt?: string;
   runId: string;
   repository: string;
   mode?: RunMode;
@@ -53,9 +64,9 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
-  initialPromptSubmission?: { id: string; prompt: string } | null;
-  onInitialPromptHandled?: (id: string) => void;
-  onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
+  onServerProjectionAvailable?: () => void;
+  initialPromptSubmission?: InitialPromptSubmission | null;
+  onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
   onHookSettingsContextChange?: (context: {
     workspaceId: string;
     audits: readonly HookSettingsAuditReadModel[];
@@ -69,10 +80,14 @@ interface WorkspaceProps {
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
   summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
+  onOpenRepositoryPicker?: () => void;
 }
 
 export function Workspace({
   sessionId,
+  sessionTitle,
+  sessionCreatedAt,
+  sessionUpdatedAt,
   runId: initialRunId,
   repository,
   mode = "build",
@@ -81,9 +96,9 @@ export function Workspace({
   hasStartedSession = false,
   onSessionStatusChange,
   onPromptSubmitted,
+  onServerProjectionAvailable,
   initialPromptSubmission = null,
   onInitialPromptHandled,
-  onPendingApprovalStateChange,
   onHookSettingsContextChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
@@ -94,13 +109,17 @@ export function Workspace({
   onGitReviewOpenChange,
   onTabChange,
   summaryActionRequest,
+  onOpenRepositoryPicker,
 }: WorkspaceProps) {
+  const { isCompact, isMobile } = useWorkspaceViewport();
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
   const [isGitCommitOpen, setIsGitCommitOpen] = useState(false);
+  const [isConversationSurfaceReady, setIsConversationSurfaceReady] =
+    useState(false);
 
   // Custom Hooks
   const {
@@ -128,6 +147,11 @@ export function Workspace({
     setContentError,
   } = useWorkspaceState();
   const sidebarWidth = rightSidebarWidth ?? internalSidebarWidth;
+  const renderedSidebarWidth = isMobile
+    ? "100vw"
+    : isCompact
+      ? "min(560px, 86vw)"
+      : sidebarWidth;
   const setSidebarWidth = setRightSidebarWidth ?? setInternalSidebarWidth;
 
   useEffect(() => {
@@ -162,10 +186,12 @@ export function Workspace({
 
   const {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
     append,
+    reviseTurn,
     stop,
     isLoading,
     isHydrating,
@@ -177,6 +203,7 @@ export function Workspace({
     isModelConfigReady,
     scope: conversationScope,
     serverTurnId,
+    activeTurnProjection: activeTurn,
   } = useChat(
     sessionId,
     initialRunId,
@@ -185,11 +212,8 @@ export function Workspace({
     },
     mode,
     productMode,
+    onServerProjectionAvailable,
   );
-  const activeTurn = useActiveTurnProjection({
-    turnId: serverTurnId,
-    transportLoading: isLoading,
-  });
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {
       clearNonCanonicalError();
@@ -228,11 +252,11 @@ export function Workspace({
     activeTurn.projection,
     latestAssistantMessageId,
   );
-  const canonicalRunStatus = activeTurn.hasCanonicalTurn
-    ? activeTurn.projection?.terminal
-      ? lifecycleStatusToRunStatus(activeTurn.projection.terminal.state)
-      : "RUNNING"
-    : null;
+  const canonicalRunStatus = deriveCanonicalRunStatus({
+    hasCanonicalTurn: activeTurn.hasCanonicalTurn,
+    hasReplay: activeTurn.hasReplay,
+    terminalState: activeTurn.projection?.terminal?.state ?? null,
+  });
   const hasPendingApproval = Boolean(activeTurn.projection?.pendingApproval);
   const pendingApprovalRequestId =
     activeTurn.projection?.pendingApproval?.approvalId ?? null;
@@ -246,14 +270,15 @@ export function Workspace({
         lastMessage: undefined,
       }),
     [
-      activeTurn.hasCanonicalTurn,
       activeTurn.isTransportPending,
       canonicalRunStatus,
       hasPendingApproval,
       activeTurn.isActive,
     ],
   );
-  const handledInitialPromptIdRef = useRef<string | null>(null);
+  const handledInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!initialPromptSubmission) {
@@ -277,11 +302,19 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
-    onInitialPromptHandled?.(initialPromptSubmission.id);
-    append({ role: "user", content: prompt }).catch((error) => {
-      console.error("[Workspace] Failed to submit setup prompt:", error);
-      onSessionStatusChange?.("failed");
-    });
+    void append(
+      buildChatAppendMessage(
+        prompt,
+        initialPromptSubmission.attachments?.imageAttachments ?? [],
+      ),
+    )
+      .catch((error) => {
+        console.error("[Workspace] Failed to submit setup prompt:", error);
+        onSessionStatusChange?.("failed");
+      })
+      .finally(() => {
+        onInitialPromptHandled?.(initialPromptSubmission.id);
+      });
   }, [
     append,
     initialPromptSubmission,
@@ -457,11 +490,13 @@ export function Workspace({
             <ChatInterface
               chatProps={{
                 messages,
+                optimisticUserMessageId,
                 runId: activeRunId,
                 input,
                 handleInputChange,
                 handleSubmit: handleSubmitWithSessionMetadata,
                 append,
+                reviseTurn,
                 stop: handleStopRun,
                 isLoading,
                 hasHydrated,
@@ -472,14 +507,17 @@ export function Workspace({
                 activeTurnProjection: activeTurn,
               }}
               sessionId={sessionId}
+              initialPromptSubmission={initialPromptSubmission}
               hasStartedSession={hasStartedSession}
               mode={mode}
               onModeChange={onModeChange}
               permissionMode={productMode}
               onPermissionModeChange={setProductMode}
-              onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
+              projectName={repository.split("/").filter(Boolean).at(-1)}
+              onProjectClick={onOpenRepositoryPicker}
+              onPresentationReadyChange={setIsConversationSurfaceReady}
               onArtifactOpen={(path, content, options) => {
                 if (options?.refreshFromWorkspace) {
                   void handleFileClick(path);
@@ -492,21 +530,32 @@ export function Workspace({
                 });
               }}
               onReviewOpen={() => {
-                setIsRightSidebarOpen?.(true);
-                setActiveTab("review");
                 setIsViewingContent(false);
+                setActiveTab("review");
+                setIsRightSidebarOpen?.(true);
               }}
               onContextOpen={(budget, usage) => {
-                openContextTab(budget, usage);
+                openContextTab(budget, usage, {
+                  title: sessionTitle ?? sessionId,
+                  messageCount: messages.length,
+                  userMessageCount: messages.filter(
+                    (message) => message.role === "user",
+                  ).length,
+                  assistantMessageCount: messages.filter(
+                    (message) => message.role === "assistant",
+                  ).length,
+                  createdAt: sessionCreatedAt ?? "",
+                  updatedAt: sessionUpdatedAt ?? "",
+                });
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("review");
               }}
             />
           </main>
 
-          {isRightSidebarOpen ? (
+          {isConversationSurfaceReady && isRightSidebarOpen ? (
             <SidebarHeader
-              sidebarWidth={sidebarWidth}
+              sidebarWidth={renderedSidebarWidth}
               isViewingContent={isViewingContent}
               contentTabs={contentTabs}
               activeContentTabId={activeContentTabId}
@@ -533,9 +582,7 @@ export function Workspace({
           {/* Combined Sidebar */}
           <motion.aside
             initial={false}
-            animate={{
-              width: isRightSidebarOpen ? sidebarWidth : 0,
-            }}
+            animate={{ width: isRightSidebarOpen ? renderedSidebarWidth : 0 }}
             transition={
               isResizing
                 ? { duration: 0 }
@@ -544,25 +591,26 @@ export function Workspace({
             className={cn(
               "relative flex shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-black",
               "max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-50 max-[1100px]:shadow-[-24px_0_60px_rgba(0,0,0,0.55)]",
+              isMobile && "border-l-0",
               !isRightSidebarOpen && "border-transparent",
             )}
           >
-            {isRightSidebarOpen && (
+            {isConversationSurfaceReady && isRightSidebarOpen && (
               <Resizer
                 side="right"
                 onResizeStart={() => setIsResizing(true)}
                 onResizeEnd={() => setIsResizing(false)}
                 onResize={(delta) =>
                   setSidebarWidth((prev) =>
-                    Math.max(280, Math.min(600, prev + delta)),
+                    Math.max(320, Math.min(720, prev + delta)),
                   )
                 }
               />
             )}
 
             <div
-              className="flex-1 flex flex-col min-w-[280px]"
-              style={{ width: sidebarWidth }}
+              className="flex flex-1 flex-col min-w-0"
+              style={{ width: renderedSidebarWidth }}
             >
               <SidebarContent
                 isViewingContent={isViewingContent}
@@ -589,35 +637,45 @@ export function Workspace({
               />
             </div>
           </motion.aside>
-          <GitReviewDialog
-            key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
-            contentTabs={contentTabs}
-            isLoadingContent={isLoadingContent}
-            contentError={contentError}
-            onSelectContent={selectContentTab}
-            onCloseContent={closeContentTab}
-            onOpenFilesTab={openFilesTab}
-            renderFilesRail={(onFileOpened) => (
-              <WorkspaceFilesTree
-                repo={repo}
-                isGitHubLoaded={isGitHubLoaded}
-                branch={branch}
-                repoTree={repoTree}
-                isLoadingTree={Boolean(isLoadingTree)}
-                onGitHubFileSelect={(path) => {
-                  onFileOpened(path);
-                  void handleFullscreenGitHubFileSelect(path);
-                }}
-                explorerRef={explorerRef}
-                sandboxId={sandboxId}
-                runId={activeRunId}
-                onLocalFileSelect={(path) => {
-                  onFileOpened(path);
-                  void handleFullscreenFileClick(path);
-                }}
+          {isConversationSurfaceReady ? (
+            <GitReviewDialog
+              key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
+              contentTabs={contentTabs}
+              isLoadingContent={isLoadingContent}
+              contentError={contentError}
+              onSelectContent={selectContentTab}
+              onCloseContent={closeContentTab}
+              onOpenFilesTab={openFilesTab}
+              renderFilesRail={(onFileOpened) => (
+                <WorkspaceFilesTree
+                  repo={repo}
+                  isGitHubLoaded={isGitHubLoaded}
+                  branch={branch}
+                  repoTree={repoTree}
+                  isLoadingTree={Boolean(isLoadingTree)}
+                  onGitHubFileSelect={(path) => {
+                    onFileOpened(path);
+                    void handleFullscreenGitHubFileSelect(path);
+                  }}
+                  explorerRef={explorerRef}
+                  sandboxId={sandboxId}
+                  runId={activeRunId}
+                  onLocalFileSelect={(path) => {
+                    onFileOpened(path);
+                    void handleFullscreenFileClick(path);
+                  }}
+                />
+              )}
+            />
+          ) : null}
+          {!isConversationSurfaceReady ? (
+            <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black">
+              <div
+                aria-hidden="true"
+                className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-800 border-t-zinc-300"
               />
-            )}
-          />
+            </div>
+          ) : null}
           <GitCommitDialog
             isOpen={isGitCommitOpen}
             onClose={() => setIsGitCommitOpen(false)}
@@ -626,19 +684,4 @@ export function Workspace({
       </GitReviewProvider>
     </RunContextProvider>
   );
-}
-
-function lifecycleStatusToRunStatus(
-  state: "completed" | "failed" | "interrupted" | null,
-): "COMPLETED" | "FAILED" | "CANCELLED" | null {
-  switch (state) {
-    case "completed":
-      return "COMPLETED";
-    case "failed":
-      return "FAILED";
-    case "interrupted":
-      return "CANCELLED";
-    default:
-      return null;
-  }
 }

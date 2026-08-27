@@ -156,6 +156,8 @@ export interface ShellToolActivityMetadata {
 export interface EditToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.EDIT;
   displayText?: string;
+  /** Present for writes emitted after file-creation classification was introduced. */
+  change?: "created" | "modified";
   filePath: string;
   additions: number;
   deletions: number;

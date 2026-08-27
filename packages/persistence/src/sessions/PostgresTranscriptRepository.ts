@@ -199,6 +199,22 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     ]);
   }
 
+  async deleteArchivedSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (this.skipTxWrap) {
+      return await deleteArchivedSessionWithClient(
+        this.client,
+        userId,
+        sessionId,
+      );
+    }
+    return await this.client.transaction((tx) =>
+      deleteArchivedSessionWithClient(tx, userId, sessionId),
+    );
+  }
+
   async appendMessageToExistingSession(
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord> {
@@ -268,6 +284,23 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
       );
     });
   }
+}
+
+async function deleteArchivedSessionWithClient(
+  client: SqlClient,
+  userId: string,
+  sessionId: string,
+): Promise<boolean> {
+  const deleted = await client.query<TranscriptRow>(
+    DELETE_ARCHIVED_SESSION_SQL,
+    [userId, sessionId],
+  );
+  const taskId = deleted.rows[0]?.task_id;
+  if (!taskId) {
+    return false;
+  }
+  await client.query(DELETE_ORPHANED_TASK_SQL, [userId, taskId]);
+  return true;
 }
 
 async function ensureSessionWithClient(
@@ -885,6 +918,23 @@ const UNARCHIVE_SESSION_SQL = `
   RETURNING ${SESSION_COLUMNS}
 `;
 
+const DELETE_ARCHIVED_SESSION_SQL = `
+  DELETE FROM sessions
+  WHERE user_id = $1
+    AND id = $2
+    AND archived_at IS NOT NULL
+  RETURNING task_id
+`;
+
+const DELETE_ORPHANED_TASK_SQL = `
+  DELETE FROM tasks
+  WHERE user_id = $1
+    AND id = $2
+    AND NOT EXISTS (
+      SELECT 1 FROM sessions WHERE sessions.task_id = tasks.id
+    )
+`;
+
 const INSERT_MESSAGE_SQL = `
   INSERT INTO messages (
     session_id,
@@ -951,9 +1001,11 @@ const LIST_SESSIONS_SQL = `
     s.id AS session_id,
     s.user_id AS session_user_id,
     s.workspace_id AS session_workspace_id,
+    s.thread_id AS session_thread_id,
     s.task_id AS session_task_id,
     s.title AS session_title,
     s.title_source,
+    s.title_version,
     s.repository,
     s.active_run_id,
     s.mode,
@@ -975,9 +1027,11 @@ const LIST_ARCHIVED_SESSIONS_SQL = `
     s.id AS session_id,
     s.user_id AS session_user_id,
     s.workspace_id AS session_workspace_id,
+    s.thread_id AS session_thread_id,
     s.task_id AS session_task_id,
     s.title AS session_title,
     s.title_source,
+    s.title_version,
     s.repository,
     s.active_run_id,
     s.mode,

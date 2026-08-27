@@ -1,166 +1,182 @@
-"use client";
+'use client';
 
-import {
-  ChevronRight,
-  Clock,
-  FolderPlus,
-  Search,
-  Settings,
-} from "lucide-react";
+import React from 'react';
+import { Settings, ChevronRight, Clock, FolderPlus, SquarePen, Plus } from 'lucide-react';
+
+import { MockTask } from './types';
 
 interface LeftSidebarProps {
   activeTaskId: string;
-  isOpen: boolean;
-  onClose: () => void;
   onSelectTask: (taskId: string) => void;
-}
-
-interface TaskLink {
-  id: string;
-  label: string;
-  timestamp: string;
-}
-
-const workspaceGroups: Array<{ label: string; tasks: TaskLink[] }> = [
-  {
-    label: "LegionCode/",
-    tasks: [
-      {
-        id: "onboarding",
-        label: "Add repository onboarding flow",
-        timestamp: "just now",
-      },
-      {
-        id: "execution",
-        label: "Polish sandbox execution",
-        timestamp: "15m ago",
-      },
-    ],
-  },
-  {
-    label: "project-alpha/",
-    tasks: [
-      { id: "readme", label: "Sync README.md docs", timestamp: "1h ago" },
-      {
-        id: "verification",
-        label: "Run validation gates",
-        timestamp: "3h ago",
-      },
-    ],
-  },
-];
-
-function TaskButton({
-  active,
-  task,
-  onSelect,
-}: {
-  active: boolean;
-  task: TaskLink;
-  onSelect: (taskId: string) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(task.id)}
-      className={`w-full rounded-md px-5 py-2 text-left transition-colors ${
-        active
-          ? "border-l-2 border-white bg-white/10 text-white"
-          : "text-zinc-400 hover:bg-white/[0.03]"
-      }`}
-    >
-      <span className="flex flex-col gap-0.5">
-        <span className="truncate text-xs font-medium">{task.label}</span>
-        <span className="flex items-center gap-1 text-[10px] text-zinc-500">
-          <Clock className="h-2.5 w-2.5" /> {task.timestamp}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function WorkspaceGroup({
-  activeTaskId,
-  group,
-  onSelect,
-}: {
-  activeTaskId: string;
-  group: { label: string; tasks: TaskLink[] };
-  onSelect: (taskId: string) => void;
-}) {
-  return (
-    <div>
-      <div className="flex select-none items-center gap-1 px-2 py-1 font-mono text-[11px] text-zinc-400">
-        <ChevronRight className="h-3.5 w-3.5 rotate-90 text-zinc-650" />
-        <span>{group.label}</span>
-      </div>
-      <div className="mt-1 space-y-0.5">
-        {group.tasks.map((task) => (
-          <TaskButton
-            key={task.id}
-            active={activeTaskId === task.id}
-            task={task}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SidebarFooter() {
-  return (
-    <div className="flex flex-col gap-1 border-t border-white/5 p-2">
-      <div className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-zinc-500">
-        <FolderPlus className="h-3.5 w-3.5" />
-        <span>Add repository</span>
-      </div>
-      <div className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-zinc-500">
-        <Settings className="h-3.5 w-3.5" />
-        <span>Settings</span>
-      </div>
-    </div>
-  );
+  isLeftSidebarOpen: boolean;
+  setIsLeftSidebarOpen: (open: boolean) => void;
+  tasks?: Record<string, MockTask>;
 }
 
 export default function LeftSidebar({
   activeTaskId,
-  isOpen,
-  onClose,
   onSelectTask,
+  isLeftSidebarOpen,
+  setIsLeftSidebarOpen,
+  tasks = {},
 }: LeftSidebarProps) {
-  const selectAndClose = (taskId: string) => {
-    onSelectTask(taskId);
-    onClose();
-  };
-
+  const taskList = Object.values(tasks);
+  const legionTasks = taskList.filter((t) => t.repo === 'LegionCode' || !t.repo);
+  const alphaTasks = taskList.filter((t) => t.repo === 'project-alpha');
   return (
     <div
-      className={`absolute inset-y-0 left-0 z-30 flex w-56 shrink-0 flex-col justify-between border-r border-white/5 bg-[#0c0c0ced]/95 backdrop-blur-xl transition-transform duration-300 lg:static lg:flex lg:translate-x-0 lg:bg-black/25 lg:backdrop-blur-md ${isOpen ? "translate-x-0" : "-translate-x-full"}`}
+      className={`w-56 bg-[#0c0c0ced]/95 lg:bg-black/40 backdrop-blur-xl lg:backdrop-blur-md border-r border-white/5 flex flex-col justify-between select-none shrink-0 absolute lg:static inset-y-0 left-0 z-30 transition-all duration-300 ${
+        isLeftSidebarOpen ? 'translate-x-0 flex' : '-translate-x-full hidden'
+      }`}
     >
-      <div className="py-2.5">
-        <div className="mb-3 flex items-center justify-between px-3.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-          <span>Workspaces</span>
-          <Settings className="h-3.5 w-3.5 opacity-60" />
+      <div className="py-2 space-y-2">
+        {/* New Chat Button (Above Workspaces) */}
+        <div className="px-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              onSelectTask('new-task');
+            }}
+            className={`w-full px-2.5 py-1.5 rounded-md flex items-center gap-2 transition-all text-xs cursor-pointer ${
+              activeTaskId === 'new-task'
+                ? 'bg-white/10 text-white font-medium'
+                : 'text-zinc-400 hover:bg-white/[0.05] hover:text-white'
+            }`}
+          >
+            <SquarePen className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="font-medium text-xs">New chat</span>
+          </button>
         </div>
-        <div className="mb-4 px-3">
-          <div className="flex items-center gap-2 rounded-md border border-white/5 bg-white/[0.02] px-2 py-1.5 text-[11px] text-zinc-500">
-            <Search className="h-3 w-3" />
-            <span>Search task history...</span>
+
+        {/* Scope Selector block */}
+        <div className="px-3.5 pt-1.5 flex items-center justify-between text-zinc-500 uppercase tracking-wider font-semibold text-[10px]">
+          <span>Projects</span>
+          <Settings className="w-3.5 h-3.5 opacity-60 hover:opacity-100 transition-opacity cursor-pointer" />
+        </div>
+
+        {/* Workspaces & Tasks List */}
+        <div className="px-1.5 space-y-3">
+          {/* LegionCode Workspace */}
+          <div>
+            <div className="px-2 py-1 text-[11px] text-zinc-400 flex items-center justify-between font-mono select-none">
+              <div className="flex items-center gap-1">
+                <ChevronRight className="w-3.5 h-3.5 rotate-90 text-zinc-500" />
+                <span className="font-semibold text-zinc-300">LegionCode/</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectTask('new-task');
+                }}
+                className="hover:text-white text-zinc-500 transition-colors cursor-pointer"
+                title="New Task"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="mt-1 space-y-0.5">
+              {activeTaskId === 'new-task' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectTask('new-task');
+                  }}
+                  className="w-full px-3 py-1.5 text-left rounded-md flex items-center justify-between gap-1 transition-all bg-white/10 text-white cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5 truncate text-xs font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="truncate">New Task</span>
+                  </div>
+                  <span className="text-[10px] text-zinc-500 font-mono shrink-0">just now</span>
+                </button>
+              )}
+
+              {legionTasks.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    onSelectTask(t.id);
+                  }}
+                  className={`w-full px-3 py-1.5 text-left rounded-md flex flex-col gap-0.5 transition-all cursor-pointer ${
+                    activeTaskId === t.id
+                      ? 'bg-white/10 text-white font-medium'
+                      : 'hover:bg-white/[0.04] text-zinc-400'
+                  }`}
+                >
+                  <span className="font-medium truncate text-xs">{t.title}</span>
+                  <span className="text-[10px] text-zinc-500 flex items-center gap-1 font-mono">
+                    <Clock className="w-2.5 h-2.5 text-zinc-600" /> {t.timeAgo}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* project-alpha Workspace */}
+          <div>
+            <div className="px-2 py-1 text-[11px] text-zinc-400 flex items-center gap-1 font-mono select-none">
+              <ChevronRight className="w-3.5 h-3.5 rotate-90 text-zinc-500" />
+              <span className="font-semibold text-zinc-300">project-alpha/</span>
+            </div>
+
+            <div className="mt-1 space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectTask('readme');
+                }}
+                className={`w-full px-3 py-1.5 text-left rounded-md flex flex-col gap-0.5 transition-all ${
+                  activeTaskId === 'readme'
+                    ? 'bg-white/10 text-white font-medium'
+                    : 'hover:bg-white/[0.04] text-zinc-400'
+                }`}
+              >
+                <span className="font-medium truncate text-xs">Sync README.md docs</span>
+                <span className="text-[10px] text-zinc-500 flex items-center gap-1 font-mono">
+                  <Clock className="w-2.5 h-2.5 text-zinc-600" /> 1h ago
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectTask('verification');
+                }}
+                className={`w-full px-3 py-1.5 text-left rounded-md flex flex-col gap-0.5 transition-all ${
+                  activeTaskId === 'verification'
+                    ? 'bg-white/10 text-white font-medium'
+                    : 'hover:bg-white/[0.04] text-zinc-400'
+                }`}
+              >
+                <span className="font-medium truncate text-xs">Run validation gates</span>
+                <span className="text-[10px] text-zinc-500 flex items-center gap-1 font-mono">
+                  <Clock className="w-2.5 h-2.5 text-zinc-600" /> 3h ago
+                </span>
+              </button>
+            </div>
           </div>
         </div>
-        <div className="space-y-4 px-1.5">
-          {workspaceGroups.map((group) => (
-            <WorkspaceGroup
-              key={group.label}
-              activeTaskId={activeTaskId}
-              group={group}
-              onSelect={selectAndClose}
-            />
-          ))}
-        </div>
       </div>
-      <SidebarFooter />
+
+      {/* Bottom Footer Actions */}
+      <div className="p-2 border-t border-white/5 flex flex-col gap-1 text-[11px]">
+        <button
+          type="button"
+          className="flex items-center gap-2 px-2 py-1.5 text-zinc-500 hover:text-white rounded hover:bg-white/[0.03] transition-colors cursor-pointer text-left"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+          <span>Add repository</span>
+        </button>
+        <button
+          type="button"
+          className="flex items-center gap-2 px-2 py-1.5 text-zinc-500 hover:text-white rounded hover:bg-white/[0.03] transition-colors cursor-pointer text-left"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span>Settings</span>
+        </button>
+      </div>
     </div>
   );
 }

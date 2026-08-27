@@ -62,6 +62,7 @@ export interface WorkflowItem {
   readonly diffPreview: string | null;
   readonly additions: number | null;
   readonly deletions: number | null;
+  readonly editChange?: "created" | "modified";
   readonly planSteps: readonly PlanWorkflowStep[];
   readonly compactionPhase: "compacting" | "compacted" | "failed" | null;
   readonly startedAt: string;
@@ -217,7 +218,7 @@ function applyKnownEvent(
         phase: "waiting_for_approval",
       };
     case "approval.decided":
-      return { ...decideApproval(projection, event), phase: "working" };
+      return decideApproval(projection, event);
     case "request.resolved":
       return { ...projection, pendingApproval: null, phase: "working" };
     case "turn.diff_updated":
@@ -488,20 +489,20 @@ function decideApproval(
   projection: TurnWorkflowProjection,
   event: LifecycleEvent,
 ): TurnWorkflowProjection {
-  const payload = readPayload(event);
   const approvalId = requireApprovalId(event);
-  const decision = readString(payload, "decision");
   const pendingApproval = projection.pendingApproval;
   if (!pendingApproval || pendingApproval.approvalId !== approvalId) {
     return projection;
   }
+  // Approval requests are actionable only until the decision event. The
+  // decision remains represented by the canonical lifecycle item/event
+  // history; keeping it in `pendingApproval` makes every client continue to
+  // advertise an already-settled request until a later compatibility event
+  // arrives.
   return {
     ...projection,
-    pendingApproval: {
-      ...pendingApproval,
-      decidedAt: event.createdAt,
-      decision,
-    },
+    pendingApproval: null,
+    phase: "working",
   };
 }
 
@@ -513,14 +514,20 @@ function settleTurn(
   const payload = readPayload(event);
   const outcome =
     (payload.outcome as Record<string, unknown> | undefined) ?? {};
+  const failure = readRecord(outcome.failure);
   return {
     ...projection,
     pendingApproval: null,
     terminal: {
       state,
       eventId: event.eventId,
-      content: readString(outcome, "summary") ?? state,
-      errorCode: readString(outcome, "code"),
+      content:
+        readString(outcome, "summary") ??
+        (failure ? readString(failure, "message") : null) ??
+        state,
+      errorCode:
+        readString(outcome, "code") ??
+        (failure ? readString(failure, "code") : null),
       occurredAt: event.createdAt,
     },
     phase: state,
@@ -675,6 +682,7 @@ type WorkflowToolDetails = Pick<
   | "diffPreview"
   | "additions"
   | "deletions"
+  | "editChange"
 >;
 
 function readToolDetails(
@@ -695,6 +703,7 @@ function readToolDetails(
     diffPreview: readBoundedString(activity?.diffPreview, 16_000),
     additions: readFiniteNumber(activity?.additions),
     deletions: readFiniteNumber(activity?.deletions),
+    editChange: readEditChange(activity?.change),
   };
 }
 
@@ -710,7 +719,12 @@ function mergeToolDetails(
     diffPreview: next.diffPreview ?? current.diffPreview,
     additions: next.additions ?? current.additions,
     deletions: next.deletions ?? current.deletions,
+    editChange: next.editChange ?? current.editChange,
   };
+}
+
+function readEditChange(value: unknown): "created" | "modified" | undefined {
+  return value === "created" || value === "modified" ? value : undefined;
 }
 
 function readFiniteNumber(value: unknown): number | null {

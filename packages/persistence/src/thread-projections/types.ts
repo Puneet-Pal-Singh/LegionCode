@@ -24,13 +24,6 @@ export interface AcknowledgeThreadInput {
   acknowledgedAt: string;
 }
 
-export interface ApplyGeneratedTitleInput {
-  threadId: ThreadId;
-  title: string;
-  expectedTitleVersion: number;
-  terminalTurnId: TurnId;
-}
-
 export interface ThreadProjectionEventInput {
   event: PlatformEvent;
   projectionSequence: number;
@@ -60,7 +53,6 @@ export interface ThreadProjectionRepository {
     viewerId: UserId,
   ): Promise<ThreadReadReceipt | null>;
   acknowledgeThread(input: AcknowledgeThreadInput): Promise<ThreadReadReceipt>;
-  applyGeneratedTitle(input: ApplyGeneratedTitleInput): Promise<boolean>;
 }
 
 export class ThreadProjectionError extends Error {

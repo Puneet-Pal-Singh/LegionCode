@@ -22,7 +22,7 @@ export function CanonicalWorkflowSurface({
   onArtifactOpen,
 }: CanonicalWorkflowSurfaceProps) {
   const terminal = projection.terminal;
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const now = useWorkflowClock(Boolean(terminal));
   const segments = useMemo(
     () => groupToolActivity(projection.items, projection.turnDiff),
@@ -47,9 +47,10 @@ export function CanonicalWorkflowSurface({
         expanded={expanded}
         phase={projection.phase}
         title={title}
+        collapsible={Boolean(terminal)}
         onToggle={() => setExpanded((current) => !current)}
       />
-      {expanded ? (
+      {!terminal || expanded ? (
         <WorkflowDisclosure
           projection={projection}
           segments={segments}
