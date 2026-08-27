@@ -20,10 +20,9 @@ import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactor
 import { withRunRepository } from "./runs/RunPersistenceFactory";
 import {
   buildRedactedMessageText,
-  extractImageParts,
   messageHasImageParts,
 } from "./chat/ImageMessageRedactor";
-import { ChatMediaStore } from "./chat/ChatMediaStore";
+import { persistChatMessageImages } from "./chat/ChatMessageImagePersistence";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 
 interface PersistMessageContext {
@@ -216,9 +215,10 @@ export class PersistenceService {
         message,
         content,
       );
-      const imageRefs = await this.persistImageAttachments({
+      const imageRefs = await persistChatMessageImages(this.env, {
         sessionId,
         userId: context.userId,
+        revisionOfTurnId: context.identity?.revisionOfTurnId,
         message,
         idempotencyKey,
       });
@@ -503,34 +503,6 @@ export class PersistenceService {
       content,
     );
   }
-
-  private async persistImageAttachments(input: {
-    sessionId: string;
-    userId?: string;
-    message: CoreMessage;
-    idempotencyKey: string;
-  }): Promise<ChatImageAttachmentRef[]> {
-    if (!messageHasImageParts(input.message)) return [];
-    if (!input.userId || !this.env.EDIT_ARTIFACTS) {
-      throw new Error("Chat image persistence requires an authenticated R2 binding.");
-    }
-
-    const store = new ChatMediaStore(this.env.EDIT_ARTIFACTS);
-    const images = extractImageParts(input.message.content as unknown[]);
-    return await Promise.all(
-      images.map((image, index) =>
-        store.putImage({
-          userId: input.userId!,
-          sessionId: input.sessionId,
-          // The transcript append is idempotent on this same key. Deriving the
-          // object identity from it makes a retried append overwrite the same
-          // private object instead of leaking an orphan on every attempt.
-          attachmentId: `img_${input.idempotencyKey.slice(0, 48)}_${index}`,
-          image,
-        }),
-      ),
-    );
-  }
 }
 
 function resolveRunStepIndex(
@@ -574,12 +546,16 @@ function coreMessageToTranscriptParts(
     return [
       {
         type: "text",
-        content: buildTranscriptTextContent(message.content, identity),
+        content: buildTranscriptTextContent(
+          message.content,
+          identity,
+          imageRefs,
+        ),
       },
     ];
   }
 
-  if (messageHasImageParts(message)) {
+  if (messageHasImageParts(message) || imageRefs.length > 0) {
     return [
       {
         type: "text",

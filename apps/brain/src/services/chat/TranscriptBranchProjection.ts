@@ -22,7 +22,7 @@ export function projectActiveTranscriptBranch(
   });
 }
 
-function readCanonicalIdentityField(
+export function readCanonicalIdentityField(
   message: TranscriptMessageRecord,
   field: "turnId" | "revisionOfTurnId",
 ): string | null {

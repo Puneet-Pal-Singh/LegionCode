@@ -306,6 +306,7 @@ export const ContextCompactionPhaseSchema = z.enum([
 export type ContextCompactionPhase = z.infer<
   typeof ContextCompactionPhaseSchema
 >;
+export const CONTEXT_COMPACTION_SUMMARY_MAX_CHARS = 4_000;
 export const ContextCompactionPayloadSchema = z
   .object({
     compactionId: z.string().min(1).max(160),
@@ -313,7 +314,7 @@ export const ContextCompactionPayloadSchema = z
     mode: z.enum(["automatic", "manual"]),
     phase: ContextCompactionPhaseSchema,
     preservedContextReference: z.string().min(1).max(512).nullable(),
-    summary: z.string().max(4_000).nullable(),
+    summary: z.string().max(CONTEXT_COMPACTION_SUMMARY_MAX_CHARS).nullable(),
     error: z.string().max(2_000).nullable(),
   })
   .strict();
