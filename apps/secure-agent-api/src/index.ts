@@ -152,7 +152,10 @@ import {
   errorResponse,
 } from "./schemas/http-api";
 import { composeRuntime } from "./factories/RuntimeCompositionFactory";
-import { enforceLaunchSafetyForRoute } from "./services/LaunchSafetyService";
+import {
+  enforceLaunchSafetyForRoute,
+  getEmergencyShutoffMode,
+} from "./services/LaunchSafetyService";
 import { InternalRuntimeEventClient } from "./services/runtime-events/InternalRuntimeEventClient";
 
 export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
@@ -190,9 +193,20 @@ export interface Env {
  */
 async function handleChatAppend(
   request: Request,
+  env: Env,
   stub: DurableObjectStub<AgentRuntime>,
   runId: string,
 ): Promise<Response> {
+  if (
+    getEmergencyShutoffMode(env) === "block_all"
+  ) {
+    return errorResponse(
+      "LegionCode runtime is temporarily in maintenance mode. Please retry shortly.",
+      "EMERGENCY_SHUTOFF_ACTIVE",
+      503,
+    );
+  }
+
   const bodyValidation = await validateRequestBody(
     request,
     ChatAppendRequestSchema,
@@ -262,7 +276,16 @@ export default {
         request.method === "POST"
       ) {
         const authResponse = enforceInternalServiceBinding(request, env);
-        response = authResponse ?? (await handleResumeSession(request, stub));
+        if (authResponse) {
+          response = authResponse;
+        } else {
+          const safetyResponse = await enforceLaunchSafetyForRoute(
+            request,
+            env,
+            "session_create",
+          );
+          response = safetyResponse ?? (await handleResumeSession(request, stub));
+        }
       } else if (
         url.pathname === "/api/v1/execute" &&
         request.method === "POST"
@@ -323,7 +346,7 @@ export default {
               response = Response.json(historyResult);
             } else if (request.method === "POST") {
               // CANONICAL POST: Append message(s) to history (uses shared handler)
-              response = await handleChatAppend(request, stub, runId);
+              response = await handleChatAppend(request, env, stub, runId);
             } else {
               response = new Response("Method Not Allowed", { status: 405 });
             }
@@ -359,7 +382,7 @@ export default {
                 );
                 response = Response.json(historyResult);
               } else if (request.method === "POST") {
-                response = await handleChatAppend(request, stub, runId);
+                response = await handleChatAppend(request, env, stub, runId);
               } else {
                 response = new Response("Method Not Allowed", { status: 405 });
               }

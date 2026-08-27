@@ -20,6 +20,14 @@
       "gate": "corepack pnpm --filter @legioncode/brain test -- src/runtime/RunAdmissionPolicy.test.ts"
     },
     {
+      "path": "apps/brain/src/runtime/RunEmergencyShutoffPolicy.ts",
+      "owner": "brain-run-admission",
+      "category": "lifecycle",
+      "disposition": "keep-pure-policy",
+      "purpose": "Normalize the existing run-admission emergency mode predicate for admission and retention guards.",
+      "gate": "corepack pnpm --filter @legioncode/brain test -- src/runtime/RunAdmissionService.test.ts src/services/edit-artifacts/EditArtifactRetentionService.test.ts"
+    },
+    {
       "path": "apps/brain/src/runtime/policies/AgentTypePolicy.ts",
       "owner": "brain-control-plane",
       "category": "config",

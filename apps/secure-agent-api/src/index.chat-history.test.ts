@@ -238,6 +238,82 @@ describe("secure-agent-api chat history routing", () => {
     expect(response.status).toBe(401);
     expect(runtimeStub.appendMessage).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["/api/chat/history/run%2F123", " BLOCK_ALL "],
+    ["/chat?runId=run-123", "bLoCk_AlL"],
+  ] as const)("blocks chat append routes during normalized block_all: %s", async (path, mode) => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub, {
+      LAUNCH_EMERGENCY_SHUTOFF_MODE: mode as Env["LAUNCH_EMERGENCY_SHUTOFF_MODE"],
+    });
+    const response = await worker.fetch(
+      withInternalSecret(
+        new Request(`https://secure.local${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: { role: "user", content: "blocked" },
+          }),
+        }),
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "EMERGENCY_SHUTOFF_ACTIVE",
+    });
+    expect(runtimeStub.appendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/api/chat/history/run%2Fdrain",
+    "/chat?runId=run-drain",
+  ])("allows authenticated settlement append during session/execute drain: %s", async (path) => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub, {
+      LAUNCH_EMERGENCY_SHUTOFF_MODE: "block_session_and_execute",
+    });
+    const response = await worker.fetch(
+      withInternalSecret(
+        new Request(`https://secure.local${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: { role: "assistant", content: "settled" },
+          }),
+        }),
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(runtimeStub.appendMessage).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "block_session_and_execute",
+    "block_all",
+  ] as const)("blocks internal session resume while %s is active", async (mode) => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub, {
+      LAUNCH_EMERGENCY_SHUTOFF_MODE: mode,
+    });
+    const response = await worker.fetch(
+      withInternalSecret(
+        new Request("https://secure.local/api/v1/session/session-123/resume", {
+          method: "POST",
+        }),
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "EMERGENCY_SHUTOFF_ACTIVE",
+    });
+  });
 });
 
 function createRuntimeStub() {
@@ -252,7 +328,10 @@ function createRuntimeStub() {
   };
 }
 
-function createEnv(runtimeStub: { getHistory: unknown }): Env {
+function createEnv(
+  runtimeStub: { getHistory: unknown },
+  overrides: Partial<Env> = {},
+): Env {
   const namespace = {
     idFromName: vi.fn(() => ({ toString: () => "stub-id" })),
     get: vi.fn(() => runtimeStub),
@@ -264,6 +343,7 @@ function createEnv(runtimeStub: { getHistory: unknown }): Env {
     ARTIFACTS: {} as Env["ARTIFACTS"],
     RUNTIME_GIT_SHA: "test-sha",
     INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+    ...overrides,
   };
 }
 
