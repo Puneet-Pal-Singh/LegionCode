@@ -32,7 +32,7 @@ export type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
 
 const DEFAULT_RUNTIME_HARNESS: RuntimeHarnessId = "cloudflare-sandbox";
 const RUNTIME_HARNESS_QUERY_PARAM = "harness";
-const RUNTIME_HARNESS_SESSION_KEY_PREFIX = "shadowbox:runtime-harness:";
+const RUNTIME_HARNESS_SESSION_KEY_PREFIX = "legioncode:runtime-harness:";
 
 export function parseChatRequestBody(
   input: z.input<typeof ChatRequestBodySchema>,

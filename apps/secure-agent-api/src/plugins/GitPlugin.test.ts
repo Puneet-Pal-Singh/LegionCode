@@ -189,8 +189,8 @@ describe("GitPlugin", () => {
             "# branch.ab +1 -2",
             "1 M. N... 100644 100644 100644 1234567890abcdef1234567890abcdef12345678 abcdef1234567890abcdef1234567890abcdef12 src/app.ts",
             "? src/new.ts",
-            "? .shadowbox/edit-artifact.patch",
-            "? nested/.shadowbox/edit-artifact.patch",
+            "? .legioncode/edit-artifact.patch",
+            "? nested/.legioncode/edit-artifact.patch",
             "",
           ].join("\0"),
           stderr: "",
@@ -447,7 +447,7 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(true);
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/home/sandbox/checkouts/run_patch_apply_1/.shadowbox/edit-artifact-",
+        "/home/sandbox/checkouts/run_patch_apply_1/.legioncode/edit-artifact-",
       ),
       "diff --git a/src/app.ts b/src/app.ts\n",
     );
@@ -692,7 +692,7 @@ describe("GitPlugin", () => {
     const diffSpec = runSafeCommandMock.mock.calls.find(([, spec]) =>
       spec.args?.includes("--find-renames"),
     )?.[1];
-    expect(diffSpec?.env?.GIT_INDEX_FILE).toContain("shadowbox-baseline-");
+    expect(diffSpec?.env?.GIT_INDEX_FILE).toContain("legioncode-baseline-");
     expect(diffSpec?.args).toEqual(
       expect.arrayContaining(["--unified=999999", "--", "src/app.ts"]),
     );

@@ -9,21 +9,21 @@ describe("ProjectChooser", () => {
 
     render(
       <ProjectChooser
-        currentProject="owner/shadowbox"
-        projects={["shadowbox", "Sketch"]}
+        currentProject="owner/legioncode"
+        projects={["legioncode", "Sketch"]}
         onSelect={onSelect}
         onNewProject={onNewProject}
         onNoProject={vi.fn()}
       >
-        <button type="button">shadowbox</button>
+        <button type="button">legioncode</button>
       </ProjectChooser>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "shadowbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "legioncode" }));
 
     const dialog = screen.getByRole("dialog", { name: "Choose project" });
     expect(dialog).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: "shadowbox" })).toContainElement(
+    expect(within(dialog).getByRole("button", { name: "legioncode" })).toContainElement(
       screen.getByTestId("project-chooser-current"),
     );
 

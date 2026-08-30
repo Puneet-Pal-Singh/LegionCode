@@ -259,9 +259,9 @@ function createWorkspaceManifest(): WorkspaceManifest {
   return parseWorkspaceManifest({
     runId: IDS.runId,
     workspaceId: IDS.workspaceId,
-    repoOwner: "shadowbox",
+    repoOwner: "legioncode",
     repoName: "golden-fixture",
-    repoUrl: "https://example.test/shadowbox/golden-fixture.git",
+    repoUrl: "https://example.test/legioncode/golden-fixture.git",
     baseBranch: "dev",
     workingBranch: "feat/golden-repo-to-pr",
     baseSha: SHA_BASE,

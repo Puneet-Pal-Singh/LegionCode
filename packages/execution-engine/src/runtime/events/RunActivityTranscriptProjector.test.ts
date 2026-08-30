@@ -175,7 +175,7 @@ describe("RunActivityTranscriptProjector", () => {
         createEvent("event-3", RUN_EVENT_TYPES.TOOL_COMPLETED, {
           toolId: "tool-1",
           toolName: "read_file",
-          result: { content: "{ \"name\": \"shadowbox\" }" },
+          result: { content: "{ \"name\": \"legioncode\" }" },
           executionTimeMs: 25,
         }),
       ],

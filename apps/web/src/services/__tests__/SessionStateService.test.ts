@@ -47,7 +47,7 @@ describe("SessionStateService", () => {
 
     it("should handle corrupted localStorage gracefully", () => {
       const errorSpy = silenceConsoleError();
-      localStorage.setItem("shadowbox:sessions:v3", "invalid json");
+      localStorage.setItem("legioncode:sessions:v3", "invalid json");
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
       expect(errorSpy).toHaveBeenCalledWith(
@@ -60,7 +60,7 @@ describe("SessionStateService", () => {
       const session = SessionStateService.createSession("Test", "repo");
 
       localStorage.setItem(
-        "shadowbox:sessions:v3",
+        "legioncode:sessions:v3",
         JSON.stringify({
           version: 3,
           sessions: {
@@ -83,7 +83,7 @@ describe("SessionStateService", () => {
       const session = SessionStateService.createSession("Test", "repo");
 
       localStorage.setItem(
-        "shadowbox:sessions:v3",
+        "legioncode:sessions:v3",
         JSON.stringify({
           version: 3,
           sessions: {
@@ -348,7 +348,7 @@ describe("SessionStateService", () => {
         [session.id]: session,
       });
       sessionStorage.setItem(
-        "shadowbox:active-session-id:v4",
+        "legioncode:active-session-id:v4",
         "missing-session",
       );
       SessionStateService.saveSetupSession(setupSession);
@@ -485,7 +485,7 @@ describe("SessionStateService", () => {
       expect(archivedAt).toBeNull();
 
       localStorage.setItem(
-        "shadowbox:sessions:v3",
+        "legioncode:sessions:v3",
         JSON.stringify({
           version: 3,
           sessions: { [session.id]: storedSession },

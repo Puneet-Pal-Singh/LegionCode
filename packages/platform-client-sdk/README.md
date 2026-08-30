@@ -1,6 +1,6 @@
 # @repo/platform-client-sdk
 
-Shared provider client SDK for Shadowbox web and desktop cloud-path consumers.
+Shared provider client SDK for LegionCode web and desktop cloud-path consumers.
 
 ## Purpose
 

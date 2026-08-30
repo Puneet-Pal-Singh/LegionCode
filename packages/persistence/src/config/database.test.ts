@@ -11,12 +11,12 @@ describe("database configuration", () => {
       readWorkerDatabaseConfig({
         HYPERDRIVE: {
           connectionString:
-            " postgres://postgres:postgres@localhost:5432/shadowbox ",
+            " postgres://postgres:postgres@localhost:5432/legioncode ",
         },
         DATABASE_MIGRATIONS_MODE: "auto",
       }),
     ).toEqual({
-      connectionString: "postgres://postgres:postgres@localhost:5432/shadowbox",
+      connectionString: "postgres://postgres:postgres@localhost:5432/legioncode",
       migrationsMode: "auto",
     });
   });

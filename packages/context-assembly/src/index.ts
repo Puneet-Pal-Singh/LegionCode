@@ -9,7 +9,7 @@
  *   ContextBuilder,
  *   ContextBuildInput,
  *   ContextBundle
- * } from '@shadowbox/context-assembly'
+ * } from '@legioncode/context-assembly'
  *
  * // Implement the interface
  * class MyContextBuilder implements ContextBuilder {

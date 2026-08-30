@@ -55,16 +55,24 @@ describe("PermissionModeControl", () => {
   });
 
   it("can open below the welcome composer control", () => {
+    const onChange = vi.fn();
     render(
       <PermissionModeControl
         value={PRODUCT_MODES.AUTO_FOR_SAFE}
-        onChange={vi.fn()}
+        onChange={onChange}
         menuPlacement="below"
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
-    expect(screen.getByTestId("permission-mode-menu")).toHaveClass("top-full");
+    const menu = screen.getByTestId("permission-mode-menu");
+    expect(menu).toHaveAttribute("role", "menu");
+    expect(menu.parentElement).toBe(document.body);
+    expect(screen.getByRole("menu")).toBe(menu);
+    expect(screen.getByRole("menuitemradio", { name: /full access/i })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /full access/i }));
+    expect(onChange).toHaveBeenCalledWith(PRODUCT_MODES.FULL_AGENT);
   });
 
   it("closes the menu and blocks changes when disabled while open", () => {

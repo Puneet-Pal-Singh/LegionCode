@@ -5,10 +5,10 @@
  * Enforces session-scoped storage keys and data model consistency.
  *
  * Storage Keys:
- * - shadowbox:sessions:v3 — Main session store
- * - shadowbox:active-session-id:v4 — Per-tab active session selector
- * - shadowbox:session-context:{sessionId} — GitHub context per session
- * - shadowbox:run:{runId}:messages — Messages per run
+ * - legioncode:sessions:v3 — Main session store
+ * - legioncode:active-session-id:v4 — Per-tab active session selector
+ * - legioncode:session-context:{sessionId} — GitHub context per session
+ * - legioncode:run:{runId}:messages — Messages per run
  *
  * @module services/SessionStateService
  */
@@ -35,9 +35,9 @@ import type {
 } from "../types/session";
 import { createRunId, isCanonicalRunId } from "../lib/run-id";
 
-const SESSIONS_KEY = "shadowbox:sessions:v3";
-const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v4";
-const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
+const SESSIONS_KEY = "legioncode:sessions:v3";
+const ACTIVE_SESSION_ID_KEY = "legioncode:active-session-id:v4";
+const SETUP_SESSION_KEY = "legioncode:setup-session:v1";
 
 type StoredSessionStatus = AgentSession["status"] | "error";
 
@@ -76,7 +76,7 @@ interface ServerSessionResponse {
 }
 
 function getSessionContextKey(sessionId: string): string {
-  return `shadowbox:session-context:${sessionId}`;
+  return `legioncode:session-context:${sessionId}`;
 }
 
 /**

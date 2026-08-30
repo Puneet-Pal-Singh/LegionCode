@@ -70,7 +70,7 @@ export const LIFECYCLE_AUTHORITY_RULES = [
   {
     kind: "token_absent",
     path: "apps/web/src",
-    token: "shadowbox:pending-query",
+    token: "legioncode:pending-query",
     message: "browser storage must not own prompt lifecycle state",
   },
 ];

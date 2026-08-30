@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { decryptToken, GitHubAPIClient } from "@shadowbox/github-bridge";
+import { decryptToken, GitHubAPIClient } from "@legioncode/github-bridge";
 import { getUserSessionByUserId } from "../../services/AuthService";
 import type { Env } from "../../types/ai";
 import { AuthorizedWorkspaceSnapshotCaptureService } from "./AuthorizedWorkspaceSnapshotCaptureService";
 
-vi.mock("@shadowbox/github-bridge", () => ({
+vi.mock("@legioncode/github-bridge", () => ({
   decryptToken: vi.fn(async () => "github-token"),
   GitHubAPIClient: vi.fn(),
 }));

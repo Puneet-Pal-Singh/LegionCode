@@ -3,7 +3,7 @@ import {
   addMissingGoogleThoughtSignaturesToRequestBody,
   GoogleAdapter,
 } from "./GoogleAdapter";
-import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
+import { LLMUnusableResponseError } from "@legioncode/execution-engine/runtime";
 
 const mockGenerateText = vi.fn();
 const mockStreamText = vi.fn();

@@ -1,4 +1,4 @@
-import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type { AgentType } from "@legioncode/execution-engine/runtime";
 import { RunIdSchema } from "@repo/platform-protocol";
 import { ValidationError } from "../domain/errors";
 import {

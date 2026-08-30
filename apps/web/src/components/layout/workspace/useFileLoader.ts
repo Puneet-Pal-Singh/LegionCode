@@ -27,7 +27,7 @@ export function useFileLoader({
     async (path: string) => {
       setIsLoadingContent(true);
       setContentError(null);
-      localStorage.setItem("shadowbox_last_viewed_path", path);
+      localStorage.setItem("legioncode_last_viewed_path", path);
       try {
         const res = await fetch(terminalCommandPath(sandboxId), {
           method: "POST",
@@ -85,7 +85,7 @@ export function useFileLoader({
 
       setIsLoadingContent(true);
       setContentError(null);
-      localStorage.setItem("shadowbox_last_viewed_path", path);
+      localStorage.setItem("legioncode_last_viewed_path", path);
 
       try {
         const fileData = await getFileContent(

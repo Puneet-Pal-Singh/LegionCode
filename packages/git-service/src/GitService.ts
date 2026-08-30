@@ -501,7 +501,7 @@ export class DefaultGitService {
     readonly environment: Readonly<Record<string, string>>;
   }> {
     const baselineTree = validateGitObjectId(input.baselineTree ?? "");
-    const path = `/tmp/shadowbox-baseline-${crypto.randomUUID()}.index`;
+    const path = `/tmp/legioncode-baseline-${crypto.randomUUID()}.index`;
     const environment = { GIT_INDEX_FILE: path };
     await this.executeRequired(
       input.workspace,

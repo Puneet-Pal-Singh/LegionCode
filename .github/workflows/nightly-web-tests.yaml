@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
-      QUARANTINE_OWNER: "@shadowbox/web"
+      QUARANTINE_OWNER: "@legioncode/web"
       PROMOTION_CRITERIA: "Promote after the suite is deterministic and a maintainer assigns an owner and required-check status."
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run full web tests
-        run: pnpm --filter @shadowbox/web test -- --run
+        run: pnpm --filter @legioncode/web test -- --run
 
       - name: Report quarantine metadata
         if: always()

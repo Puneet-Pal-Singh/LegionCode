@@ -4,7 +4,7 @@ import {
   type ProductMode,
 } from "@repo/shared-types";
 
-const PRODUCT_MODE_STORAGE_KEY_PREFIX = "shadowbox:product-mode:";
+const PRODUCT_MODE_STORAGE_KEY_PREFIX = "legioncode:product-mode:";
 
 export function loadStoredProductMode(sessionId: string): ProductMode {
   if (typeof window === "undefined") {

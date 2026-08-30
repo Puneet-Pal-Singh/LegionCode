@@ -11,7 +11,7 @@ import type {
   RunStateEnvelope,
   RunStatus,
   ScheduledTaskEnvelope,
-} from "@shadowbox/orchestrator-core";
+} from "@legioncode/orchestrator-core";
 
 /**
  * Cloudflare-backed implementation of execution and orchestration.

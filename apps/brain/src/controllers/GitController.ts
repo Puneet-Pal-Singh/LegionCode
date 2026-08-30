@@ -11,7 +11,7 @@ import type {
   GitPullRequestMutationResult,
   GitPushMutationResult,
 } from "@repo/shared-types";
-import { decryptToken } from "@shadowbox/github-bridge";
+import { decryptToken } from "@legioncode/github-bridge";
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";

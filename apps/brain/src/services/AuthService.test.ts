@@ -14,9 +14,9 @@ describe("AuthService", () => {
   it("returns the authenticated session for valid opaque session cookies", async () => {
     const env = createTestEnv();
     const created = await createTestSession(env);
-    const request = new Request("https://shadowbox.test", {
+    const request = new Request("https://legioncode.test", {
       headers: {
-        Cookie: `shadowbox_session=${created.sessionToken}`,
+        Cookie: `legioncode_session=${created.sessionToken}`,
       },
     });
 
@@ -24,7 +24,7 @@ describe("AuthService", () => {
 
     expect(result).not.toBeNull();
     expect(result?.userId).toBe(created.session.userId);
-    expect(result?.session.login).toBe("shadowbox-user");
+    expect(result?.session.login).toBe("legioncode-user");
     expect(result?.session.githubScopes).toEqual([
       "repo",
       "read:user",
@@ -34,7 +34,7 @@ describe("AuthService", () => {
 
   it("returns null when the session cookie is missing", async () => {
     const result = await getAuthenticatedUserSession(
-      new Request("https://shadowbox.test"),
+      new Request("https://legioncode.test"),
       createTestEnv(),
     );
 
@@ -42,9 +42,9 @@ describe("AuthService", () => {
   });
 
   it("returns null for unknown session cookies", async () => {
-    const request = new Request("https://shadowbox.test", {
+    const request = new Request("https://legioncode.test", {
       headers: {
-        Cookie: "shadowbox_session=unknown-token",
+        Cookie: "legioncode_session=unknown-token",
       },
     });
 
@@ -54,9 +54,9 @@ describe("AuthService", () => {
   });
 
   it("returns null for malformed percent-encoded session cookies", async () => {
-    const request = new Request("https://shadowbox.test", {
+    const request = new Request("https://legioncode.test", {
       headers: {
-        Cookie: "shadowbox_session=%E0%A4%A",
+        Cookie: "legioncode_session=%E0%A4%A",
       },
     });
 
@@ -66,9 +66,9 @@ describe("AuthService", () => {
   });
 
   it("throws a typed error when the session repository is unavailable", async () => {
-    const request = new Request("https://shadowbox.test", {
+    const request = new Request("https://legioncode.test", {
       headers: {
-        Cookie: "shadowbox_session=session-token",
+        Cookie: "legioncode_session=session-token",
       },
     });
 
@@ -103,9 +103,9 @@ describe("AuthService", () => {
       },
     });
 
-    const request = new Request("https://shadowbox.test", {
+    const request = new Request("https://legioncode.test", {
       headers: {
-        Cookie: `shadowbox_session=${created.sessionToken}`,
+        Cookie: `legioncode_session=${created.sessionToken}`,
       },
     });
     const result = await getAuthenticatedUserSession(request, env);
@@ -148,10 +148,10 @@ function createFailingSessionEnv(): Env {
 async function createTestSession(env: Env) {
   return await createGitHubOAuthSession(env, {
     providerAccountId: "123",
-    login: "shadowbox-user",
+    login: "legioncode-user",
     avatarUrl: "https://example.com/avatar.png",
     email: "user@example.com",
-    displayName: "Shadowbox User",
+    displayName: "LegionCode User",
     accessToken: "gho_test",
     encryptedToken: {
       ciphertext: "ciphertext",

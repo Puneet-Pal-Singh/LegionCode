@@ -81,7 +81,7 @@ type GitPayload = z.infer<typeof GitPayloadSchema>;
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
-const PATCH_WORK_DIR = ".shadowbox";
+const PATCH_WORK_DIR = ".legioncode";
 
 type CommitIdentityResolutionResult =
   | { success: true; identity: GitCommitIdentity }
@@ -1091,7 +1091,7 @@ export class GitPlugin implements IPlugin {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
-        "User-Agent": "Shadowbox-Git-Plugin/0.1.0",
+        "User-Agent": "LegionCode-Git-Plugin/0.1.0",
         "X-GitHub-Api-Version": "2022-11-28",
       },
     });

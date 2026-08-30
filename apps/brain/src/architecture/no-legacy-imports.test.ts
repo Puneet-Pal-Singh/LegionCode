@@ -176,7 +176,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
             file,
             line,
             importedModule: module,
-            reason: "Imports must target @shadowbox/execution-engine directly",
+            reason: "Imports must target @legioncode/execution-engine directly",
           });
         }
       }
@@ -190,7 +190,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
             file,
             line,
             importedModule: match[1],
-            reason: "Imports must target @shadowbox/execution-engine directly",
+            reason: "Imports must target @legioncode/execution-engine directly",
           });
         }
       }
@@ -217,15 +217,15 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     }
   });
 
-  it("should not have any references to deprecated @shadowbox/brain internal exports", () => {
+  it("should not have any references to deprecated @legioncode/brain internal exports", () => {
     const allFiles = getAllTSFiles(BRAIN_SRC, ["architecture"]);
     const violations: DeprecatedImport[] = [];
 
     // These patterns indicate imports from deprecated/removed code
-    // Note: extractImports returns just the module path (e.g., "../deprecated/foo", "@shadowbox/brain/legacy")
+    // Note: extractImports returns just the module path (e.g., "../deprecated/foo", "@legioncode/brain/legacy")
     // so patterns match against the module specifier, not the full import line
     const deprecatedExportPatterns = [
-      /@shadowbox\/brain\/legacy/,
+      /@legioncode\/brain\/legacy/,
       /\/deprecated\b/, // Matches paths like "../deprecated/foo" or "./deprecated/..."
     ];
 

@@ -15,7 +15,7 @@ import {
   fetchGitHubUser,
   encryptToken,
   type OAuthConfig,
-} from "@shadowbox/github-bridge";
+} from "@legioncode/github-bridge";
 import {
   createExpiredSessionCookie,
   createGitHubOAuthSession,

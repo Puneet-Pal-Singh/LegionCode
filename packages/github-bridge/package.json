@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/github-bridge",
+  "name": "@legioncode/github-bridge",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

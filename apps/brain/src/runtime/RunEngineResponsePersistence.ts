@@ -6,7 +6,7 @@ import type {
 import {
   RunRepository,
   tagRuntimeStateSemantics,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import { DomainError } from "../domain/errors";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { PersistenceService } from "../services/PersistenceService";

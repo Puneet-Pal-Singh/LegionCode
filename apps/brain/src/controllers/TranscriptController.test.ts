@@ -365,7 +365,7 @@ function authenticatedRequest(url: string, init: RequestInit = {}): Request {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      Cookie: "shadowbox_session=test-token",
+      Cookie: "legioncode_session=test-token",
       ...(init.headers ?? {}),
     },
   });

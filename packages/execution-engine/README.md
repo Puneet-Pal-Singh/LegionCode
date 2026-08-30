@@ -1,10 +1,10 @@
-# @shadowbox/execution-engine
+# @legioncode/execution-engine
 
-Execution runtime package for Shadowbox.
+Execution runtime package for LegionCode.
 
 ## What It Is
 
-`@shadowbox/execution-engine` is the runtime orchestration layer that turns a
+`@legioncode/execution-engine` is the runtime orchestration layer that turns a
 chat request into a bounded execution loop. It is the package that:
 
 - tracks `runId`-scoped execution state,
@@ -97,7 +97,7 @@ hybrid model:
 - use shell for open-ended commands where flexibility matters more than
   structured recovery.
 
-This matters even more as Shadowbox expands to desktop use.
+This matters even more as LegionCode expands to desktop use.
 
 Why plugins scale well:
 
@@ -119,7 +119,7 @@ tries to avoid that mistake:
 - plugin-first for canonical git and GitHub workflows,
 - shell available as the escape hatch for general development work.
 
-For Shadowbox, that means git durability and predictable recovery are product
+For LegionCode, that means git durability and predictable recovery are product
 advantages, not scaling drawbacks, as long as shell remains available for the
 long tail of flexible tasks.
 
@@ -164,18 +164,18 @@ without rewriting files or guessing at shell commands.
 ## Import Surface
 
 ```ts
-import * as ExecutionEngine from "@shadowbox/execution-engine";
-import { RunEngine, RunRepository, TaskRepository } from "@shadowbox/execution-engine/runtime";
+import * as ExecutionEngine from "@legioncode/execution-engine";
+import { RunEngine, RunRepository, TaskRepository } from "@legioncode/execution-engine/runtime";
 ```
 
-Brain compatibility wrappers now re-export from `@shadowbox/execution-engine/runtime`.
+Brain compatibility wrappers now re-export from `@legioncode/execution-engine/runtime`.
 
 ## Development Commands
 
 ```bash
-pnpm --filter @shadowbox/execution-engine type-check
-pnpm --filter @shadowbox/execution-engine test
-pnpm --filter @shadowbox/execution-engine build
+pnpm --filter @legioncode/execution-engine type-check
+pnpm --filter @legioncode/execution-engine test
+pnpm --filter @legioncode/execution-engine build
 ```
 
 ## Extraction Notes (Phase 3.2)
@@ -199,4 +199,4 @@ Provider-specific behavior must stay in `src/adapters/*`. Runtime modules under
    (`ModelProvider`, registry descriptors), not provider SDK types.
 4. Add or update unit/integration tests for the adapter behavior.
 5. Run the boundary guard test to verify runtime isolation:
-   `pnpm --filter @shadowbox/execution-engine test -- tests/unit/runtime-adapter-boundary.test.ts`
+   `pnpm --filter @legioncode/execution-engine test -- tests/unit/runtime-adapter-boundary.test.ts`

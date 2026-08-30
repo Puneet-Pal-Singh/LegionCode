@@ -4,7 +4,7 @@ import type {
   WorkspaceBootstrapResult,
   WorkspaceBootstrapper,
   RepositoryContext,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import { z } from "zod";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";

@@ -4,16 +4,16 @@ import { getCorsHeaders, handleOptions } from "./cors";
 describe("brain cors policy", () => {
   it("allows configured origins", () => {
     const request = new Request("https://brain.test/chat", {
-      headers: { Origin: "https://app.shadowbox.dev" },
+      headers: { Origin: "https://app.legioncode.dev" },
     });
 
     const headers = getCorsHeaders(request, {
       CORS_ALLOWED_ORIGINS:
-        "https://app.shadowbox.dev,https://staging.shadowbox.dev",
+        "https://app.legioncode.dev,https://staging.legioncode.dev",
     });
 
     expect(headers["Access-Control-Allow-Origin"]).toBe(
-      "https://app.shadowbox.dev",
+      "https://app.legioncode.dev",
     );
     expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
     expect(headers["Access-Control-Allow-Headers"]).toContain(
@@ -51,7 +51,7 @@ describe("brain cors policy", () => {
     });
 
     const response = handleOptions(request, {
-      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+      CORS_ALLOWED_ORIGINS: "https://app.legioncode.dev",
     });
 
     expect(response).not.toBeNull();
@@ -67,12 +67,12 @@ describe("brain cors policy", () => {
     });
 
     const strictHeaders = getCorsHeaders(request, {
-      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+      CORS_ALLOWED_ORIGINS: "https://app.legioncode.dev",
     });
     expect(strictHeaders["Access-Control-Allow-Origin"]).toBeUndefined();
 
     const devHeaders = getCorsHeaders(request, {
-      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+      CORS_ALLOWED_ORIGINS: "https://app.legioncode.dev",
       CORS_ALLOW_DEV_ORIGINS: "true",
     });
     expect(devHeaders["Access-Control-Allow-Origin"]).toBe(
@@ -86,7 +86,7 @@ describe("brain cors policy", () => {
     });
 
     const headers = getCorsHeaders(request, {
-      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+      CORS_ALLOWED_ORIGINS: "https://app.legioncode.dev",
     });
     expect(headers["Access-Control-Allow-Origin"]).toBe(
       "http://localhost:5173",
@@ -99,7 +99,7 @@ describe("brain cors policy", () => {
     });
 
     const headers = getCorsHeaders(request, {
-      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+      CORS_ALLOWED_ORIGINS: "https://app.legioncode.dev",
     });
     expect(headers["Access-Control-Allow-Origin"]).toBe("http://[::1]:5173");
   });

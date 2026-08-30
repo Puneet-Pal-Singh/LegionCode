@@ -63,9 +63,9 @@ export const turn = TurnSchema.parse({
 export const manifest = parseWorkspaceManifest({
   runId: run.id,
   workspaceId: run.workspaceId,
-  repoOwner: "shadowbox",
+  repoOwner: "legioncode",
   repoName: "runtime-kernel",
-  repoUrl: "https://github.com/shadowbox/runtime-kernel",
+  repoUrl: "https://github.com/legioncode/runtime-kernel",
   baseBranch: "dev",
   workingBranch: "codex/feat-runtime-kernel-shell",
   baseSha: "a".repeat(40),

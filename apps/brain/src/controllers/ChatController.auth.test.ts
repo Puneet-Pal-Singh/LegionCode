@@ -39,7 +39,7 @@ describe("ChatController auth contract", () => {
     const response = await ChatController.handle(
       createChatRequest({
         headers: {
-          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+          Cookie: `legioncode_session=${TEST_SESSION_TOKEN}`,
         },
       }),
       env,
@@ -64,7 +64,7 @@ describe("ChatController auth contract", () => {
     const response = await ChatController.handle(
       createChatRequest({
         headers: {
-          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+          Cookie: `legioncode_session=${TEST_SESSION_TOKEN}`,
         },
         body: {
           providerId: "openai",
@@ -87,7 +87,7 @@ describe("ChatController auth contract", () => {
     const response = await ChatController.handle(
       createChatRequest({
         headers: {
-          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+          Cookie: `legioncode_session=${TEST_SESSION_TOKEN}`,
         },
         body: { id: "web-chat-instance" },
       }),

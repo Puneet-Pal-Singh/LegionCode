@@ -14,7 +14,7 @@ import {
 import type {
   AgentType,
   RepositoryContext,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import {
   DomainError,

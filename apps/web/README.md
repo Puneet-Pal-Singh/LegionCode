@@ -18,7 +18,7 @@ served from `legioncode.dev`. The web app is served from
 From the repository root:
 
 ```bash
-pnpm --filter @shadowbox/web dev
+pnpm --filter @legioncode/web dev
 ```
 
 The web app dev server binds to port `5174` with `strictPort: true`.
@@ -30,21 +30,21 @@ contract.
 ## Build
 
 ```bash
-pnpm --filter @shadowbox/web build
+pnpm --filter @legioncode/web build
 ```
 
 For staging or production-like deploys, use the deploy build instead:
 
 ```bash
-pnpm --filter @shadowbox/web build:deploy
+pnpm --filter @legioncode/web build:deploy
 ```
 
 ## Quality Checks
 
 ```bash
-pnpm --filter @shadowbox/web lint
-pnpm --filter @shadowbox/web check-types
-pnpm --filter @shadowbox/web test -- --run
+pnpm --filter @legioncode/web lint
+pnpm --filter @legioncode/web check-types
+pnpm --filter @legioncode/web test -- --run
 ```
 
 ## Environment Configuration
@@ -73,7 +73,7 @@ The web app is configured for Cloudflare Pages in [wrangler.jsonc](./wrangler.js
 One-time project setup:
 
 ```bash
-pnpm --filter @shadowbox/web exec wrangler pages project create shadowbox-web
+pnpm --filter @legioncode/web exec wrangler pages project create legioncode-web
 ```
 
 Staging deploy flow:
@@ -82,7 +82,7 @@ Staging deploy flow:
 export VITE_BRAIN_BASE_URL="https://<brain-staging-url>"
 export VITE_MUSCLE_BASE_URL="https://<secure-agent-api-staging-url>"
 export VITE_MUSCLE_WS_URL="wss://<secure-agent-api-staging-url>"
-pnpm --filter @shadowbox/web deploy:staging
+pnpm --filter @legioncode/web deploy:staging
 ```
 
 Production deploy flow (`agents.legioncode.dev`):
@@ -91,8 +91,8 @@ Production deploy flow (`agents.legioncode.dev`):
 export VITE_BRAIN_BASE_URL="https://brain.legioncode.dev"
 export VITE_MUSCLE_BASE_URL="https://api.legioncode.dev"
 export VITE_MUSCLE_WS_URL="wss://api.legioncode.dev"
-pnpm --filter @shadowbox/web build:deploy
-pnpm --filter @shadowbox/web exec wrangler pages deploy --branch main
+pnpm --filter @legioncode/web build:deploy
+pnpm --filter @legioncode/web exec wrangler pages deploy --branch main
 ```
 
 Production domain/OAuth closure checklist:
@@ -110,8 +110,8 @@ Production domain/OAuth closure checklist:
 Manual Pages deploy with an explicit branch label:
 
 ```bash
-pnpm --filter @shadowbox/web build:deploy
-pnpm --filter @shadowbox/web exec wrangler pages deploy --branch <branch-name>
+pnpm --filter @legioncode/web build:deploy
+pnpm --filter @legioncode/web exec wrangler pages deploy --branch <branch-name>
 ```
 
 ## Provider API Contract
