@@ -76,14 +76,17 @@ One-time project setup:
 pnpm --filter @legioncode/web exec wrangler pages project create legioncode-web
 ```
 
-Staging deploy flow:
+Cloud development deploy flow (`legioncode-web-dev.pages.dev`):
 
 ```bash
-export VITE_BRAIN_BASE_URL="https://<brain-staging-url>"
-export VITE_MUSCLE_BASE_URL="https://<secure-agent-api-staging-url>"
-export VITE_MUSCLE_WS_URL="wss://<secure-agent-api-staging-url>"
-pnpm --filter @legioncode/web deploy:staging
+export VITE_BRAIN_BASE_URL="https://brain-dev.legioncode.dev"
+export VITE_MUSCLE_BASE_URL="https://api-dev.legioncode.dev"
+export VITE_MUSCLE_WS_URL="wss://api-dev.legioncode.dev"
+pnpm --filter @legioncode/web deploy:dev
 ```
+
+The dev Pages project is `legioncode-web-dev`. It is separate from the
+production `legioncode-web` project and must use the dev Brain/API endpoints.
 
 Production deploy flow (`agents.legioncode.dev`):
 
@@ -91,8 +94,7 @@ Production deploy flow (`agents.legioncode.dev`):
 export VITE_BRAIN_BASE_URL="https://brain.legioncode.dev"
 export VITE_MUSCLE_BASE_URL="https://api.legioncode.dev"
 export VITE_MUSCLE_WS_URL="wss://api.legioncode.dev"
-pnpm --filter @legioncode/web build:deploy
-pnpm --filter @legioncode/web exec wrangler pages deploy --branch main
+pnpm --filter @legioncode/web deploy:production
 ```
 
 Production domain/OAuth closure checklist:

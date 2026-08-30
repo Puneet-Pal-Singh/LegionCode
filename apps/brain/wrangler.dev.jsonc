@@ -1,0 +1,101 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "legioncode-brain-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "limits": {
+    "cpu_ms": 20000,
+  },
+  "routes": [
+    {
+      "pattern": "brain-dev.legioncode.dev",
+      "custom_domain": true,
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1,
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true,
+  },
+  "services": [
+    {
+      "binding": "SECURE_API",
+      "service": "legioncode-api-dev",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUN_ENGINE_RUNTIME",
+        "class_name": "RunEngineRuntime",
+      },
+      {
+        "name": "RUN_ADMISSION_LIMITER",
+        "class_name": "RunAdmissionLimiter",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-run-engine-runtime",
+      "new_classes": ["RunEngineRuntime"],
+    },
+    {
+      "tag": "v2-session-memory-runtime",
+      "new_classes": ["SessionMemoryRuntime"],
+    },
+    {
+      "tag": "v3-run-engine-agent",
+      "new_sqlite_classes": ["RunEngineAgent"],
+    },
+    {
+      "tag": "v4-run-admission-limiter",
+      "new_sqlite_classes": ["RunAdmissionLimiter"],
+    },
+    {
+      "tag": "v5-delete-session-memory-runtime",
+      "deleted_classes": ["SessionMemoryRuntime"],
+    },
+    {
+      "tag": "v6-quarantine-run-engine-agent",
+      "deleted_classes": ["RunEngineAgent"],
+    },
+  ],
+  "vars": {
+    "ENVIRONMENT": "development",
+    "FRONTEND_URL": "https://legioncode-web-dev.pages.dev/agents",
+    "PRIVATE_ALPHA_ACCESS_MODE": "allowlist",
+    "PRIVATE_ALPHA_GITHUB_LOGINS": "Puneet-Pal-Singh",
+    "PRIVATE_ALPHA_WAITLIST_URL": "https://legioncode.dev/cloud/?access=pending",
+    "GITHUB_REDIRECT_URI": "https://brain-dev.legioncode.dev/auth/github/callback",
+    "CORS_ALLOWED_ORIGINS": "https://legioncode-web-dev.pages.dev",
+    "CORS_ALLOW_DEV_ORIGINS": "false",
+    "DATABASE_MIGRATIONS_MODE": "manual",
+    "LAUNCH_EMERGENCY_SHUTOFF_MODE": "off",
+    "RUN_SUBMISSION_RATE_LIMIT_MAX": "20",
+    "RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS": "60",
+    "MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX": "8",
+    "MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS": "60",
+    "ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX": "1",
+    "ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX": "3",
+    "ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX": "3",
+    "CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS": "2",
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "82292cbb4a774807b1137864cb8c37da",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "EDIT_ARTIFACTS",
+      "bucket_name": "legioncode-artifacts-dev",
+      "remote": true,
+    },
+  ],
+}
