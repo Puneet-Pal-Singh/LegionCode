@@ -15,6 +15,11 @@ toc:
 
 Use a local source checkout when contributing to LegionCode or testing deployment changes. Hosted product users do not need the monorepo.
 
+The release path is intentionally three stages: run locally, validate on the
+isolated Cloudflare dev environment, then promote the same verified commit to
+production. Local workers use `wrangler.local.jsonc`; cloud dev uses the
+standalone `wrangler.dev.jsonc` files and dedicated resources.
+
 ## Prerequisites
 
 - Node.js 20 LTS
@@ -130,3 +135,11 @@ pnpm --filter @legioncode/docs dev
 ```
 
 Use the Cloudflare Pages local commands from [deployment](/docs/deployment/) when you need to test edge functions, `/agents/` routing, `/docs/` routing, or the Cloud waitlist form.
+
+After local checks pass, use the dev deployment scripts with the dev endpoints
+documented in [deployment](/docs/deployment/). The dev gate requires isolated
+Cloudflare resource identities and no dev cron triggers. Keep GitHub OAuth
+callbacks, provider credentials, R2, KV, Postgres, Durable Objects, and
+container namespaces isolated from production. If a separate dev Postgres is
+not available, omit Hyperdrive instead of reusing production; database-backed
+dev routes then remain unavailable by design.

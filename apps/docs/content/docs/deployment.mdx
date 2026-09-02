@@ -31,6 +31,43 @@ LegionCode uses separate Cloudflare deployments behind one public product origin
 
 The agents app is built with a `/agents/` base path. OAuth callbacks should return users to the same public agents path.
 
+## Environment promotion
+
+Use Local -> Dev -> Prod. Deploy the same verified commit at each stage and run
+the smoke pass before promoting it.
+
+| Environment | Brain                  | Secure API           | Web                  | API endpoints                                         |
+| ----------- | ---------------------- | -------------------- | -------------------- | ----------------------------------------------------- |
+| Local       | local Wrangler         | local Wrangler       | Vite                 | `localhost:8788` / `localhost:8787`                   |
+| Dev         | `legioncode-brain-dev` | `legioncode-api-dev` | `legioncode-web-dev.pages.dev` | `brain-dev.legioncode.dev` / `api-dev.legioncode.dev` |
+| Prod        | `legioncode-brain`     | `legioncode-api`     | `legioncode-web`     | `brain.legioncode.dev` / `api.legioncode.dev`         |
+
+Cloud dev uses `legioncode-artifacts-dev`, a dedicated KV namespace, isolated
+Durable Object namespaces, and the `legioncode-api-sandbox-dev` container.
+Never bind it to production Hyperdrive/Postgres. When no separate dev Postgres
+is provisioned, omit Hyperdrive: the Worker remains deployable for control-plane
+and runtime checks, while database-backed authentication and persistence fail
+closed. Production uses `legioncode-artifacts`, production KV/Hyperdrive, and
+its existing container identity until a separately verified production
+container cutover. Dev has no scheduled cron trigger.
+
+From the repository root, the deploy entrypoints are:
+
+```bash
+pnpm --filter @legioncode/secure-agent-api deploy:dev
+pnpm --filter @legioncode/brain deploy:dev
+VITE_BRAIN_BASE_URL=https://brain-dev.legioncode.dev \
+VITE_MUSCLE_BASE_URL=https://api-dev.legioncode.dev \
+VITE_MUSCLE_WS_URL=wss://api-dev.legioncode.dev \
+pnpm --filter @legioncode/web deploy:dev
+```
+
+Use `deploy:production` on the same three packages only after the complete dev
+smoke pass. Generic `deploy` aliases production explicitly; no command relies
+on the default Wrangler config. A production promotion and container-name
+cutover remain blocked until dev has its own database and the database-backed
+acceptance path passes.
+
 ## Required bindings
 
 Production requires the configured Cloudflare bindings for the API service, secure runner, artifacts, sessions, database access, and edge routing. Keep bindings environment-specific and verify them before promoting a deployment.
@@ -133,6 +170,7 @@ state and artifact copying.
    migration IDs, then stop the remote-development session. The migration
    runner uses one PostgreSQL transaction plus an advisory lock; a failed
    statement is rolled back and must block deployment.
+
 2. Deploy the secure runner and verify its bindings.
 3. Deploy the API service and verify auth, database access, and service bindings.
 4. Build and deploy the agents app with all three required `VITE_*` endpoints.
