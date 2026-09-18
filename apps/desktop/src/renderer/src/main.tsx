@@ -1,21 +1,34 @@
+import {
+  ClientErrorBoundary,
+  ClientShell,
+  ClientShellLoading,
+} from "@legioncode/client-ui";
+import "@legioncode/client-ui/styles.css";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import type { DesktopBuildInfo } from "../../shared/desktop-api";
 import "./styles.css";
 
-function DesktopHello(): React.JSX.Element {
+function DesktopApp(): React.JSX.Element {
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
 
   useEffect(() => {
     void window.desktop.getBuildInfo().then(setBuild);
   }, []);
 
+  if (!build) {
+    return <ClientShellLoading label="Loading Desktop" />;
+  }
+
   return (
-    <main>
-      <p className="eyebrow">Local-first coding workspace</p>
-      <h1>Hello from LegionCode Desktop</h1>
-      {build ? (
+    <ClientShell>
+      <main className="desktop-welcome">
+        <p className="eyebrow">Local-first coding workspace</p>
+        <h1>LegionCode Desktop</h1>
+        <p className="desktop-summary">
+          The native shell is ready for a local workspace.
+        </p>
         <dl aria-label="Build information">
           <div>
             <dt>Version</dt>
@@ -34,10 +47,8 @@ function DesktopHello(): React.JSX.Element {
             <dd>{build.packaged ? "Packaged" : "Development"}</dd>
           </div>
         </dl>
-      ) : (
-        <p role="status">Loading build information…</p>
-      )}
-    </main>
+      </main>
+    </ClientShell>
   );
 }
 
@@ -48,6 +59,8 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <DesktopHello />
+    <ClientErrorBoundary>
+      <DesktopApp />
+    </ClientErrorBoundary>
   </StrictMode>,
 );

@@ -1,46 +1,34 @@
-:root {
-  color: #e8ecf7;
-  background: #0b1020;
-  font-family:
-    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  font-synthesis: none;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  min-width: 320px;
-  min-height: 100vh;
-  margin: 0;
-}
-
-#root {
-  min-height: 100vh;
+.lc-client-shell {
   display: grid;
   place-items: center;
   padding: 32px;
 }
 
-main {
+.desktop-welcome {
   width: min(100%, 640px);
 }
 
 .eyebrow {
   margin: 0 0 12px;
-  color: #8da2fb;
+  color: var(--lc-color-accent);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-h1 {
+.desktop-welcome h1 {
   margin: 0;
   font-size: clamp(2rem, 6vw, 4rem);
   line-height: 1.05;
+}
+
+.desktop-summary {
+  max-width: 34rem;
+  margin: 16px 0 0;
+  color: var(--lc-color-text-secondary);
+  font-size: 1rem;
+  line-height: 1.6;
 }
 
 dl {
@@ -52,13 +40,13 @@ dl {
 
 dl div {
   padding: 16px;
-  border: 1px solid #273251;
+  border: 1px solid var(--lc-color-border-subtle);
   border-radius: 12px;
-  background: #121a30;
+  background: var(--lc-color-surface-elevated);
 }
 
 dt {
-  color: #95a1bd;
+  color: var(--lc-color-text-tertiary);
   font-size: 0.75rem;
   text-transform: uppercase;
 }
