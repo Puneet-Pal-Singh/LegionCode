@@ -1,0 +1,10 @@
+{
+  "extends": "../../packages/typescript-config/react.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": ["electron.vite.config.ts", "src"]
+}
