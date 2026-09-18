@@ -1,6 +1,8 @@
 {
   "name": "@legioncode/desktop",
   "version": "0.1.0",
+  "description": "Local-first LegionCode desktop application",
+  "author": "LegionCode contributors",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -8,18 +10,23 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "check-types": "tsc --noEmit",
-    "test": "vitest run src/main/window-options.test.ts"
+    "test": "vitest run src/main/window-options.test.ts",
+    "package": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.ts --mac --publish never",
+    "package:dir": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.ts --mac --dir",
+    "test:packaged": "playwright test tests/packaged-app.spec.ts --workers=1"
   },
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.51.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "40.10.2",
+    "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",

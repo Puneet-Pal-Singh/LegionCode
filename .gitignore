@@ -49,6 +49,8 @@ apps/secure-agent-api/wrangler.local.jsonc
 # Build artifacts
 dist/
 .turbo/
+apps/desktop/release/
+apps/desktop/test-results/
 
 .archive/
 *.tsbuildinfo
