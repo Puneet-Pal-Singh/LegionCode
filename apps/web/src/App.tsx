@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { ClientShell, ClientShellLoading } from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -31,7 +32,6 @@ import {
 } from "./lib/startup-shell-state";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
-import { AuthShellLoading } from "./components/startup/AuthShellLoading";
 import type { SetupSessionState } from "./types/session";
 import { GitHubSignInPage } from "./components/onboarding/GitHubSignInPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
@@ -889,7 +889,7 @@ function AppContent() {
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
-    return <AuthShellLoading />;
+    return <ClientShellLoading label="Checking session" />;
   }
 
   if (!isAuthenticated) {
@@ -901,7 +901,7 @@ function AppContent() {
   }
 
   return (
-    <div className="h-dvh w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
+    <ClientShell>
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
         <>
@@ -1197,7 +1197,7 @@ function AppContent() {
           />
         </div>
       </div>
-    </div>
+    </ClientShell>
   );
 }
 

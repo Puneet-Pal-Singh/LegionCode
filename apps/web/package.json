@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "1.1.0",
+    "@legioncode/client-ui": "workspace:*",
     "@repo/observability": "workspace:*",
     "@repo/platform-client-sdk": "workspace:*",
     "@repo/platform-protocol": "workspace:*",

@@ -323,6 +323,9 @@ importers:
       '@ai-sdk/react':
         specifier: 1.1.0
         version: 1.1.0(react@19.2.4)(zod@3.25.1)
+      '@legioncode/client-ui':
+        specifier: workspace:*
+        version: link:../../packages/client-ui
       '@repo/observability':
         specifier: workspace:*
         version: link:../../packages/observability

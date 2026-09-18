@@ -1,46 +1,22 @@
 @import "xterm/css/xterm.css";
 @import "tailwindcss";
+@import "@legioncode/client-ui/styles.css";
 
 /* Configuration for Tailwind v4 happens here */
 @theme {
-  --color-background: #000000;
-  --color-surface: #0c0c0e;
-  --color-surface-elevated: #171717;
-  --color-border: #1a1a1a;
-  --color-border-subtle: #262626;
-  --color-accent: #10b981;
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #a1a1aa;
-  --color-text-tertiary: #71717a;
+  --color-background: var(--lc-color-background);
+  --color-surface: var(--lc-color-surface);
+  --color-surface-elevated: var(--lc-color-surface-elevated);
+  --color-border: var(--lc-color-border);
+  --color-border-subtle: var(--lc-color-border-subtle);
+  --color-accent: var(--lc-color-accent);
+  --color-text-primary: var(--lc-color-text-primary);
+  --color-text-secondary: var(--lc-color-text-secondary);
+  --color-text-tertiary: var(--lc-color-text-tertiary);
   --color-accent-purple: #8b5cf6;
   --color-accent-purple-hover: #7c3aed;
 
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-}
-
-/* Reset and Global Styles */
-@layer base {
-  html {
-    font-size: 13px;
-  }
-
-  html,
-  body,
-  #root {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    background-color: #000000;
-    color: #fafafa;
-    overflow: hidden; /* Necessary for a desktop-app feel */
-  }
-
-  /* Fix the Vite "Center" bug */
-  body {
-    display: block;
-    min-width: 0;
-    min-height: 0;
-  }
 }
 
 /* Custom scrollbars for the dark theme */
