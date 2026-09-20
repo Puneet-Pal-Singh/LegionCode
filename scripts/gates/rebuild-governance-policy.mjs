@@ -119,7 +119,7 @@ export const ARCHITECTURE_SENSITIVE_PATHS = [
   /^packages\/execution-engine\/src\/runtime\//,
   /^packages\/git-service\//,
   /^packages\/permission-policy\//,
-  /^packages\/platform-client-sdk\//,
+  /^packages\/sdk\//,
   /^packages\/platform-protocol\//,
   /^packages\/runtime-kernel\//,
   /^packages\/token-budgeting\//,

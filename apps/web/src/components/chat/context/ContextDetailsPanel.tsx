@@ -1,7 +1,7 @@
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { formatCost, formatTokenCount } from "./context-format";
 
 interface ContextDetailsPanelProps {

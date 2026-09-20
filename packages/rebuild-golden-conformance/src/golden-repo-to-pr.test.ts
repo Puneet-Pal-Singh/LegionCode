@@ -14,7 +14,7 @@ import {
   DefaultPlatformClient,
   type PlatformClientTransport,
   type ReplayLifecycleEventsResponse,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import {
   ArtifactMetadataSchema,
   LifecycleEventSchema,
@@ -56,7 +56,7 @@ import type {
 import {
   CreateRunRequestSchema,
   StartTurnRequestSchema,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import {
   WORKER_PROTOCOL_VERSION,
   WorkerProtocolRequestSchema,

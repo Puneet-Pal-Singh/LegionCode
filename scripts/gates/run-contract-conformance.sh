@@ -20,6 +20,6 @@ run corepack pnpm --filter @repo/persistence test -- src/canonical-events/Postgr
 run corepack pnpm --filter @repo/workspace-core test -- src/repository.test.ts
 run corepack pnpm --filter @repo/git-service test -- src/GitService.test.ts
 run corepack pnpm --filter @repo/worker-protocol test -- src/protocol.test.ts
-run corepack pnpm --filter @repo/platform-client-sdk test -- src/platform/http-transport.test.ts
+run corepack pnpm --filter @legioncode/sdk test -- src/platform/http-transport.test.ts
 
 echo "[contract-conformance] All canonical contract suites passed."

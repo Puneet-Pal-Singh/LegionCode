@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ClientShell, ClientShellLoading } from "@legioncode/client-ui";
+import { ClientShell, ClientShellLoading, type AppServerEnvironmentSnapshot } from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -40,6 +40,7 @@ import {
   type SettingsSection,
 } from "./lib/settings-dialog-events";
 import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
+import { initializeHostedAppServer } from "./services/api/appServerClient";
 import {
   createInitialPromptSubmissionId,
   type InitialPromptSubmission,
@@ -50,6 +51,16 @@ import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
 const MIN_RIGHT_SIDEBAR_WIDTH = 420;
 const MAX_RIGHT_SIDEBAR_WIDTH = 720;
+
+const HOSTED_ENVIRONMENT: AppServerEnvironmentSnapshot = {
+  kind: "hosted",
+  status: "starting",
+  protocolVersion: null,
+  serverVersion: null,
+  capabilities: [],
+  unavailableCapabilities: [],
+  reason: "Checking hosted App Server",
+};
 
 function getInitialRightSidebarWidth(): number {
   const availableWidth = window.innerWidth - DEFAULT_LEFT_SIDEBAR_WIDTH;
@@ -167,6 +178,29 @@ function App() {
  * Separated to allow useAuth hook access within AuthProvider
  */
 function AppContent() {
+  const [environment, setEnvironment] =
+    useState<AppServerEnvironmentSnapshot>(HOSTED_ENVIRONMENT);
+  useEffect(() => {
+    void initializeHostedAppServer()
+      .then((handshake) => {
+        setEnvironment({
+          kind: handshake.environment,
+          status: "ready",
+          protocolVersion: handshake.protocolVersion,
+          serverVersion: handshake.server.version,
+          capabilities: handshake.capabilities,
+          unavailableCapabilities: handshake.unavailableCapabilities,
+          reason: null,
+        });
+      })
+      .catch(() => {
+        setEnvironment({
+          ...HOSTED_ENVIRONMENT,
+          status: "degraded",
+          reason: "Hosted App Server status is unavailable",
+        });
+      });
+  }, []);
   const { isAuthenticated, isLoading, login, logout, refreshSession, user } =
     useAuth();
   const {
@@ -901,7 +935,7 @@ function AppContent() {
   }
 
   return (
-    <ClientShell>
+    <ClientShell environment={environment}>
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
         <>

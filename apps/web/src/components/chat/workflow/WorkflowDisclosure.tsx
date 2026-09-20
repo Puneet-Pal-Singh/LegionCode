@@ -1,7 +1,7 @@
 import type {
   ToolActivitySegment,
   TurnWorkflowProjection,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { WorkflowTimeline } from "./WorkflowTimeline.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";

@@ -64,7 +64,7 @@ run_checked "Determinism + provider parity checks" pnpm --filter @legioncode/exe
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Determinism + provider parity checks passed${NC}"
 
 run_checked "Brain observability + parity smoke checks" pnpm --filter @legioncode/brain test -- src/core/observability/ByokObservability.test.ts src/runtime/parity-smoke.test.ts
-run_checked "Platform client contract parity checks" pnpm --filter @repo/platform-client-sdk test -- src/providers/cross-client-contract-parity.test.ts
+run_checked "Platform client contract parity checks" pnpm --filter @legioncode/sdk test -- src/providers/cross-client-contract-parity.test.ts
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Observability + parity smoke checks passed${NC}"
 
 run_checked "Isolation + retry reliability checks" pnpm --filter @legioncode/execution-engine test -- src/runtime/engine/RunEngine.isolation.test.ts src/runtime/orchestration/TaskScheduler.test.ts

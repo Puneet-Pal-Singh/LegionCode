@@ -16,7 +16,10 @@
     "test:packaged": "playwright test tests/packaged-app.spec.ts --workers=1"
   },
   "dependencies": {
+    "@legioncode/app-server": "workspace:*",
     "@legioncode/client-ui": "workspace:*",
+    "@legioncode/sdk": "workspace:*",
+    "@repo/platform-protocol": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

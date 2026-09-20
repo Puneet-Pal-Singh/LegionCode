@@ -1,5 +1,5 @@
 {
-  "name": "@repo/platform-client-sdk",
+  "name": "@legioncode/sdk",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./platform/client": "./src/platform/client.ts",
+    "./platform/app-server-client": "./src/platform/app-server-client.ts",
     "./platform/errors": "./src/platform/errors.ts",
     "./platform/http-transport": "./src/platform/http-transport.ts",
     "./platform/hook-audit-projection": "./src/platform/hook-audit-projection.ts",

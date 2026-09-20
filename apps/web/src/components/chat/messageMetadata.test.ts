@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@ai-sdk/react";
-import { TurnIdSchema } from "@repo/platform-client-sdk";
+import { TurnIdSchema } from "@legioncode/sdk";
 import { createLifecycleProjection } from "../../services/lifecycle/LifecycleProjection.js";
 import {
   buildConversationTurns,

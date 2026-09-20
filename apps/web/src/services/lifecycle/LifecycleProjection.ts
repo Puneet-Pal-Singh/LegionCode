@@ -14,7 +14,7 @@ import {
   createTurnWorkflowProjection,
   workflowPhaseLabel,
   type TurnWorkflowProjection,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 
 export type LifecycleProjectionTerminalState = NonNullable<
   TurnWorkflowProjection["terminal"]

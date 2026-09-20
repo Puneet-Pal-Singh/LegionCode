@@ -4,7 +4,7 @@ import {
   RunIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import {
   DEFAULT_RUN_MODE,
   type ProductMode,

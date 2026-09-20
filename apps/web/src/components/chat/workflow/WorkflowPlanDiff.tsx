@@ -1,4 +1,4 @@
-import type { TurnWorkflowProjection } from "@repo/platform-client-sdk";
+import type { TurnWorkflowProjection } from "@legioncode/sdk";
 
 export function WorkflowPlanDiff({
   projection,

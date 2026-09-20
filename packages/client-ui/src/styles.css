@@ -42,12 +42,71 @@ body {
 
 .lc-client-shell {
   display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100dvh;
   min-width: 0;
   overflow: hidden;
   background: var(--lc-color-background);
   color: var(--lc-color-text-secondary);
+}
+
+.lc-client-shell-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.lc-environment-status {
+  align-items: center;
+  background: rgb(17 24 39 / 82%);
+  border-bottom: 1px solid rgb(148 163 184 / 18%);
+  color: #cbd5e1;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.55rem;
+  min-height: 2rem;
+  padding: 0.4rem 1rem;
+  width: 100%;
+}
+
+.lc-environment-status small {
+  color: #94a3b8;
+  margin-left: 0.5rem;
+}
+
+.lc-environment-status button {
+  background: transparent;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 0.35rem;
+  color: #e2e8f0;
+  cursor: pointer;
+  font: inherit;
+  margin-left: auto;
+  padding: 0.2rem 0.5rem;
+}
+
+.lc-environment-status-dot {
+  background: #94a3b8;
+  border-radius: 999px;
+  height: 0.5rem;
+  width: 0.5rem;
+}
+
+.lc-environment-status-ready .lc-environment-status-dot {
+  background: #4ade80;
+}
+
+.lc-environment-status-degraded .lc-environment-status-dot,
+.lc-environment-status-starting .lc-environment-status-dot {
+  background: #facc15;
+}
+
+.lc-environment-status-offline .lc-environment-status-dot,
+.lc-environment-status-stopped .lc-environment-status-dot {
+  background: #f87171;
 }
 
 .lc-client-screen {

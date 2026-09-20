@@ -1,7 +1,7 @@
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { cn } from "../../lib/utils";
 import { ContextUsageRing } from "./context/ContextUsageRing";
 import { ContextWindowTooltip } from "./context/ContextWindowTooltip";

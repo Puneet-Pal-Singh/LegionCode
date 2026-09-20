@@ -33,6 +33,21 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
       page.getByRole("heading", { name: "LegionCode Desktop" }),
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
+    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expect(page.getByText("4 capability slices unavailable", { exact: true })).toBeVisible();
+    const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
+    const appServerMetric = appMetrics.find(
+      (metric) => metric.name === "LegionCode Local App Server",
+    );
+    if (!appServerMetric) {
+      throw new Error("Packaged Local App Server process was not found");
+    }
+    process.kill(appServerMetric.pid, "SIGKILL");
+    await expect(page.getByText("Environment offline", { exact: true })).toBeVisible();
+    const restartPromise = page.evaluate(() => window.desktop.restartEnvironment());
+    await expect(page.getByText("Starting environment", { exact: true })).toBeVisible();
+    await restartPromise;
+    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
 
     const rendererBoundary = await page.evaluate(() => ({
       processType: typeof (globalThis as { process?: unknown }).process,
@@ -43,7 +58,12 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     expect(rendererBoundary).toEqual({
       processType: "undefined",
       requireType: "undefined",
-      desktopMethods: ["getBuildInfo"],
+      desktopMethods: [
+        "getBuildInfo",
+        "getEnvironment",
+        "onEnvironmentStatus",
+        "restartEnvironment",
+      ],
     });
 
     const rendererUrl = page.url();

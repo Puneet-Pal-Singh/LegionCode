@@ -22,7 +22,7 @@
     "@ai-sdk/react": "1.1.0",
     "@legioncode/client-ui": "workspace:*",
     "@repo/observability": "workspace:*",
-    "@repo/platform-client-sdk": "workspace:*",
+    "@legioncode/sdk": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@tailwindcss/vite": "^4.1.18",
     "clsx": "^2.1.1",

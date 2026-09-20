@@ -12,7 +12,7 @@ import {
   WorkspaceIdSchema,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";

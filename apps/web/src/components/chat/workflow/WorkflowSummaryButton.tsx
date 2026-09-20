@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   workflowPhaseLabel,
   type TurnWorkflowProjection,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 
 interface WorkflowSummaryButtonProps {
   expanded: boolean;

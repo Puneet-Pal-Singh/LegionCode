@@ -30,6 +30,9 @@ importers:
 
   apps/brain:
     dependencies:
+      '@legioncode/app-server':
+        specifier: workspace:*
+        version: link:../../packages/app-server
       '@ai-sdk/anthropic':
         specifier: 1.1.0
         version: 1.1.0(zod@3.25.1)
@@ -112,9 +115,18 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@legioncode/app-server':
+        specifier: workspace:*
+        version: link:../../packages/app-server
       '@legioncode/client-ui':
         specifier: workspace:*
         version: link:../../packages/client-ui
+      '@legioncode/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../../packages/platform-protocol
       react:
         specifier: ^19.2.0
         version: 19.2.4
@@ -329,9 +341,9 @@ importers:
       '@repo/observability':
         specifier: workspace:*
         version: link:../../packages/observability
-      '@repo/platform-client-sdk':
+      '@legioncode/sdk':
         specifier: workspace:*
-        version: link:../../packages/platform-client-sdk
+        version: link:../../packages/sdk
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../../packages/platform-protocol
@@ -479,8 +491,30 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
 
+  packages/app-server:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.30
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
+
   packages/client-ui:
     dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
       react:
         specifier: ^19.2.0
         version: 19.2.4
@@ -874,7 +908,7 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
 
-  packages/platform-client-sdk:
+  packages/sdk:
     dependencies:
       '@repo/hook-protocol':
         specifier: workspace:*
@@ -951,9 +985,9 @@ importers:
       '@repo/git-service':
         specifier: workspace:*
         version: link:../git-service
-      '@repo/platform-client-sdk':
+      '@legioncode/sdk':
         specifier: workspace:*
-        version: link:../platform-client-sdk
+        version: link:../sdk
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
