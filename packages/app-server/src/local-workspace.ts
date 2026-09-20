@@ -51,11 +51,11 @@ export class LocalWorkspaceService {
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
     const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
     const canonicalPath = await validateSelectedDirectory(path);
-    const repoRoot = await this.readRepositoryRoot(canonicalPath);
+    const { repoRoot, probe } = await this.readRepository(canonicalPath);
     if (repoRoot !== canonicalPath) {
       throw new Error("Workspace selection must be the repository root");
     }
-    const grant = await this.probeRepository(repoRoot, null);
+    const grant = buildGrant(repoRoot, probe, null);
     const stored: StoredGrant = {
       version: STORAGE_VERSION,
       path: repoRoot,
@@ -94,11 +94,11 @@ export class LocalWorkspaceService {
   private async probeStoredGrant(stored: StoredGrant): Promise<LocalWorkspaceGrant> {
     try {
       const canonicalPath = await validateSelectedDirectory(stored.path);
-      const repoRoot = await this.readRepositoryRoot(canonicalPath);
+      const { repoRoot, probe } = await this.readRepository(canonicalPath);
       if (repoRoot !== stored.path) {
         return invalidGrant(stored.grant, "Authorized repository path changed");
       }
-      return await this.probeRepository(repoRoot, stored.grant);
+      return buildGrant(repoRoot, probe, stored.grant);
     } catch (error) {
       return invalidGrant(
         stored.grant,
@@ -107,29 +107,9 @@ export class LocalWorkspaceService {
     }
   }
 
-  private async readRepositoryRoot(path: string): Promise<string> {
-    const root = (await this.gitService.probeRepository({ workspaceRoot: path }))
-      .repositoryRoot;
-    return await realpath(root);
-  }
-
-  private async probeRepository(
-    repoRoot: string,
-    previous: LocalWorkspaceGrant | null,
-  ): Promise<LocalWorkspaceGrant> {
-    const probe = await this.gitService.probeRepository({
-      workspaceRoot: repoRoot,
-    });
-    return LocalWorkspaceGrantSchema.parse({
-      workspaceId: previous?.workspaceId ?? workspaceIdForPath(repoRoot),
-      displayName: basename(repoRoot),
-      repositoryIdentity: probe.repositoryIdentity,
-      branch: probe.branch,
-      readiness: LocalWorkspaceReadinessSchema.enum.ready,
-      capabilities: ["filesystem", "git"],
-      reason: null,
-      grantedAt: previous?.grantedAt ?? new Date().toISOString(),
-    });
+  private async readRepository(path: string) {
+    const probe = await this.gitService.probeRepository({ workspaceRoot: path });
+    return { repoRoot: await realpath(probe.repositoryRoot), probe };
   }
 
   private async writeStoredGrant(stored: StoredGrant): Promise<void> {
@@ -145,6 +125,23 @@ export class LocalWorkspaceService {
       await unlink(temporaryPath).catch(() => undefined);
     }
   }
+}
+
+function buildGrant(
+  repoRoot: string,
+  probe: Awaited<ReturnType<DefaultGitService["probeRepository"]>>,
+  previous: LocalWorkspaceGrant | null,
+): LocalWorkspaceGrant {
+  return LocalWorkspaceGrantSchema.parse({
+    workspaceId: previous?.workspaceId ?? workspaceIdForPath(repoRoot),
+    displayName: basename(repoRoot),
+    repositoryIdentity: probe.repositoryIdentity,
+    branch: probe.branch,
+    readiness: LocalWorkspaceReadinessSchema.enum.ready,
+    capabilities: ["filesystem", "git"],
+    reason: null,
+    grantedAt: previous?.grantedAt ?? new Date().toISOString(),
+  });
 }
 
 function invalidGrant(grant: LocalWorkspaceGrant, reason: string): LocalWorkspaceGrant {
