@@ -56,7 +56,7 @@ export class LocalThreadService {
       userId: LOCAL_USER_ID,
       workspaceId: workspace.workspaceId,
       title: request.title ?? "New local thread",
-      titleSource: "user",
+      titleSource: request.title ? "user" : "none",
       titleVersion: 1,
       titleStatus: "ready",
       lastTerminalTurnId: null,
