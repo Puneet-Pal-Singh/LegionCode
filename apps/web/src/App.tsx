@@ -41,7 +41,7 @@ import {
 } from "./lib/settings-dialog-events";
 import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
-import { createAppServerClient } from "@repo/platform-client-sdk";
+import { createAppServerClient } from "@legioncode/sdk";
 import { getBrainHttpBase } from "./lib/platform-endpoints";
 import {
   createInitialPromptSubmissionId,

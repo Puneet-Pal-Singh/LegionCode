@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ApprovalId, ItemId, TurnId } from "@repo/platform-client-sdk";
+import type { ApprovalId, ItemId, TurnId } from "@legioncode/sdk";
 import type { LifecycleClient } from "../../../services/api/lifecycleClient";
 import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { useApprovalController } from "./useApprovalController";

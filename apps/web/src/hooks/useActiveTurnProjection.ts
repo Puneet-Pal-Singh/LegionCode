@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { TurnIdSchema } from "@repo/platform-client-sdk";
+import { TurnIdSchema } from "@legioncode/sdk";
 import { useTurnLifecycleProjection } from "./useTurnLifecycleProjection.js";
 import type { LifecycleProjection } from "../services/lifecycle/LifecycleProjection";
 

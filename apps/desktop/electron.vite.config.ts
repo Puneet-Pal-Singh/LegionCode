@@ -7,7 +7,7 @@ export default defineConfig({
       externalizeDepsPlugin({
         exclude: [
           "@legioncode/app-server",
-          "@repo/platform-client-sdk",
+          "@legioncode/sdk",
           "@repo/platform-protocol",
           "zod",
         ],

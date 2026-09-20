@@ -12,7 +12,7 @@
   "dependencies": {
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
-    "@repo/platform-client-sdk": "workspace:*",
+    "@legioncode/sdk": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/runtime-kernel": "workspace:*",
     "@repo/worker-protocol": "workspace:*",

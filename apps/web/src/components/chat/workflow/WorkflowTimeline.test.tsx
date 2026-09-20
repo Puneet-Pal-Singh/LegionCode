@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ItemIdSchema } from "@repo/platform-client-sdk";
+import { ItemIdSchema } from "@legioncode/sdk";
 import { WorkflowTimeline } from "./WorkflowTimeline.js";
 
 describe("WorkflowTimeline", () => {

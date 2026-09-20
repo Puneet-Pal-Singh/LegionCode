@@ -3,7 +3,7 @@ import {
   type ToolActivitySegment,
   type TurnWorkflowProjection,
   type WorkflowItem,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 
 export function useWorkflowClock(settled: boolean): number {
   const [now, setNow] = useState(() => Date.now());

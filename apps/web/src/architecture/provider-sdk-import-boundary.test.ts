@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const SOURCE_ROOT = join(process.cwd(), "src");
-const SDK_IMPORT_PATH = "@repo/platform-client-sdk";
+const SDK_IMPORT_PATH = "@legioncode/sdk";
 const ALLOWED_IMPORT_FILES = new Set([
   "services/api/providerClient.ts",
   "services/api/lifecycleClient.ts",

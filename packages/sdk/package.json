@@ -1,5 +1,5 @@
 {
-  "name": "@repo/platform-client-sdk",
+  "name": "@legioncode/sdk",
   "version": "0.0.0",
   "private": true,
   "type": "module",

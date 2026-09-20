@@ -9,7 +9,7 @@ import {
 import {
   AppServerHandshakeError,
   createAppServerClient,
-} from "@repo/platform-client-sdk/platform/app-server-client";
+} from "@legioncode/sdk/platform/app-server-client";
 import type {
   DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,

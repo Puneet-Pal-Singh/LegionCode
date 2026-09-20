@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 
 const SOURCE_ROOT = join(process.cwd(), "src");
 const BLOCKED_PATTERNS = [
-  "@repo/platform-client-sdk",
+  "@legioncode/sdk",
   "services/api/providerClient",
   "/api/byok",
 ];

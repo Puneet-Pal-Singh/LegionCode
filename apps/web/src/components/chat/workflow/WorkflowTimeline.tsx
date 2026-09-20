@@ -19,7 +19,7 @@ import {
   buildSegmentTitle,
   type ToolActivitySegment,
   type WorkflowItem,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
 import { itemDisplayText } from "./workflowPresentation.js";

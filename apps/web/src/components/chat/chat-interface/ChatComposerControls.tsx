@@ -12,7 +12,7 @@ import { ChatInputBar } from "../ChatInputBar";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 
 export type ComposerLayout = "docked" | "hero";
 

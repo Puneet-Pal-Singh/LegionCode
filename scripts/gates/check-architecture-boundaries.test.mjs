@@ -287,7 +287,7 @@ async function createFixture(context) {
       "@repo/platform-protocol": "workspace:*",
       "@repo/shared-types": "workspace:*",
     },
-    "platform-client-sdk": {
+    "sdk": {
       "@repo/hook-protocol": "workspace:*",
       "@repo/platform-protocol": "workspace:*",
       "@repo/provider-core": "workspace:*",
@@ -305,11 +305,12 @@ async function createFixture(context) {
     },
     "workspace-core": { "@repo/platform-protocol": "workspace:*" },
   })) {
+    const packageName = name === "sdk" ? "@legioncode/sdk" : `@repo/${name}`;
     await writeManifest(
       fixtureRoot,
       "packages",
       name,
-      `@repo/${name}`,
+      packageName,
       dependencies,
     );
   }

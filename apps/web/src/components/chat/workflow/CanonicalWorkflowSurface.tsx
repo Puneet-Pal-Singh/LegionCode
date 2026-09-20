@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import {
   groupToolActivity,
   type TurnWorkflowProjection,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { WorkflowDisclosure } from "./WorkflowDisclosure.js";
 import { WorkflowSummaryButton } from "./WorkflowSummaryButton.js";
 import {

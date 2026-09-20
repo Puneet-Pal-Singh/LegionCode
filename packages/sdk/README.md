@@ -1,10 +1,10 @@
-# @repo/platform-client-sdk
+# @legioncode/sdk
 
 Shared provider client SDK for LegionCode web and desktop cloud-path consumers.
 
 ## Purpose
 
-`@repo/platform-client-sdk` is the only client-side transport and orchestration boundary for BYOK/provider operations.
+`@legioncode/sdk` is the only client-side transport and orchestration boundary for BYOK/provider operations.
 
 It centralizes:
 - typed provider contracts (`@repo/shared-types` + `@repo/provider-core`),
@@ -39,7 +39,7 @@ Primary files:
 Web client:
 
 ```ts
-import { createProviderClient, createByokHttpTransport } from "@repo/platform-client-sdk";
+import { createProviderClient, createByokHttpTransport } from "@legioncode/sdk";
 
 const client = createProviderClient(
   createByokHttpTransport({
@@ -52,7 +52,7 @@ const client = createProviderClient(
 Desktop cloud-path client:
 
 ```ts
-import { createProviderClient, createByokCloudTransport } from "@repo/platform-client-sdk";
+import { createProviderClient, createByokCloudTransport } from "@legioncode/sdk";
 
 const client = createProviderClient(
   createByokCloudTransport({
@@ -95,7 +95,7 @@ When migrating app-local provider code:
 ## Verification
 
 ```bash
-pnpm --filter @repo/platform-client-sdk lint
-pnpm --filter @repo/platform-client-sdk check-types
-pnpm --filter @repo/platform-client-sdk test
+pnpm --filter @legioncode/sdk lint
+pnpm --filter @legioncode/sdk check-types
+pnpm --filter @legioncode/sdk test
 ```

@@ -121,9 +121,9 @@ importers:
       '@legioncode/client-ui':
         specifier: workspace:*
         version: link:../../packages/client-ui
-      '@repo/platform-client-sdk':
+      '@legioncode/sdk':
         specifier: workspace:*
-        version: link:../../packages/platform-client-sdk
+        version: link:../../packages/sdk
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../../packages/platform-protocol
@@ -341,9 +341,9 @@ importers:
       '@repo/observability':
         specifier: workspace:*
         version: link:../../packages/observability
-      '@repo/platform-client-sdk':
+      '@legioncode/sdk':
         specifier: workspace:*
-        version: link:../../packages/platform-client-sdk
+        version: link:../../packages/sdk
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../../packages/platform-protocol
@@ -908,7 +908,7 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
 
-  packages/platform-client-sdk:
+  packages/sdk:
     dependencies:
       '@repo/hook-protocol':
         specifier: workspace:*
@@ -985,9 +985,9 @@ importers:
       '@repo/git-service':
         specifier: workspace:*
         version: link:../git-service
-      '@repo/platform-client-sdk':
+      '@legioncode/sdk':
         specifier: workspace:*
-        version: link:../platform-client-sdk
+        version: link:../sdk
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol

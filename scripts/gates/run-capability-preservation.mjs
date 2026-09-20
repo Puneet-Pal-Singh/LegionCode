@@ -33,7 +33,7 @@ const CAPABILITIES = [
         "persists assistant deltas using the server-issued turn identity",
       ],
       [
-        "packages/platform-client-sdk/src/providers/cross-client-lifecycle-parity.test.ts",
+        "packages/sdk/src/providers/cross-client-lifecycle-parity.test.ts",
         "keeps lifecycle outputs and request sequence aligned across web and cloud transports",
       ],
     ],
@@ -60,7 +60,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@repo/platform-client-sdk",
+        "@legioncode/sdk",
         "test",
         "--",
         "src/providers/cross-client-lifecycle-parity.test.ts",
@@ -80,7 +80,7 @@ const CAPABILITIES = [
         "follows canonical lifecycle events into a projection",
       ],
       [
-        "packages/platform-client-sdk/src/workflow/turn-workflow-projection.test.ts",
+        "packages/sdk/src/workflow/turn-workflow-projection.test.ts",
         "preserves typed tool families and repeated ordered children",
       ],
       [
@@ -102,7 +102,7 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@repo/platform-client-sdk",
+        "@legioncode/sdk",
         "test",
         "--",
         "src/workflow/turn-workflow-projection.test.ts",

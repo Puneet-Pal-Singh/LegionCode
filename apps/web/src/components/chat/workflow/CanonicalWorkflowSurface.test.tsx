@@ -5,8 +5,8 @@ import {
   ItemIdSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
-} from "@repo/platform-client-sdk";
-import { createTurnWorkflowProjection } from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
+import { createTurnWorkflowProjection } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "./CanonicalWorkflowSurface.js";
 
 describe("CanonicalWorkflowSurface", () => {

@@ -10,7 +10,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
     "@repo/shared-types",
     "@repo/workspace-core",
   ],
-  "@repo/platform-client-sdk": [
+  "@legioncode/sdk": [
     "@repo/hook-protocol",
     "@repo/platform-protocol",
     "@repo/provider-core",
@@ -44,7 +44,7 @@ export const APP_IMPORT_POLICY = {
   ],
   "@legioncode/web": [
     "@repo/observability",
-    "@repo/platform-client-sdk",
+    "@legioncode/sdk",
     "@repo/shared-types",
   ],
 };

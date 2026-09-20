@@ -32,7 +32,7 @@ import {
   type ThreadId,
   type TurnDiffPayload,
   type TurnId,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 
 export {

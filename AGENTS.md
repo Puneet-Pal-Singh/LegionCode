@@ -301,7 +301,7 @@ rules are defined in:
 The ideal dependency direction:
 
 ```txt
-clients -> platform-client-sdk -> platform-protocol
+clients -> sdk -> platform-protocol
 clients -> runtime adapters -> runtime-kernel
 runtime-kernel -> worker-protocol / permission-policy / git-service
 brain -> control-plane services -> runtime backend ports
@@ -326,8 +326,8 @@ not a second runtime API.
 - Canonical lifecycle item schemas and payloads belong under
   `packages/platform-protocol`.
 - Reusable pure replay/projection/grouping code belongs in a dedicated
-  workflow/projection directory under `packages/platform-client-sdk` until the
-  public `@legioncode/sdk` cutover.
+  workflow/projection directory under `packages/sdk` at the public
+  `@legioncode/sdk` boundary.
 - Client-specific view models and renderers belong in a dedicated workflow
   feature directory inside that client, such as
   `apps/web/src/components/chat/workflow`.

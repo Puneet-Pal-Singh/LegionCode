@@ -22,7 +22,7 @@ import {
   type BYOKResolution,
   type BYOKResolveRequest,
   type ProviderRegistryEntry,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import type {
   BYOKModelCapabilityMetadata,
   BYOKModelCapability,

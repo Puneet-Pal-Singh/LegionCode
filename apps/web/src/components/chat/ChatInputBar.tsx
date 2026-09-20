@@ -45,7 +45,7 @@ import { getReviewCommentDisplayLabel } from "../git/reviewComments";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-client-sdk";
+} from "@legioncode/sdk";
 import { useComposerPreferences } from "../../lib/composer-preferences";
 import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
 import {

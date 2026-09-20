@@ -83,7 +83,7 @@ test("detects architecture-sensitive current and future extension paths", () => 
   );
   assert.equal(
     hasArchitectureSensitiveChange([
-      "packages/platform-client-sdk/src/client.ts",
+      "packages/sdk/src/client.ts",
     ]),
     true,
   );
