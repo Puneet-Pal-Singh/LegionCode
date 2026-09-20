@@ -107,11 +107,7 @@ export class LocalWorkspaceService {
   private async readRepositoryRoot(path: string): Promise<string> {
     const root = (await this.gitService.probeRepository({ workspaceRoot: path }))
       .repositoryRoot;
-    const canonicalRoot = await realpath(root);
-    if (!isPathWithin(canonicalRoot, path) && !isPathWithin(path, canonicalRoot)) {
-      throw new Error("Git repository root is outside the selected workspace");
-    }
-    return canonicalRoot;
+    return await realpath(root);
   }
 
   private async probeRepository(
@@ -173,10 +169,6 @@ async function validateSelectedDirectory(path: string): Promise<string> {
 function workspaceIdForPath(path: string) {
   const digest = createHash("sha256").update(path).digest("hex").slice(0, 24);
   return WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${digest}`));
-}
-
-function isPathWithin(candidate: string, root: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}/`);
 }
 
 function isStoredGrant(value: unknown): value is StoredGrant {
