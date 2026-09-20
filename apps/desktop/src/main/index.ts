@@ -31,7 +31,7 @@ let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 const pendingWorkspaceSelections = new Map<
   string,
-  { path: string; expiresAt: number }
+  { path: string; senderId: number; expiresAt: number }
 >();
 
 function assertTrustedDesktopFrame(event: Electron.IpcMainInvokeEvent): void {
@@ -65,6 +65,7 @@ ipcMain.handle(WORKSPACE_PICK_CHANNEL, async (event) => {
   pendingWorkspaceSelections.clear();
   pendingWorkspaceSelections.set(selectionToken, {
     path,
+    senderId: event.sender.id,
     expiresAt: Date.now() + 5 * 60 * 1_000,
   });
   return { selectionToken, displayName: basename(path) };
@@ -76,7 +77,11 @@ ipcMain.handle(WORKSPACE_GRANT_CHANNEL, async (event, token: unknown) => {
   }
   const selection = pendingWorkspaceSelections.get(token);
   pendingWorkspaceSelections.delete(token);
-  if (!selection || selection.expiresAt < Date.now()) {
+  if (
+    !selection ||
+    selection.senderId !== event.sender.id ||
+    selection.expiresAt < Date.now()
+  ) {
     throw new Error("Workspace selection token is expired or already used");
   }
   return await localAppServer.grantWorkspace(selection.path);
