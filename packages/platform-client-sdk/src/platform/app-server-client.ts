@@ -3,7 +3,6 @@ import {
   AppServerErrorSchema,
   AppServerInitializeRequestSchema,
   AppServerInitializeResponseSchema,
-  type AppServerInitializeRequest,
   type AppServerInitializeResponse,
 } from "@repo/platform-protocol";
 
