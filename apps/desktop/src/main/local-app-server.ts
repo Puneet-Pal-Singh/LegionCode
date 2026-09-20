@@ -48,6 +48,8 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
     typeof value.credential === "string" &&
     value.credential.length >= 32 &&
     typeof value.serverVersion === "string" &&
-    value.serverVersion.length > 0
+    value.serverVersion.length > 0 &&
+    typeof value.storageDirectory === "string" &&
+    value.storageDirectory.startsWith("/")
   );
 }

@@ -34,7 +34,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
-    await expect(page.getByText("4 capability slices unavailable", { exact: true })).toBeVisible();
+    await expect(page.getByText("3 capability slices unavailable", { exact: true })).toBeVisible();
     const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
     const appServerMetric = appMetrics.find(
       (metric) => metric.name === "LegionCode Local App Server",

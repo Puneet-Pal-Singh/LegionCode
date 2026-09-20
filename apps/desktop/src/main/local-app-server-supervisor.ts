@@ -4,6 +4,7 @@ import { utilityProcess, type UtilityProcess } from "electron";
 import {
   AppServerEnvironmentSnapshotSchema,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
+  type LocalWorkspaceGrant,
   type AppServerEnvironmentSnapshot,
 } from "@repo/platform-protocol";
 import {
@@ -26,6 +27,8 @@ export class LocalAppServerSupervisor {
   private child: UtilityProcess | null = null;
   private childPid: number | null = null;
   private credential: string | null = null;
+  private storageDirectory: string | null = null;
+  private appServerClient: ReturnType<typeof createAppServerClient> | null = null;
   private config: SupervisedEnvironment = createSnapshot("starting");
   private readonly listeners = new Set<
     (snapshot: AppServerEnvironmentSnapshot) => void
@@ -46,12 +49,13 @@ export class LocalAppServerSupervisor {
     return () => this.listeners.delete(listener);
   }
 
-  async start(serverVersion: string): Promise<void> {
+  async start(serverVersion: string, storageDirectory: string): Promise<void> {
     this.stopping = false;
     this.childPid = null;
     this.update(createSnapshot("starting"));
     const credential = randomBytes(32).toString("base64url");
     this.credential = credential;
+    this.storageDirectory = storageDirectory;
     const child = utilityProcess.fork(
       fileURLToPath(new URL("./local-app-server.js", import.meta.url)),
       [],
@@ -74,7 +78,12 @@ export class LocalAppServerSupervisor {
     child.on("exit", () => {
       this.handleChildExit(child);
     });
-    child.postMessage({ type: "start", credential, serverVersion });
+    child.postMessage({
+      type: "start",
+      credential,
+      serverVersion,
+      storageDirectory,
+    });
     this.startupTimer = setTimeout(() => {
       if (child !== this.child) {
         return;
@@ -92,6 +101,7 @@ export class LocalAppServerSupervisor {
     this.child = null;
     this.childPid = null;
     this.credential = null;
+    this.appServerClient = null;
     if (!child) {
       this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
       return;
@@ -115,7 +125,22 @@ export class LocalAppServerSupervisor {
 
   async restart(serverVersion: string): Promise<void> {
     await this.stop();
-    await this.start(serverVersion);
+    if (!this.storageDirectory) {
+      throw new Error("Local App Server storage is not configured");
+    }
+    await this.start(serverVersion, this.storageDirectory);
+  }
+
+  async getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null> {
+    return await this.requireClient().getWorkspaceGrant();
+  }
+
+  async grantWorkspace(path: string): Promise<LocalWorkspaceGrant> {
+    return await this.requireClient().grantWorkspace(path);
+  }
+
+  async revokeWorkspace(): Promise<void> {
+    await this.requireClient().revokeWorkspace();
   }
 
   private async handleMessage(
@@ -158,6 +183,7 @@ export class LocalAppServerSupervisor {
         unavailableCapabilities: handshake.unavailableCapabilities,
         reason: null,
       });
+      this.appServerClient = client;
       this.update({ ...snapshot, connection: { baseUrl, credential } });
     } catch (error) {
       const reason =
@@ -179,6 +205,7 @@ export class LocalAppServerSupervisor {
     this.child = null;
     this.childPid = null;
     this.credential = null;
+    this.appServerClient = null;
     if (this.stopping) {
       return;
     }
@@ -229,6 +256,13 @@ export class LocalAppServerSupervisor {
     for (const listener of this.listeners) {
       listener(snapshot);
     }
+  }
+
+  private requireClient(): ReturnType<typeof createAppServerClient> {
+    if (!this.appServerClient) {
+      throw new Error("Local App Server is not ready");
+    }
+    return this.appServerClient;
   }
 }
 
