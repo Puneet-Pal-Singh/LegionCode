@@ -405,6 +405,19 @@ export {
   type WorkspaceManifestState,
 } from "./workspaces.js";
 export {
+  GrantLocalWorkspaceRequestSchema,
+  LocalWorkspaceCapabilitySchema,
+  LocalWorkspaceGrantPathSchema,
+  LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceGrantSchema,
+  LocalWorkspaceReadinessSchema,
+  type GrantLocalWorkspaceRequest,
+  type LocalWorkspaceCapability,
+  type LocalWorkspaceGrant,
+  type LocalWorkspaceGrantResponse,
+  type LocalWorkspaceReadiness,
+} from "./workspace-grants.js";
+export {
   PermissionDecisionSourceSchema,
   PermissionEffectSchema,
   PermissionPolicyDecisionSchema,
