@@ -30,7 +30,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
   try {
     const page = await application.firstWindow();
     await expect(
-      page.getByRole("heading", { name: "Hello from LegionCode Desktop" }),
+      page.getByRole("heading", { name: "LegionCode Desktop" }),
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
 
