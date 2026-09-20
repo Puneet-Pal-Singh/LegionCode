@@ -39,7 +39,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
-    await expect(page.getByText("3 capability slices unavailable", { exact: true })).toBeVisible();
+    await expect(page.getByText("2 capability slices unavailable", { exact: true })).toBeVisible();
     const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
     const appServerMetric = appMetrics.find(
       (metric) => metric.name === "LegionCode Local App Server",
@@ -72,6 +72,12 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
         "grantWorkspace",
         "getWorkspace",
         "revokeWorkspace",
+        "listThreads",
+        "createThread",
+        "getThread",
+        "renameThread",
+        "archiveThread",
+        "unarchiveThread",
       ],
     });
 
@@ -115,6 +121,21 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await page.getByRole("button", { name: "Grant access" }).click();
     await expect(page.getByRole("heading", { name: "repository" })).toBeVisible();
     await expect(page.getByText("main", { exact: true })).toBeVisible();
+    await expect(page.getByText("Local only", { exact: true })).toBeVisible();
+
+    await page.getByLabel("New thread title").fill("Initial thread");
+    await page.getByRole("button", { name: "Create thread" }).click();
+    await expect(page.getByRole("button", { name: "Initial thread" })).toBeVisible();
+    await page.getByLabel("Thread title", { exact: true }).fill("Renamed thread");
+    await page.getByRole("button", { name: "Rename" }).click();
+    await expect(page.getByRole("button", { name: "Renamed thread" })).toBeVisible();
+    await page.getByRole("button", { name: "Archive" }).click();
+    await expect(page.getByText("archived", { exact: true })).toBeVisible();
+
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
 
     await application.close();
     application = undefined;
@@ -124,6 +145,12 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     });
     const reopenedPage = await application.firstWindow();
     await expect(reopenedPage.getByRole("heading", { name: "repository" })).toBeVisible();
+    await expect(reopenedPage.getByRole("button", { name: "Renamed thread" })).toBeVisible();
+    await expect(reopenedPage.getByText("archived", { exact: true })).toBeVisible();
+    await reopenedPage.getByRole("button", { name: "Renamed thread" }).click();
+    await expect(reopenedPage.getByRole("button", { name: "Unarchive" })).toBeVisible();
+    await reopenedPage.getByRole("button", { name: "Unarchive" }).click();
+    await expect(reopenedPage.getByText("active", { exact: true })).toBeVisible();
     await reopenedPage.getByRole("button", { name: "Revoke access" }).click();
     await expect(reopenedPage.getByRole("heading", { name: "No workspace granted" })).toBeVisible();
 
