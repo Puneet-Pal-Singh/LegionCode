@@ -65,6 +65,7 @@ const systemIdGenerator: EventStoreIdGenerator = {
  */
 export class FileEventStore implements EventStore {
   private state: State | null = null;
+  private loading: Promise<State> | null = null;
   private pending: Promise<unknown> = Promise.resolve();
   private readonly clock: EventStoreClock;
   private readonly idGenerator: EventStoreIdGenerator;
@@ -120,13 +121,23 @@ export class FileEventStore implements EventStore {
 
   private async loadState(): Promise<State> {
     if (this.state) return this.state;
+    this.loading ??= this.readState();
+    try {
+      this.state = await this.loading;
+      return this.state;
+    } catch (error) {
+      this.loading = null;
+      throw error;
+    }
+  }
+
+  private async readState(): Promise<State> {
     let stored: StoredFile;
     try {
       stored = JSON.parse(await readFile(this.filePath, "utf8")) as StoredFile;
     } catch (error) {
       if (isNodeError(error, "ENOENT")) {
-        this.state = createState([]);
-        return this.state;
+        return createState([]);
       }
       throw new EventStoreError("corrupt_event_stream", "Local event store is corrupt");
     }
@@ -134,11 +145,10 @@ export class FileEventStore implements EventStore {
       throw new EventStoreError("corrupt_event_stream", "Local event store is corrupt");
     }
     try {
-      this.state = createState(stored.events.map((event) => PlatformEventSchema.parse(event)));
+      return createState(stored.events.map((event) => PlatformEventSchema.parse(event)));
     } catch {
       throw new EventStoreError("corrupt_event_stream", "Local event store is corrupt");
     }
-    return this.state;
   }
 
   private async persist(state: State): Promise<void> {
