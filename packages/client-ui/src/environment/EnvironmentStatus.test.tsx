@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -24,10 +25,9 @@ describe("EnvironmentStatus", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Environment status")).toHaveAttribute(
-      "data-environment-status",
-      "ready",
-    );
-    expect(screen.getByText("1 capability slices unavailable")).toBeVisible();
+    expect(
+      screen.getByLabelText("Environment status").getAttribute("data-environment-status"),
+    ).toBe("ready");
+    expect(screen.getByText("1 capability slices unavailable")).toBeTruthy();
   });
 });
