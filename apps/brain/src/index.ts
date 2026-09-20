@@ -14,6 +14,7 @@ import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
 import { TurnController } from "./controllers/TurnController";
 import { HookDefinitionController } from "./controllers/HookDefinitionController";
+import { AppServerController } from "./controllers/AppServerController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -84,6 +85,7 @@ function createRouter(): Router {
   const router = new Router();
 
   // Chat routes
+  router.add(/^\/initialize$/, AppServerController.initialize, "POST");
   router.add(
     /^\/api\/chat(?:\/.*)?$/,
     ChatController.handleLegacyRoute,

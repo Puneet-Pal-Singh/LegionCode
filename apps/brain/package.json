@@ -25,6 +25,7 @@
     "wrangler": "^4.61.0"
   },
   "dependencies": {
+    "@legioncode/app-server": "workspace:*",
     "@ai-sdk/anthropic": "1.1.0",
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",

@@ -3,10 +3,34 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: [
+          "@legioncode/app-server",
+          "@repo/platform-client-sdk",
+          "@repo/platform-protocol",
+          "zod",
+        ],
+      }),
+    ],
+    build: {
+      rollupOptions: {
+        input: {
+          index: "src/main/index.ts",
+          "local-app-server": "src/main/local-app-server.ts",
+        },
+        output: {
+          entryFileNames: "[name].js",
+        },
+      },
+    },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: ["@repo/platform-protocol", "zod"],
+      }),
+    ],
     build: {
       rollupOptions: {
         output: {

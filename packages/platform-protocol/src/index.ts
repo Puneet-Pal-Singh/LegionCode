@@ -1,4 +1,22 @@
 export {
+  APP_SERVER_PROTOCOL_VERSION,
+  AppServerCapabilitySchema,
+  AppServerConnectionStatusSchema,
+  AppServerEnvironmentSnapshotSchema,
+  AppServerErrorSchema,
+  AppServerInitializeRequestSchema,
+  AppServerInitializeResponseSchema,
+  AppServerUnavailableCapabilitySchema,
+  LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
+  type AppServerCapability,
+  type AppServerConnectionStatus,
+  type AppServerEnvironmentSnapshot,
+  type AppServerError,
+  type AppServerInitializeRequest,
+  type AppServerInitializeResponse,
+  type AppServerUnavailableCapability,
+} from "./app-server.js";
+export {
   ArtifactChangedFileSchema,
   ArtifactKindSchema,
   ArtifactMetadataSchema,

@@ -1,4 +1,10 @@
 export {
+  AppServerHandshakeError,
+  createAppServerClient,
+  type AppServerClient,
+  type AppServerClientOptions,
+} from "./platform/app-server-client.js";
+export {
   DefaultPlatformClient,
   createPlatformClient,
 } from "./platform/client.js";
