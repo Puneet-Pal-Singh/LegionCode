@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { initializeAppServer } from "./handshake.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
+import { LocalThreadService } from "./local-threads.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -27,8 +28,12 @@ export function runLocalAppServerProcess(
   const workspaceService = new LocalWorkspaceService({
     storageDirectory: config.storageDirectory,
   });
+  const threadService = new LocalThreadService({
+    storageDirectory: config.storageDirectory,
+    getWorkspace: () => workspaceService.getCurrent(),
+  });
   const server = createServer((request, response) => {
-    void handleRequest(request, response, config, workspaceService);
+    void handleRequest(request, response, config, workspaceService, threadService);
   });
 
   server.once("error", () => {
@@ -54,6 +59,7 @@ async function handleRequest(
   response: ServerResponse,
   config: LocalAppServerStartConfig,
   workspaceService: LocalWorkspaceService,
+  threadService: LocalThreadService,
 ): Promise<void> {
   response.setHeader(
     "access-control-allow-origin",
@@ -82,7 +88,9 @@ async function handleRequest(
     return;
   }
 
-  if (request.method === "GET" && request.url === "/workspaces/current") {
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+
+  if (request.method === "GET" && url.pathname === "/workspaces/current") {
     try {
       writeJson(response, 200, { grant: await workspaceService.getCurrent() });
     } catch {
@@ -94,7 +102,7 @@ async function handleRequest(
     return;
   }
 
-  if (request.method === "POST" && request.url === "/workspaces/grant") {
+  if (request.method === "POST" && url.pathname === "/workspaces/grant") {
     const body = await readBody(request);
     if (body.tooLarge) {
       writeJson(response, 413, {
@@ -115,7 +123,7 @@ async function handleRequest(
     return;
   }
 
-  if (request.method === "POST" && request.url === "/workspaces/revoke") {
+  if (request.method === "POST" && url.pathname === "/workspaces/revoke") {
     try {
       await workspaceService.revoke();
       writeJson(response, 200, { grant: null });
@@ -128,7 +136,89 @@ async function handleRequest(
     return;
   }
 
-  if (request.method !== "POST" || request.url !== "/initialize") {
+  if (request.method === "GET" && url.pathname === "/threads") {
+    try {
+      writeJson(response, 200, { threads: await threadService.list() });
+    } catch {
+      writeJson(response, 400, {
+        code: "invalid_request",
+        message: "Local threads are unavailable without a ready workspace",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/threads") {
+    const body = await readBody(request);
+    if (body.tooLarge) {
+      writeJson(response, 413, {
+        code: "invalid_request",
+        message: "App Server request is too large",
+      });
+      return;
+    }
+    try {
+      writeJson(response, 200, { thread: await threadService.create(body.value) });
+    } catch {
+      writeJson(response, 400, {
+        code: "invalid_request",
+        message: "Local thread could not be created",
+      });
+    }
+    return;
+  }
+
+  const threadRoute = /^\/threads\/([^/]+)(?:\/(title|archive|unarchive))?$/.exec(
+    url.pathname,
+  );
+  if (threadRoute) {
+    const [, threadId, operation] = threadRoute;
+    if (!threadId) {
+      writeJson(response, 404, {
+        code: "invalid_request",
+        message: "Thread route not found",
+      });
+      return;
+    }
+    try {
+      if (request.method === "GET" && !operation) {
+        writeJson(response, 200, { thread: await threadService.get(threadId) });
+        return;
+      }
+      if (request.method !== "POST" || !operation) {
+        writeJson(response, 404, {
+          code: "invalid_request",
+          message: "Thread route not found",
+        });
+        return;
+      }
+      if (operation === "archive") {
+        writeJson(response, 200, { thread: await threadService.archive(threadId) });
+        return;
+      }
+      if (operation === "unarchive") {
+        writeJson(response, 200, { thread: await threadService.unarchive(threadId) });
+        return;
+      }
+      const body = await readBody(request);
+      if (body.tooLarge) {
+        writeJson(response, 413, {
+          code: "invalid_request",
+          message: "App Server request is too large",
+        });
+        return;
+      }
+      writeJson(response, 200, { thread: await threadService.rename(threadId, body.value) });
+    } catch {
+      writeJson(response, 400, {
+        code: "invalid_request",
+        message: "Local thread operation is invalid",
+      });
+    }
+    return;
+  }
+
+  if (request.method !== "POST" || url.pathname !== "/initialize") {
     writeJson(response, 404, {
       code: "invalid_request",
       message: "App Server route not found",
