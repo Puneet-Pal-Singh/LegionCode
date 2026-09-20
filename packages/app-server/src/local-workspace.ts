@@ -100,7 +100,10 @@ export class LocalWorkspaceService {
       }
       return await this.probeRepository(repoRoot, stored.grant);
     } catch (error) {
-      return invalidGrant(stored.grant, error instanceof Error ? error.message : "Authorized workspace is unavailable");
+      return invalidGrant(
+        stored.grant,
+        "Authorized workspace is missing or no longer a Git repository",
+      );
     }
   }
 
