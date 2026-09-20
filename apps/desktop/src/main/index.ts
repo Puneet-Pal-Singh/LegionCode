@@ -12,7 +12,14 @@ import {
   WORKSPACE_GRANT_CHANNEL,
   WORKSPACE_CURRENT_CHANNEL,
   WORKSPACE_REVOKE_CHANNEL,
+  THREADS_LIST_CHANNEL,
+  THREAD_CREATE_CHANNEL,
+  THREAD_GET_CHANNEL,
+  THREAD_RENAME_CHANNEL,
+  THREAD_ARCHIVE_CHANNEL,
+  THREAD_UNARCHIVE_CHANNEL,
 } from "../shared/desktop-api";
+import { ThreadIdSchema, type Thread } from "@repo/platform-protocol";
 import { createWindowOptions } from "./window-options";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 
@@ -24,7 +31,7 @@ let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 const pendingWorkspaceSelections = new Map<
   string,
-  { path: string; expiresAt: number }
+  { path: string; senderId: number; expiresAt: number }
 >();
 
 function assertTrustedDesktopFrame(event: Electron.IpcMainInvokeEvent): void {
@@ -58,6 +65,7 @@ ipcMain.handle(WORKSPACE_PICK_CHANNEL, async (event) => {
   pendingWorkspaceSelections.clear();
   pendingWorkspaceSelections.set(selectionToken, {
     path,
+    senderId: event.sender.id,
     expiresAt: Date.now() + 5 * 60 * 1_000,
   });
   return { selectionToken, displayName: basename(path) };
@@ -69,7 +77,11 @@ ipcMain.handle(WORKSPACE_GRANT_CHANNEL, async (event, token: unknown) => {
   }
   const selection = pendingWorkspaceSelections.get(token);
   pendingWorkspaceSelections.delete(token);
-  if (!selection || selection.expiresAt < Date.now()) {
+  if (
+    !selection ||
+    selection.senderId !== event.sender.id ||
+    selection.expiresAt < Date.now()
+  ) {
     throw new Error("Workspace selection token is expired or already used");
   }
   return await localAppServer.grantWorkspace(selection.path);
@@ -81,6 +93,30 @@ ipcMain.handle(WORKSPACE_CURRENT_CHANNEL, (event) => {
 ipcMain.handle(WORKSPACE_REVOKE_CHANNEL, async (event) => {
   assertTrustedDesktopFrame(event);
   await localAppServer.revokeWorkspace();
+});
+ipcMain.handle(THREADS_LIST_CHANNEL, async (event) => {
+  assertTrustedDesktopFrame(event);
+  return await localAppServer.listThreads();
+});
+ipcMain.handle(THREAD_CREATE_CHANNEL, async (event, title: unknown) => {
+  assertTrustedDesktopFrame(event);
+  return await localAppServer.createThread(parseOptionalThreadTitle(title));
+});
+ipcMain.handle(THREAD_GET_CHANNEL, async (event, threadId: unknown) => {
+  assertTrustedDesktopFrame(event);
+  return await localAppServer.getThread(parseThreadId(threadId));
+});
+ipcMain.handle(THREAD_RENAME_CHANNEL, async (event, threadId: unknown, title: unknown) => {
+  assertTrustedDesktopFrame(event);
+  return await localAppServer.renameThread(parseThreadId(threadId), parseThreadTitle(title));
+});
+ipcMain.handle(THREAD_ARCHIVE_CHANNEL, async (event, threadId: unknown) => {
+  assertTrustedDesktopFrame(event);
+  return await localAppServer.archiveThread(parseThreadId(threadId));
+});
+ipcMain.handle(THREAD_UNARCHIVE_CHANNEL, async (event, threadId: unknown) => {
+  assertTrustedDesktopFrame(event);
+  return await localAppServer.unarchiveThread(parseThreadId(threadId));
 });
 
 function createWindow(): void {
@@ -115,6 +151,26 @@ ipcMain.handle(BUILD_INFO_CHANNEL, () => ({
   arch: process.arch,
   packaged: app.isPackaged,
 }));
+
+function parseThreadId(value: unknown): Thread["id"] {
+  return ThreadIdSchema.parse(value);
+}
+
+function parseOptionalThreadTitle(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  return parseThreadTitle(value);
+}
+
+function parseThreadTitle(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("Thread title must be text");
+  }
+  const title = value.trim();
+  if (title.length < 1 || title.length > 80) {
+    throw new Error("Thread title must contain 1 to 80 characters");
+  }
+  return title;
+}
 
 void app.whenReady().then(() => {
   void localAppServer.start(app.getVersion(), app.getPath("userData"));

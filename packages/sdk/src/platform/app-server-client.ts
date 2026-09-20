@@ -5,9 +5,13 @@ import {
   AppServerInitializeResponseSchema,
   GrantLocalWorkspaceRequestSchema,
   LocalWorkspaceGrantResponseSchema,
+  ThreadIdSchema,
+  ThreadSchema,
   type LocalWorkspaceGrant,
   type AppServerInitializeResponse,
+  type Thread,
 } from "@repo/platform-protocol";
+import { z } from "zod";
 
 export type AppServerClientOptions = {
   baseUrl: string;
@@ -42,6 +46,12 @@ export type AppServerClient = {
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(path: string): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
+  listThreads(): Promise<Thread[]>;
+  createThread(title?: string): Promise<Thread>;
+  getThread(threadId: Thread["id"]): Promise<Thread>;
+  renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
+  archiveThread(threadId: Thread["id"]): Promise<Thread>;
+  unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
 };
 
 export function createAppServerClient(
@@ -138,6 +148,61 @@ export function createAppServerClient(
       );
       parseWorkspaceResponse(payload);
     },
+    listThreads: async () => {
+      const payload = await requestAppServer(options, baseUrl, "GET", "/threads");
+      return parseThreadListResponse(payload);
+    },
+    createThread: async (title) => {
+      const payload = await requestAppServer(
+        options,
+        baseUrl,
+        "POST",
+        "/threads",
+        title === undefined ? {} : { title },
+      );
+      return parseThreadResponse(payload);
+    },
+    getThread: async (threadId) => {
+      const parsedThreadId = ThreadIdSchema.parse(threadId);
+      const payload = await requestAppServer(
+        options,
+        baseUrl,
+        "GET",
+        `/threads/${encodeURIComponent(parsedThreadId)}`,
+      );
+      return parseThreadResponse(payload);
+    },
+    renameThread: async (threadId, title) => {
+      const parsedThreadId = ThreadIdSchema.parse(threadId);
+      const payload = await requestAppServer(
+        options,
+        baseUrl,
+        "POST",
+        `/threads/${encodeURIComponent(parsedThreadId)}/title`,
+        { title },
+      );
+      return parseThreadResponse(payload);
+    },
+    archiveThread: async (threadId) => {
+      const parsedThreadId = ThreadIdSchema.parse(threadId);
+      const payload = await requestAppServer(
+        options,
+        baseUrl,
+        "POST",
+        `/threads/${encodeURIComponent(parsedThreadId)}/archive`,
+      );
+      return parseThreadResponse(payload);
+    },
+    unarchiveThread: async (threadId) => {
+      const parsedThreadId = ThreadIdSchema.parse(threadId);
+      const payload = await requestAppServer(
+        options,
+        baseUrl,
+        "POST",
+        `/threads/${encodeURIComponent(parsedThreadId)}/unarchive`,
+      );
+      return parseThreadResponse(payload);
+    },
   };
 }
 
@@ -198,6 +263,25 @@ function parseWorkspaceResponse(payload: unknown) {
     );
   }
   return parsed.data;
+}
+
+const ThreadResponseSchema = z.object({ thread: ThreadSchema }).strict();
+const ThreadListResponseSchema = z.object({ threads: z.array(ThreadSchema) }).strict();
+
+function parseThreadResponse(payload: unknown): Thread {
+  const parsed = ThreadResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new AppServerHandshakeError("invalid_response", "App Server returned an invalid thread response");
+  }
+  return parsed.data.thread;
+}
+
+function parseThreadListResponse(payload: unknown): Thread[] {
+  const parsed = ThreadListResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new AppServerHandshakeError("invalid_response", "App Server returned an invalid thread list");
+  }
+  return parsed.data.threads;
 }
 
 function throwMissingGrant(): never {

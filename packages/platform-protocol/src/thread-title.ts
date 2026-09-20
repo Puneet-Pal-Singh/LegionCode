@@ -26,7 +26,8 @@ export type ThreadTitleUpdateSource = z.infer<
 export const ThreadTitleUpdatedPayloadSchema = z
   .object({
     threadId: ThreadIdSchema,
-    firstMessageId: z.string().trim().min(1).max(256),
+    /** Null for a rename before the first user message exists. */
+    firstMessageId: z.string().trim().min(1).max(256).nullable(),
     title: z.string().trim().min(1).max(80),
     titleVersion: z.number().int().positive(),
     source: ThreadTitleUpdateSourceSchema,

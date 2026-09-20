@@ -2,6 +2,7 @@ import type {
   AppServerEnvironmentSnapshot,
   AppServerInitializeResponse,
   LocalWorkspaceGrant,
+  Thread,
 } from "@repo/platform-protocol";
 
 export const BUILD_INFO_CHANNEL = "desktop:get-build-info";
@@ -12,6 +13,12 @@ export const WORKSPACE_PICK_CHANNEL = "desktop:pick-workspace";
 export const WORKSPACE_GRANT_CHANNEL = "desktop:grant-workspace";
 export const WORKSPACE_CURRENT_CHANNEL = "desktop:get-workspace";
 export const WORKSPACE_REVOKE_CHANNEL = "desktop:revoke-workspace";
+export const THREADS_LIST_CHANNEL = "desktop:list-threads";
+export const THREAD_CREATE_CHANNEL = "desktop:create-thread";
+export const THREAD_GET_CHANNEL = "desktop:get-thread";
+export const THREAD_RENAME_CHANNEL = "desktop:rename-thread";
+export const THREAD_ARCHIVE_CHANNEL = "desktop:archive-thread";
+export const THREAD_UNARCHIVE_CHANNEL = "desktop:unarchive-thread";
 
 export type DesktopBuildInfo = {
   version: string;
@@ -31,6 +38,12 @@ export type DesktopApi = {
   grantWorkspace(selectionToken: string): Promise<LocalWorkspaceGrant>;
   getWorkspace(): Promise<LocalWorkspaceGrant | null>;
   revokeWorkspace(): Promise<void>;
+  listThreads(): Promise<Thread[]>;
+  createThread(title?: string): Promise<Thread>;
+  getThread(threadId: Thread["id"]): Promise<Thread>;
+  renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
+  archiveThread(threadId: Thread["id"]): Promise<Thread>;
+  unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
 };
 
 export type WorkspaceSelection = {

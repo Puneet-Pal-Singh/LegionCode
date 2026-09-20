@@ -6,6 +6,7 @@ import {
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
   type LocalWorkspaceGrant,
   type AppServerEnvironmentSnapshot,
+  type Thread,
 } from "@repo/platform-protocol";
 import {
   AppServerHandshakeError,
@@ -141,6 +142,30 @@ export class LocalAppServerSupervisor {
 
   async revokeWorkspace(): Promise<void> {
     await this.requireClient().revokeWorkspace();
+  }
+
+  async listThreads(): Promise<Thread[]> {
+    return await this.requireClient().listThreads();
+  }
+
+  async createThread(title?: string): Promise<Thread> {
+    return await this.requireClient().createThread(title);
+  }
+
+  async getThread(threadId: Thread["id"]): Promise<Thread> {
+    return await this.requireClient().getThread(threadId);
+  }
+
+  async renameThread(threadId: Thread["id"], title: string): Promise<Thread> {
+    return await this.requireClient().renameThread(threadId, title);
+  }
+
+  async archiveThread(threadId: Thread["id"]): Promise<Thread> {
+    return await this.requireClient().archiveThread(threadId);
+  }
+
+  async unarchiveThread(threadId: Thread["id"]): Promise<Thread> {
+    return await this.requireClient().unarchiveThread(threadId);
   }
 
   private async handleMessage(

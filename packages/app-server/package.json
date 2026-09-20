@@ -16,7 +16,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
+    "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*"
   },
   "devDependencies": {

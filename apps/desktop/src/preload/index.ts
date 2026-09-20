@@ -9,6 +9,12 @@ import {
   WORKSPACE_GRANT_CHANNEL,
   WORKSPACE_CURRENT_CHANNEL,
   WORKSPACE_REVOKE_CHANNEL,
+  THREADS_LIST_CHANNEL,
+  THREAD_CREATE_CHANNEL,
+  THREAD_GET_CHANNEL,
+  THREAD_RENAME_CHANNEL,
+  THREAD_ARCHIVE_CHANNEL,
+  THREAD_UNARCHIVE_CHANNEL,
   type DesktopApi,
   type DesktopBuildInfo,
   type DesktopEnvironmentConfig,
@@ -16,6 +22,8 @@ import {
 } from "../shared/desktop-api";
 import {
   AppServerEnvironmentSnapshotSchema,
+  ThreadIdSchema,
+  ThreadSchema,
   type AppServerEnvironmentSnapshot,
   type LocalWorkspaceGrant,
 } from "@repo/platform-protocol";
@@ -49,6 +57,30 @@ const desktopApi: DesktopApi = Object.freeze({
     ipcRenderer.invoke(WORKSPACE_CURRENT_CHANNEL) as Promise<LocalWorkspaceGrant | null>,
   revokeWorkspace: () =>
     ipcRenderer.invoke(WORKSPACE_REVOKE_CHANNEL) as Promise<void>,
+  listThreads: async () =>
+    ThreadSchema.array().parse(await ipcRenderer.invoke(THREADS_LIST_CHANNEL)),
+  createThread: async (title) =>
+    ThreadSchema.parse(await ipcRenderer.invoke(THREAD_CREATE_CHANNEL, title)),
+  getThread: async (threadId) =>
+    ThreadSchema.parse(
+      await ipcRenderer.invoke(THREAD_GET_CHANNEL, ThreadIdSchema.parse(threadId)),
+    ),
+  renameThread: async (threadId, title) =>
+    ThreadSchema.parse(
+      await ipcRenderer.invoke(
+        THREAD_RENAME_CHANNEL,
+        ThreadIdSchema.parse(threadId),
+        title,
+      ),
+    ),
+  archiveThread: async (threadId) =>
+    ThreadSchema.parse(
+      await ipcRenderer.invoke(THREAD_ARCHIVE_CHANNEL, ThreadIdSchema.parse(threadId)),
+    ),
+  unarchiveThread: async (threadId) =>
+    ThreadSchema.parse(
+      await ipcRenderer.invoke(THREAD_UNARCHIVE_CHANNEL, ThreadIdSchema.parse(threadId)),
+    ),
 });
 
 contextBridge.exposeInMainWorld("desktop", desktopApi);
