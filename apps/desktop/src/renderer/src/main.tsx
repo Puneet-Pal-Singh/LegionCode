@@ -18,17 +18,7 @@ function DesktopApp(): React.JSX.Element {
 
   useEffect(() => {
     void window.desktop.getBuildInfo().then(setBuild);
-    void window.desktop.getEnvironment().then((config) => {
-      setEnvironment({
-        kind: config.kind,
-        status: config.status,
-        protocolVersion: config.protocolVersion,
-        serverVersion: config.serverVersion,
-        capabilities: config.capabilities,
-        unavailableCapabilities: config.unavailableCapabilities,
-        reason: config.reason,
-      });
-    });
+    void window.desktop.getEnvironment().then(setEnvironment);
     return window.desktop.onEnvironmentStatus(setEnvironment);
   }, []);
 

@@ -11,16 +11,20 @@ import {
   createAppServerClient,
 } from "@repo/platform-client-sdk/platform/app-server-client";
 import type {
+  DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,
   LocalAppServerMessage,
 } from "../shared/desktop-api";
 
 const STARTUP_TIMEOUT_MS = 5_000;
+type SupervisedEnvironment = DesktopEnvironmentConfig & {
+  connection: DesktopEnvironmentConnection | null;
+};
 
 export class LocalAppServerSupervisor {
   private child: UtilityProcess | null = null;
   private credential: string | null = null;
-  private config: DesktopEnvironmentConfig = createSnapshot("starting");
+  private config: SupervisedEnvironment = createSnapshot("starting");
   private readonly listeners = new Set<
     (snapshot: AppServerEnvironmentSnapshot) => void
   >();
@@ -28,7 +32,8 @@ export class LocalAppServerSupervisor {
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
 
   getEnvironment(): DesktopEnvironmentConfig {
-    return this.config;
+    const { connection: _connection, ...snapshot } = this.config;
+    return snapshot;
   }
 
   subscribe(
@@ -177,7 +182,7 @@ export class LocalAppServerSupervisor {
     }
   }
 
-  private update(next: DesktopEnvironmentConfig): void {
+  private update(next: SupervisedEnvironment): void {
     this.config = next;
     for (const listener of this.listeners) {
       listener(next);
@@ -188,7 +193,7 @@ export class LocalAppServerSupervisor {
 function createSnapshot(
   status: AppServerEnvironmentSnapshot["status"],
   reason: string | null = null,
-): DesktopEnvironmentConfig {
+): SupervisedEnvironment {
   return {
     kind: "local",
     status,

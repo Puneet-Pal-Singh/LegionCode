@@ -24,11 +24,11 @@ export type DesktopApi = {
   restartEnvironment(): Promise<void>;
 };
 
-export type DesktopEnvironmentConfig = AppServerEnvironmentSnapshot & {
-  connection: {
-    baseUrl: string;
-    credential: string;
-  } | null;
+export type DesktopEnvironmentConfig = AppServerEnvironmentSnapshot;
+
+export type DesktopEnvironmentConnection = {
+  baseUrl: string;
+  credential: string;
 };
 
 export type LocalAppServerReadyMessage = {

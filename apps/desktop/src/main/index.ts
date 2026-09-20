@@ -14,6 +14,8 @@ const preloadPath = fileURLToPath(
   new URL("../preload/index.cjs", import.meta.url),
 );
 const localAppServer = new LocalAppServerSupervisor();
+let isQuitting = false;
+let shutdownPromise: Promise<void> | null = null;
 
 function assertTrustedDesktopFrame(event: Electron.IpcMainInvokeEvent): void {
   if (event.senderFrame?.routingId !== event.sender.mainFrame.routingId) {
@@ -77,5 +79,17 @@ localAppServer.subscribe((snapshot) => {
   }
 });
 
-app.on("before-quit", () => void localAppServer.stop());
+app.on("before-quit", (event) => {
+  if (isQuitting) {
+    return;
+  }
+
+  event.preventDefault();
+  if (!shutdownPromise) {
+    shutdownPromise = localAppServer.stop().finally(() => {
+      isQuitting = true;
+      app.quit();
+    });
+  }
+});
 app.on("window-all-closed", () => app.quit());
