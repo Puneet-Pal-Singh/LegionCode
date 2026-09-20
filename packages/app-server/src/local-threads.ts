@@ -19,7 +19,7 @@ import {
 
 const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
 const ThreadCreateRequestSchema = z
-  .object({ title: z.string().trim().min(1).max(300).optional() })
+  .object({ title: z.string().trim().min(1).max(80).optional() })
   .strict();
 const ThreadRenameRequestSchema = z
   .object({ title: z.string().trim().min(1).max(80) })
