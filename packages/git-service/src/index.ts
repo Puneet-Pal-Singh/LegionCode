@@ -55,6 +55,8 @@ export type {
   GitPushInput,
   GitPushResult,
   GitRepoIdentityInput,
+  GitRepositoryProbeInput,
+  GitRepositoryProbeResult,
   GitSnapshotDiffInput,
   GitSnapshotInput,
   GitService,

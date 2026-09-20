@@ -37,6 +37,8 @@ import type {
   GitPushInput,
   GitPushResult,
   GitRepoIdentityInput,
+  GitRepositoryProbeInput,
+  GitRepositoryProbeResult,
   GitSnapshotDiffInput,
   GitSnapshotInput,
   GitWorkspaceSnapshot,
@@ -189,6 +191,53 @@ export class DefaultGitService {
       key: "remote.origin.url",
     });
     return remoteUrl ? normalizeRepoIdentity(remoteUrl) : null;
+  }
+
+  async probeRepository(
+    input: GitRepositoryProbeInput,
+  ): Promise<GitRepositoryProbeResult> {
+    const workspaceRoot = validateWorkspaceRoot(input.workspaceRoot);
+    const repositoryRootResult = await this.executor.execute({
+      cwd: workspaceRoot,
+      args: ["rev-parse", "--show-toplevel"],
+      timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
+    if (repositoryRootResult.exitCode !== 0) {
+      throw createGitCommandFailedError(
+        ["rev-parse", "--show-toplevel"],
+        repositoryRootResult.exitCode,
+        getCommandErrorText(repositoryRootResult),
+      );
+    }
+
+    const statusResult = await this.executor.execute({
+      cwd: workspaceRoot,
+      args: GIT_STATUS_PORCELAIN_V2_ARGS,
+      timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
+    if (statusResult.exitCode !== 0) {
+      throw createGitCommandFailedError(
+        GIT_STATUS_PORCELAIN_V2_ARGS,
+        statusResult.exitCode,
+        getCommandErrorText(statusResult),
+      );
+    }
+
+    const configResult = await this.executor.execute({
+      cwd: workspaceRoot,
+      args: ["config", "--null", "--list"],
+      timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
+    const remoteUrl =
+      configResult.exitCode === 0
+        ? parseNullDelimitedConfig(configResult.stdout).get("remote.origin.url")
+        : null;
+    return {
+      repositoryRoot: repositoryRootResult.stdout.trim(),
+      repositoryIdentity: remoteUrl ? normalizeRepoIdentity(remoteUrl) : null,
+      branch: parsePorcelainV2Status(statusResult.stdout).branch.head,
+      isDirty: parsePorcelainV2Status(statusResult.stdout).isDirty,
+    };
   }
 
   async readConfigValue(input: GitConfigValueInput): Promise<string | null> {
