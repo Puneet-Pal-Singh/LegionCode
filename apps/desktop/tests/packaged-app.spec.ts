@@ -63,6 +63,10 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
         "getEnvironment",
         "onEnvironmentStatus",
         "restartEnvironment",
+        "pickWorkspace",
+        "grantWorkspace",
+        "getWorkspace",
+        "revokeWorkspace",
       ],
     });
 
