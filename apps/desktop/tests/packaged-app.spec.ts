@@ -37,7 +37,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await expect(page.getByText("4 capability slices unavailable", { exact: true })).toBeVisible();
     const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
     const appServerMetric = appMetrics.find(
-      (metric) => metric.serviceName === "LegionCode Local App Server",
+      (metric) => metric.name === "LegionCode Local App Server",
     );
     if (!appServerMetric) {
       throw new Error("Packaged Local App Server process was not found");

@@ -7,7 +7,10 @@ import type { LocalAppServerStartMessage } from "../shared/desktop-api";
 const parentPort = (
   process as NodeJS.Process & {
     parentPort?: {
-      on(event: "message", listener: (message: unknown) => void): void;
+      on(
+        event: "message",
+        listener: (event: { data: unknown }) => void,
+      ): void;
       postMessage(message: LocalAppServerMessage): void;
     };
   }
@@ -18,8 +21,8 @@ if (!parentPort) {
   throw new Error("Local App Server requires an Electron utility process");
 }
 
-parentPort.on("message", (message: unknown) => {
-  if (!isStartMessage(message)) {
+parentPort.on("message", ({ data }) => {
+  if (!isStartMessage(data)) {
     parentPort?.postMessage({ type: "fatal" });
     return;
   }
@@ -27,7 +30,7 @@ parentPort.on("message", (message: unknown) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, message);
+  runLocalAppServerProcess(parentPort, data);
 });
 
 process.once("uncaughtException", () => {

@@ -15,7 +15,6 @@ export type LocalAppServerMessage =
   | { type: "fatal" };
 
 export type LocalAppServerParentPort = {
-  on(event: "message", listener: (message: unknown) => void): void;
   postMessage(message: LocalAppServerMessage): void;
 };
 

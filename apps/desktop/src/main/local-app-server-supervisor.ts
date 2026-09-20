@@ -17,12 +17,14 @@ import type {
 } from "../shared/desktop-api";
 
 const STARTUP_TIMEOUT_MS = 5_000;
+const LIVENESS_CHECK_MS = 250;
 type SupervisedEnvironment = DesktopEnvironmentConfig & {
   connection: DesktopEnvironmentConnection | null;
 };
 
 export class LocalAppServerSupervisor {
   private child: UtilityProcess | null = null;
+  private childPid: number | null = null;
   private credential: string | null = null;
   private config: SupervisedEnvironment = createSnapshot("starting");
   private readonly listeners = new Set<
@@ -30,6 +32,7 @@ export class LocalAppServerSupervisor {
   >();
   private stopping = false;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
 
   getEnvironment(): DesktopEnvironmentConfig {
     const { connection: _connection, ...snapshot } = this.config;
@@ -45,6 +48,7 @@ export class LocalAppServerSupervisor {
 
   async start(serverVersion: string): Promise<void> {
     this.stopping = false;
+    this.childPid = null;
     this.update(createSnapshot("starting"));
     const credential = randomBytes(32).toString("base64url");
     this.credential = credential;
@@ -54,6 +58,13 @@ export class LocalAppServerSupervisor {
       { serviceName: "LegionCode Local App Server" },
     );
     this.child = child;
+    child.once("spawn", () => {
+      this.childPid = child.pid ?? null;
+    });
+    this.livenessTimer = setInterval(
+      () => this.checkChildLiveness(child),
+      LIVENESS_CHECK_MS,
+    );
     child.on("message", (message) => {
       void this.handleMessage(child, message, serverVersion);
     });
@@ -76,8 +87,10 @@ export class LocalAppServerSupervisor {
   async stop(): Promise<void> {
     this.stopping = true;
     this.clearStartupTimer();
+    this.clearLivenessTimer();
     const child = this.child;
     this.child = null;
+    this.childPid = null;
     this.credential = null;
     if (!child) {
       this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
@@ -162,7 +175,9 @@ export class LocalAppServerSupervisor {
       return;
     }
     this.clearStartupTimer();
+    this.clearLivenessTimer();
     this.child = null;
+    this.childPid = null;
     this.credential = null;
     if (this.stopping) {
       return;
@@ -182,10 +197,37 @@ export class LocalAppServerSupervisor {
     }
   }
 
+  private checkChildLiveness(child: UtilityProcess): void {
+    if (child !== this.child) {
+      this.clearLivenessTimer();
+      return;
+    }
+    const pid = this.childPid ?? child.pid;
+    if (pid === undefined) {
+      return;
+    }
+    this.childPid = pid;
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") {
+        this.handleChildExit(child);
+      }
+    }
+  }
+
+  private clearLivenessTimer(): void {
+    if (this.livenessTimer) {
+      clearInterval(this.livenessTimer);
+      this.livenessTimer = null;
+    }
+  }
+
   private update(next: SupervisedEnvironment): void {
     this.config = next;
+    const { connection: _connection, ...snapshot } = next;
     for (const listener of this.listeners) {
-      listener(next);
+      listener(snapshot);
     }
   }
 }
@@ -236,7 +278,9 @@ function isLoopbackBaseUrl(value: string): boolean {
     return (
       url.protocol === "http:" &&
       (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
-      url.pathname === "" &&
+      (url.pathname === "" || url.pathname === "/") &&
+      !url.search &&
+      !url.hash &&
       !url.username &&
       !url.password
     );
