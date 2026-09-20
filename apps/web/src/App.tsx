@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ClientShell, ClientShellLoading } from "@legioncode/client-ui";
+import { ClientShell, ClientShellLoading, type AppServerEnvironmentSnapshot } from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -40,9 +40,7 @@ import {
   type SettingsSection,
 } from "./lib/settings-dialog-events";
 import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
-import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
-import { createAppServerClient } from "@legioncode/sdk";
-import { getBrainHttpBase } from "./lib/platform-endpoints";
+import { initializeHostedAppServer } from "./services/api/appServerClient";
 import {
   createInitialPromptSubmissionId,
   type InitialPromptSubmission,
@@ -183,13 +181,7 @@ function AppContent() {
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot>(HOSTED_ENVIRONMENT);
   useEffect(() => {
-    const client = createAppServerClient({
-      baseUrl: getBrainHttpBase(),
-      clientId: "legioncode-web",
-      clientVersion: import.meta.env.VITE_GIT_SHA || "0.1.0",
-    });
-    void client
-      .initialize()
+    void initializeHostedAppServer()
       .then((handshake) => {
         setEnvironment({
           kind: handshake.environment,

@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 const SOURCE_ROOT = join(process.cwd(), "src");
 const SDK_IMPORT_PATH = "@legioncode/sdk";
 const ALLOWED_IMPORT_FILES = new Set([
+  "services/api/appServerClient.ts",
   "services/api/providerClient.ts",
   "services/api/lifecycleClient.ts",
   "components/chat/workflow/CanonicalWorkflowSurface.tsx",
