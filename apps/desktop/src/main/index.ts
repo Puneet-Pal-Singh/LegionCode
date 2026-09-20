@@ -55,6 +55,7 @@ ipcMain.handle(WORKSPACE_PICK_CHANNEL, async (event) => {
     return null;
   }
   const selectionToken = randomBytes(32).toString("base64url");
+  pendingWorkspaceSelections.clear();
   pendingWorkspaceSelections.set(selectionToken, {
     path,
     expiresAt: Date.now() + 5 * 60 * 1_000,
