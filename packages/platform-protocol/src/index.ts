@@ -7,6 +7,7 @@ export {
   AppServerInitializeRequestSchema,
   AppServerInitializeResponseSchema,
   AppServerUnavailableCapabilitySchema,
+  LOCAL_APP_SERVER_CAPABILITIES,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
   type AppServerCapability,
   type AppServerConnectionStatus,

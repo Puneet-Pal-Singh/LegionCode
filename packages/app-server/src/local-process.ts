@@ -2,12 +2,14 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { initializeAppServer } from "./handshake.js";
+import { LocalWorkspaceService } from "./local-workspace.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
 export type LocalAppServerStartConfig = {
   credential: string;
   serverVersion: string;
+  storageDirectory: string;
 };
 
 export type LocalAppServerMessage =
@@ -22,8 +24,11 @@ export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
 ): void {
+  const workspaceService = new LocalWorkspaceService({
+    storageDirectory: config.storageDirectory,
+  });
   const server = createServer((request, response) => {
-    void handleRequest(request, response, config);
+    void handleRequest(request, response, config, workspaceService);
   });
 
   server.once("error", () => {
@@ -48,6 +53,7 @@ async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: LocalAppServerStartConfig,
+  workspaceService: LocalWorkspaceService,
 ): Promise<void> {
   response.setHeader(
     "access-control-allow-origin",
@@ -63,7 +69,7 @@ async function handleRequest(
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
       "access-control-allow-headers": "Authorization, Content-Type",
-      "access-control-allow-methods": "POST",
+      "access-control-allow-methods": "GET, POST",
     });
     response.end();
     return;
@@ -73,6 +79,52 @@ async function handleRequest(
       code: "unauthorized",
       message: "App Server credential is invalid",
     });
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/workspaces/current") {
+    try {
+      writeJson(response, 200, { grant: await workspaceService.getCurrent() });
+    } catch {
+      writeJson(response, 500, {
+        code: "invalid_request",
+        message: "Stored workspace grant is unavailable",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/workspaces/grant") {
+    const body = await readBody(request);
+    if (body.tooLarge) {
+      writeJson(response, 413, {
+        code: "invalid_request",
+        message: "App Server request is too large",
+      });
+      return;
+    }
+    try {
+      const grant = await workspaceService.grant(body.value);
+      writeJson(response, 200, { grant });
+    } catch {
+      writeJson(response, 400, {
+        code: "invalid_request",
+        message: "Workspace grant is invalid",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/workspaces/revoke") {
+    try {
+      await workspaceService.revoke();
+      writeJson(response, 200, { grant: null });
+    } catch {
+      writeJson(response, 500, {
+        code: "invalid_request",
+        message: "Workspace grant could not be revoked",
+      });
+    }
     return;
   }
 

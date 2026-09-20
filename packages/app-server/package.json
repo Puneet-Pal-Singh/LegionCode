@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/git-service": "workspace:*",
     "@repo/platform-protocol": "workspace:*"
   },
   "devDependencies": {

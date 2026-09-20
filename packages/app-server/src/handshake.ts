@@ -1,6 +1,7 @@
 import {
   APP_SERVER_PROTOCOL_VERSION,
   AppServerInitializeRequestSchema,
+  LOCAL_APP_SERVER_CAPABILITIES,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
   type AppServerInitializeResponse,
 } from "@repo/platform-protocol";
@@ -48,7 +49,10 @@ export function initializeAppServer(
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
       server: { id: options.serverId, version: options.serverVersion },
       environment: options.environment,
-      capabilities: [],
+      capabilities:
+        options.environment === "local"
+          ? [...LOCAL_APP_SERVER_CAPABILITIES]
+          : [],
       unavailableCapabilities:
         options.environment === "local"
           ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.map((capability) => ({
