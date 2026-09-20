@@ -88,8 +88,9 @@ export type AppServerEnvironmentSnapshot = z.infer<
 >;
 
 export const LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES = [
-  "workspace-selection-v1",
   "thread-management-v1",
   "turn-execution-v1",
   "artifact-review-v1",
 ] as const;
+
+export const LOCAL_APP_SERVER_CAPABILITIES = ["workspace-selection-v1"] as const;

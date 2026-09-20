@@ -5,13 +5,19 @@ import {
   ENVIRONMENT_SNAPSHOT_CHANNEL,
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
+  WORKSPACE_PICK_CHANNEL,
+  WORKSPACE_GRANT_CHANNEL,
+  WORKSPACE_CURRENT_CHANNEL,
+  WORKSPACE_REVOKE_CHANNEL,
   type DesktopApi,
   type DesktopBuildInfo,
   type DesktopEnvironmentConfig,
+  type WorkspaceSelection,
 } from "../shared/desktop-api";
 import {
   AppServerEnvironmentSnapshotSchema,
   type AppServerEnvironmentSnapshot,
+  type LocalWorkspaceGrant,
 } from "@repo/platform-protocol";
 
 const desktopApi: DesktopApi = Object.freeze({
@@ -35,6 +41,14 @@ const desktopApi: DesktopApi = Object.freeze({
   },
   restartEnvironment: () =>
     ipcRenderer.invoke(ENVIRONMENT_RESTART_CHANNEL) as Promise<void>,
+  pickWorkspace: () =>
+    ipcRenderer.invoke(WORKSPACE_PICK_CHANNEL) as Promise<WorkspaceSelection | null>,
+  grantWorkspace: (selectionToken: string) =>
+    ipcRenderer.invoke(WORKSPACE_GRANT_CHANNEL, selectionToken) as Promise<LocalWorkspaceGrant>,
+  getWorkspace: () =>
+    ipcRenderer.invoke(WORKSPACE_CURRENT_CHANNEL) as Promise<LocalWorkspaceGrant | null>,
+  revokeWorkspace: () =>
+    ipcRenderer.invoke(WORKSPACE_REVOKE_CHANNEL) as Promise<void>,
 });
 
 contextBridge.exposeInMainWorld("desktop", desktopApi);

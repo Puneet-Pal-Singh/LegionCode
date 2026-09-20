@@ -7,6 +7,7 @@ export {
   AppServerInitializeRequestSchema,
   AppServerInitializeResponseSchema,
   AppServerUnavailableCapabilitySchema,
+  LOCAL_APP_SERVER_CAPABILITIES,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
   type AppServerCapability,
   type AppServerConnectionStatus,
@@ -404,6 +405,19 @@ export {
   type WorkspaceManifest,
   type WorkspaceManifestState,
 } from "./workspaces.js";
+export {
+  GrantLocalWorkspaceRequestSchema,
+  LocalWorkspaceCapabilitySchema,
+  LocalWorkspaceGrantPathSchema,
+  LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceGrantSchema,
+  LocalWorkspaceReadinessSchema,
+  type GrantLocalWorkspaceRequest,
+  type LocalWorkspaceCapability,
+  type LocalWorkspaceGrant,
+  type LocalWorkspaceGrantResponse,
+  type LocalWorkspaceReadiness,
+} from "./workspace-grants.js";
 export {
   PermissionDecisionSourceSchema,
   PermissionEffectSchema,

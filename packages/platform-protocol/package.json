@@ -18,7 +18,8 @@
     "./lifecycle": "./src/lifecycle.ts",
     "./permissions": "./src/permissions.ts",
     "./task-workspaces": "./src/task-workspaces.ts",
-    "./workspaces": "./src/workspaces.ts"
+    "./workspaces": "./src/workspaces.ts",
+    "./workspace-grants": "./src/workspace-grants.ts"
   },
   "scripts": {
     "build": "tsc",

@@ -9,3 +9,7 @@ export {
   type AppServerHandshakeEnvironment,
   type AppServerInitializeResult,
 } from "./handshake.js";
+export {
+  LocalWorkspaceService,
+  type LocalWorkspaceServiceOptions,
+} from "./local-workspace.js";

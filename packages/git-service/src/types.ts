@@ -58,6 +58,17 @@ export interface GitRepoIdentityInput {
   readonly workspace: GitFilesystemContext;
 }
 
+export interface GitRepositoryProbeInput {
+  readonly workspaceRoot: string;
+}
+
+export interface GitRepositoryProbeResult {
+  readonly repositoryRoot: string;
+  readonly repositoryIdentity: string | null;
+  readonly branch: string | null;
+  readonly isDirty: boolean;
+}
+
 export interface GitConfigValueInput {
   readonly workspace: GitFilesystemContext;
   readonly key: "user.name" | "user.email" | "remote.origin.url";
@@ -192,6 +203,7 @@ export interface GitService {
     input: GitUntrackedFileInput,
   ): Promise<GitUntrackedFileDiffResult | null>;
   getRepoIdentity(input: GitRepoIdentityInput): Promise<string | null>;
+  probeRepository(input: GitRepositoryProbeInput): Promise<GitRepositoryProbeResult>;
   readConfigValue(input: GitConfigValueInput): Promise<string | null>;
   capturePatch(input: GitCapturePatchInput): Promise<GitPatchCaptureResult>;
   captureSnapshot(input: GitSnapshotInput): Promise<GitWorkspaceSnapshot>;

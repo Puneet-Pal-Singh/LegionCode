@@ -59,6 +59,37 @@ describe("DefaultGitService", () => {
     });
   });
 
+  it("probes a repository without fabricating a lifecycle run id", async () => {
+    const executor = new QueueGitExecutor([
+      {
+        exitCode: 0,
+        stdout: "/workspace/repository\n",
+        stderr: "",
+      },
+      {
+        exitCode: 0,
+        stdout: "# branch.head main\0",
+        stderr: "",
+      },
+      {
+        exitCode: 0,
+        stdout: "remote.origin.url\nhttps://github.com/example/repository.git\0",
+        stderr: "",
+      },
+    ]);
+    const service = new DefaultGitService(executor);
+
+    await expect(
+      service.probeRepository({ workspaceRoot: "/workspace/repository" }),
+    ).resolves.toMatchObject({
+      repositoryRoot: "/workspace/repository",
+      repositoryIdentity: "github.com/example/repository",
+      branch: "main",
+      isDirty: false,
+    });
+    expect(executor.calls.every((call) => call.runId === undefined)).toBe(true);
+  });
+
   it("rejects missing workspace roots instead of using a default", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
