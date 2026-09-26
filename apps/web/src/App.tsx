@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ClientShell, ClientShellLoading, type AppServerEnvironmentSnapshot } from "@legioncode/client-ui";
+import { ClientShell, ClientShellLoading, WorkspaceFrame, type AppServerEnvironmentSnapshot } from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -209,7 +209,6 @@ function AppContent() {
     sessionHydrationStatus,
     setActiveSessionId,
     createSession,
-    removeSession,
     renameSession,
     refreshSessionProjection,
     pinSession,
@@ -854,10 +853,6 @@ function AppContent() {
     setIsRightSidebarOpen((previous) => !previous);
   };
 
-  const handleToggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
-
   const handleSelectSession = (sessionId: string) => {
     if (sessionId !== activeSessionId) {
       setIsGitReviewOpen(false);
@@ -936,42 +931,26 @@ function AppContent() {
 
   return (
     <ClientShell environment={environment}>
-      {/* Sidebar - Independent */}
-      {isSidebarOpen && (
-        <>
-          {isCompact ? (
-            <button
-              type="button"
-              aria-label="Close sidebar overlay"
-              onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 z-[70] bg-black/65 backdrop-blur-[2px]"
-            />
-          ) : null}
-          <div
-            className={
-              isCompact
-                ? "fixed inset-y-0 left-0 z-[80] flex max-w-[calc(100vw-3rem)] shadow-[24px_0_70px_rgba(0,0,0,0.65)]"
-                : "relative flex shrink-0"
-            }
-            style={{
-              width: isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth,
-            }}
-          >
+      <WorkspaceFrame
+        sidebar={
+          <div className="flex h-full">
             <AgentSidebar
               sessions={sessions}
               repositories={repositories}
               activeSessionId={activeSessionId}
+              hydrationStatus={sessionHydrationStatus}
               onSelect={handleSelectSession}
               onCreate={handleNewTask}
-              onRemove={removeSession}
+              onArchive={archiveSession}
+              onUnarchive={unarchiveSession}
               onRemoveRepository={removeRepository}
               onRenameRepository={renameRepository}
-              onClose={handleToggleSidebar}
+              onClose={() => setIsSidebarOpen(false)}
               onAddRepository={handleOpenRepositoryPicker}
               onOpenSettings={() => openSettingsDialog("general")}
               accountUser={user}
               onLogout={logout}
-              width={sidebarWidth}
+              width={isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth}
             />
             {!isCompact ? (
               <Resizer
@@ -984,50 +963,48 @@ function AppContent() {
               />
             ) : null}
           </div>
-        </>
-      )}
-
-      {/* Main Content Area with Top NavBar */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Top Navigation Bar - Only in content area */}
-        <TopNavBar
-          onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
-          isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={handleToggleSidebar}
-          isRightSidebarOpen={showWorkspace && isRightSidebarOpen}
-          rightSidebarWidth={rightSidebarWidth}
-          onToggleRightSidebar={handleToggleRightSidebar}
-          threadTitle={threadTitle}
-          taskTitle={taskTitle}
-          activeSession={activeSession}
-          onRenameSession={handleRenameActiveSession}
-          onPinSession={handlePinActiveSession}
-          onUnpinSession={handleUnpinActiveSession}
-          onArchiveSession={handleArchiveActiveSession}
-          isAuthenticated={isAuthenticated}
-          onConnectGitHub={login}
-          environmentSummary={
-            showWorkspace && activeSessionId && activeSession
-              ? {
-                  repo,
-                  branch,
-                  onBranchChange: switchBranch,
-                  onOpenChanges: () =>
-                    setSummaryActionRequest({
-                      id: Date.now(),
-                      action: "changes",
-                    }),
-                  onOpenCommit: () =>
-                    setSummaryActionRequest({
-                      id: Date.now(),
-                      action: "commit",
-                    }),
-                }
-              : undefined
-          }
-          isCompact={isCompact}
-          isMobile={isMobile}
-        />
+        }
+        topBar={
+          <TopNavBar
+            onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
+            isRightSidebarOpen={showWorkspace && isRightSidebarOpen}
+            rightSidebarWidth={rightSidebarWidth}
+            onToggleRightSidebar={handleToggleRightSidebar}
+            threadTitle={threadTitle}
+            taskTitle={taskTitle}
+            activeSession={activeSession}
+            onRenameSession={handleRenameActiveSession}
+            onPinSession={handlePinActiveSession}
+            onUnpinSession={handleUnpinActiveSession}
+            onArchiveSession={handleArchiveActiveSession}
+            isAuthenticated={isAuthenticated}
+            onConnectGitHub={login}
+            environmentSummary={
+              showWorkspace && activeSessionId && activeSession
+                ? {
+                    repo,
+                    branch,
+                    onBranchChange: switchBranch,
+                    onOpenChanges: () =>
+                      setSummaryActionRequest({
+                        id: Date.now(),
+                        action: "changes",
+                      }),
+                    onOpenCommit: () =>
+                      setSummaryActionRequest({
+                        id: Date.now(),
+                        action: "commit",
+                      }),
+                  }
+                : undefined
+            }
+            isCompact={isCompact}
+            isMobile={isMobile}
+          />
+        }
+        sidebarOpen={isSidebarOpen}
+        onSidebarOpenChange={setIsSidebarOpen}
+      >
 
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative bg-black">
@@ -1230,7 +1207,7 @@ function AppContent() {
             onClose={() => setIsSettingsDialogOpen(false)}
           />
         </div>
-      </div>
+      </WorkspaceFrame>
     </ClientShell>
   );
 }

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { FileDiff, PanelLeftOpen, PanelRight } from "lucide-react";
+import { FileDiff, PanelRight } from "lucide-react";
+import { WorkspaceTopBar } from "@legioncode/client-ui";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
@@ -10,8 +11,6 @@ import { TopEnvironmentSummary } from "../navigation/TopEnvironmentSummary";
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
   onReview?: () => void;
-  isSidebarOpen?: boolean;
-  onToggleSidebar?: () => void;
   isRightSidebarOpen?: boolean;
   rightSidebarWidth?: number;
   onToggleRightSidebar?: () => void;
@@ -37,23 +36,22 @@ interface TopNavBarProps {
 
 export function TopNavBar(props: TopNavBarProps) {
   return (
-    <motion.header
+    <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="h-12 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-2.5 sm:px-3 shrink-0 z-50 shadow-sm shadow-black/20"
+      className="flex min-w-0 flex-1 items-center"
     >
-      <TopNavLeft {...props} />
-      <div className="flex-1" />
-      <TopNavActions {...props} />
-    </motion.header>
+      <WorkspaceTopBar
+        title={props.taskTitle ?? props.threadTitle}
+        leading={<TopNavSessionActions {...props} />}
+        actions={<TopNavActions {...props} />}
+      />
+    </motion.div>
   );
 }
 
-function TopNavLeft({
-  isSidebarOpen,
-  onToggleSidebar,
-  taskTitle,
+function TopNavSessionActions({
   activeSession,
   onRenameSession,
   onPinSession,
@@ -62,9 +60,6 @@ function TopNavLeft({
   isMobile,
 }: Pick<
   TopNavBarProps,
-  | "isSidebarOpen"
-  | "onToggleSidebar"
-  | "taskTitle"
   | "activeSession"
   | "onRenameSession"
   | "onPinSession"
@@ -73,23 +68,7 @@ function TopNavLeft({
   | "isMobile"
 >) {
   return (
-    <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-      {!isSidebarOpen ? (
-        <motion.button
-          onClick={onToggleSidebar}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
-          title="Open sidebar"
-        >
-          <PanelLeftOpen size={16} />
-        </motion.button>
-      ) : null}
-      {taskTitle ? (
-        <span className="max-w-[52vw] truncate text-sm font-medium text-white sm:max-w-[38vw]">
-          {taskTitle}
-        </span>
-      ) : null}
+    <div className="flex min-w-0 items-center">
       {!isMobile ? (
         <ChatHeaderMenu
           session={activeSession ?? null}

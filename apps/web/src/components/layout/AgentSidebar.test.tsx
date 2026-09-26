@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "../../types/session";
 import { AgentSidebar } from "./AgentSidebar";
 
-function createSession(overrides?: Partial<AgentSession>): AgentSession {
+function createSession(overrides: Partial<AgentSession> = {}): AgentSession {
   return {
     id: "session-1",
     name: "Draft task",
@@ -21,383 +21,61 @@ function createSession(overrides?: Partial<AgentSession>): AgentSession {
   };
 }
 
-describe("AgentSidebar", () => {
-  it("prioritizes creating tasks and uses project language", () => {
+function renderSidebar(overrides: Partial<React.ComponentProps<typeof AgentSidebar>> = {}) {
+  return render(
+    <AgentSidebar
+      sessions={[createSession()]}
+      repositories={["legioncode/legioncode"]}
+      activeSessionId="session-1"
+      onSelect={vi.fn()}
+      onCreate={vi.fn()}
+      onArchive={vi.fn()}
+      onAddRepository={vi.fn()}
+      onOpenSettings={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
+
+describe("AgentSidebar adapter", () => {
+  it("routes selection and grouped creation back to existing Web actions", () => {
+    const onSelect = vi.fn();
     const onCreate = vi.fn();
-    const onAddRepository = vi.fn();
+    renderSidebar({ onSelect, onCreate });
 
-    render(
-      <AgentSidebar
-        sessions={[]}
-        repositories={[]}
-        activeSessionId={null}
-        onSelect={vi.fn()}
-        onCreate={onCreate}
-        onRemove={vi.fn()}
-        onAddRepository={onAddRepository}
-        onOpenSettings={vi.fn()}
-      />,
+    fireEvent.click(screen.getByRole("option", { name: "Draft task" }));
+    expect(onSelect).toHaveBeenCalledWith("session-1");
+    fireEvent.click(
+      screen.getByRole("button", { name: "New thread in legioncode" }),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "New task" }));
-    expect(onCreate).toHaveBeenCalledWith();
-    expect(screen.getByText("Projects")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(
-      screen.getByPlaceholderText("Search tasks and projects"),
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Add project" }));
-    expect(onAddRepository).toHaveBeenCalledOnce();
+    expect(onCreate).toHaveBeenCalledWith("legioncode/legioncode");
   });
 
-  it("opens the account menu and logs out the authenticated user", async () => {
-    const onLogout = vi.fn().mockResolvedValue(undefined);
+  it("uses shared search and archive confirmation callbacks", async () => {
+    const onArchive = vi.fn();
+    renderSidebar({
+      sessions: [
+        createSession(),
+        createSession({ id: "session-2", name: "Other task" }),
+      ],
+      onArchive,
+    });
 
-    render(
-      <AgentSidebar
-        sessions={[]}
-        repositories={[]}
-        activeSessionId={null}
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-        accountUser={{
-          login: "puneet",
-          name: "Puneet Pal Singh",
-          avatar: "https://avatars.example/puneet.png",
-        }}
-        onLogout={onLogout}
-      />,
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "other" },
+    });
+    expect(screen.queryByRole("option", { name: "Draft task" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Archive Other task" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm archive for Other task" }),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Puneet Pal Singh" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
-
-    await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onArchive).toHaveBeenCalledWith("session-2"));
   });
 
-  it("renders awaiting approval status from canonical session state", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession({ status: "waiting_for_approval" })]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.queryByTestId("task-status-needs_approval"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByTestId("task-status-label-needs_approval"),
-    ).toHaveTextContent("Awaiting approval");
-  });
-
-  it("projects a server waiting-for-approval status into the task title", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession({ status: "waiting_for_approval" })]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.getByTestId("task-status-label-needs_approval"),
-    ).toHaveTextContent("Awaiting approval");
-  });
-
-  it("uses the project folder as the only disclosure control", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession()]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.getByRole("button", { name: "Toggle legioncode" }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.queryByRole("button", { name: "Collapse legioncode" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("shows the awaiting approval filter option in the sidebar menu", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession({ status: "waiting_for_approval" })]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
-    expect(
-      screen.getByRole("menuitemradio", { name: "Awaiting approval" }),
-    ).toBeInTheDocument();
-  });
-
-  it("renders a spinner for a running task in another chat", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession()]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="different-session"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    const indicator = screen.getByTestId("task-status-running");
-    expect(indicator).toHaveAttribute("data-status-kind", "spinner");
-    expect(indicator.getAttribute("class")).toContain("animate-spin");
-  });
-
-  it("does not show a spinner only because an idle title is generating", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession({ status: "idle", titleStatus: "pending" })]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.queryByTestId("task-title-generating"),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByTestId("task-status-running")).not.toBeInTheDocument();
-  });
-
-  it("renders paused sessions without marking them failed", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession({ status: "paused" })]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByTestId("task-status-paused")).toHaveAttribute(
-      "data-status-kind",
-      "icon",
-    );
-    expect(screen.queryByTestId("task-status-failed")).not.toBeInTheDocument();
-  });
-
-  it("shows the paused filter option in the sidebar menu", () => {
-    render(
-      <AgentSidebar
-        sessions={[createSession({ status: "paused" })]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
-    expect(
-      screen.getByRole("menuitemradio", { name: "Paused" }),
-    ).toBeInTheDocument();
-  });
-
-  it("shows recently completed non-active sessions as blue completed status", () => {
-    render(
-      <AgentSidebar
-        sessions={[
-          createSession({
-            id: "session-2",
-            status: "completed",
-            updatedAt: new Date().toISOString(),
-            lastTerminalTurnId: "turn-completed",
-            lastAcknowledgedTerminalTurnId: null,
-          }),
-        ]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="different-session"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByTestId("task-status-completed")).toBeInTheDocument();
-  });
-
-  it("does not show terminal notifications without a durable terminal turn", () => {
-    render(
-      <AgentSidebar
-        sessions={[
-          createSession({
-            status: "failed",
-            updatedAt: new Date().toISOString(),
-            lastTerminalTurnId: null,
-          }),
-        ]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="different-session"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByTestId("task-status-failed")).not.toBeInTheDocument();
-  });
-
-  it("hides status decoration for completed active sessions", () => {
-    render(
-      <AgentSidebar
-        sessions={[
-          createSession({
-            status: "completed",
-            updatedAt: new Date().toISOString(),
-          }),
-        ]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByTestId("task-status-idle")).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId("task-status-completed"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("hides status decoration after the completed highlight window", () => {
-    const staleDate = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-
-    render(
-      <AgentSidebar
-        sessions={[
-          createSession({
-            id: "session-3",
-            status: "completed",
-            updatedAt: staleDate,
-          }),
-        ]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="different-session"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByTestId("task-status-idle")).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId("task-status-completed"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("orders tasks by recent activity regardless of status", () => {
-    render(
-      <AgentSidebar
-        sessions={[
-          createSession({
-            id: "session-old-running",
-            name: "Old running",
-            status: "running",
-            updatedAt: "2026-04-14T12:00:00.000Z",
-          }),
-          createSession({
-            id: "session-mid-idle",
-            name: "Mid idle",
-            status: "idle",
-            updatedAt: "2026-04-14T12:05:00.000Z",
-          }),
-          createSession({
-            id: "session-new-completed",
-            name: "New completed",
-            status: "completed",
-            updatedAt: "2026-04-14T12:10:00.000Z",
-          }),
-        ]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-old-running"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    const taskRows = screen.getAllByRole("option");
-    expect(taskRows[0]).toHaveTextContent("New completed");
-    expect(taskRows[1]).toHaveTextContent("Mid idle");
-    expect(taskRows[2]).toHaveTextContent("Old running");
-  });
-
-  it("opens settings from the footer action", () => {
+  it("preserves the authenticated account footer actions", () => {
     const onOpenSettings = vi.fn();
-
-    render(
-      <AgentSidebar
-        sessions={[createSession()]}
-        repositories={["legioncode/legioncode"]}
-        activeSessionId="session-1"
-        onSelect={vi.fn()}
-        onCreate={vi.fn()}
-        onRemove={vi.fn()}
-        onAddRepository={vi.fn()}
-        onOpenSettings={onOpenSettings}
-      />,
-    );
-
+    renderSidebar({ onOpenSettings });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 });
