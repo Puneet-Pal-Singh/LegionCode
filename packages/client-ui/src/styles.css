@@ -181,6 +181,138 @@ body {
   outline-offset: 3px;
 }
 
+.lc-workspace-frame {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--lc-color-background);
+}
+
+.lc-workspace-sidebar {
+  position: fixed;
+  z-index: 80;
+  inset: 0 auto 0 0;
+  display: none;
+  height: 100%;
+  max-width: min(84vw, 320px);
+}
+
+.lc-workspace-sidebar-open { display: flex; }
+.lc-workspace-sidebar-backdrop {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  border: 0;
+  background: rgb(0 0 0 / 55%);
+}
+
+.lc-workspace-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.lc-workspace-topbar {
+  z-index: 20;
+  display: flex;
+  flex: 0 0 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--lc-color-border);
+  background: var(--lc-color-surface);
+  padding: 0 0.75rem;
+}
+
+.lc-workspace-menu-button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--lc-color-text-secondary);
+  cursor: pointer;
+}
+
+.lc-workspace-menu-button:hover { background: var(--lc-color-surface-elevated); }
+.lc-workspace-topbar-content { display: flex; flex: 1; min-width: 0; align-items: center; gap: 0.75rem; }
+.lc-workspace-topbar-leading, .lc-workspace-topbar-actions { display: flex; align-items: center; gap: 0.5rem; }
+.lc-workspace-topbar-title { overflow: hidden; margin: 0; color: var(--lc-color-text-primary); font-size: 0.875rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.lc-workspace-topbar-spacer { flex: 1; }
+.lc-workspace-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+
+.lc-thread-sidebar {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--lc-color-border);
+  background: var(--lc-color-surface);
+  color: var(--lc-color-text-secondary);
+}
+
+.lc-thread-sidebar-header { display: flex; height: 3.5rem; flex: 0 0 auto; align-items: center; padding: 0 1rem; }
+.lc-thread-sidebar-brand { color: var(--lc-color-text-primary); font-size: 1.05rem; font-weight: 650; letter-spacing: -0.03em; }
+.lc-thread-sidebar-brand span { color: var(--lc-color-text-tertiary); }
+.lc-thread-sidebar-tools { display: grid; flex: 0 0 auto; gap: 0.5rem; padding: 0.5rem 0.75rem 0.75rem; }
+.lc-thread-sidebar-new { min-height: 2.25rem; border: 0; border-radius: 0.5rem; background: transparent; color: var(--lc-color-text-primary); cursor: pointer; font: inherit; text-align: left; }
+.lc-thread-sidebar-new:hover { background: var(--lc-color-surface-elevated); }
+.lc-thread-sidebar-new span { display: inline-block; width: 2rem; text-align: center; }
+.lc-thread-sidebar-search-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.lc-thread-sidebar-search { width: 100%; min-height: 2.25rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.5rem; background: var(--lc-color-background); color: var(--lc-color-text-primary); font: inherit; padding: 0 0.65rem; }
+.lc-thread-sidebar-search:focus-visible { outline: 2px solid var(--lc-color-accent); outline-offset: 1px; }
+.lc-thread-sidebar-filter-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.lc-thread-sidebar-filter { min-height: 2rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.45rem; background: var(--lc-color-background); color: var(--lc-color-text-secondary); font: inherit; padding: 0 0.5rem; }
+.lc-thread-sidebar-filter:focus-visible { outline: 2px solid var(--lc-color-accent); outline-offset: 1px; }
+.lc-thread-sidebar-list { flex: 1; overflow: auto; padding: 0.5rem 0.75rem; }
+.lc-thread-sidebar-list ul { display: grid; gap: 0.15rem; margin: 0; padding: 0; list-style: none; }
+.lc-thread-sidebar-group { margin: 0 0 0.65rem; }
+.lc-thread-sidebar-group-heading { display: flex; min-height: 2rem; align-items: center; gap: 0.4rem; padding: 0 0.4rem; color: var(--lc-color-text-tertiary); font-size: 0.75rem; font-weight: 600; }
+.lc-thread-sidebar-group-heading small { color: var(--lc-color-text-tertiary); font-size: 0.65rem; font-weight: 400; }
+.lc-thread-sidebar-group-heading button { margin-left: auto; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.lc-thread-sidebar-group-heading button + button { margin-left: 0; }
+.lc-thread-sidebar-group-heading button:hover, .lc-thread-sidebar-group-heading button:focus-visible { color: var(--lc-color-text-primary); }
+.lc-thread-sidebar-add-workspace { min-height: 2rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.45rem; background: transparent; color: var(--lc-color-text-secondary); cursor: pointer; font: inherit; text-align: left; padding: 0 0.6rem; }
+.lc-thread-sidebar-add-workspace:hover { background: var(--lc-color-surface-elevated); color: var(--lc-color-text-primary); }
+.lc-thread-sidebar-rename-form, .lc-thread-sidebar-remove-confirm { display: flex; align-items: center; gap: 0.25rem; }
+.lc-thread-sidebar-rename-form input { width: 7rem; min-width: 0; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.3rem; background: var(--lc-color-background); color: var(--lc-color-text-primary); font: inherit; padding: 0.2rem; }
+.lc-thread-sidebar-rename-form button, .lc-thread-sidebar-remove-confirm button { border: 1px solid var(--lc-color-border-subtle); border-radius: 0.3rem; background: var(--lc-color-surface-elevated); color: var(--lc-color-text-secondary); cursor: pointer; font: inherit; font-size: 0.65rem; padding: 0.2rem 0.3rem; }
+.lc-thread-sidebar-remove-confirm { justify-content: flex-end; padding: 0.25rem 0.4rem; color: #fca5a5; font-size: 0.65rem; }
+.lc-thread-sidebar-row { position: relative; display: flex; min-width: 0; align-items: center; }
+.lc-thread-sidebar-thread { display: flex; width: 100%; min-height: 2.1rem; min-width: 0; align-items: center; gap: 0.4rem; border: 0; border-radius: 0.4rem; background: transparent; color: #d4d4d8; cursor: pointer; font: inherit; padding: 0 0.5rem; text-align: left; }
+.lc-thread-sidebar-thread:hover, .lc-thread-sidebar-thread-selected { background: rgb(63 63 70 / 55%); color: var(--lc-color-text-primary); }
+.lc-thread-sidebar-thread:focus-visible { outline: 1px solid #71717a; outline-offset: -1px; }
+.lc-thread-sidebar-thread-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-thread-sidebar-status { flex: 0 0 auto; border-radius: 1rem; background: rgb(6 78 59 / 70%); color: #6ee7b7; font-size: 0.6rem; padding: 0.15rem 0.35rem; }
+.lc-thread-sidebar-running { width: 0.45rem; height: 0.45rem; flex: 0 0 auto; border-radius: 50%; background: var(--lc-color-accent); }
+.lc-thread-sidebar-state { width: 0.42rem; height: 0.42rem; flex: 0 0 auto; border-radius: 50%; background: #71717a; }
+.lc-thread-sidebar-state-running { background: var(--lc-color-accent); box-shadow: 0 0 0 2px rgb(16 185 129 / 15%); }
+.lc-thread-sidebar-state-paused { background: #a1a1aa; }
+.lc-thread-sidebar-state-failed { background: #f87171; }
+.lc-thread-sidebar-state-completed { background: #38bdf8; }
+.lc-thread-sidebar-unread { width: 0.38rem; height: 0.38rem; flex: 0 0 auto; border-radius: 50%; background: #60a5fa; }
+.lc-thread-sidebar-pin { color: #a1a1aa; font-size: 0.55rem; }
+.lc-thread-sidebar-archive, .lc-thread-sidebar-confirm button { flex: 0 0 auto; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.3rem; background: var(--lc-color-surface-elevated); color: #d4d4d8; cursor: pointer; font: inherit; font-size: 0.65rem; padding: 0.2rem 0.3rem; }
+.lc-thread-sidebar-archive { display: none; position: absolute; right: 0.25rem; }
+.lc-thread-sidebar-row:hover .lc-thread-sidebar-archive, .lc-thread-sidebar-row:focus-within .lc-thread-sidebar-archive { display: block; }
+.lc-thread-sidebar-confirm { position: absolute; right: 0.2rem; display: flex; gap: 0.25rem; }
+.lc-thread-sidebar-message { padding: 0.75rem 0.4rem; color: var(--lc-color-text-tertiary); font-size: 0.8rem; }
+.lc-thread-sidebar-error { color: #fca5a5; }
+.lc-thread-sidebar-footer { flex: 0 0 auto; border-top: 1px solid var(--lc-color-border); padding: 0.65rem 0.75rem; }
+
+@media (min-width: 768px) {
+  .lc-workspace-sidebar { position: static; display: flex; max-width: none; flex: 0 0 auto; }
+  .lc-workspace-sidebar-backdrop, .lc-workspace-menu-button { display: none; }
+}
+
 @keyframes lc-client-spin {
   to {
     transform: rotate(360deg);

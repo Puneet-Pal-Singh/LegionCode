@@ -15,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@legioncode/sdk": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "react": "^19.2.0"
   },

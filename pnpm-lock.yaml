@@ -521,6 +521,9 @@ importers:
 
   packages/client-ui:
     dependencies:
+      '@legioncode/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
