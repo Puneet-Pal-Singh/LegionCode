@@ -211,3 +211,16 @@ export {
   type ActiveWorkflowTraceProjection,
   type ToolActivitySegment,
 } from "./workflow/tool-activity-grouping.js";
+export {
+  projectThreadSidebar,
+  type ProjectThreadSidebarInput,
+  type ThreadSidebarDisplayStatus,
+  type ThreadSidebarItem,
+  type ThreadSidebarPlacement,
+  type ThreadSidebarReadModel,
+  type ThreadSidebarSourceState,
+  type ThreadSidebarThreadInput,
+  type ThreadSidebarWorkspaceGroup,
+  type ThreadSidebarWorkspaceInput,
+} from "./navigation/thread-sidebar-projection.js";
+export { workspaceIdFromExternalId } from "@repo/platform-protocol";
