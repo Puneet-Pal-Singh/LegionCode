@@ -35,6 +35,7 @@ describe("projectThreadSidebar", () => {
       ],
       threads: [
         {
+          selectionId: "thread:thr_regular_old",
           threadId: "thr_regular_old" as ThreadId,
           workspaceId: hostedWorkspaceId,
           title: "Older hosted thread",
@@ -45,6 +46,7 @@ describe("projectThreadSidebar", () => {
           isUnread: false,
         },
         {
+          selectionId: "thread:thr_selected",
           threadId: selectedThreadId,
           workspaceId: localWorkspaceId,
           title: "Selected local thread",
@@ -55,6 +57,7 @@ describe("projectThreadSidebar", () => {
           isUnread: true,
         },
         {
+          selectionId: "thread:thr_pinned_old",
           threadId: "thr_pinned_old" as ThreadId,
           workspaceId: hostedWorkspaceId,
           title: "Older pin",
@@ -65,6 +68,7 @@ describe("projectThreadSidebar", () => {
           isUnread: false,
         },
         {
+          selectionId: "thread:thr_pinned_new",
           threadId: "thr_pinned_new" as ThreadId,
           workspaceId: localWorkspaceId,
           title: "Newer pin",
@@ -75,6 +79,7 @@ describe("projectThreadSidebar", () => {
           isUnread: false,
         },
         {
+          selectionId: "thread:thr_archived",
           threadId: "thr_archived" as ThreadId,
           workspaceId: archivedWorkspaceId,
           title: "Archived thread",
@@ -85,6 +90,7 @@ describe("projectThreadSidebar", () => {
           isUnread: false,
         },
         {
+          selectionId: "thread:thr_archived_old",
           threadId: "thr_archived_old" as ThreadId,
           workspaceId: archivedWorkspaceId,
           title: "Older archived thread",
@@ -95,6 +101,7 @@ describe("projectThreadSidebar", () => {
           isUnread: false,
         },
         {
+          selectionId: "thread:thr_regular_new",
           threadId: "thr_regular_new" as ThreadId,
           workspaceId: hostedWorkspaceId,
           title: "Newer hosted thread",
@@ -105,13 +112,14 @@ describe("projectThreadSidebar", () => {
           isUnread: false,
         },
       ],
-      selectedThreadId,
+      selectedSelectionId: "thread:thr_selected",
     };
 
     const ready = projectThreadSidebar(input);
     expect(ready.status).toBe("ready");
-    if (ready.status !== "ready") throw new Error("Expected a ready read model");
-    expect(ready.selectedThreadId).toBe(selectedThreadId);
+    if (ready.status !== "ready")
+      throw new Error("Expected a ready read model");
+    expect(ready.selectedSelectionId).toBe("thread:thr_selected");
     expect(ready.pinned.map((thread) => thread.threadId)).toEqual([
       "thr_pinned_new",
       "thr_pinned_old",
@@ -129,6 +137,8 @@ describe("projectThreadSidebar", () => {
       ["Local repository", "local", [selectedThreadId]],
     ]);
     expect(ready.workspaceGroups[3]?.threads[0]).toMatchObject({
+      selectionId: "thread:thr_selected",
+      threadId: selectedThreadId,
       displayStatus: "running",
       isUnread: true,
       isSelected: true,
@@ -170,5 +180,95 @@ describe("projectThreadSidebar", () => {
       ],
       archived: [],
     });
+  });
+
+  it("selects entries by UI identity without claiming a canonical thread identity", () => {
+    const workspaceId = "wrk_local001" as WorkspaceId;
+    const readModel = projectThreadSidebar({
+      state: { status: "ready" },
+      workspaces: [
+        { workspaceId, label: "Local repository", placement: "local" },
+      ],
+      threads: [
+        {
+          selectionId: "draft:local:new-thread",
+          threadId: null,
+          workspaceId,
+          title: "New local session",
+          updatedAt: "2026-09-24T10:00:00.000Z",
+          pinnedAt: null,
+          archivedAt: null,
+          displayStatus: "idle",
+          isUnread: false,
+        },
+      ],
+      selectedSelectionId: "draft:local:new-thread",
+    });
+
+    expect(readModel.status).toBe("ready");
+    expect(readModel.selectedSelectionId).toBe("draft:local:new-thread");
+    expect(readModel.workspaceGroups[0]?.threads[0]).toMatchObject({
+      selectionId: "draft:local:new-thread",
+      threadId: null,
+      isSelected: true,
+    });
+  });
+
+  it("groups punctuation-colliding workspaces by explicit selection identity", () => {
+    const readModel = projectThreadSidebar({
+      state: { status: "ready" },
+      workspaces: [
+        {
+          workspaceId: null,
+          workspaceSelectionId: "acme/foo_bar",
+          label: "foo_bar",
+          placement: "hosted",
+        },
+        {
+          workspaceId: null,
+          workspaceSelectionId: "acme_foo/bar",
+          label: "bar",
+          placement: "hosted",
+        },
+      ],
+      threads: [
+        {
+          selectionId: "session-a",
+          threadId: null,
+          workspaceId: null,
+          workspaceSelectionId: "acme/foo_bar",
+          title: "A",
+          updatedAt: "2026-09-24T10:00:00.000Z",
+          pinnedAt: null,
+          archivedAt: null,
+          displayStatus: "idle",
+          isUnread: false,
+        },
+        {
+          selectionId: "session-b",
+          threadId: null,
+          workspaceId: null,
+          workspaceSelectionId: "acme_foo/bar",
+          title: "B",
+          updatedAt: "2026-09-24T09:00:00.000Z",
+          pinnedAt: null,
+          archivedAt: null,
+          displayStatus: "idle",
+          isUnread: false,
+        },
+      ],
+      selectedSelectionId: null,
+    });
+
+    expect(
+      readModel.workspaceGroups.map((group) => [
+        group.workspaceSelectionId,
+        group.workspaceId,
+        group.threads.map((thread) => thread.selectionId),
+      ]),
+    ).toEqual([
+      ["acme_foo/bar", null, ["session-b"]],
+      ["acme/foo_bar", null, ["session-a"]],
+    ]);
   });
 });

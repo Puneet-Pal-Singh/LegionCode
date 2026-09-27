@@ -1,13 +1,14 @@
 import {
   projectThreadSidebar,
-  workspaceIdFromExternalId,
+  ThreadIdSchema,
   type ProjectThreadSidebarInput,
-  type ThreadId,
   type ThreadSidebarThreadInput,
   type ThreadSidebarWorkspaceInput,
 } from "@legioncode/sdk";
-type WorkspaceId = ReturnType<typeof workspaceIdFromExternalId>;
-import type { AgentSession, SessionHydrationStatus } from "../hooks/useSessionManager";
+import type {
+  AgentSession,
+  SessionHydrationStatus,
+} from "../hooks/useSessionManager";
 
 export interface SidebarRepository {
   id: string;
@@ -28,12 +29,14 @@ const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
 export function selectSessionUnread(session: AgentSession): boolean {
   return Boolean(
     session.lastTerminalTurnId &&
-      session.lastTerminalTurnId !== session.lastAcknowledgedTerminalTurnId,
+    session.lastTerminalTurnId !== session.lastAcknowledgedTerminalTurnId,
   );
 }
 
 export function selectSessionActive(session: AgentSession): boolean {
-  return session.status === "running" || session.status === "waiting_for_approval";
+  return (
+    session.status === "running" || session.status === "waiting_for_approval"
+  );
 }
 
 export function projectAgentSessionsForSidebar({
@@ -59,14 +62,14 @@ export function projectAgentSessionsForSidebar({
     });
   }
 
-  const workspaceByRepository = new Map<string, WorkspaceId>();
+  const workspaceByRepository = new Map<string, string>();
   const workspaces: ThreadSidebarWorkspaceInput[] = Array.from(
     repositoryById.values(),
   ).map((repository) => {
-    const workspaceId = workspaceIdFromExternalId(repository.id);
-    workspaceByRepository.set(repository.id, workspaceId);
+    workspaceByRepository.set(repository.id, repository.id);
     return {
-      workspaceId,
+      workspaceId: null,
+      workspaceSelectionId: repository.id,
       label: repository.label,
       placement: "hosted",
     };
@@ -75,12 +78,10 @@ export function projectAgentSessionsForSidebar({
   const threads: ThreadSidebarThreadInput[] = sessions.map((session) => {
     const repository = session.repository?.trim() || NO_REPOSITORY;
     return {
-      // Existing Web sessions are the selectable conversation identity for this
-      // adapter; no runtime or server identity is synthesized here.
-      threadId: session.id as ThreadId,
-      workspaceId:
-        workspaceByRepository.get(repository) ??
-        workspaceIdFromExternalId(repository),
+      selectionId: session.id,
+      threadId: ThreadIdSchema.safeParse(session.id).data ?? null,
+      workspaceId: null,
+      workspaceSelectionId: workspaceByRepository.get(repository) ?? repository,
       title: session.name,
       updatedAt: session.updatedAt,
       pinnedAt: session.pinnedAt,
@@ -101,7 +102,7 @@ export function projectAgentSessionsForSidebar({
     state,
     workspaces,
     threads,
-    selectedThreadId: activeSessionId as ThreadId | null,
+    selectedSelectionId: activeSessionId,
   });
 }
 
@@ -137,7 +138,10 @@ function hasRecentUnreadTerminal(
     return false;
   }
   const updatedAtMs = new Date(session.updatedAt).getTime();
-  return Number.isFinite(updatedAtMs) && now - updatedAtMs <= COMPLETED_HIGHLIGHT_WINDOW_MS;
+  return (
+    Number.isFinite(updatedAtMs) &&
+    now - updatedAtMs <= COMPLETED_HIGHLIGHT_WINDOW_MS
+  );
 }
 
 function repositoryLabel(repository: string): string {

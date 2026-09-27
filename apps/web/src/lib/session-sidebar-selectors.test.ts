@@ -37,14 +37,23 @@ describe("Web session to shared Thread sidebar projection", () => {
     });
     const entries = model.workspaceGroups.flatMap((group) => group.threads);
 
-    expect(Object.fromEntries(entries.map(({ threadId, displayStatus }) => [threadId, displayStatus]))).toEqual({
+    expect(
+      Object.fromEntries(
+        entries.map(({ selectionId, displayStatus }) => [
+          selectionId,
+          displayStatus,
+        ]),
+      ),
+    ).toEqual({
       approval: "waiting_for_approval",
       running: "running",
       paused: "paused",
       completed: "completed",
       failed: "failed",
     });
-    expect(entries.find((entry) => entry.threadId === "completed")?.isUnread).toBe(true);
+    expect(
+      entries.find((entry) => entry.selectionId === "completed")?.isUnread,
+    ).toBe(true);
     expect(selectSessionUnread(sessions[3]!)).toBe(true);
   });
 
@@ -53,7 +62,10 @@ describe("Web session to shared Thread sidebar projection", () => {
       sessions: [
         createSession({ id: "selected" }),
         createSession({ id: "pinned", pinnedAt: "2026-09-26T11:00:00.000Z" }),
-        createSession({ id: "archived", archivedAt: "2026-09-26T11:00:00.000Z" }),
+        createSession({
+          id: "archived",
+          archivedAt: "2026-09-26T11:00:00.000Z",
+        }),
       ],
       repositories: ["acme/repo"],
       activeSessionId: "selected",
@@ -61,9 +73,58 @@ describe("Web session to shared Thread sidebar projection", () => {
       now: NOW,
     });
 
-    expect(model.workspaceGroups.flatMap((group) => group.threads).map((thread) => [thread.threadId, thread.isSelected])).toContainEqual(["selected", true]);
-    expect(model.pinned.map((thread) => thread.threadId)).toEqual(["pinned"]);
-    expect(model.archived.map((thread) => thread.threadId)).toEqual(["archived"]);
+    expect(
+      model.workspaceGroups
+        .flatMap((group) => group.threads)
+        .map((thread) => [thread.selectionId, thread.isSelected]),
+    ).toContainEqual(["selected", true]);
+    expect(model.pinned.map((thread) => thread.selectionId)).toEqual([
+      "pinned",
+    ]);
+    expect(model.archived.map((thread) => thread.selectionId)).toEqual([
+      "archived",
+    ]);
+  });
+
+  it("preserves Web UUID selection identity without inventing a canonical thread id", () => {
+    const sessionId = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+    const model = projectAgentSessionsForSidebar({
+      sessions: [createSession({ id: sessionId })],
+      repositories: ["acme/repo"],
+      activeSessionId: sessionId,
+      hydrationStatus: "ready",
+      now: NOW,
+    });
+    const thread = model.workspaceGroups.flatMap((group) => group.threads)[0];
+
+    expect(thread?.selectionId).toBe(sessionId);
+    expect(thread?.threadId).toBeNull();
+    expect(thread?.isSelected).toBe(true);
+    expect(model.selectedSelectionId).toBe(sessionId);
+  });
+
+  it("keeps repository names distinct when normalized workspace ids would collide", () => {
+    const model = projectAgentSessionsForSidebar({
+      sessions: [
+        createSession({ id: "session-a", repository: "acme/foo_bar" }),
+        createSession({ id: "session-b", repository: "acme_foo/bar" }),
+      ],
+      repositories: ["acme/foo_bar", "acme_foo/bar"],
+      activeSessionId: null,
+      hydrationStatus: "ready",
+      now: NOW,
+    });
+
+    expect(
+      model.workspaceGroups.map((group) => [
+        group.workspaceSelectionId,
+        group.workspaceId,
+        group.threads.map((thread) => thread.selectionId),
+      ]),
+    ).toEqual([
+      ["acme_foo/bar", null, ["session-b"]],
+      ["acme/foo_bar", null, ["session-a"]],
+    ]);
   });
 
   it("keeps loading and failed hydration visible as source state", () => {
@@ -74,10 +135,12 @@ describe("Web session to shared Thread sidebar projection", () => {
       now: NOW,
     };
     expect(
-      projectAgentSessionsForSidebar({ ...input, hydrationStatus: "loading" }).status,
+      projectAgentSessionsForSidebar({ ...input, hydrationStatus: "loading" })
+        .status,
     ).toBe("loading");
     expect(
-      projectAgentSessionsForSidebar({ ...input, hydrationStatus: "failed" }).status,
+      projectAgentSessionsForSidebar({ ...input, hydrationStatus: "failed" })
+        .status,
     ).toBe("error");
   });
 });

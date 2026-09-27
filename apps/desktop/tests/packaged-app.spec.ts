@@ -34,22 +34,27 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
 
   try {
     const page = await application.firstWindow();
+    await page.setViewportSize({ width: 1100, height: 800 });
     await expect(
       page.getByRole("heading", { name: "LegionCode Desktop" }),
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
     await expect(page.getByText("2 capability slices unavailable", { exact: true })).toBeVisible();
-    await page.setViewportSize({ width: 420, height: 900 });
     const sidebarToggle = page.locator(".lc-workspace-menu-button");
+    const workspaceSidebar = page.getByTestId("workspace-sidebar");
+    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(workspaceSidebar).toBeVisible();
+    await page.setViewportSize({ width: 420, height: 900 });
+    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toBeHidden();
     await sidebarToggle.click();
     await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
-    const workspaceSidebar = page.getByTestId("workspace-sidebar");
     await expect(workspaceSidebar).toBeVisible();
-    const newThreadNavigation = workspaceSidebar.getByRole("button", { name: "New thread" });
-    await newThreadNavigation.focus();
-    await expect(newThreadNavigation).toBeFocused();
-    await page.getByRole("button", { name: "Close sidebar" }).click();
+    await expect(workspaceSidebar.getByLabel("Search")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(sidebarToggle).toBeFocused();
     await page.setViewportSize({ width: 1100, height: 800 });
     const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
     const appServerMetric = appMetrics.find(
@@ -119,6 +124,7 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const page = await application.firstWindow();
+    await page.setViewportSize({ width: 1100, height: 800 });
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
 
     await application.evaluate(({ dialog }, selectedPath) => {
@@ -132,11 +138,27 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await page.getByRole("button", { name: "Grant access" }).click();
     await expect(page.getByRole("heading", { name: "repository" })).toBeVisible();
     await expect(page.getByText("main", { exact: true })).toBeVisible();
+    const initialSidebarToggle = page.locator(".lc-workspace-menu-button");
+    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await initialSidebarToggle.click();
+    await expect(page.getByTestId("workspace-sidebar")).toBeVisible();
 
     await page.getByLabel("New thread title").fill("Initial thread");
     await page.getByRole("button", { name: "Create thread" }).click();
-    await expect(page.getByRole("option", { name: "Initial thread" })).toBeVisible();
-    await expect(page.getByText("Local", { exact: true })).toBeVisible();
+    const initialThread = page.getByRole("option", { name: "Initial thread" });
+    await expect(initialThread).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("workspace-sidebar")).toBeVisible();
+    await expect(page.getByText("Local only", { exact: true })).toBeVisible();
+
+    await page.getByLabel("New thread title").fill("Second thread");
+    await page.getByRole("button", { name: "Create thread" }).click();
+    const secondThread = page.getByRole("option", { name: "Second thread" });
+    await expect(secondThread).toHaveAttribute("aria-selected", "true");
+    await expect(initialThread).toHaveAttribute("aria-selected", "false");
+    await expect(page.getByLabel("Thread title", { exact: true })).toHaveValue(
+      "Second thread",
+    );
+
     await page.getByLabel("Thread title", { exact: true }).fill("Renamed thread");
     await page.getByRole("button", { name: "Rename" }).click();
     await expect(page.getByRole("option", { name: "Renamed thread" })).toBeVisible();
@@ -155,14 +177,23 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const reopenedPage = await application.firstWindow();
+    await reopenedPage.setViewportSize({ width: 960, height: 800 });
     await expect(reopenedPage.getByRole("heading", { name: "repository" })).toBeVisible();
+    const reopenedSidebarToggle = reopenedPage.locator(".lc-workspace-menu-button");
+    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await reopenedSidebarToggle.click();
+    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "true");
     await reopenedPage.getByRole("button", { name: /Archived/ }).click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.getByRole("option", { name: "Renamed thread" }).click();
     await expect(reopenedPage.getByRole("button", { name: "Unarchive" })).toBeVisible();
     await reopenedPage.getByRole("button", { name: "Unarchive" }).click();
     await expect(reopenedPage.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await reopenedSidebarToggle.click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
+    await reopenedPage.keyboard.press("Escape");
+    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
     await reopenedPage.getByRole("button", { name: "Revoke access" }).click();
     await expect(reopenedPage.getByRole("heading", { name: "No workspace granted" })).toBeVisible();
 

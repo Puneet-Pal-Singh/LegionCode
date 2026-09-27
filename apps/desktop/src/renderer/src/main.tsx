@@ -36,6 +36,18 @@ function DesktopApp(): React.JSX.Element {
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [threadTitle, setThreadTitle] = useState("");
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => !window.matchMedia("(max-width: 1023px)").matches,
+  );
+
+  useEffect(() => {
+    const compactLayout = window.matchMedia("(max-width: 1023px)");
+    const closeSidebarOnCompact = (event: MediaQueryListEvent): void => {
+      if (event.matches) setSidebarOpen(false);
+    };
+    compactLayout.addEventListener("change", closeSidebarOnCompact);
+    return () => compactLayout.removeEventListener("change", closeSidebarOnCompact);
+  }, []);
 
   useEffect(() => {
     void window.desktop.getBuildInfo().then(setBuild);
@@ -62,26 +74,26 @@ function DesktopApp(): React.JSX.Element {
       })
       .catch(() => {
         setWorkspaceError("The local workspace grant could not be loaded.");
-        setThreadLoadState("error");
+        setThreadLoadState("ready");
       });
   }, [environment?.status]);
 
-  async function refreshThreads(): Promise<void> {
+  async function refreshThreads(preferredSelectionId?: string): Promise<void> {
     setThreadLoadState("loading");
     try {
       const nextThreads = await window.desktop.listThreads();
       setThreads(nextThreads);
       setThreadLoadState("ready");
-      if (selectedThread) {
+      const selectionId = preferredSelectionId ?? selectedThread?.id;
+      if (selectionId) {
         const nextSelected = nextThreads.find(
-          (thread) => thread.id === selectedThread.id,
+          (thread) => thread.id === selectionId,
         ) ?? null;
         setSelectedThread(nextSelected);
         setThreadTitle(nextSelected?.title ?? "");
       }
     } catch {
       setThreadLoadState("error");
-      throw new Error("The local thread list could not be loaded.");
     }
   }
 
@@ -94,7 +106,7 @@ function DesktopApp(): React.JSX.Element {
       setNewThreadTitle("");
       setSelectedThread(created);
       setThreadTitle(created.title);
-      await refreshThreads();
+      await refreshThreads(created.id);
     } catch {
       setThreadError("The local thread could not be created.");
     }
@@ -122,7 +134,7 @@ function DesktopApp(): React.JSX.Element {
         threadTitle,
       );
       setSelectedThread(renamed);
-      await refreshThreads();
+      await refreshThreads(renamed.id);
     } catch {
       setThreadError("Thread titles must contain 1 to 80 characters.");
     }
@@ -136,7 +148,7 @@ function DesktopApp(): React.JSX.Element {
         ? await window.desktop.archiveThread(selectedThread.id)
         : await window.desktop.unarchiveThread(selectedThread.id);
       setSelectedThread(updated);
-      await refreshThreads();
+      await refreshThreads(updated.id);
     } catch {
       setThreadError("The local thread could not be updated.");
     }
@@ -150,7 +162,9 @@ function DesktopApp(): React.JSX.Element {
       if (selectedThread?.id === updated.id) {
         setSelectedThread(updated);
       }
-      await refreshThreads();
+      await refreshThreads(
+        selectedThread?.id === updated.id ? updated.id : undefined,
+      );
     } catch {
       setThreadError("The local thread could not be updated.");
     }
@@ -164,7 +178,9 @@ function DesktopApp(): React.JSX.Element {
       if (selectedThread?.id === updated.id) {
         setSelectedThread(updated);
       }
-      await refreshThreads();
+      await refreshThreads(
+        selectedThread?.id === updated.id ? updated.id : undefined,
+      );
     } catch {
       setThreadError("The local thread could not be updated.");
     }
@@ -182,16 +198,19 @@ function DesktopApp(): React.JSX.Element {
   async function grantWorkspace(): Promise<void> {
     if (!selection) return;
     setWorkspaceError(null);
+    let granted: LocalWorkspaceGrant;
     try {
-      const granted = await window.desktop.grantWorkspace(
+      granted = await window.desktop.grantWorkspace(
         selection.selectionToken,
       );
-      setWorkspace(granted);
-      setSelection(null);
-      if (granted.readiness === "ready") await refreshThreads();
     } catch {
       setWorkspaceError("The selected directory is not a Git repository root.");
+      return;
     }
+
+    setWorkspace(granted);
+    setSelection(null);
+    if (granted.readiness === "ready") await refreshThreads();
   }
 
   async function revokeWorkspace(): Promise<void> {
@@ -222,6 +241,7 @@ function DesktopApp(): React.JSX.Element {
           }]
         : [],
       threads: threads.map((thread) => ({
+        selectionId: thread.id,
         threadId: thread.id,
         workspaceId: thread.workspaceId,
         title: thread.title,
@@ -231,7 +251,7 @@ function DesktopApp(): React.JSX.Element {
         isUnread: false,
         displayStatus: "idle" satisfies ThreadSidebarDisplayStatus,
       })),
-      selectedThreadId: selectedThread?.id ?? null,
+      selectedSelectionId: selectedThread?.id ?? null,
     }),
     [threadLoadState, workspace, threads, selectedThread?.id],
   );
@@ -247,11 +267,18 @@ function DesktopApp(): React.JSX.Element {
     >
       <WorkspaceFrame
         className="desktop-workspace-frame"
+        sidebarOpen={sidebarOpen}
+        onSidebarOpenChange={setSidebarOpen}
         sidebar={(
           <ThreadSidebar
             model={sidebarModel}
-            onSelect={(threadId) => void openThread(threadId)}
-            onCreate={() => void createThread()}
+            onSelect={(threadId) => {
+              setSidebarOpen(false);
+              void openThread(threadId);
+            }}
+            onCreate={workspace?.readiness === "ready"
+              ? () => void createThread()
+              : undefined}
             onArchive={archiveThread}
             onUnarchive={unarchiveThread}
           />

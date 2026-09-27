@@ -21,7 +21,9 @@ function createSession(overrides: Partial<AgentSession> = {}): AgentSession {
   };
 }
 
-function renderSidebar(overrides: Partial<React.ComponentProps<typeof AgentSidebar>> = {}) {
+function renderSidebar(
+  overrides: Partial<React.ComponentProps<typeof AgentSidebar>> = {},
+) {
   return render(
     <AgentSidebar
       sessions={[createSession()]}
@@ -51,6 +53,19 @@ describe("AgentSidebar adapter", () => {
     expect(onCreate).toHaveBeenCalledWith("legioncode/legioncode");
   });
 
+  it("routes a UUID selection back to Web unchanged", () => {
+    const sessionId = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+    const onSelect = vi.fn();
+    renderSidebar({
+      sessions: [createSession({ id: sessionId })],
+      activeSessionId: sessionId,
+      onSelect,
+    });
+
+    fireEvent.click(screen.getByRole("option", { name: "Draft task" }));
+    expect(onSelect).toHaveBeenCalledWith(sessionId);
+  });
+
   it("uses shared search and archive confirmation callbacks", async () => {
     const onArchive = vi.fn();
     renderSidebar({
@@ -64,7 +79,9 @@ describe("AgentSidebar adapter", () => {
     fireEvent.change(screen.getByRole("searchbox"), {
       target: { value: "other" },
     });
-    expect(screen.queryByRole("option", { name: "Draft task" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Draft task" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Archive Other task" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Confirm archive for Other task" }),
@@ -77,5 +94,96 @@ describe("AgentSidebar adapter", () => {
     renderSidebar({ onOpenSettings });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it("routes colliding repository workspace actions to their raw repository identities", () => {
+    const firstRepository = "acme/foo_bar";
+    const secondRepository = "acme_foo/bar";
+    const onCreate = vi.fn();
+    const onRenameRepository = vi.fn();
+    const onRemoveRepository = vi.fn();
+    renderSidebar({
+      sessions: [
+        createSession({
+          id: "session-a",
+          name: "First repository task",
+          repository: firstRepository,
+        }),
+        createSession({
+          id: "session-b",
+          name: "Second repository task",
+          repository: secondRepository,
+        }),
+      ],
+      repositories: [firstRepository, secondRepository],
+      onCreate,
+      onRenameRepository,
+      onRemoveRepository,
+    });
+
+    expect(
+      screen.getByRole("option", { name: "First repository task" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Second repository task" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New thread in bar" }));
+    expect(onCreate).toHaveBeenCalledWith(secondRepository);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rename workspace bar" }),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Rename bar" }), {
+      target: { value: "renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onRenameRepository).toHaveBeenCalledWith(
+      secondRepository,
+      "renamed",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove workspace bar" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(onRemoveRepository).toHaveBeenCalledWith(secondRepository);
+  });
+
+  it("keeps create and selection for No repository without showing manage actions", () => {
+    const onSelect = vi.fn();
+    const onCreate = vi.fn();
+    const onRenameRepository = vi.fn();
+    const onRemoveRepository = vi.fn();
+    renderSidebar({
+      sessions: [
+        createSession({
+          id: "unscoped",
+          name: "Unscoped task",
+          repository: null,
+        }),
+      ],
+      repositories: [],
+      activeSessionId: "unscoped",
+      onSelect,
+      onCreate,
+      onRenameRepository,
+      onRemoveRepository,
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Toggle No repository" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Rename workspace No repository" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Remove workspace No repository" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "New thread in No repository" }),
+    );
+    expect(onCreate).toHaveBeenCalledWith(undefined);
+    fireEvent.click(screen.getByRole("option", { name: "Unscoped task" }));
+    expect(onSelect).toHaveBeenCalledWith("unscoped");
+    expect(onRenameRepository).not.toHaveBeenCalled();
+    expect(onRemoveRepository).not.toHaveBeenCalled();
   });
 });

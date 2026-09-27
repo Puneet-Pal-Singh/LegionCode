@@ -10,22 +10,33 @@ export type ThreadSidebarDisplayStatus =
   | "paused"
   | "failed";
 
-export interface ThreadSidebarWorkspaceInput {
-  readonly workspaceId: WorkspaceId;
+export type ThreadSidebarWorkspaceInput = {
   readonly label: string;
   readonly placement: ThreadSidebarPlacement;
-}
+} & (
+  | {
+      readonly workspaceId: WorkspaceId;
+      readonly workspaceSelectionId?: string;
+    }
+  | { readonly workspaceId: null; readonly workspaceSelectionId: string }
+);
 
-export interface ThreadSidebarThreadInput {
-  readonly threadId: ThreadId;
-  readonly workspaceId: WorkspaceId;
+export type ThreadSidebarThreadInput = {
+  readonly selectionId: string;
+  readonly threadId: ThreadId | null;
   readonly title: string;
   readonly updatedAt: string;
   readonly pinnedAt: string | null;
   readonly archivedAt: string | null;
   readonly displayStatus: ThreadSidebarDisplayStatus;
   readonly isUnread: boolean;
-}
+} & (
+  | {
+      readonly workspaceId: WorkspaceId;
+      readonly workspaceSelectionId?: string;
+    }
+  | { readonly workspaceId: null; readonly workspaceSelectionId: string }
+);
 
 export type ThreadSidebarSourceState =
   | { readonly status: "loading" }
@@ -36,12 +47,14 @@ export interface ProjectThreadSidebarInput {
   readonly state: ThreadSidebarSourceState;
   readonly workspaces: readonly ThreadSidebarWorkspaceInput[];
   readonly threads: readonly ThreadSidebarThreadInput[];
-  readonly selectedThreadId: ThreadId | null;
+  readonly selectedSelectionId: string | null;
 }
 
 export interface ThreadSidebarItem {
-  readonly threadId: ThreadId;
-  readonly workspaceId: WorkspaceId;
+  readonly selectionId: string;
+  readonly threadId: ThreadId | null;
+  readonly workspaceId: WorkspaceId | null;
+  readonly workspaceSelectionId: string;
   readonly workspaceLabel: string | null;
   readonly placement: ThreadSidebarPlacement | null;
   readonly title: string;
@@ -56,7 +69,8 @@ export interface ThreadSidebarItem {
 }
 
 export interface ThreadSidebarWorkspaceGroup {
-  readonly workspaceId: WorkspaceId;
+  readonly workspaceId: WorkspaceId | null;
+  readonly workspaceSelectionId: string;
   readonly label: string | null;
   readonly placement: ThreadSidebarPlacement | null;
   readonly threads: readonly ThreadSidebarItem[];
@@ -65,7 +79,7 @@ export interface ThreadSidebarWorkspaceGroup {
 export interface ThreadSidebarReadModel {
   readonly status: "loading" | "error" | "empty" | "ready";
   readonly error?: string;
-  readonly selectedThreadId: ThreadId | null;
+  readonly selectedSelectionId: string | null;
   readonly pinned: readonly ThreadSidebarItem[];
   readonly workspaceGroups: readonly ThreadSidebarWorkspaceGroup[];
   readonly archived: readonly ThreadSidebarItem[];
@@ -77,23 +91,30 @@ export function projectThreadSidebar(
 ): ThreadSidebarReadModel {
   const workspaceGroups = createWorkspaceGroups(input.workspaces);
   if (input.state.status === "loading") {
-    return emptyReadModel("loading", input.selectedThreadId, workspaceGroups);
+    return emptyReadModel(
+      "loading",
+      input.selectedSelectionId,
+      workspaceGroups,
+    );
   }
   if (input.state.status === "error") {
     return {
-      ...emptyReadModel("error", input.selectedThreadId, workspaceGroups),
+      ...emptyReadModel("error", input.selectedSelectionId, workspaceGroups),
       error: input.state.message,
     };
   }
 
   const workspaces = new Map(
-    input.workspaces.map((workspace) => [workspace.workspaceId, workspace]),
+    input.workspaces.map((workspace) => [selectionId(workspace), workspace]),
   );
   const items = input.threads.map((thread) => {
-    const workspace = workspaces.get(thread.workspaceId);
+    const workspaceSelectionId = selectionId(thread);
+    const workspace = workspaces.get(workspaceSelectionId);
     return {
+      selectionId: thread.selectionId,
       threadId: thread.threadId,
       workspaceId: thread.workspaceId,
+      workspaceSelectionId,
       workspaceLabel: workspace?.label ?? null,
       placement: workspace?.placement ?? null,
       title: thread.title,
@@ -104,7 +125,7 @@ export function projectThreadSidebar(
       isUnread: thread.isUnread,
       isPinned: thread.pinnedAt !== null,
       isArchived: thread.archivedAt !== null,
-      isSelected: thread.threadId === input.selectedThreadId,
+      isSelected: thread.selectionId === input.selectedSelectionId,
     } satisfies ThreadSidebarItem;
   });
 
@@ -112,23 +133,27 @@ export function projectThreadSidebar(
     .filter((item) => !item.isArchived && item.isPinned)
     .sort(comparePinned);
   const archived = items.filter((item) => item.isArchived).sort(compareUpdated);
-  const grouped = new Map<WorkspaceId, ThreadSidebarItem[]>(
-    workspaceGroups.map((group) => [group.workspaceId, [...group.threads]]),
+  const grouped = new Map<string, ThreadSidebarItem[]>(
+    workspaceGroups.map((group) => [
+      group.workspaceSelectionId,
+      [...group.threads],
+    ]),
   );
   for (const item of items) {
     if (item.isArchived || item.isPinned) continue;
-    grouped.set(item.workspaceId, [
-      ...(grouped.get(item.workspaceId) ?? []),
+    grouped.set(item.workspaceSelectionId, [
+      ...(grouped.get(item.workspaceSelectionId) ?? []),
       item,
     ]);
   }
 
   const projectedWorkspaceGroups = Array.from(
     grouped,
-    ([workspaceId, threads]) => {
-      const workspace = workspaces.get(workspaceId);
+    ([workspaceSelectionId, threads]) => {
+      const workspace = workspaces.get(workspaceSelectionId);
       return {
-        workspaceId,
+        workspaceId: workspace?.workspaceId ?? null,
+        workspaceSelectionId,
         label: workspace?.label ?? null,
         placement: workspace?.placement ?? null,
         threads: threads.sort(compareUpdated),
@@ -137,12 +162,12 @@ export function projectThreadSidebar(
   ).sort(
     (left, right) =>
       (left.label ?? "").localeCompare(right.label ?? "") ||
-      left.workspaceId.localeCompare(right.workspaceId),
+      left.workspaceSelectionId.localeCompare(right.workspaceSelectionId),
   );
 
   return {
     status: input.threads.length === 0 ? "empty" : "ready",
-    selectedThreadId: input.selectedThreadId,
+    selectedSelectionId: input.selectedSelectionId,
     pinned,
     workspaceGroups: projectedWorkspaceGroups,
     archived,
@@ -151,12 +176,12 @@ export function projectThreadSidebar(
 
 function emptyReadModel(
   status: "loading" | "error" | "empty",
-  selectedThreadId: ThreadId | null,
+  selectedSelectionId: string | null,
   workspaceGroups: readonly ThreadSidebarWorkspaceGroup[],
 ): ThreadSidebarReadModel {
   return {
     status,
-    selectedThreadId,
+    selectedSelectionId,
     pinned: [],
     workspaceGroups,
     archived: [],
@@ -169,6 +194,7 @@ function createWorkspaceGroups(
   return workspaces
     .map((workspace) => ({
       workspaceId: workspace.workspaceId,
+      workspaceSelectionId: selectionId(workspace),
       label: workspace.label,
       placement: workspace.placement,
       threads: [],
@@ -176,8 +202,27 @@ function createWorkspaceGroups(
     .sort(
       (left, right) =>
         (left.label ?? "").localeCompare(right.label ?? "") ||
-        left.workspaceId.localeCompare(right.workspaceId),
+        left.workspaceSelectionId.localeCompare(right.workspaceSelectionId),
     );
+}
+
+function selectionId(
+  value:
+    | {
+        readonly workspaceId: WorkspaceId;
+        readonly workspaceSelectionId?: string;
+      }
+    | {
+        readonly workspaceId: null;
+        readonly workspaceSelectionId: string;
+      },
+): string {
+  if (value.workspaceSelectionId !== undefined)
+    return value.workspaceSelectionId;
+  if (value.workspaceId !== null) return value.workspaceId;
+  throw new Error(
+    "A workspace without a canonical id requires a selection identity",
+  );
 }
 
 function comparePinned(
@@ -196,6 +241,6 @@ function compareUpdated(
 ): number {
   return (
     right.updatedAt.localeCompare(left.updatedAt) ||
-    left.threadId.localeCompare(right.threadId)
+    left.selectionId.localeCompare(right.selectionId)
   );
 }

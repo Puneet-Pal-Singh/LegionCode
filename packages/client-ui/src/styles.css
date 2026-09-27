@@ -308,9 +308,10 @@ body {
 .lc-thread-sidebar-error { color: #fca5a5; }
 .lc-thread-sidebar-footer { flex: 0 0 auto; border-top: 1px solid var(--lc-color-border); padding: 0.65rem 0.75rem; }
 
-@media (min-width: 768px) {
-  .lc-workspace-sidebar { position: static; display: flex; max-width: none; flex: 0 0 auto; }
-  .lc-workspace-sidebar-backdrop, .lc-workspace-menu-button { display: none; }
+@media (min-width: 1024px) {
+  .lc-workspace-sidebar { position: static; max-width: none; flex: 0 0 auto; }
+  .lc-workspace-sidebar-open { display: flex; }
+  .lc-workspace-sidebar-backdrop { display: none; }
 }
 
 @keyframes lc-client-spin {

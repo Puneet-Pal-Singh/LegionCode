@@ -1,17 +1,10 @@
 import { useMemo } from "react";
-import {
-  ThreadSidebar,
-} from "@legioncode/client-ui";
-import {
-  workspaceIdFromExternalId,
-  type ThreadId,
-} from "@legioncode/sdk";
-type WorkspaceId = ReturnType<typeof workspaceIdFromExternalId>;
-import type { AgentSession, SessionHydrationStatus } from "../../hooks/useSessionManager";
-import {
-  projectAgentSessionsForSidebar,
-  type SidebarRepository,
-} from "../../lib/session-sidebar-selectors";
+import { ThreadSidebar } from "@legioncode/client-ui";
+import type {
+  AgentSession,
+  SessionHydrationStatus,
+} from "../../hooks/useSessionManager";
+import { projectAgentSessionsForSidebar } from "../../lib/session-sidebar-selectors";
 import {
   SidebarAccountMenu,
   type SidebarAccountUser,
@@ -64,22 +57,6 @@ export function AgentSidebar({
       }),
     [activeSessionId, hydrationStatus, repositories, sessions],
   );
-  const repositoryByWorkspaceId = useMemo(() => {
-    const entries: Array<[WorkspaceId, SidebarRepository]> = [
-      ...repositories.map((repository) => [
-        workspaceIdFromExternalId(repository),
-        { id: repository, label: repository },
-      ] as [WorkspaceId, SidebarRepository]),
-      ...sessions
-        .filter((session) => session.repository?.trim())
-        .map((session) => [
-          workspaceIdFromExternalId(session.repository!.trim()),
-          { id: session.repository!.trim(), label: session.repository!.trim() },
-        ] as [WorkspaceId, SidebarRepository]),
-    ];
-    return new Map(entries);
-  }, [repositories, sessions]);
-
   const footer = (
     <SidebarAccountMenu
       user={accountUser}
@@ -88,32 +65,40 @@ export function AgentSidebar({
     />
   );
 
-  const workspaceFor = (workspaceId: WorkspaceId): SidebarRepository | undefined =>
-    repositoryByWorkspaceId.get(workspaceId);
-
-  const threadId = (id: ThreadId): string => id;
-
   return (
     <ThreadSidebar
       model={model}
-      onSelect={(id) => {
-        onSelect(threadId(id));
+      onSelect={(selectionId) => {
+        onSelect(selectionId);
         onClose?.();
       }}
-      onCreate={(workspaceId) =>
-        onCreate(workspaceId ? workspaceFor(workspaceId)?.id : undefined)
+      onCreate={(workspaceSelectionId) =>
+        onCreate(
+          workspaceSelectionId === "No repository"
+            ? undefined
+            : workspaceSelectionId,
+        )
       }
       onAddWorkspace={onAddRepository}
-      onRenameWorkspace={(workspaceId, newLabel) => {
-        const workspace = workspaceFor(workspaceId);
-        if (workspace) onRenameRepository?.(workspace.id, newLabel);
-      }}
-      onRemoveWorkspace={(workspaceId) => {
-        const workspace = workspaceFor(workspaceId);
-        if (workspace) onRemoveRepository?.(workspace.id);
-      }}
-      onArchive={(id) => onArchive(threadId(id))}
-      onUnarchive={(id) => onUnarchive?.(threadId(id))}
+      canManageWorkspace={(workspaceSelectionId) =>
+        workspaceSelectionId !== "No repository"
+      }
+      onRenameWorkspace={
+        onRenameRepository
+          ? (workspaceSelectionId, newLabel) => {
+              onRenameRepository(workspaceSelectionId, newLabel);
+            }
+          : undefined
+      }
+      onRemoveWorkspace={
+        onRemoveRepository
+          ? (workspaceSelectionId) => {
+              onRemoveRepository(workspaceSelectionId);
+            }
+          : undefined
+      }
+      onArchive={(selectionId) => onArchive(selectionId)}
+      onUnarchive={(selectionId) => onUnarchive?.(selectionId)}
       footer={footer}
       width={width}
     />
