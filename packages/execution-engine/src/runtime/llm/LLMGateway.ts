@@ -43,7 +43,7 @@ function extractSafeReasoningSummary(
       part.type === "reasoning" && part.displaySafe === true && part.text?.trim(),
   )?.text?.trim();
   if (!summary) return undefined;
-  return { text: summary.slice(0, 16_000), displaySafe: true };
+  return { text: summary, displaySafe: true };
 }
 const FAST_TASK_TEXT_TIMEOUT_MS = 60_000;
 const STANDARD_TASK_TEXT_TIMEOUT_MS = 90_000;
