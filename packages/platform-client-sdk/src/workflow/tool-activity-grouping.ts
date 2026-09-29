@@ -49,9 +49,14 @@ function groupWorkflowItem(
   if (item.kind === "approval_request") return current;
   if (item.toolName === "multi_edit") return current;
   if (item.kind === "commentary") {
-    return appendCommentaryItem(segments, current, item);
+    segments.push(createStandaloneSegment(item));
+    return null;
   }
-  if (item.kind === "reasoning" || item.kind === "plan") {
+  if (item.kind === "reasoning") {
+    segments.push(createStandaloneSegment(item));
+    return null;
+  }
+  if (item.kind === "plan") {
     return appendReasoningSegment(segments, current, item) ?? current;
   }
   if (isToolItem(item)) {
@@ -61,34 +66,6 @@ function groupWorkflowItem(
     segments.push(createStandaloneSegment(item));
   }
   return null;
-}
-
-/**
- * Provider-visible commentary is an ordered transcript part, not a lifecycle
- * boundary. Keep it in the current activity parent so a streamed commentary
- * update cannot make the following tool call look like a child of a new
- * parent. Private reasoning never reaches this branch: it is projected as a
- * `reasoning` item and remains title-only/display-safe.
- */
-function appendCommentaryItem(
-  segments: ToolActivitySegment[],
-  current: ToolActivitySegment | null,
-  item: WorkflowItem,
-): ToolActivitySegment {
-  if (!current) {
-    const created = createStandaloneSegment(item);
-    segments.push(created);
-    return created;
-  }
-
-  const children = [...current.children, item];
-  const updated = {
-    ...current,
-    children,
-    isActive: isSegmentActive(current.reasoning, children),
-  };
-  segments[segments.length - 1] = updated;
-  return updated;
 }
 
 function appendReasoningSegment(
@@ -318,9 +295,7 @@ export function buildActiveWorkflowTrace(
 ): ActiveWorkflowTraceProjection {
   const traceSegments = collectCurrentTraceSegments(segments);
   const children = traceSegments.flatMap((segment) =>
-    segment.children.filter(
-      (item) => isToolItem(item) || item.kind === "commentary",
-    ),
+    segment.children.filter(isToolItem),
   );
   const activeSegment = [...traceSegments]
     .reverse()
@@ -369,6 +344,13 @@ function collectCurrentTraceSegments(
   const current: ToolActivitySegment[] = [];
   for (let index = segments.length - 1; index >= 0; index -= 1) {
     const segment = segments[index]!;
+    if (
+      segment.children.some(
+        (item) => item.kind === "commentary" || item.kind === "reasoning",
+      )
+    ) {
+      break;
+    }
     if (segment.children.some((item) => HARD_BOUNDARY_KINDS.has(item.kind))) {
       break;
     }

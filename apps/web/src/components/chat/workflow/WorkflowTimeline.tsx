@@ -131,11 +131,27 @@ function WorkflowSegment({
     segment.children.length === 1 && segment.children[0]?.kind === "commentary"
       ? segment.children[0]
       : null;
+  const reasoning =
+    segment.children.length === 1 && segment.children[0]?.kind === "reasoning"
+      ? segment.children[0]
+      : null;
 
   if (commentary) {
     return (
       <div className="py-1 text-[15px] leading-7 text-zinc-100">
         <MarkdownMessageContent content={itemDisplayText(commentary) ?? ""} />
+      </div>
+    );
+  }
+
+  if (reasoning) {
+    return (
+      <div className="py-1 text-[15px] leading-7 text-zinc-100">
+        <div
+          className={reasoning.status === "active" ? "turn-lifecycle-shimmer" : undefined}
+        >
+          <MarkdownMessageContent content={itemDisplayText(reasoning) ?? ""} />
+        </div>
       </div>
     );
   }
@@ -209,9 +225,6 @@ function ActivityDisclosure({
   titleTestId?: string;
   children: ReactNode;
 }) {
-  // Keep full provider commentary available for inspection without allowing
-  // verbose models to expand the transcript by default. Concise standalone
-  // progress updates remain visible as their own transcript segments.
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
@@ -368,12 +381,13 @@ function WorkflowItemRow({
           </button>
         ) : (
           <div className="min-w-0 text-zinc-100">
-            <span>{label}</span>
-            {isCommentary && text ? (
-              <div className="mt-1 max-h-24 overflow-hidden">
-                <MarkdownMessageContent content={text} />
+            {isCommentary ? (
+              <div className="py-1 text-[15px] leading-7">
+                <MarkdownMessageContent content={text ?? ""} />
               </div>
-            ) : null}
+            ) : (
+              <span>{label}</span>
+            )}
           </div>
         )}
       </div>

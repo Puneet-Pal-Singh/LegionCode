@@ -127,7 +127,7 @@ describe("groupToolActivity", () => {
     ]);
   });
 
-  it("keeps provider commentary ordered inside the tool activity parent", () => {
+  it("keeps commentary as standalone transcript paragraphs between tool groups", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_commentary" as ItemId,
@@ -153,16 +153,15 @@ describe("groupToolActivity", () => {
       }),
     ]);
 
-    expect(segments).toHaveLength(1);
-    expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
-      "item_commentary",
-      "item_shell",
-      "item_commentary_two",
-      "item_read",
+    expect(segments.map((segment) => segment.children.map((item) => item.itemId))).toEqual([
+      ["item_commentary"],
+      ["item_shell"],
+      ["item_commentary_two"],
+      ["item_read"],
     ]);
   });
 
-  it("includes provider commentary in the active trace without exposing reasoning", () => {
+  it("keeps commentary out of the active tool trace without exposing reasoning", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_reasoning" as ItemId,
@@ -186,12 +185,77 @@ describe("groupToolActivity", () => {
 
     const trace = buildActiveWorkflowTrace(segments);
     expect(trace.children.map((item) => item.itemId)).toEqual([
-      "item_commentary",
       "item_shell",
     ]);
     expect(trace.children.some((item) => item.kind === "reasoning")).toBe(
       false,
     );
+  });
+
+  it("keeps previous tool groups out of the live trace across commentary", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_commentary_a" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "Starting the inspection.",
+      }),
+      workflowItem({
+        itemId: "item_tools_a" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        status: "completed",
+      }),
+      workflowItem({
+        itemId: "item_commentary_b" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "I found the relevant files.",
+      }),
+      workflowItem({
+        itemId: "item_tools_b" as ItemId,
+        kind: "tool_call",
+        toolFamily: "edit",
+        status: "active",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.children.map((item) => item.itemId)).toEqual([
+      "item_tools_b",
+    ]);
+    expect(trace.consumedSegmentKeys).toEqual(["segment:item_tools_b"]);
+  });
+
+  it("keeps previous tool groups out of the live trace across reasoning", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_tools_before_reasoning" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        status: "completed",
+      }),
+      workflowItem({
+        itemId: "item_reasoning_boundary" as ItemId,
+        kind: "reasoning",
+        toolFamily: null,
+        text: "Provider-visible summary of the result.",
+      }),
+      workflowItem({
+        itemId: "item_tools_after_reasoning" as ItemId,
+        kind: "tool_call",
+        toolFamily: "edit",
+        status: "active",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.children.map((item) => item.itemId)).toEqual([
+      "item_tools_after_reasoning",
+    ]);
+    expect(trace.consumedSegmentKeys).toEqual([
+      "segment:item_tools_after_reasoning",
+    ]);
   });
 
   it("uses the latest provider-visible status between tool calls", () => {
@@ -236,7 +300,7 @@ describe("groupToolActivity", () => {
     expect(trace.consumedSegmentKeys).toEqual([segments[0]?.key]);
   });
 
-  it("merges reasoning and tool segments until a commentary boundary", () => {
+  it("merges reasoning and tool segments while keeping commentary standalone", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_plan_one" as ItemId,
@@ -280,7 +344,7 @@ describe("groupToolActivity", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_plan_one" as ItemId,
-        kind: "reasoning",
+        kind: "plan",
         toolFamily: null,
         safeSummary: "Inspecting the workspace",
       }),
@@ -292,7 +356,7 @@ describe("groupToolActivity", () => {
       }),
       workflowItem({
         itemId: "item_plan_two" as ItemId,
-        kind: "reasoning",
+        kind: "plan",
         toolFamily: null,
         safeSummary: "Reading the matching files",
       }),
@@ -304,7 +368,7 @@ describe("groupToolActivity", () => {
       }),
       workflowItem({
         itemId: "item_plan_three" as ItemId,
-        kind: "reasoning",
+        kind: "plan",
         toolFamily: null,
         safeSummary: "Verifying the repository state",
       }),
