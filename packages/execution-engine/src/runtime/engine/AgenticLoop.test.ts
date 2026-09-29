@@ -446,7 +446,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       );
     });
 
-    it("emits concise fallback commentary for a tool-only model response", async () => {
+    it("does not invent commentary for a tool-only model response", async () => {
       const onAssistantMessage = vi.fn();
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
@@ -488,10 +488,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         },
       );
 
-      expect(onAssistantMessage).toHaveBeenCalledTimes(1);
-      expect(onAssistantMessage).toHaveBeenCalledWith(
-        "I’ll inspect the relevant project files next.",
-      );
+      expect(onAssistantMessage).not.toHaveBeenCalled();
     });
 
     it("executes tool calls and appends tool results for next LLM step", async () => {

@@ -1137,7 +1137,7 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    const commentary = resolveModelCommentary(visibleText, toolCalls);
+    const commentary = resolveModelCommentary(visibleText);
     if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
