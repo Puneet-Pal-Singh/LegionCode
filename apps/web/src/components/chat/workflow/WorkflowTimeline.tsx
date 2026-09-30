@@ -29,11 +29,9 @@ import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputP
 import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
 
-// Parent activity groups are intentionally airy enough to read as separate
-// phases in the trace. Once a group is opened, its child calls use a shorter
-// cadence so the list reads as one compact execution rather than a second
-// stack of cards.
-const WORKFLOW_PARENT_CADENCE = "min-h-8 py-1.5 text-sm leading-5";
+// Parent tool rows and nested calls share one compact cadence so opening a
+// group does not add a larger gap before its first child.
+const WORKFLOW_PARENT_CADENCE = "min-h-6 py-0.5 text-sm leading-5";
 const WORKFLOW_CHILD_CADENCE = "min-h-6 py-0.5 text-sm leading-5";
 
 interface WorkflowTimelineProps {

@@ -239,8 +239,8 @@ describe("WorkflowTimeline", () => {
     expect(childRow).toHaveClass("min-h-6", "py-0.5", "text-sm", "leading-5");
     expect(disclosure.parentElement?.querySelector(".border-l")).toBeNull();
     expect(screen.getByTestId("activity-disclosure-row")).toHaveClass(
-      "min-h-8",
-      "py-1.5",
+      "min-h-6",
+      "py-0.5",
       "leading-5",
     );
     expect(screen.getByTestId("workflow-tool-viewport")).toHaveClass(
