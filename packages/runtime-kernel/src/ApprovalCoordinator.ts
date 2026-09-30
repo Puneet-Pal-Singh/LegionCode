@@ -58,6 +58,12 @@ export class ApprovalCoordinator {
         pending.resolution,
       ], signal);
       await this.settle(request.approvalId, pending, resolution);
+      if (resolution.timedOut) {
+        throw new RuntimeKernelError(
+          "approval_timed_out",
+          `Approval ${request.approvalId} timed out before a decision was recorded.`,
+        );
+      }
       if (resolution.decision !== "approved") {
         throw new RuntimeKernelError(
           "approval_denied",
@@ -121,7 +127,7 @@ export class ApprovalCoordinator {
   ): Promise<void> {
     pending.settlement ??= this.lifecycle.decideApproval(
       approvalId,
-      resolution.decision,
+      resolution.timedOut ? "timed_out" : resolution.decision,
       {
         decidedBy: resolution.decidedBy,
         reason: resolution.reason,

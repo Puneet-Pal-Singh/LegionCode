@@ -135,6 +135,7 @@ export const ApprovalStatusSchema = z.enum([
   "pending",
   "approved",
   "denied",
+  "timed_out",
   "cancelled",
 ]);
 export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
@@ -511,9 +512,10 @@ const ITEM_TRANSITIONS = {
 } as const satisfies Record<ItemStatus, readonly ItemStatus[]>;
 
 const APPROVAL_TRANSITIONS = {
-  pending: ["approved", "denied", "cancelled"],
+  pending: ["approved", "denied", "timed_out", "cancelled"],
   approved: [],
   denied: [],
+  timed_out: [],
   cancelled: [],
 } as const satisfies Record<ApprovalStatus, readonly ApprovalStatus[]>;
 
@@ -931,15 +933,28 @@ const ToolCallInterruptedEventSchema = z
   })
   .strict();
 
-const ApprovalLifecycleEventSchema = z
-  .object({
-    ...LifecycleEventEnvelopeShape,
-    itemId: ItemIdSchema,
-    approvalId: ApprovalIdSchema,
-    type: z.enum(["approval.requested", "approval.decided"]),
-    payload: JsonRecordSchema,
-  })
-  .strict();
+const ApprovalLifecycleEventSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      ...LifecycleEventEnvelopeShape,
+      itemId: ItemIdSchema,
+      approvalId: ApprovalIdSchema,
+      type: z.literal("approval.requested"),
+      payload: JsonRecordSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...LifecycleEventEnvelopeShape,
+      itemId: ItemIdSchema,
+      approvalId: ApprovalIdSchema,
+      type: z.literal("approval.decided"),
+      payload: z
+        .object({ status: ApprovalStatusSchema.exclude(["pending"]) })
+        .passthrough(),
+    })
+    .strict(),
+]);
 
 const RequestIdSchema = z.string().min(1).max(160);
 const RequestLifecycleEventSchema = z

@@ -108,6 +108,8 @@ export interface ApprovalResolution {
   readonly decision: ApprovalDecision;
   readonly decidedBy: UserId | null;
   readonly reason: string | null;
+  /** The request expired without a user decision; decision remains denied for protocol compatibility. */
+  readonly timedOut?: boolean;
 }
 
 export interface StartTurnInput {

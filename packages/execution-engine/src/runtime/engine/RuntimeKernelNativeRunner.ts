@@ -1884,6 +1884,7 @@ class NativeApprovalWaitPort implements ApprovalWaitPort {
         outcome.outcome === "timed_out"
           ? "Approval timed out before a decision was recorded."
           : "Approval request was denied.",
+      ...(outcome.outcome === "timed_out" ? { timedOut: true } : {}),
     };
   }
 }

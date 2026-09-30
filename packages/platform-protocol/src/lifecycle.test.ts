@@ -77,6 +77,7 @@ const LEGAL_APPROVAL_TRANSITIONS: ReadonlyArray<
 > = [
   ["pending", "approved"],
   ["pending", "denied"],
+  ["pending", "timed_out"],
   ["pending", "cancelled"],
 ];
 
@@ -370,6 +371,27 @@ describe("canonical lifecycle event identifiers", () => {
         payload: {},
       }),
     ).toMatchObject({ approvalId: "appr_abc123" });
+  });
+
+  it("accepts only settled approval statuses on approval.decided events", () => {
+    expect(
+      LifecycleEventSchema.parse({
+        ...envelope,
+        itemId: "itm_abc123",
+        approvalId: "appr_abc123",
+        type: "approval.decided",
+        payload: { status: "timed_out", reason: "Approval window elapsed." },
+      }),
+    ).toMatchObject({ payload: { status: "timed_out" } });
+    expect(() =>
+      LifecycleEventSchema.parse({
+        ...envelope,
+        itemId: "itm_abc123",
+        approvalId: "appr_abc123",
+        type: "approval.decided",
+        payload: { status: "pending" },
+      }),
+    ).toThrow();
   });
 
   it("requires explicit terminal outcomes in terminal turn events", () => {
