@@ -1,5 +1,6 @@
 import { Check, ShieldCheck, X } from "lucide-react";
 import type { ApprovalDecisionKind } from "@repo/shared-types";
+import type { WorkflowApprovalOption } from "@repo/platform-client-sdk";
 import { formatApprovalDecisionLabel } from "./approvalDecisions";
 import { approvalDecisionButtonClassName } from "./approvalStyles";
 
@@ -7,12 +8,14 @@ interface ApprovalActionsProps {
   decisions: ApprovalDecisionKind[];
   busyDecision: ApprovalDecisionKind | null;
   onResolve: (decision: ApprovalDecisionKind) => Promise<void>;
+  matchingInChatOption: WorkflowApprovalOption | null;
 }
 
 export function ApprovalActions({
   decisions,
   busyDecision,
   onResolve,
+  matchingInChatOption,
 }: ApprovalActionsProps) {
   // The whole dock is single-flight: a click on any decision disables
   // every decision while the parent coroutine is awaiting the network.
@@ -30,6 +33,11 @@ export function ApprovalActions({
           type="button"
           disabled={isDisabled}
           onClick={() => void onResolve(decision)}
+          title={
+            decision === "allow_persistent_rule"
+              ? matchingInChatOption?.label
+              : undefined
+          }
           className={approvalDecisionButtonClassName(decision)}
         >
           <ApprovalDecisionIcon decision={decision} />

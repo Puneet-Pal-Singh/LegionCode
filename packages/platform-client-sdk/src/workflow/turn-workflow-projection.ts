@@ -79,10 +79,16 @@ export interface WorkflowApproval {
   readonly approvalId: ApprovalId;
   readonly itemId: ItemId;
   readonly question: string;
-  readonly options: readonly string[];
+  readonly options: readonly WorkflowApprovalOption[];
   readonly requestedAt: string;
   readonly decidedAt: string | null;
   readonly decision: string | null;
+}
+
+export interface WorkflowApprovalOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string | null;
 }
 
 export interface WorkflowTerminal {
@@ -477,7 +483,7 @@ function requestApproval(
       approvalId,
       itemId: requireItemId(event),
       question: readString(payload, "question") ?? "Approval requested.",
-      options: readStringArray(payload, "options"),
+      options: readApprovalOptions(payload),
       requestedAt: event.createdAt,
       decidedAt: null,
       decision: null,
@@ -793,22 +799,27 @@ function readString(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function readStringArray(
+function readApprovalOptions(
   payload: Record<string, unknown>,
-  key: string,
-): readonly string[] {
-  const value = payload[key];
+): readonly WorkflowApprovalOption[] {
+  const value = payload.options;
   if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (typeof entry === "string") return entry.trim();
-      if (entry && typeof entry === "object" && "label" in entry) {
-        const label = (entry as { readonly label?: unknown }).label;
-        return typeof label === "string" ? label.trim() : "";
-      }
-      return "";
-    })
-    .filter(Boolean);
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const option = entry as Record<string, unknown>;
+    if (
+      typeof option.id !== "string" ||
+      typeof option.label !== "string" ||
+      !(typeof option.description === "string" || option.description === null)
+    ) {
+      return [];
+    }
+    return [{
+      id: option.id,
+      label: option.label,
+      description: option.description,
+    }];
+  });
 }
 
 function updateItem(

@@ -166,7 +166,7 @@ describe("turn workflow projection", () => {
       event(2, "approval.decided", {
         itemId: "itm_approval02",
         approvalId: "appr_other001",
-        payload: { decision: "denied" },
+        payload: { status: "denied" },
       }),
     );
     const settled = applyLifecycleEvent(
@@ -174,7 +174,7 @@ describe("turn workflow projection", () => {
       event(3, "approval.decided", {
         itemId: "itm_approval01",
         approvalId: "appr_workflow01",
-        payload: { decision: "approved" },
+        payload: { status: "approved" },
       }),
     );
 
@@ -182,6 +182,35 @@ describe("turn workflow projection", () => {
     expect(unrelated.phase).toBe("waiting_for_approval");
     expect(settled.pendingApproval).toBeNull();
     expect(settled.phase).toBe("working");
+  });
+
+  it("preserves structured approval option identity and help text", () => {
+    const projection = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "approval.requested", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: {
+          question: "Run command?",
+          options: [
+            {
+              id: "allow_matching_in_chat",
+              label: "Always allow in this chat",
+              description: "Reuse this approval in the current chat.",
+            },
+          ],
+          metadata: {},
+        },
+      }),
+    );
+
+    expect(projection.pendingApproval?.options).toEqual([
+      {
+        id: "allow_matching_in_chat",
+        label: "Always allow in this chat",
+        description: "Reuse this approval in the current chat.",
+      },
+    ]);
   });
 
   it("projects the typed failure reason inside the canonical terminal", () => {

@@ -197,6 +197,7 @@ export {
   type WorkflowItemKind,
   type WorkflowItemStatus,
   type WorkflowApproval,
+  type WorkflowApprovalOption,
 } from "./workflow/turn-workflow-projection.js";
 export {
   groupToolActivity,

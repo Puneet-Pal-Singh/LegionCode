@@ -1,4 +1,5 @@
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
+import type { WorkflowApprovalOption } from "@repo/platform-client-sdk";
 import { ApprovalActions } from "./ApprovalActions";
 import {
   buildApprovalCategoryLabel,
@@ -7,6 +8,7 @@ import {
 
 interface ApprovalDockProps {
   pendingApproval: ApprovalRequest;
+  matchingInChatOption: WorkflowApprovalOption | null;
   decisions: ApprovalDecisionKind[];
   busyDecision: ApprovalDecisionKind | null;
   error: string | null;
@@ -15,6 +17,7 @@ interface ApprovalDockProps {
 
 export function ApprovalDock({
   pendingApproval,
+  matchingInChatOption,
   decisions,
   busyDecision,
   error,
@@ -52,7 +55,13 @@ export function ApprovalDock({
             decisions={decisions}
             busyDecision={busyDecision}
             onResolve={onResolve}
+            matchingInChatOption={matchingInChatOption}
           />
+          {matchingInChatOption?.description ? (
+            <p className="mt-2 text-xs text-zinc-400">
+              {matchingInChatOption.description}
+            </p>
+          ) : null}
           {error ? (
             <div role="alert">
               <p className="mt-3 text-xs text-red-300">{error}</p>
