@@ -5,10 +5,8 @@ import {
   MemoryTranscriptRepository,
 } from "@repo/persistence";
 import type { Env } from "../../types/ai";
-import {
-  normalizeGeneratedTitle,
-  ThreadTitleGenerationCoordinator,
-} from "./ThreadTitleGenerationCoordinator";
+import { ThreadTitleGenerationCoordinator } from "./ThreadTitleGenerationCoordinator";
+import { normalizeGeneratedTitle } from "./ThreadTitleOutput";
 import { ThreadTitleService } from "./ThreadTitleService";
 
 const USER_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -228,7 +226,7 @@ describe("ThreadTitleService", () => {
 
   it("uses the selected model for a bounded background title request", async () => {
     const generateText = vi.fn().mockResolvedValue({
-      text: '<think>Choose a concise title.</think>\n* Title: "Review Cloud Task Checkout Improvements."\nIgnored explanation',
+      text: '<think>Choose a concise title.</think>Review Cloud Task Checkout Improvements',
     });
     const persist = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
@@ -412,12 +410,14 @@ describe("ThreadTitleService", () => {
     expect(
       normalizeGeneratedTitle("Input: what do you think of my landing page"),
     ).toBeNull();
-    expect(normalizeGeneratedTitle("Return only one plain-text title")).toBeNull();
+    expect(
+      normalizeGeneratedTitle("Return only one plain-text title"),
+    ).toBeNull();
     expect(
       normalizeGeneratedTitle(
         "We need to output a title in English\n\nReview Landing Page README",
       ),
-    ).toBe("Review Landing Page README");
+    ).toBeNull();
     expect(normalizeGeneratedTitle("Fix chat title generation")).toBe(
       "Fix chat title generation",
     );
@@ -456,7 +456,7 @@ describe("ThreadTitleService", () => {
     );
   });
 
-  it("rejects model output that only echoes the deterministic preview", async () => {
+  it("accepts concise requests that already make good titles", async () => {
     const prompt = "Check the README and improve the landing page copy";
     const persist = vi.fn().mockResolvedValue(null);
     const fallbackGenerateText = vi.fn().mockResolvedValue({
@@ -485,23 +485,24 @@ describe("ThreadTitleService", () => {
     );
 
     await scheduled;
-    expect(fallbackGenerateText).toHaveBeenCalledOnce();
+    expect(fallbackGenerateText).not.toHaveBeenCalled();
     expect(persist).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Improve Landing Page Copy",
+        title: prompt,
         source: "generated",
       }),
     );
   });
 
-  it("rejects a truncated preview echo instead of marking it generated", async () => {
-    const prompt = "Investigate why the chat title generation pipeline fails intermittently";
+  it("accepts a relevant title without requiring novel wording", async () => {
+    const prompt =
+      "Investigate why the chat title generation pipeline fails intermittently";
     const persist = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
     const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
       generator: {
         generateText: vi.fn().mockResolvedValue({
-          text: "Investigate why the chat title generation",
+          text: "Fix chat title generation",
         }),
       },
       titleService: { persist },
@@ -519,19 +520,16 @@ describe("ThreadTitleService", () => {
     );
 
     await scheduled;
-    expect(persist).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Fix chat title generation" }),
+    );
   });
 
   it.each([
     "The user is asking for feedback on their docs overview",
     "User's goal: Get feedback on a documentation overview",
   ])("rejects Gemini meta narration as a title: %s", async (generated) => {
-    expect(
-      normalizeGeneratedTitle(
-        generated,
-        "Check my docs overview page and tell me if it sounds professional",
-      ),
-    ).toBeNull();
+    expect(normalizeGeneratedTitle(generated)).toBeNull();
   });
 });
 

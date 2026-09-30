@@ -11,11 +11,9 @@ import {
   createOpenRouterThreadTitleGenerator,
   OPENROUTER_FREE_MODEL_ID,
 } from "./OpenRouterThreadTitleGenerator";
-import {
-  buildThreadTitlePreview,
-  sanitizePromptForTitle,
-} from "./ThreadTitlePreview";
+import { sanitizePromptForTitle } from "./ThreadTitlePreview";
 import { buildThreadTitleMessages } from "./ThreadTitlePrompt";
+import { normalizeGeneratedTitle } from "./ThreadTitleOutput";
 
 export interface BackgroundTaskOwner {
   waitUntil(promise: Promise<unknown>): void;
@@ -51,10 +49,9 @@ export interface ThreadTitleGenerator {
 export interface ThreadTitlePersistence {
   persist(input: PersistThreadTitleInput): Promise<unknown>;
   persistFailure?(
-    input: Omit<
-      PersistThreadTitleInput,
-      "title" | "source" | "titleStatus"
-    > & { prompt: string },
+    input: Omit<PersistThreadTitleInput, "title" | "source" | "titleStatus"> & {
+      prompt: string;
+    },
   ): Promise<unknown>;
 }
 
@@ -126,7 +123,6 @@ export class ThreadTitleGenerationCoordinator {
           providerEndpoint: input.providerEndpoint,
           signal: abortController.signal,
         },
-        input.prompt,
       );
       const fallbackPrompt = sanitizePromptForTitle(input.prompt);
       const fallbackOutcome =
@@ -136,7 +132,7 @@ export class ThreadTitleGenerationCoordinator {
               providerId: "openrouter",
               model: OPENROUTER_FREE_MODEL_ID,
               signal: abortController.signal,
-            }, input.prompt)
+            })
           : undefined;
       const title = selectedOutcome.title ?? fallbackOutcome?.title ?? null;
       if (!title) {
@@ -192,7 +188,6 @@ type ThreadTitleGenerationRequest = Parameters<
 async function generateTitleWithRetries(
   generator: ThreadTitleGenerator,
   input: ThreadTitleGenerationRequest,
-  prompt: string,
 ): Promise<{
   title: string | null;
   reason: "invalid_output" | "provider_unavailable";
@@ -206,7 +201,7 @@ async function generateTitleWithRetries(
         temperature: 0,
         maxOutputTokens: 32,
       });
-      const title = normalizeGeneratedTitle(result.text, prompt);
+      const title = normalizeGeneratedTitle(result.text);
       if (title) return { title, reason };
     } catch {
       reason = "provider_unavailable";
@@ -231,81 +226,4 @@ function classifyTitleGenerationFailure(
     return "invalid_output";
   }
   return "provider_unavailable";
-}
-
-export function normalizeGeneratedTitle(
-  value: string,
-  prompt?: string,
-): string | null {
-  const cleaned = value
-    .replace(/<think>[\s\S]*?<\/think>\s*/giu, "")
-    .replace(/```[\s\S]*?```/gu, "");
-  const candidateLines = cleaned
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => Boolean(line) && !/^```/u.test(line));
-  for (const candidate of candidateLines) {
-    const title = normalizeGeneratedTitleLine(candidate);
-    if (title && prompt && isPromptEchoTitle(title, prompt)) {
-      continue;
-    }
-    if (title) return title;
-  }
-  return null;
-}
-
-function isPromptEchoTitle(title: string, prompt: string): boolean {
-  const normalizeForComparison = (value: string): string =>
-    value
-      .toLocaleLowerCase()
-      .replace(/[.…!?,:;\-_'"`]/gu, "")
-      .replace(/\s+/gu, " ")
-      .trim();
-  const candidate = normalizeForComparison(title);
-  const preview = normalizeForComparison(buildThreadTitlePreview(prompt));
-  const fullPrompt = normalizeForComparison(sanitizePromptForTitle(prompt));
-  return (
-    candidate === preview ||
-    (candidate.length >= 20 &&
-      (preview.startsWith(candidate) || fullPrompt.startsWith(candidate))) ||
-    (candidate.length >= 20 && fullPrompt === candidate)
-  );
-}
-
-function normalizeGeneratedTitleLine(value: string): string | null {
-  const normalized = value
-    .replace(/^#{1,6}\s*/u, "")
-    .replace(/^(?:[-*+•]|\d+[.)])\s*/u, "")
-    .replace(/^title\s*:\s*/iu, "")
-    .replace(/^(?:here(?:'s| is)|suggested title)\s*[:\-]\s*/iu, "")
-    .replace(/^["'`]+|["'`]+$/gu, "")
-    .replace(/[\p{C}]+/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-  const title = Array.from(normalized)
-    .slice(0, 50)
-    .join("")
-    .replace(/[\s,;:\-.!?]+$/u, "")
-    .trim();
-  if (
-    /^(?:user(?: input| wants? me)|assistant|system|you are|generate|create)\b/iu.test(
-      title,
-    ) ||
-    /^(?:write|output|produce|return|provide|respond with)\b.{0,32}\btitle\b/iu.test(
-      title,
-    ) ||
-    /^(?:we|i|let(?:'s| us| me)|the task)\b.{0,48}\b(?:generate|create|write|output|produce|return|provide)\b.{0,32}\btitle\b/iu.test(
-      title,
-    ) ||
-    /^(?:input|prompt|instructions?)\s*:/iu.test(title) ||
-    /^(?:the )?user(?:'s)?\s+(?:goal|request|task|wants?|is asking)\b/iu.test(
-      title,
-    ) ||
-    /^(?:a |the )?(?:concise |brief )?(?:chat |thread |conversation )?title\s+for\b/iu.test(
-      title,
-    )
-  ) {
-    return null;
-  }
-  return title || null;
 }
