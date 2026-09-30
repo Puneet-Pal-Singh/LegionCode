@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresTranscriptRepository } from "./PostgresTranscriptRepository.js";
 
@@ -204,7 +205,141 @@ describe("PostgresTranscriptRepository", () => {
     );
     expect(client.queries[1]?.statement).toContain("s.title_version");
   });
+
+  it("projects approval only from the latest blocking event in the active run's current thread turn", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.listSessions("123e4567-e89b-42d3-a456-426614174001");
+
+    const statement = client.queries[0]?.statement ?? "";
+    expect(statement).toContain("started.thread_id = s.thread_id");
+    expect(statement).toContain("started.event_type = 'turn.started'");
+    expect(statement).toContain("s.active_run_id IS NOT NULL");
+    expect(statement).toContain("left(");
+    expect(statement).toContain(
+      "'trn_' || substring(s.active_run_id from 5) || '__turn__'",
+    );
+    expect(statement).toContain("ORDER BY started.append_order DESC");
+    expect(statement).toContain("event.turn_id = current_turn.turn_id");
+    expect(statement).toContain("ORDER BY event.sequence DESC");
+    expect(statement).toContain("'turn.completed'");
+    expect(statement).toContain("'turn.failed'");
+    expect(statement).toContain("'turn.interrupted'");
+    expect(statement).toContain("THEN 'waiting_for_approval'");
+    expect(statement).toContain("WHERE tasks.user_id = $1");
+  });
+
+  it("uses append order to distinguish same-timestamp turns for one active run", async () => {
+    const db = new PGlite();
+    try {
+      await db.exec(`
+        CREATE TABLE tasks (
+          id UUID PRIMARY KEY, user_id UUID NOT NULL, workspace_id UUID,
+          title TEXT NOT NULL, status TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL, archived_at TIMESTAMPTZ
+        );
+        CREATE TABLE sessions (
+          id UUID PRIMARY KEY, user_id UUID NOT NULL, workspace_id UUID,
+          thread_id TEXT, task_id UUID NOT NULL, title TEXT NOT NULL,
+          title_source TEXT NOT NULL, title_version INTEGER NOT NULL,
+          repository TEXT, active_run_id TEXT, mode TEXT NOT NULL,
+          status TEXT NOT NULL, pinned_at TIMESTAMPTZ, archived_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE TABLE canonical_lifecycle_events (
+          event_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+          run_attempt_id TEXT NOT NULL, sequence BIGINT NOT NULL,
+          idempotency_key TEXT NOT NULL, event_type TEXT NOT NULL,
+          event_json JSONB NOT NULL, schema_version INTEGER NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL, append_order BIGSERIAL NOT NULL
+        );
+      `);
+      await db.query(
+        `INSERT INTO tasks VALUES ($1, $2, NULL, 'Approval task', 'active', $3, $3, NULL)`,
+        [
+          "123e4567-e89b-42d3-a456-426614174000",
+          "123e4567-e89b-42d3-a456-426614174001",
+          NOW,
+        ],
+      );
+      await db.query(
+        `INSERT INTO sessions VALUES ($1, $2, NULL, $3, $4, 'Approval task', 'generated', 1, 'acme/repo', $5, 'build', 'running', NULL, NULL, $6, $6)`,
+        [
+          "123e4567-e89b-42d3-a456-426614174002",
+          "123e4567-e89b-42d3-a456-426614174001",
+          "thread_1",
+          "123e4567-e89b-42d3-a456-426614174000",
+          "run_abc123",
+          NOW,
+        ],
+      );
+
+      const sharedTimestamp = new Date("2026-05-23T00:00:00.000Z");
+      const olderTurnId = "trn_abc123__turn__older0001";
+      const newerTurnId = "trn_abc123__turn__newer0001";
+      await db.query(
+        `INSERT INTO canonical_lifecycle_events
+          (event_id, thread_id, turn_id, run_attempt_id, sequence, idempotency_key, event_type, event_json, schema_version, created_at)
+         VALUES
+          ('start-old', 'thread_1', $1, 'attempt-1', 2, 'start-old', 'turn.started', '{"type":"turn.started"}', 1, $3),
+          ('unblock-old', 'thread_1', $1, 'attempt-1', 3, 'unblock-old', 'turn.blocking_changed', '{"payload":{"blockingState":{"kind":"none"}}}', 1, $3),
+          ('start-new', 'thread_1', $2, 'attempt-1', 2, 'start-new', 'turn.started', '{"type":"turn.started"}', 1, $3),
+          ('approval-new', 'thread_1', $2, 'attempt-1', 3, 'approval-new', 'turn.blocking_changed', '{"payload":{"blockingState":{"kind":"waiting_for_approval"}}}', 1, $3)`,
+        [olderTurnId, newerTurnId, sharedTimestamp],
+      );
+
+      const repository = new PostgresTranscriptRepository(
+        new PGliteSqlClient(db),
+      );
+      const result = await repository.listSessions(
+        "123e4567-e89b-42d3-a456-426614174001",
+      );
+
+      expect(result.sessions[0]?.status).toBe("waiting_for_approval");
+
+      await db.query(
+        `INSERT INTO canonical_lifecycle_events
+          (event_id, thread_id, turn_id, run_attempt_id, sequence, idempotency_key, event_type, event_json, schema_version, created_at)
+         VALUES
+          ('approval-cleared', 'thread_1', $1, 'attempt-1', 4, 'approval-cleared', 'turn.blocking_changed', '{"payload":{"blockingState":{"kind":"none"}}}', 1, $2)`,
+        [newerTurnId, sharedTimestamp],
+      );
+      const clearedResult = await repository.listSessions(
+        "123e4567-e89b-42d3-a456-426614174001",
+      );
+      expect(clearedResult.sessions[0]?.status).toBe("running");
+    } finally {
+      await db.close();
+    }
+  });
 });
+
+class PGliteSqlClient implements SqlClient {
+  constructor(private readonly db: PGlite) {}
+
+  async query<Row extends SqlRow = SqlRow>(
+    statement: string,
+    params: readonly SqlValue[] = [],
+  ): Promise<SqlQueryResult<Row>> {
+    const result = await this.db.query(statement, [...params]);
+    return {
+      rows: result.rows as Row[],
+      rowCount: result.affectedRows ?? result.rows.length,
+    };
+  }
+
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
+    return await this.db.transaction(
+      async (transaction) =>
+        await callback(new PGliteSqlClient(transaction as unknown as PGlite)),
+    );
+  }
+}
 
 function createTaskRow(params: readonly SqlValue[]): SqlRow {
   return {

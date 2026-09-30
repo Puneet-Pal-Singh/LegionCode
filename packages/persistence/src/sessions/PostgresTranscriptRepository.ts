@@ -616,6 +616,7 @@ function mapSessionStatus(status: string): SessionRecord["status"] {
   if (
     status === "idle" ||
     status === "running" ||
+    status === "waiting_for_approval" ||
     status === "completed" ||
     status === "paused" ||
     status === "failed"
@@ -1009,13 +1010,46 @@ const LIST_SESSIONS_SQL = `
     s.repository,
     s.active_run_id,
     s.mode,
-    s.status AS session_status,
+    CASE
+      WHEN s.status = 'running'
+        AND current_turn_event.event_type = 'turn.blocking_changed'
+        AND current_turn_event.event_json #>> '{payload,blockingState,kind}' = 'waiting_for_approval'
+      THEN 'waiting_for_approval'
+      ELSE s.status
+    END AS session_status,
     s.pinned_at,
     s.archived_at,
     s.created_at AS session_created_at,
     s.updated_at AS session_updated_at
   FROM tasks
   LEFT JOIN sessions s ON s.task_id = tasks.id AND s.archived_at IS NULL
+  LEFT JOIN LATERAL (
+    SELECT started.turn_id
+    FROM canonical_lifecycle_events started
+    WHERE started.thread_id = s.thread_id
+      AND started.event_type = 'turn.started'
+      AND s.active_run_id IS NOT NULL
+      AND left(
+        started.turn_id,
+        char_length('trn_' || substring(s.active_run_id from 5) || '__turn__')
+      ) = 'trn_' || substring(s.active_run_id from 5) || '__turn__'
+    ORDER BY started.append_order DESC
+    LIMIT 1
+  ) current_turn ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT event.event_type, event.event_json
+    FROM canonical_lifecycle_events event
+    WHERE event.thread_id = s.thread_id
+      AND event.turn_id = current_turn.turn_id
+      AND event.event_type IN (
+        'turn.blocking_changed',
+        'turn.completed',
+        'turn.failed',
+        'turn.interrupted'
+      )
+    ORDER BY event.sequence DESC
+    LIMIT 1
+  ) current_turn_event ON TRUE
   WHERE tasks.user_id = $1
     AND tasks.archived_at IS NULL
   ORDER BY tasks.updated_at DESC, s.updated_at DESC

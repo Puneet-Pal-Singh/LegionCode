@@ -76,7 +76,8 @@ export interface SessionRecord {
   repository: string | null;
   activeRunId: string | null;
   mode: string;
-  status: SessionStatus;
+  /** List/read projection may derive approval waiting from lifecycle events. */
+  status: SessionStatus | "waiting_for_approval";
   pinnedAt: string | null;
   archivedAt: string | null;
   createdAt: string;
