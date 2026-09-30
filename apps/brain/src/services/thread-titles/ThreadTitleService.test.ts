@@ -226,7 +226,7 @@ describe("ThreadTitleService", () => {
 
   it("uses the selected model for a bounded background title request", async () => {
     const generateText = vi.fn().mockResolvedValue({
-      text: '<think>Choose a concise title.</think>Review Cloud Task Checkout Improvements',
+      text: "<think>Choose a concise title.</think>Review Cloud Task Checkout Improvements",
     });
     const persist = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
@@ -258,7 +258,7 @@ describe("ThreadTitleService", () => {
         providerTransport: "google-generative",
         providerEndpoint: "https://generativelanguage.googleapis.com/v1beta",
         temperature: 0,
-        maxOutputTokens: 32,
+        maxOutputTokens: 128,
         messages: [
           expect.objectContaining({ role: "system" }),
           {
