@@ -13,12 +13,16 @@ import {
   Wrench,
   ChevronDown,
   ChevronRight,
+  Hand,
+  ListChecks,
+  type LucideIcon,
 } from "lucide-react";
 import {
   buildActiveWorkflowTrace,
   buildSegmentTitle,
   type ToolActivitySegment,
   type WorkflowItem,
+  type ActiveWorkflowTraceProjection,
 } from "@repo/platform-client-sdk";
 import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
@@ -28,6 +32,7 @@ import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
 import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
+import { WorkflowRequestRow } from "./WorkflowRequestRow.js";
 
 // Parent tool rows and nested calls share one compact cadence so opening a
 // group does not add a larger gap before its first child.
@@ -65,7 +70,8 @@ export function WorkflowTimeline({
       {showThinkingState ? (
         <ActiveWorkflowTrace
           key="active-workflow-trace"
-          title={activeTrace?.title ?? "Thinking through the next step"}
+          title={activeTrace?.title ?? "Thinking"}
+          state={activeTrace?.state ?? "thinking"}
           children={activeTrace?.children ?? []}
           turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
@@ -77,11 +83,13 @@ export function WorkflowTimeline({
 
 function ActiveWorkflowTrace({
   title,
+  state,
   children,
   turnDiff,
   onArtifactOpen,
 }: {
   title: string;
+  state: ActiveWorkflowTraceProjection["state"];
   children: readonly WorkflowItem[];
   turnDiff: TurnDiffPayload | null;
   onArtifactOpen?: ArtifactOpenHandler;
@@ -89,10 +97,20 @@ function ActiveWorkflowTrace({
   return (
     <ActivityDisclosure
       title={title}
-      active
+      active={state === "thinking" || state === "tool"}
+      icon={
+        state === "thinking"
+          ? null
+          : state === "waiting_for_approval"
+            ? Hand
+            : state === "waiting_for_user_input"
+              ? ListChecks
+              : Wrench
+      }
       hasChildren={children.length > 0}
       defaultExpanded={false}
       titleTestId="active-workflow-title"
+      state={state}
     >
       {children.map((item) => (
         <WorkflowItemRow
@@ -133,6 +151,17 @@ function WorkflowSegment({
     segment.children.length === 1 && segment.children[0]?.kind === "reasoning"
       ? segment.children[0]
       : null;
+  const request =
+    segment.children.length === 1 &&
+    (segment.children[0]?.kind === "approval_request" ||
+      segment.children[0]?.kind === "user_input_request")
+      ? segment.children[0]
+      : null;
+
+  if (request)
+    return (
+      <WorkflowRequestRow item={request} className={WORKFLOW_PARENT_CADENCE} />
+    );
 
   if (commentary) {
     return (
@@ -146,7 +175,9 @@ function WorkflowSegment({
     return (
       <div className="py-1 text-[15px] leading-7 text-zinc-100">
         <div
-          className={reasoning.status === "active" ? "turn-lifecycle-shimmer" : undefined}
+          className={
+            reasoning.status === "active" ? "turn-lifecycle-shimmer" : undefined
+          }
         >
           <MarkdownMessageContent content={itemDisplayText(reasoning) ?? ""} />
         </div>
@@ -214,6 +245,8 @@ function ActivityDisclosure({
   hasChildren,
   defaultExpanded = false,
   titleTestId,
+  state,
+  icon: Icon = Wrench,
   children,
 }: {
   title: string;
@@ -221,6 +254,8 @@ function ActivityDisclosure({
   hasChildren: boolean;
   defaultExpanded?: boolean;
   titleTestId?: string;
+  state?: ActiveWorkflowTraceProjection["state"];
+  icon?: LucideIcon | null;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -232,21 +267,24 @@ function ActivityDisclosure({
         aria-expanded={hasChildren ? expanded : undefined}
         aria-disabled={!hasChildren}
         data-testid="activity-disclosure-row"
+        data-state={state}
         onClick={() => {
           if (hasChildren) setExpanded((current) => !current);
         }}
         className={cn(
-          "group flex items-center gap-2 text-zinc-500 transition hover:text-zinc-100",
+          "group flex max-w-full items-center gap-2 text-left text-zinc-500 transition hover:text-zinc-100",
           WORKFLOW_PARENT_CADENCE,
         )}
       >
-        <Wrench className="h-4 w-4" aria-hidden="true" />
+        {Icon ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
         <span
           data-testid={titleTestId}
           className={cn(
-            "first-letter:uppercase",
+            "min-w-0 truncate first-letter:uppercase",
             active && "turn-lifecycle-shimmer",
           )}
+          title={title}
+          role={state ? "status" : undefined}
         >
           {title}
         </span>
@@ -283,6 +321,14 @@ function WorkflowItemRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
+  if (item.kind === "approval_request" || item.kind === "user_input_request") {
+    return (
+      <WorkflowRequestRow
+        item={item}
+        className={nested ? WORKFLOW_CHILD_CADENCE : WORKFLOW_PARENT_CADENCE}
+      />
+    );
+  }
   const isCommentary = item.kind === "commentary";
   const isInspectable =
     !isCommentary &&
@@ -512,7 +558,10 @@ function resolveItemLabel(item: WorkflowItem): string {
     return item.status === "active" ? "Running command" : "Ran command";
   }
   if (item.toolFamily === "image") {
-    return item.safeSummary ?? (item.status === "active" ? "Viewing images" : "Viewed images");
+    return (
+      item.safeSummary ??
+      (item.status === "active" ? "Viewing images" : "Viewed images")
+    );
   }
   return item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
 }

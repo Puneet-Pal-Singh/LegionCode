@@ -82,14 +82,20 @@ describe("LifecycleProjection", () => {
         approvalId: APPROVAL_ID,
         payload: {
           question: "Run command?",
-          options: [{ id: "approved", label: "Approve" }, "Deny"],
+          options: [
+            { id: "approved", label: "Approve", description: null },
+            { id: "denied", label: "Deny", description: null },
+          ],
         },
       }),
     );
 
     expect(requested.pendingApproval?.approvalId).toBe(APPROVAL_ID);
     expect(requested.pendingApproval?.question).toBe("Run command?");
-    expect(requested.pendingApproval?.options).toEqual(["Approve", "Deny"]);
+    expect(requested.pendingApproval?.options).toEqual([
+      { id: "approved", label: "Approve", description: null },
+      { id: "denied", label: "Deny", description: null },
+    ]);
     expect(requested.phase).toBe("waiting_for_approval");
 
     const unrelatedDecision = applyLifecycleEvent(
@@ -97,7 +103,7 @@ describe("LifecycleProjection", () => {
       lifecycleEvent(2, "approval.decided", {
         itemId: APPROVAL_ITEM_ID,
         approvalId: "appr_other01" as ApprovalId,
-        payload: { decision: "approved" },
+        payload: { status: "approved" },
       }),
     );
     expect(unrelatedDecision.pendingApproval?.approvalId).toBe(APPROVAL_ID);
@@ -107,7 +113,7 @@ describe("LifecycleProjection", () => {
       lifecycleEvent(3, "approval.decided", {
         itemId: APPROVAL_ITEM_ID,
         approvalId: APPROVAL_ID,
-        payload: { decision: "approved" },
+        payload: { status: "approved" },
       }),
     );
 

@@ -130,7 +130,7 @@ describe("CanonicalWorkflowSurface", () => {
     expect(
       screen.queryByTestId("workflow-summary-chevron-down"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Thinking through the next step")).toHaveClass(
+    expect(screen.getByText("Thinking")).toHaveClass(
       "turn-lifecycle-shimmer",
     );
   });

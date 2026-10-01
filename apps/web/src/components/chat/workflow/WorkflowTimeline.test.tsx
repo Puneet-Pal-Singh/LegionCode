@@ -384,7 +384,7 @@ describe("WorkflowTimeline", () => {
     );
     const activeTitle = screen.getByTestId("active-workflow-title");
     const activeDisclosure = screen.getByTestId("activity-disclosure-row");
-    expect(activeTitle).toHaveTextContent("Thinking through the next step");
+    expect(activeTitle).toHaveTextContent("Thinking");
     expect(activeTitle).toHaveClass("turn-lifecycle-shimmer");
 
     rerender(
