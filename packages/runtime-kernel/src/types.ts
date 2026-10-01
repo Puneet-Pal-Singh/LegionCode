@@ -1,5 +1,6 @@
 import type {
   ApprovalDecision,
+  ApprovalGrantScope,
   ApprovalRequestedPayload,
   ArtifactMetadata,
   ContextBudgetSnapshot,
@@ -110,6 +111,7 @@ export interface ApprovalResolution {
   readonly reason: string | null;
   /** The request expired without a user decision; decision remains denied for protocol compatibility. */
   readonly timedOut?: boolean;
+  readonly grantScope?: ApprovalGrantScope;
 }
 
 export interface StartTurnInput {

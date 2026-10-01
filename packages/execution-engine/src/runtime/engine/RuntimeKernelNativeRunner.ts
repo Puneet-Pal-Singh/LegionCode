@@ -239,7 +239,7 @@ export class RuntimeKernelNativeRunner {
     ctx: RuntimeDurableObjectState,
     private readonly options: RunEngineOptions,
     private readonly agent: IAgent | undefined,
-    dependencies: RunEngineDependencies = {},
+    private readonly dependencies: RunEngineDependencies = {},
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
@@ -431,6 +431,7 @@ export class RuntimeKernelNativeRunner {
         new NativePermissionPolicyResolver(
           requirePersistedPermissionContext(run).state.productMode,
         ),
+        this.dependencies.approvalGrants,
       ),
       approvals: new NativeApprovalWaitPort({
         env: this.options.env,

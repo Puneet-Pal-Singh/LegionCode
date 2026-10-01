@@ -383,6 +383,26 @@ describe("canonical lifecycle event identifiers", () => {
         payload: { status: "timed_out", reason: "Approval window elapsed." },
       }),
     ).toMatchObject({ payload: { status: "timed_out" } });
+    expect(
+      LifecycleEventSchema.parse({
+        ...envelope,
+        itemId: "itm_abc123",
+        approvalId: "appr_abc123",
+        type: "approval.decided",
+        payload: { status: "approved", grantScope: "matching_in_chat" },
+      }),
+    ).toMatchObject({
+      payload: { status: "approved", grantScope: "matching_in_chat" },
+    });
+    expect(() =>
+      LifecycleEventSchema.parse({
+        ...envelope,
+        itemId: "itm_abc123",
+        approvalId: "appr_abc123",
+        type: "approval.decided",
+        payload: { status: "denied", grantScope: "matching_in_chat" },
+      }),
+    ).toThrow();
     expect(() =>
       LifecycleEventSchema.parse({
         ...envelope,

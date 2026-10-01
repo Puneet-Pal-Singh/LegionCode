@@ -140,6 +140,9 @@ export const ApprovalStatusSchema = z.enum([
 ]);
 export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
 
+export const ApprovalGrantScopeSchema = z.enum(["matching_in_chat"]);
+export type ApprovalGrantScope = z.infer<typeof ApprovalGrantScopeSchema>;
+
 export const ItemKindSchema = z.enum([
   "user_message",
   "commentary",
@@ -950,8 +953,20 @@ const ApprovalLifecycleEventSchema = z.discriminatedUnion("type", [
       approvalId: ApprovalIdSchema,
       type: z.literal("approval.decided"),
       payload: z
-        .object({ status: ApprovalStatusSchema.exclude(["pending"]) })
-        .passthrough(),
+        .object({
+          status: ApprovalStatusSchema.exclude(["pending"]),
+          grantScope: ApprovalGrantScopeSchema.optional(),
+        })
+        .passthrough()
+        .superRefine((payload, context) => {
+          if (payload.grantScope && payload.status !== "approved") {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Approval grants require an approved decision",
+              path: ["grantScope"],
+            });
+          }
+        }),
     })
     .strict(),
 ]);

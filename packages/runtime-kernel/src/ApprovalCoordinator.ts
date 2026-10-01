@@ -35,7 +35,7 @@ export class ApprovalCoordinator {
         `Approval ${request.approvalId} requires a distinct approval item`,
       );
     }
-    const pending = this.createPending(request.approvalId);
+    const pending = this.createPending(request);
     try {
       await this.lifecycle.requestApproval(
         parentItemId,
@@ -98,8 +98,9 @@ export class ApprovalCoordinator {
   }
 
   private createPending(
-    approvalId: ApprovalRequestedPayload["approvalId"],
+    request: ApprovalRequestedPayload,
   ): PendingApprovalResolution {
+    const approvalId = request.approvalId;
     const existing = this.pending.get(approvalId);
     if (existing) {
       throw new RuntimeKernelError(
@@ -114,6 +115,7 @@ export class ApprovalCoordinator {
     const pending: PendingApprovalResolution = {
       resolution,
       resolve,
+      request,
       settlement: null,
     };
     this.pending.set(approvalId, pending);
@@ -125,12 +127,35 @@ export class ApprovalCoordinator {
     pending: PendingApprovalResolution,
     resolution: ApprovalResolution,
   ): Promise<void> {
+    if (resolution.grantScope) {
+      if (resolution.decision !== "approved" || resolution.timedOut) {
+        throw new RuntimeKernelError(
+          "invalid_approval_grant_scope",
+          "A reusable approval scope requires an approved decision.",
+        );
+      }
+      if (
+        !pending.request.options.some(
+          (option) => option.id === "allow_matching_in_chat",
+        )
+      ) {
+        throw new RuntimeKernelError(
+          "invalid_approval_grant_scope",
+          "The approval request did not offer matching-in-chat permission.",
+        );
+      }
+    }
     pending.settlement ??= this.lifecycle.decideApproval(
       approvalId,
       resolution.timedOut ? "timed_out" : resolution.decision,
       {
         decidedBy: resolution.decidedBy,
         reason: resolution.reason,
+        ...(resolution.decision === "approved" &&
+        !resolution.timedOut &&
+        resolution.grantScope
+          ? { grantScope: resolution.grantScope }
+          : {}),
       },
     );
     await pending.settlement;
@@ -140,6 +165,7 @@ export class ApprovalCoordinator {
 interface PendingApprovalResolution {
   readonly resolution: Promise<ApprovalResolution>;
   readonly resolve: (resolution: ApprovalResolution) => void;
+  readonly request: ApprovalRequestedPayload;
   settlement: Promise<void> | null;
 }
 
