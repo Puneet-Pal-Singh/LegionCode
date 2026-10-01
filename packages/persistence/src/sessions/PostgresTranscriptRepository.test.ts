@@ -200,10 +200,12 @@ describe("PostgresTranscriptRepository", () => {
       "s.thread_id AS session_thread_id",
     );
     expect(client.queries[0]?.statement).toContain("s.title_version");
+    expect(client.queries[0]?.statement).toContain("s.title_status");
     expect(client.queries[1]?.statement).toContain(
       "s.thread_id AS session_thread_id",
     );
     expect(client.queries[1]?.statement).toContain("s.title_version");
+    expect(client.queries[1]?.statement).toContain("s.title_status");
   });
 
   it("projects approval only from the latest blocking event in the active run's current thread turn", async () => {
@@ -245,6 +247,7 @@ describe("PostgresTranscriptRepository", () => {
           id UUID PRIMARY KEY, user_id UUID NOT NULL, workspace_id UUID,
           thread_id TEXT, task_id UUID NOT NULL, title TEXT NOT NULL,
           title_source TEXT NOT NULL, title_version INTEGER NOT NULL,
+          title_status TEXT NOT NULL DEFAULT 'ready',
           repository TEXT, active_run_id TEXT, mode TEXT NOT NULL,
           status TEXT NOT NULL, pinned_at TIMESTAMPTZ, archived_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
@@ -266,7 +269,7 @@ describe("PostgresTranscriptRepository", () => {
         ],
       );
       await db.query(
-        `INSERT INTO sessions VALUES ($1, $2, NULL, $3, $4, 'Approval task', 'generated', 1, 'acme/repo', $5, 'build', 'running', NULL, NULL, $6, $6)`,
+        `INSERT INTO sessions VALUES ($1, $2, NULL, $3, $4, 'Approval task', 'generated', 1, 'ready', 'acme/repo', $5, 'build', 'running', NULL, NULL, $6, $6)`,
         [
           "123e4567-e89b-42d3-a456-426614174002",
           "123e4567-e89b-42d3-a456-426614174001",

@@ -654,15 +654,55 @@ describe("useSessionManager", () => {
       expect(SessionStateService.loadActiveSessionId()).toBeNull();
     });
 
+    it("starts title refresh from the projection read after chat acceptance", async () => {
+      const initial = createTitleSession({
+        titleSource: "preview",
+        titleStatus: "ready",
+        titleVersion: 1,
+      });
+      const pending = createTitleSession({
+        titleSource: "preview",
+        titleStatus: "pending",
+        titleVersion: 2,
+      });
+      const generated = createTitleSession({
+        name: "Create dark mode toggle",
+        titleSource: "generated",
+        titleStatus: "ready",
+        titleVersion: 3,
+      });
+      vi.mocked(SessionStateService.hydrateSessionsFromServer)
+        .mockResolvedValueOnce({ [initial.id]: initial })
+        .mockResolvedValueOnce({ [pending.id]: pending })
+        .mockResolvedValue({ [generated.id]: generated });
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() =>
+        expect(result.current.sessionHydrationStatus).toBe("ready"),
+      );
+      // useChatCore calls this existing refresh on the accepted chat response.
+      await act(() => result.current.refreshSessionProjection(initial.id));
+      expect(result.current.sessions[0]?.titleStatus).toBe("pending");
+      await waitFor(
+        () =>
+          expect(result.current.sessions[0]?.name).toBe(
+            "Create dark mode toggle",
+          ),
+        { timeout: 2000 },
+      );
+      expect(result.current.sessions[0]?.titleStatus).toBe("ready");
+    });
+
     it("refreshes a pending preview until the canonical generated title arrives", async () => {
       const pending = createTitleSession({
         name: "Check my…",
         titleSource: "preview",
+        titleStatus: "pending",
         titleVersion: 2,
       });
       const ready = createTitleSession({
         name: "Refine Landing Page Hero",
         titleSource: "generated",
+        titleStatus: "ready",
         titleVersion: 3,
       });
       vi.mocked(SessionStateService.hydrateSessionsFromServer)

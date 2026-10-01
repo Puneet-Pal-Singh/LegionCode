@@ -60,6 +60,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       title: existing?.title ?? input.title ?? task.title,
       titleSource,
       titleVersion: existing?.titleVersion ?? 1,
+      titleStatus: existing?.titleStatus ?? "ready",
       repository: readNullableInput(
         input.repository,
         existing?.repository ?? null,
@@ -85,6 +86,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     sessionId: string;
     title: string;
     titleSource: "preview" | "generated";
+    titleStatus?: "pending" | "ready" | "failed";
     expectedTitleVersion?: number;
     initialOnly?: boolean;
   }): Promise<SessionRecord | null> {
@@ -334,6 +336,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       sessionId: string;
       title: string;
       titleSource: SessionRecord["titleSource"];
+      titleStatus?: "pending" | "ready" | "failed";
       expectedTitleVersion?: number;
       initialOnly?: boolean;
     },
@@ -365,6 +368,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       ...session,
       title: input.title,
       titleSource,
+      titleStatus: input.titleStatus ?? "ready",
       titleVersion: (session.titleVersion ?? 1) + 1,
       updatedAt: now,
     });

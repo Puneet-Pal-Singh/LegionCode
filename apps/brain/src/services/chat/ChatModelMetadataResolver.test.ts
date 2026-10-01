@@ -39,6 +39,7 @@ describe("findDiscoveredChatModelMetadata", () => {
       contextWindow: 400000,
       pricing: { inputPer1M: 5, outputPer1M: 30, currency: "USD" },
       reasoningEfforts: ["low", "high"],
+      capabilities: { reasoningEfforts: ["low", "high"] },
     });
     expect(getDiscoveredModels).toHaveBeenNthCalledWith(2, "openai", {
       view: "all",

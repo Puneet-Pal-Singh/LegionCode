@@ -445,6 +445,28 @@ export function useChatCore(
       isTransportLoading || isSubmitting || isStopping,
     );
 
+  const projectionRefreshTurnRef = useRef<string | null>(null);
+  const startedProjectionTurnId = activeTurnProjection.projection?.startedAt
+    ? activeTurnProjection.turnId
+    : null;
+  useEffect(() => {
+    if (
+      !startedProjectionTurnId ||
+      !isActiveRunScope(runScopeKey) ||
+      projectionRefreshTurnRef.current === startedProjectionTurnId
+    )
+      return;
+    projectionRefreshTurnRef.current = startedProjectionTurnId;
+    // The title job starts before the workflow. Read its canonical projection
+    // now rather than waiting for a potentially long-running chat response.
+    onServerProjectionAvailable?.();
+  }, [
+    startedProjectionTurnId,
+    isActiveRunScope,
+    runScopeKey,
+    onServerProjectionAvailable,
+  ]);
+
   useEffect(() => {
     if (!activeTurnProjection.isTerminal) {
       return;

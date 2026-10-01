@@ -23,6 +23,7 @@ import { sessionTitleVersionMigration } from "./0026-session-title-version.js";
 import { threadTitlePreviewSourceMigration } from "./0027-thread-title-preview-source.js";
 import { taskCheckoutSecureSessionMigration } from "./0028-task-checkout-secure-session.js";
 import { hookDefinitionsMigration } from "./0029-hook-definitions.js";
+import { sessionTitleStatusMigration } from "./0031-session-title-status.js";
 import { sessionThreadIdentityMigration } from "./0030-session-thread-identity.js";
 import { lifecycleEventAppendOrderMigration } from "./0031-lifecycle-event-append-order.js";
 import { lifecycleEventsProjectionsMigration } from "./0020-lifecycle-events-projections.js";
@@ -102,4 +103,5 @@ export const persistenceMigrations = [
   hookDefinitionsMigration,
   sessionThreadIdentityMigration,
   lifecycleEventAppendOrderMigration,
+  sessionTitleStatusMigration,
 ] as const;

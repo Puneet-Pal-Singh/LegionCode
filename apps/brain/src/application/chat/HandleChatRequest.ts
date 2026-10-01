@@ -17,6 +17,7 @@ import type { CoreMessage } from "ai";
 import {
   DEFAULT_RUN_MODE,
   type BYOKModelPricing,
+  type BYOKModelCapability,
   type ProductMode,
   type RunMode,
   type WorkflowEntrypoint,
@@ -30,11 +31,7 @@ import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
-import {
-  ThreadTitleGenerationCoordinator,
-  ThreadTitleService,
-  type BackgroundTaskOwner,
-} from "../../services/thread-titles";
+import { type BackgroundTaskOwner } from "../../services/thread-titles";
 import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
@@ -46,6 +43,9 @@ import {
   resolveProviderRuntimeRoute,
   type ResolvedProviderRuntimeRoute,
 } from "@repo/provider-core";
+
+import type { RunRecord } from "@repo/persistence";
+import { scheduleInitialThreadTitle } from "../../services/thread-titles/InitialThreadTitleScheduler";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -84,6 +84,7 @@ export interface HandleChatRequestInput {
   reasoningEffort?: ReasoningEffort;
   tools?: Record<string, SerializableToolDefinition>;
   providerRuntimeRoute?: ProviderModelRuntimeRoute;
+  modelCapabilities?: BYOKModelCapability;
   identity: TurnScopeBootstrap;
   backgroundTaskOwner?: BackgroundTaskOwner;
 }
@@ -184,6 +185,7 @@ export class HandleChatRequest {
       const normalizedProviderRuntimeRoute =
         normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
+      let persistedRun: RunRecord | undefined;
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
       if (userId) {
@@ -209,7 +211,7 @@ export class HandleChatRequest {
             taskId,
             repository: repositorySlug,
           });
-          await this.persistenceService.ensureRun({
+          persistedRun = await this.persistenceService.ensureRun({
             id: runId,
             userId,
             workspaceId: workspaceId ?? null,
@@ -275,41 +277,17 @@ export class HandleChatRequest {
       );
 
       if (userId) {
-        const firstPersistedUserMessage =
-          await this.persistenceService.findFirstPersistedUserMessage({
-            sessionId,
-            userId,
-          });
-        if (firstPersistedUserMessage?.id === persistedUserMessage.id) {
-          const titleService = new ThreadTitleService(this.env);
-          const preview = await titleService.persistPreview({
-            sessionId,
-            threadId: identity.threadId,
-            runId,
-            workspaceId: identity.workspaceId,
-            userId,
-            firstMessageId: firstPersistedUserMessage.id,
-            prompt,
-          });
-          if (preview && input.backgroundTaskOwner) {
-            new ThreadTitleGenerationCoordinator(this.env).schedule(
-              input.backgroundTaskOwner,
-              {
-                sessionId,
-                threadId: identity.threadId,
-                runId,
-                workspaceId: identity.workspaceId,
-                userId,
-                firstMessageId: firstPersistedUserMessage.id,
-                prompt,
-                previewVersion: preview.titleVersion ?? 1,
-                providerId: input.providerId,
-                modelId: input.modelId,
-                ...normalizedProviderRuntimeRoute,
-              },
-            );
-          }
-        }
+        await scheduleInitialThreadTitle(this.env, this.persistenceService, {
+          sessionId,
+          userId,
+          identity,
+          prompt,
+          persistedUserMessageId: persistedUserMessage.id,
+          persistedRun,
+          providerRuntimeRoute: input.providerRuntimeRoute,
+          modelCapabilities: input.modelCapabilities,
+          backgroundTaskOwner: input.backgroundTaskOwner,
+        });
       }
 
       const executionMessages = userId
