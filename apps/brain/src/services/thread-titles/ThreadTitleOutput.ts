@@ -70,7 +70,7 @@ function validateTitle(value: string): DecodedThreadTitle {
     /^(?:return|output|respond with|provide)\s+(?:only\s+)?(?:one|a|the)\s+(?:(?:plain-text|concise|brief|chat|thread|conversation)\s+)*title\b/iu.test(
       title,
     ) ||
-    /^(?:generate|create|write)\s+(?:a|one)\s+(?:(?:concise|brief|chat|thread|conversation)\s+)*title\s+for\b/iu.test(
+    /^(?:generate|create|write)\s+(?:a|one)\s+(?:(?:concise|brief|chat|thread|conversation)\s+)*title\s+for\s+(?:(?:this|the|a)\s+)?(?:conversation|chat|thread|user request)\b/iu.test(
       title,
     )
   )

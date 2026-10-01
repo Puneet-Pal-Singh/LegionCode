@@ -13,6 +13,7 @@ describe("thread title output", () => {
     "User service refactor",
     "Fix chat title generation",
     "Create title generation tests",
+    "Create a title for invoices",
     "लॉगिन टाइमआउट ठीक करें",
   ])("accepts a useful task title: %s", (title) => {
     expect(normalizeGeneratedTitle(title)).toBe(title);

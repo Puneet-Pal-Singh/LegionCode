@@ -178,6 +178,7 @@ export class ThreadTitleGenerationCoordinator {
             model: OPENROUTER_FREE_MODEL_ID,
           },
           deadline,
+          TITLE_GENERATION_TIMEOUT_MS,
         );
       }
       if (!outcome.ok) {

@@ -76,6 +76,16 @@ describe("selected title route", () => {
     expect(generateStructured).not.toHaveBeenCalled();
   });
 
+  it("keeps native routes on the existing text adapter when structured transport is unwired", () => {
+    const generator = createSelectedThreadTitleGenerator({} as Env, {
+      ...input,
+      providerId: "anthropic",
+      providerTransport: "anthropic-messages",
+      modelCapabilities: { supportsStructuredOutputs: true },
+    });
+    expect(generator.outputFormat).toBe("text");
+  });
+
   it("applies low effort only when advertised, with room for reasoning output", async () => {
     const generator = createSelectedThreadTitleGenerator({} as Env, {
       ...input,

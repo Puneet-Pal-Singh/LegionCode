@@ -24,6 +24,9 @@ export function createSelectedThreadTitleGenerator(
   const structured =
     capabilities?.supportsStructuredOutputs === true &&
     provider?.capabilities.structuredOutputs === true &&
+    // AIService's structured path currently wires explicit routes only for chat completions.
+    (!input.providerTransport ||
+      input.providerTransport === "openai-chat-completions") &&
     (provider.capabilities.jsonMode ||
       provider.adapterFamily === "anthropic-native" ||
       provider.adapterFamily === "google-native");

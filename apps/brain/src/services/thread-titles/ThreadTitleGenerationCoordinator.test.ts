@@ -95,6 +95,14 @@ describe("title generation budget", () => {
     );
   });
 
+  it("honors the adapter's non-retryable error flag", async () => {
+    const generateText = vi.fn().mockRejectedValue({ retryable: false });
+    const run = schedule({ generateText });
+    await run.pending;
+    expect(generateText).toHaveBeenCalledOnce();
+    expect(run.persistFailure).toHaveBeenCalledOnce();
+  });
+
   it("exhausts at most three calls and settles failure within the inference deadline", async () => {
     vi.useFakeTimers();
     const generateText = vi.fn(
@@ -104,7 +112,7 @@ describe("title generation budget", () => {
       () => new Promise<{ text: string }>(() => undefined),
     );
     const run = schedule({ generateText }, { generateText: fallback });
-    await vi.advanceTimersByTimeAsync(18000);
+    await vi.advanceTimersByTimeAsync(20000);
     await run.pending;
     expect(generateText).toHaveBeenCalledTimes(2);
     expect(fallback).toHaveBeenCalledOnce();

@@ -28,7 +28,10 @@ export function classifyTitleProviderError(error: unknown): {
     if (status === 400 || status === 404 || status === 422)
       return { reason: "unsupported_request", retryable: false };
     if (status === 429) return { reason: "rate_limited", retryable: true };
-    if ("isRetryable" in error && error.isRetryable === false)
+    if (
+      ("isRetryable" in error && error.isRetryable === false) ||
+      ("retryable" in error && error.retryable === false)
+    )
       return { reason: "provider_unavailable", retryable: false };
   }
   if (
@@ -45,8 +48,9 @@ export async function attemptThreadTitle(
   generator: ThreadTitleGenerator,
   request: Parameters<ThreadTitleGenerator["generateText"]>[0],
   deadline: number,
+  timeoutMs = 6000,
 ): Promise<TitleAttemptResult> {
-  const allowance = Math.min(6000, deadline - Date.now());
+  const allowance = Math.min(timeoutMs, deadline - Date.now());
   if (allowance <= 0) return { ok: false, reason: "timeout", retryable: false };
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -87,7 +91,9 @@ export async function attemptThreadTitle(
       correction: [
         {
           role: "assistant",
-          content: buildThreadTitleInput(result.text).slice(0, 512),
+          content: Array.from(buildThreadTitleInput(result.text))
+            .slice(0, 512)
+            .join(""),
         },
         {
           role: "user",
@@ -100,7 +106,21 @@ export async function attemptThreadTitle(
       ? { reason: "timeout", retryable: true }
       : classifyTitleProviderError(error);
     outcome = failure.reason;
-    return { ok: false, ...failure };
+    return {
+      ok: false,
+      ...failure,
+      ...(failure.reason === "malformed_output"
+        ? {
+            correction: [
+              {
+                role: "user" as const,
+                content:
+                  "The previous response did not match the required title schema. Return only the required title object, with no additional properties or explanation.",
+              },
+            ],
+          }
+        : {}),
+    };
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
     console.info("[thread-title] attempt", {
