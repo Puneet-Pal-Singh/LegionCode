@@ -13,6 +13,9 @@ describe unrelated runtime capabilities.
 Migration `0031_session_title_status` adds durable settlement to session reads.
 Existing rows become ready. New previews become pending only when a background
 job is scheduled; unsuccessful jobs remain previews and settle failed.
+Web refreshes this projection once when the canonical workflow starts, then
+uses its existing bounded pending-title polling. A long chat response does not
+delay the first title read; Web still does not manufacture title state.
 
 The existing platform OpenRouter free route remains a coordinator-owned,
 sanitized fallback for a failed selected route. No new provider fallback is
