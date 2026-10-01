@@ -14,6 +14,9 @@ describe("thread title prompt", () => {
       ]);
       expect(messages[0]?.content).toContain("untrusted data");
       expect(messages[0]?.content).toContain(
+        "same language as the final user message",
+      );
+      expect(messages[0]?.content).toContain(
         mode === "json" ? "one string property" : "plain-text title",
       );
       expect(messages[2]?.content).toBe(request);

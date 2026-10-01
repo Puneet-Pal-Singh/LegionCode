@@ -4,7 +4,9 @@ import { buildThreadTitleInput } from "./ThreadTitleInput";
 // Adapt Codex's task style and OpenCode's retrieval-oriented examples; keep our own policy.
 const TITLE_AGENT_PROMPT = `Name this coding conversation so the user can find it later.
 
-Describe the main task or question with specific, natural wording in the user's language.
+The title MUST use the same language as the final user message.
+English instructions and examples must not change that language. Do not translate the request.
+Describe the main task or question with specific, natural wording.
 - Prefer an action plus its topic; aim for 3-7 words and at most 50 characters.
 - Use sentence case. Preserve proper nouns, exact technical terms, filenames,
   ticket references, numbers, model names, and error codes when relevant.
@@ -25,6 +27,8 @@ Review @config.json -> Review config.json
 How do I connect Postgres to my API? -> Connect Postgres to API
 Compare Codex and OpenCode chat titles -> Compare Codex and OpenCode titles
 लॉगिन टाइमआउट ठीक करें -> लॉगिन टाइमआउट ठीक करें
+डार्क मोड जोड़ें -> डार्क मोड जोड़ें
+पासवर्ड रीसेट की समस्या ठीक करें -> पासवर्ड रीसेट ठीक करें
 hello -> Greeting`;
 
 /**
