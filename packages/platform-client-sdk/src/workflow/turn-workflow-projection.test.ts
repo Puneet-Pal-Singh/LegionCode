@@ -89,7 +89,10 @@ describe("turn workflow projection", () => {
       "Git diff",
     );
 
-    const projection = replayTurnWorkflowProjection(TURN_ID, [started, started]);
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      started,
+      started,
+    ]);
 
     expect(projection.items).toHaveLength(1);
     expect(projection.items[0]?.itemId).toBe("itm_gitcall01");
@@ -98,20 +101,8 @@ describe("turn workflow projection", () => {
 
   it("keeps distinct repeated Git tool calls auditable", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
-      toolStarted(
-        1,
-        "itm_gitcall01",
-        "toolcall_gitcall01",
-        "git",
-        "Git diff",
-      ),
-      toolStarted(
-        2,
-        "itm_gitcall02",
-        "toolcall_gitcall02",
-        "git",
-        "Git diff",
-      ),
+      toolStarted(1, "itm_gitcall01", "toolcall_gitcall01", "git", "Git diff"),
+      toolStarted(2, "itm_gitcall02", "toolcall_gitcall02", "git", "Git diff"),
     ]);
 
     const children = groupToolActivity(projection.items).flatMap(
@@ -180,6 +171,16 @@ describe("turn workflow projection", () => {
 
     expect(unrelated.pendingApproval?.approvalId).toBe("appr_workflow01");
     expect(unrelated.phase).toBe("waiting_for_approval");
+    const wrongItem = applyLifecycleEvent(
+      requested,
+      event(4, "approval.decided", {
+        itemId: "itm_approval02",
+        approvalId: "appr_workflow01",
+        payload: { status: "approved" },
+      }),
+    );
+    expect(wrongItem.pendingApproval?.approvalId).toBe("appr_workflow01");
+    expect(wrongItem.items[0]?.request?.state).toBe("pending");
     expect(settled.pendingApproval).toBeNull();
     expect(settled.phase).toBe("working");
   });
@@ -211,6 +212,192 @@ describe("turn workflow projection", () => {
         description: "Reuse this approval in the current chat.",
       },
     ]);
+  });
+
+  it("keeps approval decisions in the matching request item and preserves the grant answer", () => {
+    const events = [
+      event(1, "item.started", {
+        itemId: "itm_approval01",
+        payload: { kind: "approval_request" },
+      }),
+      event(2, "approval.requested", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { question: "Run command?" },
+      }),
+      toolStarted(3, "itm_read01", "toolcall_read01", "read", "README.md"),
+      event(4, "approval.decided", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { status: "approved", grantScope: "matching_in_chat" },
+      }),
+    ];
+    const replayed = replayTurnWorkflowProjection(TURN_ID, events);
+    const continued = events.reduce(
+      applyLifecycleEvent,
+      createTurnWorkflowProjection(TURN_ID),
+    );
+
+    expect(continued).toEqual(replayed);
+    expect(replayed.phase).toBe("working");
+    expect(replayed.pendingApproval).toBeNull();
+    expect(replayed.items[0]).toMatchObject({
+      kind: "approval_request",
+      status: "completed",
+      request: {
+        requestId: "appr_workflow01",
+        state: "approved",
+        questions: [{ id: "appr_workflow01", question: "Run command?" }],
+        answers: [
+          {
+            questionId: "appr_workflow01",
+            value: "Accepted for matching actions in this chat",
+          },
+        ],
+      },
+    });
+  });
+
+  it("projects input questions and answers by question identity, then resolves only that request", () => {
+    const events = [
+      event(1, "user_input.requested", {
+        itemId: "itm_input001",
+        requestId: "request_input001",
+        payload: {
+          questions: [
+            { id: "model", question: "Which model?" },
+            { id: "reason", question: "Why?" },
+          ],
+        },
+      }),
+      event(2, "user_input.responded", {
+        itemId: "itm_input001",
+        requestId: "request_input001",
+        payload: {
+          response: {
+            answers: {
+              model: { answers: ["gpt-5", "gpt-4"] },
+              reason: { answers: ["testing"] },
+            },
+          },
+        },
+      }),
+      event(3, "request.resolved", {
+        itemId: "itm_input001",
+        requestId: "request_input001",
+        payload: { status: "resolved" },
+      }),
+    ];
+    const projection = replayTurnWorkflowProjection(TURN_ID, events);
+
+    expect(projection.phase).toBe("working");
+    expect(projection.items[0]).toMatchObject({
+      kind: "user_input_request",
+      status: "completed",
+      request: {
+        requestId: "request_input001",
+        state: "answered",
+        questions: [
+          { id: "model", question: "Which model?" },
+          { id: "reason", question: "Why?" },
+        ],
+        answers: [
+          { questionId: "model", value: "gpt-5\ngpt-4" },
+          { questionId: "reason", value: "testing" },
+        ],
+      },
+    });
+  });
+
+  it("keeps pending requests waiting through tool events and cancels them on terminal settlement", () => {
+    const pendingEvents = [
+      event(1, "user_input.requested", {
+        itemId: "itm_input001",
+        requestId: "request_input001",
+        payload: { prompt: "Choose a model." },
+      }),
+      toolStarted(2, "itm_read01", "toolcall_read01", "read", "README.md"),
+    ];
+    const waiting = replayTurnWorkflowProjection(TURN_ID, pendingEvents);
+    expect(waiting.phase).toBe("waiting_for_user_input");
+    expect(waiting.items[0]?.request).toMatchObject({
+      requestId: "request_input001",
+      state: "pending",
+      questions: [{ id: "request_input001", question: "Choose a model." }],
+    });
+
+    const terminal = applyLifecycleEvent(
+      waiting,
+      event(3, "turn.interrupted", {
+        payload: { outcome: { status: "interrupted", reason: "Stopped." } },
+      }),
+    );
+    expect(terminal.phase).toBe("interrupted");
+    expect(terminal.items[0]).toMatchObject({
+      status: "interrupted",
+      request: { state: "cancelled" },
+    });
+  });
+
+  it("settles a matching input response even when it has no displayable answer", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "user_input.requested", {
+        itemId: "itm_input001",
+        requestId: "request_input001",
+        payload: { prompt: "Optional details?" },
+      }),
+      event(2, "user_input.responded", {
+        itemId: "itm_input001",
+        requestId: "request_input001",
+        payload: { value: "" },
+      }),
+    ]);
+
+    expect(projection.phase).toBe("working");
+    expect(projection.items[0]).toMatchObject({
+      status: "completed",
+      request: {
+        requestId: "request_input001",
+        state: "answered",
+        answers: [],
+      },
+    });
+  });
+
+  it("does not let unrelated request resolutions clear another pending approval", () => {
+    const requested = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "approval.requested", {
+        itemId: "itm_approval01",
+        approvalId: "appr_workflow01",
+        payload: { question: "Run command?" },
+      }),
+    );
+    const unrelated = applyLifecycleEvent(
+      requested,
+      event(2, "request.resolved", {
+        itemId: "itm_unrelated01",
+        requestId: "request_other001",
+        payload: { status: "resolved" },
+      }),
+    );
+
+    expect(unrelated.pendingApproval?.approvalId).toBe("appr_workflow01");
+    expect(unrelated.phase).toBe("waiting_for_approval");
+
+    const genericResolution = applyLifecycleEvent(
+      requested,
+      event(3, "request.resolved", {
+        itemId: "itm_approval01",
+        requestId: "appr_workflow01",
+        payload: { status: "resolved" },
+      }),
+    );
+    expect(genericResolution.pendingApproval?.approvalId).toBe(
+      "appr_workflow01",
+    );
+    expect(genericResolution.items[0]?.request?.state).toBe("pending");
+    expect(genericResolution.phase).toBe("waiting_for_approval");
   });
 
   it("projects the typed failure reason inside the canonical terminal", () => {
@@ -591,7 +778,7 @@ function event(
     idempotencyKey: `${TURN_ID}:${sequence}:${type}`,
     producer: { kind: "runtime_kernel", id: "workflow-test" },
     schemaVersion: 1,
-    createdAt: `2026-07-27T10:00:0${sequence}.000Z`,
+    createdAt: new Date(Date.UTC(2026, 6, 27, 10, 0, sequence)).toISOString(),
     type,
     ...fields,
   });

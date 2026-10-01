@@ -198,6 +198,9 @@ export {
   type WorkflowItemStatus,
   type WorkflowApproval,
   type WorkflowApprovalOption,
+  type WorkflowRequest,
+  type WorkflowRequestQuestion,
+  type WorkflowRequestAnswer,
 } from "./workflow/turn-workflow-projection.js";
 export {
   groupToolActivity,

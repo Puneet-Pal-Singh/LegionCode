@@ -3,6 +3,7 @@ import type {
   WorkflowItemKind,
 } from "./turn-workflow-projection.js";
 import type { TurnDiffPayload } from "@repo/platform-protocol";
+import { visibleReasoningTitle as summaryLine } from "./visible-reasoning-title.js";
 
 export interface ToolActivitySegment {
   readonly key: string;
@@ -13,6 +14,11 @@ export interface ToolActivitySegment {
 }
 
 export interface ActiveWorkflowTraceProjection {
+  readonly state:
+    | "thinking"
+    | "tool"
+    | "waiting_for_approval"
+    | "waiting_for_user_input";
   readonly title: string;
   readonly children: readonly WorkflowItem[];
   readonly consumedSegmentKeys: readonly string[];
@@ -43,10 +49,10 @@ function groupWorkflowItem(
   current: ToolActivitySegment | null,
   item: WorkflowItem,
 ): ToolActivitySegment | null {
-  // Approval is rendered by its dedicated dock, but it does not end the
-  // surrounding tool activity. Resetting here made calls after permission
-  // settlement look like children of a different synthetic parent.
-  if (item.kind === "approval_request") return current;
+  if (isRequestItem(item)) {
+    segments.push(createStandaloneSegment(item));
+    return null;
+  }
   if (item.toolName === "multi_edit") return current;
   if (item.kind === "commentary") {
     segments.push(createStandaloneSegment(item));
@@ -222,6 +228,10 @@ function isToolItem(item: WorkflowItem): boolean {
   );
 }
 
+function isRequestItem(item: WorkflowItem): boolean {
+  return item.kind === "approval_request" || item.kind === "user_input_request";
+}
+
 function createSegment(item: WorkflowItem): ToolActivitySegment {
   const key = `segment:${item.itemId}`;
   return {
@@ -293,20 +303,46 @@ export function buildSegmentTitle(segment: ToolActivitySegment): string {
 export function buildActiveWorkflowTrace(
   segments: readonly ToolActivitySegment[],
 ): ActiveWorkflowTraceProjection {
-  const traceSegments = collectCurrentTraceSegments(segments);
-  const children = traceSegments.flatMap((segment) =>
-    segment.children.filter(isToolItem),
-  );
-  const activeSegment = [...traceSegments]
+  const activeSegment = [...segments]
     .reverse()
     .find((segment) => segment.children.some(isActiveToolItem));
-  const reasoningTitle = [...traceSegments]
+  const currentSegments = collectCurrentTraceSegments(segments);
+  // A permission request has its own history row, while its original tool
+  // remains active until the tool's canonical completion event arrives.
+  const traceSegments =
+    activeSegment && !currentSegments.includes(activeSegment)
+      ? [activeSegment, ...currentSegments]
+      : currentSegments;
+  const children = traceSegments.flatMap((segment) =>
+    segment.children.filter((item) => isToolItem(item) || isRequestItem(item)),
+  );
+  const pendingRequests = [...segments]
     .reverse()
-    .map((segment) => visibleReasoningTitle(segment.reasoning, false))
-    .find((title): title is string => Boolean(title));
+    .flatMap((segment) => segment.children)
+    .filter((item) => isRequestItem(item) && item.request?.state === "pending");
+  const pendingRequest =
+    pendingRequests.find((item) => item.kind === "approval_request") ??
+    pendingRequests[0];
+  const consumedSegmentKeys = traceSegments.map((segment) => segment.key);
+  if (pendingRequest) {
+    return {
+      state:
+        pendingRequest.kind === "approval_request"
+          ? "waiting_for_approval"
+          : "waiting_for_user_input",
+      title:
+        pendingRequest.kind === "approval_request"
+          ? "Awaiting approval"
+          : "Waiting for your answer",
+      children,
+      consumedSegmentKeys,
+    };
+  }
+  const reasoningTitle = latestReasoningTitle(segments);
 
   if (activeSegment) {
     return {
+      state: "tool",
       title: buildSegmentTitle(activeSegment),
       children,
       consumedSegmentKeys: traceSegments.map((segment) => segment.key),
@@ -315,26 +351,18 @@ export function buildActiveWorkflowTrace(
 
   if (reasoningTitle) {
     return {
+      state: "thinking",
       title: reasoningTitle,
       children,
       consumedSegmentKeys: traceSegments.map((segment) => segment.key),
     };
   }
 
-  const latestTool = children.at(-1);
-  if (latestTool) {
-    return {
-      title:
-        visibleActivityTitle(latestTool) ?? "Thinking through the next step",
-      children,
-      consumedSegmentKeys: traceSegments.map((segment) => segment.key),
-    };
-  }
-
   return {
-    title: "Thinking through the next step",
-    children: [],
-    consumedSegmentKeys: [],
+    state: "thinking",
+    title: "Thinking",
+    children,
+    consumedSegmentKeys,
   };
 }
 
@@ -355,13 +383,41 @@ function collectCurrentTraceSegments(
       break;
     }
     if (
+      segment.children.some(
+        (item) => isRequestItem(item) && item.request?.state !== "pending",
+      )
+    ) {
+      break;
+    }
+    if (
       segment.reasoning ||
-      segment.children.some((item) => isToolItem(item))
+      segment.children.some((item) => isToolItem(item) || isRequestItem(item))
     ) {
       current.push(segment);
     }
   }
   return current.reverse();
+}
+
+function latestReasoningTitle(
+  segments: readonly ToolActivitySegment[],
+): string | null {
+  for (const segment of [...segments].reverse()) {
+    const reasoning =
+      segment.reasoning ??
+      segment.children.find((item) => item.kind === "reasoning");
+    if (reasoning) return visibleReasoningTitle(reasoning, false);
+    if (
+      segment.children.some(
+        (item) =>
+          item.kind === "commentary" ||
+          HARD_BOUNDARY_KINDS.has(item.kind) ||
+          isRequestItem(item),
+      )
+    )
+      break;
+  }
+  return null;
 }
 
 /**
@@ -388,12 +444,11 @@ function visibleReasoningTitle(
   useFallback = true,
 ): string | null {
   if (!item) return null;
-  const visibleTitle = compactActivityTitle(
+  const visibleTitle = summaryLine(
     item.safeSummary ?? item.text ?? item.detail,
   );
-  if (visibleTitle && wordCount(visibleTitle) >= 4) return visibleTitle;
   if (visibleTitle) return visibleTitle;
-  return useFallback ? "Thinking through the next step" : null;
+  return useFallback ? "Thinking" : null;
 }
 
 function isActiveToolItem(item: WorkflowItem): boolean {
@@ -409,14 +464,7 @@ function isSegmentActive(
 
 function compactActivityTitle(value: string | null | undefined): string | null {
   const normalized = value?.replace(/\s+/g, " ").trim();
-  if (!normalized) return null;
-  const words = normalized.split(" ");
-  if (words.length <= 6) return normalized;
-  return `${words.slice(0, 6).join(" ")}…`;
-}
-
-function wordCount(value: string): number {
-  return value.replace(/…$/u, "").trim().split(/\s+/u).length;
+  return normalized || null;
 }
 
 function structuredToolActivityTitle(item: WorkflowItem): string | null {
@@ -484,7 +532,10 @@ function stripToolActionPrefix(value: string | null): string | null {
 }
 
 function humanizeToolName(value: string | null): string | null {
-  const normalized = value?.replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
+  const normalized = value
+    ?.replace(/[_-]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
   if (!normalized) return null;
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
