@@ -1292,6 +1292,105 @@ describe("RunEngineRequestHandler", () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts a matching-in-chat grant only for the canonical option and current workspace", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "run_123e4567e89b42d3a456426614174338";
+    const turnId = "trn_123458";
+    const approvalId = "appr_123458";
+    const workspaceId = "00000000-0000-4000-8000-000000000001";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "commit changes",
+        sessionId: "session-1",
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    await ctx.storage.put("turnRuntimeIdentities", {
+      [turnId]: {
+        runId,
+        workspaceId,
+        sessionId: "session-1",
+        threadId: "thr_123456",
+        turnId,
+        runAttemptId: "attempt_123456",
+      },
+    });
+    const approvals = new PermissionApprovalStore(runtimeState, runId);
+    await approvals.setPendingRequest({
+      requestId: approvalId,
+      runId,
+      origin: "agent",
+      category: "shell_command",
+      title: "Commit changes",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:git commit",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const requested = {
+      type: "approval.requested",
+      approvalId,
+      payload: {
+        options: [{ id: "allow_matching_in_chat" }],
+        metadata: {
+          grantMatcherKey: "tool:git_commit",
+          grantWorkspaceId: workspaceId,
+        },
+      },
+    };
+    const events: Array<Record<string, unknown>> = [requested];
+    const lifecycleEventStore = {
+      replay: vi.fn(async ({ afterSequence }: { afterSequence: number | null }) => ({
+        events: events.slice(afterSequence ?? 0),
+        nextSequence: events.length || null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
+    const resolve = vi.fn(async (_id, resolution) => {
+      events.push({
+        type: "approval.decided",
+        approvalId,
+        payload: { status: resolution.decision, grantScope: resolution.grantScope },
+      });
+    });
+    approvalRegistry.register(TurnIdSchema.parse(turnId), resolve);
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore, approvalResolutionRegistry: approvalRegistry },
+    );
+    const submit = (grantScope: "matching_in_chat" | "once") =>
+      handler.handleLifecycleApprovalRequest(
+        new Request("https://brain.local/lifecycle-approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turnId, approvalId, decision: "approved", grantScope }),
+        }),
+      );
+
+    requested.payload.options = [];
+    expect((await submit("matching_in_chat")).status).toBe(409);
+    expect(resolve).not.toHaveBeenCalled();
+
+    requested.payload.options = [{ id: "allow_matching_in_chat" }];
+    requested.payload.metadata.grantWorkspaceId =
+      "00000000-0000-4000-8000-000000000002";
+    expect((await submit("matching_in_chat")).status).toBe(409);
+    expect(resolve).not.toHaveBeenCalled();
+
+    requested.payload.metadata.grantWorkspaceId = workspaceId;
+    const first = await submit("matching_in_chat");
+    expect(first.status).toBe(200);
+    const retryWithDifferentScope = await submit("once");
+    expect(retryWithDifferentScope.status).toBe(409);
+    expect(approvalRegistry.has(TurnIdSchema.parse(turnId))).toBe(true);
+  });
+
   it("fails closed without retaining a permission decision when the active approval resolver disappears", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
