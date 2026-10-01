@@ -15,6 +15,8 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/chat/chat-interface/ChatComposerControls.tsx",
   "hooks/useActiveTurnProjection.ts",
   "components/chat/chat-interface/useApprovalController.ts",
+  "components/chat/approval/ApprovalActions.tsx",
+  "components/chat/approval/ApprovalDock.tsx",
   "components/chat/context/ContextDetailsPanel.tsx",
   "components/chat/messageMetadata.ts",
   "components/layout/workspace/useWorkspaceState.ts",
