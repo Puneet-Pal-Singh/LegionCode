@@ -43,6 +43,7 @@ interface TranscriptRow extends SqlRow {
   session_title?: string;
   title_source?: string;
   title_version?: number | string;
+  title_status?: "pending" | "ready" | "failed";
   repository?: string | null;
   active_run_id?: string | null;
   mode?: string;
@@ -112,6 +113,7 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     sessionId: string;
     title: string;
     titleSource: "preview" | "generated";
+    titleStatus?: "pending" | "ready" | "failed";
     expectedTitleVersion?: number;
     initialOnly?: boolean;
   }): Promise<SessionRecord | null> {
@@ -126,6 +128,7 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
         this.clock.now(),
         input.expectedTitleVersion ?? null,
         input.initialOnly ?? false,
+        input.titleStatus ?? "ready",
       ],
     );
   }
@@ -568,6 +571,7 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     repository: row.repository ?? null,
     activeRunId: row.active_run_id ?? null,
     titleVersion: toNumber(row.title_version ?? 1),
+    titleStatus: row.title_status ?? "ready",
     mode: requireString(row.mode, "mode"),
     status: mapSessionStatus(
       requireString(row.session_status, "session_status"),
@@ -744,6 +748,7 @@ const SESSION_COLUMNS = `
   title AS session_title,
   title_source,
   title_version,
+  title_status,
   repository,
   active_run_id,
   mode,
@@ -846,6 +851,7 @@ const UPDATE_GENERATED_SESSION_TITLE_SQL = `
   UPDATE sessions
   SET title = $3,
       title_source = $4,
+      title_status = $8,
       title_version = title_version + 1,
       updated_at = $5
   WHERE user_id = $1
@@ -871,6 +877,7 @@ const RENAME_SESSION_TITLE_SQL = `
   UPDATE sessions
   SET title = $3,
       title_source = 'user',
+      title_status = 'ready',
       title_version = title_version + 1,
       updated_at = $4
   WHERE user_id = $1
@@ -1006,6 +1013,7 @@ const LIST_SESSIONS_SQL = `
     s.title AS session_title,
     s.title_source,
     s.title_version,
+    s.title_status,
     s.repository,
     s.active_run_id,
     s.mode,
@@ -1032,6 +1040,7 @@ const LIST_ARCHIVED_SESSIONS_SQL = `
     s.title AS session_title,
     s.title_source,
     s.title_version,
+    s.title_status,
     s.repository,
     s.active_run_id,
     s.mode,

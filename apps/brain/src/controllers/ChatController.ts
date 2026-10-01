@@ -262,6 +262,7 @@ export class ChatController {
           contextWindowTokens: trustedModelMetadata.contextWindow,
           pricing: trustedModelMetadata.pricing,
           providerRuntimeRoute: trustedModelMetadata.runtimeRoute,
+          modelCapabilities: trustedModelMetadata.capabilities,
           reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,

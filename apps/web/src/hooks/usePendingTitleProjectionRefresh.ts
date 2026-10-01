@@ -34,10 +34,8 @@ export function usePendingTitleProjectionRefresh({
   const pendingKey = useMemo(
     () =>
       sessions
-        // `titleSource` and `titleVersion` are the canonical session metadata
-        // returned by Brain. `titleStatus` is not persisted and must not be
-        // required for refresh eligibility after a reload.
-        .filter((session) => session.titleSource === "preview")
+        // Durable status survives reload and distinguishes failed previews from pending jobs.
+        .filter((session) => session.titleStatus === "pending")
         .map((session) => `${session.id}:${session.titleVersion ?? 0}`)
         .sort()
         .join("|"),
@@ -98,7 +96,7 @@ function hasPendingProjection(
     const serverSession = sessionId ? serverSessions[sessionId] : null;
     if (!serverSession) return true;
     return (
-      serverSession.titleSource === "preview" &&
+      serverSession.titleStatus === "pending" &&
       String(serverSession.titleVersion ?? 0) === version
     );
   });
