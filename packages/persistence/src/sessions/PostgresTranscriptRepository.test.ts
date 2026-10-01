@@ -199,10 +199,12 @@ describe("PostgresTranscriptRepository", () => {
       "s.thread_id AS session_thread_id",
     );
     expect(client.queries[0]?.statement).toContain("s.title_version");
+    expect(client.queries[0]?.statement).toContain("s.title_status");
     expect(client.queries[1]?.statement).toContain(
       "s.thread_id AS session_thread_id",
     );
     expect(client.queries[1]?.statement).toContain("s.title_version");
+    expect(client.queries[1]?.statement).toContain("s.title_status");
   });
 });
 

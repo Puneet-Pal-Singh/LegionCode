@@ -35,11 +35,13 @@ describe("ThreadTitleService", () => {
       title: "Please inspect and fix",
       titleSource: "preview",
       titleVersion: 2,
+      titleStatus: "pending",
     });
     expect(generated).toMatchObject({
       title: "Inspect Secure Repository",
       titleSource: "generated",
       titleVersion: 3,
+      titleStatus: "ready",
     });
     await expect(
       events.replay({
@@ -168,8 +170,9 @@ describe("ThreadTitleService", () => {
 
     expect(settled).toMatchObject({
       title: "Investigate the title generation lifecycle",
-      titleSource: "generated",
+      titleSource: "preview",
       titleVersion: 2,
+      titleStatus: "failed",
     });
     const replay = await events.replay({
       scope: { scopeType: "thread", scopeId: THREAD_ID },
@@ -182,7 +185,7 @@ describe("ThreadTitleService", () => {
           type: "thread.title.updated",
           payload: expect.objectContaining({
             titleStatus: "failed",
-            source: "generated",
+            source: "preview",
             title: "Investigate the title generation lifecycle",
           }),
         }),
@@ -192,7 +195,7 @@ describe("ThreadTitleService", () => {
       sessions: [
         {
           title: "Investigate the title generation lifecycle",
-          titleSource: "generated",
+          titleSource: "preview",
         },
       ],
     });
