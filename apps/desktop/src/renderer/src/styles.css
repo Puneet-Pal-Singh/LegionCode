@@ -1,41 +1,56 @@
-.lc-client-shell {
+.desktop-workspace-frame {
+  flex: 1 1 auto;
+}
+
+.desktop-content {
   display: grid;
-  place-items: center;
-  padding: 32px;
+  align-content: start;
+  gap: 1rem;
+  width: min(100%, 960px);
+  margin: 0 auto;
+  padding: 1.5rem;
 }
 
-.desktop-welcome {
-  width: min(100%, 640px);
-}
-
-.eyebrow {
-  margin: 0 0 12px;
-  color: var(--lc-color-accent);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.desktop-welcome h1 {
+.desktop-content h2 {
   margin: 0;
-  font-size: clamp(2rem, 6vw, 4rem);
-  line-height: 1.05;
+  color: var(--lc-color-text-primary);
+  font-size: 1.2rem;
 }
 
-.desktop-summary {
-  max-width: 34rem;
-  margin: 16px 0 0;
-  color: var(--lc-color-text-secondary);
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.workspace-panel {
-  margin-top: 32px;
-  padding: 20px;
+.desktop-content button {
+  min-height: 2.25rem;
   border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 16px;
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  color: var(--lc-color-text-primary);
+  background: var(--lc-color-surface-elevated);
+  cursor: pointer;
+  font: inherit;
+}
+
+.desktop-content button:focus-visible,
+.lc-workspace-topbar-actions button:focus-visible {
+  outline: 2px solid var(--lc-color-accent);
+  outline-offset: 2px;
+}
+
+.lc-workspace-topbar-actions button {
+  min-height: 2rem;
+  border: 1px solid var(--lc-color-border-subtle);
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  color: var(--lc-color-text-primary);
+  background: var(--lc-color-surface-elevated);
+  cursor: pointer;
+  font: inherit;
+}
+
+.workspace-panel,
+.thread-panel {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--lc-color-border-subtle);
+  border-radius: 0.75rem;
   background: var(--lc-color-surface-elevated);
 }
 
@@ -43,86 +58,116 @@
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
 }
 
-.workspace-panel h2 {
-  margin: 0;
-  font-size: 1.4rem;
-}
-
-.workspace-panel button {
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: inherit;
-  background: var(--lc-color-surface);
-  cursor: pointer;
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--lc-color-accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .workspace-selection {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 20px;
-  padding-top: 16px;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
   border-top: 1px solid var(--lc-color-border-subtle);
 }
 
 .workspace-selection p {
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
-.workspace-details {
+.workspace-details,
+.desktop-build-info {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 20px 0;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
 }
 
-.workspace-details div {
-  padding: 10px;
-  border: 0;
+.workspace-details div,
+.desktop-build-info div {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--lc-color-border-subtle);
+  border-radius: 0.45rem;
   background: var(--lc-color-surface);
 }
 
-.workspace-details dd {
+.workspace-details dd,
+.desktop-build-info dd {
+  margin: 0.25rem 0 0;
   overflow: hidden;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-panel [role="alert"] {
-  color: var(--lc-color-danger, #fb7185);
-}
-
-dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 36px 0 0;
-}
-
-dl div {
-  padding: 16px;
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 12px;
-  background: var(--lc-color-surface-elevated);
-}
-
-dt {
+.workspace-details dt,
+.desktop-build-info dt {
   color: var(--lc-color-text-tertiary);
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
 }
 
-dd {
-  margin: 6px 0 0;
-  font-weight: 650;
+.workspace-panel [role="alert"],
+.thread-panel [role="alert"] {
+  color: #fca5a5;
+}
+
+.thread-panel > div:first-child {
+  margin-bottom: 0.75rem;
+}
+
+.thread-create-row,
+.thread-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.thread-create-row input,
+.thread-detail input {
+  min-width: min(100%, 14rem);
+  min-height: 2.25rem;
+  flex: 1 1 14rem;
+  border: 1px solid var(--lc-color-border-subtle);
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.65rem;
+  color: var(--lc-color-text-primary);
+  background: var(--lc-color-background);
+  font: inherit;
+}
+
+.thread-detail {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--lc-color-border-subtle);
+}
+
+.thread-detail .eyebrow {
+  width: 100%;
+  margin-bottom: 0;
 }
 
 @media (max-width: 520px) {
-  dl {
+  .desktop-content {
+    padding: 1rem;
+  }
+
+  .workspace-details,
+  .desktop-build-info {
     grid-template-columns: 1fr;
   }
 }

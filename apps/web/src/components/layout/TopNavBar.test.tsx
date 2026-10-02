@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { TopNavBar } from "./TopNavBar";
 
 vi.mock("../navigation/OpenDropdown", () => ({
-  OpenDropdown: () => <button type="button">Open</button>,
+  OpenDropdown: ({ onSelect }: { onSelect?: (ide: string) => void }) => (
+    <button type="button" onClick={() => onSelect?.("vscode")}>
+      Open IDE
+    </button>
+  ),
 }));
 
 vi.mock("../auth/GitHubLoginButton", () => ({
@@ -15,96 +19,56 @@ vi.mock("../auth/GitHubLoginButton", () => ({
 }));
 
 vi.mock("../navigation/TopEnvironmentSummary", () => ({
-  TopEnvironmentSummary: () => (
-    <button type="button">Toggle summary</button>
+  TopEnvironmentSummary: ({ onOpenChanges }: { onOpenChanges: () => void }) => (
+    <button type="button" onClick={onOpenChanges}>
+      Toggle summary
+    </button>
   ),
 }));
 
-const environmentSummary = {
-  sessionId: "session-1",
-  runId: "run-1",
-  repo: null,
-  branch: "main",
-  onBranchChange: vi.fn(),
-  onOpenChanges: vi.fn(),
-  onOpenCommit: vi.fn(),
-};
-
-describe("TopNavBar", () => {
-  it("provides vertical space around header controls", () => {
-    render(<TopNavBar isAuthenticated />);
-
-    expect(screen.getByRole("banner")).toHaveClass("h-12");
-    expect(
-      screen.queryByRole("button", { name: "Toggle summary" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("routes review controls to the shared review sidebar and omits commit", () => {
+describe("TopNavBar shared adapter", () => {
+  it("routes review, IDE, and summary actions", () => {
     const onReview = vi.fn();
+    const onOpenIde = vi.fn();
+    const onOpenChanges = vi.fn();
     const onToggleRightSidebar = vi.fn();
 
     render(
       <TopNavBar
         onReview={onReview}
+        onOpenIde={onOpenIde}
         onToggleRightSidebar={onToggleRightSidebar}
-        isRightSidebarOpen={false}
         isAuthenticated
-        environmentSummary={environmentSummary}
+        environmentSummary={{
+          repo: null,
+          branch: "main",
+          onBranchChange: vi.fn(),
+          onOpenChanges,
+          onOpenCommit: vi.fn(),
+        }}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
-    expect(onReview).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Toggle right sidebar" }),
-    );
-    expect(onToggleRightSidebar).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByRole("button", { name: "Toggle summary" }),
-    ).toBeInTheDocument();
-
-    expect(screen.queryByText("Commit")).not.toBeInTheDocument();
-    expect(screen.queryByText("Review")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open IDE" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle summary" }));
+    expect(onReview).toHaveBeenCalledOnce();
+    expect(onOpenIde).toHaveBeenCalledWith("vscode");
+    expect(onOpenChanges).toHaveBeenCalledOnce();
+    expect(onToggleRightSidebar).not.toHaveBeenCalled();
   });
 
-  it("reserves header space for the integrated sidebar tabs", () => {
+  it("keeps review controls hidden while the right panel is open", () => {
     render(
       <TopNavBar
         onReview={vi.fn()}
+        onToggleRightSidebar={vi.fn()}
         isRightSidebarOpen
-        rightSidebarWidth={520}
         isAuthenticated
-        environmentSummary={environmentSummary}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Toggle summary" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Review" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Toggle right sidebar" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("top-nav-actions")).toHaveStyle({
-      marginRight: "520px",
-    });
-  });
-
-  it("renders the passive environment summary without runtime ownership props", () => {
-    render(
-      <TopNavBar
-        isAuthenticated
-        environmentSummary={environmentSummary}
-      />,
-    );
-
-    expect(
-      screen.getByRole("button", { name: "Toggle summary" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open IDE" })).toBeInTheDocument();
   });
 });

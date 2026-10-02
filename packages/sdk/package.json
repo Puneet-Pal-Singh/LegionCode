@@ -16,6 +16,7 @@
     "./platform/lifecycle-ordering": "./src/platform/lifecycle-ordering.ts",
     "./platform/lifecycle-types": "./src/platform/lifecycle-types.ts",
     "./platform/types": "./src/platform/types.ts",
+    "./navigation/thread-sidebar-projection": "./src/navigation/thread-sidebar-projection.ts",
     "./providers/client": "./src/providers/client.ts",
     "./providers/cloud-transport": "./src/providers/cloud-transport.ts",
     "./providers/http-transport": "./src/providers/http-transport.ts",
