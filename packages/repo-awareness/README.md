@@ -1,4 +1,4 @@
-# @shadowbox/repo-awareness
+# @legioncode/repo-awareness
 
 Lightweight repository structure awareness without loading file contents.
 
@@ -14,7 +14,7 @@ Provides deterministic scanning and classification of repository files to enable
 ## Installation
 
 ```bash
-pnpm add @shadowbox/repo-awareness
+pnpm add @legioncode/repo-awareness
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ pnpm add @shadowbox/repo-awareness
 ### Basic Scan
 
 ```typescript
-import { scanRepo } from "@shadowbox/repo-awareness";
+import { scanRepo } from "@legioncode/repo-awareness";
 
 const summary = await scanRepo({
   rootPath: "/path/to/repo",
@@ -40,7 +40,7 @@ import {
   RepoIndexBuilder,
   RepoSummaryFormatter,
   FileClassifier,
-} from "@shadowbox/repo-awareness";
+} from "@legioncode/repo-awareness";
 
 // 1. Scan
 const scanner = new RepoScanner({
@@ -62,7 +62,7 @@ console.log(text);
 ### File Classification
 
 ```typescript
-import { FileClassifier } from "@shadowbox/repo-awareness";
+import { FileClassifier } from "@legioncode/repo-awareness";
 
 const kind = FileClassifier.classify("src/main.ts");
 // → FileKind.SOURCE
@@ -74,9 +74,9 @@ const isEntry = FileClassifier.isEntryPoint("src/index.ts");
 ### Importance Scoring
 
 ```typescript
-import { ImportanceScorer } from "@shadowbox/repo-awareness";
-import type { RepoFileMeta } from "@shadowbox/repo-awareness";
-import { FileKind } from "@shadowbox/repo-awareness";
+import { ImportanceScorer } from "@legioncode/repo-awareness";
+import type { RepoFileMeta } from "@legioncode/repo-awareness";
+import { FileKind } from "@legioncode/repo-awareness";
 
 const fileMeta: RepoFileMeta = {
   path: "src/index.ts",
@@ -106,8 +106,8 @@ async function scanRepo(options: ScanOptions): Promise<RepoSummary>
 Walks file system and collects metadata.
 
 ```typescript
-import { RepoScanner } from "@shadowbox/repo-awareness";
-import type { ScanOptions } from "@shadowbox/repo-awareness";
+import { RepoScanner } from "@legioncode/repo-awareness";
+import type { ScanOptions } from "@legioncode/repo-awareness";
 
 const options: ScanOptions = {
   rootPath: "/path/to/repo",
@@ -199,4 +199,4 @@ interface RepoSummary {
 
 ## License
 
-Private - Shadowbox project
+Private - LegionCode project

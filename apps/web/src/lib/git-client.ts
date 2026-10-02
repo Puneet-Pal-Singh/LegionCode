@@ -246,7 +246,7 @@ export async function getGitStatus(
     );
   }
 
-  observeRuntimeBootId(response.headers.get("X-Shadowbox-Runtime-Boot-Id"));
+  observeRuntimeBootId(response.headers.get("X-LegionCode-Runtime-Boot-Id"));
   const payload = (await response.json()) as unknown;
   return normalizeGitStatusResponse(payload);
 }

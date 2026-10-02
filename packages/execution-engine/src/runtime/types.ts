@@ -30,14 +30,14 @@ export type {
   RunStatus,
   OrchestratorBackend,
   WorkflowStep,
-} from "@shadowbox/orchestrator-core";
+} from "@legioncode/orchestrator-core";
 
 import type {
   CanonicalRunLifecycleStep,
   OrchestratorBackend,
   RunStatus,
   WorkflowStep,
-} from "@shadowbox/orchestrator-core";
+} from "@legioncode/orchestrator-core";
 import type {
   EvidenceRecord,
   FinalizationContract,

@@ -1,5 +1,6 @@
 import {
   type BYOKModelPricing,
+  type BYOKModelCapability,
   type BYOKDiscoveredProviderModelsResponse,
   type ProviderId,
   type ProviderModelRuntimeRoute,
@@ -14,6 +15,7 @@ export interface ChatModelMetadata {
   pricing?: BYOKModelPricing;
   reasoningEfforts?: readonly ReasoningEffort[];
   runtimeRoute?: ProviderModelRuntimeRoute;
+  capabilities?: BYOKModelCapability;
 }
 
 export async function findDiscoveredChatModelMetadata(
@@ -51,6 +53,7 @@ export async function findDiscoveredChatModelMetadata(
           ? { reasoningEfforts: model.capabilities.reasoningEfforts }
           : {}),
         ...(model.runtimeRoute ? { runtimeRoute: model.runtimeRoute } : {}),
+        ...(model.capabilities ? { capabilities: model.capabilities } : {}),
       };
     }
     if (!response.page.hasMore || !response.page.nextCursor) {

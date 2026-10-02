@@ -16,7 +16,7 @@ import type {
   ProviderResolutionPort,
   RealtimeEventPort,
 } from "../ports";
-import type { RunStateEnvelope } from "@shadowbox/orchestrator-core";
+import type { RunStateEnvelope } from "@legioncode/orchestrator-core";
 
 function createExecutionRuntimePortMock(): ExecutionRuntimePort {
   return {

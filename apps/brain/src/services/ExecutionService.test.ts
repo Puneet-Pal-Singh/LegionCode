@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GitHubAPIClient, decryptToken } from "@shadowbox/github-bridge";
+import { GitHubAPIClient, decryptToken } from "@legioncode/github-bridge";
 import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
@@ -9,7 +9,7 @@ import {
   type SecureExecutionSessionPort,
 } from "./secure-execution/SecureExecutionSessionClient";
 
-vi.mock("@shadowbox/github-bridge", () => ({
+vi.mock("@legioncode/github-bridge", () => ({
   decryptToken: vi.fn(async () => "token:encrypted-token"),
   GitHubAPIClient: vi.fn().mockImplementation(() => ({
     getRepository: vi.fn(async () => ({ default_branch: "main" })),
@@ -164,7 +164,7 @@ describe("ExecutionService", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("retries secure session creation while the local shadowbox-api worker is still registering", async () => {
+  it("retries secure session creation while the local legioncode-api worker is still registering", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
       ReturnType<Env["SECURE_API"]["fetch"]>
@@ -173,7 +173,7 @@ describe("ExecutionService", () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(
-          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
           { status: 503, headers: { "Content-Type": "text/plain" } },
         ),
       )
@@ -1275,7 +1275,7 @@ describe("ExecutionService", () => {
     fetchMock.mockImplementation(
       async () =>
         new Response(
-          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
           { status: 503, headers: { "Content-Type": "text/plain" } },
         ),
     );

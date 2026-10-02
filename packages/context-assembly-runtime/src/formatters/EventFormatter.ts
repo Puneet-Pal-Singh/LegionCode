@@ -4,7 +4,7 @@
  * Single responsibility: Convert RuntimeEvent to string representation
  * No truncation, no decisions, pure serialization
  */
-import type { RuntimeEvent } from "@shadowbox/context-assembly";
+import type { RuntimeEvent } from "@legioncode/context-assembly";
 
 export interface EventFormatOptions {
   includeTimestamp?: boolean;

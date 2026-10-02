@@ -2,7 +2,7 @@
 // Phase 3.1: Direct OpenAI provider adapter with standardized usage
 
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import {
   OpenAICompatibleAdapter,
   type OpenAICompatibleConfig,

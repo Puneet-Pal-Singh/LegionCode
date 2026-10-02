@@ -1,4 +1,4 @@
-export const RUN_SUMMARY_REFRESH_EVENT = "shadowbox:run-summary-refresh";
+export const RUN_SUMMARY_REFRESH_EVENT = "legioncode:run-summary-refresh";
 
 export interface RunSummaryRefreshDetail {
   runId: string;

@@ -1,4 +1,4 @@
-# Shadowbox Agent Skills
+# LegionCode Agent Skills
 
 This directory contains [Agent Skills](https://agentskills.io/) that extend agent capabilities with specialized knowledge and workflows.
 

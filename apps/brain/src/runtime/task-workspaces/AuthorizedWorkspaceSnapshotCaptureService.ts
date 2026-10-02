@@ -1,4 +1,4 @@
-import { decryptToken, GitHubAPIClient } from "@shadowbox/github-bridge";
+import { decryptToken, GitHubAPIClient } from "@legioncode/github-bridge";
 import {
   WorkspaceSnapshotSchema,
   createWorkspaceSnapshotId,

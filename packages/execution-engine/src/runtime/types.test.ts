@@ -9,25 +9,25 @@ describe("Types - Phase 4: Repository Context", () => {
     it("should allow repository context with full metadata", () => {
       const context: RepositoryContext = {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
-        baseUrl: "https://github.com/sourcegraph/shadowbox",
+        baseUrl: "https://github.com/sourcegraph/legioncode",
       };
 
       expect(context.owner).toBe("sourcegraph");
-      expect(context.repo).toBe("shadowbox");
+      expect(context.repo).toBe("legioncode");
       expect(context.branch).toBe("main");
-      expect(context.baseUrl).toBe("https://github.com/sourcegraph/shadowbox");
+      expect(context.baseUrl).toBe("https://github.com/sourcegraph/legioncode");
     });
 
     it("should allow partial repository context", () => {
       const context: RepositoryContext = {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
       };
 
       expect(context.owner).toBe("sourcegraph");
-      expect(context.repo).toBe("shadowbox");
+      expect(context.repo).toBe("legioncode");
       expect(context.branch).toBeUndefined();
       expect(context.baseUrl).toBeUndefined();
     });
@@ -47,14 +47,14 @@ describe("Types - Phase 4: Repository Context", () => {
         sessionId: "sess-123",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
       };
 
       expect(input.repositoryContext).toBeDefined();
       expect(input.repositoryContext?.owner).toBe("sourcegraph");
-      expect(input.repositoryContext?.repo).toBe("shadowbox");
+      expect(input.repositoryContext?.repo).toBe("legioncode");
       expect(input.repositoryContext?.branch).toBe("main");
     });
 
@@ -126,12 +126,12 @@ describe("Types - Phase 4: Repository Context", () => {
     it("should support git clone URL construction", () => {
       const context: RepositoryContext = {
         owner: "sourcegraph",
-        repo: "shadowbox",
-        baseUrl: "https://github.com/sourcegraph/shadowbox",
+        repo: "legioncode",
+        baseUrl: "https://github.com/sourcegraph/legioncode",
       };
 
       const cloneUrl = `${context.baseUrl}.git`;
-      expect(cloneUrl).toBe("https://github.com/sourcegraph/shadowbox.git");
+      expect(cloneUrl).toBe("https://github.com/sourcegraph/legioncode.git");
     });
 
     it("should support branch-aware workspace setup", () => {

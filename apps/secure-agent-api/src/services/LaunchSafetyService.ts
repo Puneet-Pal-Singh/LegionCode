@@ -14,7 +14,7 @@ interface LaunchRateLimitDecision {
   retryAfterSeconds: number;
 }
 
-interface LaunchSafetyEnv {
+export interface LaunchSafetyEnv {
   LAUNCH_RATE_LIMITER?: DurableObjectNamespace;
   LAUNCH_EMERGENCY_SHUTOFF_MODE?: string;
   LAUNCH_RATE_LIMIT_REQUIRED?: "true" | "false";
@@ -36,16 +36,16 @@ export async function enforceLaunchSafetyForRoute(
   env: LaunchSafetyEnv,
   routeClass: RouteClass,
 ): Promise<Response | null> {
-  if (isInternalServiceBindingRequest(request)) {
-    return null;
-  }
-
   if (isEmergencyModeActive(env)) {
     return errorResponse(
       "LegionCode runtime is temporarily in maintenance mode. Please retry shortly.",
       "EMERGENCY_SHUTOFF_ACTIVE",
       503,
     );
+  }
+
+  if (isInternalServiceBindingRequest(request)) {
+    return null;
   }
 
   const limiterNamespace = env.LAUNCH_RATE_LIMITER;
@@ -102,9 +102,19 @@ export async function enforceLaunchSafetyForRoute(
   return null;
 }
 
-function isEmergencyModeActive(env: LaunchSafetyEnv): boolean {
-  const mode = env.LAUNCH_EMERGENCY_SHUTOFF_MODE?.trim().toLowerCase();
+export function isEmergencyModeActive(env: LaunchSafetyEnv): boolean {
+  const mode = getEmergencyShutoffMode(env);
   return mode === "block_all" || mode === "block_session_and_execute";
+}
+
+export function getEmergencyShutoffMode(
+  env: LaunchSafetyEnv,
+): "off" | "block_session_and_execute" | "block_all" {
+  const mode = env.LAUNCH_EMERGENCY_SHUTOFF_MODE?.trim().toLowerCase();
+  if (mode === "block_all" || mode === "block_session_and_execute") {
+    return mode;
+  }
+  return "off";
 }
 
 function hasAuthorizationHeader(request: Request): boolean {

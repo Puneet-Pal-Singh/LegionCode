@@ -1,12 +1,12 @@
 {
-  "name": "@shadowbox/web",
+  "name": "@legioncode/web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5174 --strictPort",
     "build": "tsc -b && vite build",
-    "build:deploy": "tsc -b && SHADOWBOX_REQUIRE_DEPLOY_ENDPOINTS=true vite build",
+    "build:deploy": "tsc -b && LEGIONCODE_REQUIRE_DEPLOY_ENDPOINTS=true vite build",
     "deploy:pages": "pnpm run build:deploy && wrangler pages deploy",
     "deploy:staging": "pnpm run build:deploy && wrangler pages deploy --branch staging",
     "lint": "eslint .",

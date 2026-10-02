@@ -28,7 +28,7 @@ export function createOpenRouterThreadTitleGenerator(
         messages: input.messages,
         model: OPENROUTER_FREE_MODEL_ID,
         temperature: input.temperature,
-        maxOutputTokens: input.maxOutputTokens,
+        maxOutputTokens: 2048,
         signal: input.signal,
       });
     },

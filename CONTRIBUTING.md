@@ -1,4 +1,4 @@
-# Contributing to Shadowbox
+# Contributing to LegionCode
 
 Thanks for contributing. This document defines the expected local workflow and quality gates.
 
@@ -18,9 +18,9 @@ pnpm dev
 Run app-specific dev servers:
 
 ```bash
-pnpm --filter @shadowbox/web dev
-pnpm --filter @shadowbox/brain dev
-pnpm --filter @shadowbox/secure-agent-api dev
+pnpm --filter @legioncode/web dev
+pnpm --filter @legioncode/brain dev
+pnpm --filter @legioncode/secure-agent-api dev
 ```
 
 ## Required Quality Checks
@@ -31,10 +31,10 @@ Run these before opening a PR:
 pnpm lint
 pnpm check-types
 pnpm check:boundaries
-pnpm --filter @shadowbox/web test -- --run
-pnpm --filter @shadowbox/brain test
-pnpm --filter @shadowbox/secure-agent-api test
-pnpm --filter @shadowbox/execution-engine test
+pnpm --filter @legioncode/web test -- --run
+pnpm --filter @legioncode/brain test
+pnpm --filter @legioncode/secure-agent-api test
+pnpm --filter @legioncode/execution-engine test
 pnpm build
 ```
 

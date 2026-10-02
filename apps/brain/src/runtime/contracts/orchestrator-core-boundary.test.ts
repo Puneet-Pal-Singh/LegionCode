@@ -2,7 +2,7 @@
  * Orchestrator Core Contract Boundary Tests
  *
  * Prevents app-local duplication of canonical orchestrator contracts.
- * All orchestration contracts must come from @shadowbox/orchestrator-core.
+ * All orchestration contracts must come from @legioncode/orchestrator-core.
  *
  * Canonical alignment: Plan 64 CFA1
  */
@@ -37,9 +37,9 @@ function findTsFiles(dir: string): string[] {
 }
 
 describe("Orchestrator Core Contract Boundary", () => {
-  it("ExecutionRuntimePort.ts imports RunOrchestratorPort from @shadowbox/orchestrator-core", () => {
+  it("ExecutionRuntimePort.ts imports RunOrchestratorPort from @legioncode/orchestrator-core", () => {
     const content = readFileContent(PORTS_FILE);
-    expect(content).toContain("@shadowbox/orchestrator-core");
+    expect(content).toContain("@legioncode/orchestrator-core");
   });
 
   it("ExecutionRuntimePort.ts does not define RunOrchestratorPort locally", () => {
@@ -47,9 +47,9 @@ describe("Orchestrator Core Contract Boundary", () => {
     expect(content).not.toMatch(/interface\s+RunOrchestratorPort\s*[<{]/);
   });
 
-  it("ports/index.ts re-exports RunOrchestratorPort from @shadowbox/orchestrator-core", () => {
+  it("ports/index.ts re-exports RunOrchestratorPort from @legioncode/orchestrator-core", () => {
     const content = readFileContent(PORTS_INDEX);
-    expect(content).toContain("@shadowbox/orchestrator-core");
+    expect(content).toContain("@legioncode/orchestrator-core");
   });
 
   it("no brain source file locally defines canonical orchestrator contracts", () => {

@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "shadowbox-persistence-migrations",
+  "name": "legioncode-persistence-migrations",
   "main": "src/operations/PersistenceMigrationWorker.ts",
   "compatibility_date": "2025-05-06",
   "compatibility_flags": ["nodejs_compat"],

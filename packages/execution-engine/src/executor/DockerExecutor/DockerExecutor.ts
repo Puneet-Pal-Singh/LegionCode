@@ -39,7 +39,7 @@ export interface DockerExecutorConfig {
   image: string
 
   /**
-   * Base name for containers (default: 'shadowbox')
+   * Base name for containers (default: 'legioncode')
    */
   baseContainerName?: string
 
@@ -62,7 +62,7 @@ export class DockerExecutor extends EnvironmentManager {
   constructor(config: DockerExecutorConfig) {
     super()
     this.image = config.image
-    this.baseContainerName = config.baseContainerName ?? 'shadowbox'
+    this.baseContainerName = config.baseContainerName ?? 'legioncode'
     this.network = config.network ?? 'bridge'
   }
 

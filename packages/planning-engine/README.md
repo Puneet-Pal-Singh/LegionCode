@@ -1,6 +1,6 @@
 # Planning Engine
 
-Structured planning engine for deterministic task orchestration in Shadowbox.
+Structured planning engine for deterministic task orchestration in LegionCode.
 
 ## What It Does
 
@@ -15,7 +15,7 @@ User Message + Context
 (steps, tools, dependencies)
 ```
 
-This is Phase 2, Task 1 of the Shadowbox roadmap.
+This is Phase 2, Task 1 of the LegionCode roadmap.
 
 ## Core Concepts
 
@@ -72,8 +72,8 @@ PlanningEngine (orchestrator)
 ## Usage Example
 
 ```typescript
-import { PlanningEngine } from '@shadowbox/planning-engine';
-import type { PlanningInput } from '@shadowbox/planning-engine';
+import { PlanningEngine } from '@legioncode/planning-engine';
+import type { PlanningInput } from '@legioncode/planning-engine';
 
 const engine = new PlanningEngine();
 
@@ -109,14 +109,14 @@ import type {
   PlanStep,
   Constraint,
   PlanningStrategy,
-} from '@shadowbox/planning-engine';
+} from '@legioncode/planning-engine';
 
 // Zod schemas for validation
 import {
   validatePlan,
   safeParsePlan,
   PlanSchema,
-} from '@shadowbox/planning-engine';
+} from '@legioncode/planning-engine';
 
 // Validate JSON from storage/API
 const plan = validatePlan(jsonData); // Throws if invalid

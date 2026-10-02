@@ -4,7 +4,7 @@ import {
   assertRuntimeStateSemantics,
   getRuntimeStateSemantics,
   tagRuntimeStateSemantics,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 
 describe("StateSemantics", () => {
   it("defaults to unknown semantics when state is untagged", () => {

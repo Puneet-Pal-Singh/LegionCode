@@ -13,7 +13,7 @@ export interface UIShellState {
   rightPanelOpen: boolean;
 }
 
-const STORAGE_KEY = "shadowbox_ui_shell";
+const STORAGE_KEY = "legioncode_ui_shell";
 const DEFAULT_STATE: UIShellState = {
   activeWorkspaceId: null,
   activeSessionId: null,

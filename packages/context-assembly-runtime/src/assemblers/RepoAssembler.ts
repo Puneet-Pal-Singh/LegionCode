@@ -4,7 +4,7 @@
  * Single responsibility: Transform repo snapshot to context message
  * No truncation, no decisions, pure transformation
  */
-import type { RepoSnapshot, ContextMessage } from "@shadowbox/context-assembly";
+import type { RepoSnapshot, ContextMessage } from "@legioncode/context-assembly";
 import { formatFiles } from "../formatters/FileFormatter.js";
 
 export function assembleRepo(repo: RepoSnapshot): ContextMessage {

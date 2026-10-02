@@ -31,22 +31,22 @@ echo ""
 # Gate 1: Type checking
 echo "📋 Gate 1: Type Checking"
 echo "────────────────────────────────────────────────────────"
-echo "Checking @shadowbox/brain..."
-if ! pnpm --filter @shadowbox/brain check-types; then
+echo "Checking @legioncode/brain..."
+if ! pnpm --filter @legioncode/brain check-types; then
   echo "❌ FAILED: Brain type check failed"
   exit 1
 fi
 echo "✅ Brain type check passed"
 
-echo "Checking @shadowbox/secure-agent-api..."
-if ! pnpm --filter @shadowbox/secure-agent-api check-types; then
+echo "Checking @legioncode/secure-agent-api..."
+if ! pnpm --filter @legioncode/secure-agent-api check-types; then
   echo "❌ FAILED: Secure API type check failed"
   exit 1
 fi
 echo "✅ Secure API type check passed"
 
-echo "Checking @shadowbox/web..."
-if ! pnpm --filter @shadowbox/web check-types; then
+echo "Checking @legioncode/web..."
+if ! pnpm --filter @legioncode/web check-types; then
   echo "❌ FAILED: Web type check failed"
   exit 1
 fi
@@ -57,7 +57,7 @@ echo ""
 echo "📋 Gate 2: Provider Test Stability (PR-05cB)"
 echo "────────────────────────────────────────────────────────"
 echo "Running Brain provider and AI service tests..."
-if ! pnpm --filter @shadowbox/brain test; then
+if ! pnpm --filter @legioncode/brain test; then
   echo "❌ FAILED: Brain provider tests failed"
   exit 2
 fi
@@ -68,7 +68,7 @@ echo ""
 echo "📋 Gate 3: Persistence Contract (PR-05cA)"
 echo "────────────────────────────────────────────────────────"
 echo "Running Secure API chat history route tests..."
-if ! pnpm --filter @shadowbox/secure-agent-api test; then
+if ! pnpm --filter @legioncode/secure-agent-api test; then
   echo "❌ FAILED: Secure API tests failed"
   exit 3
 fi
@@ -79,7 +79,7 @@ echo ""
 echo "📋 Gate 4: Web Hydration & Session Tests"
 echo "────────────────────────────────────────────────────────"
 echo "Running critical web tests..."
-if ! pnpm --filter @shadowbox/web test -- --run \
+if ! pnpm --filter @legioncode/web test -- --run \
   src/services/ChatHydrationService.test.js \
   src/services/__tests__/SessionStateService.test.ts \
   src/hooks/__tests__/useSessionManager.test.ts \

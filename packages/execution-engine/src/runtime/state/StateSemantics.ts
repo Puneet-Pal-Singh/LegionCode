@@ -1,14 +1,14 @@
 export type RuntimeStateSemantics = "do" | "kv" | "unknown";
 
 interface SemanticsTaggedState {
-  __shadowboxStateSemantics?: RuntimeStateSemantics;
+  __legioncodeStateSemantics?: RuntimeStateSemantics;
 }
 
 export function getRuntimeStateSemantics(
   state: object,
 ): RuntimeStateSemantics {
   const taggedState = state as SemanticsTaggedState;
-  return taggedState.__shadowboxStateSemantics ?? "unknown";
+  return taggedState.__legioncodeStateSemantics ?? "unknown";
 }
 
 export function assertRuntimeStateSemantics(
@@ -32,6 +32,6 @@ export function tagRuntimeStateSemantics<T extends object>(
   semantics: "do" | "kv",
 ): T {
   const taggedState = state as T & SemanticsTaggedState;
-  taggedState.__shadowboxStateSemantics = semantics;
+  taggedState.__legioncodeStateSemantics = semantics;
   return taggedState;
 }

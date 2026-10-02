@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "shadowbox-brain",
+  "name": "legioncode-brain",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-06",
   "compatibility_flags": ["nodejs_compat"],
@@ -19,7 +19,7 @@
   "services": [
     {
       "binding": "SECURE_API",
-      "service": "shadowbox-api",
+      "service": "legioncode-api",
     },
   ],
 
@@ -119,7 +119,7 @@
   "r2_buckets": [
     {
       "binding": "EDIT_ARTIFACTS",
-      "bucket_name": "shadowbox-artifacts",
+      "bucket_name": "legioncode-artifacts",
       "remote": true,
     },
   ],

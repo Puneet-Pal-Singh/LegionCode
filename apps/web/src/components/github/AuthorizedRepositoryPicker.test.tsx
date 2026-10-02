@@ -11,13 +11,13 @@ vi.mock("../../services/GitHubService", () => ({
 
 const repository = {
   id: 42,
-  name: "shadowbox",
-  full_name: "legioncode/shadowbox",
+  name: "legioncode",
+  full_name: "legioncode/legioncode",
   owner: { login: "legioncode", avatar_url: "" },
   description: "Agent workspace",
   private: true,
-  html_url: "https://github.com/legioncode/shadowbox",
-  clone_url: "https://github.com/legioncode/shadowbox.git",
+  html_url: "https://github.com/legioncode/legioncode",
+  clone_url: "https://github.com/legioncode/legioncode.git",
   default_branch: "main",
   stargazers_count: 0,
   language: "TypeScript",
@@ -46,14 +46,14 @@ describe("AuthorizedRepositoryPicker", () => {
     render(<AuthorizedRepositoryPicker onRepoSelect={onRepoSelect} />);
 
     const repoButton = await screen.findByRole("button", {
-      name: /legioncode\/shadowbox/i,
+      name: /legioncode\/legioncode/i,
     });
     fireEvent.click(repoButton);
 
     const branch = await screen.findByLabelText("Starting branch");
     fireEvent.change(branch, { target: { value: "feature/onboarding" } });
     fireEvent.click(
-      screen.getByRole("button", { name: "Open legioncode/shadowbox" }),
+      screen.getByRole("button", { name: "Open legioncode/legioncode" }),
     );
 
     await waitFor(() =>

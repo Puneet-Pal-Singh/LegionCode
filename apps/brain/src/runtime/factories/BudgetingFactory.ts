@@ -13,14 +13,14 @@ import type {
   CostTracker,
   BudgetManager,
   PricingResolver,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import {
   PricingRegistry as PricingRegistryImpl,
   CostLedger as CostLedgerImpl,
   CostTracker as CostTrackerImpl,
   BudgetManager as BudgetManagerImpl,
   PricingResolver as PricingResolverImpl,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 
 /**
  * Build pricing and budgeting components.

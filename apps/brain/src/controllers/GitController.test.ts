@@ -304,7 +304,7 @@ describe("GitController", () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(
-          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
           { status: 503, headers: { "Content-Type": "text/plain" } },
         ),
       )

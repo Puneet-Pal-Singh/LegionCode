@@ -12,7 +12,7 @@ import type {
   ToolDescriptor,
   ContextDebugInfo,
   TokenBreakdown,
-} from "@shadowbox/context-assembly";
+} from "@legioncode/context-assembly";
 import { TokenCounter } from "./TokenCounter.js";
 import { TokenBudget } from "./TokenBudget.js";
 import { assembleSystem } from "./assemblers/SystemAssembler.js";

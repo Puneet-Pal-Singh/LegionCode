@@ -12,7 +12,7 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
-import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
+import type { CreatePullRequestParams } from "@legioncode/github-bridge";
 import type {
   CreatePullRequestPayload,
   GitPullRequestMutationResult,

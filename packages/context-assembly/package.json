@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/context-assembly",
+  "name": "@legioncode/context-assembly",
   "version": "0.1.0",
   "description": "Context Assembly Engine - Type definitions",
   "private": true,

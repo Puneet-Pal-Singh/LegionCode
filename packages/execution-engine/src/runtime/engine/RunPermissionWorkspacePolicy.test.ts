@@ -15,7 +15,7 @@ describe("RunPermissionWorkspacePolicy", () => {
       "what should we do today?",
       {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
       workspaceBootstrapper,
@@ -42,7 +42,7 @@ describe("RunPermissionWorkspacePolicy", () => {
       "continue",
       {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "style/redesign-footer",
       },
       workspaceBootstrapper,
@@ -68,7 +68,7 @@ describe("RunPermissionWorkspacePolicy", () => {
       bootstrap: async () => ({
         status: "sync-failed",
         message:
-          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"legioncode-api\" to proxy to",
       }),
     };
 
@@ -77,7 +77,7 @@ describe("RunPermissionWorkspacePolicy", () => {
       "continue",
       {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
       workspaceBootstrapper,
@@ -86,7 +86,7 @@ describe("RunPermissionWorkspacePolicy", () => {
     expect(evaluation.blocked).toBe(true);
     expect(evaluation.status).toBe("sync-failed");
     expect(evaluation.message).toBe(
-      "I couldn't prepare the workspace for sourcegraph/shadowbox@main because the git service is temporarily unavailable. Please retry in a few seconds.",
+      "I couldn't prepare the workspace for sourcegraph/legioncode@main because the git service is temporarily unavailable. Please retry in a few seconds.",
     );
   });
 });

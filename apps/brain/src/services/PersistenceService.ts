@@ -13,7 +13,7 @@ import type {
   UpdateRunStatusInput,
   UpsertRunStepInput,
 } from "@repo/persistence";
-import { pruneToolResults } from "@shadowbox/context-pruner";
+import { pruneToolResults } from "@legioncode/context-pruner";
 import { Env } from "../types/ai";
 import { DomainError } from "../domain/errors";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";

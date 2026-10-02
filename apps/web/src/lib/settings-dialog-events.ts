@@ -5,7 +5,7 @@ export type SettingsSection =
   | "archived"
   | "hooks";
 
-const OPEN_SETTINGS_EVENT = "shadowbox:open-settings";
+const OPEN_SETTINGS_EVENT = "legioncode:open-settings";
 
 interface OpenSettingsDetail {
   section?: SettingsSection;

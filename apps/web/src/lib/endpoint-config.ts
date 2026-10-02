@@ -28,5 +28,5 @@ export function formatMissingEndpointEnvMessage(
 }
 
 export function shouldFailFastEndpointBuild(env: EndpointEnvRecord): boolean {
-  return env.SHADOWBOX_REQUIRE_DEPLOY_ENDPOINTS === "true";
+  return env.LEGIONCODE_REQUIRE_DEPLOY_ENDPOINTS === "true";
 }

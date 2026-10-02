@@ -1,12 +1,12 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "shadowbox-landing",
+  "name": "legioncode-landing",
   "compatibility_date": "2026-03-01",
   "compatibility_flags": ["nodejs_compat"],
   "pages_build_output_dir": "./out",
   "vars": {
     "AGENTS_ORIGIN": "https://agents.legioncode.dev",
-    "DOCS_ORIGIN": "https://shadowbox-docs.pages.dev",
+    "DOCS_ORIGIN": "https://legioncode-docs.pages.dev",
   },
   "d1_databases": [
     {

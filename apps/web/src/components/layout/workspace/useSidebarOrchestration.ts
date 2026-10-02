@@ -95,7 +95,7 @@ export function useSidebarOrchestration({
 
   useEffect(() => {
     if (isHydrating) return;
-    const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
+    const savedPath = localStorage.getItem("legioncode_last_viewed_path");
     if (
       isViewingContent &&
       activeContentTabId !== "files" &&

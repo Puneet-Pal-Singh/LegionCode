@@ -7,12 +7,12 @@
  *
  * Canonical alignment: ExecutionSandboxPort + RunOrchestratorPort (Charter 46)
  *
- * RunOrchestratorPort is now imported from @shadowbox/orchestrator-core (Plan 64 CFA1).
+ * RunOrchestratorPort is now imported from @legioncode/orchestrator-core (Plan 64 CFA1).
  */
 
-import type { RunOrchestratorPort } from "@shadowbox/orchestrator-core";
+import type { RunOrchestratorPort } from "@legioncode/orchestrator-core";
 
-export type { RunOrchestratorPort } from "@shadowbox/orchestrator-core";
+export type { RunOrchestratorPort } from "@legioncode/orchestrator-core";
 
 export interface TaskInput {
   taskId: string;

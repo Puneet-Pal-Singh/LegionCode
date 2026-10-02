@@ -23,13 +23,13 @@ import {
   GitHubAPIClient,
   decryptToken,
   type EncryptedToken,
-} from "@shadowbox/github-bridge";
+} from "@legioncode/github-bridge";
 import type { GitCommitIdentityState } from "@repo/shared-types";
 import { DependencyError } from "../domain/errors";
 import type { Env } from "../types/ai";
 import { withWorkspaceRepository } from "./workspaces/WorkspacePersistenceFactory";
 
-const SESSION_COOKIE_NAME = "shadowbox_session";
+const SESSION_COOKIE_NAME = "legioncode_session";
 const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AUTH_SESSION_TTL_MS = AUTH_SESSION_TTL_SECONDS * 1000;
 const SESSION_TOKEN_BYTES = 32;
@@ -100,7 +100,7 @@ export function extractSessionToken(request: Request): string | null {
     return null;
   }
 
-  const match = cookie.match(/(?:^|;\s*)shadowbox_session=([^;]+)/);
+  const match = cookie.match(/(?:^|;\s*)legioncode_session=([^;]+)/);
   if (!match?.[1]) {
     return null;
   }

@@ -394,7 +394,7 @@ export class GitHubPlugin implements IPlugin {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github+json",
-          "User-Agent": "Shadowbox-GitHub-Connector/0.1.0",
+          "User-Agent": "LegionCode-GitHub-Connector/0.1.0",
           "X-GitHub-Api-Version": "2022-11-28",
         },
       });
@@ -443,7 +443,7 @@ export class GitHubPlugin implements IPlugin {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github+json",
-          "User-Agent": "Shadowbox-GitHub-Connector/0.1.0",
+          "User-Agent": "LegionCode-GitHub-Connector/0.1.0",
           "X-GitHub-Api-Version": "2022-11-28",
         },
       });

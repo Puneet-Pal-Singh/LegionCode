@@ -1,7 +1,7 @@
 import { z } from "zod";
 import zodToJsonSchema from "zod-to-json-schema";
 import type { CoreMessage, CoreTool } from "ai";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import type {
   GenerationParams,
   GenerationResult,

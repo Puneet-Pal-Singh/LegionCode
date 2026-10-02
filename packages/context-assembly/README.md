@@ -1,4 +1,4 @@
-# @shadowbox/context-assembly
+# @legioncode/context-assembly
 
 Vendor-neutral interfaces for context assembly in multi-agent systems.
 
@@ -84,7 +84,7 @@ import type {
   ContextBuilder,
   ContextBuildInput,
   ContextBundle,
-} from "@shadowbox/context-assembly";
+} from "@legioncode/context-assembly";
 
 // Your implementation
 class MyContextBuilder implements ContextBuilder {

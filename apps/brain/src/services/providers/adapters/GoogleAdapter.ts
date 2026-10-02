@@ -7,8 +7,8 @@ import type {
   StreamChunk,
 } from "../base/ProviderAdapter";
 import { ProviderError } from "../base/ProviderAdapter";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
-import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
+import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import { LLMUnusableResponseError } from "@legioncode/execution-engine/runtime";
 import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
 

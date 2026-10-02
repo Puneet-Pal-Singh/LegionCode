@@ -31,7 +31,7 @@ describe("GitHubController", () => {
 
     const response = await GitHubController.getTree(
       new Request(
-        "https://brain.local/api/github/tree?owner=shadowbox&repo=shadowbox&sha=feat/local-only",
+        "https://brain.local/api/github/tree?owner=legioncode&repo=legioncode&sha=feat/local-only",
       ),
       createEnv(),
     );
@@ -42,17 +42,17 @@ describe("GitHubController", () => {
       requestedRefUnavailable: true,
       resolvedRef: "main",
     });
-    expect(getRepository).toHaveBeenCalledWith("shadowbox", "shadowbox");
+    expect(getRepository).toHaveBeenCalledWith("legioncode", "legioncode");
     expect(getTree).toHaveBeenNthCalledWith(
       1,
-      "shadowbox",
-      "shadowbox",
+      "legioncode",
+      "legioncode",
       "feat/local-only",
     );
     expect(getTree).toHaveBeenNthCalledWith(
       2,
-      "shadowbox",
-      "shadowbox",
+      "legioncode",
+      "legioncode",
       "main",
     );
   });

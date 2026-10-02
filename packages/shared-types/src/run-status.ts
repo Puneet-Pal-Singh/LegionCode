@@ -1,5 +1,5 @@
 /**
- * Run Status - Canonical status vocabulary for Shadowbox runs
+ * Run Status - Canonical status vocabulary for LegionCode runs
  * Used across web, brain, and muscle layers
  */
 

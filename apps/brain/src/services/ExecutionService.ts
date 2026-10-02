@@ -1,5 +1,5 @@
 import { Env } from "../types/ai";
-import { decryptToken, GitHubAPIClient } from "@shadowbox/github-bridge";
+import { decryptToken, GitHubAPIClient } from "@legioncode/github-bridge";
 import {
   sanitizeLogPayload,
   sanitizeUnknownError,

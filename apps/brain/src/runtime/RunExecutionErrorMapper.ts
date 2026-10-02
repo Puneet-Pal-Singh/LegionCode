@@ -1,5 +1,5 @@
 import { DomainError, isDomainError } from "../domain/errors";
-import { ProviderCapabilityError } from "@shadowbox/execution-engine/runtime";
+import { ProviderCapabilityError } from "@legioncode/execution-engine/runtime";
 import {
   SecureExecutionContractViolationError,
   SecureExecutionFailureError,

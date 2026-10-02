@@ -9,8 +9,8 @@
 
 // Optional imports from Phase 1 packages (will be available at runtime)
 // These are commented out for now to allow package to build independently
-// import type { IntentClassification } from '@shadowbox/intent-classifier';
-// import type { ContextBuilderOutput } from '@shadowbox/context-builder';
+// import type { IntentClassification } from '@legioncode/intent-classifier';
+// import type { ContextBuilderOutput } from '@legioncode/context-builder';
 
 // Placeholder types (will be replaced with actual imports once Phase 1 is merged)
 type IntentClassification = {

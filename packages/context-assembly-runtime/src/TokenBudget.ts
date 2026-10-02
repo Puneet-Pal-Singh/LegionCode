@@ -7,7 +7,7 @@
 import type {
   TokenBudget as ITokenBudget,
   TokenUsage,
-} from "@shadowbox/context-assembly";
+} from "@legioncode/context-assembly";
 
 export class TokenBudget implements ITokenBudget {
   readonly total: number;

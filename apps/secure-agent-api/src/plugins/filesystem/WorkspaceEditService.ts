@@ -151,7 +151,7 @@ export class WorkspaceEditService {
   ): Promise<void> {
     const parentDir = path.posix.dirname(targetPath);
     await runCheckedCommand(context, "mkdir", ["-p", parentDir]);
-    const tempPath = `${parentDir}/.shadowbox-edit-${crypto.randomUUID()}.tmp`;
+    const tempPath = `${parentDir}/.legioncode-edit-${crypto.randomUUID()}.tmp`;
     try {
       await context.sandbox.writeFile(tempPath, content);
       await preserveExistingMode(context, targetPath, tempPath);

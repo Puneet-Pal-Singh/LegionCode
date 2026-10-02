@@ -111,21 +111,21 @@ describe("DefaultGitService", () => {
   it("reads repo identity from the canonical config snapshot", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
-      stdout: "remote.origin.url\ngit@github.com:Shadowbox/App.git\0",
+      stdout: "remote.origin.url\ngit@github.com:LegionCode/App.git\0",
       stderr: "",
     });
     const service = new DefaultGitService(executor);
 
     await expect(
       service.getRepoIdentity({ workspace: WORKSPACE }),
-    ).resolves.toBe("github.com/shadowbox/app");
+    ).resolves.toBe("github.com/legioncode/app");
     expect(executor.calls[0]?.args).toEqual(["config", "--null", "--list"]);
   });
 
   it("returns null for missing config keys without running missing-key probes", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
-      stdout: "remote.origin.url\ngit@github.com:Shadowbox/App.git\0",
+      stdout: "remote.origin.url\ngit@github.com:LegionCode/App.git\0",
       stderr: "",
     });
     const service = new DefaultGitService(executor);
@@ -161,7 +161,7 @@ describe("DefaultGitService", () => {
   it("captures tracked and untracked patches without plugin-owned git commands", async () => {
     const executor = new QueueGitExecutor([
       { exitCode: 0, stdout: "tracked patch\n", stderr: "" },
-      { exitCode: 0, stdout: "src/new.ts\0.shadowbox/tmp.patch\0", stderr: "" },
+      { exitCode: 0, stdout: "src/new.ts\0.legioncode/tmp.patch\0", stderr: "" },
       { exitCode: 1, stdout: "untracked patch\n", stderr: "" },
       { exitCode: 0, stdout: "abc123\n", stderr: "" },
       { exitCode: 0, stdout: "feat/canonical-git\n", stderr: "" },
@@ -171,7 +171,7 @@ describe("DefaultGitService", () => {
     await expect(
       service.capturePatch({
         workspace: WORKSPACE,
-        internalPathPrefix: ".shadowbox",
+        internalPathPrefix: ".legioncode",
       }),
     ).resolves.toEqual({
       patch: "tracked patch\n\nuntracked patch\n",

@@ -17,7 +17,7 @@ describe("TurnController public bootstrap contract", () => {
 
     const response = await TurnController.start(
       createTurnStartRequest({
-        Cookie: "shadowbox_session=test-session-token",
+        Cookie: "legioncode_session=test-session-token",
       }),
       env,
     );
@@ -61,7 +61,7 @@ describe("TurnController public bootstrap contract", () => {
       new Request(
         `https://brain.local/turn/scope?runId=${TEST_RUN_ID}&sessionId=session-1`,
         {
-          headers: { Cookie: "shadowbox_session=test-session-token" },
+          headers: { Cookie: "legioncode_session=test-session-token" },
         },
       ),
       env,

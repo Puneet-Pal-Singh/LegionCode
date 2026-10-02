@@ -1,5 +1,5 @@
 {
-  "name": "shadowbox",
+  "name": "legioncode",
   "description": "Multi-agent IDE on Cloudflare primitives",
   "private": true,
   "scripts": {

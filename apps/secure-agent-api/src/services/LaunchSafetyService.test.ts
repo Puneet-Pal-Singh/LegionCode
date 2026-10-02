@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DurableObjectId, Fetcher } from "@cloudflare/workers-types";
-import { enforceLaunchSafetyForRoute } from "./LaunchSafetyService";
+import {
+  enforceLaunchSafetyForRoute,
+  getEmergencyShutoffMode,
+} from "./LaunchSafetyService";
 
 describe("LaunchSafetyService", () => {
   it("blocks expensive routes when emergency shutoff is active", async () => {
@@ -17,14 +20,55 @@ describe("LaunchSafetyService", () => {
     expect(response?.status).toBe(503);
   });
 
-  it("skips launch safety checks for internal service binding requests", async () => {
+  it.each(["block_session_and_execute", "block_all"] as const)(
+    "blocks internal launch routes during %s maintenance",
+    async (mode) => {
+      const scopes: string[] = [];
+      for (const routeClass of ["session_create", "execute_task"] as const) {
+        const response = await enforceLaunchSafetyForRoute(
+          new Request("http://internal/api/v1/execute", { method: "POST" }),
+          {
+            LAUNCH_EMERGENCY_SHUTOFF_MODE: mode,
+            LAUNCH_RATE_LIMIT_REQUIRED: "true",
+            LAUNCH_RATE_LIMITER: createMockLimiterNamespace({ scopes }),
+          },
+          routeClass,
+        );
+
+        expect(response?.status).toBe(503);
+      }
+      expect(scopes).toHaveLength(0);
+    },
+  );
+
+  it.each(["block_session_and_execute", "block_all"] as const)(
+    "blocks external session and execute routes during %s maintenance",
+    async (mode) => {
+      for (const routeClass of ["session_create", "execute_task"] as const) {
+        const response = await enforceLaunchSafetyForRoute(
+          new Request("https://secure.local/api/v1/execute", {
+            method: "POST",
+          }),
+          { LAUNCH_EMERGENCY_SHUTOFF_MODE: mode },
+          routeClass,
+        );
+
+        expect(response?.status).toBe(503);
+        await expect(response?.json()).resolves.toMatchObject({
+          code: "EMERGENCY_SHUTOFF_ACTIVE",
+        });
+      }
+    },
+  );
+
+  it("skips launch rate limiting for internal service binding requests when open", async () => {
     const scopes: string[] = [];
     const response = await enforceLaunchSafetyForRoute(
       new Request("http://internal/api/v1/session", {
         method: "POST",
       }),
       {
-        LAUNCH_EMERGENCY_SHUTOFF_MODE: "block_session_and_execute",
+        LAUNCH_EMERGENCY_SHUTOFF_MODE: "off",
         LAUNCH_RATE_LIMIT_REQUIRED: "true",
         LAUNCH_RATE_LIMITER: createMockLimiterNamespace({ scopes }),
       },
@@ -33,6 +77,16 @@ describe("LaunchSafetyService", () => {
 
     expect(response).toBeNull();
     expect(scopes).toHaveLength(0);
+  });
+
+  it.each([
+    [" BLOCK_ALL ", "block_all"],
+    [" Block_Session_And_Execute ", "block_session_and_execute"],
+    ["unknown", "off"],
+  ] as const)("normalizes emergency mode %s", (input, expected) => {
+    expect(
+      getEmergencyShutoffMode({ LAUNCH_EMERGENCY_SHUTOFF_MODE: input }),
+    ).toBe(expected);
   });
 
   it("returns 503 when limiter is required but unavailable", async () => {

@@ -10,11 +10,11 @@ import type { Env } from "../types/ai";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 
 const RUNTIME_HEADER_FORWARD_MAP = {
-  "X-Shadowbox-Runtime-Boot-Id": "X-Shadowbox-Run-Engine-Boot-Id",
-  "X-Shadowbox-Runtime-Fingerprint": "X-Shadowbox-Run-Engine-Fingerprint",
-  "X-Shadowbox-Runtime-Git-Sha": "X-Shadowbox-Run-Engine-Git-Sha",
-  "X-Shadowbox-Runtime-Name": "X-Shadowbox-Run-Engine-Name",
-  "X-Shadowbox-Runtime-Started-At": "X-Shadowbox-Run-Engine-Started-At",
+  "X-LegionCode-Runtime-Boot-Id": "X-LegionCode-Run-Engine-Boot-Id",
+  "X-LegionCode-Runtime-Fingerprint": "X-LegionCode-Run-Engine-Fingerprint",
+  "X-LegionCode-Runtime-Git-Sha": "X-LegionCode-Run-Engine-Git-Sha",
+  "X-LegionCode-Runtime-Name": "X-LegionCode-Run-Engine-Name",
+  "X-LegionCode-Runtime-Started-At": "X-LegionCode-Run-Engine-Started-At",
 } as const;
 
 /**

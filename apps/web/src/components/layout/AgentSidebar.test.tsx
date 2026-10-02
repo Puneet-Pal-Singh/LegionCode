@@ -8,7 +8,7 @@ function createSession(overrides?: Partial<AgentSession>): AgentSession {
     id: "session-1",
     name: "Draft task",
     titleSource: "generated",
-    repository: "shadowbox/shadowbox",
+    repository: "legioncode/legioncode",
     activeRunId: "run-1",
     runIds: ["run-1"],
     status: "running",
@@ -82,7 +82,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "waiting_for_approval" })]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -104,7 +104,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "waiting_for_approval" })]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -123,7 +123,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession()]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -134,10 +134,10 @@ describe("AgentSidebar", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Toggle shadowbox" }),
+      screen.getByRole("button", { name: "Toggle legioncode" }),
     ).toHaveAttribute("aria-expanded", "true");
     expect(
-      screen.queryByRole("button", { name: "Collapse shadowbox" }),
+      screen.queryByRole("button", { name: "Collapse legioncode" }),
     ).not.toBeInTheDocument();
   });
 
@@ -145,7 +145,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "waiting_for_approval" })]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -165,7 +165,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession()]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="different-session"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -184,7 +184,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "idle", titleStatus: "pending" })]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -204,7 +204,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "paused" })]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -225,7 +225,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession({ status: "paused" })]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -253,7 +253,7 @@ describe("AgentSidebar", () => {
             lastAcknowledgedTerminalTurnId: null,
           }),
         ]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="different-session"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -276,7 +276,7 @@ describe("AgentSidebar", () => {
             lastTerminalTurnId: null,
           }),
         ]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="different-session"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -298,7 +298,7 @@ describe("AgentSidebar", () => {
             updatedAt: new Date().toISOString(),
           }),
         ]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -326,7 +326,7 @@ describe("AgentSidebar", () => {
             updatedAt: staleDate,
           }),
         ]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="different-session"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -365,7 +365,7 @@ describe("AgentSidebar", () => {
             updatedAt: "2026-04-14T12:10:00.000Z",
           }),
         ]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-old-running"
         onSelect={vi.fn()}
         onCreate={vi.fn()}
@@ -387,7 +387,7 @@ describe("AgentSidebar", () => {
     render(
       <AgentSidebar
         sessions={[createSession()]}
-        repositories={["shadowbox/shadowbox"]}
+        repositories={["legioncode/legioncode"]}
         activeSessionId="session-1"
         onSelect={vi.fn()}
         onCreate={vi.fn()}

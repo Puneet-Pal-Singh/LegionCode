@@ -173,7 +173,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
   const [repositories, setRepositories] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem("shadowbox_repositories");
+      const saved = localStorage.getItem("legioncode_repositories");
       const parsed = saved ? JSON.parse(saved) : [];
 
       if (Array.isArray(parsed)) return parsed;
@@ -185,7 +185,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
   useEffect(() => {
     localStorage.setItem(
-      "shadowbox_repositories",
+      "legioncode_repositories",
       JSON.stringify(repositories),
     );
   }, [repositories]);
@@ -687,7 +687,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     SessionStateService.saveSessions({}, null);
     SessionStateService.saveActiveSessionId(null, {});
 
-    localStorage.removeItem("shadowbox_repositories");
+    localStorage.removeItem("legioncode_repositories");
   }, [sessions]);
 
   return {

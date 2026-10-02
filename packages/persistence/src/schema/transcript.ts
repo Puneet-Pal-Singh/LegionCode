@@ -67,7 +67,8 @@ export const sessions = pgTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
-    titleSource: text("title_source").notNull().default("generated"),
+    titleSource: text("title_source").notNull().default("preview"),
+    titleStatus: text("title_status").notNull().default("ready"),
     titleVersion: bigint("title_version", { mode: "number" })
       .notNull()
       .default(1),
@@ -95,6 +96,10 @@ export const sessions = pgTable(
     check(
       "sessions_title_source_check",
       sql.raw(`title_source IN (${buildChatTitleSourceSqlList()})`),
+    ),
+    check(
+      "sessions_title_status_check",
+      sql.raw("title_status IN ('pending', 'ready', 'failed')"),
     ),
     index("sessions_user_updated_idx").on(table.userId, table.updatedAt),
     index("sessions_user_archived_updated_idx").on(

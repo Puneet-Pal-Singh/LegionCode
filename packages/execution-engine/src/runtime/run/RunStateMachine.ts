@@ -2,7 +2,7 @@
 // Phase 3A: Run state machine logic and utilities
 
 import type { RunStatus } from "../types.js";
-import { StateMachineError } from "@shadowbox/orchestrator-core";
+import { StateMachineError } from "@legioncode/orchestrator-core";
 
 export interface StateTransition {
   from: RunStatus;

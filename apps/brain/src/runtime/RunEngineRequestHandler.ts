@@ -35,7 +35,7 @@ import {
   RunRepository,
   TaskRepository,
   RuntimeKernelNativeRunner,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
 import {
@@ -91,7 +91,7 @@ import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEv
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import { RuntimeWorkspaceScopeResponseSchema } from "./RuntimeWorkspaceScope";
 import { TaskCheckoutIssuer } from "./task-workspaces/TaskCheckoutIssuer";
 import {

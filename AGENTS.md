@@ -376,12 +376,12 @@ Do not add low-value tests for trivial pass-through code.
 Important commands:
 
 ```bash
-corepack pnpm --filter @shadowbox/web test
-corepack pnpm --filter @shadowbox/web check-types
-corepack pnpm --filter @shadowbox/brain test
-corepack pnpm --filter @shadowbox/brain check-types
-corepack pnpm --filter @shadowbox/execution-engine test
-corepack pnpm --filter @shadowbox/execution-engine type-check
+corepack pnpm --filter @legioncode/web test
+corepack pnpm --filter @legioncode/web check-types
+corepack pnpm --filter @legioncode/brain test
+corepack pnpm --filter @legioncode/brain check-types
+corepack pnpm --filter @legioncode/execution-engine test
+corepack pnpm --filter @legioncode/execution-engine type-check
 corepack pnpm gate:golden-repo-to-pr
 ```
 

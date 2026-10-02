@@ -12,7 +12,7 @@ import {
   type LLMGateway,
   type IAgent,
   type AgentType,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import { resolveAgentType } from "../policies/AgentTypePolicy";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";

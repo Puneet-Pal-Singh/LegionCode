@@ -45,7 +45,7 @@ describe("useSidebarOrchestration", () => {
   });
 
   it("does not restore the last file over the Open file workspace", () => {
-    localStorage.setItem("shadowbox_last_viewed_path", "tsconfig.json");
+    localStorage.setItem("legioncode_last_viewed_path", "tsconfig.json");
     const handleFileClick = vi.fn();
 
     renderHook(() =>

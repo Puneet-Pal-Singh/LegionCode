@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/token-budgeting",
+  "name": "@legioncode/token-budgeting",
   "version": "0.1.0",
   "description": "Deterministic token budgeting system for LLM context governance",
   "private": true,

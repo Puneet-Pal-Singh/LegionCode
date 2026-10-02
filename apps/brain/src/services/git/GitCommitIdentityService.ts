@@ -2,7 +2,7 @@ import {
   GitHubAPIClient,
   decryptToken,
   type GitHubUser,
-} from "@shadowbox/github-bridge";
+} from "@legioncode/github-bridge";
 import type {
   GitCommitIdentity,
   GitCommitIdentityState,

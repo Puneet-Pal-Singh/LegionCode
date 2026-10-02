@@ -110,9 +110,9 @@ describe("PgSqlClient", () => {
     expect(connection.statements).toEqual([
       "BEGIN",
       "SELECT outer before",
-      "SAVEPOINT shadowbox_sp_1",
+      "SAVEPOINT legioncode_sp_1",
       "SELECT nested",
-      "RELEASE SAVEPOINT shadowbox_sp_1",
+      "RELEASE SAVEPOINT legioncode_sp_1",
       "SELECT outer after",
       "COMMIT",
     ]);
@@ -135,9 +135,9 @@ describe("PgSqlClient", () => {
 
     expect(connection.statements).toEqual([
       "BEGIN",
-      "SAVEPOINT shadowbox_sp_1",
+      "SAVEPOINT legioncode_sp_1",
       "SELECT nested",
-      "ROLLBACK TO SAVEPOINT shadowbox_sp_1",
+      "ROLLBACK TO SAVEPOINT legioncode_sp_1",
       "SELECT outer still works",
       "COMMIT",
     ]);

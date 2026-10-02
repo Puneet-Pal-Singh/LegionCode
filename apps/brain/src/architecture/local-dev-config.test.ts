@@ -61,6 +61,71 @@ describe("local development configuration", () => {
     ).toBe(true);
   });
 
+  it("allows private local persistence values while requiring worker identity parity", () => {
+    const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
+    const temporaryDirectory = mkdtempSync(
+      join(tmpdir(), "brain-local-config-"),
+    );
+    const localConfigPath = join(temporaryDirectory, "wrangler.local.jsonc");
+    const template = readFileSync(
+      join(APP_ROOT, "wrangler.local.example.jsonc"),
+      "utf8",
+    ).replace(
+      "postgres://postgres:postgres@localhost:5432/legioncode",
+      "postgres://private-user:private-password@private-host:5432/private-db",
+    );
+
+    try {
+      writeFileSync(localConfigPath, template);
+      expect(
+        validateLocalWranglerConfig({
+          canonical: canonicalPath,
+          local: localConfigPath,
+        }),
+      ).toBe(true);
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed for worker name and service binding drift", () => {
+    const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
+    const temporaryDirectory = mkdtempSync(
+      join(tmpdir(), "brain-local-config-"),
+    );
+    const localConfigPath = join(temporaryDirectory, "wrangler.local.jsonc");
+    const template = readFileSync(
+      join(APP_ROOT, "wrangler.local.example.jsonc"),
+      "utf8",
+    );
+    const variants = [
+      template.replace('"name": "legioncode-brain"', '"name": "old-brain"'),
+      template.replace('"service": "legioncode-api"', '"service": "old-api"'),
+      template.replace(
+        /  "services": \[[\s\S]*?^  \],\n/m,
+        '  "services": [],\n',
+      ),
+      template.replace(
+        /("service": "legioncode-api",\n    },)/,
+        '$1\n    {\n      "binding": "SECURE_API",\n      "service": "legioncode-api",\n    },',
+      ),
+    ];
+
+    try {
+      for (const variant of variants) {
+        writeFileSync(localConfigPath, variant);
+        expect(
+          validateLocalWranglerConfig({
+            canonical: canonicalPath,
+            local: localConfigPath,
+          }),
+        ).toBe(false);
+      }
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed when the ignored local config is absent or drifts", () => {
     const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
     const missingLocalPath = join(APP_ROOT, "wrangler.local.missing.jsonc");
@@ -108,10 +173,7 @@ describe("local development configuration", () => {
     );
     writeFileSync(
       localConfigPath,
-      template.replace(
-        /  "hyperdrive": \[[\s\S]*?^  \],\n/m,
-        "",
-      ),
+      template.replace(/  "hyperdrive": \[[\s\S]*?^  \],\n/m, ""),
     );
 
     try {

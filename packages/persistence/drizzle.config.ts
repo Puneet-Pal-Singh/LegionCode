@@ -1,7 +1,7 @@
 import { defineConfig } from "drizzle-kit";
 
 const DEFAULT_LOCAL_DATABASE_URL =
-  "postgres://postgres:postgres@localhost:5432/shadowbox";
+  "postgres://postgres:postgres@localhost:5432/legioncode";
 
 export default defineConfig({
   dialect: "postgresql",

@@ -9,6 +9,7 @@ import {
   RunAdmissionLimiterClient,
   type RunAdmissionLease,
 } from "./RunAdmissionLimiterClient";
+import { isRunAdmissionBlocked } from "./RunEmergencyShutoffPolicy";
 
 export type { RunAdmissionInput } from "./RunAdmissionPolicy";
 
@@ -57,7 +58,7 @@ export class RunAdmissionService {
   }
 
   private enforceEmergencyShutoff(correlationId: string): void {
-    if (this.env.LAUNCH_EMERGENCY_SHUTOFF_MODE?.trim().toLowerCase() !== "block_runs") {
+    if (!isRunAdmissionBlocked(this.env)) {
       return;
     }
     throw new DomainError(

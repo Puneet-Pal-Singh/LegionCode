@@ -4,7 +4,7 @@
  * Single responsibility: Transform diffs to context message
  * No truncation, no decisions, pure transformation
  */
-import type { GitDiff, ContextMessage } from "@shadowbox/context-assembly";
+import type { GitDiff, ContextMessage } from "@legioncode/context-assembly";
 import { formatDiffs } from "../formatters/DiffFormatter.js";
 
 export function assembleDiffs(diffs: GitDiff[]): ContextMessage {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DomainError } from "../domain/errors";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
-import { ProviderCapabilityError } from "@shadowbox/execution-engine/runtime";
+import { ProviderCapabilityError } from "@legioncode/execution-engine/runtime";
 import {
   SecureExecutionContractViolationError,
   SecureExecutionFailureError,

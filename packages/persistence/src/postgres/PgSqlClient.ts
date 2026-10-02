@@ -65,7 +65,7 @@ export class PgSqlClient implements SqlClient {
       };
     }
 
-    const savepoint = `shadowbox_sp_${(this.savepointSequence += 1)}`;
+    const savepoint = `legioncode_sp_${(this.savepointSequence += 1)}`;
     return {
       begin: `SAVEPOINT ${savepoint}`,
       commit: `RELEASE SAVEPOINT ${savepoint}`,

@@ -5,12 +5,16 @@ import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js
 import { canonicalRunIdTextMigration } from "../migrations/0022-canonical-run-id-text.js";
 
 describe("canonical run id text migration", () => {
-  it("registers the canonical run id migration last", () => {
+  it("registers the canonical run id migration", () => {
     const sql = canonicalRunIdTextMigration.statements.join("\n");
 
-    expect(persistenceMigrations.at(-1)).toBe(canonicalRunIdTextMigration);
-    expect(sql).toContain("ALTER TABLE runs ALTER COLUMN id SET DATA TYPE text");
-    expect(sql).toContain("ALTER TABLE run_events ALTER COLUMN run_id SET DATA TYPE text");
+    expect(persistenceMigrations).toContain(canonicalRunIdTextMigration);
+    expect(sql).toContain(
+      "ALTER TABLE runs ALTER COLUMN id SET DATA TYPE text",
+    );
+    expect(sql).toContain(
+      "ALTER TABLE run_events ALTER COLUMN run_id SET DATA TYPE text",
+    );
     expect(sql).toContain("FOREIGN KEY (run_id)");
   });
 

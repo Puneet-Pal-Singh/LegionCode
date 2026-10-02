@@ -17,7 +17,7 @@ describe('Phase 1 Integration Test', () => {
       userMessage: 'Add unit tests to the token-budgeting package',
       intent: { primary: 'implement', confidence: 'high', signals: [] },
       repoSummary: {
-        rootPath: '/home/shadowbox',
+        rootPath: '/home/legioncode',
         scannedAt: '2024-01-01T00:00:00Z',
         totalFiles: 25,
         byKind: {},
@@ -34,7 +34,7 @@ describe('Phase 1 Integration Test', () => {
         },
         {
           role: 'assistant' as const,
-          content: 'This is Shadowbox, a multi-agent IDE.',
+          content: 'This is LegionCode, a multi-agent IDE.',
           timestamp: Date.now() - 5000,
         },
       ],

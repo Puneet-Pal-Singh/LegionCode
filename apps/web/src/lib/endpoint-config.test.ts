@@ -50,7 +50,7 @@ describe("endpoint-config", () => {
     expect(shouldFailFastEndpointBuild({})).toBe(false);
     expect(
       shouldFailFastEndpointBuild({
-        SHADOWBOX_REQUIRE_DEPLOY_ENDPOINTS: "true",
+        LEGIONCODE_REQUIRE_DEPLOY_ENDPOINTS: "true",
       }),
     ).toBe(true);
   });

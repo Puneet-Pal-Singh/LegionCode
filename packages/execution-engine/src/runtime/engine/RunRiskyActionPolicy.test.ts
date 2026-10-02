@@ -244,7 +244,7 @@ describe("RunRiskyActionPolicy", () => {
       toolName: "bash",
       toolArgs: {
         command:
-          'git config user.email "agent@shadowbox.ai" && git config user.name "Shadowbox Agent"',
+          'git config user.email "agent@legioncode.ai" && git config user.name "LegionCode Agent"',
       },
       hasMutationEvidence: true,
       approvalStore: store,

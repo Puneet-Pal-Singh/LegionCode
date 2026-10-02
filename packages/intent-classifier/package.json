@@ -1,5 +1,5 @@
 {
-  "name": "@shadowbox/intent-classifier",
+  "name": "@legioncode/intent-classifier",
   "version": "0.1.0",
   "description": "Intent Classification Engine - Rule-based intent classifier",
   "private": true,

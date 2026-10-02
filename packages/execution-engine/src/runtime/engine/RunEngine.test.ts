@@ -63,7 +63,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
       },
@@ -116,7 +116,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
       },
@@ -909,7 +909,7 @@ describe("RunEngine", () => {
     const executionService: RuntimeExecutionService = {
       execute: vi.fn(async () => ({
         success: true,
-        output: "# Shadowbox\n",
+        output: "# LegionCode\n",
       })),
     };
     const generateText = vi
@@ -1716,8 +1716,8 @@ describe("RunEngine", () => {
           "delete the old branch and force push once you inspect the repo",
         sessionId: "session-1",
         repositoryContext: {
-          owner: "shadowbox",
-          repo: "shadowbox",
+          owner: "legioncode",
+          repo: "legioncode",
           branch: "main",
         },
       },
@@ -1910,10 +1910,10 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "write README.md\n```md\n# Shadowbox\n```",
+        prompt: "write README.md\n```md\n# LegionCode\n```",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "write README.md\n```md\n# Shadowbox\n```" }],
+      [{ role: "user", content: "write README.md\n```md\n# LegionCode\n```" }],
       {},
     );
 
@@ -1924,7 +1924,7 @@ describe("RunEngine", () => {
       "write_file",
       {
         path: "README.md",
-        content: "# Shadowbox",
+        content: "# LegionCode",
       },
       undefined,
     );
@@ -1995,7 +1995,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
         metadata: {
@@ -2017,7 +2017,7 @@ describe("RunEngine", () => {
     };
     expect(firstRequest.tools).toBeDefined();
     expect(Object.keys(firstRequest.tools ?? {})).toContain("read_file");
-    expect(firstRequest.system).toContain("Repository: sourcegraph/shadowbox");
+    expect(firstRequest.system).toContain("Repository: sourcegraph/legioncode");
     expect(firstRequest.system).toContain("Branch: main");
     expect(planner.plan).not.toHaveBeenCalled();
 
@@ -2164,7 +2164,7 @@ describe("RunEngine", () => {
           {
             id: "t4",
             toolName: "bash",
-            args: { command: "pnpm --filter @shadowbox/execution-engine test" },
+            args: { command: "pnpm --filter @legioncode/execution-engine test" },
           },
           { id: "t5", toolName: "git_diff", args: {} },
         ],
@@ -2224,7 +2224,7 @@ describe("RunEngine", () => {
             return { success: true, output: "README.md\npackages/\n" };
           }
           if (plugin === "filesystem" && action === "read_file") {
-            return { success: true, output: "# Shadowbox\n" };
+            return { success: true, output: "# LegionCode\n" };
           }
           if (plugin === "filesystem" && action === "write_file") {
             return { success: true, output: "Wrote 17 bytes to README.md" };
@@ -2266,7 +2266,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "Find the target file, update it, run tests, and show git diff",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: {
           featureFlags: { agenticLoopV1: true },
           permissionPolicy: { productMode: "full_agent" },
@@ -2392,7 +2392,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "update README.md",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [{ role: "user", content: "update README.md" }],
@@ -2610,7 +2610,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "make the hero prettier and commit the change",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [
@@ -2666,7 +2666,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "continue?",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [
@@ -2873,7 +2873,7 @@ describe("RunEngine", () => {
             return {
               success: true,
               output:
-                "Created pull request #221: https://github.com/sourcegraph/shadowbox/pull/221",
+                "Created pull request #221: https://github.com/sourcegraph/legioncode/pull/221",
             };
           }
           if (plugin === "bash" && action === "run") {
@@ -2911,7 +2911,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "commit it, create a new branch and create a pr on github",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [
@@ -2932,7 +2932,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "continue?",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [
@@ -3153,7 +3153,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "commit and push the branch",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [{ role: "user", content: "commit and push the branch" }],
@@ -3171,7 +3171,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "continue?",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [
@@ -3345,7 +3345,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "update footer, commit, and push",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: {
           featureFlags: { agenticLoopV1: true },
           permissionPolicy: { productMode: "full_agent" },
@@ -3390,7 +3390,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "continue?",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [
@@ -3524,7 +3524,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "stage the footer changes",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [{ role: "user", content: "stage the footer changes" }],
@@ -3659,7 +3659,7 @@ describe("RunEngine", () => {
         agentType: "coding",
         prompt: "stage the footer changes",
         sessionId: "session-1",
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
         metadata: { featureFlags: { agenticLoopV1: true } },
       },
       [{ role: "user", content: "stage the footer changes" }],
@@ -3812,7 +3812,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
         metadata: { featureFlags: { agenticLoopV1: true } },
@@ -3828,7 +3828,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
         metadata: { featureFlags: { agenticLoopV1: true } },
@@ -3849,7 +3849,7 @@ describe("RunEngine", () => {
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -3858,7 +3858,7 @@ describe("RunEngine", () => {
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     });
@@ -4106,7 +4106,7 @@ describe("RunEngine", () => {
         prompt: "inspect repository",
         sessionId: "session-1",
         metadata: { featureFlags: { agenticLoopV1: true } },
-        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        repositoryContext: { owner: "sourcegraph", repo: "legioncode" },
       },
       [{ role: "user", content: "inspect repository" }],
       {
@@ -4811,7 +4811,7 @@ describe("RunEngine", () => {
       "check the repository status",
       {
         owner: "sourcegraph",
-        repo: "shadowbox",
+        repo: "legioncode",
         branch: "main",
       },
     );
@@ -4840,7 +4840,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
           branch: "main",
         },
       },
@@ -4882,7 +4882,7 @@ describe("RunEngine", () => {
 
     const blockedMessage = await privateApi.getPermissionPolicyMessage(
       "check repository acme/platform-core README.md",
-      { owner: "sourcegraph", repo: "shadowbox" },
+      { owner: "sourcegraph", repo: "legioncode" },
     );
     expect(blockedMessage).toContain(
       "Cross-repo access requires explicit approval",
@@ -4895,7 +4895,7 @@ describe("RunEngine", () => {
 
     const allowedMessage = await privateApi.getPermissionPolicyMessage(
       "check repository acme/platform-core README.md",
-      { owner: "sourcegraph", repo: "shadowbox" },
+      { owner: "sourcegraph", repo: "legioncode" },
     );
     expect(allowedMessage).toBeNull();
   });
@@ -4912,7 +4912,7 @@ describe("RunEngine", () => {
 
     const blockedMessage = await privateApi.getPermissionPolicyMessage(
       "run git reset --hard HEAD~1",
-      { owner: "sourcegraph", repo: "shadowbox" },
+      { owner: "sourcegraph", repo: "legioncode" },
     );
     expect(blockedMessage).toContain("approve destructive");
 
@@ -4923,7 +4923,7 @@ describe("RunEngine", () => {
 
     const allowedMessage = await privateApi.getPermissionPolicyMessage(
       "run git reset --hard HEAD~1",
-      { owner: "sourcegraph", repo: "shadowbox" },
+      { owner: "sourcegraph", repo: "legioncode" },
     );
     expect(allowedMessage).toBeNull();
   });
@@ -4945,7 +4945,7 @@ describe("RunEngine", () => {
 
     const blockedMessage = await privateApi.getPermissionPolicyMessage(
       "check repository acme/platform-core README.md",
-      { owner: "sourcegraph", repo: "shadowbox" },
+      { owner: "sourcegraph", repo: "legioncode" },
     );
     expect(blockedMessage).toContain(
       "Cross-repo access requires explicit approval",
@@ -4965,7 +4965,7 @@ describe("RunEngine", () => {
         harnessMode: "delegated",
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
         },
       },
       [
@@ -5012,7 +5012,7 @@ describe("RunEngine", () => {
         },
         repositoryContext: {
           owner: "sourcegraph",
-          repo: "shadowbox",
+          repo: "legioncode",
         },
       },
       [

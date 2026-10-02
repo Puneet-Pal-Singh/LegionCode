@@ -1,4 +1,4 @@
-import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type { AgentType } from "@legioncode/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
 import {
@@ -262,6 +262,7 @@ export class ChatController {
           contextWindowTokens: trustedModelMetadata.contextWindow,
           pricing: trustedModelMetadata.pricing,
           providerRuntimeRoute: trustedModelMetadata.runtimeRoute,
+          modelCapabilities: trustedModelMetadata.capabilities,
           reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,

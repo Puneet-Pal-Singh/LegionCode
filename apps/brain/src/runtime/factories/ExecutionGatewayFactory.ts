@@ -10,7 +10,7 @@ import type {
   AgentType,
   IAgent,
   LLMGateway,
-} from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
 import type { Env } from "../../types/ai";
 import { buildLLMGateway } from "./LLMRuntimeFactory";
 import { buildPricingAndBudgeting } from "./BudgetingFactory";

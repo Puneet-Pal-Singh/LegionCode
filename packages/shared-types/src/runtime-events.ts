@@ -2,9 +2,9 @@ import { z } from "zod";
 import { JsonValueSchema, type JsonValue } from "./json.js";
 
 export const INTERNAL_RUNTIME_EVENT_SIGNATURE_HEADER =
-  "X-Shadowbox-Runtime-Event-Signature";
+  "X-LegionCode-Runtime-Event-Signature";
 export const INTERNAL_RUNTIME_EVENT_TIMESTAMP_HEADER =
-  "X-Shadowbox-Runtime-Event-Timestamp";
+  "X-LegionCode-Runtime-Event-Timestamp";
 
 export const RUNTIME_EVENT_SIGNATURE_VERSION = "v1";
 

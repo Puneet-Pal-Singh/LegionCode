@@ -1,5 +1,6 @@
 import type { ArtifactRepository } from "@repo/persistence";
 import type { Env } from "../../types/ai";
+import { isRunAdmissionBlocked } from "../../runtime/RunEmergencyShutoffPolicy";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 
@@ -12,6 +13,10 @@ export class EditArtifactRetentionService {
     expiredCount: number;
     repairedPendingCount: number;
   }> {
+    if (isRunAdmissionBlocked(this.env)) {
+      return { expiredCount: 0, repairedPendingCount: 0 };
+    }
+
     if (!this.env.EDIT_ARTIFACTS) {
       return { expiredCount: 0, repairedPendingCount: 0 };
     }
