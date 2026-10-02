@@ -26,6 +26,7 @@
     "@ai-sdk/anthropic": "1.1.0",
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",
+    "@cf-wasm/photon": "0.4.0",
     "@repo/event-store": "workspace:*",
     "@repo/hook-protocol": "workspace:*",
     "@repo/observability": "workspace:*",
@@ -38,6 +39,7 @@
     "@legioncode/github-bridge": "workspace:*",
     "@repo/persistence": "workspace:*",
     "ai": "4.1.0",
+    "image-size": "2.0.2",
     "zod": "^3.22.4",
     "zod-to-json-schema": "3.25.1"
   }

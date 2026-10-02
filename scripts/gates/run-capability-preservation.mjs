@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const REQUIRED_CAPABILITIES = [
   "session-reload",
+  "image-context",
   "live-workflow-projection",
   "prompt-terminal-state",
   "multi-file-review",
@@ -12,6 +13,51 @@ const REQUIRED_CAPABILITIES = [
 ];
 
 const CAPABILITIES = [
+  {
+    id: "image-context",
+    owner: "@legioncode/brain",
+    requiredTests: [
+      [
+        "apps/brain/src/application/chat/ChatImageDelivery.integration.test.ts",
+        "delivers stored pixels on submission, later recall, and text-only revision after reload",
+      ],
+      [
+        "apps/brain/src/application/chat/ChatImageDelivery.integration.test.ts",
+        "keeps images and newly completed tool pairs through automatic and manual compaction and terminal replay",
+      ],
+      [
+        "apps/brain/src/services/chat/ChatImageNormalizer.test.ts",
+        "rejects compressed pixel bombs before allocating decoder memory",
+      ],
+      [
+        "packages/execution-engine/src/runtime/engine/NativeProviderContextMessages.test.ts",
+        "compacts long historical image captions while retaining pixels and the active request",
+      ],
+    ],
+    commands: [
+      [
+        "pnpm",
+        "--filter",
+        "@legioncode/brain",
+        "test",
+        "--",
+        "src/application/chat/ChatImageDelivery.integration.test.ts",
+        "src/services/chat/ChatImageNormalizer.test.ts",
+        "src/services/chat/ChatImageModelPolicy.test.ts",
+        "src/services/chat/ChatMediaStore.test.ts",
+        "src/services/chat/ChatModelMetadataResolver.test.ts",
+        "src/services/providers/adapters/ProviderImageTransport.test.ts",
+      ],
+      [
+        "pnpm",
+        "--filter",
+        "@legioncode/execution-engine",
+        "test",
+        "--",
+        "src/runtime/engine/NativeProviderContextMessages.test.ts",
+      ],
+    ],
+  },
   {
     id: "session-reload",
     owner: "@legioncode/web",

@@ -18,6 +18,7 @@ import {
   DEFAULT_RUN_MODE,
   type BYOKModelPricing,
   type BYOKModelCapability,
+  type BYOKModelInputModality,
   type ProductMode,
   type RunMode,
   type WorkflowEntrypoint,
@@ -38,6 +39,7 @@ import type {
   RepositoryContext,
 } from "@legioncode/execution-engine/runtime";
 import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
+import { assertSubmittedImageModelSupport } from "../../services/chat/ChatImageModelPolicy";
 import {
   builtinProviderRegistry,
   resolveProviderRuntimeRoute,
@@ -85,6 +87,7 @@ export interface HandleChatRequestInput {
   tools?: Record<string, SerializableToolDefinition>;
   providerRuntimeRoute?: ProviderModelRuntimeRoute;
   modelCapabilities?: BYOKModelCapability;
+  modelInputModalities?: BYOKModelInputModality;
   identity: TurnScopeBootstrap;
   backgroundTaskOwner?: BackgroundTaskOwner;
 }
@@ -172,6 +175,11 @@ export class HandleChatRequest {
         prompt,
         correlationId,
       );
+      const imageModelMetadata = {
+        capabilities: input.modelCapabilities,
+        inputModalities: input.modelInputModalities,
+      };
+      assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
 
       const repositorySlug =
         repositoryOwner && repositoryName
@@ -296,6 +304,7 @@ export class HandleChatRequest {
             userId,
             currentTurnId: identity.turnId,
             revisionOfTurnId: identity.revisionOfTurnId,
+            imageModelMetadata,
           })
         : messages;
 

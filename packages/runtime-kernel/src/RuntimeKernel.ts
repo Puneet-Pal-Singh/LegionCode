@@ -447,13 +447,15 @@ export class RuntimeKernel {
           );
         }
         await lifecycle.updateUsage(step.usage);
+        const latestContext =
+          this.activeContexts.get(turn.id) ?? effectiveContext;
         const providerBudget = reconcileProviderContextBudget(
-          effectiveContext.budgetSnapshot,
+          latestContext.budgetSnapshot,
           step.usage,
         );
         if (providerBudget) {
           const measuredContext = {
-            ...effectiveContext,
+            ...latestContext,
             budgetSnapshot: providerBudget,
           };
           this.activeContexts.set(turn.id, measuredContext);

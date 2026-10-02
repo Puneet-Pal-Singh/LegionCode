@@ -11,6 +11,14 @@ import type { Env } from "../../types/ai";
 import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { projectActiveTranscriptBranch } from "./TranscriptBranchProjection";
+import {
+  restoreTranscriptMessage,
+  readTranscriptImageAttachments,
+} from "./TranscriptImageAttachments";
+import {
+  assertChatImageModelSupport,
+  type ChatImageModelMetadata,
+} from "./ChatImageModelPolicy";
 
 const TRANSCRIPT_PAGE_SIZE = 100;
 const LIFECYCLE_PAGE_SIZE = 1_000;
@@ -55,6 +63,7 @@ export class DurableConversationContextAssembler {
     userId: string;
     currentTurnId: string;
     revisionOfTurnId?: string;
+    imageModelMetadata?: ChatImageModelMetadata;
   }): Promise<CoreMessage[]> {
     const durableTranscript = await this.readTranscript(
       input.sessionId,
@@ -64,7 +73,20 @@ export class DurableConversationContextAssembler {
       durableTranscript,
       input.revisionOfTurnId ? [input.revisionOfTurnId] : [],
     );
-    const messages = transcript.flatMap(toCoreTextMessage);
+    const messages: CoreMessage[] = [];
+    for (const record of transcript) {
+      if (readTranscriptImageAttachments(record).length > 0) {
+        assertChatImageModelSupport(input.imageModelMetadata ?? {});
+      }
+      messages.push(
+        ...(await restoreTranscriptMessage({
+          env: this.env,
+          record,
+          userId: input.userId,
+          sessionId: input.sessionId,
+        })),
+      );
+    }
     const priorTurnIds = transcript
       .flatMap(readCanonicalTurnIds)
       .filter((turnId) => turnId !== input.currentTurnId)
@@ -134,23 +156,6 @@ export class DurableConversationContextAssembler {
   }
 }
 
-function toCoreTextMessage(record: TranscriptMessageRecord): CoreMessage[] {
-  if (record.role === "tool") return [];
-  const content = record.parts
-    .map((part) => readText(part.content))
-    .filter((text): text is string => Boolean(text?.trim()))
-    .join("\n");
-  return content
-    ? [
-        {
-          id: record.clientMessageId ?? record.id,
-          role: record.role,
-          content,
-        } as unknown as CoreMessage,
-      ]
-    : [];
-}
-
 function readCanonicalTurnIds(record: TranscriptMessageRecord): string[] {
   if (record.role !== "user") return [];
   return record.parts.flatMap((part) => {
@@ -213,12 +218,6 @@ function formatFailedTurnRecord(
     }`,
     ...lines,
   ].join("\n");
-}
-
-function readText(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  const record = readRecord(value);
-  return readString(record?.text);
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

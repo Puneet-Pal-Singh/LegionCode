@@ -306,6 +306,7 @@ export {
   UsageMeasurementSourceSchema,
   UsageCostSnapshotSchema,
   ContextCompactionPhaseSchema,
+  CONTEXT_COMPACTION_SUMMARY_MAX_CHARS,
   ContextCompactionPayloadSchema,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,

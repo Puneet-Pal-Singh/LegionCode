@@ -1,3 +1,4 @@
+import { PNG_DATA_URL, PNG_BYTES } from "./chat/__tests__/ImageFixtures";
 import type { CoreMessage } from "ai";
 import type {
   TranscriptMessageRecord,
@@ -318,8 +319,7 @@ describe("PersistenceService", () => {
           { type: "text", text: "What is wrong here?" },
           {
             type: "image",
-            image:
-              "data:image/png;base64,iVBORw0KGgo=",
+            image: PNG_DATA_URL,
             mimeType: "image/png",
             name: "screen.png",
           },
@@ -336,14 +336,14 @@ describe("PersistenceService", () => {
           {
             type: "text",
             content: {
-              text: "What is wrong here?\n\n[Image attached: screen.png, image/png, 8 B]",
+              text: `What is wrong here?\n\n[Image attached: screen.png, image/png, ${PNG_BYTES.length} B]`,
               metadata: {
                 imageAttachments: [
                   expect.objectContaining({
                     type: "image_attachment",
                     name: "screen.png",
                     mediaType: "image/png",
-                    byteSize: 8,
+                    byteSize: PNG_BYTES.length,
                   }),
                 ],
               },
