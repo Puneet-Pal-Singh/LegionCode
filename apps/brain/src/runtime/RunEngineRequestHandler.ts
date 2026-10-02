@@ -88,6 +88,7 @@ import {
   type RunInterruptIdentity,
 } from "./RunInterruptContract";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
+import { BrainApprovalGrantReader } from "../services/lifecycle/BrainApprovalGrantReader";
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
@@ -110,8 +111,17 @@ const LifecycleApprovalDecisionRequestSchema = z.object({
   turnId: TurnIdSchema,
   approvalId: ApprovalIdSchema,
   decision: ApprovalDecisionSchema,
+  grantScope: z.enum(["once", "matching_in_chat"]).optional(),
   decidedBy: z.string().nullable().optional(),
   reason: z.string().nullable().optional(),
+}).superRefine((payload, context) => {
+  if (payload.grantScope && payload.decision !== "approved") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Approval grants require an approved decision",
+      path: ["grantScope"],
+    });
+  }
 });
 const LifecycleEventsQuerySchema = z.object({
   turnId: TurnIdSchema,
@@ -612,17 +622,20 @@ export class RunEngineRequestHandler {
     }
 
     const lifecycleStore = this.createLifecycleEventStore();
-    const existing = await findLifecycleApprovalDecisionEvent(
-      {
-        store: lifecycleStore,
-        turnId: payload.turnId,
-        approvalId: payload.approvalId,
-      },
-      null,
+    const lifecycleApproval = await findLifecycleApprovalEvents(
+      lifecycleStore,
+      payload.turnId,
+      payload.approvalId,
     );
-    if (existing.event) {
+    if (lifecycleApproval.decided) {
       if (
-        !isMatchingLifecycleApprovalDecision(existing.event, payload.decision)
+        !isMatchingLifecycleApprovalDecision(
+          lifecycleApproval.decided,
+          payload.decision,
+          payload.grantScope === "matching_in_chat"
+            ? "matching_in_chat"
+            : undefined,
+        )
       ) {
         return runEngineErrorResponse(
           request,
@@ -631,7 +644,26 @@ export class RunEngineRequestHandler {
           409,
         );
       }
-      return runEngineJsonResponse(request, this.env, existing.event);
+      return runEngineJsonResponse(request, this.env, lifecycleApproval.decided);
+    }
+
+    if (payload.grantScope === "matching_in_chat") {
+      const identity = this.turnRuntimeIdentities.get(payload.turnId);
+      if (
+        !lifecycleApproval.requested ||
+        !identity ||
+        !isMatchingInChatGrantRequest(
+          lifecycleApproval.requested,
+          identity.workspaceId,
+        )
+      ) {
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          "This approval request does not allow a matching-in-chat grant.",
+          409,
+        );
+      }
     }
 
     if (!this.approvalResolutionRegistry.has(payload.turnId)) {
@@ -661,6 +693,10 @@ export class RunEngineRequestHandler {
         payload.approvalId,
         {
           decision: payload.decision,
+          grantScope:
+            payload.grantScope === "matching_in_chat"
+              ? "matching_in_chat"
+              : undefined,
           decidedBy: null,
           reason: payload.reason ?? null,
         },
@@ -707,15 +743,14 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const decided = await findLifecycleApprovalDecisionEvent(
-      {
-        store: lifecycleStore,
-        turnId: payload.turnId,
-        approvalId: payload.approvalId,
-      },
-      null,
-    );
-    if (!decided.event) {
+    const decided = (
+      await findLifecycleApprovalEvents(
+        lifecycleStore,
+        payload.turnId,
+        payload.approvalId,
+      )
+    ).decided;
+    if (!decided) {
       return runEngineErrorResponse(
         request,
         this.env,
@@ -723,7 +758,7 @@ export class RunEngineRequestHandler {
         500,
       );
     }
-    return runEngineJsonResponse(request, this.env, decided.event);
+    return runEngineJsonResponse(request, this.env, decided);
   }
 
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
@@ -1208,6 +1243,7 @@ export class RunEngineRequestHandler {
             agent,
             {
               ...runEngineDeps,
+              approvalGrants: new BrainApprovalGrantReader(this.env),
               gitSnapshots,
               prepareMutationCapture: async () => {
                 await editArtifactCoordinator.prepare();
@@ -1757,38 +1793,91 @@ function mapApprovalResolutionErrorStatus(error: unknown): number {
   return 500;
 }
 
-async function findLifecycleApprovalDecisionEvent(
-  input: {
-    store: LifecycleEventStore;
-    turnId: string;
-    approvalId: string;
-  },
-  afterSequence: number | null,
-): Promise<{ event: LifecycleEvent | null; nextSequence: number | null }> {
-  const replay = await input.store.replay({
-    turnId: TurnIdSchema.parse(input.turnId),
-    afterSequence,
-    limit: 1_000,
-  });
-  const event =
-    replay.events.find(
-      (candidate) =>
-        candidate.type === "approval.decided" &&
-        candidate.approvalId === input.approvalId,
-    ) ?? null;
-  return {
-    event,
-    nextSequence: replay.nextSequence,
-  };
+async function findLifecycleApprovalEvents(
+  store: LifecycleEventStore,
+  turnId: string,
+  approvalId: string,
+): Promise<{
+  requested: Extract<LifecycleEvent, { type: "approval.requested" }> | null;
+  decided: Extract<LifecycleEvent, { type: "approval.decided" }> | null;
+}> {
+  let afterSequence: number | null = null;
+  let requested:
+    | Extract<LifecycleEvent, { type: "approval.requested" }>
+    | null = null;
+  let decided:
+    | Extract<LifecycleEvent, { type: "approval.decided" }>
+    | null = null;
+  for (;;) {
+    const replay = await store.replay({
+      turnId: TurnIdSchema.parse(turnId),
+      afterSequence,
+      limit: 1_000,
+    });
+    for (const event of replay.events) {
+      if (
+        event.type !== "approval.requested" &&
+        event.type !== "approval.decided"
+      ) {
+        continue;
+      }
+      if (event.approvalId !== approvalId) continue;
+      if (event.type === "approval.requested") requested = event;
+      if (event.type === "approval.decided") decided = event;
+    }
+    if (
+      replay.events.length < 1_000 ||
+      replay.nextSequence === null ||
+      replay.nextSequence === afterSequence
+    ) {
+      break;
+    }
+    afterSequence = replay.nextSequence;
+  }
+  return { requested, decided };
+}
+
+function isMatchingInChatGrantRequest(
+  event: Extract<LifecycleEvent, { type: "approval.requested" }>,
+  workspaceId: string,
+): boolean {
+  const payload = event.payload;
+  if (
+    !Array.isArray(payload.options) ||
+    !payload.options.some(
+      (option) =>
+        typeof option === "object" &&
+        option !== null &&
+        "id" in option &&
+        option.id === "allow_matching_in_chat",
+    )
+  ) {
+    return false;
+  }
+  const metadata = payload.metadata;
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata)
+  ) {
+    return false;
+  }
+  return (
+    typeof metadata.grantMatcherKey === "string" &&
+    metadata.grantMatcherKey.length > 0 &&
+    metadata.grantWorkspaceId === workspaceId
+  );
 }
 
 function isMatchingLifecycleApprovalDecision(
   event: LifecycleEvent,
   decision: z.infer<typeof ApprovalDecisionSchema>,
+  grantScope?: "matching_in_chat",
 ): boolean {
   return (
     event.type === "approval.decided" &&
     "status" in event.payload &&
-    event.payload.status === decision
+    event.payload.status === decision &&
+    (event.payload.grantScope ?? "once") === (grantScope ?? "once")
   );
 }

@@ -4,6 +4,7 @@ import type {
   ProductMode,
   RunMode,
 } from "@repo/shared-types";
+import type { WorkflowApprovalOption } from "@repo/platform-client-sdk";
 import type { ProviderId } from "../../../types/provider";
 import type { ChatSubmitAttachments } from "../chatImageAttachments";
 import type { ReviewCommentDraft } from "../../git/reviewComments";
@@ -26,6 +27,7 @@ interface ChatComposerControlsProps {
   } | null;
   approval: {
     pending: ApprovalRequest | null;
+    matchingInChatOption: WorkflowApprovalOption | null;
     decisions: ApprovalDecisionKind[];
     busyDecision: ApprovalDecisionKind | null;
     error: string | null;
@@ -67,6 +69,7 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
       {props.approval.pending ? (
         <ApprovalDock
           pendingApproval={props.approval.pending}
+          matchingInChatOption={props.approval.matchingInChatOption}
           decisions={props.approval.decisions}
           busyDecision={props.approval.busyDecision}
           error={props.approval.error}

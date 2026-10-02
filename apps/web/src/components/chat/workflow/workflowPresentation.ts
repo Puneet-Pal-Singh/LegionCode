@@ -49,6 +49,9 @@ export function resolveWorkflowTitle(
 }
 
 export function itemDisplayText(item: WorkflowItem): string | null {
+  if (item.kind === "commentary") {
+    return item.text.trim() || item.detail?.trim() || null;
+  }
   const candidates = [
     item.safeSummary,
     item.detail,

@@ -1,12 +1,14 @@
 import type {
   ApprovalId,
   ApprovalDecision,
+  ApprovalGrantScope,
   TurnId,
   UserId,
 } from "@repo/platform-protocol";
 
 export interface ActiveTurnApprovalResolution {
   readonly decision: ApprovalDecision;
+  readonly grantScope?: ApprovalGrantScope;
   readonly decidedBy: UserId | null;
   readonly reason: string | null;
 }
@@ -55,7 +57,7 @@ export class InMemoryRunApprovalResolutionRegistry
     if (!resolver) {
       return false;
     }
-    const key = `${turnId}:${approvalId}:${resolution.decision}`;
+    const key = `${turnId}:${approvalId}:${resolution.decision}:${resolution.grantScope ?? "once"}`;
     const existing = this.inFlight.get(key);
     if (existing) {
       await existing;

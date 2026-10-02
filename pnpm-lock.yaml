@@ -756,6 +756,9 @@ importers:
         specifier: ^8.16.3
         version: 8.20.0
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.3.16
+        version: 0.3.16
       '@repo/contract-conformance':
         specifier: workspace:*
         version: link:../contract-conformance

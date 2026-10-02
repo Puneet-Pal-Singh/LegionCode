@@ -120,7 +120,176 @@ describe("RegistryToolAuthorization", () => {
         metadata: {
           toolName: "write_file",
           permissionProfileId: run.permissionProfileId,
+          grantMatcherKey: expect.stringMatching(/^input:write_file:sha256:/),
+          grantWorkspaceId: run.workspaceId,
         },
+        options: expect.not.arrayContaining([
+          expect.objectContaining({ id: "allow_matching_in_chat" }),
+        ]),
+      },
+    });
+  });
+
+  it("reuses an approved matching grant only in its thread and workspace", async () => {
+    const requests: Array<{
+      threadId: string;
+      workspaceId: string;
+      matcherKey: string;
+    }> = [];
+    const policy = createPolicy("ask");
+    policy.commands.defaultEffect = "ask";
+    const authorization = new RegistryToolAuthorization(
+      { resolve: async () => policy },
+      {
+        hasMatchingInChatGrant: async (input) => {
+          requests.push(input);
+          return input.threadId === run.threadId && input.workspaceId === run.workspaceId;
+        },
+      },
+    );
+
+    await expect(
+      authorization.authorize({
+        run,
+        itemId,
+        toolCall: {
+          toolCallId: "toolcall_runtime001",
+          toolName: "bash",
+          input: { command: "pnpm test", cwd: "/workspace" },
+        },
+      }),
+    ).resolves.toMatchObject({ status: "authorized" });
+    expect(requests[0]).toMatchObject({
+      threadId: run.threadId,
+      workspaceId: run.workspaceId,
+      matcherKey: expect.stringMatching(/^input:bash:sha256:/),
+    });
+
+    const isolated = new RegistryToolAuthorization(
+      {
+        resolve: async () => {
+          const isolatedPolicy = createPolicy("ask");
+          isolatedPolicy.commands.defaultEffect = "ask";
+          return isolatedPolicy;
+        },
+      },
+      { hasMatchingInChatGrant: async () => false },
+    );
+    await expect(
+      isolated.authorize({
+        run: { ...run, threadId: "thr_other001" },
+        itemId,
+        toolCall: {
+          toolCallId: "toolcall_runtime002",
+          toolName: "bash",
+          input: { command: "pnpm test", cwd: "/workspace" },
+        },
+      }),
+    ).resolves.toMatchObject({ status: "approval_required" });
+  });
+
+  it("keeps policy denial ahead of matching grants", async () => {
+    const policy = createPolicy("deny");
+    policy.commands.defaultEffect = "deny";
+    const authorization = new RegistryToolAuthorization(
+      { resolve: async () => policy },
+      { hasMatchingInChatGrant: async () => true },
+    );
+
+    await expect(
+      authorization.authorize({
+        run,
+        itemId,
+        toolCall: {
+          toolCallId: "toolcall_runtime001",
+          toolName: "bash",
+          input: { command: "pnpm test" },
+        },
+      }),
+    ).resolves.toMatchObject({ status: "rejected", code: "tool_policy_denied" });
+  });
+
+  it("matches git commits by tool while requiring exact bash input matches", async () => {
+    const policy = createPolicy("ask");
+    policy.git.defaultEffect = "ask";
+    policy.commands.defaultEffect = "ask";
+    const matcherKeys: string[] = [];
+    const authorization = new RegistryToolAuthorization(
+      { resolve: async () => policy },
+      {
+        hasMatchingInChatGrant: async ({ matcherKey }) => {
+          matcherKeys.push(matcherKey);
+          return matcherKey === "tool:git_commit";
+        },
+      },
+    );
+    const authorize = (toolCallId: string, toolName: string, input: object) =>
+      authorization.authorize({
+        run,
+        itemId,
+        toolCall: { toolCallId, toolName, input },
+      });
+
+    await expect(
+      authorize("toolcall_runtime001", "git_commit", { message: "first" }),
+    ).resolves.toMatchObject({ status: "authorized" });
+    await expect(
+      authorize("toolcall_runtime002", "git_commit", { message: "second" }),
+    ).resolves.toMatchObject({ status: "authorized" });
+    expect(matcherKeys.slice(0, 2)).toEqual([
+      "tool:git_commit",
+      "tool:git_commit",
+    ]);
+
+    const firstBash = await authorize("toolcall_runtime003", "bash", {
+      command: "pnpm test",
+    });
+    const secondBash = await authorize("toolcall_runtime004", "bash", {
+      command: "pnpm deploy",
+    });
+    expect(firstBash.status).toBe("approval_required");
+    expect(secondBash.status).toBe("approval_required");
+    expect(matcherKeys[2]).toMatch(/^input:bash:sha256:/);
+    expect(matcherKeys[3]).toMatch(/^input:bash:sha256:/);
+    expect(matcherKeys[2]).not.toBe(matcherKeys[3]);
+  });
+
+  it("offers reusable approval only when a canonical grant reader is wired", async () => {
+    const policy = createPolicy("ask");
+    policy.git.defaultEffect = "ask";
+    const withoutReader = new RegistryToolAuthorization({
+      resolve: async () => policy,
+    });
+    const withReader = new RegistryToolAuthorization(
+      { resolve: async () => policy },
+      { hasMatchingInChatGrant: async () => false },
+    );
+    const input = {
+      run,
+      itemId,
+      toolCall: {
+        toolCallId: "toolcall_runtime001",
+        toolName: "git_commit",
+        input: { message: "update" },
+      },
+    };
+    const withoutReaderResult = await withoutReader.authorize(input);
+    const withReaderResult = await withReader.authorize(input);
+
+    expect(withoutReaderResult).toMatchObject({
+      status: "approval_required",
+      request: {
+        options: expect.not.arrayContaining([
+          expect.objectContaining({ id: "allow_matching_in_chat" }),
+        ]),
+      },
+    });
+    expect(withReaderResult).toMatchObject({
+      status: "approval_required",
+      request: {
+        options: expect.arrayContaining([
+          expect.objectContaining({ id: "allow_matching_in_chat" }),
+        ]),
       },
     });
   });

@@ -234,6 +234,7 @@ export function ChatInterface({
   }, [messages, debugEvents, mode, providerModels]);
   const {
     pendingApproval,
+    matchingInChatOption,
     decisions: displayedApprovalDecisions,
     busyDecision: approvalBusyDecision,
     error: approvalError,
@@ -355,6 +356,7 @@ export function ChatInterface({
       }
       approval={{
         pending: pendingApproval,
+        matchingInChatOption,
         decisions: displayedApprovalDecisions,
         busyDecision: approvalBusyDecision,
         error: approvalError,

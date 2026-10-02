@@ -56,7 +56,13 @@ interface ServerSessionRecord {
   repository: string | null;
   activeRunId: string | null;
   mode: RunMode;
-  status: "idle" | "running" | "completed" | "paused" | "failed";
+  status:
+    | "idle"
+    | "running"
+    | "waiting_for_approval"
+    | "completed"
+    | "paused"
+    | "failed";
   pinnedAt?: string | null;
   archivedAt?: string | null;
   createdAt: string;

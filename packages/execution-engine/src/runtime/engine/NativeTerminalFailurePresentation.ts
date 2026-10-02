@@ -18,6 +18,13 @@ export function resolveNativeKernelTerminalState(
     return RUN_TERMINAL_STATES.APPROVAL_DENIED;
   }
 
+  if (
+    error instanceof RuntimeKernelError &&
+    error.code === "approval_timed_out"
+  ) {
+    return RUN_TERMINAL_STATES.APPROVAL_TIMED_OUT;
+  }
+
   if (isModelGatewayFailure(error)) {
     return RUN_TERMINAL_STATES.FAILED_RUNTIME;
   }
@@ -29,6 +36,13 @@ export function buildNativeKernelTerminalMessage(
   error: unknown,
   terminalState: RunTerminalState,
 ): string {
+  if (
+    error instanceof RuntimeKernelError &&
+    error.code === "approval_timed_out"
+  ) {
+    return "The approval request expired before a decision was recorded. Retry the action and respond before the approval window closes.";
+  }
+
   if (terminalState === RUN_TERMINAL_STATES.FAILED_RUNTIME) {
     if (hasHttpStatus(error, 429)) {
       return "The model provider is temporarily rate limited. Retry shortly or choose another available model.";

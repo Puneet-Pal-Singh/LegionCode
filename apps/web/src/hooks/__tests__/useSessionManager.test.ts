@@ -45,6 +45,79 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Creation", () => {
+    it("refreshes an inactive chat into and out of approval while preserving selection", async () => {
+      const inactive = createTitleSession({
+        id: "session-inactive-approval",
+        activeRunId: "run_inactive123",
+        runIds: ["run_inactive123"],
+        status: "running",
+      });
+      const selected = createTitleSession({
+        id: "session-selected",
+        name: "Selected chat",
+        activeRunId: "run_selected123",
+        runIds: ["run_selected123"],
+        status: "running",
+      });
+      SessionStateService.saveSessions(
+        { [inactive.id]: inactive, [selected.id]: selected },
+        selected.id,
+      );
+      SessionStateService.saveActiveSessionId(selected.id, {
+        [inactive.id]: inactive,
+        [selected.id]: selected,
+      });
+      const hydrate = vi.mocked(SessionStateService.hydrateSessionsFromServer);
+      hydrate
+        .mockResolvedValueOnce({
+          [inactive.id]: inactive,
+          [selected.id]: selected,
+        })
+        .mockResolvedValueOnce({
+          [inactive.id]: { ...inactive, status: "waiting_for_approval" },
+          [selected.id]: selected,
+        })
+        .mockResolvedValue({
+          [inactive.id]: inactive,
+          [selected.id]: selected,
+        });
+
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() =>
+        expect(result.current.sessionHydrationStatus).toBe("ready"),
+      );
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.sessions.find((session) => session.id === inactive.id)
+            ?.status,
+        ).toBe("waiting_for_approval");
+      });
+      expect(result.current.activeSessionId).toBe(selected.id);
+
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await waitFor(() => {
+        expect(
+          result.current.sessions.find((session) => session.id === inactive.id)
+            ?.status,
+        ).toBe("running");
+      });
+      expect(result.current.activeSessionId).toBe(selected.id);
+
+      const unchangedSessions = result.current.sessions;
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await waitFor(() => expect(hydrate).toHaveBeenCalledTimes(4));
+      });
+      expect(result.current.sessions).toBe(unchangedSessions);
+    });
+
     it("defers server hydration until explicitly enabled", () => {
       const hydrateSpy = vi.mocked(
         SessionStateService.hydrateSessionsFromServer,

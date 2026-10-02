@@ -87,6 +87,10 @@ export function useApprovalController(input: ApprovalControllerInput) {
   return {
     pendingApproval,
     decisions: getDisplayedApprovalDecisions(pendingApproval),
+    matchingInChatOption:
+      pendingApprovalState?.approval.options.find(
+        (option) => option.id === "allow_matching_in_chat",
+      ) ?? null,
     busyDecision,
     error,
     resolve,
@@ -129,11 +133,19 @@ function buildLifecycleApprovalState(
 function getCanonicalApprovalDecisions(
   approval: LifecycleProjectionApproval,
 ): ApprovalDecisionKind[] {
-  const optionText = approval.options.join(" ").toLowerCase();
-  if (optionText.includes("cancel") || optionText.includes("abort")) {
-    return ["allow_once", "deny", "abort"];
+  const optionIds = new Set(approval.options.map((option) => option.id));
+  const decisions: ApprovalDecisionKind[] = [];
+  if (optionIds.has("approve") || optionIds.has("allow_once")) {
+    decisions.push("allow_once");
   }
-  return ["allow_once", "deny"];
+  if (optionIds.has("allow_matching_in_chat")) {
+    decisions.push("allow_persistent_rule");
+  }
+  if (optionIds.has("deny")) decisions.push("deny");
+  if (optionIds.has("cancel") || optionIds.has("abort")) {
+    decisions.push("abort");
+  }
+  return decisions;
 }
 
 function useApprovalLifecycle(
@@ -177,12 +189,14 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   input.setError(null);
   try {
     if (input.pendingApprovalState.source === "lifecycle") {
+      const grantScope = mapApprovalGrantScope(input.decision);
       await input.lifecycleClient.submitApproval({
         turnId: input.pendingApprovalState.turnId,
         approvalId: ApprovalIdSchema.parse(
           input.pendingApprovalState.approval.approvalId,
         ),
         decision: mapApprovalDecision(input.decision),
+        ...(grantScope ? { grantScope } : {}),
         decidedBy: null,
         reason: null,
       });
@@ -199,6 +213,19 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   } finally {
     input.submittingRef.current = false;
     input.setBusyDecision(null);
+  }
+}
+
+function mapApprovalGrantScope(
+  decision: ApprovalDecisionKind,
+): "once" | "matching_in_chat" | undefined {
+  switch (decision) {
+    case "allow_once":
+      return "once";
+    case "allow_persistent_rule":
+      return "matching_in_chat";
+    default:
+      return undefined;
   }
 }
 

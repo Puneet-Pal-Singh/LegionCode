@@ -13,6 +13,7 @@ export * from "./scale/index.js";
 export * from "./capabilities/index.js";
 export {
   RegistryToolAuthorization,
+  type ApprovalGrantReader,
   type PermissionPolicyResolver,
 } from "./contracts/RegistryToolAuthorization.js";
 export * from "./types.js";

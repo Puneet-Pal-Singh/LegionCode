@@ -12,6 +12,15 @@ import type {
   TurnId,
   UsageCostSnapshot,
 } from "@repo/platform-protocol";
+import {
+  cancelPendingRequests,
+  decideApproval,
+  requestApproval,
+  requestUserInput,
+  respondToUserInput,
+  resolveRequest,
+} from "./workflow-request-projection.js";
+import { updateItem, upsertItem } from "./workflow-item-operations.js";
 
 export type WorkflowTerminalState = "completed" | "failed" | "interrupted";
 
@@ -19,6 +28,7 @@ export type WorkflowPhase =
   | "starting"
   | "working"
   | "waiting_for_approval"
+  | "waiting_for_user_input"
   | "completed"
   | "failed"
   | "interrupted";
@@ -40,6 +50,7 @@ export type WorkflowItemKind =
   | "command_execution"
   | "file_change"
   | "approval_request"
+  | "user_input_request"
   | "context_compaction"
   | "warning"
   | "unknown";
@@ -67,6 +78,31 @@ export interface WorkflowItem {
   readonly compactionPhase: "compacting" | "compacted" | "failed" | null;
   readonly startedAt: string;
   readonly completedAt: string | null;
+  readonly request?: WorkflowRequest;
+}
+
+export interface WorkflowRequest {
+  readonly requestId: string;
+  readonly questions: readonly WorkflowRequestQuestion[];
+  readonly answers: readonly WorkflowRequestAnswer[];
+  readonly state:
+    | "pending"
+    | "approved"
+    | "denied"
+    | "cancelled"
+    | "timed_out"
+    | "answered"
+    | "resolved";
+}
+
+export interface WorkflowRequestQuestion {
+  readonly id: string;
+  readonly question: string;
+}
+
+export interface WorkflowRequestAnswer {
+  readonly questionId: string;
+  readonly value: string;
 }
 
 export interface PlanWorkflowStep {
@@ -79,10 +115,16 @@ export interface WorkflowApproval {
   readonly approvalId: ApprovalId;
   readonly itemId: ItemId;
   readonly question: string;
-  readonly options: readonly string[];
+  readonly options: readonly WorkflowApprovalOption[];
   readonly requestedAt: string;
   readonly decidedAt: string | null;
   readonly decision: string | null;
+}
+
+export interface WorkflowApprovalOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string | null;
 }
 
 export interface WorkflowTerminal {
@@ -137,11 +179,12 @@ export function applyLifecycleEvent(
     return projection;
   }
   const next = applyKnownEvent(projection, event);
+  const withPhase = deriveWaitingPhase(next);
   return {
-    ...next,
-    lastSequence: Math.max(next.lastSequence, event.sequence),
-    activeThinking: hasActiveThinking(next),
-    assistantText: collectAssistantText(next.items),
+    ...withPhase,
+    lastSequence: Math.max(withPhase.lastSequence, event.sequence),
+    activeThinking: hasActiveThinking(withPhase),
+    assistantText: collectAssistantText(withPhase.items),
   };
 }
 
@@ -213,14 +256,15 @@ function applyKnownEvent(
         phase: "working",
       };
     case "approval.requested":
-      return {
-        ...requestApproval(projection, event),
-        phase: "waiting_for_approval",
-      };
+      return requestApproval(projection, event);
     case "approval.decided":
       return decideApproval(projection, event);
+    case "user_input.requested":
+      return requestUserInput(projection, event);
+    case "user_input.responded":
+      return respondToUserInput(projection, event);
     case "request.resolved":
-      return { ...projection, pendingApproval: null, phase: "working" };
+      return resolveRequest(projection, event);
     case "turn.diff_updated":
       return {
         ...projection,
@@ -276,6 +320,7 @@ function readItemKind(payload: Record<string, unknown>): WorkflowItemKind {
     case "command_execution":
     case "file_change":
     case "approval_request":
+    case "user_input_request":
     case "context_compaction":
     case "warning":
       return value;
@@ -307,23 +352,6 @@ function createStartedItem(event: LifecycleEvent): WorkflowItem {
     compactionPhase: readCompactionPhase(payload),
     startedAt: event.createdAt,
     completedAt: null,
-  };
-}
-
-function upsertItem(
-  projection: TurnWorkflowProjection,
-  item: WorkflowItem,
-): TurnWorkflowProjection {
-  const existing = projection.items.some(
-    (candidate) => candidate.itemId === item.itemId,
-  );
-  return {
-    ...projection,
-    items: existing
-      ? projection.items.map((candidate) =>
-          candidate.itemId === item.itemId ? item : candidate,
-        )
-      : [...projection.items, item],
   };
 }
 
@@ -465,47 +493,6 @@ function handleToolCallEvent(
   }));
 }
 
-function requestApproval(
-  projection: TurnWorkflowProjection,
-  event: LifecycleEvent,
-): TurnWorkflowProjection {
-  const payload = readPayload(event);
-  const approvalId = requireApprovalId(event);
-  return {
-    ...projection,
-    pendingApproval: {
-      approvalId,
-      itemId: requireItemId(event),
-      question: readString(payload, "question") ?? "Approval requested.",
-      options: readStringArray(payload, "options"),
-      requestedAt: event.createdAt,
-      decidedAt: null,
-      decision: null,
-    },
-  };
-}
-
-function decideApproval(
-  projection: TurnWorkflowProjection,
-  event: LifecycleEvent,
-): TurnWorkflowProjection {
-  const approvalId = requireApprovalId(event);
-  const pendingApproval = projection.pendingApproval;
-  if (!pendingApproval || pendingApproval.approvalId !== approvalId) {
-    return projection;
-  }
-  // Approval requests are actionable only until the decision event. The
-  // decision remains represented by the canonical lifecycle item/event
-  // history; keeping it in `pendingApproval` makes every client continue to
-  // advertise an already-settled request until a later compatibility event
-  // arrives.
-  return {
-    ...projection,
-    pendingApproval: null,
-    phase: "working",
-  };
-}
-
 function settleTurn(
   projection: TurnWorkflowProjection,
   state: WorkflowTerminalState,
@@ -515,8 +502,10 @@ function settleTurn(
   const outcome =
     (payload.outcome as Record<string, unknown> | undefined) ?? {};
   const failure = readRecord(outcome.failure);
+  const settledItems = cancelPendingRequests(projection.items, event);
   return {
     ...projection,
+    items: settledItems,
     pendingApproval: null,
     terminal: {
       state,
@@ -533,6 +522,26 @@ function settleTurn(
     phase: state,
     settledAt: event.createdAt,
   };
+}
+
+function deriveWaitingPhase(
+  projection: TurnWorkflowProjection,
+): TurnWorkflowProjection {
+  if (projection.terminal) return projection;
+  if (projection.pendingApproval) {
+    return { ...projection, phase: "waiting_for_approval" };
+  }
+  if (
+    projection.items.some(
+      (item) =>
+        item.kind === "user_input_request" &&
+        item.status === "active" &&
+        item.request?.state === "pending",
+    )
+  ) {
+    return { ...projection, phase: "waiting_for_user_input" };
+  }
+  return projection;
 }
 
 function hasActiveThinking(projection: TurnWorkflowProjection): boolean {
@@ -780,48 +789,12 @@ function requireItemId(event: LifecycleEvent): ItemId {
   return itemId;
 }
 
-function requireApprovalId(event: LifecycleEvent): ApprovalId {
-  if ("approvalId" in event) return event.approvalId;
-  throw new Error(`Lifecycle event ${event.type} is missing approvalId.`);
-}
-
 function readString(
   payload: Record<string, unknown>,
   key: string,
 ): string | null {
   const value = payload[key];
   return typeof value === "string" && value.trim() ? value : null;
-}
-
-function readStringArray(
-  payload: Record<string, unknown>,
-  key: string,
-): readonly string[] {
-  const value = payload[key];
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (typeof entry === "string") return entry.trim();
-      if (entry && typeof entry === "object" && "label" in entry) {
-        const label = (entry as { readonly label?: unknown }).label;
-        return typeof label === "string" ? label.trim() : "";
-      }
-      return "";
-    })
-    .filter(Boolean);
-}
-
-function updateItem(
-  projection: TurnWorkflowProjection,
-  itemId: ItemId,
-  update: (item: WorkflowItem) => WorkflowItem,
-): TurnWorkflowProjection {
-  return {
-    ...projection,
-    items: projection.items.map((item) =>
-      item.itemId === itemId ? update(item) : item,
-    ),
-  };
 }
 
 function earlierTimestamp(current: string | null, candidate: string): string {
@@ -837,6 +810,8 @@ export function workflowPhaseLabel(phase: WorkflowPhase): string {
       return "Working";
     case "waiting_for_approval":
       return "Waiting for approval";
+    case "waiting_for_user_input":
+      return "Waiting for your input";
     case "completed":
       return "Completed";
     case "failed":

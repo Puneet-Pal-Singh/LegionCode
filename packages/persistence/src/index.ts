@@ -75,6 +75,10 @@ export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
+export {
+  PostgresLifecycleApprovalGrantReader,
+  type MatchingInChatApprovalGrantQuery,
+} from "./lifecycle-events/PostgresLifecycleApprovalGrantReader.js";
 export { MemoryEventStore, MemoryLifecycleEventStore } from "@repo/event-store";
 export type {
   LifecycleEventStore,

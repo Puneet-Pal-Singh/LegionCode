@@ -25,6 +25,7 @@ import { taskCheckoutSecureSessionMigration } from "./0028-task-checkout-secure-
 import { hookDefinitionsMigration } from "./0029-hook-definitions.js";
 import { sessionTitleStatusMigration } from "./0031-session-title-status.js";
 import { sessionThreadIdentityMigration } from "./0030-session-thread-identity.js";
+import { lifecycleEventAppendOrderMigration } from "./0031-lifecycle-event-append-order.js";
 import { lifecycleEventsProjectionsMigration } from "./0020-lifecycle-events-projections.js";
 import { canonicalWorkspaceManifestMigration } from "./0021-canonical-workspace-manifest.js";
 import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
@@ -101,5 +102,6 @@ export const persistenceMigrations = [
   taskCheckoutSecureSessionMigration,
   hookDefinitionsMigration,
   sessionThreadIdentityMigration,
+  lifecycleEventAppendOrderMigration,
   sessionTitleStatusMigration,
 ] as const;

@@ -579,12 +579,16 @@ describe("RuntimeKernel canonical lifecycle", () => {
       decision: "approved",
       decidedBy: run.userId,
       reason: null,
+      grantScope: "matching_in_chat",
     });
 
     await expect(execution).resolves.toMatchObject({ status: "completed" });
     expect(
       eventTypes(sink).filter((type) => type === "approval.decided"),
     ).toHaveLength(1);
+    expect(
+      sink.events.find((event) => event.type === "approval.decided")?.payload,
+    ).toMatchObject({ status: "approved", grantScope: "matching_in_chat" });
     await expect(
       kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
         decision: "approved",
@@ -592,6 +596,111 @@ describe("RuntimeKernel canonical lifecycle", () => {
         reason: null,
       }),
     ).rejects.toMatchObject({ code: "turn_not_active" });
+  });
+
+  it("rejects a reusable scope that the pending approval did not offer", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: {
+        ...approvalRequest,
+        options: approvalRequest.options.filter(
+          (option) => option.id !== "allow_matching_in_chat",
+        ),
+      },
+    }));
+    ports.approvals.waitForDecision = vi.fn(() => new Promise(() => undefined));
+    const kernel = await createKernel(sink, ports);
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await vi.waitFor(() => {
+      expect(eventTypes(sink)).toContain("approval.requested");
+    });
+
+    await expect(
+      kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+        decision: "approved",
+        decidedBy: run.userId,
+        reason: null,
+        grantScope: "matching_in_chat",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_approval_grant_scope" });
+    await kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+      decision: "approved",
+      decidedBy: run.userId,
+      reason: null,
+    });
+    await expect(execution).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("keeps approval timeout distinct from an explicit user denial", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => toolStep());
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: approvalRequest,
+    }));
+    ports.approvals.waitForDecision = vi.fn(async () => ({
+      decision: "denied" as const,
+      decidedBy: null,
+      reason: "Approval timed out before a decision was recorded.",
+      timedOut: true,
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({
+      code: "approval_timed_out",
+      message: expect.stringContaining("timed out"),
+    });
+
+    expect(eventTypes(sink)).toContain("approval.decided");
+    expect(
+      sink.events.find((event) => event.type === "approval.decided")?.payload,
+    ).toMatchObject({ status: "timed_out" });
+    expect(eventTypes(sink)).toContain("tool_call.failed");
+    expect(eventTypes(sink)).not.toContain("tool_call.declined");
+    expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("keeps an explicit approval denial as approval_denied", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => toolStep());
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: approvalRequest,
+    }));
+    ports.approvals.waitForDecision = vi.fn(async () => ({
+      decision: "denied" as const,
+      decidedBy: run.userId,
+      reason: "Denied by user.",
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({
+      code: "approval_denied",
+      message: expect.stringContaining("denied"),
+    });
+
+    expect(eventTypes(sink)).toContain("tool_call.declined");
+    expect(eventTypes(sink)).not.toContain("tool_call.failed");
+    expect(terminalEvents(sink)).toHaveLength(1);
   });
 
   it("settles typed policy denial without calling the worker", async () => {
