@@ -77,6 +77,11 @@ This ledger records the active wiring for image-bearing conversation context.
   back into compacted context in full.
 - No alternate image store, client-owned history authority, compatibility
   fallback, or separate compaction lifecycle is introduced.
+- The PR-required `image-context` capability check, owned by Brain chat ingress,
+  runs the admission/media/model/provider and native context regressions above.
+  Its invariant is that validated visual input survives revision and compaction
+  while historical text stays bounded. Review this test set when those canonical
+  owners or provider handoff contracts change; do not duplicate it in other gates.
 - Compaction does not evict image inputs or active-turn tool pairs. Those retained
   inputs can exceed a small model's context budget; estimates must report that
   occupancy without claiming compaction freed it.
