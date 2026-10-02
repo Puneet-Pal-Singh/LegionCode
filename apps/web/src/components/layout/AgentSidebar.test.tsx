@@ -42,11 +42,13 @@ function renderSidebar(
 describe("AgentSidebar adapter", () => {
   it("routes selection and grouped creation back to existing Web actions", () => {
     const onSelect = vi.fn();
+    const onClose = vi.fn();
     const onCreate = vi.fn();
-    renderSidebar({ onSelect, onCreate });
+    renderSidebar({ onSelect, onClose, onCreate });
 
     fireEvent.click(screen.getByRole("option", { name: "Draft task" }));
     expect(onSelect).toHaveBeenCalledWith("session-1");
+    expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(
       screen.getByRole("button", { name: "New thread in legioncode" }),
     );
@@ -91,9 +93,22 @@ describe("AgentSidebar adapter", () => {
 
   it("preserves the authenticated account footer actions", () => {
     const onOpenSettings = vi.fn();
-    renderSidebar({ onOpenSettings });
+    const onClose = vi.fn();
+    renderSidebar({ onClose, onOpenSettings });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(onClose).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it("closes the sidebar before opening workspace selection", () => {
+    const onAddRepository = vi.fn();
+    const onClose = vi.fn();
+    renderSidebar({ onClose, onAddRepository });
+
+    fireEvent.click(screen.getByRole("button", { name: /Add workspace/ }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onAddRepository).toHaveBeenCalledOnce();
   });
 
   it("routes colliding repository workspace actions to their raw repository identities", () => {

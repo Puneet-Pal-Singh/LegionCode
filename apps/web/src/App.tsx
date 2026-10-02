@@ -945,7 +945,9 @@ function AppContent() {
               onUnarchive={unarchiveSession}
               onRemoveRepository={removeRepository}
               onRenameRepository={renameRepository}
-              onClose={() => setIsSidebarOpen(false)}
+              onClose={() => {
+                if (isCompact) setIsSidebarOpen(false);
+              }}
               onAddRepository={handleOpenRepositoryPicker}
               onOpenSettings={() => openSettingsDialog("general")}
               accountUser={user}

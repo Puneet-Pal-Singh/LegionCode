@@ -77,7 +77,7 @@ export function WorkspaceFrame({
 
       const focusable = Array.from(
         sidebarElement.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
-      );
+      ).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
       if (focusable.length === 0) {
         event.preventDefault();
         sidebarElement.focus();
@@ -142,4 +142,23 @@ export function WorkspaceFrame({
       </div>
     </div>
   );
+}
+
+function isVisibleFocusTarget(element: HTMLElement): boolean {
+  for (
+    let current: HTMLElement | null = element;
+    current;
+    current = current.parentElement
+  ) {
+    const style = window.getComputedStyle(current);
+    if (
+      current.hidden ||
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.visibility === "collapse"
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

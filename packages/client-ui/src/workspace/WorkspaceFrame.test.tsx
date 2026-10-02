@@ -29,6 +29,12 @@ function renderWorkspace(sidebarOpen?: boolean) {
         <aside>
           <button type="button">First navigation link</button>
           <button type="button">Last navigation link</button>
+          <button type="button" tabIndex={-1}>
+            Roving archive action
+          </button>
+          <button type="button" style={{ display: "none" }}>
+            Hidden archive action
+          </button>
         </aside>
       }
       topBar={<span>Workspace</span>}
@@ -54,8 +60,10 @@ describe("WorkspaceFrame responsive navigation", () => {
       .toHaveAttribute("inert");
     expect(first).toHaveFocus();
 
+    last.focus();
     fireEvent.keyDown(last, { key: "Tab" });
     expect(first).toHaveFocus();
+    first.focus();
     fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
     expect(last).toHaveFocus();
 
