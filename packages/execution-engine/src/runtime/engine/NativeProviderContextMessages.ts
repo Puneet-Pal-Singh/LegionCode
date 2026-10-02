@@ -27,7 +27,7 @@ export function buildProviderContextMessages(input: {
     },
     // Text summaries cannot replace pixels. Preserve historical image inputs
     // and the entire active turn, including paired tool calls and results.
-    ...history.filter(hasUserImages),
+    ...history.filter(hasUserImages).map(retainHistoricalImages),
     ...input.messages.slice(Math.max(0, latestUserIndex)),
   ];
 }
@@ -80,6 +80,17 @@ function hasUserImages(message: CoreMessage): boolean {
     Array.isArray(message.content) &&
     message.content.some((part) => part.type === "image")
   );
+}
+
+function retainHistoricalImages(message: CoreMessage): CoreMessage {
+  if (message.role !== "user" || !Array.isArray(message.content))
+    return message;
+  // Historical text is already represented by the bounded summary. Keeping
+  // the entire image-bearing message would make that text impossible to compact.
+  return {
+    ...message,
+    content: message.content.filter((part) => part.type === "image"),
+  };
 }
 
 function readMessageText(message: CoreMessage): string {

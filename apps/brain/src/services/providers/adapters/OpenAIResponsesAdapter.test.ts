@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter";
+import { PNG_DATA_URL } from "../../chat/__tests__/ImageFixtures";
 
 describe("OpenAIResponsesAdapter", () => {
   afterEach(() => {
@@ -148,7 +149,7 @@ describe("OpenAIResponsesAdapter", () => {
             { type: "text", text: "What is shown?" },
             {
               type: "image",
-              image: "data:image/png;base64,aGVsbG8=",
+              image: PNG_DATA_URL,
               mimeType: "image/png",
             },
           ],
@@ -165,7 +166,7 @@ describe("OpenAIResponsesAdapter", () => {
           { type: "input_text", text: "What is shown?" },
           {
             type: "input_image",
-            image_url: "data:image/png;base64,aGVsbG8=",
+            image_url: PNG_DATA_URL,
             detail: "auto",
           },
         ],

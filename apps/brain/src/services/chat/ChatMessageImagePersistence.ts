@@ -4,6 +4,7 @@ import type { Env } from "../../types/ai";
 import { DomainError } from "../../domain/errors";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { ChatMediaStore } from "./ChatMediaStore";
+import { resolveChatImageSettings } from "./ChatImageSettings";
 import {
   extractImageParts,
   messageHasImageParts,
@@ -28,18 +29,24 @@ export async function persistChatMessageImages(
         "Chat image persistence requires an authenticated R2 binding.",
       );
     }
-    const store = new ChatMediaStore(env.EDIT_ARTIFACTS);
+    const store = new ChatMediaStore(
+      env.EDIT_ARTIFACTS,
+      resolveChatImageSettings(env),
+    );
     const images = extractImageParts(input.message.content as unknown[]);
-    return Promise.all(
-      images.map((image, index) =>
-        store.putImage({
+    const refs: ChatImageAttachmentRef[] = [];
+    // Serialize decoding so multiple attachments cannot multiply peak WASM memory.
+    for (const [index, image] of images.entries()) {
+      refs.push(
+        await store.putImage({
           userId,
           sessionId: input.sessionId,
           attachmentId: `img_${input.idempotencyKey.slice(0, 48)}_${index}`,
           image,
         }),
-      ),
-    );
+      );
+    }
+    return refs;
   }
   if (!input.revisionOfTurnId) return [];
   const userId = input.userId;

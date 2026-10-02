@@ -263,6 +263,7 @@ export class ChatController {
           pricing: trustedModelMetadata.pricing,
           providerRuntimeRoute: trustedModelMetadata.runtimeRoute,
           modelCapabilities: trustedModelMetadata.capabilities,
+          modelInputModalities: trustedModelMetadata.inputModalities,
           reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,

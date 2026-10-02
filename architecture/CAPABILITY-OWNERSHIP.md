@@ -1,7 +1,6 @@
 # Capability ownership
 
-This entry documents the chat title boundary changed by this PR. It does not
-describe unrelated runtime capabilities.
+This ledger records the chat title and image-context boundaries.
 
 | Responsibility                                      | Canonical owner                                            | Producers and consumers                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -49,6 +48,18 @@ This ledger records the active wiring for image-bearing conversation context.
 - `NativeProviderContextMessages.test.ts` verifies image-safe estimates and
   summaries, protocol bounds, retained instructions, and paired tool progress.
 - `ChatMediaStore.test.ts` covers scoped media identity and validation.
+- Brain `ChatImageSettings` and `ChatImageNormalizer` own full decoding and
+  provider normalization. They validate dimensions before decoding, serialize
+  upload decoding, free WASM allocations, and preserve original R2 bytes.
+  PNG, JPEG, WebP, and GIF fixtures prove decoding; corrupt files, pixel bombs,
+  resizing, and encoded-size limits have focused regression coverage.
+- Model discovery owns trusted image capability metadata. Chat admission and
+  durable context assembly reject unsupported or unknown image input before
+  provider dispatch, including text-only recalls of stored attachments.
+- Historical image messages retain only their image parts after compaction;
+  their text belongs to the bounded summary. The latest user message and live
+  tool pairs remain intact. Long image captions/logs therefore cannot be copied
+  back into compacted context in full.
 - No alternate image store, client-owned history authority, compatibility
   fallback, or separate compaction lifecycle is introduced.
 - Compaction does not evict image inputs or active-turn tool pairs. Those retained

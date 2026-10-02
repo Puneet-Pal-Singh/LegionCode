@@ -31,6 +31,11 @@ export interface Env {
   SECURE_API: Fetcher;
 
   EDIT_ARTIFACTS?: R2Bucket;
+  CHAT_IMAGE_AUTO_RESIZE?: "true" | "false";
+  CHAT_IMAGE_MAX_WIDTH?: string;
+  CHAT_IMAGE_MAX_HEIGHT?: string;
+  CHAT_IMAGE_MAX_BASE64_BYTES?: string;
+  CHAT_IMAGE_MAX_DECODE_PIXELS?: string;
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;

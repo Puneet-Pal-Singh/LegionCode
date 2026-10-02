@@ -36,6 +36,51 @@ describe("NativeProviderContextMessages", () => {
       summarizeConversationForCompaction(messages, "latest request"),
     ).toContain("assistant: first answer");
   });
+  it("compacts long historical image captions while retaining pixels and the active request", () => {
+    const history: CoreMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Historical logs: " + "log entry\n".repeat(12_000),
+          },
+          {
+            type: "image",
+            image: "data:image/png;base64,pixels",
+            mimeType: "image/png",
+          },
+        ],
+      },
+      { role: "assistant", content: "Reviewed the image." },
+      { role: "user", content: "Continue with the fix." },
+    ];
+    const summary = summarizeConversationForCompaction(
+      history,
+      "Continue with the fix.",
+    );
+    const compacted = buildProviderContextMessages({
+      messages: history,
+      compactedContext: summary,
+    });
+    expect(estimateConversationTokens(history)).toBeGreaterThan(30_000);
+    expect(estimateConversationTokens(compacted)).toBeLessThan(1_100);
+    expect(estimateAttachmentTokens(compacted)).toBe(
+      estimateAttachmentTokens(history),
+    );
+    expect(compacted.at(-1)).toEqual(history.at(-1));
+    expect(compacted[1]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "image",
+          image: "data:image/png;base64,pixels",
+          mimeType: "image/png",
+        },
+      ],
+    });
+    expect(JSON.stringify(compacted)).toContain("Historical logs:");
+  });
   it("retains original system instructions, historical images, and all active tool pairs", () => {
     const image: CoreMessage = {
       role: "user",
@@ -84,7 +129,12 @@ describe("NativeProviderContextMessages", () => {
     expect(result).toEqual([
       system,
       { role: "system", content: "Compacted conversation context:\nsummary" },
-      image,
+      {
+        ...image,
+        content: Array.isArray(image.content)
+          ? image.content.filter((part) => part.type === "image")
+          : [],
+      },
       ...active,
     ]);
     expect(summarizeConversationForCompaction(active, "Continue")).toContain(

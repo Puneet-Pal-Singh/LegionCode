@@ -6,6 +6,11 @@ import {
   type ChatMediaImageType,
 } from "@repo/shared-types";
 import { DomainError } from "../../domain/errors";
+import { normalizeChatImage } from "./ChatImageNormalizer";
+import {
+  DEFAULT_CHAT_IMAGE_SETTINGS,
+  type ChatImageSettings,
+} from "./ChatImageSettings";
 
 export const CHAT_MEDIA_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -30,7 +35,10 @@ export interface ChatMediaObject {
  * server id; filenames never become object paths.
  */
 export class ChatMediaStore {
-  constructor(private readonly bucket: R2Bucket) {}
+  constructor(
+    private readonly bucket: R2Bucket,
+    private readonly settings: ChatImageSettings = DEFAULT_CHAT_IMAGE_SETTINGS,
+  ) {}
 
   static key(userId: string, sessionId: string, attachmentId: string): string {
     return `chat-media/${encodeKeySegment(userId)}/${encodeKeySegment(sessionId)}/${encodeKeySegment(attachmentId)}`;
@@ -43,6 +51,7 @@ export class ChatMediaStore {
     image: IncomingChatImage;
   }): Promise<ChatImageAttachmentRef> {
     const decoded = decodeAndValidateImage(input.image);
+    normalizeChatImage(decoded.bytes, decoded.mediaType, this.settings);
     if (!isValidChatMediaAttachmentId(input.attachmentId)) {
       throw invalidImage("Image attachment identity is invalid.");
     }
@@ -138,14 +147,17 @@ export class ChatMediaStore {
         false,
       );
     }
+    const normalized = normalizeChatImage(bytes, ref.mediaType, this.settings);
     let binary = "";
-    for (let offset = 0; offset < bytes.length; offset += 8192) {
-      binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+    for (let offset = 0; offset < normalized.bytes.length; offset += 8192) {
+      binary += String.fromCharCode(
+        ...normalized.bytes.subarray(offset, offset + 8192),
+      );
     }
     return {
       type: "image",
-      image: `data:${ref.mediaType};base64,${btoa(binary)}`,
-      mimeType: ref.mediaType,
+      image: `data:${normalized.mediaType};base64,${btoa(binary)}`,
+      mimeType: normalized.mediaType,
     };
   }
 }

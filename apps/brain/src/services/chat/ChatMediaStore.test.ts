@@ -1,3 +1,4 @@
+import { PNG_DATA_URL, PNG_BYTES } from "./__tests__/ImageFixtures";
 import { describe, expect, it } from "vitest";
 import type { R2Bucket } from "@cloudflare/workers-types";
 import { ChatMediaStore } from "./ChatMediaStore";
@@ -12,10 +13,7 @@ describe("ChatMediaStore", () => {
       sessionId: "session-1",
       attachmentId: "img_1234567890abcdef",
       image: {
-        image: dataUrl(
-          "image/png",
-          [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
-        ),
+        image: PNG_DATA_URL,
         mimeType: "image/png",
         name: "screen.png",
       },
@@ -25,7 +23,7 @@ describe("ChatMediaStore", () => {
       type: "image_attachment",
       name: "screen.png",
       mediaType: "image/png",
-      byteSize: 8,
+      byteSize: PNG_BYTES.length,
     });
     expect(bucket.keys).toHaveLength(1);
     expect(bucket.keys[0]).toBe(
@@ -45,7 +43,7 @@ describe("ChatMediaStore", () => {
         userId: "user-1",
         sessionId: "session-1",
         attachmentId: "img_1234567890abcdef",
-        image: { image: "data:image/png;base64,iVBORw0KGgo=" },
+        image: { image: PNG_DATA_URL },
       });
       await expect(
         store.getProviderImage({ ...scope, ref }),
@@ -58,7 +56,7 @@ describe("ChatMediaStore", () => {
         }),
       ).resolves.toEqual({
         type: "image",
-        image: "data:image/png;base64,iVBORw0KGgo=",
+        image: PNG_DATA_URL,
         mimeType: "image/png",
       });
     },
@@ -71,11 +69,14 @@ describe("ChatMediaStore", () => {
       userId: "user-1",
       sessionId: "session-1",
       attachmentId: "img_1234567890abcdef",
-      image: { image: "data:image/png;base64,iVBORw0KGgo=" },
+      image: { image: PNG_DATA_URL },
     });
     const input = { userId: "user-1", sessionId: "session-1", ref };
     await expect(
-      store.getProviderImage({ ...input, ref: { ...ref, byteSize: 9 } }),
+      store.getProviderImage({
+        ...input,
+        ref: { ...ref, byteSize: PNG_BYTES.length + 1 },
+      }),
     ).rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
     await expect(
       store.getProviderImage({

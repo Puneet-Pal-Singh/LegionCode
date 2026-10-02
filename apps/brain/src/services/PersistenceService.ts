@@ -252,6 +252,7 @@ export class PersistenceService {
           error,
         }),
       );
+      if (error instanceof DomainError) throw error;
       throw new TranscriptPersistenceError("persistUserMessage", error);
     }
   }

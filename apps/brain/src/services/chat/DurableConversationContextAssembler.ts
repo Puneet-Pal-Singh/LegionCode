@@ -11,7 +11,14 @@ import type { Env } from "../../types/ai";
 import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { projectActiveTranscriptBranch } from "./TranscriptBranchProjection";
-import { restoreTranscriptMessage } from "./TranscriptImageAttachments";
+import {
+  restoreTranscriptMessage,
+  readTranscriptImageAttachments,
+} from "./TranscriptImageAttachments";
+import {
+  assertChatImageModelSupport,
+  type ChatImageModelMetadata,
+} from "./ChatImageModelPolicy";
 
 const TRANSCRIPT_PAGE_SIZE = 100;
 const LIFECYCLE_PAGE_SIZE = 1_000;
@@ -56,6 +63,7 @@ export class DurableConversationContextAssembler {
     userId: string;
     currentTurnId: string;
     revisionOfTurnId?: string;
+    imageModelMetadata?: ChatImageModelMetadata;
   }): Promise<CoreMessage[]> {
     const durableTranscript = await this.readTranscript(
       input.sessionId,
@@ -67,6 +75,9 @@ export class DurableConversationContextAssembler {
     );
     const messages: CoreMessage[] = [];
     for (const record of transcript) {
+      if (readTranscriptImageAttachments(record).length > 0) {
+        assertChatImageModelSupport(input.imageModelMetadata ?? {});
+      }
       messages.push(
         ...(await restoreTranscriptMessage({
           env: this.env,

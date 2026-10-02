@@ -7,6 +7,7 @@ import {
 import type { Env } from "../../types/ai";
 import { DomainError } from "../../domain/errors";
 import { ChatMediaStore } from "./ChatMediaStore";
+import { resolveChatImageSettings } from "./ChatImageSettings";
 
 export function readTranscriptImageAttachments(
   message: TranscriptMessageRecord,
@@ -61,7 +62,10 @@ export async function restoreTranscriptMessage(input: {
       true,
     );
   }
-  const store = new ChatMediaStore(input.env.EDIT_ARTIFACTS);
+  const store = new ChatMediaStore(
+    input.env.EDIT_ARTIFACTS,
+    resolveChatImageSettings(input.env),
+  );
   const images = [];
   // Bound peak decoding memory when a conversation contains several images.
   for (const ref of refs) {

@@ -1,3 +1,9 @@
+import {
+  PNG_DATA_URL,
+  PNG_BYTES,
+} from "../../services/chat/__tests__/ImageFixtures";
+import { PhotonImage } from "@cf-wasm/photon";
+import { imageSize } from "image-size";
 import type { CoreMessage } from "ai";
 import type { R2Bucket } from "@cloudflare/workers-types";
 import {
@@ -11,9 +17,9 @@ import { TurnIdSchema, type TurnScopeBootstrap } from "@repo/platform-protocol";
 import {
   CodingAgent,
   type RuntimeStorage,
-} from "@shadowbox/execution-engine/runtime";
-import { RuntimeKernelNativeRunner } from "@shadowbox/execution-engine/runtime";
-import type { ILLMGateway } from "@shadowbox/execution-engine/runtime";
+} from "@legioncode/execution-engine/runtime";
+import { RuntimeKernelNativeRunner } from "@legioncode/execution-engine/runtime";
+import type { ILLMGateway } from "@legioncode/execution-engine/runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { HandleChatRequest } from "./HandleChatRequest";
@@ -46,7 +52,7 @@ const identity: TurnScopeBootstrap = {
 };
 const image = {
   type: "image" as const,
-  image: "data:image/png;base64,iVBORw0KGgo=",
+  image: PNG_DATA_URL,
   mimeType: "image/png",
 };
 const imageMessage: CoreMessage = {
@@ -205,6 +211,110 @@ describe("authenticated image submission through native provider delivery", () =
     ).rejects.toMatchObject({ code: "CHAT_MEDIA_NOT_FOUND" });
   });
 
+  it("rejects corrupt images before writing media or appending a transcript message", async () => {
+    const corrupt: CoreMessage = {
+      role: "user",
+      content: [
+        {
+          ...image,
+          image: `data:image/png;base64,${btoa(String.fromCharCode(...PNG_BYTES.slice(0, 40)))}`,
+        },
+      ],
+    };
+    await expect(submit(env, corrupt, identity)).rejects.toMatchObject({
+      code: "IMAGE_ATTACHMENT_INVALID",
+      status: 400,
+      retryable: false,
+    });
+    expect(bucket.objects.size).toBe(0);
+    expect(
+      (
+        await repository.listTranscript({
+          userId,
+          sessionId,
+          cursor: 0,
+          limit: 100,
+        })
+      ).messages,
+    ).toHaveLength(0);
+  });
+
+  it.each([false, null])(
+    "rejects new image input when trusted model image support is %s",
+    async (supported) => {
+      await expect(
+        submit(env, imageMessage, identity, 100_000, supported),
+      ).rejects.toMatchObject({
+        code:
+          supported === false
+            ? "IMAGE_INPUT_UNSUPPORTED"
+            : "IMAGE_INPUT_CAPABILITY_UNKNOWN",
+        status: 400,
+      });
+      expect(bucket.objects.size).toBe(0);
+      expect(
+        (
+          await repository.listTranscript({
+            userId,
+            sessionId,
+            cursor: 0,
+            limit: 100,
+          })
+        ).messages,
+      ).toHaveLength(0);
+    },
+  );
+
+  it("rejects switching an image-bearing conversation to a text-only model", async () => {
+    await submit(env, imageMessage, identity);
+    await expect(
+      submit(
+        env,
+        { role: "user", content: "Recall screenshot" },
+        {
+          ...identity,
+          turnId: "trn_image_textmodel01",
+          runAttemptId: "attempt_image_textmodel01",
+        },
+        100_000,
+        false,
+      ),
+    ).rejects.toMatchObject({ code: "IMAGE_INPUT_UNSUPPORTED", status: 400 });
+  });
+
+  it("delivers resized pixels across the runtime handoff while preserving original durable bytes", async () => {
+    env.CHAT_IMAGE_MAX_WIDTH = "50";
+    env.CHAT_IMAGE_MAX_HEIGHT = "30";
+    const source = new PhotonImage(
+      new Uint8Array(100 * 40 * 4).fill(255),
+      100,
+      40,
+    );
+    let original: Uint8Array;
+    try {
+      original = source.get_bytes();
+    } finally {
+      source.free();
+    }
+    const dataUrl = `data:image/png;base64,${btoa(String.fromCharCode(...original))}`;
+    const submission = await submit(
+      env,
+      { role: "user", content: [{ ...image, image: dataUrl }] },
+      identity,
+    );
+    expect([...bucket.objects.values()][0]!.bytes).toEqual(original);
+    const { requests, execute } = createRuntime(submission.executionPayload);
+    await execute();
+    const delivered = providerImages(requests[0]!)[0]!;
+    expect(typeof delivered.image).toBe("string");
+    const bytes = Uint8Array.from(
+      atob(String(delivered.image).split(",")[1]!),
+      (char) => char.charCodeAt(0),
+    );
+    expect(imageSize(bytes)).toMatchObject({ width: 50, height: 20 });
+    expect(delivered.mimeType).toBe("image/png");
+  });
+
   it("does not resolve another user's or session's media even if a reference is copied", async () => {
     await submit(env, imageMessage, identity);
     const transcript = await repository.listTranscript({
@@ -233,6 +343,7 @@ describe("authenticated image submission through native provider delivery", () =
         identity,
         workspaceId: identity.workspaceId,
         correlationId: "image-scope-test",
+        modelInputModalities: { image: true },
         agentType: "coding",
         prompt: "recall",
         messages: [{ role: "user", content: "recall" }],
@@ -249,6 +360,7 @@ function submit(
   message: CoreMessage,
   scope: TurnScopeBootstrap,
   contextWindowTokens = 100_000,
+  imageSupport: boolean | null = true,
 ) {
   return new HandleChatRequest(env).execute({
     sessionId,
@@ -266,6 +378,8 @@ function submit(
             .join(""),
     messages: [message],
     contextWindowTokens,
+    modelInputModalities:
+      imageSupport === null ? undefined : { image: imageSupport },
   });
 }
 
