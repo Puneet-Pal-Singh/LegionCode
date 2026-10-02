@@ -22,6 +22,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "hooks/useChatCore.ts",
   "hooks/useConversationLifecycleProjections.ts",
   "hooks/useTurnLifecycleProjection.ts",
+  "lib/session-sidebar-selectors.ts",
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {

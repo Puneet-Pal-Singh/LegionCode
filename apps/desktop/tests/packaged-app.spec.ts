@@ -34,15 +34,21 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
 
   try {
     const page = await application.firstWindow();
+    await page.setViewportSize({ width: 420, height: 900 });
+    const sidebarToggle = page.locator(".lc-workspace-menu-button");
+    const workspaceSidebar = page.getByTestId("workspace-sidebar");
+    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toBeHidden();
     await page.setViewportSize({ width: 1100, height: 800 });
+    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toBeHidden();
     await expect(
       page.getByRole("heading", { name: "LegionCode Desktop" }),
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
     await expect(page.getByText("2 capability slices unavailable", { exact: true })).toBeVisible();
-    const sidebarToggle = page.locator(".lc-workspace-menu-button");
-    const workspaceSidebar = page.getByTestId("workspace-sidebar");
+    await sidebarToggle.click();
     await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
     await expect(workspaceSidebar).toBeVisible();
     await page.setViewportSize({ width: 420, height: 900 });
@@ -124,7 +130,14 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const page = await application.firstWindow();
+    await page.setViewportSize({ width: 420, height: 900 });
+    const initialSidebarToggle = page.locator(".lc-workspace-menu-button");
+    const workspaceSidebar = page.getByTestId("workspace-sidebar");
+    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toBeHidden();
     await page.setViewportSize({ width: 1100, height: 800 });
+    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toBeHidden();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
 
     await application.evaluate(({ dialog }, selectedPath) => {
@@ -138,10 +151,15 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await page.getByRole("button", { name: "Grant access" }).click();
     await expect(page.getByRole("heading", { name: "repository" })).toBeVisible();
     await expect(page.getByText("main", { exact: true })).toBeVisible();
-    const initialSidebarToggle = page.locator(".lc-workspace-menu-button");
-    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
     await initialSidebarToggle.click();
-    await expect(page.getByTestId("workspace-sidebar")).toBeVisible();
+    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(workspaceSidebar).toBeVisible();
+    await initialSidebarToggle.click();
+    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toBeHidden();
+    await initialSidebarToggle.click();
+    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(workspaceSidebar).toBeVisible();
 
     await page.getByLabel("New thread title").fill("Initial thread");
     await page.getByRole("button", { name: "Create thread" }).click();
@@ -183,6 +201,10 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
     await reopenedSidebarToggle.click();
     await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(reopenedPage.getByTestId("workspace-sidebar")).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
     await reopenedPage.getByRole("button", { name: /Archived/ }).click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.getByRole("option", { name: "Renamed thread" }).click();
@@ -194,6 +216,7 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.keyboard.press("Escape");
     await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(reopenedPage.getByTestId("workspace-sidebar")).toBeHidden();
     await reopenedPage.getByRole("button", { name: "Revoke access" }).click();
     await expect(reopenedPage.getByRole("heading", { name: "No workspace granted" })).toBeVisible();
 
