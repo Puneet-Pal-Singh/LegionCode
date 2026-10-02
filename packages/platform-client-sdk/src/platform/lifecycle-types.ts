@@ -100,6 +100,7 @@ export const SubmitLifecycleApprovalRequestSchema = z
     turnId: TurnIdSchema,
     approvalId: ApprovalIdSchema,
     decision: ApprovalDecisionSchema,
+    grantScope: z.enum(["once", "matching_in_chat"]).optional(),
     decidedBy: UserIdSchema.nullable(),
     reason: z.string().min(1).max(2_000).nullable(),
   })

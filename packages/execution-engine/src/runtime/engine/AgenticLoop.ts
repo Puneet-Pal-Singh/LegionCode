@@ -359,10 +359,7 @@ export class AgenticLoop {
       // Add LLM response to messages
       messages.push(buildAssistantMessage(responseText, response.toolCalls));
       if (response.toolCalls && response.toolCalls.length > 0) {
-        const commentary = resolveModelCommentary(
-          responseText,
-          response.toolCalls,
-        );
+        const commentary = resolveModelCommentary(responseText);
         if (commentary) {
           await context.onAssistantMessage?.(commentary);
         }

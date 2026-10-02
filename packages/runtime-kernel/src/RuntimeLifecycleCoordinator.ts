@@ -179,16 +179,17 @@ export class RuntimeLifecycleCoordinator {
   }
 
   async appendAssistantCommentary(itemId: ItemId, text: string): Promise<void> {
-    const bounded = text.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH);
-    if (!bounded.trim()) return;
+    if (!text.trim()) return;
     await this.enqueue(async () => {
       await this.startItem(itemId, "commentary", {});
-      await this.emit({
-        type: "assistant_message.delta",
-        itemId,
-        payload: { phase: "commentary", delta: bounded },
-      });
-      await this.settleItem(itemId, "completed", { result: { text: bounded } });
+      for (const delta of splitLifecycleOutput(text)) {
+        await this.emit({
+          type: "assistant_message.delta",
+          itemId,
+          payload: { phase: "commentary", delta },
+        });
+      }
+      await this.settleItem(itemId, "completed", { result: {} });
     });
   }
 
@@ -197,16 +198,17 @@ export class RuntimeLifecycleCoordinator {
     text: string,
     displaySafe: boolean,
   ): Promise<void> {
-    const bounded = text.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH);
-    if (!displaySafe || !bounded.trim()) return;
+    if (!displaySafe || !text.trim()) return;
     await this.enqueue(async () => {
       await this.startItem(itemId, "reasoning", {});
-      await this.emit({
-        type: "reasoning.summary_delta",
-        itemId,
-        payload: { delta: bounded, displaySafe: true },
-      });
-      await this.settleItem(itemId, "completed", { result: { text: bounded } });
+      for (const delta of splitLifecycleOutput(text)) {
+        await this.emit({
+          type: "reasoning.summary_delta",
+          itemId,
+          payload: { delta, displaySafe: true },
+        });
+      }
+      await this.settleItem(itemId, "completed", { result: {} });
     });
   }
 

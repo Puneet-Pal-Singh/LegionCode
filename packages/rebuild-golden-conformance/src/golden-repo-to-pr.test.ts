@@ -613,9 +613,7 @@ class GoldenApprovalWaitPort implements ApprovalWaitPort {
       createdAt: NOW,
       idempotencyKey: "golden-approval-echo",
       payload: {
-        decision: decision.decision,
-        decidedBy: decision.decidedBy,
-        reason: decision.reason,
+        status: decision.decision,
       },
     });
   }

@@ -35,6 +35,13 @@ const ResponsesOutputContentSchema = z
   })
   .passthrough();
 
+const ResponsesReasoningSummarySchema = z
+  .object({
+    type: z.string().optional(),
+    text: z.string().optional(),
+  })
+  .passthrough();
+
 const ResponsesOutputItemSchema = z
   .object({
     type: z.string().optional(),
@@ -43,6 +50,7 @@ const ResponsesOutputItemSchema = z
     name: z.string().optional(),
     arguments: z.union([z.string(), z.record(z.unknown())]).optional(),
     content: z.array(ResponsesOutputContentSchema).optional(),
+    summary: z.array(ResponsesReasoningSummarySchema).optional(),
   })
   .passthrough();
 
@@ -97,6 +105,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       usage,
       finishReason: payload.status,
       toolCalls: extractResponsesToolCalls(payload.output),
+      transcriptParts: extractResponsesReasoningSummary(payload.output),
     };
   }
 
@@ -195,7 +204,7 @@ function buildResponsesRequestBody(
     body.tools = tools;
   }
   if (params.reasoningEffort) {
-    body.reasoning = { effort: params.reasoningEffort };
+    body.reasoning = { effort: params.reasoningEffort, summary: "auto" };
   }
   return body;
 }
@@ -329,7 +338,9 @@ function extractResponsesText(payload: ResponsesPayload): string {
   }
   return (
     payload.output
+      ?.filter((item) => item.type === "message")
       ?.flatMap((item) => item.content ?? [])
+      .filter((content) => content.type === "output_text")
       .map((content) => content.text)
       .filter((text): text is string => typeof text === "string")
       .join("") ?? ""
@@ -347,6 +358,21 @@ function extractResponsesToolCalls(
       args: parseToolArguments(item.arguments),
     }));
   return toolCalls && toolCalls.length > 0 ? toolCalls : undefined;
+}
+
+function extractResponsesReasoningSummary(
+  output: ResponsesOutputItem[] | undefined,
+): GenerationResult["transcriptParts"] {
+  const text = output
+    ?.filter((item) => item.type === "reasoning")
+    .flatMap((item) => item.summary ?? [])
+    .filter((part) => part.type === "summary_text")
+    .map((part) => part.text?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
+  return text
+    ? [{ type: "reasoning", text, displaySafe: true }]
+    : undefined;
 }
 
 function buildResponsesTools(

@@ -76,9 +76,31 @@ function replaceSessionById(
 ): AgentSession[] {
   return sessions.map((session) =>
     session.id === updatedSession.id
-      ? mergeServerSessionProjection(session, updatedSession)
+      ? mergeProjectionIfChanged(session, updatedSession)
       : session,
   );
+}
+
+function mergeProjectionIfChanged(
+  current: AgentSession,
+  incoming: AgentSession,
+): AgentSession {
+  const merged = mergeServerSessionProjection(current, incoming);
+  const keys = Object.keys(current) as Array<keyof AgentSession>;
+  const unchanged =
+    keys.length === Object.keys(merged).length &&
+    keys.every((key) => {
+      const currentValue = current[key];
+      const mergedValue = merged[key];
+      if (Array.isArray(currentValue) && Array.isArray(mergedValue)) {
+        return (
+          currentValue.length === mergedValue.length &&
+          currentValue.every((value, index) => value === mergedValue[index])
+        );
+      }
+      return currentValue === mergedValue;
+    });
+  return unchanged ? current : merged;
 }
 
 function mergeHydratedSessions(
@@ -135,6 +157,15 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const sessionsRef = useRef<AgentSession[]>(sessions);
   const activeSessionIdRef = useRef<string | null>(null);
   const localMutationVersionRef = useRef(0);
+  const sessionProjectionRefreshRef = useRef<Promise<void> | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Persist activeSessionId to survive refreshes
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
@@ -257,9 +288,12 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         const next = current.map((session) => {
           const serverSession = serverSessions[session.id];
           return serverSession
-            ? mergeServerSessionProjection(session, serverSession)
+            ? mergeProjectionIfChanged(session, serverSession)
             : session;
         });
+        if (next.every((session, index) => session === current[index])) {
+          return current;
+        }
         sessionsRef.current = next;
         return next;
       });
@@ -271,6 +305,110 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     sessions,
     onServerSessions: mergeTitleServerSessions,
   });
+
+  const refreshSessionProjections = useCallback(async (): Promise<void> => {
+    if (sessionProjectionRefreshRef.current) {
+      return await sessionProjectionRefreshRef.current;
+    }
+    const refresh = (async () => {
+      const serverSessions =
+        await SessionStateService.hydrateSessionsFromServer();
+      if (!isMountedRef.current) return;
+      setSessions((current) => {
+        const next = current.map((session) => {
+          const serverSession = serverSessions[session.id];
+          return serverSession
+            ? mergeProjectionIfChanged(session, serverSession)
+            : session;
+        });
+        if (next.every((session, index) => session === current[index])) {
+          return current;
+        }
+        sessionsRef.current = next;
+        return next;
+      });
+    })();
+    sessionProjectionRefreshRef.current = refresh;
+    try {
+      await refresh;
+    } finally {
+      sessionProjectionRefreshRef.current = null;
+    }
+  }, []);
+
+  const activeProjectionKey = sessions
+    .filter(
+      (session) =>
+        session.status === "running" ||
+        session.status === "waiting_for_approval",
+    )
+    .map((session) => session.id)
+    .sort()
+    .join("|");
+
+  useEffect(() => {
+    if (!hydrateFromServer || sessionHydrationStatus !== "ready") return;
+
+    let cancelled = false;
+    let timeout: number | undefined;
+    const schedulePoll = (): void => {
+      if (
+        cancelled ||
+        activeProjectionKey.length === 0 ||
+        document.visibilityState !== "visible"
+      ) {
+        return;
+      }
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => void poll(), 2_000);
+    };
+    const refreshIfVisible = (): void => {
+      if (document.visibilityState !== "visible") return;
+      void refreshSessionProjections()
+        .catch((error) => {
+          console.warn(
+            "[useSessionManager] Failed to refresh session projections:",
+            error,
+          );
+        })
+        .finally(schedulePoll);
+    };
+    const poll = async (): Promise<void> => {
+      if (
+        cancelled ||
+        activeProjectionKey.length === 0 ||
+        document.visibilityState !== "visible"
+      ) {
+        return;
+      }
+      try {
+        await refreshSessionProjections();
+      } catch (error) {
+        console.warn(
+          "[useSessionManager] Failed to refresh active session projections:",
+          error,
+        );
+      }
+      schedulePoll();
+    };
+
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    if (activeProjectionKey.length > 0) {
+      schedulePoll();
+    }
+    return () => {
+      cancelled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [
+    activeProjectionKey,
+    hydrateFromServer,
+    refreshSessionProjections,
+    sessionHydrationStatus,
+  ]);
 
   /**
    * Create a new session with v2 schema

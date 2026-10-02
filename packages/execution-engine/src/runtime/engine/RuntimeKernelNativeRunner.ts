@@ -102,14 +102,13 @@ import {
 } from "./RunAgenticLoopPolicy.js";
 import {
   getNativeToolCallSafetyLimit,
-  shouldForceNativeFinalSynthesis,
 } from "./NativeProviderStepBudget.js";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildNativeProviderMessages } from "./NativeProviderFinalRecoveryMessages.js";
 import {
-  buildNativeProviderStructuredFinal,
-  NativeProviderFinalAnswerSchema,
-} from "./NativeProviderStructuredFinal.js";
+  generateNativeProviderFinalRecovery,
+  initialNativeFinalRecoveryAttempts,
+} from "./NativeProviderFinalRecovery.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import {
@@ -240,7 +239,7 @@ export class RuntimeKernelNativeRunner {
     ctx: RuntimeDurableObjectState,
     private readonly options: RunEngineOptions,
     private readonly agent: IAgent | undefined,
-    dependencies: RunEngineDependencies = {},
+    private readonly dependencies: RunEngineDependencies = {},
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
@@ -432,6 +431,7 @@ export class RuntimeKernelNativeRunner {
         new NativePermissionPolicyResolver(
           requirePersistedPermissionContext(run).state.productMode,
         ),
+        this.dependencies.approvalGrants,
       ),
       approvals: new NativeApprovalWaitPort({
         env: this.options.env,
@@ -974,12 +974,10 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    let finalOnlyRecoveryAttempts = shouldForceNativeFinalSynthesis(
+    let finalOnlyRecoveryAttempts = initialNativeFinalRecoveryAttempts(
       this.stepsExecuted,
       this.options.maxSteps,
-    )
-      ? 1
-      : 0;
+    );
     let responseParts: LLMTextResponse["parts"];
     let responseUsage: LLMTextResponse["usage"] | null = null;
     let responseReasoningSummary: LLMTextResponse["reasoningSummary"];
@@ -1013,29 +1011,31 @@ class KernelAgenticProvider implements ProviderPort {
           input,
           context,
           (attemptContext) =>
-            this.options.llmGateway.generateStructured({
+            generateNativeProviderFinalRecovery(this.options.llmGateway, {
               context: attemptContext,
               messages,
-              schema: NativeProviderFinalAnswerSchema,
+              system: buildAgenticLoopSystemPrompt({
+                finalSynthesisOnly: true,
+                requiresMutation: this.requiresMutation,
+                completedMutatingToolCount: this.completedMutatingToolCount,
+                completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+                explicitCiLogRequest: false,
+                encounteredCiLogsAuthorizationBoundary: false,
+                attemptedCiLogsCliFallback: false,
+              }),
               model: this.options.input.modelId,
               providerId: this.options.input.providerId,
               runtimeModelId: this.options.input.runtimeModelId,
               providerTransport: this.options.input.providerTransport,
               providerEndpoint: this.options.input.providerEndpoint,
               temperature: 0,
+              signal: input.signal,
             }),
         );
         const response = recovered;
         responseUsage = response.usage;
-        responseReasoningSummary = undefined;
-        responseParts = [
-          buildNativeProviderStructuredFinal({
-            runId: this.options.run.id,
-            turnId: input.turn.id,
-            finalAnswer: response.object.finalAnswer,
-            sequence: 0,
-          }),
-        ];
+        responseReasoningSummary = response.reasoningSummary;
+        responseParts = response.parts ?? [];
         toolCalls = [];
       } else {
         const response = await this.requestWithProviderRecovery(
@@ -1109,6 +1109,12 @@ class KernelAgenticProvider implements ProviderPort {
         continue;
       }
 
+      if (finalRecovery && !visibleText.trim()) {
+        throw new Error(
+          "[runtime-kernel/native] Provider returned an empty final answer during synthesis recovery",
+        );
+      }
+
       break;
     } while (true);
 
@@ -1137,7 +1143,7 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    const commentary = resolveModelCommentary(visibleText, toolCalls);
+    const commentary = resolveModelCommentary(visibleText);
     if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
@@ -1879,6 +1885,7 @@ class NativeApprovalWaitPort implements ApprovalWaitPort {
         outcome.outcome === "timed_out"
           ? "Approval timed out before a decision was recorded."
           : "Approval request was denied.",
+      ...(outcome.outcome === "timed_out" ? { timedOut: true } : {}),
     };
   }
 }

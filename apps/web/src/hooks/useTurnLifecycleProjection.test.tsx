@@ -60,13 +60,16 @@ describe("useTurnLifecycleProjection", () => {
         approvalId: APPROVAL_ID,
         payload: {
           question: "Run command?",
-          options: [{ id: "approved", label: "Approve" }, "Deny"],
+          options: [
+            { id: "approved", label: "Approve", description: null },
+            { id: "denied", label: "Deny", description: null },
+          ],
         },
       }),
       lifecycleEvent(2, "approval.decided", {
         itemId: ITEM_ID,
         approvalId: APPROVAL_ID,
-        payload: { decision: "approved" },
+        payload: { status: "approved" },
       }),
       lifecycleEvent(3, "request.resolved", {
         itemId: ITEM_ID,

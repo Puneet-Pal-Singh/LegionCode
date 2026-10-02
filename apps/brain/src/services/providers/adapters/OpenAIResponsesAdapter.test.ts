@@ -123,9 +123,50 @@ describe("OpenAIResponsesAdapter", () => {
     expect(body).toMatchObject({
       model: "gpt-5.6-luna",
       max_output_tokens: 4096,
-      reasoning: { effort: "high" },
+      reasoning: { effort: "high", summary: "auto" },
     });
     expect(body).not.toHaveProperty("temperature");
+  });
+
+  it("preserves only provider-designated display-safe reasoning summaries", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              type: "reasoning",
+              content: [{ type: "reasoning_text", text: "Private reasoning" }],
+              summary: [
+                { type: "summary_text", text: "Comparing the two routes." },
+                { type: "other", text: "Do not display this." },
+              ],
+            },
+            { type: "message", content: [{ type: "output_text", text: "Done" }] },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/responses",
+      providerId: "openai",
+    });
+
+    const result = await adapter.generate({
+      messages: [{ role: "user", content: "hello" }],
+      model: "gpt-5.6",
+      reasoningEffort: "medium",
+    });
+
+    expect(result.transcriptParts).toEqual([
+      {
+        type: "reasoning",
+        text: "Comparing the two routes.",
+        displaySafe: true,
+      },
+    ]);
   });
 
   it("forwards attached images as native Responses input_image parts", async () => {
@@ -214,7 +255,7 @@ describe("OpenAIResponsesAdapter", () => {
         },
       },
     ]);
-    expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.reasoning).toEqual({ effort: "high", summary: "auto" });
   });
 
   it("preserves structured assistant/tool history when building responses input", async () => {

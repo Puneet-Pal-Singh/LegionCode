@@ -9,6 +9,8 @@ import {
   ItemIdSchema,
   JsonRecordSchema,
   LifecycleToolDisplaySchema,
+  type ThreadId,
+  type WorkspaceId,
   type LifecycleToolFamily,
   type PermissionProfileId,
   type RunMode,
@@ -28,8 +30,19 @@ export interface PermissionPolicyResolver {
   resolve(permissionProfileId: PermissionProfileId): Promise<PermissionPolicy>;
 }
 
+export interface ApprovalGrantReader {
+  hasMatchingInChatGrant(input: {
+    threadId: ThreadId;
+    workspaceId: WorkspaceId;
+    matcherKey: string;
+  }): Promise<boolean>;
+}
+
 export class RegistryToolAuthorization implements ToolAuthorizationPort {
-  constructor(private readonly policies: PermissionPolicyResolver) {}
+  constructor(
+    private readonly policies: PermissionPolicyResolver,
+    private readonly grants?: ApprovalGrantReader,
+  ) {}
 
   async authorize(
     input: Parameters<ToolAuthorizationPort["authorize"]>[0],
@@ -50,7 +63,34 @@ export class RegistryToolAuthorization implements ToolAuthorizationPort {
       policy,
       buildPermissionRequest(resolved.definition, resolved.toolCall.input),
     );
-    return mapPolicyDecision(decision, resolved, input);
+    if (decision.effect === "deny") {
+      return reject("tool_policy_denied", decision.reason);
+    }
+    if (decision.effect === "allow") {
+      return { status: "authorized", toolCall: resolved.toolCall };
+    }
+    const matcherKey = await createGrantMatcherKey(
+      resolved.definition.id,
+      resolved.toolCall.input,
+    );
+    if (
+      decision.effect === "ask" &&
+      this.grants &&
+      (await this.grants.hasMatchingInChatGrant({
+        threadId: input.run.threadId,
+        workspaceId: input.run.workspaceId,
+        matcherKey,
+      }))
+    ) {
+      return { status: "authorized", toolCall: resolved.toolCall };
+    }
+    return mapAskDecision(
+      decision,
+      resolved,
+      input,
+      matcherKey,
+      this.grants !== undefined,
+    );
   }
 }
 
@@ -139,17 +179,13 @@ function buildSafeInputSummary(
   return {};
 }
 
-function mapPolicyDecision(
-  decision: PolicyDecisionResult,
+function mapAskDecision(
+  decision: Extract<PolicyDecisionResult, { effect: "ask" }>,
   resolved: RegisteredToolCall,
   input: AuthorizationInput,
+  matcherKey: string,
+  canReuseGrant: boolean,
 ): ToolAuthorizationResult {
-  if (decision.effect === "deny") {
-    return reject("tool_policy_denied", decision.reason);
-  }
-  if (decision.effect === "allow") {
-    return { status: "authorized", toolCall: resolved.toolCall };
-  }
   const { definition, toolCall } = resolved;
   return {
     status: "approval_required",
@@ -164,6 +200,18 @@ function mapPolicyDecision(
           label: "Approve",
           description: "Allow this exact tool call",
         },
+        ...(canReuseGrant
+          ? [
+              {
+                id: "allow_matching_in_chat",
+                label: "Allow matching actions in this chat",
+                description:
+                  definition.id === "git_commit"
+                    ? "Allow future commits in this chat and workspace"
+                    : "Reuse for calls with identical input in this chat and workspace",
+              },
+            ]
+          : []),
         { id: "deny", label: "Deny", description: null },
       ],
       metadata: {
@@ -171,9 +219,41 @@ function mapPolicyDecision(
         action: definition.permissionMetadata.action ?? definition.id,
         riskLevel: decision.riskLevel,
         permissionProfileId: input.run.permissionProfileId,
+        grantMatcherKey: matcherKey,
+        grantWorkspaceId: input.run.workspaceId,
       },
     },
   };
+}
+
+async function createGrantMatcherKey(
+  toolId: string,
+  input: Record<string, unknown>,
+): Promise<string> {
+  if (toolId === "git_commit") {
+    return `tool:${toolId}`;
+  }
+  const normalized = stableJson(input);
+  const bytes = new TextEncoder().encode(normalized);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `input:${toolId}:sha256:${hex}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) as string;
 }
 
 function isReadOnlyMutation(
