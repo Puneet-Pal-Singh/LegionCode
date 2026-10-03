@@ -1,41 +1,47 @@
 import {
   APP_SERVER_PROTOCOL_VERSION,
-  AppServerErrorSchema,
-  AppServerInitializeRequestSchema,
-  AppServerInitializeResponseSchema,
-  GrantLocalWorkspaceRequestSchema,
-  LocalWorkspaceGrantResponseSchema,
+  AppServerRequestSchema,
+  AppServerResponseSchema,
+  AppServerResultSchemas,
+  type AppServerMethod,
+  type AppServerRequest,
+} from "@legioncode/app-server/protocol";
+import {
   ThreadIdSchema,
-  ThreadSchema,
   type LocalWorkspaceGrant,
   type AppServerInitializeResponse,
   type Thread,
 } from "@repo/platform-protocol";
 import { z } from "zod";
 
-export type AppServerClientOptions = {
-  baseUrl: string;
-  credential?: string;
-  clientId: string;
-  clientVersion: string;
-  fetchImpl?: typeof fetch;
-  signal?: AbortSignal;
-  timeoutMs?: number;
+export type { AppServerRequest } from "@legioncode/app-server/protocol";
+
+export type AppServerTransport = {
+  request(envelope: AppServerRequest): Promise<unknown>;
 };
 
-export class AppServerHandshakeError extends Error {
+export type AppServerClientOptions = {
+  clientId: string;
+  clientVersion: string;
+  transport: AppServerTransport;
+};
+
+export type WorkspaceGrantSource =
+  | { selectionToken: string }
+  | { path: string };
+
+export class AppServerClientError extends Error {
   constructor(
     public readonly code:
-      | "unauthorized"
-      | "protocol_incompatible"
-      | "invalid_request"
+      | "transport"
       | "invalid_response"
-      | "transport",
+      | "server_error",
     message: string,
-    public readonly statusCode?: number,
+    public readonly method?: AppServerMethod,
+    public readonly serverCode?: string,
   ) {
     super(message);
-    this.name = "AppServerHandshakeError";
+    this.name = "AppServerClientError";
   }
 }
 
@@ -44,7 +50,7 @@ export type AppServerClient = {
     requestedCapabilities?: readonly string[],
   ): Promise<AppServerInitializeResponse>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
-  grantWorkspace(path: string): Promise<LocalWorkspaceGrant>;
+  grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
   listThreads(): Promise<Thread[]>;
   createThread(title?: string): Promise<Thread>;
@@ -57,252 +63,117 @@ export type AppServerClient = {
 export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const baseUrl = normalizeBaseUrl(options.baseUrl);
-
   return {
     initialize: async (requestedCapabilities = []) => {
-      const request = AppServerInitializeRequestSchema.parse({
-        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
-        client: {
-          id: options.clientId,
-          version: options.clientVersion,
+      const result = await request(options, {
+        method: "initialize",
+        params: {
+          client: { id: options.clientId, version: options.clientVersion },
+          requestedCapabilities: [...requestedCapabilities],
         },
-        requestedCapabilities: [...requestedCapabilities],
-      });
-
-      let response: Response;
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      options.signal?.addEventListener("abort", abort, { once: true });
-      const timeout = setTimeout(
-        () => controller.abort(),
-        options.timeoutMs ?? 5_000,
-      );
-      try {
-        response = await fetchImpl(`${baseUrl}/initialize`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            ...(options.credential
-              ? { Authorization: `Bearer ${options.credential}` }
-              : {}),
-          },
-          body: JSON.stringify(request),
-          signal: controller.signal,
-        });
-      } catch {
-        throw new AppServerHandshakeError(
-          "transport",
-          "App Server is unreachable",
-        );
-      } finally {
-        clearTimeout(timeout);
-        options.signal?.removeEventListener("abort", abort);
-      }
-
-      const payload = await readJson(response);
-      if (!response.ok) {
-        const parsedError = AppServerErrorSchema.safeParse(payload);
-        throw new AppServerHandshakeError(
-          parsedError.success ? parsedError.data.code : "invalid_response",
-          parsedError.success
-            ? parsedError.data.message
-            : `App Server rejected initialize (${response.status})`,
-          response.status,
-        );
-      }
-
-      const parsedResponse = AppServerInitializeResponseSchema.safeParse(payload);
-      if (!parsedResponse.success) {
-        throw new AppServerHandshakeError(
-          "invalid_response",
-          "App Server returned an invalid initialize response",
-          response.status,
-        );
-      }
-      return parsedResponse.data;
+      }, AppServerResultSchemas.initialize);
+      return result;
     },
     getWorkspaceGrant: async () => {
-      const payload = await requestAppServer(options, baseUrl, "GET", "/workspaces/current");
-      return parseWorkspaceResponse(payload).grant;
+      const result = await request(options, {
+        method: "workspace/current",
+        params: {},
+      }, AppServerResultSchemas["workspace/current"]);
+      return result.grant;
     },
-    grantWorkspace: async (path) => {
-      const request = GrantLocalWorkspaceRequestSchema.parse({ path });
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "POST",
-        "/workspaces/grant",
-        request,
-      );
-      return parseWorkspaceResponse(payload).grant ?? throwMissingGrant();
+    grantWorkspace: async (source) => {
+      const result = await request(options, {
+        method: "workspace/grant",
+        params: source,
+      }, AppServerResultSchemas["workspace/grant"]);
+      const grant = result.grant;
+      if (!grant) {
+        throw invalidResponse("workspace/grant", "App Server did not return a workspace grant");
+      }
+      return grant;
     },
     revokeWorkspace: async () => {
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "POST",
-        "/workspaces/revoke",
-      );
-      parseWorkspaceResponse(payload);
+      const result = await request(options, {
+        method: "workspace/revoke",
+        params: {},
+      }, AppServerResultSchemas["workspace/revoke"]);
+      void result;
     },
     listThreads: async () => {
-      const payload = await requestAppServer(options, baseUrl, "GET", "/threads");
-      return parseThreadListResponse(payload);
+      const result = await request(options, { method: "thread/list", params: {} }, AppServerResultSchemas["thread/list"]);
+      return result.threads;
     },
     createThread: async (title) => {
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "POST",
-        "/threads",
-        title === undefined ? {} : { title },
-      );
-      return parseThreadResponse(payload);
+      const result = await request(options, {
+        method: "thread/create",
+        params: title === undefined ? {} : { title },
+      }, AppServerResultSchemas["thread/create"]);
+      return result.thread;
     },
     getThread: async (threadId) => {
-      const parsedThreadId = ThreadIdSchema.parse(threadId);
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "GET",
-        `/threads/${encodeURIComponent(parsedThreadId)}`,
-      );
-      return parseThreadResponse(payload);
+      const result = await request(options, {
+        method: "thread/get",
+        params: { threadId: ThreadIdSchema.parse(threadId) },
+      }, AppServerResultSchemas["thread/get"]);
+      return result.thread;
     },
     renameThread: async (threadId, title) => {
-      const parsedThreadId = ThreadIdSchema.parse(threadId);
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "POST",
-        `/threads/${encodeURIComponent(parsedThreadId)}/title`,
-        { title },
-      );
-      return parseThreadResponse(payload);
+      const result = await request(options, {
+        method: "thread/rename",
+        params: { threadId: ThreadIdSchema.parse(threadId), title },
+      }, AppServerResultSchemas["thread/rename"]);
+      return result.thread;
     },
     archiveThread: async (threadId) => {
-      const parsedThreadId = ThreadIdSchema.parse(threadId);
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "POST",
-        `/threads/${encodeURIComponent(parsedThreadId)}/archive`,
-      );
-      return parseThreadResponse(payload);
+      const result = await request(options, {
+        method: "thread/archive",
+        params: { threadId: ThreadIdSchema.parse(threadId) },
+      }, AppServerResultSchemas["thread/archive"]);
+      return result.thread;
     },
     unarchiveThread: async (threadId) => {
-      const parsedThreadId = ThreadIdSchema.parse(threadId);
-      const payload = await requestAppServer(
-        options,
-        baseUrl,
-        "POST",
-        `/threads/${encodeURIComponent(parsedThreadId)}/unarchive`,
-      );
-      return parseThreadResponse(payload);
+      const result = await request(options, {
+        method: "thread/unarchive",
+        params: { threadId: ThreadIdSchema.parse(threadId) },
+      }, AppServerResultSchemas["thread/unarchive"]);
+      return result.thread;
     },
   };
 }
 
-async function requestAppServer(
+async function request<Schema extends z.ZodTypeAny>(
   options: AppServerClientOptions,
-  baseUrl: string,
-  method: "GET" | "POST",
-  path: string,
-  body?: unknown,
-): Promise<unknown> {
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  options.signal?.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000);
+  requestInput: Omit<AppServerRequest, "protocolVersion">,
+  resultSchema: Schema,
+): Promise<z.output<Schema>> {
+  const envelope = AppServerRequestSchema.parse({
+    protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+    ...requestInput,
+  });
+
+  let payload: unknown;
   try {
-    const response = await fetchImpl(`${baseUrl}${path}`, {
-      method,
-      headers: {
-        Accept: "application/json",
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        ...(options.credential
-          ? { Authorization: `Bearer ${options.credential}` }
-          : {}),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: controller.signal,
-    });
-    const payload = await readJson(response);
-    if (!response.ok) {
-      const parsedError = AppServerErrorSchema.safeParse(payload);
-      throw new AppServerHandshakeError(
-        parsedError.success ? parsedError.data.code : "invalid_response",
-        parsedError.success
-          ? parsedError.data.message
-          : `App Server rejected ${method} ${path} (${response.status})`,
-        response.status,
-      );
-    }
-    return payload;
-  } catch (error) {
-    if (error instanceof AppServerHandshakeError) {
-      throw error;
-    }
-    throw new AppServerHandshakeError("transport", "App Server is unreachable");
-  } finally {
-    clearTimeout(timeout);
-    options.signal?.removeEventListener("abort", abort);
-  }
-}
-
-function parseWorkspaceResponse(payload: unknown) {
-  const parsed = LocalWorkspaceGrantResponseSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new AppServerHandshakeError(
-      "invalid_response",
-      "App Server returned an invalid workspace response",
-    );
-  }
-  return parsed.data;
-}
-
-const ThreadResponseSchema = z.object({ thread: ThreadSchema }).strict();
-const ThreadListResponseSchema = z.object({ threads: z.array(ThreadSchema) }).strict();
-
-function parseThreadResponse(payload: unknown): Thread {
-  const parsed = ThreadResponseSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new AppServerHandshakeError("invalid_response", "App Server returned an invalid thread response");
-  }
-  return parsed.data.thread;
-}
-
-function parseThreadListResponse(payload: unknown): Thread[] {
-  const parsed = ThreadListResponseSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new AppServerHandshakeError("invalid_response", "App Server returned an invalid thread list");
-  }
-  return parsed.data.threads;
-}
-
-function throwMissingGrant(): never {
-  throw new AppServerHandshakeError(
-    "invalid_response",
-    "App Server did not return a workspace grant",
-  );
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
+    payload = await options.transport.request(envelope);
   } catch {
-    throw new AppServerHandshakeError(
-      "invalid_response",
-      "App Server returned invalid JSON",
-      response.status,
+    throw new AppServerClientError("transport", "App Server request failed", envelope.method);
+  }
+
+  const parsed = AppServerResponseSchema.safeParse(payload);
+  if (!parsed.success || parsed.data.method !== envelope.method) {
+    throw invalidResponse(envelope.method, "App Server returned an invalid response envelope");
+  }
+
+  if (parsed.data.ok === false) {
+    throw new AppServerClientError(
+      "server_error",
+      parsed.data.error.message,
+      envelope.method,
+      parsed.data.error.code,
     );
   }
+  return resultSchema.parse(parsed.data.result);
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "");
+function invalidResponse(method: AppServerMethod, message: string) {
+  return new AppServerClientError("invalid_response", message, method);
 }

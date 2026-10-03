@@ -41,6 +41,24 @@ test("rejects forbidden app imports", async (context) => {
   );
 });
 
+test("allows SDK access only through the App Server protocol subpath", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "packages", "sdk", "src", "index.ts"),
+    'import { AppServerRequestSchema } from "@legioncode/app-server/protocol";\n',
+  );
+  assert.deepEqual(await validateArchitecture(root), []);
+
+  await writeFile(
+    join(root, "packages", "sdk", "src", "index.ts"),
+    'import { createServer } from "@legioncode/app-server/server";\n',
+  );
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /SDK may depend on App Server only through @legioncode\/app-server\/protocol/,
+  );
+});
+
 test("rejects competing canonical authority declarations", async (context) => {
   const root = await createFixture(context);
   await writeFile(

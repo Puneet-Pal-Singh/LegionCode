@@ -7,7 +7,7 @@ import {
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
 import "@legioncode/client-ui/styles.css";
-import { projectThreadSidebar } from "@legioncode/sdk";
+import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
 import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -26,6 +26,7 @@ function DesktopApp(): React.JSX.Element {
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot | null>(null);
+  const [sdkReady, setSdkReady] = useState(false);
   const [workspace, setWorkspace] = useState<LocalWorkspaceGrant | null>(null);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -38,6 +39,16 @@ function DesktopApp(): React.JSX.Element {
   const [threadError, setThreadError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => !window.matchMedia("(max-width: 1023px)").matches,
+  );
+  const appServerClient = useMemo(
+    () => build
+      ? createAppServerClient({
+          clientId: "legioncode-desktop",
+          clientVersion: build.version,
+          transport: { request: (envelope) => window.desktop.request(envelope) },
+        })
+      : null,
+    [build?.version],
   );
 
   useEffect(() => {
@@ -56,12 +67,26 @@ function DesktopApp(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (environment?.status !== "ready") {
+    setSdkReady(false);
+    if (!appServerClient || environment?.status !== "ready") return;
+    let active = true;
+    void appServerClient.initialize().then(() => {
+      if (active) setSdkReady(true);
+    }).catch(() => {
+      if (active) setThreadLoadState("error");
+    });
+    return () => {
+      active = false;
+    };
+  }, [appServerClient, environment?.status]);
+
+  useEffect(() => {
+    if (!appServerClient || !sdkReady) {
       return;
     }
     setThreadLoadState("loading");
-    void window.desktop
-      .getWorkspace()
+    void appServerClient
+      .getWorkspaceGrant()
       .then(async (nextWorkspace) => {
         setWorkspace(nextWorkspace);
         if (nextWorkspace?.readiness === "ready") {
@@ -76,12 +101,13 @@ function DesktopApp(): React.JSX.Element {
         setWorkspaceError("The local workspace grant could not be loaded.");
         setThreadLoadState("ready");
       });
-  }, [environment?.status]);
+  }, [appServerClient, sdkReady]);
 
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
     setThreadLoadState("loading");
     try {
-      const nextThreads = await window.desktop.listThreads();
+      if (!appServerClient) return;
+      const nextThreads = await appServerClient.listThreads();
       setThreads(nextThreads);
       setThreadLoadState("ready");
       const selectionId = preferredSelectionId ?? selectedThread?.id;
@@ -100,7 +126,8 @@ function DesktopApp(): React.JSX.Element {
   async function createThread(title?: string): Promise<void> {
     setThreadError(null);
     try {
-      const created = await window.desktop.createThread(
+      if (!appServerClient) return;
+      const created = await appServerClient.createThread(
         title?.trim() || undefined,
       );
       setNewThreadTitle("");
@@ -117,7 +144,8 @@ function DesktopApp(): React.JSX.Element {
     if (!knownThread) return;
     setThreadError(null);
     try {
-      const opened = await window.desktop.getThread(knownThread.id);
+      if (!appServerClient) return;
+      const opened = await appServerClient.getThread(knownThread.id);
       setSelectedThread(opened);
       setThreadTitle(opened.title);
     } catch {
@@ -129,7 +157,8 @@ function DesktopApp(): React.JSX.Element {
     if (!selectedThread) return;
     setThreadError(null);
     try {
-      const renamed = await window.desktop.renameThread(
+      if (!appServerClient) return;
+      const renamed = await appServerClient.renameThread(
         selectedThread.id,
         threadTitle,
       );
@@ -141,12 +170,12 @@ function DesktopApp(): React.JSX.Element {
   }
 
   async function setThreadArchived(archived: boolean): Promise<void> {
-    if (!selectedThread) return;
+    if (!selectedThread || !appServerClient) return;
     setThreadError(null);
     try {
       const updated = archived
-        ? await window.desktop.archiveThread(selectedThread.id)
-        : await window.desktop.unarchiveThread(selectedThread.id);
+        ? await appServerClient.archiveThread(selectedThread.id)
+        : await appServerClient.unarchiveThread(selectedThread.id);
       setSelectedThread(updated);
       await refreshThreads(updated.id);
     } catch {
@@ -158,7 +187,8 @@ function DesktopApp(): React.JSX.Element {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
     try {
-      const updated = await window.desktop.archiveThread(thread.id);
+      if (!appServerClient) return;
+      const updated = await appServerClient.archiveThread(thread.id);
       if (selectedThread?.id === updated.id) {
         setSelectedThread(updated);
       }
@@ -174,7 +204,8 @@ function DesktopApp(): React.JSX.Element {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
     try {
-      const updated = await window.desktop.unarchiveThread(thread.id);
+      if (!appServerClient) return;
+      const updated = await appServerClient.unarchiveThread(thread.id);
       if (selectedThread?.id === updated.id) {
         setSelectedThread(updated);
       }
@@ -200,9 +231,10 @@ function DesktopApp(): React.JSX.Element {
     setWorkspaceError(null);
     let granted: LocalWorkspaceGrant;
     try {
-      granted = await window.desktop.grantWorkspace(
-        selection.selectionToken,
-      );
+      if (!appServerClient) return;
+      granted = await appServerClient.grantWorkspace({
+        selectionToken: selection.selectionToken,
+      });
     } catch {
       setWorkspaceError("The selected directory is not a Git repository root.");
       return;
@@ -216,7 +248,8 @@ function DesktopApp(): React.JSX.Element {
   async function revokeWorkspace(): Promise<void> {
     setWorkspaceError(null);
     try {
-      await window.desktop.revokeWorkspace();
+      if (!appServerClient) return;
+      await appServerClient.revokeWorkspace();
       setWorkspace(null);
       setThreads([]);
       setSelectedThread(null);

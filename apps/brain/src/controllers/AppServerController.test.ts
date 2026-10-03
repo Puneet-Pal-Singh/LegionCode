@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import { createAppServerClient, type AppServerRequest } from "@legioncode/sdk";
+
+import { AppServerController } from "./AppServerController";
+import type { Env } from "../types/ai";
+
+describe("hosted App Server integration", () => {
+  it("initializes through the same SDK request envelope", async () => {
+    const client = createAppServerClient({
+      clientId: "hosted-test-client",
+      clientVersion: "0.1.0",
+      transport: {
+        request: async (envelope: AppServerRequest) => {
+          const response = await AppServerController.request(
+            new Request("https://brain.example/app-server/request", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(envelope),
+            }),
+            {} as Env,
+          );
+          return await response.json();
+        },
+      },
+    });
+
+    await expect(client.initialize(["thread-management-v1"])).resolves.toMatchObject({
+      environment: "hosted",
+      server: { id: "legioncode-hosted" },
+      unavailableCapabilities: [],
+    });
+  });
+
+  it("cancels a streamed body as soon as it exceeds the request limit", async () => {
+    let canceled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(32 * 1024 + 1));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const request = new Request("https://brain.example/app-server/request", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await AppServerController.request(request, {} as Env);
+    expect(response.status).toBe(413);
+    expect(canceled).toBe(true);
+  });
+});

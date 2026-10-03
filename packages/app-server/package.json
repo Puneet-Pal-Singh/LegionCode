@@ -7,6 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts",
+    "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
     "./local-process": "./src/local-process.ts"
   },
@@ -19,7 +21,8 @@
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
     "@repo/persistence": "workspace:*",
-    "@repo/platform-protocol": "workspace:*"
+    "@repo/platform-protocol": "workspace:*",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

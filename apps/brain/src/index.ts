@@ -85,7 +85,7 @@ function createRouter(): Router {
   const router = new Router();
 
   // Chat routes
-  router.add(/^\/initialize$/, AppServerController.initialize, "POST");
+  router.add(/^\/app-server\/request$/, AppServerController.request, "POST");
   router.add(
     /^\/api\/chat(?:\/.*)?$/,
     ChatController.handleLegacyRoute,

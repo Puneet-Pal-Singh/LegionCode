@@ -1,7 +1,6 @@
-import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import { initializeAppServer } from "./handshake.js";
+import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
 import { LocalThreadService } from "./local-threads.js";
 
@@ -21,10 +20,7 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function runLocalAppServerProcess(
-  parentPort: LocalAppServerParentPort,
-  config: LocalAppServerStartConfig,
-): void {
+export function createLocalAppServer(config: LocalAppServerStartConfig) {
   const workspaceService = new LocalWorkspaceService({
     storageDirectory: config.storageDirectory,
   });
@@ -32,10 +28,16 @@ export function runLocalAppServerProcess(
     storageDirectory: config.storageDirectory,
     getWorkspace: () => workspaceService.getCurrent(),
   });
-  const server = createServer((request, response) => {
+  return createServer((request, response) => {
     void handleRequest(request, response, config, workspaceService, threadService);
   });
+}
 
+export function runLocalAppServerProcess(
+  parentPort: LocalAppServerParentPort,
+  config: LocalAppServerStartConfig,
+): void {
+  const server = createLocalAppServer(config);
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
@@ -61,265 +63,93 @@ async function handleRequest(
   workspaceService: LocalWorkspaceService,
   threadService: LocalThreadService,
 ): Promise<void> {
-  response.setHeader(
-    "access-control-allow-origin",
-    request.headers.origin ?? "null",
-  );
-  if (!isLoopbackHost(request.headers.host) || !isLoopbackOrigin(request.headers.origin)) {
-    writeJson(response, 403, {
-      code: "unauthorized",
-      message: "App Server accepts loopback requests only",
-    });
-    return;
-  }
-  if (request.method === "OPTIONS") {
-    response.writeHead(204, {
-      "access-control-allow-headers": "Authorization, Content-Type",
-      "access-control-allow-methods": "GET, POST",
-    });
-    response.end();
-    return;
-  }
-  if (!isAuthorized(request.headers.authorization, config.credential)) {
-    writeJson(response, 401, {
-      code: "unauthorized",
-      message: "App Server credential is invalid",
-    });
-    return;
-  }
-
-  const url = new URL(request.url ?? "/", "http://127.0.0.1");
-
-  if (request.method === "GET" && url.pathname === "/workspaces/current") {
-    try {
-      writeJson(response, 200, { grant: await workspaceService.getCurrent() });
-    } catch {
-      writeJson(response, 500, {
-        code: "invalid_request",
-        message: "Stored workspace grant is unavailable",
-      });
-    }
-    return;
-  }
-
-  if (request.method === "POST" && url.pathname === "/workspaces/grant") {
-    const body = await readBody(request);
-    if (body.tooLarge) {
-      writeJson(response, 413, {
-        code: "invalid_request",
-        message: "App Server request is too large",
-      });
-      return;
-    }
-    try {
-      const grant = await workspaceService.grant(body.value);
-      writeJson(response, 200, { grant });
-    } catch {
-      writeJson(response, 400, {
-        code: "invalid_request",
-        message: "Workspace grant is invalid",
-      });
-    }
-    return;
-  }
-
-  if (request.method === "POST" && url.pathname === "/workspaces/revoke") {
-    try {
-      await workspaceService.revoke();
-      writeJson(response, 200, { grant: null });
-    } catch {
-      writeJson(response, 500, {
-        code: "invalid_request",
-        message: "Workspace grant could not be revoked",
-      });
-    }
-    return;
-  }
-
-  if (request.method === "GET" && url.pathname === "/threads") {
-    try {
-      writeJson(response, 200, { threads: await threadService.list() });
-    } catch {
-      writeJson(response, 400, {
-        code: "invalid_request",
-        message: "Local threads are unavailable without a ready workspace",
-      });
-    }
-    return;
-  }
-
-  if (request.method === "POST" && url.pathname === "/threads") {
-    const body = await readBody(request);
-    if (body.tooLarge) {
-      writeJson(response, 413, {
-        code: "invalid_request",
-        message: "App Server request is too large",
-      });
-      return;
-    }
-    try {
-      writeJson(response, 200, { thread: await threadService.create(body.value) });
-    } catch {
-      writeJson(response, 400, {
-        code: "invalid_request",
-        message: "Local thread could not be created",
-      });
-    }
-    return;
-  }
-
-  const threadRoute = /^\/threads\/([^/]+)(?:\/(title|archive|unarchive))?$/.exec(
-    url.pathname,
-  );
-  if (threadRoute) {
-    const [, threadId, operation] = threadRoute;
-    if (!threadId) {
-      writeJson(response, 404, {
-        code: "invalid_request",
-        message: "Thread route not found",
-      });
-      return;
-    }
-    try {
-      if (request.method === "GET" && !operation) {
-        writeJson(response, 200, { thread: await threadService.get(threadId) });
-        return;
-      }
-      if (request.method !== "POST" || !operation) {
-        writeJson(response, 404, {
-          code: "invalid_request",
-          message: "Thread route not found",
-        });
-        return;
-      }
-      if (operation === "archive") {
-        writeJson(response, 200, { thread: await threadService.archive(threadId) });
-        return;
-      }
-      if (operation === "unarchive") {
-        writeJson(response, 200, { thread: await threadService.unarchive(threadId) });
-        return;
-      }
-      const body = await readBody(request);
-      if (body.tooLarge) {
-        writeJson(response, 413, {
-          code: "invalid_request",
-          message: "App Server request is too large",
-        });
-        return;
-      }
-      writeJson(response, 200, { thread: await threadService.rename(threadId, body.value) });
-    } catch {
-      writeJson(response, 400, {
-        code: "invalid_request",
-        message: "Local thread operation is invalid",
-      });
-    }
-    return;
-  }
-
-  if (request.method !== "POST" || url.pathname !== "/initialize") {
-    writeJson(response, 404, {
-      code: "invalid_request",
-      message: "App Server route not found",
-    });
-    return;
-  }
-
-  const body = await readBody(request);
-  if (body.tooLarge) {
-    writeJson(response, 413, {
-      code: "invalid_request",
-      message: "App Server request is too large",
-    });
-    return;
-  }
-  const result = initializeAppServer(body.value, {
-    environment: "local",
+  const baseInput = {
+    method: request.method ?? "",
+    path: request.url ?? "/",
+    host: request.headers.host,
+    origin: request.headers.origin,
+    authorization: request.headers.authorization,
+    contentType: request.headers["content-type"],
+  };
+  const composition = {
+    environment: "local" as const,
     serverId: "legioncode-local",
     serverVersion: config.serverVersion,
-  });
-  writeJson(response, result.statusCode, result.payload);
-}
-
-function isAuthorized(header: string | undefined, credential: string): boolean {
-  if (!header?.startsWith("Bearer ")) {
-    return false;
+    credential: config.credential,
+    workspaceService,
+    threadService,
+  };
+  const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
+  if (boundaryFailure) {
+    writeJson(response, boundaryFailure.statusCode, boundaryFailure.payload, boundaryFailure.headers);
+    return;
   }
-  const supplied = Buffer.from(header.slice("Bearer ".length));
-  const expected = Buffer.from(credential);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
-
-function isLoopbackHost(value: string | undefined): boolean {
-  if (!value) {
-    return false;
+  const body = await readBody(request);
+  if (body.tooLarge) {
+    writeJson(response, 413, { code: "invalid_request", message: "App Server request is too large" });
+    return;
   }
-  const hostname = value.startsWith("[")
-    ? value.slice(1, value.indexOf("]"))
-    : value.split(":")[0];
-  return hostname === "127.0.0.1" || hostname === "localhost";
-}
-
-function isLoopbackOrigin(value: string | undefined): boolean {
-  if (!value) {
-    return true;
+  if (body.timedOut) {
+    writeJson(response, 408, { code: "invalid_request", message: "App Server request timed out" });
+    return;
   }
-  if (value === "null") {
-    return true;
-  }
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "http:" &&
-      (url.hostname === "127.0.0.1" || url.hostname === "localhost")
-    );
-  } catch {
-    return false;
-  }
+  const result = await handleAppServerHttpRequest(
+    {
+      ...baseInput,
+      rawBody: body.value,
+    },
+    composition,
+  );
+  writeJson(response, result.statusCode, result.payload, result.headers);
 }
 
 function readBody(
   request: IncomingMessage,
-): Promise<{ value: unknown | null; tooLarge: boolean }> {
+): Promise<{ value: string; tooLarge: boolean; timedOut: boolean }> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let rejected = false;
+    const timer = setTimeout(() => {
+      if (rejected) return;
+      rejected = true;
+      chunks.length = 0;
+      request.resume();
+      resolve({ value: "", tooLarge: false, timedOut: true });
+    }, 15_000);
     request.on("data", (chunk: Buffer) => {
+      if (rejected) return;
       size += chunk.length;
       if (size > MAX_REQUEST_BYTES) {
         rejected = true;
+        chunks.length = 0;
+        clearTimeout(timer);
         request.resume();
-        resolve({ value: null, tooLarge: true });
+        resolve({ value: "", tooLarge: true, timedOut: false });
         return;
       }
       chunks.push(chunk);
     });
     request.once("end", () => {
-      if (rejected) {
-        return;
-      }
-      try {
-        resolve({
-          value: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
-          tooLarge: false,
-        });
-      } catch {
-        resolve({ value: null, tooLarge: false });
+      if (rejected) return;
+      clearTimeout(timer);
+      resolve({ value: Buffer.concat(chunks).toString("utf8"), tooLarge: false, timedOut: false });
+    });
+    request.once("error", () => {
+      if (!rejected) {
+        clearTimeout(timer);
+        resolve({ value: "", tooLarge: false, timedOut: false });
       }
     });
-    request.once("error", () => resolve({ value: null, tooLarge: false }));
   });
 }
 
 function writeJson(
   response: ServerResponse,
   status: number,
-  payload: Record<string, unknown>,
+  payload: unknown,
+  headers: Record<string, string> = {},
 ): void {
-  response.writeHead(status, {
-    "content-type": "application/json",
-  });
+  response.writeHead(status, { "content-type": "application/json", ...headers });
   response.end(JSON.stringify(payload));
 }
