@@ -24,9 +24,12 @@ vi.mock("electron", () => ({
   },
 }));
 
-vi.mock("@legioncode/sdk", () => ({
-  createAppServerHttpTransport: () => ({ request: mocks.request }),
+vi.mock("@legioncode/sdk/platform/app-server-client", () => ({
   createAppServerClient: () => ({ initialize: mocks.initialize }),
+}));
+
+vi.mock("@legioncode/sdk/platform/app-server-http-transport", () => ({
+  createAppServerHttpTransport: () => ({ request: mocks.request }),
 }));
 
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";

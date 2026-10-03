@@ -11,10 +11,11 @@ import {
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 import {
+  AppServerClientError,
   createAppServerClient,
-  createAppServerHttpTransport,
   type AppServerTransport,
-} from "@legioncode/sdk";
+} from "@legioncode/sdk/platform/app-server-client";
+import { createAppServerHttpTransport } from "@legioncode/sdk/platform/app-server-http-transport";
 import type {
   DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,
@@ -208,9 +209,13 @@ export class LocalAppServerSupervisor {
       });
       this.transport = transport;
       this.update({ ...snapshot, connection: { baseUrl, credential } });
-    } catch {
+    } catch (error) {
       if (child !== this.child || generation !== this.generation) return;
-      const reason = "Local App Server handshake failed";
+      const reason =
+        error instanceof AppServerClientError &&
+        error.serverCode === "protocol_incompatible"
+          ? "Local App Server protocol is incompatible"
+          : "Local App Server handshake failed";
       this.update(createSnapshot("degraded", reason));
       this.terminateChild(child);
     }

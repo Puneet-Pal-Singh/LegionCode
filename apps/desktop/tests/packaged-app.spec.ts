@@ -34,11 +34,12 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
 
   try {
-    application = await electron.launch({
+    const launchedApplication = await electron.launch({
       executablePath,
       args: [`--user-data-dir=${join(testRoot, "user-data")}`],
     });
-    const page = await application.firstWindow();
+    application = launchedApplication;
+    const page = await launchedApplication.firstWindow();
     await page.setViewportSize({ width: 420, height: 900 });
     const sidebarToggle = page.locator(".lc-workspace-menu-button");
     const workspaceSidebar = page.getByTestId("workspace-sidebar");
@@ -67,7 +68,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
     await expect(sidebarToggle).toBeFocused();
     await page.setViewportSize({ width: 1100, height: 800 });
-    const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
+    const appMetrics = await launchedApplication.evaluate(({ app }) => app.getAppMetrics());
     const appServerMetric = appMetrics.find(
       (metric) => metric.name === "LegionCode Local App Server",
     );
@@ -139,7 +140,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
       window.open("https://example.com");
       window.location.href = "https://example.com";
     });
-    await expect.poll(() => application.windows().length).toBe(1);
+    await expect.poll(() => launchedApplication.windows().length).toBe(1);
     await expect.poll(() => page.url()).toBe(rendererUrl);
   } finally {
     await application?.close();
