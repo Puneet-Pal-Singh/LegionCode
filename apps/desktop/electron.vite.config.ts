@@ -28,7 +28,7 @@ export default defineConfig({
   preload: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ["@repo/platform-protocol", "zod"],
+        exclude: ["@legioncode/app-server", "@repo/platform-protocol", "zod"],
       }),
     ],
     build: {

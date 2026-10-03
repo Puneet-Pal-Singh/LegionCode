@@ -30,9 +30,14 @@ async function findPackagedExecutable(): Promise<string> {
 
 test("the packaged Desktop app renders without Node.js privileges", async () => {
   const executablePath = await findPackagedExecutable();
-  const application = await electron.launch({ executablePath });
+  const testRoot = await mkdtemp(join("/tmp", "legioncode-desktop-boundary-"));
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
 
   try {
+    application = await electron.launch({
+      executablePath,
+      args: [`--user-data-dir=${join(testRoot, "user-data")}`],
+    });
     const page = await application.firstWindow();
     await page.setViewportSize({ width: 420, height: 900 });
     const sidebarToggle = page.locator(".lc-workspace-menu-button");
@@ -86,21 +91,47 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
       processType: "undefined",
       requireType: "undefined",
       desktopMethods: [
+        "request",
         "getBuildInfo",
         "getEnvironment",
         "onEnvironmentStatus",
         "restartEnvironment",
         "pickWorkspace",
-        "grantWorkspace",
-        "getWorkspace",
-        "revokeWorkspace",
-        "listThreads",
-        "createThread",
-        "getThread",
-        "renameThread",
-        "archiveThread",
-        "unarchiveThread",
       ],
+    });
+
+    const invalidRequestChecks = await page.evaluate(async () => {
+      const request = window.desktop.request as (envelope: unknown) => Promise<unknown>;
+      const rejected = async (envelope: unknown): Promise<boolean> => {
+        try {
+          await request(envelope);
+          return false;
+        } catch {
+          return true;
+        }
+      };
+      return {
+        unknownMethod: await rejected({
+          protocolVersion: "1.0.0",
+          method: "filesystem/read",
+          params: {},
+        }),
+        malformedVersion: await rejected({
+          protocolVersion: "0.0.0",
+          method: "thread/list",
+          params: {},
+        }),
+        rawWorkspacePath: await rejected({
+          protocolVersion: "1.0.0",
+          method: "workspace/grant",
+          params: { path: "/private/renderer-controlled" },
+        }),
+      };
+    });
+    expect(invalidRequestChecks).toEqual({
+      unknownMethod: true,
+      malformedVersion: true,
+      rawWorkspacePath: true,
     });
 
     const rendererUrl = page.url();
@@ -111,7 +142,8 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await expect.poll(() => application.windows().length).toBe(1);
     await expect.poll(() => page.url()).toBe(rendererUrl);
   } finally {
-    await application.close();
+    await application?.close();
+    await rm(testRoot, { recursive: true, force: true });
   }
 });
 

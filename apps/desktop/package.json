@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "check-types": "tsc --noEmit",
-    "test": "vitest run src/main/window-options.test.ts",
+    "test": "vitest run src/main/*.test.ts",
     "package": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.ts --mac --publish never",
     "package:dir": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.ts --mac --dir",
     "test:packaged": "playwright test tests/packaged-app.spec.ts --workers=1"
@@ -21,7 +21,8 @@
     "@legioncode/sdk": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@playwright/test": "1.51.1",
