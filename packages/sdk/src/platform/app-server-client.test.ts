@@ -1,69 +1,103 @@
 import { describe, expect, it } from "vitest";
 
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import {
-  AppServerHandshakeError,
+  AppServerClientError,
   createAppServerClient,
+  type AppServerRequest,
 } from "./app-server-client.js";
 
 describe("AppServerClient", () => {
-  it("sends a typed initialize request and returns explicit unavailable capabilities", async () => {
-    let request: Request | undefined;
+  it("sends a validated versioned envelope and returns a validated result", async () => {
+    let sent: AppServerRequest | undefined;
     const client = createAppServerClient({
-      baseUrl: "http://127.0.0.1:4321/",
       clientId: "desktop",
       clientVersion: "0.1.0",
-      credential: "ephemeral-secret",
-      fetchImpl: async (input, init) => {
-        request = new Request(input, init);
-        return new Response(
-          JSON.stringify({
-            protocolVersion: "1.0.0",
-            server: { id: "local", version: "0.1.0" },
-            environment: "local",
-            capabilities: [],
-            unavailableCapabilities: [
-              {
-                capability: "workspace-selection-v1",
-                reason: "Planned for a later local slice",
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+      transport: {
+        request: async (envelope) => {
+          sent = envelope;
+          return {
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method: "initialize",
+            ok: true,
+            result: {
+              protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+              server: { id: "local", version: "0.1.0" },
+              environment: "local",
+              capabilities: [],
+              unavailableCapabilities: [],
+            },
+          };
+        },
       },
     });
 
     const response = await client.initialize(["workspace-selection-v1"]);
 
-    expect(request?.url).toBe("http://127.0.0.1:4321/initialize");
-    expect(request?.headers.get("authorization")).toBe(
-      "Bearer ephemeral-secret",
-    );
-    expect(response.capabilities).toEqual([]);
-    expect(response.unavailableCapabilities[0]?.capability).toBe(
-      "workspace-selection-v1",
-    );
+    expect(sent).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "initialize",
+      params: {
+        client: { id: "desktop", version: "0.1.0" },
+        requestedCapabilities: ["workspace-selection-v1"],
+      },
+    });
+    expect(response.environment).toBe("local");
   });
 
-  it("surfaces an incompatible host without silently falling back", async () => {
+  it("uses opaque workspace selection tokens and rejects invalid server results", async () => {
+    let sent: AppServerRequest | undefined;
     const client = createAppServerClient({
-      baseUrl: "http://127.0.0.1:4321",
       clientId: "desktop",
       clientVersion: "0.1.0",
-      fetchImpl: async () =>
-        new Response(
-          JSON.stringify({
-            code: "protocol_incompatible",
-            message: "Unsupported protocol version",
-          }),
-          { status: 409, headers: { "content-type": "application/json" } },
-        ),
+      transport: {
+        request: async (envelope) => {
+          sent = envelope;
+          return {
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method: "workspace/grant",
+            ok: true,
+            result: { grant: null },
+          };
+        },
+      },
     });
 
+    await expect(client.grantWorkspace({ selectionToken: "selection-token" })).rejects.toMatchObject({
+      code: "invalid_response",
+    } satisfies Partial<AppServerClientError>);
+    expect(sent).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "workspace/grant",
+      params: { selectionToken: "selection-token" },
+    });
+  });
+
+  it.each([
+    { protocolVersion: "2.0.0", method: "initialize", ok: true, result: {} },
+    { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/list", ok: true, result: { threads: [] } },
+    { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "initialize", ok: true, result: { server: {} } },
+  ])("rejects malformed, mismatched, or invalid operation responses", async (response) => {
+    const client = createAppServerClient({
+      clientId: "desktop",
+      clientVersion: "0.1.0",
+      transport: { request: async () => response },
+    });
     await expect(client.initialize()).rejects.toMatchObject({
-      name: "AppServerHandshakeError",
-      code: "protocol_incompatible",
-      statusCode: 409,
-    } satisfies Partial<AppServerHandshakeError>);
+      name: "AppServerClientError",
+      code: "invalid_response",
+    });
+  });
+
+  it("wraps transport failures in a typed client error", async () => {
+    const client = createAppServerClient({
+      clientId: "desktop",
+      clientVersion: "0.1.0",
+      transport: { request: async () => { throw new Error("private transport detail"); } },
+    });
+    await expect(client.initialize()).rejects.toMatchObject({
+      name: "AppServerClientError",
+      code: "transport",
+    } satisfies Partial<AppServerClientError>);
   });
 });

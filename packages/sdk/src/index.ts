@@ -1,9 +1,16 @@
 export {
-  AppServerHandshakeError,
+  AppServerClientError,
   createAppServerClient,
   type AppServerClient,
   type AppServerClientOptions,
+  type AppServerTransport,
+  type WorkspaceGrantSource,
 } from "./platform/app-server-client.js";
+export {
+  AppServerTransportError,
+  createAppServerHttpTransport,
+  type AppServerHttpTransportOptions,
+} from "./platform/app-server-http-transport.js";
 export {
   DefaultPlatformClient,
   createPlatformClient,

@@ -29,6 +29,7 @@ const IMPORT_SPECIFIER_PATTERN =
 export async function validateArchitecture(root) {
   const violations = [];
   await validatePackageDependencies(root, violations);
+  await validateSdkAppServerImports(root, violations);
   await validateAppImports(root, violations);
   await validateCanonicalAuthorities(root, violations);
   await validateUniqueActionRegistries(root, violations);
@@ -38,6 +39,23 @@ export async function validateArchitecture(root) {
   await validateClientSideTurnIdDerivation(root, violations);
   await validateActiveStateRunSummaryAuthority(root, violations);
   return violations;
+}
+
+async function validateSdkAppServerImports(root, violations) {
+  const sdkRoot = await findPackageRoot(root, "packages", "@legioncode/sdk");
+  for (const file of await listSourceFiles(sdkRoot)) {
+    const source = await readFile(file, "utf8");
+    for (const specifier of findImportSpecifiers(source)) {
+      if (
+        specifier.startsWith("@legioncode/app-server") &&
+        specifier !== "@legioncode/app-server/protocol"
+      ) {
+        violations.push(
+          `${relative(root, file)}: SDK may depend on App Server only through @legioncode/app-server/protocol; received ${specifier}.`,
+        );
+      }
+    }
+  }
 }
 
 async function validatePackageDependencies(root, violations) {

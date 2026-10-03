@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./platform/client": "./src/platform/client.ts",
     "./platform/app-server-client": "./src/platform/app-server-client.ts",
+    "./platform/app-server-http-transport": "./src/platform/app-server-http-transport.ts",
     "./platform/errors": "./src/platform/errors.ts",
     "./platform/http-transport": "./src/platform/http-transport.ts",
     "./platform/hook-audit-projection": "./src/platform/hook-audit-projection.ts",
@@ -31,6 +32,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@legioncode/app-server": "workspace:*",
     "@repo/hook-protocol": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
