@@ -13,7 +13,6 @@ import {
   type Thread,
 } from "@repo/platform-protocol";
 import { z } from "zod";
-import { AppServerTransportError } from "./app-server-http-transport.js";
 
 export type { AppServerRequest } from "@legioncode/app-server/protocol";
 
@@ -142,11 +141,11 @@ export function createAppServerClient(
   };
 }
 
-async function request(
+async function request<Schema extends z.ZodTypeAny>(
   options: AppServerClientOptions,
   requestInput: Omit<AppServerRequest, "protocolVersion">,
-  resultSchema: z.ZodTypeAny,
-): Promise<z.output<typeof resultSchema>> {
+  resultSchema: Schema,
+): Promise<z.output<Schema>> {
   const envelope = AppServerRequestSchema.parse({
     protocolVersion: APP_SERVER_PROTOCOL_VERSION,
     ...requestInput,
@@ -155,15 +154,7 @@ async function request(
   let payload: unknown;
   try {
     payload = await options.transport.request(envelope);
-  } catch (error) {
-    if (error instanceof AppServerTransportError && error.code === "server_error") {
-      throw new AppServerClientError(
-        "server_error",
-        error.message,
-        envelope.method,
-        error.serverCode,
-      );
-    }
+  } catch {
     throw new AppServerClientError("transport", "App Server request failed", envelope.method);
   }
 
