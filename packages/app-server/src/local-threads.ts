@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import { z } from "zod";
 
 import { FileEventStore } from "@repo/event-store";
 import { projectThreadEvents } from "@repo/persistence";
+import { ThreadCreateParamsSchema, ThreadRenameParamsSchema } from "./protocol.js";
 import {
   EVENT_SCHEMA_VERSION,
   ThreadIdSchema,
@@ -18,13 +18,6 @@ import {
 } from "@repo/platform-protocol";
 
 const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
-const ThreadCreateRequestSchema = z
-  .object({ title: z.string().trim().min(1).max(80).optional() })
-  .strict();
-const ThreadRenameRequestSchema = z
-  .object({ title: z.string().trim().min(1).max(80) })
-  .strict();
-
 export type LocalThreadServiceOptions = {
   storageDirectory: string;
   getWorkspace: () => Promise<LocalWorkspaceGrant | null>;
@@ -49,7 +42,7 @@ export class LocalThreadService {
 
   async create(input: unknown): Promise<Thread> {
     const workspace = await this.requireWorkspace();
-    const request = ThreadCreateRequestSchema.parse(input ?? {});
+    const request = ThreadCreateParamsSchema.parse(input ?? {});
     const now = new Date().toISOString();
     const thread = ThreadSchema.parse({
       id: createThreadId(),
@@ -92,7 +85,10 @@ export class LocalThreadService {
   async rename(threadId: string, input: unknown): Promise<Thread> {
     const workspace = await this.requireWorkspace();
     const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
-    const request = ThreadRenameRequestSchema.parse(input);
+    const request = ThreadRenameParamsSchema.parse({
+      ...(input && typeof input === "object" ? input : {}),
+      threadId,
+    });
     if (thread.title === request.title) return thread;
     const titleVersion = thread.titleVersion + 1;
     const timestamp = new Date().toISOString();

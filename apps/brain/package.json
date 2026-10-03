@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",
+    "@legioncode/sdk": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^20.0.0",
