@@ -4,6 +4,8 @@ const config: Configuration = {
   appId: "dev.legioncode.desktop",
   productName: "LegionCode Desktop",
   asar: true,
+  npmRebuild: true,
+  asarUnpack: ["**/node_modules/better-sqlite3/**"],
   directories: {
     output: "release",
   },

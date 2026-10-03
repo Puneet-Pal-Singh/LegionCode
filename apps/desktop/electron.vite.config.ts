@@ -8,9 +8,11 @@ export default defineConfig({
         exclude: [
           "@legioncode/app-server",
           "@legioncode/sdk",
+          "@repo/event-store/local",
           "@repo/platform-protocol",
           "zod",
         ],
+        include: ["better-sqlite3"],
       }),
     ],
     build: {
