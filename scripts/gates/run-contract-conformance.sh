@@ -15,7 +15,9 @@ run corepack pnpm --filter @repo/contract-conformance test -- \
   src/lifecycle.test.ts \
   src/lifecycle-golden-matrix.test.ts
 run corepack pnpm --filter @repo/artifact-store test -- src/InMemoryArtifactStore.test.ts
-run corepack pnpm --filter @repo/event-store test -- src/MemoryEventStore.test.ts
+run corepack pnpm --filter @repo/event-store test -- \
+  src/MemoryEventStore.test.ts \
+  src/LocalPersistence.test.ts
 run corepack pnpm --filter @repo/persistence test -- src/canonical-events/PostgresEventStore.test.ts
 run corepack pnpm --filter @repo/workspace-core test -- src/repository.test.ts
 run corepack pnpm --filter @repo/git-service test -- src/GitService.test.ts

@@ -29,6 +29,7 @@ const IMPORT_SPECIFIER_PATTERN =
 export async function validateArchitecture(root) {
   const violations = [];
   await validatePackageDependencies(root, violations);
+  await validateLocalPersistenceImports(root, violations);
   await validateSdkAppServerImports(root, violations);
   await validateAppImports(root, violations);
   await validateCanonicalAuthorities(root, violations);
@@ -39,6 +40,50 @@ export async function validateArchitecture(root) {
   await validateClientSideTurnIdDerivation(root, violations);
   await validateActiveStateRunSummaryAuthority(root, violations);
   return violations;
+}
+
+async function validateLocalPersistenceImports(root, violations) {
+  const sourceFiles = await listSourceFiles(join(root, "apps"), join(root, "packages"));
+  for (const file of sourceFiles) {
+    const source = await readFile(file, "utf8");
+    const path = relative(root, file);
+    const runtimeSource = source.replace(
+      /\bimport\s+type\s+[\s\S]*?\s+from\s+["'][^"']+["'];?/g,
+      "",
+    );
+    const imports = findImportSpecifiers(runtimeSource);
+    const isTest = isTestSourcePath(path);
+    if (
+      imports.includes("@repo/event-store/local") &&
+      path !== "packages/app-server/src/local-process.ts" &&
+      !isTest
+    ) {
+      violations.push(
+        `${path}: local persistence is private to the local App Server process entry; native storage imports are forbidden from hosted App Server, protocol, SDK, renderer, and root barrels.`,
+      );
+    }
+    if (imports.includes("better-sqlite3") && path !== "packages/event-store/src/local.ts" && !isTest) {
+      violations.push(
+        `${path}: better-sqlite3 is private to packages/event-store/src/local.ts; clients and hosted runtime may not load the native driver.`,
+      );
+    }
+    if (
+      path === "packages/event-store/src/index.ts" &&
+      imports.some((specifier) => /^\.\/local(?:\.js)?$/.test(specifier))
+    ) {
+      violations.push(
+        `${path}: local persistence must not be re-exported from the event-store root barrel.`,
+      );
+    }
+    if (
+      path === "packages/app-server/src/index.ts" &&
+      imports.some((specifier) => /^\.\/local-process(?:\.js)?$/.test(specifier))
+    ) {
+      violations.push(
+        `${path}: the App Server root barrel must not load the local process or its native persistence dependency.`,
+      );
+    }
+  }
 }
 
 async function validateSdkAppServerImports(root, violations) {
