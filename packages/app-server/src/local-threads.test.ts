@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { LocalWorkspaceGrantSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
+import { LocalPersistence } from "@repo/event-store/local";
 
 import { LocalThreadService } from "./local-threads.js";
 
@@ -21,9 +22,11 @@ const workspace = LocalWorkspaceGrantSchema.parse({
 describe("LocalThreadService", () => {
   it("replays a durable thread projection after service restart", async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), "legioncode-threads-"));
+    let persistence: LocalPersistence | undefined;
     try {
+      persistence = new LocalPersistence({ storageDirectory });
       const first = new LocalThreadService({
-        storageDirectory,
+        events: persistence.events,
         getWorkspace: async () => workspace,
       });
       const created = await first.create({ title: "Local work" });
@@ -31,8 +34,10 @@ describe("LocalThreadService", () => {
       const archived = await first.archive(renamed.id);
       expect(archived.status).toBe("archived");
 
+      persistence.close();
+      persistence = new LocalPersistence({ storageDirectory });
       const reopened = new LocalThreadService({
-        storageDirectory,
+        events: persistence.events,
         getWorkspace: async () => workspace,
       });
       await expect(reopened.list()).resolves.toEqual([archived]);
@@ -44,15 +49,18 @@ describe("LocalThreadService", () => {
         archivedAt: null,
       });
     } finally {
+      persistence?.close();
       await rm(storageDirectory, { recursive: true, force: true });
     }
   });
 
   it("never reads or mutates a thread through a different workspace grant", async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), "legioncode-threads-"));
+    let persistence: LocalPersistence | undefined;
     try {
+      persistence = new LocalPersistence({ storageDirectory });
       const service = new LocalThreadService({
-        storageDirectory,
+        events: persistence.events,
         getWorkspace: async () => workspace,
       });
       const thread = await service.create({});
@@ -61,13 +69,14 @@ describe("LocalThreadService", () => {
         workspaceId: WorkspaceIdSchema.parse("wrk_otherworkspace"),
       };
       const otherService = new LocalThreadService({
-        storageDirectory,
+        events: persistence.events,
         getWorkspace: async () => otherWorkspace,
       });
       await expect(otherService.list()).resolves.toEqual([]);
       await expect(otherService.get(thread.id)).rejects.toThrow("not found");
       await expect(otherService.archive(thread.id)).rejects.toThrow("not found");
     } finally {
+      persistence?.close();
       await rm(storageDirectory, { recursive: true, force: true });
     }
   });

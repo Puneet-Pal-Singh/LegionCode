@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
+import { LocalPersistence } from "@repo/event-store/local";
 import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
 import { LocalThreadService } from "./local-threads.js";
@@ -21,32 +22,48 @@ export type LocalAppServerParentPort = {
 };
 
 export function createLocalAppServer(config: LocalAppServerStartConfig) {
-  const workspaceService = new LocalWorkspaceService({
-    storageDirectory: config.storageDirectory,
-  });
-  const threadService = new LocalThreadService({
-    storageDirectory: config.storageDirectory,
-    getWorkspace: () => workspaceService.getCurrent(),
-  });
-  return createServer((request, response) => {
-    void handleRequest(request, response, config, workspaceService, threadService);
-  });
+  const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
+  try {
+    const workspaceService = new LocalWorkspaceService({
+      workspaceGrants: persistence.workspaceGrants,
+    });
+    const threadService = new LocalThreadService({
+      events: persistence.events,
+      getWorkspace: () => workspaceService.getCurrent(),
+    });
+    const server = createServer((request, response) => {
+      void handleRequest(request, response, config, workspaceService, threadService);
+    });
+    server.once("close", () => persistence.close());
+    server.once("error", () => persistence.close());
+    return server;
+  } catch (error) {
+    persistence.close();
+    throw error;
+  }
 }
 
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
 ): void {
-  const server = createLocalAppServer(config);
-  server.once("error", () => {
+  let server: ReturnType<typeof createLocalAppServer>;
+  try {
+    server = createLocalAppServer(config);
+  } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
+    return;
+  }
+  server.once("error", () => {
+    parentPort.postMessage({ type: "fatal" });
+    server.close(() => process.exit(1));
   });
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {
       parentPort.postMessage({ type: "fatal" });
-      process.exit(1);
+      server.close(() => process.exit(1));
       return;
     }
     parentPort.postMessage({

@@ -21,3 +21,11 @@ export class EventStoreError extends Error {
     super(message);
   }
 }
+
+export class LocalPersistenceError extends Error {
+  readonly name = "LocalPersistenceError";
+
+  constructor(readonly code: "unavailable" | "corrupt", message: string) {
+    super(message);
+  }
+}

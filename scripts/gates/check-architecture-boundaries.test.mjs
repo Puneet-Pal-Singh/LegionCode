@@ -41,6 +41,59 @@ test("rejects forbidden app imports", async (context) => {
   );
 });
 
+test("keeps local persistence imports inside App Server composition", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "packages", "app-server", "src", "local-process.ts"),
+    'import { LocalPersistence } from "@repo/event-store/local";\n',
+  );
+  assert.deepEqual(await validateArchitecture(root), []);
+
+  await writeFile(
+    join(root, "packages", "app-server", "src", "server.ts"),
+    'import { LocalPersistence } from "@repo/event-store/local";\n',
+  );
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /local persistence is private to the local App Server process entry/,
+  );
+});
+
+test("rejects native SQLite imports from shared and client code", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "apps", "web", "src", "index.ts"),
+    'import Database from "better-sqlite3";\n',
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /better-sqlite3 is private to packages\/event-store\/src\/local\.ts/,
+  );
+});
+
+test("keeps the native local persistence adapter out of the event-store root barrel", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "packages", "event-store", "src", "index.ts"),
+    'export { LocalPersistence } from "./local.js";\n',
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /local persistence must not be re-exported from the event-store root barrel/,
+  );
+
+  await writeFile(
+    join(root, "packages", "app-server", "src", "index.ts"),
+    'export { runLocalAppServerProcess } from "./local-process.js";\n',
+  );
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /App Server root barrel must not load the local process or its native persistence dependency/,
+  );
+});
+
 test("allows SDK access only through the App Server protocol subpath", async (context) => {
   const root = await createFixture(context);
   await writeFile(
@@ -294,6 +347,7 @@ async function createFixture(context) {
   context.after(() => rm(fixtureRoot, { force: true, recursive: true }));
 
   for (const [name, dependencies] of Object.entries({
+    "app-server": { "@repo/event-store": "workspace:*" },
     "artifact-store": { "@repo/platform-protocol": "workspace:*" },
     "event-store": { "@repo/platform-protocol": "workspace:*" },
     "execution-engine": {},

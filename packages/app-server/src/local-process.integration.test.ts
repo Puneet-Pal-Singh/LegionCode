@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,17 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "./protocol.js";
 import { createLocalAppServer } from "./local-process.js";
+import { handleAppServerHttpRequest } from "./server.js";
+import { LocalThreadService } from "./local-threads.js";
+import { LocalWorkspaceService } from "./local-workspace.js";
+import { LocalPersistence } from "@repo/event-store/local";
+import { LocalPersistenceError } from "@repo/event-store/errors";
+import {
+  EVENT_SCHEMA_VERSION,
+  LocalWorkspaceGrantSchema,
+  PlatformEventSchema,
+  ThreadSchema,
+} from "@repo/platform-protocol";
 
 const credential = "local-test-credential";
 const liveServers: ReturnType<typeof createLocalAppServer>[] = [];
@@ -57,6 +68,142 @@ describe("local App Server HTTP integration", () => {
       result: { grant: null },
     });
     expect(restarted.listening).toBe(true);
+  });
+
+  it("migrates legacy Thread and workspace records before serving replay", async () => {
+    const { storageDirectory, workspacePath } = await fixture();
+    const timestamp = "2026-09-20T00:00:00.000Z";
+    const grant = LocalWorkspaceGrantSchema.parse({
+      workspaceId: "wrk_localworkspace",
+      displayName: "repository",
+      repositoryIdentity: "github.com/example/repository",
+      branch: "main",
+      readiness: "ready",
+      capabilities: ["filesystem", "git"],
+      reason: null,
+      grantedAt: timestamp,
+    });
+    const thread = ThreadSchema.parse({
+      id: "thr_legacythread",
+      userId: "usr_localdesktop",
+      workspaceId: grant.workspaceId,
+      title: "Legacy local thread",
+      titleSource: "user",
+      titleVersion: 1,
+      titleStatus: "ready",
+      lastTerminalTurnId: null,
+      status: "active",
+      pinnedAt: null,
+      archivedAt: null,
+      activeRunId: null,
+      activeLeafItemId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastEventSequence: 1,
+    });
+    const legacyEvent = PlatformEventSchema.parse({
+      eventId: "evt_legacythread1",
+      cursor: "cursor_legacythread1",
+      sequence: 1,
+      createdAt: timestamp,
+      threadId: thread.id,
+      workspaceId: grant.workspaceId,
+      runId: null,
+      scopeType: "thread",
+      scopeId: thread.id,
+      type: "thread.created",
+      payload: { thread },
+      idempotencyKey: `thread-created:${thread.id}`,
+      producer: { kind: "control_plane", id: "local-app-server" },
+      schemaVersion: EVENT_SCHEMA_VERSION,
+    });
+    await writeFile(
+      join(storageDirectory, "thread-events.json"),
+      JSON.stringify({ version: 1, events: [legacyEvent] }),
+    );
+    await writeFile(
+      join(storageDirectory, "workspace-grant.json"),
+      JSON.stringify({ version: 1, path: await realpath(workspacePath), grant }),
+    );
+
+    const server = await start(storageDirectory);
+    const baseUrl = serverUrl(server);
+    await expect(send(baseUrl, "workspace/current", {})).resolves.toMatchObject({
+      ok: true,
+      result: { grant: { workspaceId: grant.workspaceId, readiness: "ready", reason: null } },
+    });
+    await expect(send(baseUrl, "thread/list", {})).resolves.toMatchObject({
+      ok: true,
+      result: { threads: [{ id: thread.id, title: thread.title }] },
+    });
+    await close(server);
+    const reopened = await start(storageDirectory);
+    await expect(send(serverUrl(reopened), "thread/get", { threadId: thread.id })).resolves.toMatchObject({
+      ok: true,
+      result: { thread: { id: thread.id, title: thread.title } },
+    });
+  });
+
+  it("refuses corrupt legacy persistence before creating a listening server", async () => {
+    const { storageDirectory } = await fixture();
+    const corruptPath = join(storageDirectory, "thread-events.json");
+    const corruptData = "not-json-and-must-be-preserved";
+    await writeFile(corruptPath, corruptData);
+
+    let startupError: unknown;
+    try {
+      createLocalAppServer({ credential, serverVersion: "test", storageDirectory });
+    } catch (error) {
+      startupError = error;
+    }
+    expect(startupError).toBeInstanceOf(LocalPersistenceError);
+    expect((startupError as Error).message).not.toContain(storageDirectory);
+    expect(await readFile(corruptPath, "utf8")).toBe(corruptData);
+  });
+
+  it("reports a closed local database as server unavailable, not invalid input", async () => {
+    const { storageDirectory } = await fixture();
+    const persistence = new LocalPersistence({ storageDirectory });
+    const workspaceService = new LocalWorkspaceService({
+      workspaceGrants: persistence.workspaceGrants,
+    });
+    const threadService = new LocalThreadService({
+      events: persistence.events,
+      getWorkspace: () => workspaceService.getCurrent(),
+    });
+    persistence.close();
+
+    const result = await handleAppServerHttpRequest(
+      {
+        method: "POST",
+        path: "/app-server/request",
+        host: "127.0.0.1:1234",
+        origin: "http://127.0.0.1:1234",
+        authorization: `Bearer ${credential}`,
+        contentType: "application/json",
+        rawBody: JSON.stringify({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "workspace/current",
+          params: {},
+        }),
+      },
+      {
+        environment: "local",
+        serverId: "test",
+        serverVersion: "test",
+        credential,
+        workspaceService,
+        threadService,
+      },
+    );
+
+    expect(result.statusCode).toBe(503);
+    expect(result.payload).toMatchObject({
+      method: "workspace/current",
+      ok: false,
+      error: { code: "server_unavailable", message: "App Server storage is unavailable" },
+    });
+    expect(JSON.stringify(result.payload)).not.toContain(storageDirectory);
   });
 
   it("rejects unauthorized, non-loopback, oversized, malformed, and unknown requests", async () => {
@@ -119,6 +266,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legioncode-app-server-http-"));
   temporaryDirectories.push(root);
   const storageDirectory = join(root, "storage");
+  await mkdir(storageDirectory, { recursive: true });
   const workspacePath = join(root, "repository");
   await mkdir(workspacePath);
   execFileSync("git", ["init", workspacePath], { stdio: "ignore" });

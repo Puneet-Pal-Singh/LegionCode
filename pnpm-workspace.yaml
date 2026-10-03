@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  better-sqlite3: true
   '@tailwindcss/oxide': true
   core-js-pure: true
   esbuild: true

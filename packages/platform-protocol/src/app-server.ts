@@ -53,7 +53,12 @@ export type AppServerInitializeResponse = z.infer<
 
 export const AppServerErrorSchema = z
   .object({
-    code: z.enum(["unauthorized", "protocol_incompatible", "invalid_request"]),
+    code: z.enum([
+      "unauthorized",
+      "protocol_incompatible",
+      "invalid_request",
+      "server_unavailable",
+    ]),
     message: z.string().min(1).max(500),
   })
   .strict();
