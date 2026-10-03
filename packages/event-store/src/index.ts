@@ -1,10 +1,10 @@
 export {
   EVENT_STORE_ERROR_CODES,
   EventStoreError,
+  LocalPersistenceError,
   type EventStoreErrorCode,
 } from "./errors.js";
 export { MemoryEventStore } from "./MemoryEventStore.js";
-export { FileEventStore } from "./FileEventStore.js";
 export { MemoryLifecycleEventStore } from "./MemoryLifecycleEventStore.js";
 export { createStableEventFingerprint } from "./fingerprint.js";
 export {

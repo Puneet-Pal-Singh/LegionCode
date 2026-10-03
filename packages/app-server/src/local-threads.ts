@@ -1,6 +1,4 @@
-import { join } from "node:path";
-
-import { FileEventStore } from "@repo/event-store";
+import type { LocalPersistence } from "@repo/event-store/local";
 import { projectThreadEvents } from "@repo/persistence";
 import { ThreadCreateParamsSchema, ThreadRenameParamsSchema } from "./protocol.js";
 import {
@@ -19,16 +17,16 @@ import {
 
 const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
 export type LocalThreadServiceOptions = {
-  storageDirectory: string;
+  events: LocalPersistence["events"];
   getWorkspace: () => Promise<LocalWorkspaceGrant | null>;
 };
 
 export class LocalThreadService {
-  private readonly eventStore: FileEventStore;
+  private readonly eventStore: LocalThreadServiceOptions["events"];
   private readonly getWorkspace: LocalThreadServiceOptions["getWorkspace"];
 
   constructor(options: LocalThreadServiceOptions) {
-    this.eventStore = new FileEventStore(join(options.storageDirectory, "thread-events.json"));
+    this.eventStore = options.events;
     this.getWorkspace = options.getWorkspace;
   }
 

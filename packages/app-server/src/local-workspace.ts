@@ -1,7 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { lstat, realpath } from "node:fs/promises";
+import { basename, isAbsolute } from "node:path";
 
+import type {
+  LocalPersistence,
+  StoredLocalWorkspaceGrant,
+} from "@repo/event-store/local";
 import {
   GrantLocalWorkspaceRequestSchema,
   LocalWorkspaceGrantSchema,
@@ -12,36 +16,25 @@ import {
 } from "@repo/platform-protocol";
 import { DefaultGitService, type GitCommandExecutor } from "@repo/git-service";
 
-const STORAGE_VERSION = 1;
-
-type StoredGrant = {
-  version: typeof STORAGE_VERSION;
-  path: string;
-  grant: LocalWorkspaceGrant;
-};
-
 export type LocalWorkspaceServiceOptions = {
-  storageDirectory: string;
+  workspaceGrants: LocalPersistence["workspaceGrants"];
   gitService?: Pick<DefaultGitService, "probeRepository">;
 };
 
 export class LocalWorkspaceService {
-  private readonly grantPath: string;
+  private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
   private readonly gitService: Pick<
     DefaultGitService,
     "probeRepository"
   >;
 
   constructor(options: LocalWorkspaceServiceOptions) {
-    if (!isAbsolute(options.storageDirectory)) {
-      throw new Error("Local workspace storage directory must be absolute");
-    }
-    this.grantPath = join(resolve(options.storageDirectory), "workspace-grant.json");
+    this.workspaceGrants = options.workspaceGrants;
     this.gitService = options.gitService ?? new DefaultGitService(createNodeGitExecutor());
   }
 
   async getCurrent(): Promise<LocalWorkspaceGrant | null> {
-    const stored = await this.readStoredGrant();
+    const stored = await this.workspaceGrants.read();
     if (!stored) {
       return null;
     }
@@ -56,42 +49,22 @@ export class LocalWorkspaceService {
       throw new Error("Workspace selection must be the repository root");
     }
     const grant = buildGrant(repoRoot, probe, null);
-    const stored: StoredGrant = {
-      version: STORAGE_VERSION,
+    const stored = {
+      version: 1 as const,
       path: repoRoot,
       grant,
     };
-    await this.writeStoredGrant(stored);
+    await this.workspaceGrants.write(stored);
     return grant;
   }
 
   async revoke(): Promise<void> {
-    try {
-      await unlink(this.grantPath);
-    } catch (error) {
-      if (!isNodeError(error, "ENOENT")) {
-        throw error;
-      }
-    }
+    await this.workspaceGrants.clear();
   }
 
-  private async readStoredGrant(): Promise<StoredGrant | null> {
-    let payload: unknown;
-    try {
-      payload = JSON.parse(await readFile(this.grantPath, "utf8")) as unknown;
-    } catch (error) {
-      if (isNodeError(error, "ENOENT")) {
-        return null;
-      }
-      throw new Error("Stored workspace grant is corrupt");
-    }
-    if (!isStoredGrant(payload)) {
-      throw new Error("Stored workspace grant is corrupt");
-    }
-    return payload;
-  }
-
-  private async probeStoredGrant(stored: StoredGrant): Promise<LocalWorkspaceGrant> {
+  private async probeStoredGrant(
+    stored: StoredLocalWorkspaceGrant,
+  ): Promise<LocalWorkspaceGrant> {
     try {
       const canonicalPath = await validateSelectedDirectory(stored.path);
       const { repoRoot, probe } = await this.readRepository(canonicalPath);
@@ -112,19 +85,6 @@ export class LocalWorkspaceService {
     return { repoRoot: await realpath(probe.repositoryRoot), probe };
   }
 
-  private async writeStoredGrant(stored: StoredGrant): Promise<void> {
-    await mkdir(dirname(this.grantPath), { recursive: true });
-    const temporaryPath = `${this.grantPath}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporaryPath, JSON.stringify(stored), {
-        encoding: "utf8",
-        mode: 0o600,
-      });
-      await rename(temporaryPath, this.grantPath);
-    } finally {
-      await unlink(temporaryPath).catch(() => undefined);
-    }
-  }
 }
 
 function buildGrant(
@@ -169,22 +129,6 @@ async function validateSelectedDirectory(path: string): Promise<string> {
 function workspaceIdForPath(path: string) {
   const digest = createHash("sha256").update(path).digest("hex").slice(0, 24);
   return WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${digest}`));
-}
-
-function isStoredGrant(value: unknown): value is StoredGrant {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    record.version === STORAGE_VERSION &&
-    typeof record.path === "string" &&
-    LocalWorkspaceGrantSchema.safeParse(record.grant).success
-  );
-}
-
-function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function createNodeGitExecutor(): GitCommandExecutor {

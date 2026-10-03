@@ -8,6 +8,7 @@ import {
   type AppServerRequest,
   type AppServerResponse,
 } from "./protocol.js";
+import { LocalPersistenceError } from "@repo/event-store/errors";
 import { initializeAppServer } from "./handshake.js";
 import type { LocalThreadService } from "./local-threads.js";
 import type { LocalWorkspaceService } from "./local-workspace.js";
@@ -85,7 +86,15 @@ export async function handleAppServerHttpRequest(
       result,
     });
     return { statusCode: 200, headers: JSON_HEADERS, payload: response };
-  } catch {
+  } catch (error) {
+    if (error instanceof LocalPersistenceError) {
+      return methodError(
+        request.method,
+        503,
+        "server_unavailable",
+        "App Server storage is unavailable",
+      );
+    }
     return methodError(
       request.method,
       400,
@@ -195,7 +204,11 @@ function hasIncompatibleVersion(body: unknown): boolean {
 function methodError(
   method: AppServerMethod,
   statusCode: number,
-  code: "unauthorized" | "protocol_incompatible" | "invalid_request",
+  code:
+    | "unauthorized"
+    | "protocol_incompatible"
+    | "invalid_request"
+    | "server_unavailable",
   message: string,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({
