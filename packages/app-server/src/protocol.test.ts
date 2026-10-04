@@ -24,6 +24,10 @@ describe("App Server protocol", () => {
       { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/create", params: { title: "" } },
       { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/rename", params: { threadId: "thr_valid123", title: "x".repeat(81) } },
       { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/list", params: {}, extra: true },
+      { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/current", params: { extra: true } },
+      { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: { providerId: "OpenAI" } },
+      { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/select", params: { providerId: "openai", modelId: " " } },
+      { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/select", params: { providerId: "openai", modelId: "gpt-4o", extra: true } },
     ]) {
       expect(AppServerRequestSchema.safeParse(request).success).toBe(false);
     }

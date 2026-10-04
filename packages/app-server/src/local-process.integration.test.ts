@@ -19,6 +19,7 @@ import {
   PlatformEventSchema,
   ThreadSchema,
 } from "@repo/platform-protocol";
+import { getBuiltinRegistry, builtinProviderRegistry } from "@repo/provider-core";
 
 const credential = "local-test-credential";
 const liveServers: ReturnType<typeof createLocalAppServer>[] = [];
@@ -260,6 +261,74 @@ describe("local App Server HTTP integration", () => {
       error: { code: "invalid_request" },
     });
   });
+
+  it("serves registry-backed providers and persists only a verified provider/model selection", async () => {
+    const { storageDirectory } = await fixture();
+    const server = await start(storageDirectory);
+    const baseUrl = serverUrl(server);
+    const catalog = await send(baseUrl, "provider/catalog", {});
+    const expectedProviders = getBuiltinRegistry().providers.filter((provider) =>
+      provider.launchStage === "supported" && provider.authModes.includes("api_key"),
+    );
+    expect(catalog).toMatchObject({ ok: true, result: { providers: expectedProviders } });
+
+    const provider = expectedProviders.find((entry) => builtinProviderRegistry.listModels(entry.providerId).length > 0);
+    if (!provider) throw new Error("Test registry has no supported API-key model");
+    const models = await send(baseUrl, "provider/models", { providerId: provider.providerId });
+    expect(models).toMatchObject({
+      ok: true,
+      result: {
+        providerId: provider.providerId,
+        models: [{ providerId: provider.providerId }],
+        metadata: { source: "registry", status: "available" },
+      },
+    });
+    const modelId = builtinProviderRegistry.listModels(provider.providerId)[0]!.modelId;
+
+    await expect(send(baseUrl, "provider/select", { providerId: provider.providerId, modelId }))
+      .resolves.toMatchObject({ ok: false, method: "provider/select" });
+    await expect(send(baseUrl, "provider/current", {})).resolves.toMatchObject({ ok: true, result: { selection: null } });
+    await expect(send(baseUrl, "provider/select", { providerId: provider.providerId, modelId }, credential, undefined, "{bad"))
+      .resolves.toMatchObject({ code: "invalid_request" });
+    await expect(send(baseUrl, "provider/select", { providerId: provider.providerId, modelId }, credential, undefined,
+      JSON.stringify({ providerId: provider.providerId === "openai" ? "groq" : "openai", status: "present" })))
+      .resolves.toMatchObject({ ok: false, method: "provider/select" });
+    await expect(send(baseUrl, "provider/select", { providerId: provider.providerId, modelId: "unregistered-model" }, credential, undefined,
+      JSON.stringify({ providerId: provider.providerId, status: "present" })))
+      .resolves.toMatchObject({ ok: false, method: "provider/select" });
+
+    const secretSentinel = "provider-secret-never-transmitted";
+    const secretConfigurationResponse = await send(baseUrl, "provider/select", {
+      providerId: provider.providerId,
+      modelId,
+    }, credential, undefined, JSON.stringify({
+      providerId: provider.providerId,
+      status: "present",
+      secret: secretSentinel,
+    }));
+    expect(secretConfigurationResponse).toMatchObject({ code: "invalid_request" });
+    expect(JSON.stringify(secretConfigurationResponse)).not.toContain(secretSentinel);
+    const selected = await send(baseUrl, "provider/select", { providerId: provider.providerId, modelId }, credential, undefined,
+      JSON.stringify({ providerId: provider.providerId, status: "present" }));
+    expect(selected).toMatchObject({ ok: true, result: { selection: { providerId: provider.providerId, modelId } } });
+    expect(JSON.stringify(selected)).not.toContain(secretSentinel);
+    await close(server);
+    const restarted = await start(storageDirectory);
+    await expect(send(serverUrl(restarted), "provider/current", {})).resolves.toMatchObject({
+      ok: true,
+      result: { selection: { providerId: provider.providerId, modelId } },
+    });
+    await expect(send(serverUrl(restarted), "provider/clear", {})).resolves.toMatchObject({
+      ok: true,
+      result: { selection: null },
+    });
+    await expect(send(serverUrl(restarted), "provider/current", {})).resolves.toMatchObject({
+      ok: true,
+      result: { selection: null },
+    });
+    const persistedBytes = await readFile(join(storageDirectory, "local-events.sqlite"));
+    expect(persistedBytes.toString("utf8")).not.toContain(secretSentinel);
+  });
 });
 
 async function fixture() {
@@ -302,6 +371,7 @@ async function send(
   params: Record<string, unknown>,
   auth = credential,
   origin?: string,
+  providerConfigurationHeader?: string,
 ): Promise<Record<string, unknown>> {
   const response = await fetch(`${baseUrl}/app-server/request`, {
     method: "POST",
@@ -309,6 +379,9 @@ async function send(
       authorization: `Bearer ${auth}`,
       "content-type": "application/json",
       ...(origin ? { origin } : {}),
+      ...(providerConfigurationHeader !== undefined
+        ? { "x-legioncode-provider-configuration": providerConfigurationHeader }
+        : {}),
     },
     body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method, params }),
   });

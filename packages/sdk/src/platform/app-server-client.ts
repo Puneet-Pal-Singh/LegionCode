@@ -8,10 +8,16 @@ import {
 } from "@legioncode/app-server/protocol";
 import {
   ThreadIdSchema,
+  ProviderIdSchema,
   type LocalWorkspaceGrant,
   type AppServerInitializeResponse,
+  type ProviderId,
   type Thread,
 } from "@repo/platform-protocol";
+import type {
+  BYOKDiscoveredProviderModelsResponse,
+  ProviderRegistryEntry,
+} from "@repo/shared-types";
 import { z } from "zod";
 
 export type { AppServerRequest } from "@legioncode/app-server/protocol";
@@ -29,6 +35,11 @@ export type AppServerClientOptions = {
 export type WorkspaceGrantSource =
   | { selectionToken: string }
   | { path: string };
+
+export type ProviderSelection = {
+  providerId: ProviderId;
+  modelId: string;
+};
 
 export class AppServerClientError extends Error {
   constructor(
@@ -58,6 +69,11 @@ export type AppServerClient = {
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
   archiveThread(threadId: Thread["id"]): Promise<Thread>;
   unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
+  getProviderCatalog(): Promise<ProviderRegistryEntry[]>;
+  getProviderModels(providerId: string): Promise<BYOKDiscoveredProviderModelsResponse>;
+  getProviderSelection(): Promise<ProviderSelection | null>;
+  selectProvider(providerId: string, modelId: string): Promise<ProviderSelection>;
+  clearProviderSelection(): Promise<null>;
 };
 
 export function createAppServerClient(
@@ -137,6 +153,32 @@ export function createAppServerClient(
         params: { threadId: ThreadIdSchema.parse(threadId) },
       }, AppServerResultSchemas["thread/unarchive"]);
       return result.thread;
+    },
+    getProviderCatalog: async () => {
+      const result = await request(options, { method: "provider/catalog", params: {} }, AppServerResultSchemas["provider/catalog"]);
+      return result.providers;
+    },
+    getProviderModels: async (providerId) => {
+      const result = await request(options, {
+        method: "provider/models",
+        params: { providerId: ProviderIdSchema.parse(providerId) },
+      }, AppServerResultSchemas["provider/models"]);
+      return result;
+    },
+    getProviderSelection: async () => {
+      const result = await request(options, { method: "provider/current", params: {} }, AppServerResultSchemas["provider/current"]);
+      return result.selection;
+    },
+    selectProvider: async (providerId, modelId) => {
+      const result = await request(options, {
+        method: "provider/select",
+        params: { providerId: ProviderIdSchema.parse(providerId), modelId },
+      }, AppServerResultSchemas["provider/select"]);
+      return result.selection;
+    },
+    clearProviderSelection: async () => {
+      const result = await request(options, { method: "provider/clear", params: {} }, AppServerResultSchemas["provider/clear"]);
+      return result.selection;
     },
   };
 }

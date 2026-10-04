@@ -10,6 +10,9 @@ export type AppServerHttpTransportOptions = {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   signal?: AbortSignal;
+  requestHeaders?: (
+    envelope: AppServerRequest,
+  ) => Record<string, string> | Promise<Record<string, string>>;
 };
 
 const MAX_RESPONSE_BYTES = 1_048_576;
@@ -45,15 +48,19 @@ export function createAppServerHttpTransport(
       }, options.timeoutMs ?? 5_000);
 
       try {
+        const suppliedHeaders = await options.requestHeaders?.(envelope);
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(suppliedHeaders ?? {})) {
+          const normalizedName = name.toLowerCase();
+          if (normalizedName === "accept" || normalizedName === "content-type" || normalizedName === "authorization") continue;
+          headers.set(name, value);
+        }
+        headers.set("Accept", "application/json");
+        headers.set("Content-Type", "application/json");
+        if (options.credential) headers.set("Authorization", `Bearer ${options.credential}`);
         const response = await fetchImpl(`${baseUrl}/app-server/request`, {
           method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            ...(options.credential
-              ? { Authorization: `Bearer ${options.credential}` }
-              : {}),
-          },
+          headers,
           body: JSON.stringify(envelope),
           redirect: "error",
           signal: controller.signal,

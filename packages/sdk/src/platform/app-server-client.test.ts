@@ -100,4 +100,50 @@ describe("AppServerClient", () => {
       code: "transport",
     } satisfies Partial<AppServerClientError>);
   });
+
+  it("uses correlated App Server methods and validates provider catalog and selection results", async () => {
+    const sent: AppServerRequest[] = [];
+    const client = createAppServerClient({
+      clientId: "desktop",
+      clientVersion: "0.1.0",
+      transport: {
+        request: async (envelope) => {
+          sent.push(envelope);
+          const results: Record<string, unknown> = {
+            "provider/catalog": { providers: [] },
+            "provider/models": {
+              providerId: "openai",
+              view: "popular",
+              models: [],
+              page: { limit: 1, hasMore: false },
+              metadata: { fetchedAt: "2026-10-04T00:00:00.000Z", stale: false, source: "registry", status: "available" },
+            },
+            "provider/current": { selection: null },
+            "provider/select": { selection: { providerId: "openai", modelId: "gpt-4o" } },
+            "provider/clear": { selection: null },
+          };
+          return {
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method: envelope.method,
+            ok: true,
+            result: results[envelope.method],
+          };
+        },
+      },
+    });
+
+    await expect(client.getProviderCatalog()).resolves.toEqual([]);
+    await expect(client.getProviderModels("openai")).resolves.toMatchObject({ providerId: "openai", metadata: { source: "registry" } });
+    await expect(client.getProviderSelection()).resolves.toBeNull();
+    await expect(client.selectProvider("openai", "gpt-4o")).resolves.toEqual({ providerId: "openai", modelId: "gpt-4o" });
+    await expect(client.clearProviderSelection()).resolves.toBeNull();
+    expect(sent.map(({ method }) => method)).toEqual([
+      "provider/catalog",
+      "provider/models",
+      "provider/current",
+      "provider/select",
+      "provider/clear",
+    ]);
+    expect(sent[3]).toMatchObject({ params: { providerId: "openai", modelId: "gpt-4o" } });
+  });
 });

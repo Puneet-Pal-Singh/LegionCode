@@ -12,6 +12,7 @@ import { LocalPersistenceError } from "@repo/event-store/errors";
 import { initializeAppServer } from "./handshake.js";
 import type { LocalThreadService } from "./local-threads.js";
 import type { LocalWorkspaceService } from "./local-workspace.js";
+import type { LocalProviderService, ProviderConfiguration } from "./local-providers.js";
 
 export type AppServerComposition = {
   environment: "local" | "hosted";
@@ -19,6 +20,8 @@ export type AppServerComposition = {
   serverVersion: string;
   workspaceService?: LocalWorkspaceService;
   threadService?: LocalThreadService;
+  providerService?: LocalProviderService;
+  providerConfiguration?: ProviderConfiguration;
 };
 
 export type AppServerHttpInput = {
@@ -186,6 +189,32 @@ async function dispatch(
       if (!composition.threadService) throw new Error("unsupported");
       return { thread: await composition.threadService.unarchive(request.params.threadId) };
     }
+    case "provider/catalog": {
+      if (!composition.providerService) throw new Error("unsupported");
+      return { providers: composition.providerService.listCatalog() };
+    }
+    case "provider/models": {
+      if (!composition.providerService) throw new Error("unsupported");
+      return composition.providerService.listModels(request.params.providerId);
+    }
+    case "provider/current": {
+      if (!composition.providerService) throw new Error("unsupported");
+      return { selection: await composition.providerService.getSelection() };
+    }
+    case "provider/select": {
+      if (!composition.providerService) throw new Error("unsupported");
+      return {
+        selection: await composition.providerService.select(
+          request.params,
+          composition.providerConfiguration,
+        ),
+      };
+    }
+    case "provider/clear": {
+      if (!composition.providerService) throw new Error("unsupported");
+      await composition.providerService.clearSelection();
+      return { selection: null };
+    }
   }
 }
 
@@ -233,6 +262,7 @@ function genericError(
 }
 
 function errorMessage(method: AppServerMethod): string {
+  if (method.startsWith("provider/")) return "Provider operation is invalid or unavailable";
   if (method.startsWith("workspace/")) return "Workspace operation is invalid or unavailable";
   if (method.startsWith("thread/")) return "Thread operation is invalid or unavailable";
   return "App Server request is invalid";
