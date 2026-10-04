@@ -130,6 +130,9 @@ importers:
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../../packages/platform-protocol
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
       better-sqlite3:
         specifier: 12.8.0
         version: 12.8.0
@@ -146,6 +149,9 @@ importers:
       '@playwright/test':
         specifier: 1.51.1
         version: 1.51.1
+      '@tailwindcss/vite':
+        specifier: ^4.1.18
+        version: 4.1.18(vite@7.3.1(@types/node@24.10.9)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.9.0))
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.9
@@ -167,6 +173,9 @@ importers:
       electron-vite:
         specifier: 5.0.0
         version: 5.0.0(vite@7.3.1(@types/node@24.10.9)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.9.0))
+      tailwindcss:
+        specifier: ^4.1.18
+        version: 4.1.18
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -489,6 +498,12 @@ importers:
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
+      '@repo/provider-core':
+        specifier: workspace:*
+        version: link:../provider-core
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
       zod:
         specifier: ^3.25.0
         version: 3.25.1
@@ -539,9 +554,18 @@ importers:
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      lucide-react:
+        specifier: ^0.563.0
+        version: 0.563.0(react@19.2.4)
       react:
         specifier: ^19.2.0
         version: 19.2.4
+      react-icons:
+        specifier: ^5.5.0
+        version: 5.7.0(react@19.2.4)
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*

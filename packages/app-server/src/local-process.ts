@@ -4,6 +4,7 @@ import { LocalPersistence } from "@repo/event-store/local";
 import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
 import { LocalThreadService } from "./local-threads.js";
+import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -31,8 +32,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
       events: persistence.events,
       getWorkspace: () => workspaceService.getCurrent(),
     });
+    const providerService = new LocalProviderService({
+      selectionStore: persistence.providerSelection,
+    });
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -79,6 +83,7 @@ async function handleRequest(
   config: LocalAppServerStartConfig,
   workspaceService: LocalWorkspaceService,
   threadService: LocalThreadService,
+  providerService: LocalProviderService,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -110,12 +115,26 @@ async function handleRequest(
     writeJson(response, 408, { code: "invalid_request", message: "App Server request timed out" });
     return;
   }
+  const rawProviderConfiguration = request.headers["x-legioncode-provider-configuration"];
+  let providerConfiguration: ReturnType<typeof ProviderConfigurationSchema.parse> | undefined;
+  if (rawProviderConfiguration !== undefined) {
+    if (typeof rawProviderConfiguration !== "string" || rawProviderConfiguration.length > 1_024) {
+      writeJson(response, 400, { code: "invalid_request", message: "Provider configuration header is invalid" });
+      return;
+    }
+    try {
+      providerConfiguration = ProviderConfigurationSchema.parse(JSON.parse(rawProviderConfiguration) as unknown);
+    } catch {
+      writeJson(response, 400, { code: "invalid_request", message: "Provider configuration header is invalid" });
+      return;
+    }
+  }
   const result = await handleAppServerHttpRequest(
     {
       ...baseInput,
       rawBody: body.value,
     },
-    composition,
+    { ...composition, providerService, providerConfiguration },
   );
   writeJson(response, result.statusCode, result.payload, result.headers);
 }

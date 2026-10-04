@@ -8,10 +8,12 @@ import {
   LocalWorkspaceGrantPathSchema,
   LocalWorkspaceGrantSchema,
   PlatformEventSchema,
+  ProviderIdSchema,
   type EventCursor,
   type EventId,
   type PlatformEvent,
   type LocalWorkspaceGrant,
+  type ProviderId,
 } from "@repo/platform-protocol";
 import {
   LifecycleEventSchema,
@@ -37,6 +39,12 @@ import type {
 const DATABASE_NAME = "local-events.sqlite";
 const SCHEMA_VERSION = 1;
 const MAX_REPLAY_LIMIT = 1_000;
+const PROVIDER_SELECTION_METADATA_KEY = "provider_selection_v1";
+const ProviderSelectionSchema = z.object({
+  version: z.literal(1),
+  providerId: ProviderIdSchema,
+  modelId: z.string().min(1).max(256).refine((value) => value.trim() === value),
+}).strict();
 
 const LegacyPlatformFileSchema = z.object({
   version: z.literal(1),
@@ -93,6 +101,11 @@ export class LocalPersistence {
     write(value: StoredLocalWorkspaceGrant): Promise<void>;
     clear(): Promise<void>;
   };
+  readonly providerSelection: {
+    read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
+    write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
+    clear(): Promise<void>;
+  };
 
   private readonly database!: Database.Database;
   private readonly storageDirectory: string;
@@ -141,6 +154,11 @@ export class LocalPersistence {
       read: async () => this.readWorkspaceGrant(),
       write: async (value) => this.writeWorkspaceGrant(value),
       clear: async () => this.clearWorkspaceGrant(),
+    };
+    this.providerSelection = {
+      read: async () => this.readProviderSelection(),
+      write: async (value) => this.writeProviderSelection(value),
+      clear: async () => this.clearProviderSelection(),
     };
   }
 
@@ -501,6 +519,40 @@ export class LocalPersistence {
     this.guardStorage(() => this.database.transaction(() => this.database.prepare("DELETE FROM workspace_grant WHERE id = 1").run()).immediate());
   }
 
+  private readProviderSelection(): { readonly providerId: ProviderId; readonly modelId: string } | null {
+    return this.guardStorage(() => {
+      const row = this.database.prepare("SELECT value FROM metadata WHERE key = ?")
+        .get(PROVIDER_SELECTION_METADATA_KEY) as { value: string } | undefined;
+      if (!row) return null;
+      try {
+        const { providerId, modelId } = ProviderSelectionSchema.parse(JSON.parse(row.value));
+        return { providerId, modelId };
+      } catch {
+        throw corruptStore("Stored provider selection is invalid");
+      }
+    });
+  }
+
+  private writeProviderSelection(value: { readonly providerId: ProviderId; readonly modelId: string }): void {
+    let selection: z.infer<typeof ProviderSelectionSchema>;
+    try {
+      selection = ProviderSelectionSchema.parse({ version: 1, ...value });
+    } catch {
+      throw corruptStore("Provider selection is invalid");
+    }
+    this.guardStorage(() => this.database.transaction(() => {
+      this.database.prepare(`INSERT INTO metadata(key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .run(PROVIDER_SELECTION_METADATA_KEY, JSON.stringify(selection));
+    }).immediate());
+  }
+
+  private clearProviderSelection(): void {
+    this.guardStorage(() => this.database.transaction(() => {
+      this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
+    }).immediate());
+  }
+
   private guardStorage<T>(operation: () => T): T {
     try {
       return operation();
@@ -517,6 +569,7 @@ export class LocalPersistence {
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
     if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
     this.assertRequiredIndexes();
+    this.validateProviderSelectionMetadata();
 
     const rows = this.database.prepare(`
       SELECT family, event_json, fingerprint, event_id, thread_id, turn_id,
@@ -560,6 +613,17 @@ export class LocalPersistence {
       }
     }
     this.readWorkspaceGrant();
+  }
+
+  private validateProviderSelectionMetadata(): void {
+    const row = this.database.prepare("SELECT value FROM metadata WHERE key = ?")
+      .get(PROVIDER_SELECTION_METADATA_KEY) as { value: string } | undefined;
+    if (!row) return;
+    try {
+      ProviderSelectionSchema.parse(JSON.parse(row.value));
+    } catch {
+      throw corruptStore("Stored provider selection is invalid");
+    }
   }
 
   private assertRequiredIndexes(): void {
@@ -655,6 +719,7 @@ export class LocalPersistence {
       throw corruptStore("Local database schema version is unsupported");
     }
     this.assertRequiredIndexes();
+    this.validateProviderSelectionMetadata();
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     if (marker) {
       if (marker.value !== "1" || version?.value !== String(SCHEMA_VERSION)) {

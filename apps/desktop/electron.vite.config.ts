@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 export default defineConfig({
@@ -10,6 +11,7 @@ export default defineConfig({
           "@legioncode/sdk",
           "@repo/event-store/local",
           "@repo/platform-protocol",
+          "@repo/shared-types",
           "zod",
         ],
         include: ["better-sqlite3"],
@@ -30,7 +32,7 @@ export default defineConfig({
   preload: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ["@legioncode/app-server", "@repo/platform-protocol", "zod"],
+        exclude: ["@legioncode/app-server", "@repo/platform-protocol", "@repo/shared-types", "zod"],
       }),
     ],
     build: {
@@ -44,6 +46,6 @@ export default defineConfig({
   },
   renderer: {
     root: "src/renderer",
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
   },
 });

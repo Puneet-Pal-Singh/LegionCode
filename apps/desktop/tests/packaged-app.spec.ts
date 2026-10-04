@@ -1,9 +1,10 @@
 import { _electron as electron, expect, test } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 
 const releaseDirectory = fileURLToPath(new URL("../release", import.meta.url));
 const execFile = promisify(execFileCallback);
@@ -98,6 +99,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
         "onEnvironmentStatus",
         "restartEnvironment",
         "pickWorkspace",
+        "credential",
       ],
     });
 
@@ -147,6 +149,186 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await rm(testRoot, { recursive: true, force: true });
   }
 });
+
+test("the packaged Desktop app stores a shared-catalog provider credential in OS-protected storage", async ({}, testInfo) => {
+  const executablePath = await findPackagedExecutable();
+  const testRoot = await mkdtemp(join("/tmp", "legioncode-desktop-provider-"));
+  const userDataDirectory = join(testRoot, "user-data");
+  const firstSentinel = "fixture-only-provider-secret-first";
+  const replacementSentinel = "fixture-only-provider-secret-replaced";
+  const consoleText: string[] = [];
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
+
+  try {
+    application = await electron.launch({
+      executablePath,
+      args: [`--user-data-dir=${userDataDirectory}`],
+    });
+    const page = await application.firstWindow();
+    page.on("console", (message) => consoleText.push(message.text()));
+    page.on("pageerror", (error) => consoleText.push(error.message));
+    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Provider setup" })).toBeVisible();
+
+    const candidate = await page.evaluate(async (protocolVersion) => {
+      const isRecord = (value: unknown): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
+      const request = window.desktop.request as (envelope: unknown) => Promise<unknown>;
+      const rawCatalog = await window.desktop.request({
+        protocolVersion,
+        method: "provider/catalog",
+        params: {},
+      });
+      if (!isRecord(rawCatalog) || !isRecord(rawCatalog.result) || !Array.isArray(rawCatalog.result.providers)) {
+        throw new Error("Provider catalog response was invalid");
+      }
+      for (const provider of rawCatalog.result.providers) {
+        if (!isRecord(provider) || provider.providerId === "openai" || provider.launchStage !== "supported" || !Array.isArray(provider.authModes) || !provider.authModes.includes("api_key")) continue;
+        const rawModels = await request({
+          protocolVersion,
+          method: "provider/models",
+          params: { providerId: String(provider.providerId) },
+        });
+        if (!isRecord(rawModels) || !isRecord(rawModels.result) || !Array.isArray(rawModels.result.models)) continue;
+        const model = rawModels.result.models.find((item) =>
+          isRecord(item) && item.deprecated !== true && item.availability !== "unsupported_transport",
+        );
+        if (isRecord(model) && typeof model.id === "string") {
+          return {
+            providerId: String(provider.providerId),
+            displayName: String(provider.displayName),
+            modelId: model.id,
+          };
+        }
+      }
+      return null;
+    }, APP_SERVER_PROTOCOL_VERSION);
+    expect(candidate, "a supported non-OpenAI registry model from the local catalog").not.toBeNull();
+    if (!candidate) throw new Error("No supported non-OpenAI registry model was returned by the local catalog");
+
+    const providerButton = page.getByRole("button", { name: new RegExp(candidate.displayName) });
+    await providerButton.click();
+    const credentialInput = page.getByLabel(`${candidate.displayName} API key`);
+    await credentialInput.fill(firstSentinel);
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(page.getByText("Provider credential saved and route selected.", { exact: true })).toBeVisible();
+    await expect(page.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
+    await expect(credentialInput).toHaveValue("");
+
+    await credentialInput.fill(replacementSentinel);
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(page.getByText("Provider credential saved and route selected.", { exact: true })).toBeVisible();
+    await expect(credentialInput).toHaveValue("");
+
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.getByRole("button", { name: "Back to providers" }).click();
+    const wideProviderButton = page.getByRole("button", { name: new RegExp(candidate.displayName) }).first();
+    const wideLayout = await wideProviderButton.evaluate((element) => ({
+      display: getComputedStyle(element).display,
+      columns: getComputedStyle(element).gridTemplateColumns,
+    }));
+    expect(wideLayout.display).toBe("grid");
+    const wideTracks = wideLayout.columns.trim().split(/\s+/);
+    expect(wideTracks).toHaveLength(2);
+    expect(Number.parseFloat(wideTracks[0]!)).toBe(32);
+    expect(Number.parseFloat(wideTracks[1]!)).toBeGreaterThan(0);
+    await page.getByRole("heading", { name: "Provider setup" }).evaluate((heading) => {
+      const scrollHost = heading.closest(".lc-workspace-content");
+      if (!(scrollHost instanceof HTMLElement)) throw new Error("Workspace content scroll container was not found");
+      scrollHost.scrollTop += heading.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top - 8;
+    });
+    await page.screenshot({ path: testInfo.outputPath("provider-setup-wide.png"), fullPage: true });
+
+    await page.setViewportSize({ width: 420, height: 900 });
+    await expect(page.getByRole("heading", { name: "Provider setup" })).toBeVisible();
+    await expect(page.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
+    const narrowProviderButton = page.getByRole("button", { name: new RegExp(candidate.displayName) }).first();
+    const narrowLayout = await narrowProviderButton.evaluate((element) => ({
+      display: getComputedStyle(element).display,
+      columns: getComputedStyle(element).gridTemplateColumns,
+    }));
+    expect(narrowLayout.display).toBe("grid");
+    const narrowTracks = narrowLayout.columns.trim().split(/\s+/);
+    expect(narrowTracks).toHaveLength(2);
+    expect(Number.parseFloat(narrowTracks[0]!)).toBe(32);
+    expect(Number.parseFloat(narrowTracks[1]!)).toBeGreaterThan(0);
+    await page.getByRole("heading", { name: "Provider setup" }).evaluate((heading) => {
+      const scrollHost = heading.closest(".lc-workspace-content");
+      if (!(scrollHost instanceof HTMLElement)) throw new Error("Workspace content scroll container was not found");
+      scrollHost.scrollTop += heading.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top - 8;
+    });
+    const narrowOverflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(narrowOverflow).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath("provider-setup-narrow.png"), fullPage: true });
+
+    const ciphertextPath = join(userDataDirectory, "provider-credentials", "credentials.enc.json");
+    const ciphertextBeforeSecondLaunch = await readFile(ciphertextPath, "utf8");
+    expect(ciphertextBeforeSecondLaunch).not.toContain(firstSentinel);
+    expect(ciphertextBeforeSecondLaunch).not.toContain(replacementSentinel);
+    await execFile(executablePath, [`--user-data-dir=${userDataDirectory}`], { timeout: 10_000 });
+    expect(await readFile(ciphertextPath, "utf8")).toBe(ciphertextBeforeSecondLaunch);
+    await expect.poll(() => application!.windows().length).toBe(1);
+    await expect(page.getByText(`${candidate.displayName}: Saved`, { exact: true })).toBeVisible();
+
+    await application.close();
+    application = undefined;
+    application = await electron.launch({
+      executablePath,
+      args: [`--user-data-dir=${userDataDirectory}`],
+    });
+    const restartedPage = await application.firstWindow();
+    await expect(restartedPage.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expect(restartedPage.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
+    await expect(restartedPage.getByText(new RegExp(`${candidate.displayName}: Saved`))).toBeVisible();
+
+    await restartedPage.getByRole("button", { name: "Delete key", exact: true }).click();
+    await expect(restartedPage.getByText("No provider route selected.", { exact: true })).toBeVisible();
+    await application.close();
+    application = undefined;
+    application = await electron.launch({
+      executablePath,
+      args: [`--user-data-dir=${userDataDirectory}`],
+    });
+    const deletedPage = await application.firstWindow();
+    await expect(deletedPage.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expect(deletedPage.getByText("No provider route selected.", { exact: true })).toBeVisible();
+    await expect(deletedPage.getByText(new RegExp(`${candidate.displayName}: Missing`))).toBeVisible();
+
+    const rendererEvidence = await deletedPage.evaluate(() => ({
+      credentialMethods: Object.keys(window.desktop).filter((name) => name.toLowerCase().includes("credential") || name.toLowerCase().includes("apikey")),
+      hasGetApiKey: "getApiKey" in window.desktop,
+      localStorage: JSON.stringify(localStorage),
+      sessionStorage: JSON.stringify(sessionStorage),
+      text: document.body.innerText,
+    }));
+    expect(rendererEvidence.credentialMethods).toEqual(["credential"]);
+    expect(rendererEvidence.hasGetApiKey).toBe(false);
+    expect(rendererEvidence.localStorage).not.toContain("fixture-only-provider-secret");
+    expect(rendererEvidence.sessionStorage).not.toContain("fixture-only-provider-secret");
+    expect(rendererEvidence.text).not.toContain("fixture-only-provider-secret");
+    expect(consoleText.join("\n")).not.toContain("fixture-only-provider-secret");
+    await expect.poll(async () => (await readAllFiles(testRoot)).join("\n")).not.toContain("fixture-only-provider-secret");
+  } finally {
+    await application?.close();
+    await rm(testRoot, { recursive: true, force: true });
+  }
+});
+
+async function readAllFiles(path: string): Promise<string[]> {
+  const entries = await readdir(path, { withFileTypes: true });
+  const contents = await Promise.all(entries.map(async (entry) => {
+    const entryPath = join(path, entry.name);
+    if (entry.isDirectory()) return await readAllFiles(entryPath);
+    if (entry.isFile()) {
+      try { return [(await readFile(entryPath)).toString("utf8")]; } catch { return []; }
+    }
+    return [];
+  }));
+  return contents.flat();
+}
+
 
 test("the packaged Desktop app reopens and revokes a local workspace grant", async () => {
   const executablePath = await findPackagedExecutable();

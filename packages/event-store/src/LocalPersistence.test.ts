@@ -4,6 +4,7 @@ import {
   EventCursorSchema,
   EventIdSchema,
   PlatformEventSchema,
+  ProviderIdSchema,
   ThreadIdSchema,
   UserIdSchema,
   WorkspaceIdSchema,
@@ -42,6 +43,40 @@ describe("LocalPersistence", () => {
     const reopened = openPersistence(persistenceDirectory(persistence));
     await expect(reopened.events.append(input)).resolves.toEqual(first);
     await expect(reopened.events.listAll()).resolves.toEqual([first]);
+  });
+
+  it("persists only the provider/model selection across restart and supports clearing it", async () => {
+    const persistence = createPersistence();
+    const selection = { providerId: ProviderIdSchema.parse("axis"), modelId: "z-ai/glm-4.5-air:free" };
+    await persistence.providerSelection.write(selection);
+    const directory = persistenceDirectory(persistence);
+    persistence.close();
+
+    const databasePath = join(directory, "local-events.sqlite");
+    const database = new Database(databasePath, { readonly: true });
+    const stored = database.prepare("SELECT value FROM metadata WHERE key = 'provider_selection_v1'").get() as { value: string };
+    expect(JSON.parse(stored.value)).toEqual({ version: 1, ...selection });
+    database.close();
+
+    const reopened = openPersistence(directory);
+    await expect(reopened.providerSelection.read()).resolves.toEqual(selection);
+    await reopened.providerSelection.clear();
+    reopened.close();
+    await expect(openPersistence(directory).providerSelection.read()).resolves.toBeNull();
+  });
+
+  it("rejects malformed provider metadata before mutating the existing database", async () => {
+    const persistence = createPersistence();
+    const databasePath = join(persistenceDirectory(persistence), "local-events.sqlite");
+    persistence.close();
+    const database = new Database(databasePath);
+    database.prepare("INSERT INTO metadata(key, value) VALUES ('provider_selection_v1', ?)")
+      .run(JSON.stringify({ version: 1, providerId: "invalid provider", modelId: "model" }));
+    database.close();
+    const before = readFileSync(databasePath);
+
+    expect(() => openPersistence(persistenceDirectory(persistence))).toThrow(LocalPersistenceError);
+    expect(readFileSync(databasePath)).toEqual(before);
   });
 
   it("rolls back a valid first append when a later batch event is malformed", async () => {

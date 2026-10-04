@@ -9,3 +9,11 @@ export { ClientShellLoading } from "./shell/ClientShellLoading.js";
 export { WorkspaceFrame, type WorkspaceFrameProps } from "./workspace/WorkspaceFrame.js";
 export { WorkspaceTopBar, type WorkspaceTopBarProps } from "./workspace/WorkspaceTopBar.js";
 export { ThreadSidebar, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
+export {
+  ConnectProviderChooser,
+  type ConnectProviderChooserProps,
+} from "./provider/ConnectProviderChooser.js";
+export {
+  ProviderIcon,
+  type ProviderIconProps,
+} from "./provider/ProviderIcon.js";

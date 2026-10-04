@@ -30,6 +30,32 @@ describe("App Server HTTP transport", () => {
     expect(call?.init.body).toBe(JSON.stringify(envelope));
   });
 
+  it("adds per-request private headers without allowing them to replace transport security headers", async () => {
+    let call: { init: RequestInit } | undefined;
+    const transport = createAppServerHttpTransport({
+      baseUrl: "http://127.0.0.1:4310",
+      credential: "fixed-bearer",
+      requestHeaders: async () => ({
+        "x-legioncode-provider-configuration": '{"providerId":"openai","status":"present"}',
+        aUtHoRiZaTiOn: "attacker-bearer",
+        ACCEPT: "text/plain",
+        "content-type": "text/plain",
+      }),
+      fetchImpl: async (_input, init) => {
+        call = { init: init ?? {} };
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+
+    await transport.request(envelope);
+
+    const headers = new Headers(call?.init.headers);
+    expect(headers.get("x-legioncode-provider-configuration")).toBe('{"providerId":"openai","status":"present"}');
+    expect(headers.get("authorization")).toBe("Bearer fixed-bearer");
+    expect(headers.get("accept")).toBe("application/json");
+    expect(headers.get("content-type")).toBe("application/json");
+  });
+
   it("rejects redirect responses without making a follow-up request", async () => {
     let callCount = 0;
     const transport = createAppServerHttpTransport({

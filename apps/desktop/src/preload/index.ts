@@ -15,6 +15,9 @@ import {
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
   WORKSPACE_PICK_CHANNEL,
+  CREDENTIAL_COMMAND_CHANNEL,
+  DesktopCredentialCommandSchema,
+  DesktopCredentialResultSchema,
   type DesktopApi,
   type DesktopBuildInfo,
 } from "../shared/desktop-api";
@@ -70,6 +73,11 @@ const desktopApi: DesktopApi = {
   pickWorkspace: async () => {
     const selection: unknown = await ipcRenderer.invoke(WORKSPACE_PICK_CHANNEL);
     return selection === null ? null : WorkspaceSelectionSchema.parse(selection);
+  },
+  credential: async (command) => {
+    const parsedCommand = DesktopCredentialCommandSchema.parse(command);
+    const result: unknown = await ipcRenderer.invoke(CREDENTIAL_COMMAND_CHANNEL, parsedCommand);
+    return DesktopCredentialResultSchema.parse(result);
   },
 };
 
