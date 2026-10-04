@@ -1,7 +1,12 @@
 import type { Message } from "@ai-sdk/react";
+import {
+  ConversationHistoryReadError,
+  parseConversationHistoryPage,
+  readConversationHistory,
+  type ConversationHistoryPage,
+} from "@repo/platform-client-sdk";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
-import type { ConversationScope } from "../hooks/conversationScope";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 
@@ -13,268 +18,203 @@ interface CorePart {
   args?: unknown;
 }
 
-type ServerMessagePart =
-  | CorePart
-  | { type: string; [key: string]: unknown };
+type ServerMessagePart = CorePart | { type: string; [key: string]: unknown };
 
 type MessageWithMetadataData = Message & {
-  data: {
-    metadata?: Record<string, unknown>;
-  };
+  data: { metadata?: Record<string, unknown> };
 };
 
 interface ServerMessage {
-  id?: string;
+  id: string;
   role: "system" | "user" | "assistant" | "tool";
   content: string | ServerMessagePart[];
-  createdAt?: string | Date;
-  data?: {
-    metadata?: Record<string, unknown>;
-  };
+  createdAt: string;
+  data?: { metadata?: Record<string, unknown> };
 }
 
-interface PaginatedHistoryResponse {
+interface HistoryPagePayload {
   messages: ServerMessage[];
-  nextCursor?: string;
+  nextCursor: string | null;
+  snapshot: string;
 }
+
+export type HydrationStatus =
+  | "readable"
+  | "empty"
+  | "partial"
+  | "recovery-required"
+  | "failed"
+  | "cancelled";
 
 export interface HydrationResult {
+  status: HydrationStatus;
   messages: Message[];
+  snapshot?: string;
+  nextCursor?: string;
   error?: string;
 }
 
 export class ChatHydrationService {
-  constructor() {}
-
   async hydrateMessages(
-    scope: ConversationScope,
+    sessionId: string,
+    signal?: AbortSignal,
   ): Promise<HydrationResult> {
-    const { sessionId, runId } = scope;
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
-    logClientEvent("chat/hydration-service", "started", {
-      requestId,
-      sessionId,
-      runId,
-    });
+    logClientEvent("chat/hydration-service", "started", { requestId, sessionId });
+
     try {
-      const allMessages: ServerMessage[] = [];
-      let cursor: string | undefined;
-      const maxPages = 10; // Prevent infinite loops
-
-      for (let page = 0; page < maxPages; page++) {
-        const result = await this.fetchHistoryPage(
-          scope,
-          cursor,
-          50, // page size
-        );
-
-        if (result.error) {
-          return { messages: [], error: result.error };
-        }
-
-        allMessages.push(...result.messages);
-
-        if (!result.nextCursor) {
-          break; // No more pages
-        }
-
-        cursor = result.nextCursor;
-      }
-
-      const messages = this.convertServerMessages(allMessages, scope.runId);
+      const result = await readConversationHistory<ServerMessage>(
+        async (cursor, snapshot, pageSignal) =>
+          this.fetchHistoryPage(sessionId, cursor, snapshot, pageSignal),
+        { signal },
+      );
+      const messages = convertServerMessages(result.messages);
       logClientEvent("chat/hydration-service", "completed", {
         requestId,
-        runId,
+        sessionId,
         messageCount: messages.length,
-        messageIds: summarizeServerMessages(allMessages),
+        messageIds: summarizeServerMessages(result.messages),
         durationMs: Date.now() - startedAt,
       });
-      return { messages };
+      return {
+        status: messages.length ? "readable" : "empty",
+        messages,
+        snapshot: result.snapshot,
+      };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      const readError = error instanceof ConversationHistoryReadError
+        ? error
+        : new ConversationHistoryReadError(error instanceof Error ? error.message : String(error));
+      const messages = convertServerMessages(readError.messages as ServerMessage[]);
+      const cancelled = signal?.aborted || readError.message.includes("cancelled");
+      const status: HydrationStatus = cancelled
+        ? "cancelled"
+        : messages.length
+          ? "partial"
+          : readError.message.startsWith("History fetch failed: 404")
+            ? "recovery-required"
+            : "failed";
       logClientWarning("chat/hydration-service", "failed", {
         requestId,
-        runId,
-        error: errorMessage,
+        sessionId,
+        status,
+        error: readError.message,
         durationMs: Date.now() - startedAt,
       });
-      return { messages: [], error: errorMessage };
+      return {
+        status,
+        messages,
+        ...(readError.snapshot ? { snapshot: readError.snapshot } : {}),
+        error: cancelled ? undefined : readError.message,
+      };
     }
   }
 
   private async fetchHistoryPage(
-    scope: ConversationScope,
-    cursor?: string,
-    limit: number = 50,
-  ): Promise<{
-    messages: ServerMessage[];
-    nextCursor?: string;
-    error?: string;
-  }> {
-    const { sessionId, runId } = scope;
-    const baseUrl = chatHistoryPath(runId);
-    const url = new URL(baseUrl);
-    url.searchParams.set("session", sessionId);
-    url.searchParams.set("limit", limit.toString());
-    if (cursor) {
-      url.searchParams.set("cursor", cursor);
-    }
+    sessionId: string,
+    cursor: string | null,
+    snapshot: string | null,
+    signal?: AbortSignal,
+  ): Promise<ConversationHistoryPage<ServerMessage>> {
+    const url = new URL(chatHistoryPath(sessionId));
+    url.searchParams.set("limit", "50");
+    if (cursor !== null) url.searchParams.set("cursor", cursor);
+    if (snapshot !== null) url.searchParams.set("snapshot", snapshot);
 
     const pageRequestId = crypto.randomUUID();
     logClientEvent("chat/history", "page-requested", {
       requestId: pageRequestId,
       sessionId,
-      runId,
-      cursor: cursor ?? null,
-      limit,
+      cursor,
+      snapshot,
     });
-    const res = await fetch(url.toString(), { credentials: "include" });
-
-    if (!res.ok) {
-      const errorPreview = await readResponsePreview(res);
+    const response = await fetch(url.toString(), {
+      credentials: "include",
+      signal,
+    });
+    if (!response.ok) {
+      const preview = await readResponsePreview(response);
       logClientWarning("chat/history", "page-failed", {
         requestId: pageRequestId,
         sessionId,
-        runId,
-        status: res.status,
-        statusText: res.statusText,
-        preview: errorPreview,
+        status: response.status,
+        statusText: response.statusText,
+        preview,
       });
-      return {
-        messages: [],
-        error: `History fetch failed: ${res.status} ${res.statusText}`,
-      };
+      throw new Error(`History fetch failed: ${response.status} ${response.statusText}`);
     }
 
-    const data: unknown = await res.json();
-
-    // Handle paginated response format: { messages, nextCursor }
-    if (
-      data &&
-      typeof data === "object" &&
-      "messages" in data &&
-      Array.isArray(data.messages)
-    ) {
-      const paginatedResponse = data as PaginatedHistoryResponse;
-      logClientEvent("chat/history", "page-received", {
-        requestId: pageRequestId,
-        sessionId,
-        runId,
-        messageCount: paginatedResponse.messages.length,
-        messageIds: summarizeServerMessages(paginatedResponse.messages),
-        hasNextCursor: Boolean(paginatedResponse.nextCursor),
-      });
-      return {
-        messages: paginatedResponse.messages,
-        nextCursor: paginatedResponse.nextCursor,
-      };
+    const data: unknown = await response.json();
+    let page: HistoryPagePayload;
+    try {
+      page = parseConversationHistoryPage(data) as HistoryPagePayload;
+    } catch {
+      throw new Error("Invalid history format: response failed the shared contract");
     }
-
-    logClientWarning("chat/history", "page-invalid", {
+    logClientEvent("chat/history", "page-received", {
       requestId: pageRequestId,
       sessionId,
-      runId,
-      payloadType: typeof data,
+      messageCount: page.messages.length,
+      messageIds: summarizeServerMessages(page.messages),
+      hasNextCursor: page.nextCursor !== null,
     });
-    return { messages: [], error: "Invalid history format" };
+    return page;
   }
+}
 
-  private convertServerMessages(
-    history: ServerMessage[],
-    runId: string,
-  ): Message[] {
-    return history
-      .filter((msg) => msg.role !== "tool")
-      .map((msg, index) => {
-        let content = "";
-        const toolInvocations: ToolInvocation[] = [];
-        const metadata = msg.data?.metadata;
+function convertServerMessages(history: ServerMessage[]): Message[] {
+  return history
+    .filter((msg) => msg.role !== "tool")
+    .map((msg, index) => {
+      let content = "";
+      const toolInvocations: ToolInvocation[] = [];
+      const metadata = msg.data?.metadata;
 
-        if (typeof msg.content === "string") {
-          content = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          // Handle CoreMessage parts
-          msg.content.forEach((part) => {
-            if (isCoreTextPart(part)) {
-              content += part.text;
-            } else if (isToolCallPart(part)) {
-              toolInvocations.push({
-                state: "result",
-                toolCallId: part.toolCallId || `${runId}-tool-${index}`,
-                toolName: part.toolName || "unknown",
-                args: part.args || {},
-                result: null, // Results are pruned or handled separately
-              });
-            }
-          });
-        }
-
-        const converted: Message = {
-          id: msg.id || `${runId}-msg-${index}`,
-          role: msg.role as "system" | "user" | "assistant",
-          content,
-          createdAt: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-        };
-
-        if (toolInvocations.length > 0) {
-          converted.toolInvocations = toolInvocations;
-        }
-        if (metadata) {
-          return attachMessageData(converted, {
-            metadata,
-          });
-        }
-
-        return converted;
-      });
-  }
-
+      if (typeof msg.content === "string") {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        msg.content.forEach((part) => {
+          if (isCoreTextPart(part)) {
+            content += part.text;
+          } else if (isToolCallPart(part)) {
+            toolInvocations.push({
+              state: "result",
+              toolCallId: part.toolCallId || `history-tool-${index}`,
+              toolName: part.toolName || "unknown",
+              args: part.args || {},
+              result: null,
+            });
+          }
+        });
+      }
+      const converted: Message = {
+        id: msg.id,
+        role: msg.role as "system" | "user" | "assistant",
+        content,
+        createdAt: new Date(msg.createdAt),
+      };
+      if (toolInvocations.length > 0) converted.toolInvocations = toolInvocations;
+      return metadata ? attachMessageData(converted, metadata) : converted;
+    });
 }
 
 function summarizeServerMessages(messages: ServerMessage[]): string {
-  return messages
-    .map((message) => `${message.role}:${message.id ?? "missing"}`)
-    .join(",");
+  return messages.map((message) => `${message.role}:${message.id ?? "missing"}`).join(",");
 }
 
 async function readResponsePreview(response: Response): Promise<string> {
-  try {
-    return (await response.text()).slice(0, 240);
-  } catch {
-    return "";
-  }
+  try { return (await response.text()).slice(0, 240); } catch { return ""; }
 }
 
-function isCoreTextPart(
-  value: ServerMessagePart,
-): value is CorePart & { type: "text"; text: string } {
-  return (
-    value.type === "text" &&
-    "text" in value &&
-    typeof value.text === "string" &&
-    value.text.length > 0
-  );
+function isCoreTextPart(value: ServerMessagePart): value is CorePart & { type: "text"; text: string } {
+  return value.type === "text" && "text" in value && typeof value.text === "string" && value.text.length > 0;
 }
 
-function isToolCallPart(
-  value: ServerMessagePart,
-): value is CorePart & { type: "tool-call" } {
+function isToolCallPart(value: ServerMessagePart): value is CorePart & { type: "tool-call" } {
   return value.type === "tool-call";
 }
 
-function attachMessageData(
-  message: Message,
-  data: {
-    metadata: Record<string, unknown> | undefined;
-  },
-): Message {
-  const messageData = {
-    ...(data.metadata ? { metadata: data.metadata } : {}),
-  };
-  return {
-    ...message,
-    data: messageData,
-  } as MessageWithMetadataData;
+function attachMessageData(message: Message, metadata: Record<string, unknown>): Message {
+  return { ...message, data: { metadata } } as MessageWithMetadataData;
 }

@@ -60,6 +60,14 @@ export {
 } from "@repo/platform-protocol/lifecycle-turn-routing";
 export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
 export {
+  ConversationHistoryReadError,
+  parseConversationHistoryPage,
+  readConversationHistory,
+  type ConversationHistoryPage,
+  type ConversationHistoryReadOptions,
+  type ConversationHistoryReadResult,
+} from "./platform/conversation-history.js";
+export {
   LifecycleContinuationError,
   createLifecycleOrderingState,
   type LifecycleContinuationErrorCode,

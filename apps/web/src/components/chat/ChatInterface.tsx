@@ -19,6 +19,7 @@ import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "../../hooks/conversationScope";
+import type { HydrationStatus } from "../../services/ChatHydrationService";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
@@ -67,6 +68,9 @@ interface ChatInterfaceProps {
     stop: () => void;
     isLoading: boolean;
     hasHydrated?: boolean;
+    hydrationStatus?: HydrationStatus | "loading" | "idle";
+    hydrationError?: string | null;
+    retryHydration?: () => void;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
     conversationScope?: ConversationScope | null;
@@ -124,6 +128,9 @@ export function ChatInterface({
     stop,
     isLoading,
     hasHydrated = true,
+    hydrationStatus = "idle",
+    hydrationError,
+    retryHydration,
     error,
     debugEvents = [],
     conversationScope,
@@ -428,6 +435,9 @@ export function ChatInterface({
       showDebugPanel={showDebugPanel}
       debugEvents={debugEvents}
       chatEntries={chatEntries}
+      hydrationStatus={hydrationStatus}
+      hydrationError={hydrationError ?? null}
+      retryHydration={retryHydration}
       workspaceId={conversationScope?.workspaceId ?? null}
       threadId={conversationScope?.threadId ?? null}
       runAttemptId={conversationScope?.runAttemptId ?? null}

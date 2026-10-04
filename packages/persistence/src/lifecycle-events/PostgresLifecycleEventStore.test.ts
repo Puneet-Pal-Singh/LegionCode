@@ -6,7 +6,7 @@ import { PostgresLifecycleEventStore } from "./PostgresLifecycleEventStore.js";
 import { LifecycleSqlClient } from "./test-fixtures.js";
 
 registerLifecycleSettlementConformance("postgres lifecycle event store", () => {
-  const store = new PostgresLifecycleEventStore(new LifecycleSqlClient());
+  const store = new PostgresLifecycleEventStore(new LifecycleSqlClient(), { validateAdmission: false });
   let appended: readonly LifecycleEvent[] = [];
   return {
     appendBatch: async (events: readonly LifecycleEvent[]) => {
@@ -37,10 +37,10 @@ registerLifecycleSettlementConformance("postgres lifecycle event store", () => {
 describe("PostgresLifecycleEventStore", () => {
   it("replays persisted events after runtime store reconstruction", async () => {
     const client = new LifecycleSqlClient();
-    const first = new PostgresLifecycleEventStore(client);
+    const first = new PostgresLifecycleEventStore(client, { validateAdmission: false });
     const event = sampleEvent();
     await first.append(event);
-    const reconstructed = new PostgresLifecycleEventStore(client);
+    const reconstructed = new PostgresLifecycleEventStore(client, { validateAdmission: false });
     await expect(
       reconstructed.replay({
         turnId: event.turnId,
@@ -52,7 +52,7 @@ describe("PostgresLifecycleEventStore", () => {
 
   it("serializes appends before reading an empty turn stream", async () => {
     const client = new LifecycleSqlClient();
-    const store = new PostgresLifecycleEventStore(client);
+    const store = new PostgresLifecycleEventStore(client, { validateAdmission: false });
 
     await store.append(sampleEvent());
 
@@ -60,7 +60,7 @@ describe("PostgresLifecycleEventStore", () => {
   });
 
   it("rejects invalid replay cursors with a typed failure", async () => {
-    const store = new PostgresLifecycleEventStore(new LifecycleSqlClient());
+    const store = new PostgresLifecycleEventStore(new LifecycleSqlClient(), { validateAdmission: false });
 
     await expect(
       store.replay({

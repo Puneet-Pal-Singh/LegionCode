@@ -34,12 +34,20 @@ import { GitReviewDialog } from "../git/GitReviewDialog";
 import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
+import type { SessionPersistenceStatus } from "../../lib/session-persistence";
+import { isSessionPersistenceReady } from "../../lib/session-persistence";
 import {
   deriveCanonicalRunStatus,
   deriveWorkspaceRunUiState,
 } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
-import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
+import {
+  claimInitialPromptSubmission,
+  clearInitialPromptSubmissionFailure,
+  isInitialPromptSubmissionFailed,
+  markInitialPromptSubmissionFailed,
+  releaseInitialPromptSubmissionClaim,
+} from "./workspace/initialPromptSubmissionGuard";
 import type {
   InitialPromptSubmission,
   InitialPromptSubmissionId,
@@ -62,6 +70,7 @@ interface WorkspaceProps {
   onModeChange?: (mode: RunMode) => void;
   isSessionRunning?: boolean;
   hasStartedSession?: boolean;
+  sessionPersistenceStatus?: SessionPersistenceStatus;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
   onServerProjectionAvailable?: () => void;
@@ -94,6 +103,7 @@ export function Workspace({
   onModeChange,
   isSessionRunning = false,
   hasStartedSession = false,
+  sessionPersistenceStatus,
   onSessionStatusChange,
   onPromptSubmitted,
   onServerProjectionAvailable,
@@ -111,6 +121,7 @@ export function Workspace({
   summaryActionRequest,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
+  const isSessionPersisted = isSessionPersistenceReady(sessionPersistenceStatus);
   const { isCompact, isMobile } = useWorkspaceViewport();
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
@@ -196,6 +207,9 @@ export function Workspace({
     isLoading,
     isHydrating,
     hasHydrated,
+    hydrationStatus,
+    hydrationError,
+    retryHydration,
     runId: activeRunId,
     error: chatError,
     clearNonCanonicalError,
@@ -213,6 +227,31 @@ export function Workspace({
     mode,
     productMode,
     onServerProjectionAvailable,
+    isSessionPersisted,
+  );
+  const appendWhenPersisted = useCallback<typeof append>(
+    async (...args) => {
+      if (!isSessionPersisted) {
+        throw new Error("This conversation is still being saved. Retry after it is saved.");
+      }
+      return append(...args);
+    },
+    [append, isSessionPersisted],
+  );
+  const reviseTurnWhenPersisted = useCallback<typeof reviseTurn>(
+    async (...args) => {
+      if (!isSessionPersisted) return false;
+      return reviseTurn(...args);
+    },
+    [isSessionPersisted, reviseTurn],
+  );
+  const handleSubmitWhenPersisted = useCallback<typeof handleSubmit>(
+    async (...args) => {
+      if (!isSessionPersisted) return false;
+      onPromptSubmitted?.(input);
+      return handleSubmit(...args);
+    },
+    [handleSubmit, input, isSessionPersisted, onPromptSubmitted],
   );
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {
@@ -279,19 +318,41 @@ export function Workspace({
   const handledInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
     null,
   );
+  const failedInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(null);
+  const [failedInitialPromptId, setFailedInitialPromptId] = useState<InitialPromptSubmissionId | null>(null);
+  const [initialPromptRetryRevision, setInitialPromptRetryRevision] = useState(0);
+
+  const retryInitialPrompt = useCallback(() => {
+    const failedId = initialPromptSubmission?.id;
+    if (!failedId || !isInitialPromptSubmissionFailed(failedId)) return;
+    clearInitialPromptSubmissionFailure(failedId);
+    failedInitialPromptIdRef.current = null;
+    setFailedInitialPromptId(null);
+    setInitialPromptRetryRevision((revision) => revision + 1);
+  }, [initialPromptSubmission?.id]);
 
   useEffect(() => {
     if (!initialPromptSubmission) {
       return;
     }
+    if (isInitialPromptSubmissionFailed(initialPromptSubmission.id)) {
+      failedInitialPromptIdRef.current = initialPromptSubmission.id;
+      setFailedInitialPromptId(initialPromptSubmission.id);
+      return;
+    }
+    if (!isSessionPersisted) {
+      return;
+    }
     if (!isModelConfigReady) {
+      return;
+    }
+    if (failedInitialPromptIdRef.current === initialPromptSubmission.id) {
       return;
     }
     if (handledInitialPromptIdRef.current === initialPromptSubmission.id) {
       return;
     }
     if (!claimInitialPromptSubmission(initialPromptSubmission.id)) {
-      onInitialPromptHandled?.(initialPromptSubmission.id);
       return;
     }
 
@@ -302,25 +363,42 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
-    void append(
-      buildChatAppendMessage(
-        prompt,
-        initialPromptSubmission.attachments?.imageAttachments ?? [],
-      ),
+    void appendWhenPersisted(
+      {
+        ...buildChatAppendMessage(
+          prompt,
+          initialPromptSubmission.attachments?.imageAttachments ?? [],
+        ),
+        // Keep the admission key stable if the server accepted the request but
+        // its response was lost and the queued prompt is retried.
+        id: `client_msg_${initialPromptSubmission.id}`,
+      },
     )
+      .then(() => {
+        clearInitialPromptSubmissionFailure(initialPromptSubmission.id);
+        failedInitialPromptIdRef.current = null;
+        setFailedInitialPromptId(null);
+        onInitialPromptHandled?.(initialPromptSubmission.id);
+      })
       .catch((error) => {
         console.error("[Workspace] Failed to submit setup prompt:", error);
         onSessionStatusChange?.("failed");
-      })
-      .finally(() => {
-        onInitialPromptHandled?.(initialPromptSubmission.id);
+        // Keep the queued prompt stable, but wait for an explicit retry so a
+        // parent rerender or callback identity change cannot resubmit it.
+        markInitialPromptSubmissionFailed(initialPromptSubmission.id);
+        failedInitialPromptIdRef.current = initialPromptSubmission.id;
+        setFailedInitialPromptId(initialPromptSubmission.id);
+        handledInitialPromptIdRef.current = null;
+        releaseInitialPromptSubmissionClaim(initialPromptSubmission.id);
       });
   }, [
-    append,
+    appendWhenPersisted,
     initialPromptSubmission,
     isModelConfigReady,
+    isSessionPersisted,
     onInitialPromptHandled,
     onSessionStatusChange,
+    initialPromptRetryRevision,
   ]);
   const {
     isApprovalWaitingRun,
@@ -453,14 +531,6 @@ export function Workspace({
     persistProductMode(sessionId, productMode);
   }, [productMode, sessionId]);
 
-  const handleSubmitWithSessionMetadata = useCallback<typeof handleSubmit>(
-    async (...args) => {
-      onPromptSubmitted?.(input);
-      return await handleSubmit(...args);
-    },
-    [handleSubmit, input, onPromptSubmitted],
-  );
-
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <GitReviewProvider
@@ -487,6 +557,19 @@ export function Workspace({
         <div className="ui-center-surface flex-1 flex overflow-hidden relative">
           {/* Chat Area */}
           <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
+            {initialPromptSubmission &&
+            failedInitialPromptId === initialPromptSubmission.id ? (
+              <div role="alert" className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+                <span>The setup prompt was not admitted. It remains queued.</span>
+                <button
+                  type="button"
+                  className="rounded-md border border-amber-200/30 px-3 py-1 font-medium hover:bg-amber-500/15"
+                  onClick={retryInitialPrompt}
+                >
+                  Retry setup prompt
+                </button>
+              </div>
+            ) : null}
             <ChatInterface
               chatProps={{
                 messages,
@@ -494,12 +577,15 @@ export function Workspace({
                 runId: activeRunId,
                 input,
                 handleInputChange,
-                handleSubmit: handleSubmitWithSessionMetadata,
-                append,
-                reviseTurn,
+                handleSubmit: handleSubmitWhenPersisted,
+                append: appendWhenPersisted,
+                reviseTurn: reviseTurnWhenPersisted,
                 stop: handleStopRun,
                 isLoading,
                 hasHydrated,
+                hydrationStatus,
+                hydrationError,
+                retryHydration,
                 error: chatError,
                 debugEvents,
                 serverTurnId,

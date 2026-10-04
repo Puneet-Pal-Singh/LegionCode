@@ -115,15 +115,15 @@ describe("Platform Endpoints", () => {
       expect(chatStreamPath()).toBe("https://brain.local/chat");
     });
 
-    it("should build chat history path with runId", () => {
-      expect(chatHistoryPath("run-123")).toBe(
-        "https://brain.local/api/chat/history?runId=run-123",
+    it("should build chat history path with durable session id", () => {
+      expect(chatHistoryPath("session-123")).toBe(
+        "https://brain.local/api/chat/history?session=session-123",
       );
     });
 
-    it("should encode runId in chat history path", () => {
-      expect(chatHistoryPath("run/with/slashes")).toBe(
-        "https://brain.local/api/chat/history?runId=run%2Fwith%2Fslashes",
+    it("should encode session id in chat history path", () => {
+      expect(chatHistoryPath("session/with/slashes")).toBe(
+        "https://brain.local/api/chat/history?session=session%2Fwith%2Fslashes",
       );
     });
 

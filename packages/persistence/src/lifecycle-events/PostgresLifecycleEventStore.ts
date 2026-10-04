@@ -10,14 +10,38 @@ import {
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
+import { projectLifecycleEvents } from "../lifecycle-projections/LifecycleProjector.js";
 
 interface LifecycleEventRow extends SqlRow {
   event_json?: unknown;
   sequence?: number | string;
 }
 
+interface AdmissionRow extends SqlRow {
+  session_id?: string;
+  thread_id?: string;
+  run_attempt_id?: string;
+  run_id?: string;
+  revision_of_turn_id?: string | null;
+  admission_state?: "reserved" | "admitted";
+}
+
+interface SessionRow extends SqlRow {
+  session_id?: string;
+  last_sequence?: number | string;
+  active_run_id?: string | null;
+  latest_turn_id?: string | null;
+}
+
+interface TranscriptProjectionRow extends SqlRow {
+  message_id?: string;
+}
+
 export class PostgresLifecycleEventStore implements LifecycleEventStore {
-  constructor(private readonly client: SqlClient) {}
+  constructor(
+    private readonly client: SqlClient,
+    private readonly options: { validateAdmission?: boolean } = {},
+  ) {}
 
   async append(event: LifecycleEvent): Promise<LifecycleEvent> {
     return (await this.appendBatch([event]))[0] as LifecycleEvent;
@@ -29,7 +53,35 @@ export class PostgresLifecycleEventStore implements LifecycleEventStore {
     const parsed = events.map((event) => LifecycleEventSchema.parse(event));
     return await this.client.transaction(async (tx) => {
       const result: LifecycleEvent[] = [];
-      for (const event of parsed) result.push(await appendOne(tx, event));
+      const turns = new Set<string>();
+      for (const event of parsed) {
+        if (this.options.validateAdmission !== false) {
+          await assertAdmittedIdentity(tx, event);
+        }
+        const appended = await appendOne(tx, event);
+        if (this.options.validateAdmission !== false) {
+          if (appended.type === "assistant_message.delta") {
+            await projectAssistantMessageDelta(tx, appended);
+          }
+          if (isTerminalLifecycleEventType(appended.type)) {
+            await projectTerminalStatus(tx, appended);
+          }
+          turns.add(appended.turnId);
+        }
+        result.push(appended);
+      }
+      for (const turnId of turns) {
+        const events = await tx.query<LifecycleEventRow>(READ_TURN_EVENTS_SQL, [turnId]);
+        const snapshot = projectLifecycleEvents(events.rows.map(readEvent));
+        if (snapshot) {
+          await tx.query(UPSERT_LIFECYCLE_PROJECTION_SQL, [
+            snapshot.turnId,
+            snapshot.lastSequence,
+            1,
+            JSON.stringify(snapshot),
+          ]);
+        }
+      }
       return result;
     });
   }
@@ -47,6 +99,122 @@ export class PostgresLifecycleEventStore implements LifecycleEventStore {
     assertContinuous(events, input.afterSequence ?? 0);
     return { events, nextSequence: events.at(-1)?.sequence ?? null };
   }
+}
+
+async function assertAdmittedIdentity(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<AdmissionRow> {
+  const result = await client.query<AdmissionRow>(READ_ADMISSION_FOR_EVENT_SQL, [event.turnId]);
+  const row = result.rows[0];
+  if (
+    !row ||
+    row.admission_state !== "admitted" ||
+    row.thread_id !== event.threadId ||
+    row.run_attempt_id !== event.runAttemptId
+  ) {
+    throw new EventStoreError(
+      "corrupt_event_stream",
+      "Lifecycle event identity does not match an admitted turn",
+    );
+  }
+  return row;
+}
+
+async function projectAssistantMessageDelta(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<void> {
+  if (event.type !== "assistant_message.delta") return;
+  const admissionResult = await client.query<AdmissionRow>(READ_ADMISSION_FOR_EVENT_SQL, [event.turnId]);
+  const admission = admissionResult.rows[0];
+  const delta = event.payload.delta;
+  const canonicalPhase = event.payload.phase;
+  if (canonicalPhase !== "commentary" && canonicalPhase !== "final_answer") return;
+  if (!admission || !delta) return;
+  const sessionId = requiredString(admission.session_id, "session_id");
+  const runId = requiredString(admission.run_id, "run_id");
+  const sessionResult = await client.query<SessionRow>(READ_SESSION_BY_THREAD_SQL, [sessionId, event.threadId]);
+  const session = sessionResult.rows[0];
+  if (!session || session.session_id !== sessionId) {
+    throw new EventStoreError("corrupt_event_stream", "Admitted lifecycle thread has no matching transcript session");
+  }
+
+  const key = `${event.turnId}:${event.runAttemptId}:${event.itemId}:${canonicalPhase}`;
+  const insertedMessage = await client.query<TranscriptProjectionRow>(INSERT_ASSISTANT_ITEM_SQL, [
+    sessionId,
+    runId,
+    event.turnId,
+    event.runAttemptId,
+    event.itemId,
+    canonicalPhase,
+    key,
+  ]);
+  const messageId = insertedMessage.rows[0]?.message_id;
+  const existingMessage = messageId
+    ? null
+    : await client.query<TranscriptProjectionRow>(READ_ASSISTANT_ITEM_SQL, [
+        sessionId,
+        event.turnId,
+        event.runAttemptId,
+        event.itemId,
+        canonicalPhase,
+      ]);
+  const resolvedMessageId = messageId ?? existingMessage?.rows[0]?.message_id;
+  if (!resolvedMessageId) throw new EventStoreError("corrupt_event_stream", "Assistant transcript item projection is missing");
+
+  const priorPart = await client.query<TranscriptProjectionRow>(READ_PROJECTED_EVENT_PART_SQL, [event.eventId]);
+  if (priorPart.rows[0]) return;
+  const sequenceResult = await client.query<SessionRow>(ALLOCATE_SESSION_SEQUENCE_SQL, [session.session_id]);
+  const sequence = sequenceResult.rows[0]?.last_sequence;
+  if (sequence === undefined) throw new EventStoreError("corrupt_event_stream", "Transcript session sequence allocation failed");
+  const content = {
+    text: delta,
+    metadata: {
+      canonicalIdentity: {
+        threadId: event.threadId,
+        turnId: event.turnId,
+        runAttemptId: event.runAttemptId,
+        ...(admission.revision_of_turn_id ? { revisionOfTurnId: admission.revision_of_turn_id } : {}),
+      },
+      phase: canonicalPhase,
+      itemId: event.itemId,
+    },
+  };
+  await client.query(INSERT_ASSISTANT_DELTA_PART_SQL, [
+    sessionId,
+    resolvedMessageId,
+    runId,
+    Number(sequence),
+    JSON.stringify(content),
+    event.eventId,
+    event.createdAt,
+  ]);
+}
+
+async function projectTerminalStatus(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<void> {
+  const result = await client.query<AdmissionRow>(READ_ADMISSION_FOR_EVENT_SQL, [event.turnId]);
+  const admission = result.rows[0];
+  if (!admission?.session_id || !admission.run_id) return;
+  const activeResult = await client.query<SessionRow>(READ_ACTIVE_TURN_SQL, [admission.session_id]);
+  const active = activeResult.rows[0];
+  await client.query(SETTLE_ADMISSION_EXECUTION_SQL, [event.turnId]);
+  const state = event.type === "turn.completed" ? "completed" : event.type === "turn.interrupted" ? "paused" : "failed";
+  const runState = event.type === "turn.completed" ? "completed" : event.type === "turn.interrupted" ? "cancelled" : "failed";
+  await client.query(SETTLE_RUN_STATUS_SQL, [admission.run_id, admission.session_id, runState, event.createdAt, event.turnId]);
+  if (active?.active_run_id === admission.run_id && active.latest_turn_id === event.turnId) {
+    await client.query(SETTLE_ACTIVE_SESSION_SQL, [admission.session_id, admission.run_id, state, event.createdAt, event.turnId]);
+  }
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value) {
+    throw new EventStoreError("corrupt_event_stream", `Lifecycle admission is missing ${field}`);
+  }
+  return value;
 }
 
 async function appendOne(
@@ -223,3 +391,17 @@ function isTerminalLifecycleEventType(type: LifecycleEvent["type"]): boolean {
   return type === "turn.completed" || type === "turn.failed" || type === "turn.interrupted";
 }
 const REPLAY_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND sequence > $2 ORDER BY sequence ASC LIMIT $3`;
+
+const READ_ADMISSION_FOR_EVENT_SQL = `SELECT session_id, thread_id, turn_id, run_attempt_id, run_id, revision_of_turn_id, admission_state FROM canonical_turn_admissions WHERE turn_id = $1`;
+const READ_SESSION_BY_THREAD_SQL = `SELECT id AS session_id, last_sequence FROM sessions WHERE id = $1 AND thread_id = $2`;
+const INSERT_ASSISTANT_ITEM_SQL = `INSERT INTO messages (session_id, run_id, canonical_turn_id, canonical_run_attempt_id, canonical_item_id, canonical_phase, role, dedupe_key, created_at) VALUES ($1,$2,$3,$4,$5,$6,'assistant',$7,now()) ON CONFLICT (session_id, canonical_turn_id, canonical_run_attempt_id, canonical_item_id, canonical_phase) WHERE canonical_turn_id IS NOT NULL AND canonical_run_attempt_id IS NOT NULL AND canonical_item_id IS NOT NULL AND canonical_phase IS NOT NULL DO NOTHING RETURNING id AS message_id`;
+const READ_ASSISTANT_ITEM_SQL = `SELECT id AS message_id FROM messages WHERE session_id = $1 AND canonical_turn_id = $2 AND canonical_run_attempt_id = $3 AND canonical_item_id = $4 AND canonical_phase = $5`;
+const READ_PROJECTED_EVENT_PART_SQL = `SELECT id FROM message_parts WHERE source_event_id = $1`;
+const ALLOCATE_SESSION_SEQUENCE_SQL = `UPDATE sessions SET last_sequence = last_sequence + 1, updated_at = now() WHERE id = $1 RETURNING last_sequence`;
+const INSERT_ASSISTANT_DELTA_PART_SQL = `INSERT INTO message_parts (session_id, message_id, run_id, part_type, session_sequence, content_json, source_event_id, created_at) VALUES ($1,$2,$3,'text',$4,$5::jsonb,$6,$7)`;
+const READ_ACTIVE_TURN_SQL = `SELECT s.active_run_id, s.current_turn_id AS latest_turn_id FROM sessions s WHERE s.id = $1 FOR UPDATE`;
+const SETTLE_RUN_STATUS_SQL = `UPDATE runs SET status = $3, completed_at = $4, updated_at = now() WHERE id = $1 AND session_id = $2 AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions later JOIN canonical_turn_admissions settled ON settled.turn_id = $5 WHERE later.session_id = settled.session_id AND later.run_id = $1 AND later.admission_order > settled.admission_order)`;
+const SETTLE_ACTIVE_SESSION_SQL = `UPDATE sessions SET status = $3, active_run_id = NULL, updated_at = $4 WHERE id = $1 AND active_run_id = $2 AND current_turn_id = $5`;
+const SETTLE_ADMISSION_EXECUTION_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'settled' WHERE turn_id = $1 AND admission_state = 'admitted'`;
+const READ_TURN_EVENTS_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 ORDER BY sequence ASC`;
+const UPSERT_LIFECYCLE_PROJECTION_SQL = `INSERT INTO canonical_lifecycle_projections (turn_id, last_sequence, projection_version, projection_json) VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (turn_id) DO UPDATE SET last_sequence = EXCLUDED.last_sequence, projection_version = EXCLUDED.projection_version, projection_json = EXCLUDED.projection_json, updated_at = now() WHERE canonical_lifecycle_projections.last_sequence <= EXCLUDED.last_sequence`;

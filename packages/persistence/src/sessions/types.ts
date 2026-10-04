@@ -148,12 +148,16 @@ export interface ListTranscriptInput {
   userId?: string | null;
   runId?: string | null;
   cursor?: number | null;
+  snapshot?: number | null;
   limit?: number | null;
 }
 
 export interface ListTranscriptResult {
   messages: TranscriptMessageRecord[];
   nextCursor: number | null;
+  snapshot: number;
+  supersededTurnIds: string[];
+  sessionFound: boolean;
 }
 
 export interface ListSessionsResult {
@@ -204,9 +208,22 @@ export interface TranscriptRepository {
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord>;
   listTranscript(input: ListTranscriptInput): Promise<ListTranscriptResult>;
+  getCanonicalAssistantMessageId?(input: {
+    sessionId: string;
+    userId: string;
+    turnId: string;
+    phase: "commentary" | "final_answer";
+  }): Promise<string | null>;
   listSessions(userId: string): Promise<ListSessionsResult>;
   listArchivedSessions(userId: string): Promise<SessionRecord[]>;
   transaction<T>(
     callback: (repository: TranscriptRepository) => Promise<T>,
   ): Promise<T>;
+}
+
+export class InvalidTranscriptSnapshotError extends Error {
+  constructor() {
+    super("Transcript cursor or snapshot is outside the committed session watermark");
+    this.name = "InvalidTranscriptSnapshotError";
+  }
 }

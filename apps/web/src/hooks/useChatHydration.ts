@@ -1,283 +1,172 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import type { Message } from "@ai-sdk/react";
-import { ChatHydrationService } from "../services/ChatHydrationService";
+import { ChatHydrationService, type HydrationStatus } from "../services/ChatHydrationService";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import { useRetry } from "./useRetry";
-import {
-  conversationScopeKey,
-  type ConversationScope,
-} from "./conversationScope";
 
 interface UseChatHydrationResult {
   isHydrating: boolean;
   hasHydrated: boolean;
+  status: HydrationStatus | "loading" | "idle";
+  error: string | null;
+  retry: () => void;
 }
 
 const MAX_HYDRATION_ATTEMPTS = 3;
 const HYDRATION_RETRY_DELAY_MS = 300;
 
-/**
- * useChatHydration
- * Handles message hydration from server
- * Single Responsibility: Only manage hydration lifecycle
- */
+/** Reads transcript by durable session identity, independently of execution scope. */
 export function useChatHydration(
-  scope: ConversationScope | null,
+  sessionId: string,
   messages: Message[],
   setMessages: (messages: Message[]) => void,
   replayRevision: string | null = null,
+  enabled = true,
 ): UseChatHydrationResult {
-  const sessionId = scope?.sessionId ?? null;
-  const runId = scope?.runId ?? null;
-  const [isHydrating, setIsHydrating] = useState(false);
-  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
-  const hasHydratedRef = useRef(false);
-  const hydrationServiceRef = useRef(new ChatHydrationService());
-  const scopeRef = useRef(scope);
-  const scopeKey = scope ? conversationScopeKey(scope) : null;
-  const hydrationKey = scopeKey
-    ? `${scopeKey}:${replayRevision ?? "initial"}`
+  const normalizedSessionId = sessionId.trim();
+  const hydrationKey = enabled && normalizedSessionId
+    ? `${encodeURIComponent(normalizedSessionId)}:${replayRevision ?? "initial"}`
     : null;
-  const activeScopeKeyRef = useRef(scopeKey);
+  const [isHydrating, setIsHydrating] = useState(false);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [status, setStatus] = useState<HydrationStatus | "loading" | "idle">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [manualRetryRevision, setManualRetryRevision] = useState(0);
+  const serviceRef = useRef(new ChatHydrationService());
+  const activeKeyRef = useRef(hydrationKey);
   const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  useEffect(() => {
-    scopeRef.current = scope;
-  }, [scope]);
-
-  const {
-    signal: retrySignal,
-    schedule: scheduleRetry,
-    reset: resetRetry,
-  } = useRetry({
+  const { signal: retrySignal, schedule: scheduleRetry, reset: resetRetry } = useRetry({
     delayMs: HYDRATION_RETRY_DELAY_MS,
     maxAttempts: MAX_HYDRATION_ATTEMPTS,
     scopeKey: hydrationKey,
   });
+  const retry = useCallback(() => {
+    if (!normalizedSessionId) return;
+    resetRetry();
+    setLoadedKey(null);
+    setStatus("loading");
+    setError(null);
+    setManualRetryRevision((revision) => revision + 1);
+  }, [normalizedSessionId, resetRetry]);
 
   useEffect(() => {
-    activeScopeKeyRef.current = scopeKey;
-    hasHydratedRef.current = false;
-    setHydratedKey(null);
+    activeKeyRef.current = hydrationKey;
+    setLoadedKey(null);
+    setStatus(hydrationKey ? "loading" : "idle");
+    setError(null);
     setIsHydrating(false);
-    logClientEvent("chat/hydration", "scope-reset", {
-      runId,
-      liveMessageCount: messagesRef.current.length,
-    });
-  }, [hydrationKey, replayRevision, runId, scopeKey]);
+  }, [hydrationKey]);
 
-  // Perform hydration
   useEffect(() => {
-    if (!scopeKey || !sessionId || !runId) return;
-    if (hasHydratedRef.current) return;
-
-    let cancelled = false;
-    const requestScopeKey = scopeKey;
-    const requestStartMessageIds = readMessageIds(messagesRef.current);
+    if (!normalizedSessionId || !hydrationKey || loadedKey === hydrationKey) return;
+    const controller = new AbortController();
+    const requestKey = hydrationKey;
+    const requestStartMessages = messagesRef.current;
+    setStatus("loading");
+    setIsHydrating(true);
+    setError(null);
     logClientEvent("chat/hydration", "requested", {
-      runId,
-      liveMessageCount: requestStartMessageIds.length,
+      sessionId: normalizedSessionId,
+      liveMessageCount: requestStartMessages.length,
       retrySignal,
       replayRevision,
     });
-    const isCurrentScope = () =>
-      !cancelled && activeScopeKeyRef.current === requestScopeKey;
-    setIsHydrating(true);
+    const isCurrent = () => !controller.signal.aborted && activeKeyRef.current === requestKey;
 
-    const retryOnError = (error: unknown): void => {
-      const message = error instanceof Error ? error.message : String(error);
-      logClientWarning("chat/hydration", "failed", {
-        sessionId,
-        runId,
-        scopeKey: requestScopeKey,
-        error: message,
-        retrySignal,
-        liveMessageCount: messagesRef.current.length,
-      });
-      if (isCurrentScope()) {
-        scheduleRetry();
-      }
-    };
-
-    async function hydrate() {
-      try {
-        const result = await hydrationServiceRef.current.hydrateMessages(
-          scopeRef.current!,
-        );
-
-        if (!isCurrentScope()) {
-          logClientEvent("chat/hydration", "discarded", {
-            runId,
-            reason: "scope-changed",
-            requestScopeKey,
-            activeScopeKey: activeScopeKeyRef.current,
-            cancelled,
-            hydratedMessageCount: result.messages.length,
-            hydratedIds: readMessageIds(result.messages).join(","),
+    void serviceRef.current.hydrateMessages(normalizedSessionId, controller.signal)
+      .then((result) => {
+        if (!isCurrent() || result.status === "cancelled") return;
+        if (result.messages.length > 0 || result.status === "empty") {
+          // Treat the request-start list as a baseline. Canonical history
+          // replaces unchanged baseline items; only optimistic items created
+          // or edited while the request was in flight are overlaid on it.
+          setMessages(mergeHydratedAndLiveMessages(
+            result.messages,
+            requestStartMessages,
+            messagesRef.current,
+          ));
+        }
+        setStatus(result.status);
+        setError(result.error ?? null);
+        if (result.status === "failed" || result.status === "partial") {
+          if (!scheduleRetry()) {
+            setLoadedKey(requestKey);
+            logClientWarning("chat/hydration", "retry-exhausted", {
+              sessionId: normalizedSessionId,
+              status: result.status,
+            });
+          }
+        } else {
+          setLoadedKey(requestKey);
+          resetRetry();
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!isCurrent()) return;
+        const message = reason instanceof Error ? reason.message : String(reason);
+        setStatus("failed");
+        setError(message);
+        if (!scheduleRetry()) {
+          setLoadedKey(requestKey);
+          logClientWarning("chat/hydration", "retry-exhausted", {
+            sessionId: normalizedSessionId,
+            error: message,
           });
-          return;
         }
+      })
+      .finally(() => {
+        if (isCurrent()) setIsHydrating(false);
+      });
 
-        if (result.error) {
-          retryOnError(result.error);
-          return;
-        }
-
-        const replaceLiveMessages = haveSameMessageIds(
-          messagesRef.current,
-          requestStartMessageIds,
-        );
-        const nextMessages = replaceLiveMessages
-          ? result.messages
-          : mergeHydratedAndLiveMessages(result.messages, messagesRef.current);
-        logClientEvent("chat/hydration", "completed", {
-          runId,
-          hydratedMessageCount: result.messages.length,
-          liveMessageCount: messagesRef.current.length,
-          finalMessageCount: nextMessages.length,
-          hydratedRoles: summarizeMessageRoles(result.messages),
-          liveRoles: summarizeMessageRoles(messagesRef.current),
-          finalRoles: summarizeMessageRoles(nextMessages),
-          hydratedIds: summarizeMessageIdentities(result.messages),
-          liveIds: summarizeMessageIdentities(messagesRef.current),
-          finalIds: summarizeMessageIdentities(nextMessages),
-          mergeMode: replaceLiveMessages ? "replace" : "preserve-live",
-        });
-        setMessages(nextMessages);
-
-        hasHydratedRef.current = true;
-        resetRetry();
-        setHydratedKey(hydrationKey);
-      } catch (error) {
-        if (isCurrentScope()) {
-          retryOnError(error);
-        }
-      } finally {
-        if (isCurrentScope()) {
-          setIsHydrating(false);
-        }
-      }
-    }
-
-    void hydrate();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [
     hydrationKey,
-    resetRetry,
-    retrySignal,
+    loadedKey,
+    normalizedSessionId,
     replayRevision,
-    runId,
+    retrySignal,
+    manualRetryRevision,
     scheduleRetry,
-    scopeKey,
-    sessionId,
+    resetRetry,
     setMessages,
   ]);
 
   return {
     isHydrating,
-    // A completed hydration belongs only to the exact conversation scope that
-    // produced it. This prevents the previous task from appearing hydrated for
-    // one render while a newly selected task is settling.
-    // Readiness belongs to the exact transcript revision, not only the thread.
-    // A terminal lifecycle update can require a second canonical history read;
-    // keeping the old scope-level readiness for that render exposed stale
-    // messages before the replacement request even started.
-    hasHydrated: Boolean(hydrationKey) && hydratedKey === hydrationKey,
+    // Failures and partial reads are settled UI states. The transcript surface
+    // can render recovery guidance instead of blocking forever on a spinner.
+    hasHydrated: Boolean(hydrationKey) && loadedKey === hydrationKey,
+    status,
+    error,
+    retry,
   };
-}
-
-function summarizeMessageRoles(messages: Message[]): string {
-  const counts = new Map<string, number>();
-  for (const message of messages) {
-    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([role, count]) => `${role}:${count}`)
-    .join(",");
-}
-
-function summarizeMessageIdentities(messages: Message[]): string {
-  return messages
-    .map(
-      (message) =>
-        `${message.role}:${message.id}:${hashLogString(readMessageText(message))}`,
-    )
-    .join(",");
-}
-
-function readMessageText(message: Message): string {
-  if (typeof message.content === "string") {
-    return message.content.trim();
-  }
-  return "";
-}
-
-function hashLogString(value: string): string {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
-}
-
-function readMessageIds(messages: Message[]): string[] {
-  return messages.map((message) => message.id);
-}
-
-function haveSameMessageIds(messages: Message[], ids: string[]): boolean {
-  return (
-    messages.length === ids.length &&
-    messages.every((message, index) => message.id === ids[index])
-  );
 }
 
 function mergeHydratedAndLiveMessages(
   hydrated: Message[],
+  requestStart: Message[],
   live: Message[],
 ): Message[] {
-  const liveById = new Map(live.map((message) => [message.id, message]));
-  const merged = hydrated.map((message) => liveById.get(message.id) ?? message);
+  const startById = new Map(requestStart.map((message) => [message.id, message]));
   const hydratedIds = new Set(hydrated.map((message) => message.id));
-  return collapseAdjacentDuplicateUserMessages([
+  const changedDuringRequest = live.filter((message) => {
+    const atStart = startById.get(message.id);
+    return !atStart || !sameMessage(atStart, message);
+  });
+  const merged = hydrated.map((message) => {
+    const changed = changedDuringRequest.find((candidate) => candidate.id === message.id);
+    return changed ?? message;
+  });
+  return [
     ...merged,
-    ...live.filter((message) => !hydratedIds.has(message.id)),
-  ]);
+    ...changedDuringRequest.filter((message) => !hydratedIds.has(message.id)),
+  ];
 }
 
-function collapseAdjacentDuplicateUserMessages(messages: Message[]): Message[] {
-  const collapsed: Message[] = [];
-  for (const message of messages) {
-    const previous = collapsed.at(-1);
-    if (areDuplicateUserMessages(previous, message)) {
-      collapsed[collapsed.length - 1] = preferCanonicalUserMessage(
-        previous,
-        message,
-      );
-      continue;
-    }
-    collapsed.push(message);
-  }
-  return collapsed;
-}
-
-function areDuplicateUserMessages(
-  previous: Message | undefined,
-  next: Message,
-): previous is Message {
-  return (
-    previous?.role === "user" &&
-    next.role === "user" &&
-    readMessageText(previous) === readMessageText(next)
-  );
-}
-
-function preferCanonicalUserMessage(previous: Message, next: Message): Message {
-  return previous.id.startsWith("client_msg_") ? previous : next;
+function sameMessage(left: Message, right: Message): boolean {
+  // Message payloads are JSON-shaped. Comparing the full payload (rather than
+  // IDs) detects streamed edits to an existing assistant message.
+  return JSON.stringify(left) === JSON.stringify(right);
 }

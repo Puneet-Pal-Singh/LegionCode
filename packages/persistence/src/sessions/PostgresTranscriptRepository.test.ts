@@ -29,6 +29,10 @@ class CapturingSqlClient implements SqlClient {
       return createResult<Row>({ task_id: "task-1" });
     }
 
+    if (statement.includes("SELECT last_sequence") && statement.includes("FROM sessions")) {
+      return createResult<Row>({ last_sequence: 10 });
+    }
+
     return { rows: [], rowCount: 0 };
   }
 
@@ -176,13 +180,15 @@ describe("PostgresTranscriptRepository", () => {
       userId: "123e4567-e89b-42d3-a456-426614174002",
     });
 
-    const statement = client.queries[0]?.statement ?? "";
+    const statement = client.queries.find((query) =>
+      query.statement.includes("JOIN sessions s2 ON s2.id = p2.session_id"),
+    )?.statement ?? "";
     expect(statement).toContain("JOIN sessions s2 ON s2.id = p2.session_id");
     expect(statement).toContain("AND p.session_id = $1");
     expect(statement).toContain(
       "AND ($2::text IS NULL OR p.run_id = $2 OR m.run_id = $2)",
     );
-    expect(statement).toContain("AND ($5::uuid IS NULL OR s2.user_id = $5)");
+    expect(statement).toContain("AND ($6::uuid IS NULL OR s2.user_id = $6)");
   });
 
   it("includes canonical title metadata in session list projections", async () => {

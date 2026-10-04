@@ -169,6 +169,13 @@
       "when": 1790726400000,
       "tag": "0031_lifecycle_event_append_order",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790985600000,
+      "tag": "0032_chat_durability",
+      "breakpoints": true
     }
   ]
 }

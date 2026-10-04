@@ -260,6 +260,7 @@ export async function startRunTurn(
   > & {
     clientMessageId?: string;
     revisionOfTurnId?: TurnId;
+    admittedIdentity?: TurnScopeBootstrap;
   },
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<TurnScopeBootstrap> {

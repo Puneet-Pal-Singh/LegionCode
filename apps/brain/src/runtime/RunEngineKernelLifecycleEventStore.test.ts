@@ -7,7 +7,7 @@ import { MemoryLifecycleEventStore } from "@repo/persistence";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 
 describe("RunEngineKernelLifecycleEventStore", () => {
-  it("persists canonical events and invokes transcript persistence after append", async () => {
+  it("persists canonical events without a second transcript writer", async () => {
     const backingStore = new MemoryLifecycleEventStore();
     const order: string[] = [];
     const store = new RunEngineKernelLifecycleEventStore({
@@ -24,14 +24,11 @@ describe("RunEngineKernelLifecycleEventStore", () => {
         },
         replay: backingStore.replay.bind(backingStore),
       },
-      onAssistantMessageDelta: async (event) => {
-        order.push(`assistant:${event.type}`);
-      },
     });
 
     await store.append(createLifecycleEvent("assistant_message.delta", 1));
 
-    expect(order).toEqual(["append", "assistant:assistant_message.delta"]);
+    expect(order).toEqual(["append"]);
     await expect(
       backingStore.replay({
         turnId: "trn_kernelturn1",

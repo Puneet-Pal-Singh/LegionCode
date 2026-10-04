@@ -9,6 +9,7 @@ import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
 import type { ConversationScope } from "./conversationScope";
+import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 interface UseChatResult {
@@ -25,6 +26,9 @@ interface UseChatResult {
   isLoading: boolean;
   isHydrating: boolean;
   hasHydrated: boolean;
+  hydrationStatus: HydrationStatus | "loading" | "idle";
+  hydrationError: string | null;
+  retryHydration: () => void;
   stop: () => void;
   artifactState: ArtifactState;
   runId: string;
@@ -50,6 +54,7 @@ export function useChat(
   mode?: RunMode,
   productMode?: ProductMode,
   onServerProjectionAvailable?: () => void,
+  isSessionPersistenceReady = true,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -81,13 +86,14 @@ export function useChat(
   );
 
   // Handle message hydration
-  const { isHydrating, hasHydrated } = useChatHydration(
-    scope,
+  const { isHydrating, hasHydrated, status: hydrationStatus, error: hydrationError, retry: retryHydration } = useChatHydration(
+    sessionId,
     messages,
     setMessages,
     activeTurnProjection.isTerminal && activeTurnProjection.projection
       ? `${activeTurnProjection.turnId}:${activeTurnProjection.projection.lastSequence}`
       : null,
+    isSessionPersistenceReady,
   );
 
   // Handle message persistence
@@ -113,6 +119,9 @@ export function useChat(
     isLoading,
     isHydrating,
     hasHydrated,
+    hydrationStatus,
+    hydrationError,
+    retryHydration,
     stop,
     artifactState,
     runId: activeRunId,

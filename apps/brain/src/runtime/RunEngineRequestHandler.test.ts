@@ -46,8 +46,11 @@ describe("RunEngineRequestHandler", () => {
         body: JSON.stringify({
           runId: "run_123456",
           sessionId: "session-1",
+          clientMessageId: "client-1",
           workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
           correlationId: "corr-1",
+          admittedIdentity: admittedIdentity("session-1", "client-1", "00000000-0000-4000-8000-000000000001"),
         }),
       }),
     );
@@ -86,8 +89,11 @@ describe("RunEngineRequestHandler", () => {
         body: JSON.stringify({
           runId: "run_123456",
           sessionId: "session-1",
+          clientMessageId: "client-1",
           workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
           correlationId: "corr-1",
+          admittedIdentity: admittedIdentity("session-1", "client-1", "00000000-0000-4000-8000-000000000001"),
         }),
       }),
     );
@@ -118,12 +124,14 @@ describe("RunEngineRequestHandler", () => {
       handler.handleTurnStartRequest(
         new Request("https://run-engine/turn/start", {
           method: "POST",
-          body: JSON.stringify({
-            runId: "run_123456",
-            sessionId: "session-1",
-            clientMessageId,
-            workspaceId: "00000000-0000-4000-8000-000000000001",
-            correlationId: "corr-1",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          clientMessageId,
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
+          correlationId: "corr-1",
+          admittedIdentity: admittedIdentity("session-1", clientMessageId, "00000000-0000-4000-8000-000000000001"),
           }),
         }),
       );
@@ -154,12 +162,14 @@ describe("RunEngineRequestHandler", () => {
       handler.handleTurnStartRequest(
         new Request("https://run-engine/turn/start", {
           method: "POST",
-          body: JSON.stringify({
-            runId: "run_123456",
-            sessionId,
-            clientMessageId,
-            workspaceId: "00000000-0000-4000-8000-000000000001",
-            correlationId: "corr-1",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId,
+          clientMessageId,
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
+          correlationId: "corr-1",
+          admittedIdentity: admittedIdentity(sessionId, clientMessageId, "00000000-0000-4000-8000-000000000001"),
           }),
         }),
       );
@@ -195,7 +205,9 @@ describe("RunEngineRequestHandler", () => {
           sessionId: "session-a",
           clientMessageId: "msg-1-a",
           workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
           correlationId: "corr-a",
+          admittedIdentity: admittedIdentity("session-a", "msg-1-a", "00000000-0000-4000-8000-000000000001"),
         }),
       }),
     );
@@ -207,7 +219,9 @@ describe("RunEngineRequestHandler", () => {
           sessionId: "session-b",
           clientMessageId: "msg-1-b",
           workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
           correlationId: "corr-b",
+          admittedIdentity: admittedIdentity("session-b", "msg-1-b", "00000000-0000-4000-8000-000000000001"),
         }),
       }),
     );
@@ -232,12 +246,14 @@ describe("RunEngineRequestHandler", () => {
       handler.handleTurnStartRequest(
         new Request("https://run-engine/turn/start", {
           method: "POST",
-          body: JSON.stringify({
-            runId: "run_123456",
-            sessionId: "session-1",
-            clientMessageId,
-            workspaceId: "00000000-0000-4000-8000-000000000001",
-            correlationId: "corr-1",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          clientMessageId,
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
+          correlationId: "corr-1",
+          admittedIdentity: admittedIdentity("session-1", clientMessageId, "00000000-0000-4000-8000-000000000001"),
           }),
         }),
       );
@@ -256,19 +272,11 @@ describe("RunEngineRequestHandler", () => {
     expect(second.runAttemptId).not.toBe(first.runAttemptId);
   });
 
-  it("admits only an owned latest terminal turn as a revision target", async () => {
-    const lifecycleEventStore = {
-      replay: vi.fn(async () => ({
-        events: [{ type: "turn.interrupted" }],
-        nextSequence: null,
-      })),
-    } as unknown as LifecycleEventStore;
+  it("imports the exact server-admitted revision identity into runtime cache", async () => {
     const handler = new RunEngineRequestHandler(
       new MockDurableObjectState() as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
-      undefined,
-      { lifecycleEventStore },
     );
     const start = (body: Record<string, unknown>) =>
       handler.handleTurnStartRequest(
@@ -278,8 +286,10 @@ describe("RunEngineRequestHandler", () => {
             runId: "run_123456",
             sessionId: "session-1",
             workspaceId: "00000000-0000-4000-8000-000000000001",
+            userId: "user-1",
             correlationId: "corr-1",
             ...body,
+            admittedIdentity: admittedIdentity("session-1", String(body.clientMessageId), "00000000-0000-4000-8000-000000000001", typeof body.revisionOfTurnId === "string" ? body.revisionOfTurnId : undefined),
           }),
         }),
       );
@@ -300,15 +310,7 @@ describe("RunEngineRequestHandler", () => {
       revisionOfTurnId: original.turnId,
     });
 
-    const crossOwnerResponse = await start({
-      clientMessageId: "cross-owner-message",
-      userId: "user-2",
-      revisionOfTurnId: original.turnId,
-    });
-    expect(crossOwnerResponse.status).toBe(409);
-    await expect(crossOwnerResponse.json()).resolves.toMatchObject({
-      code: "TURN_REVISION_SCOPE_MISMATCH",
-    });
+    expect(revisionResponse.status).toBe(201);
   });
 
   it("admits an explicit revision after a non-retryable provider failure", async () => {
@@ -341,6 +343,7 @@ describe("RunEngineRequestHandler", () => {
             correlationId: "corr-1",
             userId: "user-1",
             ...body,
+            admittedIdentity: admittedIdentity("session-1", String(body.clientMessageId), "00000000-0000-4000-8000-000000000001", typeof body.revisionOfTurnId === "string" ? body.revisionOfTurnId : undefined),
           }),
         }),
       );
@@ -402,8 +405,11 @@ describe("RunEngineRequestHandler", () => {
         body: JSON.stringify({
           runId: "run_123456",
           sessionId: "session-1",
+          clientMessageId: "client-workspace-scope",
           workspaceId: "00000000-0000-4000-8000-000000000001",
+          userId: "user-1",
           correlationId: "corr-1",
+          admittedIdentity: admittedIdentity("session-1", "client-workspace-scope", "00000000-0000-4000-8000-000000000001"),
         }),
       }),
     );
@@ -430,7 +436,11 @@ describe("RunEngineRequestHandler", () => {
   it("rejects workspace scope resolution before turn bootstrap", async () => {
     const handler = new RunEngineRequestHandler(
       new MockDurableObjectState() as unknown as DurableObjectState,
-      {} as Env,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: {
+          getByTurnId: async () => null,
+        },
+      } as unknown as Env,
       runImmediately,
     );
 
@@ -447,7 +457,11 @@ describe("RunEngineRequestHandler", () => {
   it("rejects execution when bootstrap identity is not authorized for the run scope", async () => {
     const handler = new RunEngineRequestHandler(
       new MockDurableObjectState() as unknown as DurableObjectState,
-      {} as Env,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: {
+          getByTurnId: async () => null,
+        },
+      } as unknown as Env,
       runImmediately,
     );
     const response = await handler.handleExecuteRequest(
@@ -1515,6 +1529,42 @@ async function runImmediately<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   return await operation();
+}
+
+const durableThreadsBySession = new Map<string, string>();
+const durableTurnsByClientMessage = new Map<string, string>();
+const durableAttemptsByClientMessage = new Map<string, string>();
+
+function admittedIdentity(
+  sessionId: string,
+  clientMessageId: string,
+  workspaceId: string,
+  revisionOfTurnId?: string,
+) {
+  const suffix = (value: string) =>
+    value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().padEnd(10, "x").slice(0, 24);
+  let threadId = durableThreadsBySession.get(sessionId);
+  if (!threadId) {
+    threadId = `thr_${suffix(sessionId)}`;
+    durableThreadsBySession.set(sessionId, threadId);
+  }
+  let turnId = durableTurnsByClientMessage.get(clientMessageId);
+  if (!turnId) {
+    turnId = `trn_${suffix(clientMessageId)}`;
+    durableTurnsByClientMessage.set(clientMessageId, turnId);
+  }
+  let runAttemptId = durableAttemptsByClientMessage.get(clientMessageId);
+  if (!runAttemptId) {
+    runAttemptId = `attempt_${suffix(clientMessageId)}`;
+    durableAttemptsByClientMessage.set(clientMessageId, runAttemptId);
+  }
+  return {
+    workspaceId,
+    threadId,
+    turnId,
+    runAttemptId,
+    ...(revisionOfTurnId ? { revisionOfTurnId } : {}),
+  };
 }
 
 function createNoopCanonicalEventSink(): CanonicalRunEventSink {

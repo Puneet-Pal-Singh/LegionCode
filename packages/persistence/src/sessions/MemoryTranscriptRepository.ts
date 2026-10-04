@@ -10,6 +10,7 @@ import type {
   TranscriptMessageRecord,
   TranscriptRepository,
 } from "./types.js";
+import { InvalidTranscriptSnapshotError } from "./types.js";
 import {
   assertHasParts,
   firstSequence,
@@ -220,10 +221,39 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
   ): Promise<ListTranscriptResult> {
     const limit = input.limit ?? 100;
     const cursor = input.cursor ?? 0;
-    const messages = this.readSessionMessages(input)
-      .filter((message) =>
-        message.parts.some((part) => part.sessionSequence > cursor),
-      )
+    const session = this.sessions.get(input.sessionId);
+    const sessionFound = Boolean(
+      session && (!input.userId || session.userId === input.userId),
+    );
+    if (!sessionFound) {
+      return { messages: [], nextCursor: null, snapshot: 0, supersededTurnIds: [], sessionFound: false };
+    }
+    const allMessages = this.readSessionMessages(input);
+    const snapshot = input.snapshot ?? Math.max(
+      0,
+      ...allMessages.flatMap((message) => message.parts.map((part) => part.sessionSequence)),
+    );
+    if (
+      !Number.isSafeInteger(snapshot) ||
+      snapshot < 0 ||
+      snapshot > Math.max(0, ...allMessages.flatMap((message) => message.parts.map((part) => part.sessionSequence))) ||
+      (input.cursor != null && (!Number.isSafeInteger(input.cursor) || input.cursor < 0 || input.cursor > snapshot))
+    ) {
+      throw new InvalidTranscriptSnapshotError();
+    }
+    const inSnapshot = allMessages
+      .map((message) => ({
+        ...message,
+        parts: message.parts.filter((part) => part.sessionSequence <= snapshot),
+      }))
+      .filter((message) => message.parts.length > 0);
+    const supersededTurnIds = new Set<string>();
+    for (const message of inSnapshot) {
+      const identity = readCanonicalIdentity(message);
+      if (identity?.revisionOfTurnId) supersededTurnIds.add(identity.revisionOfTurnId);
+    }
+    const messages = inSnapshot
+      .filter((message) => firstSequence(message) > cursor)
       .sort((left, right) => firstSequence(left) - firstSequence(right))
       .slice(0, limit);
     const lastMessage = messages[messages.length - 1];
@@ -232,9 +262,34 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       messages,
       nextCursor:
         messages.length >= limit && lastMessage
-          ? lastSequence(lastMessage)
+          ? firstSequence(lastMessage)
           : null,
+      snapshot,
+      supersededTurnIds: [...supersededTurnIds],
+      sessionFound: true,
     };
+  }
+
+  async getCanonicalAssistantMessageId(input: {
+    sessionId: string;
+    userId: string;
+    turnId: string;
+    phase: "commentary" | "final_answer";
+  }): Promise<string | null> {
+    const session = this.sessions.get(input.sessionId);
+    if (!session || session.userId !== input.userId) return null;
+    const messages = this.readSessionMessages({ sessionId: input.sessionId });
+    const found = messages.find((message) =>
+      message.role === "assistant" &&
+      readCanonicalIdentity(message)?.turnId === input.turnId &&
+      message.parts.some((part) => {
+        if (!part.content || typeof part.content !== "object" || Array.isArray(part.content)) return false;
+        const metadata = (part.content as Record<string, unknown>).metadata;
+        return !!metadata && typeof metadata === "object" && !Array.isArray(metadata) &&
+          (metadata as Record<string, unknown>).phase === input.phase;
+      }),
+    );
+    return found?.id ?? null;
   }
 
   async listSessions(userId: string): Promise<ListSessionsResult> {
@@ -473,6 +528,30 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     this.messageIdByDedupeKeyBySessionId.set(sessionId, created);
     return created;
   }
+}
+
+function readCanonicalIdentity(
+  message: TranscriptMessageRecord,
+): { turnId?: string; revisionOfTurnId?: string } | null {
+  for (const part of message.parts) {
+    if (
+      part.type !== "text" ||
+      !part.content ||
+      typeof part.content !== "object" ||
+      Array.isArray(part.content)
+    ) continue;
+    const content = part.content as Record<string, unknown>;
+    const metadata = content.metadata;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) continue;
+    const identity = (metadata as Record<string, unknown>).canonicalIdentity;
+    if (!identity || typeof identity !== "object" || Array.isArray(identity)) continue;
+    const record = identity as Record<string, unknown>;
+    return {
+      ...(typeof record.turnId === "string" ? { turnId: record.turnId } : {}),
+      ...(typeof record.revisionOfTurnId === "string" ? { revisionOfTurnId: record.revisionOfTurnId } : {}),
+    };
+  }
+  return null;
 }
 
 function readNullableInput<T>(

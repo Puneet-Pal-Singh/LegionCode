@@ -1,7 +1,7 @@
 # Capability ownership
 
-This entry documents the chat title boundary changed by this PR. It does not
-describe unrelated runtime capabilities.
+This entry records the title, workflow display, and conversation durability
+boundaries changed by this work.
 
 | Responsibility                                      | Canonical owner                                            | Producers and consumers                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -43,3 +43,38 @@ only its matching request, and terminal events close unresolved request history.
 No question tool, response API, or approval owner is introduced by this display
 change; adapters must emit the existing canonical user-input events for question
 history and its waiting status to appear.
+
+## Conversation durability and local recovery
+
+| Responsibility | Canonical owner | Producers and consumers |
+| --- | --- | --- |
+| Conversation existence, ownership, and stable session-to-thread binding | Postgres session repository | Brain reads and writes; SDK/Web consume the owned conversation contract; runtime identity caches are reconstructable |
+| Turn and attempt identity admission | Postgres `canonical_turn_admissions` through the Brain admission repository | Brain admission supplies exact identity to runtime; the existing canonical lifecycle append path validates it |
+| Durable transcript and terminal projections | Postgres transcript projection in the canonical lifecycle append transaction | Runtime emits lifecycle items; transcript history and session/run reads consume the projections |
+| Active execution leases and runtime-local identity cache | Durable Object runtime | Brain forwards authenticated commands; cache loss never changes saved conversation or turn identity |
+| New-session save readiness and queued setup prompt delivery | Web session manager and existing initial-prompt claim owner | Workspace waits for successful session saving; failed delivery stays blocked across rerenders/remounts until explicit retry with the same client message ID; PostgreSQL admission owns execution idempotency |
+| Historical recovery and local state admission | Operator-run Brain recovery CLI and local-dev preflight | Recovery reads copied SQLite roots and Postgres, writes per-session Postgres checkpoints; local launch binds one database fingerprint to explicit worker persistence roots |
+
+The recovery CLI is dry-run by default. It imports a runtime tuple only when
+the read-only SQLite source contains the same `turnRuntimeIdentities` and
+`turnToRunMap` values, the database run and session have one owner and workspace,
+and the original user message carries the exact client message id. Legacy chats
+without that proof receive a stable provenance-marked thread binding only;
+they do not receive fabricated turns, assistant replies, or lifecycle events.
+Transcript identity candidates require exact item/phase and text evidence, and
+ambiguous candidates remain unresolved. Local status divergence without an
+attributable terminal event remains an unknown historical outcome. Artifact
+bytes are marked verified only when the local object, size, and hash match its
+database reference; remote bucket/provider migration remains a production gate.
+
+Each local worker is launched with an explicit
+`LEGIONCODE_LOCAL_PERSIST_DIR`. A sanitized database fingerprint and Durable
+Object binding/migration fingerprint bind the root to its database and worker
+configuration. Per-role PID/start/token and process-group locks reject a second
+live writer. Both launchers use one waiting supervisor; the actual worker starts
+only after its group is durably attached to the exact lock token. An atomic
+mutex serializes acquisition, attachment, reclaim, and release. Reclaim and
+release require proven dead writer groups; unknown or malformed evidence blocks
+startup. CLI entrypoint paths are canonicalized before preflight runs. An
+unmarked non-empty state root or identity mismatch blocks startup with
+remediation; recovery never clears a persistence directory.

@@ -32,7 +32,6 @@ export const tasks = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id, {
       onDelete: "set null",
     }),
-    threadId: text("thread_id"),
     title: text("title").notNull(),
     status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -63,6 +62,14 @@ export const sessions = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id, {
       onDelete: "set null",
     }),
+    threadId: text("thread_id"),
+    threadBindingSource: text("thread_binding_source"),
+    threadBindingMigrationId: text("thread_binding_migration_id"),
+    threadIdMigratedAt: timestamp("thread_id_migrated_at", { withTimezone: true }),
+    currentTurnId: text("current_turn_id"),
+    admissionSequence: bigint("admission_sequence", { mode: "number" })
+      .notNull()
+      .default(0),
     taskId: uuid("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
@@ -101,7 +108,14 @@ export const sessions = pgTable(
       "sessions_title_status_check",
       sql.raw("title_status IN ('pending', 'ready', 'failed')"),
     ),
+    check(
+      "sessions_thread_binding_source_check",
+      sql.raw("thread_binding_source IS NULL OR thread_binding_source IN ('existing','runtime_admission','legacy_recovery')"),
+    ),
     index("sessions_user_updated_idx").on(table.userId, table.updatedAt),
+    uniqueIndex("sessions_thread_id_unique_idx")
+      .on(table.threadId)
+      .where(sql`${table.threadId} IS NOT NULL`),
     index("sessions_user_archived_updated_idx").on(
       table.userId,
       table.archivedAt,
@@ -110,6 +124,7 @@ export const sessions = pgTable(
     index("sessions_user_pinned_idx").on(table.userId, table.pinnedAt),
     index("sessions_task_idx").on(table.taskId),
     index("sessions_workspace_idx").on(table.workspaceId),
+    index("sessions_thread_id_idx").on(table.threadId),
   ],
 );
 
@@ -121,6 +136,10 @@ export const messages = pgTable(
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
     runId: text("run_id"),
+    canonicalTurnId: text("canonical_turn_id"),
+    canonicalRunAttemptId: text("canonical_run_attempt_id"),
+    canonicalItemId: text("canonical_item_id"),
+    canonicalPhase: text("canonical_phase"),
     role: text("role").notNull(),
     clientMessageId: text("client_message_id"),
     dedupeKey: text("dedupe_key").notNull(),
@@ -140,6 +159,15 @@ export const messages = pgTable(
     ),
     index("messages_session_created_idx").on(table.sessionId, table.createdAt),
     index("messages_run_idx").on(table.runId),
+    uniqueIndex("messages_canonical_item_phase_idx")
+      .on(
+        table.sessionId,
+        table.canonicalTurnId,
+        table.canonicalRunAttemptId,
+        table.canonicalItemId,
+        table.canonicalPhase,
+      )
+      .where(sql`${table.canonicalTurnId} IS NOT NULL`),
   ],
 );
 
@@ -152,6 +180,7 @@ export const messageParts = pgTable(
       .references(() => sessions.id, { onDelete: "cascade" }),
     messageId: uuid("message_id").notNull(),
     runId: text("run_id"),
+    sourceEventId: text("source_event_id"),
     partType: text("part_type").notNull(),
     sessionSequence: bigint("session_sequence", { mode: "number" }).notNull(),
     contentJson: jsonb("content_json").notNull(),
@@ -175,6 +204,9 @@ export const messageParts = pgTable(
     ),
     index("message_parts_message_idx").on(table.messageId),
     index("message_parts_run_idx").on(table.runId),
+    uniqueIndex("message_parts_source_event_id_idx")
+      .on(table.sourceEventId)
+      .where(sql`${table.sourceEventId} IS NOT NULL`),
   ],
 );
 

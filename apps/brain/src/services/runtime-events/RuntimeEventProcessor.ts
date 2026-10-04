@@ -5,9 +5,7 @@ import type {
 } from "@repo/shared-types";
 import { RUN_EVENT_TYPES, isRunEvent } from "@repo/shared-types";
 import type {
-  RunStatus,
   RunStepStatus,
-  UpdateRunStatusInput,
   UpsertRunStepInput,
 } from "@repo/persistence";
 import type { Env } from "../../types/ai";
@@ -52,7 +50,6 @@ export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
         idempotencyKey,
       },
       step: buildRunStepCandidate(event),
-      status: buildRunStatusUpdate(event),
     });
   }
 }
@@ -70,43 +67,6 @@ function assertSessionScopedRunEvent(
   if (!event.sessionId) {
     throw new Error(`Missing sessionId for run event: ${event.runId}`);
   }
-}
-
-function buildRunStatusUpdate(
-  event: RunEvent,
-): UpdateRunStatusInput | undefined {
-  const { runId, type, payload, timestamp } = event;
-
-  switch (type) {
-    case RUN_EVENT_TYPES.RUN_STARTED:
-      return { id: runId, status: "running", startedAt: timestamp };
-    case RUN_EVENT_TYPES.RUN_COMPLETED:
-      return { id: runId, status: "completed", completedAt: timestamp };
-    case RUN_EVENT_TYPES.RUN_FAILED:
-      return { id: runId, status: "failed", completedAt: timestamp };
-    case RUN_EVENT_TYPES.RUN_STATUS_CHANGED:
-      return buildStatusChangedUpdate(runId, payload.newStatus, timestamp);
-    default:
-      return undefined;
-  }
-}
-
-function buildStatusChangedUpdate(
-  runId: string,
-  status: string,
-  timestamp: string,
-): UpdateRunStatusInput | undefined {
-  const mappedStatus = mapRunStatus(status);
-  if (!mappedStatus) {
-    return undefined;
-  }
-
-  return {
-    id: runId,
-    status: mappedStatus,
-    startedAt: mappedStatus === "running" ? timestamp : undefined,
-    completedAt: isTerminalRunStatus(mappedStatus) ? timestamp : undefined,
-  };
 }
 
 function buildRunStep(
@@ -135,27 +95,6 @@ function buildRunStepCandidate(
   return buildRunStep(event, 0);
 }
 
-function mapRunStatus(status: string): RunStatus | null {
-  switch (status) {
-    case "queued":
-    case "created":
-      return "created";
-    case "running":
-      return "running";
-    case "paused":
-      return "paused";
-    case "complete":
-    case "completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return null;
-  }
-}
-
 function mapRunStepStatus(event: RunEvent): RunStepStatus | null {
   switch (event.type) {
     case RUN_EVENT_TYPES.RUN_PROGRESS:
@@ -173,15 +112,6 @@ function mapRunStepStatus(event: RunEvent): RunStepStatus | null {
     default:
       return null;
   }
-}
-
-function isTerminalRunStatus(status: RunStatus): boolean {
-  return (
-    status === "completed" ||
-    status === "paused" ||
-    status === "failed" ||
-    status === "cancelled"
-  );
 }
 
 function isTerminalStepStatus(status: RunStepStatus): boolean {

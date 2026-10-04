@@ -201,6 +201,10 @@ const UPSERT_RUN_SQL = `
     base_commit_sha = COALESCE(EXCLUDED.base_commit_sha, runs.base_commit_sha),
     head_commit_sha = COALESCE(EXCLUDED.head_commit_sha, runs.head_commit_sha),
     updated_at = EXCLUDED.updated_at
+  WHERE runs.user_id = EXCLUDED.user_id
+    AND runs.session_id = EXCLUDED.session_id
+    AND runs.task_id = EXCLUDED.task_id
+    AND runs.workspace_id IS NOT DISTINCT FROM EXCLUDED.workspace_id
   RETURNING ${RUN_COLUMNS}
 `;
 

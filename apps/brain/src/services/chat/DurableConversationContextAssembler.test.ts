@@ -22,6 +22,9 @@ describe("DurableConversationContextAssembler", () => {
       readTranscriptPage: async () => ({
         messages: transcript,
         nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
       }),
       replayLifecyclePage,
     });
@@ -58,7 +61,13 @@ describe("DurableConversationContextAssembler", () => {
       nextSequence: null,
     }));
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: transcript, nextCursor: null }),
+      readTranscriptPage: async () => ({
+        messages: transcript,
+        nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
       replayLifecyclePage,
     });
 
@@ -73,6 +82,96 @@ describe("DurableConversationContextAssembler", () => {
     expect(replayLifecyclePage).not.toHaveBeenCalled();
   });
 
+  it("uses snapshot-wide imported revision membership across transcript pages", async () => {
+    const originalPrompt = message("old-user", "user", "Original prompt", "trn_prior001", 1);
+    const originalAnswer = message("old-answer", "assistant", "Original answer", "trn_prior001", 2);
+    const replacementPrompt = message("new-user", "user", "Edited prompt", "trn_current01", 3);
+    const readTranscriptPage = vi.fn()
+      .mockResolvedValueOnce({
+        messages: [originalPrompt],
+        nextCursor: 1,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
+      })
+      .mockResolvedValueOnce({
+        messages: [originalAnswer],
+        nextCursor: 2,
+        snapshot: 3,
+        supersededTurnIds: ["trn_prior001"],
+        sessionFound: true,
+      })
+      .mockResolvedValueOnce({
+        messages: [replacementPrompt],
+        nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: ["trn_prior001"],
+        sessionFound: true,
+      });
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage,
+      replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
+    });
+
+    const context = await assembler.assemble({
+      sessionId: "session-1",
+      userId: "user-1",
+      currentTurnId: "trn_current01",
+    });
+
+    expect(context.map((entry) => entry.content)).toEqual(["Edited prompt"]);
+    expect(readTranscriptPage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      cursor: 1,
+      snapshot: 3,
+    }));
+    expect(readTranscriptPage).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      cursor: 2,
+      snapshot: 3,
+    }));
+  });
+
+  it("preserves whitespace and exact concatenation for canonical assistant deltas", async () => {
+    const assistant = message("canonical-answer", "assistant", "", "trn_prior001", 1);
+    assistant.parts = ["hel", "lo", " ", "world"].map((text, index) => ({
+      id: `part-${index}`,
+      messageId: assistant.id,
+      sessionId: assistant.sessionId,
+      runId: assistant.runId,
+      type: "text",
+      sessionSequence: index + 1,
+      content: {
+        text,
+        metadata: {
+          canonicalIdentity: {
+            turnId: "trn_prior001",
+            runAttemptId: "attempt_prior001",
+          },
+          itemId: "itm_answer01",
+          phase: "final_answer",
+        },
+      },
+      createdAt: "2026-08-12T00:00:00.000Z",
+    }));
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage: async () => ({
+        messages: [assistant],
+        nextCursor: null,
+        snapshot: 4,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
+      replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
+    });
+
+    const context = await assembler.assemble({
+      sessionId: "session-1",
+      userId: "user-1",
+      currentTurnId: "trn_current01",
+    });
+
+    expect(context.map((entry) => entry.content)).toEqual(["hello world"]);
+  });
+
   it("prefers the submitted client message id in restored provider context", async () => {
     const current = message(
       "persisted-user",
@@ -83,7 +182,13 @@ describe("DurableConversationContextAssembler", () => {
     );
     current.clientMessageId = "client_msg_current";
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: [current], nextCursor: null }),
+      readTranscriptPage: async () => ({
+        messages: [current],
+        nextCursor: null,
+        snapshot: 1,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
       replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
     });
 

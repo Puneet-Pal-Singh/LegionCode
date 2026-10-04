@@ -175,6 +175,7 @@ function AppContent() {
     sessionHydrationStatus,
     setActiveSessionId,
     createSession,
+    retrySessionPersistence,
     removeSession,
     renameSession,
     refreshSessionProjection,
@@ -298,7 +299,8 @@ function AppContent() {
   // @ts-expect-error - intentionally unused, will be used in next PR
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const convertSessionsToRuns = (): RunInboxItem[] => {
-    return sessions.map((session) => {
+    return sessions.flatMap((session) => {
+      if (!session.activeRunId) return [];
       let status:
         | "idle"
         | "queued"
@@ -321,14 +323,14 @@ function AppContent() {
       const savedUpdateTime = localStorage.getItem(sessionUpdateKey);
       const updatedAt = savedUpdateTime || new Date().toISOString();
 
-      return {
+      return [{
         runId: session.activeRunId,
         sessionId: session.id,
         title: session.name,
         status,
         updatedAt,
         repository: session.repository ?? "No repository",
-      };
+      }];
     });
   };
 
@@ -955,6 +957,29 @@ function AppContent() {
 
       {/* Main Content Area with Top NavBar */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {activeSession?.persistenceStatus === "saving" ||
+        activeSession?.persistenceStatus === "failed" ? (
+          <div
+            role={activeSession.persistenceStatus === "failed" ? "alert" : "status"}
+            data-testid="session-persistence-state"
+            className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100"
+          >
+            <span>
+              {activeSession.persistenceStatus === "failed"
+                ? "This conversation is an unsaved draft. It remains available in this tab."
+                : "Saving conversation…"}
+            </span>
+            {activeSession.persistenceStatus === "failed" ? (
+              <button
+                type="button"
+                className="rounded-md border border-amber-200/30 px-3 py-1 font-medium hover:bg-amber-500/15"
+                onClick={() => void retrySessionPersistence(activeSession.id)}
+              >
+                Retry save
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
           onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
@@ -1092,6 +1117,7 @@ function AppContent() {
                   mode={activeSession?.mode}
                   isSessionRunning={activeSession?.status === "running"}
                   hasStartedSession={isSessionStarted}
+                  sessionPersistenceStatus={activeSession.persistenceStatus}
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }

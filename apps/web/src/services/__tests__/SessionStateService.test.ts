@@ -58,6 +58,8 @@ describe("SessionStateService", () => {
 
     it("normalizes legacy error sessions to failed", () => {
       const session = SessionStateService.createSession("Test", "repo");
+      const activeRunId = session.activeRunId;
+      if (!activeRunId) throw new Error("Expected a new session run");
 
       localStorage.setItem(
         "legioncode:sessions:v3",
@@ -181,7 +183,7 @@ describe("SessionStateService", () => {
       });
     });
 
-    it("drops server sessions that still use legacy UUID run ids", async () => {
+    it("keeps readable server sessions that have no canonical active run", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
@@ -204,9 +206,34 @@ describe("SessionStateService", () => {
         ),
       );
 
-      await expect(
-        SessionStateService.hydrateSessionsFromServer(),
-      ).resolves.toEqual({});
+      const sessions = await SessionStateService.hydrateSessionsFromServer();
+      expect(sessions["550e8400-e29b-41d4-a716-446655440000"]).toMatchObject({
+        activeRunId: null,
+        runIds: [],
+        name: "Legacy Task",
+      });
+    });
+
+    it("keeps a persisted session with a null active run", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        sessions: [{
+          id: "session_without_run",
+          title: "Saved chat",
+          repository: "acme/legioncode",
+          activeRunId: null,
+          mode: "build",
+          status: "completed",
+          createdAt: "2026-05-14T00:00:00.000Z",
+          updatedAt: "2026-05-15T00:00:00.000Z",
+        }],
+      }))));
+
+      const sessions = await SessionStateService.hydrateSessionsFromServer();
+      expect(sessions.session_without_run).toMatchObject({
+        activeRunId: null,
+        runIds: [],
+        status: "completed",
+      });
     });
 
     it("persists created sessions to Brain", async () => {
@@ -574,6 +601,8 @@ describe("SessionStateService", () => {
 
     it("should warn when adding duplicate run", () => {
       const session = SessionStateService.createSession("Test", "repo");
+      const activeRunId = session.activeRunId;
+      if (!activeRunId) throw new Error("Expected a new session run");
       const originalWarn = globalThis.console.warn;
       let warnCalled = false;
 
@@ -581,7 +610,7 @@ describe("SessionStateService", () => {
         warnCalled = true;
       };
 
-      SessionStateService.addRunToSession(session, session.activeRunId, true);
+      SessionStateService.addRunToSession(session, activeRunId, true);
 
       globalThis.console.warn = originalWarn;
       expect(warnCalled).toBe(true);

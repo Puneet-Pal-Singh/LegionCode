@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { Workspace } from "./Workspace";
 import { clearInitialPromptSubmissionClaimsForTests } from "./workspace/initialPromptSubmissionGuard";
 import { createInitialPromptSubmissionId } from "../../lib/initial-prompt-submission";
@@ -19,6 +20,7 @@ const mockChatState = vi.hoisted(() => ({
   handleInputChange: vi.fn(),
   handleSubmit: vi.fn(),
   append: vi.fn(),
+  reviseTurn: vi.fn(),
   stop: vi.fn(),
   isLoading: false,
   isHydrating: false,
@@ -325,6 +327,7 @@ describe("Workspace", () => {
     });
     expect(mockChatState.append).toHaveBeenCalledTimes(1);
     expect(mockChatState.append).toHaveBeenCalledWith({
+      id: "client_msg_setup-prompt-1",
       role: "user",
       content:
         "Hey, read my readme and tell what do you think of this project??",
@@ -365,6 +368,140 @@ describe("Workspace", () => {
     });
   });
 
+  it("waits for the session save before admitting the queued setup prompt", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockClear();
+    mockChatState.append.mockResolvedValue(undefined);
+    const onInitialPromptHandled = vi.fn();
+    const initialPromptSubmission = {
+      id: createInitialPromptSubmissionId("setup-delayed-save"),
+      prompt: "Read README",
+    };
+    const props = {
+      sessionId: "session-delayed",
+      runId: "run-123",
+      repository: "owner/repo",
+      initialPromptSubmission,
+      onInitialPromptHandled,
+    };
+    const { rerender } = render(
+      <Workspace {...props} sessionPersistenceStatus="saving" />,
+    );
+
+    expect(mockChatState.append).not.toHaveBeenCalled();
+    expect(onInitialPromptHandled).not.toHaveBeenCalled();
+    rerender(<Workspace {...props} sessionPersistenceStatus="saved" />);
+
+    await waitFor(() => expect(mockChatState.append).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-delayed-save"));
+  });
+
+  it("keeps the setup prompt queued while save fails and resumes after the existing retry succeeds", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockClear();
+    mockChatState.append.mockResolvedValue(undefined);
+    const onInitialPromptHandled = vi.fn();
+    const initialPromptSubmission = {
+      id: createInitialPromptSubmissionId("setup-save-retry"),
+      prompt: "Read README",
+    };
+    const props = {
+      sessionId: "session-retry",
+      runId: "run-123",
+      repository: "owner/repo",
+      initialPromptSubmission,
+      onInitialPromptHandled,
+    };
+    const { rerender } = render(
+      <Workspace {...props} sessionPersistenceStatus="failed" />,
+    );
+
+    expect(mockChatState.append).not.toHaveBeenCalled();
+    rerender(<Workspace {...props} sessionPersistenceStatus="saving" />);
+    expect(mockChatState.append).not.toHaveBeenCalled();
+    rerender(<Workspace {...props} sessionPersistenceStatus="saved" />);
+
+    await waitFor(() => expect(mockChatState.append).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-save-retry"));
+  });
+
+  it("waits for explicit retry after rejection despite parent callback churn and reuses the client identity", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockReset();
+    mockChatState.append.mockRejectedValueOnce(new Error("response lost"));
+    mockChatState.append.mockResolvedValueOnce(undefined);
+    const onInitialPromptHandled = vi.fn();
+    const initialPromptSubmission = {
+      id: createInitialPromptSubmissionId("setup-admission-retry"),
+      prompt: "Read README",
+    };
+    function ParentConsumer() {
+      const [runStatus, setRunStatus] = useState("running");
+      const [workspaceVersion, setWorkspaceVersion] = useState(0);
+      return (
+        <div data-run-status={runStatus}>
+          <button type="button" onClick={() => setWorkspaceVersion((version) => version + 1)}>
+            Refresh workspace
+          </button>
+          <Workspace
+            key={workspaceVersion}
+            sessionId="session-admission-retry"
+            runId="run-123"
+            repository="owner/repo"
+            initialPromptSubmission={initialPromptSubmission}
+            onInitialPromptHandled={onInitialPromptHandled}
+            sessionPersistenceStatus="saved"
+            // Deliberately inline: the App consumer recreates this callback as
+            // parent state changes after an admission failure.
+            onSessionStatusChange={(status) => setRunStatus(status)}
+          />
+        </div>
+      );
+    }
+    const { getByRole } = render(<ParentConsumer />);
+
+    await waitFor(() => expect(mockChatState.append).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getByRole("alert")).toBeTruthy());
+    expect(onInitialPromptHandled).not.toHaveBeenCalled();
+    const firstMessage = mockChatState.append.mock.calls[0]![0];
+    expect(firstMessage.id).toBe("client_msg_setup-admission-retry");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mockChatState.append).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(getByRole("button", { name: "Refresh workspace" }));
+    await waitFor(() => expect(getByRole("alert")).toBeTruthy());
+    expect(mockChatState.append).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(getByRole("button", { name: "Retry setup prompt" }));
+
+    await waitFor(() => expect(mockChatState.append).toHaveBeenCalledTimes(2));
+    expect(mockChatState.append.mock.calls[1]![0].id).toBe(firstMessage.id);
+    await waitFor(() => expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-admission-retry"));
+  });
+
+  it("blocks composer and revision admission while the session is unsaved", async () => {
+    mockChatState.handleSubmit.mockClear();
+    mockChatState.reviseTurn.mockClear();
+    const { rerender } = render(
+      <Workspace sessionId="session-unsaved" runId="run-123" repository="owner/repo" sessionPersistenceStatus="saving" />,
+    );
+    const chatProps = mockChatInterface.mock.calls.at(-1)?.[0] as { chatProps: {
+      handleSubmit: () => Promise<boolean>;
+      reviseTurn: (turnId: string, prompt: string) => Promise<boolean>;
+      append: (message: { role: "user"; content: string }) => Promise<void>;
+    } };
+    await expect(chatProps.chatProps.handleSubmit()).resolves.toBe(false);
+    await expect(chatProps.chatProps.reviseTurn("turn-1", "revise")).resolves.toBe(false);
+    await expect(chatProps.chatProps.append({ role: "user", content: "send" })).rejects.toThrow(/still being saved/);
+    expect(mockChatState.handleSubmit).not.toHaveBeenCalled();
+    expect(mockChatState.reviseTurn).not.toHaveBeenCalled();
+
+    rerender(<Workspace sessionId="session-unsaved" runId="run-123" repository="owner/repo" sessionPersistenceStatus="saved" />);
+    const savedChatProps = mockChatInterface.mock.calls.at(-1)?.[0] as typeof chatProps;
+    await savedChatProps.chatProps.handleSubmit();
+    expect(mockChatState.handleSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves setup-composer images in the first workspace message", async () => {
     clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockResolvedValue(undefined);
@@ -397,6 +534,7 @@ describe("Workspace", () => {
 
     await waitFor(() => {
       expect(mockChatState.append).toHaveBeenCalledWith({
+        id: "client_msg_setup-image-1",
         role: "user",
         content: [
           { type: "text", text: "Inspect this screenshot" },

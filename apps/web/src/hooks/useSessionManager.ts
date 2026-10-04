@@ -81,6 +81,20 @@ function replaceSessionById(
   );
 }
 
+function reconcileSessionPersistence(
+  sessions: AgentSession[],
+  sessionId: string,
+  persisted: AgentSession | null,
+  persistenceStatus: NonNullable<AgentSession["persistenceStatus"]>,
+): AgentSession[] {
+  const current = sessions.find((session) => session.id === sessionId);
+  if (!current) return sessions;
+  const next = persisted
+    ? { ...persisted, ...current, persistenceStatus }
+    : { ...current, persistenceStatus };
+  return replaceSessionById(sessions, next);
+}
+
 function mergeProjectionIfChanged(
   current: AgentSession,
   incoming: AgentSession,
@@ -437,25 +451,67 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         "idle",
         mode,
       );
+      const pendingSession = { ...newSession, persistenceStatus: "saving" as const };
 
-      const nextSessions = [...sessionsRef.current, newSession];
+      const nextSessions = [...sessionsRef.current, pendingSession];
       const sessionsMap = createSessionsMap(nextSessions);
 
       SessionStateService.saveSessions(sessionsMap, newSession.id);
       SessionStateService.saveActiveSessionId(newSession.id, sessionsMap);
-      void SessionStateService.persistSession(newSession).catch((error) => {
-        console.warn("[useSessionManager] Failed to persist session:", error);
-      });
+      void SessionStateService.persistSession(pendingSession)
+        .then((serverSession) => {
+          const next = reconcileSessionPersistence(
+            sessionsRef.current,
+            newSession.id,
+            serverSession,
+            "saved",
+          );
+          sessionsRef.current = next;
+          SessionStateService.saveSessions(createSessionsMap(next), activeSessionIdRef.current);
+          setSessions(next);
+        })
+        .catch((error) => {
+          console.warn("[useSessionManager] Failed to persist session:", error);
+          const next = reconcileSessionPersistence(
+            sessionsRef.current,
+            newSession.id,
+            null,
+            "failed",
+          );
+          sessionsRef.current = next;
+          SessionStateService.saveSessions(createSessionsMap(next), activeSessionIdRef.current);
+          setSessions(next);
+        });
 
       sessionsRef.current = nextSessions;
       activeSessionIdRef.current = newSession.id;
       localMutationVersionRef.current += 1;
       setSessions(nextSessions);
       setActiveSessionId(newSession.id);
-      return newSession.id;
+    return newSession.id;
     },
     [],
   );
+
+  const retrySessionPersistence = useCallback(async (id: string): Promise<void> => {
+    const current = sessionsRef.current.find((session) => session.id === id);
+    if (!current || current.persistenceStatus !== "failed") return;
+    const savingSession = { ...current, persistenceStatus: "saving" as const };
+    let next = replaceSessionById(sessionsRef.current, savingSession);
+    sessionsRef.current = next;
+    setSessions(next);
+    SessionStateService.saveSessions(createSessionsMap(next), activeSessionIdRef.current);
+    try {
+      const serverSession = await SessionStateService.persistSession(savingSession);
+      next = reconcileSessionPersistence(sessionsRef.current, id, serverSession, "saved");
+    } catch (error) {
+      console.warn("[useSessionManager] Session retry failed:", error);
+      next = reconcileSessionPersistence(sessionsRef.current, id, null, "failed");
+    }
+    sessionsRef.current = next;
+    setSessions(next);
+    SessionStateService.saveSessions(createSessionsMap(next), activeSessionIdRef.current);
+  }, []);
 
   /**
    * Generate a canonical run ID for execution.
@@ -768,8 +824,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       updates: Partial<Omit<AgentSession, "id">>,
       options?: { preserveActivityTimestamp?: boolean },
     ) => {
-      setSessions((prev) =>
-        prev.map((s) => {
+      const next = sessionsRef.current.map((s) => {
           if (s.id !== id) return s;
           if (!hasSessionUpdates(s, updates)) {
             return s;
@@ -793,8 +848,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
             return s;
           }
           return updated;
-        }),
-      );
+        });
+      sessionsRef.current = next;
+      setSessions(next);
     },
     [],
   );
@@ -835,6 +891,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     repositories,
     setActiveSessionId: selectActiveSession,
     createSession,
+    retrySessionPersistence,
     removeSession,
     renameSession,
     refreshSessionProjection,

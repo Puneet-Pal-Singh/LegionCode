@@ -56,13 +56,16 @@ export class DurableConversationContextAssembler {
     currentTurnId: string;
     revisionOfTurnId?: string;
   }): Promise<CoreMessage[]> {
-    const durableTranscript = await this.readTranscript(
+    const { messages: durableTranscript, supersededTurnIds } = await this.readTranscript(
       input.sessionId,
       input.userId,
     );
     const transcript = projectActiveTranscriptBranch(
       durableTranscript,
-      input.revisionOfTurnId ? [input.revisionOfTurnId] : [],
+      [
+        ...supersededTurnIds,
+        ...(input.revisionOfTurnId ? [input.revisionOfTurnId] : []),
+      ],
     );
     const messages = transcript.flatMap(toCoreTextMessage);
     const priorTurnIds = transcript
@@ -96,20 +99,28 @@ export class DurableConversationContextAssembler {
   private async readTranscript(
     sessionId: string,
     userId: string,
-  ): Promise<TranscriptMessageRecord[]> {
+  ): Promise<{ messages: TranscriptMessageRecord[]; supersededTurnIds: string[] }> {
     const messages: TranscriptMessageRecord[] = [];
+    const supersededTurnIds = new Set<string>();
     let cursor: number | null = 0;
+    let snapshot: number | null = null;
     while (cursor !== null) {
       const page = await this.readTranscriptPage({
         sessionId,
         userId,
         cursor,
+        snapshot,
         limit: TRANSCRIPT_PAGE_SIZE,
       });
+      if (snapshot === null) snapshot = page.snapshot;
+      for (const turnId of page.supersededTurnIds) supersededTurnIds.add(turnId);
       messages.push(...page.messages);
+      if (page.nextCursor !== null && page.nextCursor <= cursor) {
+        throw new Error("Transcript pagination cursor did not advance");
+      }
       cursor = page.nextCursor;
     }
-    return messages;
+    return { messages, supersededTurnIds: [...supersededTurnIds] };
   }
 
   private async readFailedTurnRecord(
@@ -136,6 +147,21 @@ export class DurableConversationContextAssembler {
 
 function toCoreTextMessage(record: TranscriptMessageRecord): CoreMessage[] {
   if (record.role === "tool") return [];
+  if (record.role === "assistant" && isCanonicalAssistantProjection(record)) {
+    const content = record.parts
+      .map((part) => readUntrimmedText(part.content))
+      .filter((text): text is string => text !== null)
+      .join("");
+    return content.length > 0
+      ? [
+          {
+            id: record.id,
+            role: record.role,
+            content,
+          } as unknown as CoreMessage,
+        ]
+      : [];
+  }
   const content = record.parts
     .map((part) => readText(part.content))
     .filter((text): text is string => Boolean(text?.trim()))
@@ -158,6 +184,20 @@ function readCanonicalTurnIds(record: TranscriptMessageRecord): string[] {
     const metadata = readRecord(content?.metadata);
     const identity = readRecord(metadata?.canonicalIdentity);
     return typeof identity?.turnId === "string" ? [identity.turnId] : [];
+  });
+}
+
+function isCanonicalAssistantProjection(record: TranscriptMessageRecord): boolean {
+  return record.parts.length > 0 && record.parts.every((part) => {
+    const content = readRecord(part.content);
+    const metadata = readRecord(content?.metadata);
+    const identity = readRecord(metadata?.canonicalIdentity);
+    return Boolean(
+      typeof identity?.turnId === "string" &&
+        typeof identity.runAttemptId === "string" &&
+        typeof metadata?.itemId === "string" &&
+        (metadata.phase === "commentary" || metadata.phase === "final_answer"),
+    );
   });
 }
 
@@ -193,8 +233,8 @@ function formatFailedTurnRecord(
     } else if (event.type === "tool_call.completed") {
       const current = toolItems.get(itemId);
       if (current) current.completed = true;
-    }
   }
+}
   const failurePayload = readRecord(failure.payload);
   const outcome = readRecord(failurePayload?.outcome);
   const failureDetail = readRecord(outcome?.failure);
@@ -219,6 +259,12 @@ function readText(value: unknown): string | null {
   if (typeof value === "string") return value;
   const record = readRecord(value);
   return readString(record?.text);
+}
+
+function readUntrimmedText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const record = readRecord(value);
+  return typeof record?.text === "string" ? record.text : null;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
