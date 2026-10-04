@@ -6,7 +6,6 @@ import {
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
-import "@legioncode/client-ui/styles.css";
 import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
 import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useState } from "react";
@@ -18,6 +17,7 @@ import type {
   DesktopBuildInfo,
   WorkspaceSelection,
 } from "../../shared/desktop-api";
+import { DesktopProviderSetup } from "./DesktopProviderSetup";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -328,6 +328,7 @@ function DesktopApp(): React.JSX.Element {
         )}
       >
         <div className="desktop-content">
+          <DesktopProviderSetup client={appServerClient} ready={sdkReady} />
           <section className="workspace-panel" aria-labelledby="workspace-heading">
             <div className="workspace-panel-header">
               <div>

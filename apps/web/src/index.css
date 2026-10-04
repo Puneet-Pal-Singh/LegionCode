@@ -1,6 +1,7 @@
 @import "xterm/css/xterm.css";
 @import "tailwindcss";
 @import "@legioncode/client-ui/styles.css";
+@source "../../../packages/client-ui/src";
 
 /* Configuration for Tailwind v4 happens here */
 @theme {
@@ -227,10 +228,6 @@
       0 1px 0 rgb(255 255 255 / 0.04) inset,
       0 0 0 1px rgb(255 255 255 / 0.06),
       0 18px 50px rgb(0 0 0 / 0.24);
-  }
-
-  .ui-input {
-    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400;
   }
 
   .ui-muted-divider {

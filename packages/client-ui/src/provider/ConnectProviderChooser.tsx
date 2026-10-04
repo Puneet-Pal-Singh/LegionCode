@@ -1,0 +1,491 @@
+/**
+ * Connect Provider Chooser - Searchable Provider Selection
+ *
+ * Provides a search-first UX for discovering providers and a focused
+ * API-key step for connecting a selected provider.
+ */
+
+import React, { useMemo, useState, useRef, useEffect } from "react";
+import { Search, AlertCircle, CheckCircle, ArrowLeft } from "lucide-react";
+import {
+  type CloudflareAIGatewayConnectionConfig,
+  type CloudflareAIConnectionConfig,
+  type CloudflareWorkersAIConnectionConfig,
+  type ProviderConnectionConfig,
+  type ProviderRegistryEntry,
+} from "@repo/shared-types";
+import { ProviderIcon } from "./ProviderIcon.js";
+
+/**
+ * Props for ConnectProviderChooser
+ */
+export interface ConnectProviderChooserProps {
+  /** Catalog filtered by the client’s provider visibility policy. */
+  catalog: ProviderRegistryEntry[];
+  onConnect: (
+    providerId: string,
+    secret: string,
+    label?: string,
+    config?: ProviderConnectionConfig,
+  ) => Promise<void>;
+  isConnecting?: boolean;
+  error?: string | null;
+  errorRecovery?: { message: string; remediation: string } | null;
+  success?: string | null;
+  onErrorClear?: () => void;
+  presentation?: "card" | "plain";
+  showTitle?: boolean;
+  initialSelectedProviderId?: string;
+}
+
+/**
+ * Provider details with formatted display
+ */
+interface ProviderOption {
+  entry: ProviderRegistryEntry;
+  displayName: string;
+}
+
+const PROVIDER_DESCRIPTIONS: Record<string, string> = {
+  anthropic: "Claude models",
+  "cloudflare-ai": "Workers AI and AI Gateway",
+  "cloudflare-workers-ai": "Workers-hosted AI models",
+  "cloudflare-ai-gateway": "Unified AI Gateway model routing",
+  google: "Gemini models",
+  groq: "Fast hosted inference",
+  openai: "GPT and reasoning models",
+  openrouter: "Models from multiple providers",
+  "together-ai": "Open-source hosted models",
+};
+
+/**
+ * ConnectProviderChooser Component
+ */
+export function ConnectProviderChooser({
+  catalog,
+  onConnect,
+  isConnecting = false,
+  error = null,
+  errorRecovery = null,
+  success = null,
+  onErrorClear,
+  presentation = "card",
+  showTitle = true,
+  initialSelectedProviderId,
+}: ConnectProviderChooserProps): React.ReactElement {
+  const providerOptions = useMemo((): ProviderOption[] => {
+    return catalog.map((entry) => ({ entry, displayName: entry.displayName }));
+  }, [catalog]);
+  const initialProviderId =
+    initialSelectedProviderId &&
+    providerOptions.some(
+      (option) => option.entry.providerId === initialSelectedProviderId,
+    )
+      ? initialSelectedProviderId
+      : null;
+  const [view, setView] = useState<"providers" | "credentials">(
+    initialProviderId ? "credentials" : "providers",
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
+    initialProviderId,
+  );
+  const [apiSecret, setApiSecret] = useState("");
+  const [cloudflareRouteMode, setCloudflareRouteMode] =
+    useState<CloudflareAIConnectionConfig["routeMode"]>("workers-ai-direct");
+  const [cloudflareAccountId, setCloudflareAccountId] = useState("");
+  const [cloudflareGatewayId, setCloudflareGatewayId] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredProviders = useMemo((): ProviderOption[] => {
+    if (!searchQuery.trim()) {
+      return providerOptions;
+    }
+
+    const query = searchQuery.toLowerCase();
+    return providerOptions.filter(
+      (option) =>
+        option.displayName.toLowerCase().includes(query) ||
+        option.entry.providerId.toLowerCase().includes(query),
+    );
+  }, [providerOptions, searchQuery]);
+
+  const selectedProvider = selectedProviderId
+    ? catalog.find((provider) => provider.providerId === selectedProviderId)
+    : null;
+
+  const resetCloudflareFields = React.useCallback((): void => {
+    setCloudflareRouteMode("workers-ai-direct");
+    setCloudflareAccountId("");
+    setCloudflareGatewayId("");
+  }, []);
+
+  const handleSelectProvider = React.useCallback(
+    (providerId: string): void => {
+      setSelectedProviderId(providerId);
+      setView("credentials");
+      setApiSecret("");
+      resetCloudflareFields();
+      if (onErrorClear) {
+        onErrorClear();
+      }
+    },
+    [onErrorClear, resetCloudflareFields],
+  );
+
+  const handleBackToProviders = (): void => {
+    setView("providers");
+    setApiSecret("");
+    resetCloudflareFields();
+    if (onErrorClear) {
+      onErrorClear();
+    }
+  };
+
+  const isCloudflareSelected =
+    selectedProviderId === "cloudflare-ai" ||
+    selectedProviderId === "cloudflare-workers-ai" ||
+    selectedProviderId === "cloudflare-ai-gateway";
+  const isLegacyCloudflareSelected = selectedProviderId === "cloudflare-ai";
+  const isGatewayRoute =
+    selectedProviderId === "cloudflare-ai-gateway" ||
+    (isLegacyCloudflareSelected && cloudflareRouteMode === "ai-gateway");
+  const isCredentialFormComplete =
+    !isCloudflareSelected ||
+    (cloudflareAccountId.trim().length > 0 &&
+      (!isGatewayRoute || cloudflareGatewayId.trim().length > 0));
+
+  const buildConnectionConfig = ():
+    | CloudflareAIConnectionConfig
+    | CloudflareWorkersAIConnectionConfig
+    | CloudflareAIGatewayConnectionConfig
+    | undefined => {
+    if (!isCloudflareSelected) {
+      return undefined;
+    }
+    const gatewayId = cloudflareGatewayId.trim();
+    if (selectedProviderId === "cloudflare-workers-ai") {
+      return {
+        providerId: "cloudflare-workers-ai" as const,
+        accountId: cloudflareAccountId.trim(),
+      };
+    }
+    if (selectedProviderId === "cloudflare-ai-gateway") {
+      return {
+        providerId: "cloudflare-ai-gateway" as const,
+        accountId: cloudflareAccountId.trim(),
+        gatewayId,
+      };
+    }
+    return {
+      providerId: "cloudflare-ai",
+      accountId: cloudflareAccountId.trim(),
+      gatewayId: isGatewayRoute && gatewayId ? gatewayId : undefined,
+      routeMode: cloudflareRouteMode,
+    };
+  };
+
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+
+    if (!selectedProviderId || !apiSecret.trim() || !isCredentialFormComplete) {
+      return;
+    }
+
+    try {
+      const config = buildConnectionConfig();
+      if (config) {
+        await onConnect(selectedProviderId, apiSecret, undefined, config);
+      } else {
+        await onConnect(selectedProviderId, apiSecret);
+      }
+      resetCloudflareFields();
+    } catch {
+      // Error handled by parent and displayed
+    } finally {
+      setApiSecret("");
+    }
+  };
+
+  useEffect(() => {
+    if (view === "providers" && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [view]);
+
+  const sectionLabelClassName =
+    presentation === "plain"
+      ? "mb-2 block text-sm font-medium text-neutral-500"
+      : "mb-3 block text-xs font-medium uppercase tracking-wide text-neutral-400";
+  const rootClassName =
+    presentation === "plain"
+      ? "space-y-5 text-neutral-100"
+      : "space-y-5 rounded-xl border border-neutral-700 bg-neutral-900 p-4 text-neutral-100";
+  const keyInputId = selectedProvider
+    ? `${selectedProvider.providerId}-api-key`
+    : "api-key";
+
+  return (
+    <div className={rootClassName}>
+      {showTitle && (
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold">Connect provider</h3>
+        </div>
+      )}
+
+      {error && errorRecovery && (
+        <div className="rounded-lg border border-red-800 bg-red-950/30 p-3 space-y-1">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-red-200">
+                {errorRecovery.message}
+              </p>
+              <p className="mt-1 text-xs text-red-300">
+                {errorRecovery.remediation}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div className="flex items-start gap-2 rounded-lg border border-green-900 bg-green-950/30 p-3">
+          <CheckCircle size={16} className="text-green-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-green-200">{success}</p>
+        </div>
+      )}
+
+      {view === "providers" && (
+        <div className="space-y-4">
+          <div>
+            <label className="sr-only" htmlFor="provider-search">
+              Find provider
+            </label>
+            <div className="relative">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
+              />
+              <input
+                id="provider-search"
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search providers"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`ui-input h-11 w-full bg-black/20 pl-9 pr-3 text-sm ${
+                  error ? "border-red-700 bg-red-950/20" : ""
+                }`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className={sectionLabelClassName}>
+              {searchQuery.trim() ? "Matches" : "Popular"}
+            </p>
+
+            {filteredProviders.length === 0 ? (
+              <div className="px-1 py-6 text-center">
+                <p className="text-sm text-neutral-500">
+                  {searchQuery
+                    ? "No providers match your search"
+                    : "No providers available"}
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-[28rem] space-y-1 overflow-y-auto">
+                {filteredProviders.map((option) => (
+                  <button
+                    key={option.entry.providerId}
+                    onClick={() =>
+                      handleSelectProvider(option.entry.providerId)
+                    }
+                    type="button"
+                    disabled={isConnecting}
+                    className="grid min-h-14 w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-neutral-800/70 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ProviderIcon providerId={option.entry.providerId} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-neutral-100">
+                        {option.displayName}
+                      </span>
+                      <span className="mt-0.5 block truncate text-sm text-neutral-500">
+                        {PROVIDER_DESCRIPTIONS[option.entry.providerId] ??
+                          "Connect with an API key"}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === "credentials" && selectedProvider && (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={handleBackToProviders}
+              className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-neutral-200"
+              aria-label="Back to providers"
+            >
+              <ArrowLeft size={14} />
+              Back
+            </button>
+          </div>
+
+          <div>
+            <h4 className="text-xl font-semibold text-neutral-100">
+              Connect {selectedProvider.displayName}
+            </h4>
+            <p className="mt-3 text-sm text-neutral-400">
+              {selectedProvider.keyFormat?.description ??
+                `Enter your ${selectedProvider.displayName} API key to connect this provider.`}
+            </p>
+          </div>
+
+          {isCloudflareSelected && (
+            <div className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+              {isLegacyCloudflareSelected && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-neutral-200">
+                    Cloudflare route
+                  </label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      {
+                        value: "workers-ai-direct" as const,
+                        label: "Workers AI",
+                      },
+                      {
+                        value: "ai-gateway" as const,
+                        label: "AI Gateway",
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={isConnecting}
+                        onClick={() => setCloudflareRouteMode(option.value)}
+                        className={`rounded-md border px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          cloudflareRouteMode === option.value
+                            ? "border-blue-500 bg-blue-950/40 text-blue-100"
+                            : "border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-neutral-500"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label
+                  htmlFor="cloudflare-account-id"
+                  className="mb-2 block text-sm font-medium text-neutral-200"
+                >
+                  Cloudflare Account ID
+                </label>
+                <input
+                  id="cloudflare-account-id"
+                  type="text"
+                  value={cloudflareAccountId}
+                  onChange={(e) => {
+                    setCloudflareAccountId(e.target.value);
+                    if (onErrorClear) {
+                      onErrorClear();
+                    }
+                  }}
+                  placeholder="1234567890abcdef1234567890abcdef"
+                  required
+                  disabled={isConnecting}
+                  className="w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {isGatewayRoute && (
+                <div>
+                  <label
+                    htmlFor="cloudflare-gateway-id"
+                    className="mb-2 block text-sm font-medium text-neutral-200"
+                  >
+                    AI Gateway name
+                  </label>
+                  <input
+                    id="cloudflare-gateway-id"
+                    type="text"
+                    value={cloudflareGatewayId}
+                    onChange={(e) => {
+                      setCloudflareGatewayId(e.target.value);
+                      if (onErrorClear) {
+                        onErrorClear();
+                      }
+                    }}
+                    placeholder="my-gateway"
+                    required
+                    disabled={isConnecting}
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label
+              htmlFor={keyInputId}
+              className="mb-2 block text-sm font-medium text-neutral-200"
+            >
+              {selectedProvider.displayName} API key
+            </label>
+            <input
+              id={keyInputId}
+              type="password"
+              value={apiSecret}
+              onChange={(e) => {
+                setApiSecret(e.target.value);
+                if (onErrorClear) {
+                  onErrorClear();
+                }
+              }}
+              placeholder="API key"
+              required
+              disabled={isConnecting}
+              className={`
+                w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm
+                transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                ${error ? "border-red-700 bg-red-950/20" : ""}
+                focus:outline-none focus:ring-2 focus:ring-blue-500
+              `}
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="submit"
+              disabled={
+                isConnecting || !apiSecret.trim() || !isCredentialFormComplete
+              }
+              className={`
+                inline-flex px-4 py-2 rounded-lg font-medium text-sm
+                transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                ${
+                  isConnecting || !apiSecret.trim() || !isCredentialFormComplete
+                    ? "bg-neutral-700 text-neutral-400"
+                    : "bg-blue-600 text-white hover:bg-blue-700"
+                }
+              `}
+            >
+              {isConnecting ? "Submitting..." : "Submit"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}

@@ -15,12 +15,17 @@ import {
   createAppServerClient,
   type AppServerTransport,
 } from "@legioncode/sdk/platform/app-server-client";
-import { createAppServerHttpTransport } from "@legioncode/sdk/platform/app-server-http-transport";
+import {
+  createAppServerHttpTransport,
+  type AppServerHttpTransportOptions,
+} from "@legioncode/sdk/platform/app-server-http-transport";
 import type {
   DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,
   LocalAppServerMessage,
 } from "../shared/desktop-api";
+
+type RequestHeaders = NonNullable<AppServerHttpTransportOptions["requestHeaders"]>;
 
 const STARTUP_TIMEOUT_MS = 5_000;
 const LIVENESS_CHECK_MS = 250;
@@ -29,6 +34,8 @@ type SupervisedEnvironment = DesktopEnvironmentConfig & {
 };
 
 export class LocalAppServerSupervisor {
+  constructor(private readonly requestHeaders?: RequestHeaders) {}
+
   private child: UtilityProcess | null = null;
   private childPid: number | null = null;
   private credential: string | null = null;
@@ -187,7 +194,11 @@ export class LocalAppServerSupervisor {
       return;
     }
 
-    const transport = createAppServerHttpTransport({ baseUrl, credential });
+    const transport = createAppServerHttpTransport({
+      baseUrl,
+      credential,
+      requestHeaders: this.requestHeaders,
+    });
     const client = createAppServerClient({
       clientId: "legioncode-desktop",
       clientVersion: serverVersion,

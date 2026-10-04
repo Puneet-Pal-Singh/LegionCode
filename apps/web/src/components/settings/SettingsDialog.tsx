@@ -21,8 +21,8 @@ import {
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import { ProviderIcon } from "@legioncode/client-ui";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
-import { ProviderIcon } from "../provider/ProviderIcon.js";
 import { Switch } from "../ui/Switch.js";
 import { formatModelDisplayName } from "../provider/modelDisplayName.js";
 import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";

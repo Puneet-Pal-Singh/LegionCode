@@ -1,8 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-
+import {
+  ProviderIdSchema,
+  findBuiltinProvider,
+  isLaunchSupportedProvider,
+} from "@repo/shared-types";
 import {
   AppServerResponseSchema,
   type AppServerRequest,
@@ -14,9 +18,12 @@ import {
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
   WORKSPACE_PICK_CHANNEL,
+  CREDENTIAL_COMMAND_CHANNEL,
+  DesktopCredentialCommandSchema,
 } from "../shared/desktop-api";
 import { createWindowOptions } from "./window-options";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
+import { DesktopCredentialVault } from "./desktop-credential-vault";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
   resolveDesktopAppServerRequest,
@@ -26,12 +33,39 @@ import {
 const preloadPath = fileURLToPath(
   new URL("../preload/index.cjs", import.meta.url),
 );
-const localAppServer = new LocalAppServerSupervisor();
+const isPrimaryInstance = app.requestSingleInstanceLock();
+if (!isPrimaryInstance) app.quit();
+let credentialVault: DesktopCredentialVault | null = null;
+const localAppServer = new LocalAppServerSupervisor((request) =>
+  providerRequestHeaders(request),
+);
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let environmentGeneration = 0;
+
+async function providerRequestHeaders(
+  request: AppServerRequest,
+): Promise<Record<string, string>> {
+  if (request.method !== "provider/select") return {};
+  const providerId = ProviderIdSchema.parse(request.params.providerId);
+  const vault = credentialVault;
+  if (!vault) throw new Error("Protected provider credentials are unavailable");
+  try {
+    if (!(await vault.isConnected(providerId))) {
+      throw new Error("Provider credential is missing");
+    }
+  } catch {
+    throw new Error("Provider credential is missing or unavailable");
+  }
+  return {
+    "x-legioncode-provider-configuration": JSON.stringify({
+      providerId,
+      status: "present",
+    }),
+  };
+}
 
 function assertTrustedDesktopFrame(event: Electron.IpcMainInvokeEvent): void {
   const browserWindow = BrowserWindow.fromWebContents(event.sender);
@@ -83,6 +117,33 @@ handleNativeInvoke(WORKSPACE_PICK_CHANNEL, async (event) => {
     Date.now() + 5 * 60 * 1_000,
   );
   return { selectionToken, displayName: basename(path) };
+});
+handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
+  const parsedCommand = DesktopCredentialCommandSchema.safeParse(value);
+  if (!parsedCommand.success) throw new Error("Provider credential request was rejected");
+  const command = parsedCommand.data;
+  if (!credentialVault) throw new Error("Protected provider credentials are unavailable");
+  if (command.operation === "save") {
+    const request = command.request;
+    const provider = findBuiltinProvider(request.providerId);
+    if (!provider || !isLaunchSupportedProvider(provider) || !provider.authModes.includes("api_key")) {
+      throw new Error("Provider is not available in this Desktop build");
+    }
+    await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
+    return { ok: true } as const;
+  }
+  if (command.operation === "delete" || command.operation === "status") {
+    if (command.operation === "delete") {
+      await credentialVault.deleteCredential(command.providerId);
+      return { ok: true } as const;
+    }
+    return { providerId: command.providerId, status: await credentialVault.status(command.providerId) };
+  }
+  if (command.operation === "list" && Object.keys(command).length === 1) {
+    const providerIds = await credentialVault.listConnectedProviders();
+    return providerIds.map((providerId) => ({ providerId, status: "present" as const }));
+  }
+  throw new Error("Provider credential request was rejected");
 });
 handleNativeInvoke(APP_SERVER_REQUEST_CHANNEL, async (event, value) => {
   let request: AppServerRequest;
@@ -151,8 +212,19 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 }));
 
 void app.whenReady().then(() => {
+  if (!isPrimaryInstance) return;
   void localAppServer.start(app.getVersion(), app.getPath("userData"));
   createWindow();
+  credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
+    isEncryptionAvailable: () =>
+      safeStorage.isEncryptionAvailable() &&
+      (process.platform !== "linux" ||
+        ["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"].includes(
+          safeStorage.getSelectedStorageBackend(),
+        )),
+    encryptString: (value) => safeStorage.encryptString(value),
+    decryptString: (value) => safeStorage.decryptString(value),
+  });
 });
 
 localAppServer.subscribe((snapshot) => {

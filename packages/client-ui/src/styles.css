@@ -319,9 +319,15 @@ body {
     transform: rotate(360deg);
   }
 }
-
 @media (prefers-reduced-motion: reduce) {
   .lc-client-spinner {
     animation: none;
+  }
+}
+
+@layer utilities {
+  /* Shared by the provider setup surface and existing Web forms. */
+  .ui-input {
+    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400;
   }
 }

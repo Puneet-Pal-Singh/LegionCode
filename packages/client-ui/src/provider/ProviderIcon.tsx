@@ -9,7 +9,7 @@ import {
 } from "react-icons/si";
 import { AiOutlineOpenAI } from "react-icons/ai";
 import { Cpu } from "lucide-react";
-import { cn } from "../../lib/utils";
+import type { ReactElement } from "react";
 
 const BRAND_ICONS: Record<string, IconType> = {
   anthropic: SiAnthropic,
@@ -29,23 +29,27 @@ const PROVIDER_MONOGRAMS: Record<string, string> = {
   together: "T",
 };
 
+export interface ProviderIconProps {
+  providerId: string;
+  className?: string;
+}
+
 export function ProviderIcon({
   providerId,
   className,
-}: {
-  providerId: string;
-  className?: string;
-}): React.ReactElement {
+}: ProviderIconProps): ReactElement {
   const BrandIcon = BRAND_ICONS[providerId];
   const monogram = PROVIDER_MONOGRAMS[providerId];
 
   return (
     <span
       aria-hidden="true"
-      className={cn(
+      className={[
         "inline-flex size-7 shrink-0 items-center justify-center text-zinc-300",
         className,
-      )}
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {BrandIcon ? (
         <BrandIcon size={17} />
