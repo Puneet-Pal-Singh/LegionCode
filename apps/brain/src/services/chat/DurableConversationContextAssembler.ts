@@ -11,6 +11,14 @@ import type { Env } from "../../types/ai";
 import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { projectActiveTranscriptBranch } from "./TranscriptBranchProjection";
+import {
+  restoreTranscriptMessage,
+  readTranscriptImageAttachments,
+} from "./TranscriptImageAttachments";
+import {
+  assertChatImageModelSupport,
+  type ChatImageModelMetadata,
+} from "./ChatImageModelPolicy";
 
 const TRANSCRIPT_PAGE_SIZE = 100;
 const LIFECYCLE_PAGE_SIZE = 1_000;
@@ -55,6 +63,7 @@ export class DurableConversationContextAssembler {
     userId: string;
     currentTurnId: string;
     revisionOfTurnId?: string;
+    imageModelMetadata?: ChatImageModelMetadata;
   }): Promise<CoreMessage[]> {
     const { messages: durableTranscript, supersededTurnIds } = await this.readTranscript(
       input.sessionId,
@@ -67,7 +76,20 @@ export class DurableConversationContextAssembler {
         ...(input.revisionOfTurnId ? [input.revisionOfTurnId] : []),
       ],
     );
-    const messages = transcript.flatMap(toCoreTextMessage);
+    const messages: CoreMessage[] = [];
+    for (const record of transcript) {
+      if (readTranscriptImageAttachments(record).length > 0) {
+        assertChatImageModelSupport(input.imageModelMetadata ?? {});
+      }
+      messages.push(
+        ...(await restoreTranscriptMessage({
+          env: this.env,
+          record,
+          userId: input.userId,
+          sessionId: input.sessionId,
+        })),
+      );
+    }
     const priorTurnIds = transcript
       .flatMap(readCanonicalTurnIds)
       .filter((turnId) => turnId !== input.currentTurnId)
@@ -145,38 +167,6 @@ export class DurableConversationContextAssembler {
   }
 }
 
-function toCoreTextMessage(record: TranscriptMessageRecord): CoreMessage[] {
-  if (record.role === "tool") return [];
-  if (record.role === "assistant" && isCanonicalAssistantProjection(record)) {
-    const content = record.parts
-      .map((part) => readUntrimmedText(part.content))
-      .filter((text): text is string => text !== null)
-      .join("");
-    return content.length > 0
-      ? [
-          {
-            id: record.id,
-            role: record.role,
-            content,
-          } as unknown as CoreMessage,
-        ]
-      : [];
-  }
-  const content = record.parts
-    .map((part) => readText(part.content))
-    .filter((text): text is string => Boolean(text?.trim()))
-    .join("\n");
-  return content
-    ? [
-        {
-          id: record.clientMessageId ?? record.id,
-          role: record.role,
-          content,
-        } as unknown as CoreMessage,
-      ]
-    : [];
-}
-
 function readCanonicalTurnIds(record: TranscriptMessageRecord): string[] {
   if (record.role !== "user") return [];
   return record.parts.flatMap((part) => {
@@ -184,20 +174,6 @@ function readCanonicalTurnIds(record: TranscriptMessageRecord): string[] {
     const metadata = readRecord(content?.metadata);
     const identity = readRecord(metadata?.canonicalIdentity);
     return typeof identity?.turnId === "string" ? [identity.turnId] : [];
-  });
-}
-
-function isCanonicalAssistantProjection(record: TranscriptMessageRecord): boolean {
-  return record.parts.length > 0 && record.parts.every((part) => {
-    const content = readRecord(part.content);
-    const metadata = readRecord(content?.metadata);
-    const identity = readRecord(metadata?.canonicalIdentity);
-    return Boolean(
-      typeof identity?.turnId === "string" &&
-        typeof identity.runAttemptId === "string" &&
-        typeof metadata?.itemId === "string" &&
-        (metadata.phase === "commentary" || metadata.phase === "final_answer"),
-    );
   });
 }
 
@@ -253,18 +229,6 @@ function formatFailedTurnRecord(
     }`,
     ...lines,
   ].join("\n");
-}
-
-function readText(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  const record = readRecord(value);
-  return readString(record?.text);
-}
-
-function readUntrimmedText(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  const record = readRecord(value);
-  return typeof record?.text === "string" ? record.text : null;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

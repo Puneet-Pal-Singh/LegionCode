@@ -1,3 +1,4 @@
+import { PNG_DATA_URL, PNG_BYTES } from "./__tests__/ImageFixtures";
 import { describe, expect, it } from "vitest";
 import type { R2Bucket } from "@cloudflare/workers-types";
 import { ChatMediaStore } from "./ChatMediaStore";
@@ -12,9 +13,7 @@ describe("ChatMediaStore", () => {
       sessionId: "session-1",
       attachmentId: "img_1234567890abcdef",
       image: {
-        image: dataUrl("image/png", [
-          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-        ]),
+        image: PNG_DATA_URL,
         mimeType: "image/png",
         name: "screen.png",
       },
@@ -24,7 +23,7 @@ describe("ChatMediaStore", () => {
       type: "image_attachment",
       name: "screen.png",
       mediaType: "image/png",
-      byteSize: 8,
+      byteSize: PNG_BYTES.length,
     });
     expect(bucket.keys).toHaveLength(1);
     expect(bucket.keys[0]).toBe(
@@ -32,8 +31,69 @@ describe("ChatMediaStore", () => {
     );
   });
 
+  it.each([
+    { userId: "other-user", sessionId: "session-1" },
+    { userId: "user-1", sessionId: "other-session" },
+  ])(
+    "does not read provider images across authenticated scope: %j",
+    async (scope) => {
+      const bucket = new MemoryR2Bucket();
+      const store = new ChatMediaStore(bucket as unknown as R2Bucket);
+      const ref = await store.putImage({
+        userId: "user-1",
+        sessionId: "session-1",
+        attachmentId: "img_1234567890abcdef",
+        image: { image: PNG_DATA_URL },
+      });
+      await expect(
+        store.getProviderImage({ ...scope, ref }),
+      ).rejects.toMatchObject({ code: "CHAT_MEDIA_NOT_FOUND" });
+      await expect(
+        store.getProviderImage({
+          userId: "user-1",
+          sessionId: "session-1",
+          ref,
+        }),
+      ).resolves.toEqual({
+        type: "image",
+        image: PNG_DATA_URL,
+        mimeType: "image/png",
+      });
+    },
+  );
+
+  it("rejects stored metadata and bytes that no longer match the durable reference", async () => {
+    const bucket = new MemoryR2Bucket();
+    const store = new ChatMediaStore(bucket as unknown as R2Bucket);
+    const ref = await store.putImage({
+      userId: "user-1",
+      sessionId: "session-1",
+      attachmentId: "img_1234567890abcdef",
+      image: { image: PNG_DATA_URL },
+    });
+    const input = { userId: "user-1", sessionId: "session-1", ref };
+    await expect(
+      store.getProviderImage({
+        ...input,
+        ref: { ...ref, byteSize: PNG_BYTES.length + 1 },
+      }),
+    ).rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
+    await expect(
+      store.getProviderImage({
+        ...input,
+        ref: { ...ref, mediaType: "image/jpeg" },
+      }),
+    ).rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
+    bucket.bytes.fill(0);
+    await expect(store.getProviderImage(input)).rejects.toMatchObject({
+      code: "CHAT_MEDIA_CONTENT_INVALID",
+    });
+  });
+
   it("rejects content whose bytes do not match its declared image type", async () => {
-    const store = new ChatMediaStore(new MemoryR2Bucket() as unknown as R2Bucket);
+    const store = new ChatMediaStore(
+      new MemoryR2Bucket() as unknown as R2Bucket,
+    );
     await expect(
       store.putImage({
         userId: "user-1",
@@ -65,7 +125,24 @@ function dataUrl(mediaType: string, bytes: number[]): string {
 
 class MemoryR2Bucket {
   readonly keys: string[] = [];
-  async put(key: string): Promise<void> {
+  bytes = new Uint8Array();
+  private mediaType = "";
+  async put(
+    key: string,
+    bytes: Uint8Array,
+    options: { httpMetadata: { contentType: string } },
+  ): Promise<void> {
     this.keys.push(key);
+    this.bytes = bytes.slice();
+    this.mediaType = options.httpMetadata.contentType;
+  }
+  async get(key: string) {
+    return this.keys.includes(key)
+      ? {
+          size: this.bytes.length,
+          httpMetadata: { contentType: this.mediaType },
+          arrayBuffer: async () => this.bytes.slice().buffer,
+        }
+      : null;
   }
 }
