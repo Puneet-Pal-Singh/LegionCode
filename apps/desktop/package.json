@@ -20,6 +20,7 @@
     "@legioncode/client-ui": "workspace:*",
     "@legioncode/sdk": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
+    "@repo/shared-types": "workspace:*",
     "better-sqlite3": "12.8.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -31,10 +32,12 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "@tailwindcss/vite": "^4.1.18",
     "electron": "40.10.2",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "typescript": "~5.9.3",
+    "tailwindcss": "^4.1.18",
     "vite": "^7.3.1",
     "vitest": "^1.6.0"
   }

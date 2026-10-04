@@ -22,6 +22,8 @@
     "@repo/git-service": "workspace:*",
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
+    "@repo/provider-core": "workspace:*",
+    "@repo/shared-types": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
