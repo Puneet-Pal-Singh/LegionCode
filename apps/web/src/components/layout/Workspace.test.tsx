@@ -242,7 +242,7 @@ describe("Workspace", () => {
     mockUseGitStatusInputs.length = 0;
     mockChatState.stop.mockClear();
     mockChatState.append.mockClear();
-    mockChatState.append.mockResolvedValue(undefined);
+    mockChatState.append.mockResolvedValue(acceptedSubmission());
     Object.values(mockWorkspaceStateSetters).forEach((setter) =>
       setter.mockClear(),
     );
@@ -290,7 +290,7 @@ describe("Workspace", () => {
 
   it("submits an initial setup prompt once across workspace remounts", async () => {
     clearInitialPromptSubmissionClaimsForTests();
-    mockChatState.append.mockResolvedValue(undefined);
+    mockChatState.append.mockResolvedValue(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-prompt-1"),
@@ -371,7 +371,7 @@ describe("Workspace", () => {
   it("waits for the session save before admitting the queued setup prompt", async () => {
     clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockClear();
-    mockChatState.append.mockResolvedValue(undefined);
+    mockChatState.append.mockResolvedValue(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-delayed-save"),
@@ -399,7 +399,7 @@ describe("Workspace", () => {
   it("keeps the setup prompt queued while save fails and resumes after the existing retry succeeds", async () => {
     clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockClear();
-    mockChatState.append.mockResolvedValue(undefined);
+    mockChatState.append.mockResolvedValue(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-save-retry"),
@@ -429,7 +429,7 @@ describe("Workspace", () => {
     clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockReset();
     mockChatState.append.mockRejectedValueOnce(new Error("response lost"));
-    mockChatState.append.mockResolvedValueOnce(undefined);
+    mockChatState.append.mockResolvedValueOnce(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-admission-retry"),
@@ -479,6 +479,44 @@ describe("Workspace", () => {
     await waitFor(() => expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-admission-retry"));
   });
 
+  it.each([
+    ["before dispatch", { status: "cancelled", admission: "not-dispatched" }, true, false],
+    ["after admission", { status: "cancelled", admission: "accepted" }, true, false],
+    ["with uncertain admission", { status: "cancelled", admission: "unconfirmed" }, false, true],
+  ] as const)("handles a stopped setup submission %s according to its admission fact", async (
+    _label,
+    outcome,
+    handled,
+    showsRetry,
+  ) => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockReset();
+    mockChatState.append.mockResolvedValueOnce(outcome);
+    const onInitialPromptHandled = vi.fn();
+    const initialPromptSubmission = {
+      id: createInitialPromptSubmissionId(`setup-stop-${_label.replaceAll(" ", "-")}`),
+      prompt: "Stop this setup prompt",
+    };
+    const { queryByRole } = render(
+      <Workspace
+        sessionId={`session-stop-${_label}`}
+        runId="run-123"
+        repository="owner/repo"
+        initialPromptSubmission={initialPromptSubmission}
+        onInitialPromptHandled={onInitialPromptHandled}
+      />,
+    );
+
+    await waitFor(() => expect(mockChatState.append).toHaveBeenCalledTimes(1));
+    if (handled) {
+      await waitFor(() => expect(onInitialPromptHandled).toHaveBeenCalledWith(initialPromptSubmission.id));
+    } else {
+      await waitFor(() => expect(queryByRole("button", { name: "Retry setup prompt" })).toBeTruthy());
+      expect(onInitialPromptHandled).not.toHaveBeenCalled();
+    }
+    expect(Boolean(queryByRole("button", { name: "Retry setup prompt" }))).toBe(showsRetry);
+  });
+
   it("blocks composer and revision admission while the session is unsaved", async () => {
     mockChatState.handleSubmit.mockClear();
     mockChatState.reviseTurn.mockClear();
@@ -488,7 +526,7 @@ describe("Workspace", () => {
     const chatProps = mockChatInterface.mock.calls.at(-1)?.[0] as { chatProps: {
       handleSubmit: () => Promise<boolean>;
       reviseTurn: (turnId: string, prompt: string) => Promise<boolean>;
-      append: (message: { role: "user"; content: string }) => Promise<void>;
+      append: (message: { role: "user"; content: string }) => Promise<unknown>;
     } };
     await expect(chatProps.chatProps.handleSubmit()).resolves.toBe(false);
     await expect(chatProps.chatProps.reviseTurn("turn-1", "revise")).resolves.toBe(false);
@@ -504,7 +542,7 @@ describe("Workspace", () => {
 
   it("preserves setup-composer images in the first workspace message", async () => {
     clearInitialPromptSubmissionClaimsForTests();
-    mockChatState.append.mockResolvedValue(undefined);
+    mockChatState.append.mockResolvedValue(acceptedSubmission());
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-image-1"),
       prompt: "Inspect this screenshot",
@@ -730,3 +768,17 @@ describe("Workspace", () => {
     );
   });
 });
+
+function acceptedSubmission() {
+  return {
+    status: "accepted" as const,
+    scope: {
+      workspaceId: "wsp_workspace_test01",
+      threadId: "thr_workspace_test01",
+      turnId: "trn_workspace_test01",
+      runAttemptId: "attempt_workspace_test01",
+      sessionId: "session-workspace-test",
+      runId: "run-workspace-test",
+    },
+  };
+}

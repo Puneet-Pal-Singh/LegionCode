@@ -6,10 +6,20 @@ the reopened completion sequence with a bounded plan for the three fresh review
 findings. Previous validation evidence remains preserved; passing old tests is
 not acceptance of these newly identified cases.
 
-Implementation worktree branch: `codex/fix-chat-durability-recovery`, base `8ddaee7d`.
+Implementation worktree branch: `codex/fix-chat-durability-recovery`, base `8ddaee7d`,
+synchronized with main at `f5b61f88` in reviewed merge `506e1242`.
 Luna-6 high implements; GPT-6.1 Sol high plans and independently reviews each
 slice and final wiring. The coordinator owns preservation and final gates.
 Execute sequentially; advance only after the slice's focused proof and review.
+
+2026-10-05 execution clarification: keep the implementation small. Reuse the
+existing owners and regression fixtures; add no framework or redundant test
+files. Validation uses the smallest tests that prove the actual failure paths,
+source review for their wiring, and one final affected-suite/type/browser/golden
+pass after source settles. The scenario lists below describe invariants rather
+than requiring a separate test or gate for every permutation. Concrete in-path
+fixes may proceed from a verified ownership trace without creating another
+characterization suite.
 
 ## Scope and ownership decisions
 
@@ -80,6 +90,11 @@ Files: `apps/web/src/hooks/useChatCore.ts`, a focused helper under `hooks/chat/`
 - Consume the setup queue only after acceptance. Preserve the queue and retry
   alert on rejection/unconfirmed delivery. Ordinary submit returns false and
   restores input; rejected revision retains its original displayed branch.
+- Characterize an unconfirmed setup prompt in chat A, then Start in chat B
+  and switch back to A. Upgrade the existing App initial-prompt owner to
+  session-keyed pending intents so A remains reachable; callbacks compare both
+  session and submission ID before retiring an intent. Keep the existing
+  submission-claim owner and history loader; do not introduce another queue.
 - Stop before `/chat` dispatch is definitely unadmitted cancelled intent;
   `/turn/start` reservation alone is not prompt admission. After dispatch but
   before acknowledgement/first lifecycle evidence, acceptance is uncertain:
@@ -93,7 +108,8 @@ stream, transport loss after canonical acceptance, Stop before dispatch,
 Stop after dispatch before first evidence, Stop after confirmed admission,
 immutable same-ID retry (including mode/provider/model/branch/message JSON),
 changed intent, callback churn, remount, and switching
-sessions while a response is pending. Unaccepted sends retain intent; accepted
+sessions while a response is pending, including Start in B while A is
+unconfirmed and returning to A. Unaccepted sends retain intent; accepted
 sends start no duplicate execution; rejected edits hide no historical branch.
 
 ## 3. Make verified history the product message source
@@ -205,7 +221,7 @@ Commands after implementation (new test paths are proposed, not yet present):
 ```sh
 corepack pnpm --filter @legioncode/web exec vitest run --maxWorkers=4 --minWorkers=1
 corepack pnpm --filter @legioncode/web check-types
-corepack pnpm --filter @legioncode/web exec playwright test chat-history-recovery.spec.ts chat-submission-recovery.spec.ts runtime-lifecycle-golden.spec.ts --workers=1
+corepack pnpm --filter @legioncode/web exec playwright test chat-history-recovery.spec.ts runtime-lifecycle-golden.spec.ts --workers=1
 corepack pnpm gate:golden-repo-to-pr
 git diff --check
 ```

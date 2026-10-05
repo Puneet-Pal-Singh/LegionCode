@@ -19,6 +19,7 @@ import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "../../hooks/conversationScope";
+import type { SubmissionOutcome } from "../../hooks/chat/submissionAttemptRegistry";
 import type { HydrationStatus } from "../../services/ChatHydrationService";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
@@ -63,7 +64,7 @@ interface ChatInterfaceProps {
       event?: React.FormEvent,
       attachments?: ChatSubmitAttachments,
     ) => Promise<boolean>;
-    append: (message: { role: "user"; content: string }) => Promise<void>;
+    append: (message: { role: "user"; content: string }) => Promise<SubmissionOutcome>;
     reviseTurn?: (turnId: string, content: string) => Promise<boolean>;
     stop: () => void;
     isLoading: boolean;

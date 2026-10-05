@@ -373,12 +373,33 @@ export function Workspace({
         // its response was lost and the queued prompt is retried.
         id: `client_msg_${initialPromptSubmission.id}`,
       },
-    )
-      .then(() => {
-        clearInitialPromptSubmissionFailure(initialPromptSubmission.id);
-        failedInitialPromptIdRef.current = null;
-        setFailedInitialPromptId(null);
-        onInitialPromptHandled?.(initialPromptSubmission.id);
+      )
+      .then((outcome) => {
+        if (
+          outcome.status === "accepted" ||
+          (outcome.status === "cancelled" && outcome.admission !== "unconfirmed")
+        ) {
+          clearInitialPromptSubmissionFailure(initialPromptSubmission.id);
+          failedInitialPromptIdRef.current = null;
+          setFailedInitialPromptId(null);
+          onInitialPromptHandled?.(initialPromptSubmission.id);
+          return;
+        }
+        {
+          const message = outcome.status === "unconfirmed"
+            ? outcome.message
+            : outcome.status === "cancelled"
+              ? "The stopped request may have been admitted. Check the saved conversation before retrying."
+              : "The queued prompt belongs to a conversation that is no longer active.";
+          console.warn("[Workspace] Setup prompt was not confirmed:", message);
+          if (outcome.status === "unconfirmed") onSessionStatusChange?.("failed");
+          markInitialPromptSubmissionFailed(initialPromptSubmission.id);
+          failedInitialPromptIdRef.current = initialPromptSubmission.id;
+          setFailedInitialPromptId(initialPromptSubmission.id);
+          handledInitialPromptIdRef.current = null;
+          releaseInitialPromptSubmissionClaim(initialPromptSubmission.id);
+          return;
+        }
       })
       .catch((error) => {
         console.error("[Workspace] Failed to submit setup prompt:", error);

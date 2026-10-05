@@ -2,6 +2,7 @@ import { type FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
 import { useChatCore, type ChatAppendMessage } from "./useChatCore";
+import type { SubmissionOutcome } from "./chat/submissionAttemptRegistry";
 import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
@@ -21,7 +22,7 @@ interface UseChatResult {
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
-  append: (message: ChatAppendMessage) => Promise<void>;
+  append: (message: ChatAppendMessage) => Promise<SubmissionOutcome>;
   reviseTurn: (turnId: string, content: string) => Promise<boolean>;
   isLoading: boolean;
   isHydrating: boolean;

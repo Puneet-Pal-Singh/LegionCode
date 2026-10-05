@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReviewCommentDraft } from "../../git/reviewComments";
+import type { SubmissionOutcome } from "../../../hooks/chat/submissionAttemptRegistry";
 import {
   buildReviewCommentPrompt,
   validateReviewPromptBudget,
@@ -10,7 +11,7 @@ interface ReviewCommentSubmissionInput {
   input: string;
   isLoading: boolean;
   error?: string | null;
-  append: (message: { role: "user"; content: string }) => Promise<void>;
+  append: (message: { role: "user"; content: string }) => Promise<SubmissionOutcome>;
   handleInputChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   toggleSelected: (commentId: string, selected: boolean) => void;
   markDispatching: (commentIds: string[]) => void;
@@ -78,9 +79,19 @@ export function useReviewCommentSubmission(
     const previousInput = textInput;
     changeInput("");
     try {
-      await append({ role: "user", content: prompt });
-      markDispatched(ids);
-      return true;
+      const outcome = await append({ role: "user", content: prompt });
+      if (
+        outcome.status === "accepted" ||
+        (outcome.status === "cancelled" && outcome.admission === "accepted")
+      ) {
+        markDispatched(ids);
+        return true;
+      }
+      throw new Error(outcome.status === "unconfirmed"
+        ? outcome.message
+        : outcome.status === "cancelled"
+          ? "The request may have been admitted. Check the saved conversation before retrying."
+          : "The chat request belongs to a conversation that is no longer active.");
     } catch (error) {
       markDispatchFailed(ids, { reselect: true });
       lastDispatchIdsRef.current = [];
