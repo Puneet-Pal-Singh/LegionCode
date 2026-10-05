@@ -69,8 +69,6 @@ import {
   createSubmissionObservedFetch,
   findAttemptForObservedResponse,
 } from "./chat/submissionTransport";
-import { attachActiveTurnIdentity } from "./chat/activeTurnMessageIdentity";
-import { readCanonicalTurnId } from "../components/chat/messageMetadata";
 import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
@@ -111,9 +109,9 @@ interface UseChatCoreResult {
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
   append: (message: ChatAppendMessage) => Promise<SubmissionOutcome>;
+  optimisticUserMessage: Message | null;
   isLoading: boolean;
   stop: () => void;
-  setMessages: (messages: Message[]) => void;
   runId: string;
   scope: ConversationScope | null;
   serverTurnId: string | null;
@@ -172,7 +170,8 @@ export function useChatCore(
   const activeConversationScope =
     conversationScope?.sessionId === sessionId &&
     (conversationScope.runId === runId ||
-      activeSubmissionAttemptRef.current?.scope?.turnId === conversationScope.turnId ||
+      activeSubmissionAttemptRef.current?.scope?.turnId ===
+        conversationScope.turnId ||
       retainedSubmissionScopeRef.current?.turnId === conversationScope.turnId)
       ? conversationScope
       : null;
@@ -338,12 +337,10 @@ export function useChatCore(
   const lifecycleClient = useMemo(() => createLifecycleClient(), []);
 
   const {
-    messages,
     input,
     handleInputChange,
     isLoading: isTransportLoading,
     stop: stopStream,
-    setMessages,
     append,
   } = useVercelChat({
     api: apiPath,
@@ -527,43 +524,11 @@ export function useChatCore(
     setIsSubmitting(false);
     setIsStopping(false);
   }, [activeTurnProjection.isTerminal, activeTurnProjection.turnId]);
-  const scopedMessagesBase = useMemo(
-    () => attachActiveTurnIdentity(messages, activeConversationScope),
-    [activeConversationScope, messages],
-  );
   const presentationScopeKey = scopeKey ?? runScopeKey;
-  const scopedMessages = useMemo(
-    () =>
-      appendPendingUserMessage(
-        scopedMessagesBase,
-        pendingUserMessage?.scopeKey === presentationScopeKey
-          ? pendingUserMessage.message
-          : null,
-      ),
-    [pendingUserMessage, presentationScopeKey, scopedMessagesBase],
-  );
-  useEffect(() => {
-    logClientEvent("chat/messages", "scoped-derived", {
-      runId,
-      sessionId,
-      baseCount: scopedMessagesBase.length,
-      finalCount: scopedMessages.length,
-      pendingUser: Boolean(
-        pendingUserMessage?.scopeKey === presentationScopeKey,
-      ),
-      baseRoles: summarizeMessageRoles(scopedMessagesBase),
-      finalRoles: summarizeMessageRoles(scopedMessages),
-      baseIds: summarizeMessageIdentities(scopedMessagesBase),
-      finalIds: summarizeMessageIdentities(scopedMessages),
-    });
-  }, [
-    pendingUserMessage,
-    runId,
-    scopedMessages,
-    scopedMessagesBase,
-    presentationScopeKey,
-    sessionId,
-  ]);
+  const optimisticUserMessage =
+    pendingUserMessage?.scopeKey === presentationScopeKey
+      ? pendingUserMessage.message
+      : null;
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {
@@ -729,7 +694,11 @@ export function useChatCore(
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
       if ((!content && !hasImages) || status !== "ready") {
-        return { status: "unconfirmed", message: "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again." };
+        return {
+          status: "unconfirmed",
+          message:
+            "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
+        };
       }
       const intentKey = message.id
         ? `explicit:${message.id}`
@@ -746,11 +715,12 @@ export function useChatCore(
         providerId: selectedProviderId ?? null,
         credentialId: selectedCredentialId ?? null,
         modelId: selectedModelId ?? null,
-        reasoningEffort: resolveReasoningEffortForRequest(
-          selectedProviderId ?? "",
-          selectedModelId ?? "",
-          selectedModelEfforts,
-        ) ?? null,
+        reasoningEffort:
+          resolveReasoningEffortForRequest(
+            selectedProviderId ?? "",
+            selectedModelId ?? "",
+            selectedModelEfforts,
+          ) ?? null,
         harnessId: resolveRuntimeHarnessId(sessionId),
         repository: loadRepositoryContextFields(sessionId),
       });
@@ -762,7 +732,8 @@ export function useChatCore(
       ) {
         return {
           status: "unconfirmed",
-          message: "Another submission is still settling for this chat. Wait for it to finish, then retry this intent.",
+          message:
+            "Another submission is still settling for this chat. Wait for it to finish, then retry this intent.",
         };
       }
       const acquired = acquireSubmissionAttempt({
@@ -774,11 +745,20 @@ export function useChatCore(
         intentFingerprint,
       });
       if (!acquired) {
-        return { status: "unconfirmed", message: "This submission is already in flight or its client identity belongs to a different intent." };
+        return {
+          status: "unconfirmed",
+          message:
+            "This submission is already in flight or its client identity belongs to a different intent.",
+        };
       }
       if (acquired.previousOutcome) return acquired.previousOutcome;
       const attempt = acquired.attempt;
-      retainedSubmissionScopeRef.current = acquired.reused ? attempt.scope : null;
+      const ownsSubmissionAttempt = () =>
+        activeSubmissionAttemptRef.current?.token === attempt.token &&
+        ownsInvocationScope();
+      retainedSubmissionScopeRef.current = acquired.reused
+        ? attempt.scope
+        : null;
       activeSubmissionAttemptRef.current = attempt;
       const submittedMessage = ensureClientMessageId({
         ...message,
@@ -832,7 +812,9 @@ export function useChatCore(
             finishSubmissionAttempt(attempt, { status: "inactive" });
             return { status: "inactive" };
           }
-          throw new Error("The selected provider configuration is unavailable. Reconnect the provider or choose another model, then try again.");
+          throw new Error(
+            "The selected provider configuration is unavailable. Reconnect the provider or choose another model, then try again.",
+          );
         }
         if (
           stopRequestedRef.current &&
@@ -854,15 +836,20 @@ export function useChatCore(
           return outcome;
         }
 
-        const requestScope = attempt.scope ?? await bootstrapConversationScope(
-          sessionId,
-          runId,
-          submittedMessage.id,
-          revisionTarget,
-        );
+        const requestScope =
+          attempt.scope ??
+          (await bootstrapConversationScope(
+            sessionId,
+            runId,
+            submittedMessage.id,
+            revisionTarget,
+          ));
         retainSubmissionReservation(attempt, requestScope);
         if (!ownsInvocationScope()) {
-          const outcome: SubmissionOutcome = { status: "inactive", scope: requestScope };
+          const outcome: SubmissionOutcome = {
+            status: "inactive",
+            scope: requestScope,
+          };
           finishSubmissionAttempt(attempt, outcome);
           return outcome;
         }
@@ -881,12 +868,15 @@ export function useChatCore(
 
         if (
           attempt.stopRequested ||
-          (stopRequestedRef.current && preAdmissionStopKeyRef.current === bootstrapScopeKey)
+          (stopRequestedRef.current &&
+            preAdmissionStopKeyRef.current === bootstrapScopeKey)
         ) {
           const outcome = cancelledBeforeDispatch(attempt, requestScope);
           finishSubmissionAttempt(attempt, outcome);
           if (
-            !(outcome.status === "cancelled" && outcome.admission === "accepted") &&
+            !(
+              outcome.status === "cancelled" && outcome.admission === "accepted"
+            ) &&
             activeSubmissionAttemptRef.current?.token === attempt.token &&
             ownsInvocationScope()
           ) {
@@ -923,40 +913,73 @@ export function useChatCore(
         try {
           await submitResolvedMessage(submittedMessage, requestBody);
         } catch (transportError) {
-          attempt.transportError ??= transportError instanceof Error ? transportError.message : String(transportError);
+          attempt.transportError ??=
+            transportError instanceof Error
+              ? transportError.message
+              : String(transportError);
         }
         const positivelyAcknowledged =
           attempt.responseStatus !== null &&
           attempt.responseStatus >= 200 &&
           attempt.responseStatus < 300 &&
           attempt.responseTupleMatches;
-        const canonicalTurnAccepted = positivelyAcknowledged || await hasCanonicalLifecycleEvidence(
-            lifecycleClient,
-            requestScope,
-          );
+        const canonicalTurnAccepted =
+          positivelyAcknowledged ||
+          (await hasCanonicalLifecycleEvidence(lifecycleClient, requestScope));
         if (attempt.stopRequested && canonicalTurnAccepted) {
           try {
-            await interruptAndAwaitTerminal(lifecycleClient, requestScope, stopStream);
+            await interruptAndAwaitTerminal(
+              lifecycleClient,
+              requestScope,
+              () => {
+                if (ownsSubmissionAttempt()) stopStream();
+              },
+            );
           } catch (interruptError) {
+            if (ownsSubmissionAttempt()) {
+              stopRequestedRef.current = false;
+              setError(
+                "Stop could not be confirmed. Check the saved turn status or try Stop again.",
+              );
+            }
             logClientWarning("chat/stop", "accepted-turn-interrupt-unsettled", {
               runId: requestScope.runId,
               sessionId: requestScope.sessionId,
               scopeKey: requestScopeKey,
-              error: interruptError instanceof Error ? interruptError.message : String(interruptError),
+              error:
+                interruptError instanceof Error
+                  ? interruptError.message
+                  : String(interruptError),
             });
           }
-          const outcome: SubmissionOutcome = { status: "cancelled", admission: "accepted", scope: requestScope };
+          const outcome: SubmissionOutcome = {
+            status: "cancelled",
+            admission: "accepted",
+            scope: requestScope,
+          };
           finishSubmissionAttempt(attempt, outcome);
           return outcome;
         }
         if (!canonicalTurnAccepted) {
-          const message = attempt.transportError ?? (attempt.responseStatus === null
-            ? "The chat request ended without a bound admission acknowledgement. Retry this same intent manually."
-            : `Chat admission could not be confirmed (HTTP ${attempt.responseStatus}). Retry this same intent manually.`);
+          const message =
+            attempt.transportError ??
+            (attempt.responseStatus === null
+              ? "The chat request ended without a bound admission acknowledgement. Retry this same intent manually."
+              : `Chat admission could not be confirmed (HTTP ${attempt.responseStatus}). Retry this same intent manually.`);
           if (attempt.stopRequested && attempt.dispatched) {
             try {
-              await interruptAndAwaitTerminal(lifecycleClient, requestScope, stopStream);
-              const outcome: SubmissionOutcome = { status: "cancelled", admission: "accepted", scope: requestScope };
+              await interruptAndAwaitTerminal(
+                lifecycleClient,
+                requestScope,
+                () => {
+                  if (ownsSubmissionAttempt()) stopStream();
+                },
+              );
+              const outcome: SubmissionOutcome = {
+                status: "cancelled",
+                admission: "accepted",
+                scope: requestScope,
+              };
               finishSubmissionAttempt(attempt, outcome);
               return outcome;
             } catch (interruptError) {
@@ -964,12 +987,19 @@ export function useChatCore(
                 runId: requestScope.runId,
                 sessionId: requestScope.sessionId,
                 scopeKey: requestScopeKey,
-                error: interruptError instanceof Error ? interruptError.message : String(interruptError),
+                error:
+                  interruptError instanceof Error
+                    ? interruptError.message
+                    : String(interruptError),
               });
             }
           }
           const outcome: SubmissionOutcome = attempt.stopRequested
-            ? { status: "cancelled", admission: "unconfirmed", scope: requestScope }
+            ? {
+                status: "cancelled",
+                admission: "unconfirmed",
+                scope: requestScope,
+              }
             : { status: "unconfirmed", scope: requestScope, message };
           finishSubmissionAttempt(attempt, outcome);
           if (
@@ -989,25 +1019,25 @@ export function useChatCore(
         if (
           activeSubmissionAttemptRef.current?.token === attempt.token &&
           ownsInvocationScope()
-        ) setError(null);
-        const outcome: SubmissionOutcome = { status: "accepted", scope: requestScope };
+        )
+          setError(null);
+        const outcome: SubmissionOutcome = {
+          status: "accepted",
+          scope: requestScope,
+        };
         finishSubmissionAttempt(attempt, outcome);
-        if (revisionTarget &&
-          activeSubmissionAttemptRef.current?.token === attempt.token &&
-          ownsInvocationScope()) {
-          setMessages((current) =>
-            current.filter(
-              (candidate) => readCanonicalTurnId(candidate) !== revisionTarget,
-            ),
-          );
-        }
         return outcome;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const outcome: SubmissionOutcome = {
           status: attempt.stopRequested ? "cancelled" : "unconfirmed",
           ...(attempt.stopRequested
-            ? { admission: attempt.dispatched || attempt.hadPriorDispatch ? "unconfirmed" as const : "not-dispatched" as const }
+            ? {
+                admission:
+                  attempt.dispatched || attempt.hadPriorDispatch
+                    ? ("unconfirmed" as const)
+                    : ("not-dispatched" as const),
+              }
             : {}),
           ...(attempt.scope ? { scope: attempt.scope } : {}),
           ...(attempt.stopRequested ? {} : { message }),
@@ -1040,7 +1070,8 @@ export function useChatCore(
         }
         return outcome;
       } finally {
-        const ownsSettlement = activeSubmissionAttemptRef.current?.token === attempt.token;
+        const ownsSettlement =
+          activeSubmissionAttemptRef.current?.token === attempt.token;
         if (ownsSettlement) {
           activeSubmissionAttemptRef.current = null;
         }
@@ -1069,7 +1100,6 @@ export function useChatCore(
       status,
       stopStream,
       submitResolvedMessage,
-      setMessages,
     ],
   );
 
@@ -1100,9 +1130,9 @@ export function useChatCore(
     ) => {
       if (
         activeComposerSubmissionRef.current !== composerToken ||
-        !isActiveRunInvocation(requestScopeKey, scopeGeneration) &&
-        (runScopeGenerationRef.current !== scopeGeneration ||
-          !isActiveScope(requestScopeKey))
+        (!isActiveRunInvocation(requestScopeKey, scopeGeneration) &&
+          (runScopeGenerationRef.current !== scopeGeneration ||
+            !isActiveScope(requestScopeKey)))
       ) {
         return;
       }
@@ -1163,21 +1193,45 @@ export function useChatCore(
     ): Promise<boolean> => {
       const outcome = await appendWithResolution(message);
       if (outcome.status === "accepted") return true;
-      if (outcome.status === "cancelled" && outcome.admission === "accepted") return true;
+      if (outcome.status === "cancelled" && outcome.admission === "accepted")
+        return true;
       const stillOwnsComposer =
         activeComposerSubmissionRef.current === composerToken &&
         isActiveRunInvocation(requestScopeKey, scopeGeneration);
       if (!stillOwnsComposer) return false;
       if (outcome.status === "unconfirmed") {
-        handleSubmitFailure(new Error(outcome.message), requestScopeKey, originalInput, composerToken, scopeGeneration);
-      } else if (outcome.status === "cancelled" && outcome.admission === "unconfirmed") {
-        handleSubmitFailure(new Error("The stopped chat request may have been admitted. Retry only after checking the saved conversation."), requestScopeKey, originalInput, composerToken, scopeGeneration);
+        handleSubmitFailure(
+          new Error(outcome.message),
+          requestScopeKey,
+          originalInput,
+          composerToken,
+          scopeGeneration,
+        );
+      } else if (
+        outcome.status === "cancelled" &&
+        outcome.admission === "unconfirmed"
+      ) {
+        handleSubmitFailure(
+          new Error(
+            "The stopped chat request may have been admitted. Retry only after checking the saved conversation.",
+          ),
+          requestScopeKey,
+          originalInput,
+          composerToken,
+          scopeGeneration,
+        );
       } else {
-        if (latestComposerInputRef.current === "") restoreChatInput(originalInput);
+        if (latestComposerInputRef.current === "")
+          restoreChatInput(originalInput);
       }
       return false;
     },
-    [appendWithResolution, handleSubmitFailure, isActiveRunInvocation, restoreChatInput],
+    [
+      appendWithResolution,
+      handleSubmitFailure,
+      isActiveRunInvocation,
+      restoreChatInput,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -1235,8 +1289,18 @@ export function useChatCore(
       return;
     }
     const requestRunId = runId;
+    const stopGeneration = renderedScopeGeneration;
     const requestScope = activeConversationScopeRef.current;
     const submissionAttempt = activeSubmissionAttemptRef.current;
+    const stopOwnsInvocation = () =>
+      isActiveRunInvocation(runScopeKey, stopGeneration) &&
+      (submissionAttempt
+        ? activeSubmissionAttemptRef.current === null ||
+          activeSubmissionAttemptRef.current.token === submissionAttempt.token
+        : activeSubmissionAttemptRef.current === null &&
+          (!requestScope ||
+            activeConversationScopeRef.current?.turnId ===
+              requestScope.turnId));
     stopRequestedRef.current = true;
     if (submissionAttempt) submissionAttempt.stopRequested = true;
     setIsSubmitting(false);
@@ -1247,40 +1311,41 @@ export function useChatCore(
       try {
         if (submissionAttempt && !submissionAttempt.dispatched) {
           preAdmissionStopKeyRef.current = runScopeKey;
-          stopStream();
+          if (stopOwnsInvocation()) stopStream();
           setPendingUserMessage(null);
           setOptimisticUserMessageId(null);
         } else if (submissionAttempt?.dispatched) {
           // The submission owns reconciliation. It will interrupt this exact
           // reservation only if the response and canonical evidence are both
           // absent after transport cancellation.
-          stopStream();
+          if (stopOwnsInvocation()) stopStream();
         } else if (requestScope) {
-          await interruptAndAwaitTerminal(
-            lifecycleClient,
-            requestScope,
-            stopStream,
-          );
+          await interruptAndAwaitTerminal(lifecycleClient, requestScope, () => {
+            if (stopOwnsInvocation()) stopStream();
+          });
         } else {
           preAdmissionStopKeyRef.current = runScopeKey;
-          stopStream();
+          if (stopOwnsInvocation()) stopStream();
           setPendingUserMessage(null);
           setOptimisticUserMessageId(null);
         }
         dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
-        setError(
-          error instanceof Error
-            ? normalizeChatErrorMessage(error)
-            : "Failed to stop the turn.",
-        );
-        logClientWarning("chat/stop", "interrupt-failed", {
-          runId: requestRunId,
-          scopeKey: scopeKey,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        if (stopOwnsInvocation()) {
+          stopRequestedRef.current = false;
+          setError(
+            error instanceof Error
+              ? normalizeChatErrorMessage(error)
+              : "Failed to stop the turn.",
+          );
+          logClientWarning("chat/stop", "interrupt-failed", {
+            runId: requestRunId,
+            scopeKey: scopeKey,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       } finally {
-        if (isActiveRunScope(runScopeKey)) {
+        if (stopOwnsInvocation()) {
           setIsStopping(false);
         }
       }
@@ -1288,10 +1353,11 @@ export function useChatCore(
 
     void cancelRun();
   }, [
-    isActiveRunScope,
+    isActiveRunInvocation,
     lifecycleClient,
     runId,
     runScopeKey,
+    renderedScopeGeneration,
     scopeKey,
     stopStream,
   ]);
@@ -1311,7 +1377,8 @@ export function useChatCore(
   );
 
   return {
-    messages: scopedMessages,
+    messages: optimisticUserMessage ? [optimisticUserMessage] : [],
+    optimisticUserMessage,
     optimisticUserMessageId,
     input,
     handleInputChange,
@@ -1319,7 +1386,6 @@ export function useChatCore(
     append: appendWithResolution,
     isLoading: canonicalRunLoading,
     stop,
-    setMessages,
     runId,
     scope: activeConversationScope,
     serverTurnId,
@@ -1346,7 +1412,9 @@ export async function interruptAndAwaitTerminal(
       ),
     15_000,
   );
-  let iterator: AsyncIterator<import("../services/api/lifecycleClient").LifecycleEvent> | null = null;
+  let iterator: AsyncIterator<
+    import("../services/api/lifecycleClient").LifecycleEvent
+  > | null = null;
   try {
     const response = await raceWithAbort(
       lifecycleClient.interruptTurn(
@@ -1385,7 +1453,9 @@ export async function interruptAndAwaitTerminal(
         if (isExactTerminalEvent(event, scope)) return;
       }
     }
-    throw new Error("The exact reserved turn did not produce a canonical terminal event.");
+    throw new Error(
+      "The exact reserved turn did not produce a canonical terminal event.",
+    );
   } finally {
     window.clearTimeout(settlementTimeout);
     settlementAbort.abort("Turn interruption settlement ended.");
@@ -1395,7 +1465,10 @@ export async function interruptAndAwaitTerminal(
   }
 }
 
-function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+function raceWithAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
   if (signal.aborted) {
     return Promise.reject(new Error("Turn interruption settlement timed out."));
   }
@@ -1436,12 +1509,12 @@ function isExactTerminalEvent(
 ): boolean {
   return Boolean(
     event &&
-      (event.type === "turn.completed" ||
-        event.type === "turn.failed" ||
-        event.type === "turn.interrupted") &&
-      event.threadId === scope.threadId &&
-      event.turnId === scope.turnId &&
-      event.runAttemptId === scope.runAttemptId,
+    (event.type === "turn.completed" ||
+      event.type === "turn.failed" ||
+      event.type === "turn.interrupted") &&
+    event.threadId === scope.threadId &&
+    event.turnId === scope.turnId &&
+    event.runAttemptId === scope.runAttemptId,
   );
 }
 
@@ -1502,9 +1575,7 @@ function buildPendingUserMessage(
     // gives the current turn a real preview without creating a second store.
     content: message.content as Message["content"],
     createdAt: new Date(),
-    ...(Object.keys(metadata).length > 0
-      ? { data: { metadata } }
-      : {}),
+    ...(Object.keys(metadata).length > 0 ? { data: { metadata } } : {}),
   } as Message;
 }
 
@@ -1521,46 +1592,6 @@ function ensureClientMessageId(
 
 function createClientMessageId(): string {
   return `client_msg_${crypto.randomUUID()}`;
-}
-
-function appendPendingUserMessage(
-  messages: Message[],
-  pending: Message | null,
-): Message[] {
-  if (!pending || hasEquivalentLatestUserMessage(messages, pending)) {
-    return messages;
-  }
-  return [...messages, pending];
-}
-
-function hasEquivalentLatestUserMessage(
-  messages: Message[],
-  pending: Message,
-): boolean {
-  // Content equality is not an acknowledgement: two consecutive prompts can
-  // intentionally contain the same text. Only the client message id proves
-  // that the canonical transcript contains this pending submission.
-  return messages.some((message) => message.id === pending.id);
-}
-
-function extractMessageText(content: Message["content"]): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  const unknownContent: unknown = content;
-  if (!Array.isArray(unknownContent)) {
-    return "";
-  }
-  return unknownContent
-    .map((part) => {
-      if (!part || typeof part !== "object") {
-        return "";
-      }
-      const text = (part as { text?: unknown }).text;
-      return typeof text === "string" ? text : "";
-    })
-    .filter(Boolean)
-    .join("\n");
 }
 
 function hashLogString(value: string): string {
@@ -1615,23 +1646,4 @@ function fetchWithSessionAuth(
     credentials: "include",
     headers,
   });
-}
-
-function summarizeMessageRoles(messages: Message[]): string {
-  const counts = new Map<string, number>();
-  for (const message of messages) {
-    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([role, count]) => `${role}:${count}`)
-    .join(",");
-}
-
-function summarizeMessageIdentities(messages: Message[]): string {
-  return messages
-    .map(
-      (message) =>
-        `${message.role}:${message.id}:${hashLogString(extractMessageText(message.content))}`,
-    )
-    .join(",");
 }

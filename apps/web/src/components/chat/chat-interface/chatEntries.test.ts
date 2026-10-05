@@ -4,16 +4,19 @@ import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
 import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { TurnIdSchema } from "@repo/platform-client-sdk";
+import { ItemIdSchema } from "@repo/platform-client-sdk";
 
 describe("buildChatEntries", () => {
   it("preserves canonical transcript order", () => {
     const user = createMessage("user-1", "user", "Inspect the repo");
     const assistant = createMessage("assistant-1", "assistant", "Done");
 
-    expect(buildChatEntries(buildConversationTurns([user, assistant]))).toEqual([
-      { kind: "message", message: user },
-      { kind: "message", message: assistant },
-    ]);
+    expect(buildChatEntries(buildConversationTurns([user, assistant]))).toEqual(
+      [
+        { kind: "message", message: user },
+        { kind: "message", message: assistant },
+      ],
+    );
   });
 
   it("does not render failed assistant text as a completed transcript answer", () => {
@@ -34,9 +37,10 @@ describe("buildChatEntries", () => {
       createMessage("user-1", "user", "Inspect the repo"),
       turnId,
     );
-    const assistant = withTurnIdentity(
+    const assistant = withTranscriptIdentity(
       createMessage("assistant-1", "assistant", "Done"),
       turnId,
+      "itm_entries01",
     );
     const projection = {
       ...createLifecycleProjection(turnId),
@@ -48,6 +52,7 @@ describe("buildChatEntries", () => {
         content: "Done",
         occurredAt: "2026-06-25T00:00:01.000Z",
       },
+      items: [assistantItem("itm_entries01")],
     };
 
     expect(
@@ -90,7 +95,7 @@ describe("buildChatEntries", () => {
       entries.map((entry) =>
         entry.kind === "message" ? entry.message.id : entry.kind,
       ),
-    ).toEqual(["user-summary", "workflow"]);
+    ).toEqual(["user-summary", "workflow", "assistant-summary"]);
     expect(entries[1]).toMatchObject({
       kind: "workflow",
       assistantMessage: { id: "assistant-summary" },
@@ -132,6 +137,48 @@ function withTurnIdentity(message: Message, turnId: string): Message {
       },
     },
   } as Message;
+}
+
+function withTranscriptIdentity(
+  message: Message,
+  turnId: string,
+  itemId: string,
+): Message {
+  const identified = withTurnIdentity(message, turnId) as Message & {
+    data: { metadata: Record<string, unknown> };
+  };
+  return {
+    ...identified,
+    data: {
+      metadata: { ...identified.data.metadata, itemId, phase: "final_answer" },
+    },
+  } as Message;
+}
+
+function assistantItem(itemId: string) {
+  return {
+    itemId: ItemIdSchema.parse(itemId),
+    sequence: 1,
+    kind: "assistant_message" as const,
+    status: "completed" as const,
+    text: "Done",
+    detail: null,
+    toolFamily: null,
+    safeSummary: null,
+    inputSummary: null,
+    outputSummary: null,
+    toolName: null,
+    filePath: null,
+    command: null,
+    outputContent: null,
+    diffPreview: null,
+    additions: null,
+    deletions: null,
+    planSteps: [],
+    compactionPhase: null,
+    startedAt: "2026-06-25T00:00:00.000Z",
+    completedAt: "2026-06-25T00:00:01.000Z",
+  };
 }
 
 function createMessage(

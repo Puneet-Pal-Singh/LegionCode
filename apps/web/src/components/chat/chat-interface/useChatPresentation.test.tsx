@@ -55,7 +55,7 @@ describe("useChatPresentation", () => {
           {
             key: "turn:client_msg_pending",
             userMessage,
-            assistantMessage: undefined,
+            assistantMessages: [],
             turnId: undefined,
           },
         ],
@@ -105,7 +105,7 @@ describe("useChatPresentation", () => {
 
   it("does not duplicate the setup prompt after the canonical chat projects it", () => {
     const userMessage = {
-      id: "user-1",
+      id: "client_msg_setup-1",
       role: "user" as const,
       content: "Inspect the README",
     };
@@ -114,9 +114,9 @@ describe("useChatPresentation", () => {
         messages: [userMessage],
         conversationTurns: [
           {
-            key: "turn:user-1",
+            key: "turn:client_msg_setup-1",
             userMessage,
-            assistantMessage: undefined,
+            assistantMessages: [],
             turnId: undefined,
           },
         ],
@@ -138,7 +138,7 @@ describe("useChatPresentation", () => {
 
   it("does not duplicate an image-bearing setup prompt with structured content", () => {
     const userMessage = {
-      id: "client_msg_image",
+      id: "client_msg_setup-image",
       role: "user" as const,
       content: [
         { type: "text" as const, text: "Inspect this screenshot" },
@@ -154,9 +154,9 @@ describe("useChatPresentation", () => {
         messages: [userMessage],
         conversationTurns: [
           {
-            key: "turn:client_msg_image",
+            key: "turn:client_msg_setup-image",
             userMessage,
-            assistantMessage: undefined,
+            assistantMessages: [],
             turnId: undefined,
           },
         ],
@@ -176,7 +176,7 @@ describe("useChatPresentation", () => {
     ).toHaveLength(1);
     expect(result.current.chatEntries[0]).toMatchObject({
       kind: "message",
-      message: { id: "client_msg_image" },
+      message: { id: "client_msg_setup-image" },
     });
   });
 

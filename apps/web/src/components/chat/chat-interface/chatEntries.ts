@@ -1,5 +1,8 @@
 import type { Message } from "@ai-sdk/react";
-import { buildConversationTurns } from "../messageMetadata";
+import {
+  buildConversationTurns,
+  readCanonicalTurnId,
+} from "../messageMetadata";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 
 export type ChatInterfaceEntry =
@@ -30,34 +33,38 @@ export function buildChatEntries(
       entries.push({
         kind: "message",
         message: conversationTurn.userMessage,
-        ...(projection
-          ? { projection }
-          : {}),
+        ...(projection ? { projection } : {}),
       });
     }
-    if (turnId && projection && projection.lastSequence > 0) {
+    if (
+      turnId &&
+      projection &&
+      projection.lastSequence > 0 &&
+      !emittedWorkflowTurnIds.has(turnId)
+    ) {
       entries.push({
         kind: "workflow",
         key: `workflow:${turnId}`,
         turnId,
         projection,
-        ...(conversationTurn.assistantMessage
-          ? { assistantMessage: conversationTurn.assistantMessage }
+        ...(representativeAssistant(conversationTurn.assistantMessages ?? [])
+          ? {
+              assistantMessage: representativeAssistant(
+                conversationTurn.assistantMessages ?? [],
+              ),
+            }
           : {}),
       });
       emittedWorkflowTurnIds.add(turnId);
     }
-    if (
-      shouldIncludeAssistantMessage(
-        conversationTurn.assistantMessage,
-        projection,
-      )
-    ) {
-      entries.push({
-        kind: "message",
-        message: conversationTurn.assistantMessage,
-        ...(projection ? { projection } : {}),
-      });
+    for (const assistantMessage of conversationTurn.assistantMessages ?? []) {
+      if (shouldIncludeAssistantMessage(assistantMessage, projection)) {
+        entries.push({
+          kind: "message",
+          message: assistantMessage,
+          ...(projection ? { projection } : {}),
+        });
+      }
     }
   }
   const orphanedActiveProjection = activeTurnId
@@ -78,19 +85,57 @@ export function buildChatEntries(
   return entries;
 }
 
+function representativeAssistant(messages: Message[]): Message | undefined {
+  return (
+    [...messages]
+      .reverse()
+      .find(
+        (message) => readMessageMetadata(message)?.phase === "final_answer",
+      ) ?? messages[messages.length - 1]
+  );
+}
+
 function shouldIncludeAssistantMessage(
   message: Message | undefined,
   projection?: LifecycleProjection,
 ): message is Message {
   if (!message || message.role !== "assistant") return false;
-  if (
-    projection?.terminal?.state === "completed" &&
-    (projection.assistantText.trim() || projection.terminal.content.trim())
-  ) {
+  if (isRepresentedByWorkflow(message, projection)) {
     return false;
   }
   const terminalState = readTerminalState(message);
   return terminalState == null || terminalState === "completed";
+}
+
+function isRepresentedByWorkflow(
+  message: Message,
+  projection?: LifecycleProjection,
+): boolean {
+  if (!projection || readCanonicalTurnId(message) !== projection.turnId)
+    return false;
+  const metadata = readMessageMetadata(message);
+  const itemId = metadata?.itemId;
+  if (typeof itemId !== "string") return false;
+  const phase = metadata?.phase;
+  const expectedKind =
+    phase === "commentary"
+      ? "commentary"
+      : phase === "final_answer"
+        ? "assistant_message"
+        : null;
+  if (!expectedKind) return false;
+  return projection.items.some(
+    (item) => item.kind === expectedKind && item.itemId === itemId,
+  );
+}
+
+function readMessageMetadata(message: Message): Record<string, unknown> | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (!data || typeof data !== "object") return null;
+  const metadata = (data as Record<string, unknown>).metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : null;
 }
 
 function readTerminalState(message: Message): string | null {

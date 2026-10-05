@@ -49,6 +49,15 @@ backup SHA-256 restore evidence, the restored database fingerprint, and row
 counts that agree with the isolated restore. Apply the same manifest again to
 verify checkpoint idempotency:
 
+Run inventory, freshness checking, apply, repeat apply, and verification only
+against an isolated restored target. Keep one recovery process as its sole
+writer for the entire operation: stop or disable the application, admin tools,
+and any other recovery process that could write to that target. The CLI checks
+freshness before its per-session transactions and does not enforce isolation
+from concurrent writers. If exclusive access to the restored target cannot be
+maintained, do not apply the manifest. Keep backups, restore evidence, identity
+audits, and manifests private and outside the repository.
+
 ```sh
 node apps/brain/scripts/recover-chat-history.mjs \
   --database-url-env LEGIONCODE_RECOVERY_DATABASE_URL \

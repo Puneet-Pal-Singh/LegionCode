@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import type { Message } from "@ai-sdk/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildConversationTurns } from "../components/chat/messageMetadata";
@@ -99,25 +99,31 @@ describe("hydrated transcript identity in the product presentation path", () => 
       return { chat, conversationTurns, presentation };
     });
 
-    await act(async () => {
-      await waitFor(() => expect(result.current.chat.hydrationStatus).toBe("readable"));
-    });
+    await waitFor(() =>
+      expect(result.current.chat.hydrationStatus).toBe("readable"),
+    );
     await waitFor(() =>
       expect(result.current.chat.scope?.turnId).toBe(currentScope.turnId),
     );
 
     const historicalReply = result.current.chat.messages.find(
       (message) => message.id === "historical-assistant-a",
-    ) as (Message & { data?: { metadata?: Record<string, unknown> } }) | undefined;
+    ) as
+      | (Message & { data?: { metadata?: Record<string, unknown> } })
+      | undefined;
     const historicalTurn = result.current.conversationTurns.find(
       (turn) => turn.userMessage?.id === "historical-user-a",
     );
     const visibleReply = result.current.presentation.chatEntries.find(
-      (entry) => entry.kind === "message" && entry.message.id === "historical-assistant-a",
+      (entry) =>
+        entry.kind === "message" &&
+        entry.message.id === "historical-assistant-a",
     );
 
     expect(historyReads).toEqual(["d1137b54-39df-4f38-b012-478018630ace"]);
-    expect.soft(historicalReply?.data?.metadata?.canonicalIdentity).toBeUndefined();
+    expect
+      .soft(historicalReply?.data?.metadata?.canonicalIdentity)
+      .toBeUndefined();
     expect.soft(historicalReply?.data?.metadata?.phase).toBeUndefined();
     expect.soft(historicalTurn?.turnId).toBe(historicalScope.turnId);
     expect.soft(visibleReply).toMatchObject({

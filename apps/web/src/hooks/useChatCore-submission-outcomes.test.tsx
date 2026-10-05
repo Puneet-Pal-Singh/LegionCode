@@ -22,8 +22,13 @@ const { state } = vi.hoisted(() => ({
   state: {
     fixture: null as Fixture | null,
     events: [] as LifecycleEvent[],
-    followTurnLifecycle: vi.fn<[], AsyncGenerator<LifecycleEvent>>(async function* () {}),
-    interruptTurn: vi.fn<[InterruptTurnRequest, PlatformClientOperationOptions?], Promise<InterruptTurnResponse>>(async () => ({
+    followTurnLifecycle: vi.fn<[], AsyncGenerator<LifecycleEvent>>(
+      async function* () {},
+    ),
+    interruptTurn: vi.fn<
+      [InterruptTurnRequest, PlatformClientOperationOptions?],
+      Promise<InterruptTurnResponse>
+    >(async () => ({
       runId: "run_test01" as InterruptTurnResponse["runId"],
       accepted: true,
       status: "interrupt_requested",
@@ -54,7 +59,9 @@ vi.mock("./useProviderStore.js", () => ({
     credentials: [{ id: "credential_submission_fixture" }],
     selectedProviderId: "openai",
     selectedCredentialId: "credential_submission_fixture",
-    get selectedModelId() { return state.selectedModelId; },
+    get selectedModelId() {
+      return state.selectedModelId;
+    },
     lastResolvedConfig: null,
     providerModels: {},
     manageProviderModels: {},
@@ -65,7 +72,10 @@ vi.mock("./useProviderStore.js", () => ({
 vi.mock("../services/api/lifecycleClient", () => ({
   createLifecycleClient: () => ({
     followTurnLifecycle: state.followTurnLifecycle,
-    replayLifecycleEvents: vi.fn(async () => ({ events: [], nextSequence: null })),
+    replayLifecycleEvents: vi.fn(async () => ({
+      events: [],
+      nextSequence: null,
+    })),
     interruptTurn: state.interruptTurn,
     startTurn: vi.fn(),
   }),
@@ -88,7 +98,11 @@ vi.mock("./useTurnLifecycleProjection.js", () => ({
 }));
 
 function fixture(name: string): Fixture {
-  const suffix = name.replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 12).padEnd(12, "x");
+  const suffix = name
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase()
+    .slice(0, 12)
+    .padEnd(12, "x");
   return {
     sessionId: crypto.randomUUID(),
     runId: `run_outcome_${suffix}`,
@@ -120,7 +134,9 @@ function event(overrides: Partial<LifecycleEventFixture> = {}): LifecycleEvent {
 function terminalEvent(overrides: Partial<LifecycleEventFixture> = {}) {
   return event({
     type: "turn.interrupted",
-    payload: { outcome: { status: "interrupted", reason: "User stopped the turn." } },
+    payload: {
+      outcome: { status: "interrupted", reason: "User stopped the turn." },
+    },
     ...overrides,
   });
 }
@@ -136,7 +152,10 @@ function acceptedInterrupt(
   };
 }
 
-function responseHeaders(current = state.fixture!, overrides: Record<string, string> = {}) {
+function responseHeaders(
+  current = state.fixture!,
+  overrides: Record<string, string> = {},
+) {
   return {
     "X-Run-Id": current.runId,
     "X-Thread-Id": current.threadId,
@@ -150,7 +169,10 @@ type RequestRecord = { url: string; method: string; body: string | null };
 
 function installServer(
   chat: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
-  turnStart: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async () =>
+  turnStart: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = async () =>
     Response.json({
       workspaceId: state.fixture!.workspaceId,
       threadId: state.fixture!.threadId,
@@ -159,16 +181,20 @@ function installServer(
     }),
 ) {
   const requests: RequestRecord[] = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    const method = init?.method ?? "GET";
-    const body = typeof init?.body === "string" ? init.body : null;
-    requests.push({ url, method, body });
-    if (url.includes("/turn/scope?")) return new Response("not resumed", { status: 404 });
-    if (url.endsWith("/turn/start")) return turnStart(input, init);
-    if (url.endsWith("/chat")) return chat(input, init);
-    throw new Error(`Unexpected request: ${method} ${url}`);
-  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const body = typeof init?.body === "string" ? init.body : null;
+      requests.push({ url, method, body });
+      if (url.includes("/turn/scope?"))
+        return new Response("not resumed", { status: 404 });
+      if (url.endsWith("/turn/start")) return turnStart(input, init);
+      if (url.endsWith("/chat")) return chat(input, init);
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    }),
+  );
   return requests;
 }
 
@@ -227,31 +253,50 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
   });
 
   it("returns an ordinary submit failure for HTTP 503, restores input, clears loading, and permits explicit retry", async () => {
-    const requests = installServer(async () => new Response("provider unavailable", { status: 503 }));
+    const requests = installServer(
+      async () => new Response("provider unavailable", { status: 503 }),
+    );
     const { result } = renderCore();
-    act(() => result.current.handleInputChange({ target: { value: "Keep this prompt" } } as never));
+    act(() =>
+      result.current.handleInputChange({
+        target: { value: "Keep this prompt" },
+      } as never),
+    );
 
     let first!: boolean;
-    await act(async () => { first = await result.current.handleSubmit(); });
+    await act(async () => {
+      first = await result.current.handleSubmit();
+    });
     expect(first).toBe(false);
     expect(result.current.error).toMatch(/503/);
     expect(result.current.input).toBe("Keep this prompt");
     expect(result.current.isLoading).toBe(false);
 
     let retry!: boolean;
-    await act(async () => { retry = await result.current.handleSubmit(); });
+    await act(async () => {
+      retry = await result.current.handleSubmit();
+    });
     expect(retry).toBe(false);
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(2);
-    expect(requests.filter(({ url }) => url.endsWith("/turn/start"))).toHaveLength(1);
+    expect(
+      requests.filter(({ url }) => url.endsWith("/turn/start")),
+    ).toHaveLength(1);
   });
 
   it("accepts a lost transport only after an exact thread, turn, and attempt lifecycle event", async () => {
-    const requests = installServer(async () => { throw new TypeError("socket closed after admission"); });
+    const requests = installServer(async () => {
+      throw new TypeError("socket closed after admission");
+    });
     state.events = [event()];
     const { result } = renderCore();
-    const outcome = await append(result, "canonical acceptance survives transport loss");
+    const outcome = await append(
+      result,
+      "canonical acceptance survives transport loss",
+    );
     const chat = requests.find(({ url }) => url.endsWith("/chat"));
-    const body = chat?.body ? JSON.parse(chat.body) as Record<string, unknown> : {};
+    const body = chat?.body
+      ? (JSON.parse(chat.body) as Record<string, unknown>)
+      : {};
     const identity = body.identity as Record<string, unknown>;
 
     expect(outcome.status).toBe("accepted");
@@ -265,19 +310,29 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
   });
 
   it("keeps a network rejection unconfirmed when exact canonical evidence is absent", async () => {
-    const requests = installServer(async () => { throw new TypeError("network disconnected"); });
+    const requests = installServer(async () => {
+      throw new TypeError("network disconnected");
+    });
     const { result } = renderCore();
-    const outcome = await append(result, "network failed without admission proof");
+    const outcome = await append(
+      result,
+      "network failed without admission proof",
+    );
 
     expect(outcome.status).toBe("unconfirmed");
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
   });
 
   it("accepts a successful HTTP response only when all response tuple headers match", async () => {
-    installServer(async () => new Response("", {
-      status: 200,
-      headers: responseHeaders(state.fixture!, { "X-Run-Attempt-Id": "attempt_outcome_wrong" }),
-    }));
+    installServer(
+      async () =>
+        new Response("", {
+          status: 200,
+          headers: responseHeaders(state.fixture!, {
+            "X-Run-Attempt-Id": "attempt_outcome_wrong",
+          }),
+        }),
+    );
     const { result } = renderCore();
     const outcome = await append(result, "mismatched acknowledgement tuple");
 
@@ -285,10 +340,13 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
   });
 
   it("accepts the exact successful HTTP tuple without requiring provider completion", async () => {
-    installServer(async () => new Response("", {
-      status: 200,
-      headers: responseHeaders(),
-    }));
+    installServer(
+      async () =>
+        new Response("", {
+          status: 200,
+          headers: responseHeaders(),
+        }),
+    );
     const { result } = renderCore();
     const outcome = await append(result, "exact admission acknowledgement");
 
@@ -296,10 +354,18 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
   });
 
   it("ignores wrong thread and attempt events, then accepts a later exact event for the reserved tuple", async () => {
-    installServer(async () => { throw new TypeError("connection lost"); });
+    installServer(async () => {
+      throw new TypeError("connection lost");
+    });
     state.events = [
-      event({ threadId: "thr_outcome_otherthread", runAttemptId: state.fixture!.runAttemptId }),
-      event({ threadId: state.fixture!.threadId, runAttemptId: "attempt_outcome_other" }),
+      event({
+        threadId: "thr_outcome_otherthread",
+        runAttemptId: state.fixture!.runAttemptId,
+      }),
+      event({
+        threadId: state.fixture!.threadId,
+        runAttemptId: "attempt_outcome_other",
+      }),
       event(),
     ];
     const { result } = renderCore();
@@ -309,63 +375,107 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
   });
 
   it("does not accept ID-less or unrelated terminal events as Stop settlement", async () => {
-    const requests = installServer(async (_input, init) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
-    }));
+    const requests = installServer(
+      async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
     state.followTurnLifecycle.mockImplementation(async function* () {});
     const terminal = terminalEvent();
-    const { threadId: _threadId, turnId: _turnId, runAttemptId: _runAttemptId, ...idlessTerminal } = terminal;
+    const {
+      threadId: _threadId,
+      turnId: _turnId,
+      runAttemptId: _runAttemptId,
+      ...idlessTerminal
+    } = terminal;
+    void _threadId;
+    void _turnId;
+    void _runAttemptId;
     state.interruptTurn.mockImplementation(async () =>
       acceptedInterrupt(idlessTerminal as unknown as LifecycleEvent),
     );
     const { result } = renderCore();
     let outcomePromise!: ReturnType<typeof append>;
     await act(async () => {
-      outcomePromise = result.current.append({ role: "user", content: "uncertain then stopped" });
-      await until(() => requests.some(({ url }) => url.endsWith("/chat")), "chat dispatch");
+      outcomePromise = result.current.append({
+        role: "user",
+        content: "uncertain then stopped",
+      });
+      await until(
+        () => requests.some(({ url }) => url.endsWith("/chat")),
+        "chat dispatch",
+      );
       result.current.stop();
     });
     let outcome!: Awaited<typeof outcomePromise>;
-    await act(async () => { outcome = await outcomePromise; });
+    await act(async () => {
+      outcome = await outcomePromise;
+    });
     const chatRequest = requests.find(({ url }) => url.endsWith("/chat"));
-    const requestBody = chatRequest?.body ? JSON.parse(chatRequest.body) as Record<string, unknown> : {};
+    const requestBody = chatRequest?.body
+      ? (JSON.parse(chatRequest.body) as Record<string, unknown>)
+      : {};
     const identity = requestBody.identity as Record<string, unknown>;
 
-    expect(outcome).toMatchObject({ status: "cancelled", admission: "unconfirmed" });
-    expect(state.interruptTurn).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: state.fixture!.sessionId,
-      runId: state.fixture!.runId,
-      threadId: identity.threadId,
-      turnId: identity.turnId,
-      runAttemptId: identity.runAttemptId,
-    }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(outcome).toMatchObject({
+      status: "cancelled",
+      admission: "unconfirmed",
+    });
+    expect(state.interruptTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: state.fixture!.sessionId,
+        runId: state.fixture!.runId,
+        threadId: identity.threadId,
+        turnId: identity.turnId,
+        runAttemptId: identity.runAttemptId,
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
   });
 
   it("cancels a reservation stopped before chat dispatch without sending or interrupting", async () => {
     const started = deferred<void>();
     const releaseStart = deferred<Response>();
-    const requests = installServer(async () => new Response("must not dispatch", { status: 200 }), async () => {
-      started.resolve();
-      return releaseStart.promise;
-    });
+    const requests = installServer(
+      async () => new Response("must not dispatch", { status: 200 }),
+      async () => {
+        started.resolve();
+        return releaseStart.promise;
+      },
+    );
     const { result } = renderCore();
     let outcomePromise!: ReturnType<typeof append>;
     await act(async () => {
-      outcomePromise = result.current.append({ role: "user", content: "stop before dispatch" });
+      outcomePromise = result.current.append({
+        role: "user",
+        content: "stop before dispatch",
+      });
       await started.promise;
       result.current.stop();
-      releaseStart.resolve(Response.json({
-        workspaceId: state.fixture!.workspaceId,
-        threadId: state.fixture!.threadId,
-        turnId: state.fixture!.turnId,
-        runAttemptId: state.fixture!.runAttemptId,
-      }));
+      releaseStart.resolve(
+        Response.json({
+          workspaceId: state.fixture!.workspaceId,
+          threadId: state.fixture!.threadId,
+          turnId: state.fixture!.turnId,
+          runAttemptId: state.fixture!.runAttemptId,
+        }),
+      );
     });
     let outcome!: Awaited<typeof outcomePromise>;
-    await act(async () => { outcome = await outcomePromise; });
+    await act(async () => {
+      outcome = await outcomePromise;
+    });
 
-    expect(outcome).toMatchObject({ status: "cancelled", admission: "not-dispatched" });
+    expect(outcome).toMatchObject({
+      status: "cancelled",
+      admission: "not-dispatched",
+    });
     expect(result.current.isLoading).toBe(false);
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(0);
     expect(state.interruptTurn).not.toHaveBeenCalled();
@@ -376,47 +486,77 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
     state.onResponseObserved = () => responseObserved.resolve();
     const requests = installServer(async (_input, init) => {
       let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-      const stream = new ReadableStream<Uint8Array>({
-        start(value) { controller = value; },
-      }, { highWaterMark: 0 });
-      init?.signal?.addEventListener("abort", () => {
-        controller?.error(new DOMException("aborted after acknowledgement", "AbortError"));
-      }, { once: true });
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          start(value) {
+            controller = value;
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      init?.signal?.addEventListener(
+        "abort",
+        () => {
+          controller?.error(
+            new DOMException("aborted after acknowledgement", "AbortError"),
+          );
+        },
+        { once: true },
+      );
       return new Response(stream, { status: 200, headers: responseHeaders() });
     });
     const { result } = renderCore();
     let outcomePromise!: ReturnType<typeof append>;
     await act(async () => {
-      outcomePromise = result.current.append({ role: "user", content: "stop after admission ack" });
+      outcomePromise = result.current.append({
+        role: "user",
+        content: "stop after admission ack",
+      });
       await responseObserved.promise;
       // useChatCore's onResponse runs only after the observed fetch captured
       // the exact successful headers; the stalled SDK body is then aborted by Stop.
       result.current.stop();
     });
     let outcome!: Awaited<typeof outcomePromise>;
-    await act(async () => { outcome = await outcomePromise; });
+    await act(async () => {
+      outcome = await outcomePromise;
+    });
     const chatRequest = requests.find(({ url }) => url.endsWith("/chat"));
-    const body = chatRequest?.body ? JSON.parse(chatRequest.body) as Record<string, unknown> : {};
+    const body = chatRequest?.body
+      ? (JSON.parse(chatRequest.body) as Record<string, unknown>)
+      : {};
     const identity = body.identity as Record<string, unknown>;
 
-    expect(outcome).toMatchObject({ status: "cancelled", admission: "accepted" });
-    expect(state.interruptTurn).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: state.fixture!.sessionId,
-      runId: state.fixture!.runId,
-      threadId: identity.threadId,
-      turnId: identity.turnId,
-      runAttemptId: identity.runAttemptId,
-    }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(outcome).toMatchObject({
+      status: "cancelled",
+      admission: "accepted",
+    });
+    expect(state.interruptTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: state.fixture!.sessionId,
+        runId: state.fixture!.runId,
+        threadId: identity.threadId,
+        turnId: identity.turnId,
+        runAttemptId: identity.runAttemptId,
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
   });
 
   it("does not infer acceptance from a broken response body without an exact acknowledgement or canonical event", async () => {
-    installServer(async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("partial"));
-        controller.error(new Error("body stream broke"));
-      },
-    }), { status: 200, headers: { "X-Run-Id": state.fixture!.runId } }));
+    installServer(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("partial"));
+              controller.error(new Error("body stream broke"));
+            },
+          }),
+          { status: 200, headers: { "X-Run-Id": state.fixture!.runId } },
+        ),
+    );
     const { result } = renderCore();
     const outcome = await append(result, "broken unacknowledged response");
 
@@ -424,14 +564,25 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
   });
 
   it("retains known admission when a correctly bound acknowledgement body subsequently breaks", async () => {
-    installServer(async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("partial"));
-        controller.error(new Error("body stream broke after acknowledgement"));
-      },
-    }), { status: 200, headers: responseHeaders() }));
+    installServer(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("partial"));
+              controller.error(
+                new Error("body stream broke after acknowledgement"),
+              );
+            },
+          }),
+          { status: 200, headers: responseHeaders() },
+        ),
+    );
     const { result } = renderCore();
-    const outcome = await append(result, "acknowledged admission with stream failure");
+    const outcome = await append(
+      result,
+      "acknowledged admission with stream failure",
+    );
 
     expect(outcome.status).toBe("accepted");
   });

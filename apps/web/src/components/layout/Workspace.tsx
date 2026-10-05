@@ -12,7 +12,7 @@ import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { RunContextProvider } from "../../hooks/useRunContext";
-import { useChat } from "../../hooks/useChat";
+import type { UseChatResult } from "../../hooks/useChat";
 import { buildChatAppendMessage } from "../../hooks/useChatCore";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
@@ -25,10 +25,6 @@ import { useSidebarOrchestration } from "./workspace/useSidebarOrchestration";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
 import { TabType, type SelectedFile } from "./workspace/useWorkspaceState";
-import {
-  loadStoredProductMode,
-  persistProductMode,
-} from "../../lib/product-mode-storage";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
@@ -61,6 +57,10 @@ import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 
 interface WorkspaceProps {
   sessionId: string;
+  chat: UseChatResult;
+  productMode: ProductMode;
+  setProductMode: (mode: ProductMode) => void;
+  registerFileCreatedRefresh: (callback: (() => void) | null) => void;
   sessionTitle?: string;
   sessionCreatedAt?: string;
   sessionUpdatedAt?: string;
@@ -73,7 +73,6 @@ interface WorkspaceProps {
   sessionPersistenceStatus?: SessionPersistenceStatus;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
-  onServerProjectionAvailable?: () => void;
   initialPromptSubmission?: InitialPromptSubmission | null;
   onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
   onHookSettingsContextChange?: (context: {
@@ -94,10 +93,13 @@ interface WorkspaceProps {
 
 export function Workspace({
   sessionId,
+  chat,
+  productMode,
+  setProductMode,
+  registerFileCreatedRefresh,
   sessionTitle,
   sessionCreatedAt,
   sessionUpdatedAt,
-  runId: initialRunId,
   repository,
   mode = "build",
   onModeChange,
@@ -106,7 +108,6 @@ export function Workspace({
   sessionPersistenceStatus,
   onSessionStatusChange,
   onPromptSubmitted,
-  onServerProjectionAvailable,
   initialPromptSubmission = null,
   onInitialPromptHandled,
   onHookSettingsContextChange,
@@ -121,14 +122,17 @@ export function Workspace({
   summaryActionRequest,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
-  const isSessionPersisted = isSessionPersistenceReady(sessionPersistenceStatus);
+  const isSessionPersisted = isSessionPersistenceReady(
+    sessionPersistenceStatus,
+  );
   const { isCompact, isMobile } = useWorkspaceViewport();
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
-  const [productMode, setProductMode] = useState<ProductMode>(() =>
-    loadStoredProductMode(sessionId),
-  );
-  const [isGitCommitOpen, setIsGitCommitOpen] = useState(false);
+  const [dismissedCommitRequestId, setDismissedCommitRequestId] =
+    useState<number | null>(null);
+  const isGitCommitOpen =
+    summaryActionRequest?.action === "commit" &&
+    summaryActionRequest.id !== dismissedCommitRequestId;
   const [isConversationSurfaceReady, setIsConversationSurfaceReady] =
     useState(false);
 
@@ -168,7 +172,6 @@ export function Workspace({
   useEffect(() => {
     if (!summaryActionRequest) return;
     if (summaryActionRequest.action === "commit") {
-      setIsGitCommitOpen(true);
       return;
     }
     setIsRightSidebarOpen?.(true);
@@ -218,21 +221,17 @@ export function Workspace({
     scope: conversationScope,
     serverTurnId,
     activeTurnProjection: activeTurn,
-  } = useChat(
-    sessionId,
-    initialRunId,
-    () => {
-      explorerRef.current?.refresh();
-    },
-    mode,
-    productMode,
-    onServerProjectionAvailable,
-    isSessionPersisted,
-  );
+  } = chat;
+  useEffect(() => {
+    registerFileCreatedRefresh(() => explorerRef.current?.refresh());
+    return () => registerFileCreatedRefresh(null);
+  }, [registerFileCreatedRefresh]);
   const appendWhenPersisted = useCallback<typeof append>(
     async (...args) => {
       if (!isSessionPersisted) {
-        throw new Error("This conversation is still being saved. Retry after it is saved.");
+        throw new Error(
+          "This conversation is still being saved. Retry after it is saved.",
+        );
       }
       return append(...args);
     },
@@ -318,9 +317,13 @@ export function Workspace({
   const handledInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
     null,
   );
-  const failedInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(null);
-  const [failedInitialPromptId, setFailedInitialPromptId] = useState<InitialPromptSubmissionId | null>(null);
-  const [initialPromptRetryRevision, setInitialPromptRetryRevision] = useState(0);
+  const failedInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
+    null,
+  );
+  const [failedInitialPromptId, setFailedInitialPromptId] =
+    useState<InitialPromptSubmissionId | null>(null);
+  const [initialPromptRetryRevision, setInitialPromptRetryRevision] =
+    useState(0);
 
   const retryInitialPrompt = useCallback(() => {
     const failedId = initialPromptSubmission?.id;
@@ -336,8 +339,6 @@ export function Workspace({
       return;
     }
     if (isInitialPromptSubmissionFailed(initialPromptSubmission.id)) {
-      failedInitialPromptIdRef.current = initialPromptSubmission.id;
-      setFailedInitialPromptId(initialPromptSubmission.id);
       return;
     }
     if (!isSessionPersisted) {
@@ -363,21 +364,20 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
-    void appendWhenPersisted(
-      {
-        ...buildChatAppendMessage(
-          prompt,
-          initialPromptSubmission.attachments?.imageAttachments ?? [],
-        ),
-        // Keep the admission key stable if the server accepted the request but
-        // its response was lost and the queued prompt is retried.
-        id: `client_msg_${initialPromptSubmission.id}`,
-      },
-      )
+    void appendWhenPersisted({
+      ...buildChatAppendMessage(
+        prompt,
+        initialPromptSubmission.attachments?.imageAttachments ?? [],
+      ),
+      // Keep the admission key stable if the server accepted the request but
+      // its response was lost and the queued prompt is retried.
+      id: `client_msg_${initialPromptSubmission.id}`,
+    })
       .then((outcome) => {
         if (
           outcome.status === "accepted" ||
-          (outcome.status === "cancelled" && outcome.admission !== "unconfirmed")
+          (outcome.status === "cancelled" &&
+            outcome.admission !== "unconfirmed")
         ) {
           clearInitialPromptSubmissionFailure(initialPromptSubmission.id);
           failedInitialPromptIdRef.current = null;
@@ -386,13 +386,13 @@ export function Workspace({
           return;
         }
         {
-          const message = outcome.status === "unconfirmed"
-            ? outcome.message
-            : outcome.status === "cancelled"
-              ? "The stopped request may have been admitted. Check the saved conversation before retrying."
-              : "The queued prompt belongs to a conversation that is no longer active.";
+          const message =
+            outcome.status === "unconfirmed"
+              ? outcome.message
+              : outcome.status === "cancelled"
+                ? "The stopped request may have been admitted. Check the saved conversation before retrying."
+                : "The queued prompt belongs to a conversation that is no longer active.";
           console.warn("[Workspace] Setup prompt was not confirmed:", message);
-          if (outcome.status === "unconfirmed") onSessionStatusChange?.("failed");
           markInitialPromptSubmissionFailed(initialPromptSubmission.id);
           failedInitialPromptIdRef.current = initialPromptSubmission.id;
           setFailedInitialPromptId(initialPromptSubmission.id);
@@ -403,7 +403,6 @@ export function Workspace({
       })
       .catch((error) => {
         console.error("[Workspace] Failed to submit setup prompt:", error);
-        onSessionStatusChange?.("failed");
         // Keep the queued prompt stable, but wait for an explicit retry so a
         // parent rerender or callback identity change cannot resubmit it.
         markInitialPromptSubmissionFailed(initialPromptSubmission.id);
@@ -544,14 +543,6 @@ export function Workspace({
     reviewSidebarFocusRequest,
   });
 
-  useEffect(() => {
-    setProductMode(loadStoredProductMode(sessionId));
-  }, [sessionId]);
-
-  useEffect(() => {
-    persistProductMode(sessionId, productMode);
-  }, [productMode, sessionId]);
-
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <GitReviewProvider
@@ -579,9 +570,15 @@ export function Workspace({
           {/* Chat Area */}
           <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
             {initialPromptSubmission &&
-            failedInitialPromptId === initialPromptSubmission.id ? (
-              <div role="alert" className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
-                <span>The setup prompt was not admitted. It remains queued.</span>
+            (failedInitialPromptId === initialPromptSubmission.id ||
+              isInitialPromptSubmissionFailed(initialPromptSubmission.id)) ? (
+              <div
+                role="alert"
+                className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100"
+              >
+                <span>
+                  The setup prompt could not be confirmed. It remains queued.
+                </span>
                 <button
                   type="button"
                   className="rounded-md border border-amber-200/30 px-3 py-1 font-medium hover:bg-amber-500/15"
@@ -785,7 +782,11 @@ export function Workspace({
           ) : null}
           <GitCommitDialog
             isOpen={isGitCommitOpen}
-            onClose={() => setIsGitCommitOpen(false)}
+            onClose={() => {
+              if (summaryActionRequest?.action === "commit") {
+                setDismissedCommitRequestId(summaryActionRequest.id);
+              }
+            }}
           />
         </div>
       </GitReviewProvider>
