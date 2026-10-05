@@ -1,7 +1,7 @@
 # Chat durability remediation plan
 
-2026-10-04. **Plan reviewed and approved by GPT-6.1 Sol high; implementation
-is starting.** This replaces
+2026-10-04 plan; completed 2026-10-05. **Implementation completed and locally
+validated, with GPT-6.1 Sol high source acceptance.** This replaced
 the reopened completion sequence with a bounded plan for the three fresh review
 findings. Previous validation evidence remains preserved; passing old tests is
 not acceptance of these newly identified cases.
@@ -250,3 +250,19 @@ production-browser checks, actual worker/provider migration, and remote artifact
 bucket verification remain explicit release gates. The user has authorized implementation, periodic commits, PR publication,
 and final PR review. Each reviewed slice is committed before the next slice.
 No merge or deployment is included.
+
+## Completed execution
+
+All six remediation steps are complete. Actual SDK/App/identity regressions
+were preserved in `2e6ea5ed`; reviewed delivery fixes are in `88dda1d6`; combined
+verified transcript, session surface, queue retention, scoped Stop settlement
+and recovery writer documentation are in `16f87c2f`. The completion slice reused
+existing fixtures and removed obsolete identity/visibility helpers.
+
+Final Web source passed 741 tests, type checking, scoped lint, two saved-history
+browser cases and the exact golden command. The authenticated real-product
+route remained explicitly skipped without storage state. Sol accepted final
+source ownership and wiring. Original database fingerprints still match.
+See the verification report for retained package results and baseline engine
+failures. PR publication/final published-diff review follow; merge, deployment,
+and production recovery remain outside this execution.
