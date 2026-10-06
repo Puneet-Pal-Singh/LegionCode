@@ -44,43 +44,24 @@ No question tool, response API, or approval owner is introduced by this display
 change; adapters must emit the existing canonical user-input events for question
 history and its waiting status to appear.
 
-## Conversation durability and local recovery
+## Conversation durability
 
-| Responsibility                                                          | Canonical owner                                                              | Producers and consumers                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Conversation existence, ownership, and stable session-to-thread binding | Postgres session repository                                                  | Brain reads and writes; SDK/Web consume the owned conversation contract; runtime identity caches are reconstructable                                                                                                                                                                                                                |
-| Turn and attempt identity admission                                     | Postgres `canonical_turn_admissions` through the Brain admission repository  | Brain admission supplies exact identity to runtime; the existing canonical lifecycle append path validates it                                                                                                                                                                                                                       |
-| Durable transcript and terminal projections                             | Postgres transcript projection in the canonical lifecycle append transaction | Runtime emits lifecycle items; transcript history and session/run reads consume the projections                                                                                                                                                                                                                                     |
-| Active execution leases and runtime-local identity cache                | Durable Object runtime                                                       | Brain forwards authenticated commands; cache loss never changes saved conversation or turn identity                                                                                                                                                                                                                                 |
-| SDK chat delivery outcome and explicit retry identity                   | Web `useChatCore` observed-fetch adapter                                     | The installed SDK owns text-stream parsing; the adapter binds HTTP/network outcome to the exact submission attempt and freezes same-intent retry bytes. PostgreSQL admission and canonical lifecycle evidence remain the acceptance/execution authority.                                                                            |
-| New-session save readiness and queued setup prompt delivery             | Web session manager and existing initial-prompt claim owner                  | Workspace waits for successful session saving; failed delivery stays blocked across rerenders/remounts until explicit retry with the same client message ID; PostgreSQL admission owns execution idempotency                                                                                                                        |
-| Verified product transcript and history replacement                     | Web `useChat` session-tagged verified messages with `useChatHydration`       | Complete session history snapshots replace verified rows; verified partial prefixes merge by stable message ID and retain existing rows. SDK assistant frames remain delivery-only; only the explicit pending user message is presented optimistically. Persistence and artifact consumers read verified rows only.                 |
-| Session conversation surface and setup selection                        | Web `SessionConversationSurface`, keyed only by session ID                   | One `useChat`/history owner survives run changes. Saved sessions load by session identity regardless of title/status/scope; setup appears only after a complete empty history read with no queued intent or pending user presentation. App retains queued setup intents by session ID and Workspace keeps its existing claim owner. |
-| Historical recovery and local state admission                           | Operator-run Brain recovery CLI and local-dev preflight                      | Recovery reads copied SQLite roots and Postgres, writes per-session Postgres checkpoints; local launch binds one database fingerprint to explicit worker persistence roots                                                                                                                                                          |
+| Responsibility                                          | Canonical owner                                  | Producers and consumers                                                                                                                                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saved conversation ownership and stable thread identity | Postgres session repository                      | Brain history reads are scoped to the authenticated session; missing runtime scope does not hide saved messages.                                                                                                        |
+| Turn identity and execution admission                   | Postgres `canonical_turn_admissions`             | Brain reserves the exact request tuple and commits its prompt/run atomically. Runtime claims that admitted tuple once; local identity caches are reconstructable.                                                       |
+| Assistant transcript and terminal status                | Canonical lifecycle append transaction           | Runtime events, assistant transcript parts, and session/run terminal status commit together. History and context assembly consume durable rows. The append path does not rebuild the unused full-turn projection cache. |
+| Delivery confirmation and explicit retry                | Web `useChatCore` and its observed-fetch adapter | The SDK parses transport output. Exact HTTP tuple acknowledgement or canonical lifecycle evidence confirms admission. Unconfirmed retries retain the original client identity and serialized payload.                   |
+| Session save readiness and queued setup intent          | Web session manager and App's per-session queue  | Workspace waits for a saved session and claims queued intent synchronously. Settlement is guarded by session/submission ID; unconfirmed delivery requires explicit retry.                                               |
+| Saved transcript and history replacement                | Session-owned `useChat` with `useChatHydration`  | Complete snapshots replace verified rows; partial reads preserve previous rows. Only the pending user message is optimistic. SDK transport frames do not overwrite verified history.                                    |
+| Live and partial assistant presentation                 | Canonical lifecycle projection rendered by Web   | Assistant text is rendered before terminal settlement and retained after failure/interruption. Exact turn/item/phase matching suppresses saved rows only when their text is represented on screen.                      |
+| Setup selection                                         | `SessionConversationSurface`, keyed by session   | History loads before choosing setup. Only a complete empty read with no pending intent selects setup; run changes do not replace the history owner.                                                                     |
+| Local worker persistence location                       | Existing local launchers                         | Both launchers pass an explicit absolute `LEGIONCODE_LOCAL_PERSIST_DIR` to Wrangler. Starting a worker does not clear or migrate existing state.                                                                        |
 
-The recovery CLI is dry-run by default. It imports a runtime tuple only when
-the read-only SQLite source contains the same `turnRuntimeIdentities` and
-`turnToRunMap` values, the database run and session have one owner and workspace,
-and the original user message carries the exact client message id. Legacy chats
-without that proof receive a stable provenance-marked thread binding only;
-they do not receive fabricated turns, assistant replies, or lifecycle events.
-Transcript identity candidates require exact item/phase and text evidence, and
-ambiguous candidates remain unresolved. Local status divergence without an
-attributable terminal event remains an unknown historical outcome. Artifact
-bytes are marked verified only when the local object, size, and hash match its
-database reference; remote bucket/provider migration remains a production gate.
-
-Each local worker is launched with an explicit
-`LEGIONCODE_LOCAL_PERSIST_DIR`. A sanitized database fingerprint and Durable
-Object binding/migration fingerprint bind the root to its database and worker
-configuration. Per-role PID/start/token and process-group locks reject a second
-live writer. Both launchers use one waiting supervisor; the actual worker starts
-only after its group is durably attached to the exact lock token. An atomic
-mutex serializes acquisition, attachment, reclaim, and release. Reclaim and
-release require proven dead writer groups; unknown or malformed evidence blocks
-startup. CLI entrypoint paths are canonicalized before preflight runs. An
-unmarked non-empty state root or identity mismatch blocks startup with
-remediation; recovery never clears a persistence directory.
+Manual historical imports and custom local writer supervision are excluded from
+this change. Their preserved operator copies are not part of the active product
+path. Unknown historical turn identity remains unset; opening saved history does
+not require fabricating or importing runtime identity.
 
 ## Image context and compaction ownership
 
