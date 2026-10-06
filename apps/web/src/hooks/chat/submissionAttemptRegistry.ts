@@ -38,6 +38,7 @@ interface SubmissionRecord {
   wireBody: string | null;
   attempt: SubmissionAttempt | null;
   outcome: SubmissionOutcome | null;
+  retireWhenInactive: boolean;
 }
 
 const records = new Map<string, SubmissionRecord>();
@@ -56,6 +57,13 @@ export function acquireSubmissionAttempt(input: {
   | { attempt: SubmissionAttempt; reused: boolean; previousOutcome?: never }
   | { attempt: null; reused: true; previousOutcome: SubmissionOutcome }
   | null {
+  if (!input.intentKey.startsWith("explicit:")) {
+    retireAbandonedRetryPayloads(
+      input.sessionId,
+      input.intentKey,
+      input.intentFingerprint,
+    );
+  }
   if (
     input.clientMessageId &&
     clientMessageOwners.has(input.clientMessageId) &&
@@ -106,6 +114,7 @@ export function acquireSubmissionAttempt(input: {
       wireBody: null,
       attempt: null,
       outcome: null,
+      retireWhenInactive: false,
     };
     records.set(record.key, record);
     clientMessageOwners.set(record.clientMessageId, input.sessionId);
@@ -165,6 +174,11 @@ export function finishSubmissionAttempt(
   attempt.active = false;
   if (!record) return;
   record.outcome = outcome;
+  if (record.retireWhenInactive) {
+    attempt.wireBody = null;
+    deleteSubmissionRecord(record.key, record);
+    return;
+  }
   const resolvedCancellation =
     outcome.status === "cancelled" && outcome.admission !== "unconfirmed";
   if (
@@ -194,6 +208,40 @@ export function findSubmissionAttempt(
   return records.get(`${sessionId}\u0000${clientMessageId}`)?.attempt ?? null;
 }
 
+export function retireSubmissionIntent(
+  sessionId: string,
+  clientMessageId: string,
+): void {
+  const sessionPrefix = `${sessionId}\u0000`;
+  const explicitIntentKey = `explicit:${clientMessageId}`;
+  for (const [recordKey, record] of records) {
+    if (
+      !recordKey.startsWith(sessionPrefix) ||
+      (record.clientMessageId !== clientMessageId &&
+        record.intentKey !== explicitIntentKey)
+    ) {
+      continue;
+    }
+    if (record.attempt?.active) {
+      record.retireWhenInactive = true;
+    } else {
+      deleteSubmissionRecord(recordKey, record);
+    }
+  }
+}
+
+export function retireSessionSubmissionAttempts(sessionId: string): void {
+  const sessionPrefix = `${sessionId}\u0000`;
+  for (const [recordKey, record] of records) {
+    if (!recordKey.startsWith(sessionPrefix)) continue;
+    if (record.attempt?.active) {
+      record.retireWhenInactive = true;
+    } else {
+      deleteSubmissionRecord(recordKey, record);
+    }
+  }
+}
+
 function findRecord(attempt: SubmissionAttempt): SubmissionRecord | undefined {
   const record = records.get(`${attempt.sessionId}\u0000${attempt.clientMessageId}`);
   return record?.attempt?.token === attempt.token ? record : undefined;
@@ -210,29 +258,46 @@ function retryKeyFor(sessionId: string, intentKey: string, fingerprint: string):
 function pruneSettledRecords(): void {
   let settledCount = 0;
   for (const record of records.values()) {
-    if (!record.attempt?.active && isResolvedOutcome(record.outcome)) {
+    if (!record.attempt?.active && isTerminalOutcome(record.outcome)) {
       settledCount += 1;
     }
   }
   for (const [recordKey, record] of records) {
     if (settledCount <= MAX_SETTLED_RECORDS) return;
-    if (record.attempt?.active || !isResolvedOutcome(record.outcome)) continue;
-    records.delete(recordKey);
-    clientMessageOwners.delete(record.clientMessageId);
-    for (const [retryKey, rememberedRecordKey] of retryByIntent) {
-      if (rememberedRecordKey === recordKey) retryByIntent.delete(retryKey);
-    }
+    if (record.attempt?.active || !isTerminalOutcome(record.outcome)) continue;
+    deleteSubmissionRecord(recordKey, record);
     settledCount -= 1;
   }
 }
 
-function isResolvedOutcome(
-  outcome: SubmissionOutcome | null,
-): boolean {
-  return (
-    outcome?.status === "accepted" ||
-    (outcome?.status === "cancelled" && outcome.admission !== "unconfirmed")
-  );
+function retireAbandonedRetryPayloads(
+  sessionId: string,
+  intentKey: string,
+  currentFingerprint: string,
+): void {
+  for (const [recordKey, record] of records) {
+    if (
+      !recordKey.startsWith(`${sessionId}\u0000`) ||
+      record.intentKey !== intentKey ||
+      record.intentFingerprint === currentFingerprint ||
+      record.intentKey.startsWith("explicit:") ||
+      record.attempt?.active
+    ) {
+      continue;
+    }
+    deleteSubmissionRecord(recordKey, record);
+  }
+}
+
+function deleteSubmissionRecord(
+  recordKey: string,
+  record: SubmissionRecord,
+): void {
+  records.delete(recordKey);
+  clientMessageOwners.delete(record.clientMessageId);
+  for (const [retryKey, rememberedRecordKey] of retryByIntent) {
+    if (rememberedRecordKey === recordKey) retryByIntent.delete(retryKey);
+  }
 }
 
 function isTerminalOutcome(

@@ -26,9 +26,8 @@ const HYDRATION_RETRY_DELAY_MS = 300;
 
 interface HydrationViewState {
   requestIdentity: string;
-  status: HydrationStatus | "loading";
+  status: HydrationStatus;
   error: string | null;
-  isHydrating: boolean;
   settled: boolean;
 }
 
@@ -133,7 +132,6 @@ export function useChatHydration(
             requestIdentity: currentRequestIdentity,
             status: result.status,
             error: result.error ?? null,
-            isHydrating: false,
             settled: true,
           });
           return;
@@ -155,7 +153,6 @@ export function useChatHydration(
           requestIdentity: currentRequestIdentity,
           status: result.status,
           error: result.error ?? null,
-          isHydrating: false,
           settled:
             result.status !== "failed" && result.status !== "partial"
               ? true
@@ -178,7 +175,6 @@ export function useChatHydration(
           requestIdentity: currentRequestIdentity,
           status: "failed",
           error: message,
-          isHydrating: false,
           settled: !retryScheduled,
         });
       });
@@ -203,9 +199,7 @@ export function useChatHydration(
   const currentView =
     requestIdentity === viewState?.requestIdentity ? viewState : null;
   return {
-    isHydrating: hydrationKey
-      ? (currentView?.isHydrating ?? true)
-      : false,
+    isHydrating: Boolean(hydrationKey) && !currentView,
     // Failures and partial reads are settled UI states. The transcript surface
     // can render recovery guidance instead of blocking forever on a spinner.
     hasHydrated: Boolean(hydrationKey) && Boolean(currentView?.settled),

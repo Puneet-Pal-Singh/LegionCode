@@ -6,10 +6,13 @@ export type InitialPromptSubmissionId = string & {
   readonly [initialPromptSubmissionIdBrand]: true;
 };
 
+export type InitialPromptSubmissionStatus = "queued" | "submitting" | "failed";
+
 export interface InitialPromptSubmission {
   id: InitialPromptSubmissionId;
   prompt: string;
   attachments?: ChatSubmitAttachments;
+  status: InitialPromptSubmissionStatus;
 }
 
 export function createInitialPromptSubmissionId(

@@ -44,10 +44,16 @@ import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.
 import {
   createInitialPromptSubmissionId,
   type InitialPromptSubmission,
+  type InitialPromptSubmissionId,
+  type InitialPromptSubmissionStatus,
 } from "./lib/initial-prompt-submission";
 import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
 import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
 import { isSessionPersistenceReady } from "./lib/session-persistence";
+import {
+  retireSessionSubmissionAttempts,
+  retireSubmissionIntent,
+} from "./hooks/chat/submissionAttemptRegistry";
 
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
 const MIN_RIGHT_SIDEBAR_WIDTH = 420;
@@ -633,6 +639,83 @@ function AppContent() {
   const [initialPromptSubmissions, setInitialPromptSubmissions] = useState<
     Record<string, InitialPromptSubmission>
   >({});
+  const initialPromptSubmissionsRef = useRef(initialPromptSubmissions);
+  const updateInitialPromptSubmissions = useCallback(
+    (
+      update: (
+        current: Record<string, InitialPromptSubmission>,
+      ) => Record<string, InitialPromptSubmission>,
+    ) => {
+      const next = update(initialPromptSubmissionsRef.current);
+      initialPromptSubmissionsRef.current = next;
+      setInitialPromptSubmissions(next);
+    },
+    [],
+  );
+  const claimInitialPrompt = useCallback(
+    (sessionId: string, id: InitialPromptSubmissionId): boolean => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (
+        current?.id !== id ||
+        current.status !== "queued"
+      ) {
+        return false;
+      }
+      updateInitialPromptSubmissions((submissions) => ({
+        ...submissions,
+        [sessionId]: { ...current, status: "submitting" },
+      }));
+      return true;
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const updateInitialPromptStatus = useCallback(
+    (
+      sessionId: string,
+      id: InitialPromptSubmissionId,
+      status: InitialPromptSubmissionStatus,
+    ) => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id || current.status !== "submitting") return;
+      updateInitialPromptSubmissions((submissions) => ({
+        ...submissions,
+        [sessionId]: { ...current, status },
+      }));
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const settleInitialPrompt = useCallback(
+    (sessionId: string, id: InitialPromptSubmissionId) => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id) return;
+      retireSubmissionIntent(sessionId, `client_msg_${id}`);
+      updateInitialPromptSubmissions((submissions) => {
+        const next = { ...submissions };
+        delete next[sessionId];
+        return next;
+      });
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const retryInitialPrompt = useCallback(
+    (sessionId: string, id: InitialPromptSubmissionId) => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id || current.status !== "failed") return;
+      updateInitialPromptSubmissions((submissions) => ({
+        ...submissions,
+        [sessionId]: { ...current, status: "queued" },
+      }));
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const retireSessionInitialPrompt = useCallback(
+    (sessionId: string) => {
+      retireSessionSubmissionAttempts(sessionId);
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current) settleInitialPrompt(sessionId, current.id);
+    },
+    [settleInitialPrompt],
+  );
 
   useEffect(() => {
     localStorage.setItem(
@@ -916,8 +999,18 @@ function AppContent() {
               activeSessionId={activeSessionId}
               onSelect={handleSelectSession}
               onCreate={handleNewTask}
-              onRemove={removeSession}
-              onRemoveRepository={removeRepository}
+              onRemove={(sessionId) => {
+                removeSession(sessionId);
+                retireSessionInitialPrompt(sessionId);
+              }}
+              onRemoveRepository={(repository) => {
+                sessions
+                  .filter((session) => session.repository === repository)
+                  .forEach((session) =>
+                    retireSessionInitialPrompt(session.id),
+                  );
+                removeRepository(repository);
+              }}
               onRenameRepository={renameRepository}
               onClose={handleToggleSidebar}
               onAddRepository={handleOpenRepositoryPicker}
@@ -1060,7 +1153,6 @@ function AppContent() {
                         sessionTitle={activeSession.name}
                         sessionCreatedAt={activeSession.createdAt}
                         sessionUpdatedAt={activeSession.updatedAt}
-                        runId={activeSession.activeRunId || ""}
                         repository={activeSession.repository || ""}
                         mode={activeSession.mode}
                         isSessionRunning={activeSession.status === "running"}
@@ -1084,16 +1176,18 @@ function AppContent() {
                         initialPromptSubmission={
                           initialPromptSubmissions[activeSessionId] ?? null
                         }
-                        onInitialPromptHandled={(id) => {
-                          setInitialPromptSubmissions((current) => {
-                            const submission = current[activeSessionId];
-                            if (!submission || submission.id !== id)
-                              return current;
-                            const next = { ...current };
-                            delete next[activeSessionId];
-                            return next;
-                          });
-                        }}
+                        onInitialPromptClaim={(id) =>
+                          claimInitialPrompt(activeSessionId, id)
+                        }
+                        onInitialPromptStatusChange={(id, status) =>
+                          updateInitialPromptStatus(activeSessionId, id, status)
+                        }
+                        onInitialPromptRetry={(id) =>
+                          retryInitialPrompt(activeSessionId, id)
+                        }
+                        onInitialPromptHandled={(id) =>
+                          settleInitialPrompt(activeSessionId, id)
+                        }
                         onPromptSubmitted={(prompt) => {
                           if (prompt.trim())
                             updateSession(activeSessionId, {
@@ -1159,8 +1253,17 @@ function AppContent() {
                               ),
                               prompt: config.task,
                               attachments: config.attachments,
+                              status: "queued",
                             };
-                            setInitialPromptSubmissions((current) => ({
+                            const previous =
+                              initialPromptSubmissionsRef.current[activeSessionId];
+                            if (previous) {
+                              retireSubmissionIntent(
+                                activeSessionId,
+                                `client_msg_${previous.id}`,
+                              );
+                            }
+                            updateInitialPromptSubmissions((current) => ({
                               ...current,
                               [activeSessionId]: submission,
                             }));

@@ -27,6 +27,12 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
   );
   const submissionId = input.initialPromptSubmission?.id;
   const initialPrompt = input.initialPromptSubmission?.prompt.trim();
+  if (
+    input.initialPromptSubmission?.status === "submitting" &&
+    input.hasImmediateUserSubmission
+  ) {
+    return canonicalEntries;
+  }
   const alreadyProjected = input.messages.some(
     (message) =>
       message.role === "user" && message.id === `client_msg_${submissionId}`,

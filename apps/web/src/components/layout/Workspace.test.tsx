@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { useState, type ComponentProps } from "react";
+import { useRef, useState, type ComponentProps } from "react";
 import { Workspace } from "./Workspace";
 import type { UseChatResult } from "../../hooks/useChat";
-import { clearInitialPromptSubmissionClaimsForTests } from "./workspace/initialPromptSubmissionGuard";
-import { createInitialPromptSubmissionId } from "../../lib/initial-prompt-submission";
+import {
+  createInitialPromptSubmissionId,
+  type InitialPromptSubmission,
+  type InitialPromptSubmissionId,
+  type InitialPromptSubmissionStatus,
+} from "../../lib/initial-prompt-submission";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
 const mockUseGitStatusInputs = vi.hoisted(
@@ -90,16 +94,80 @@ const mockChatInterface = vi.hoisted(() =>
 function TestWorkspace(
   props: Omit<
     ComponentProps<typeof Workspace>,
-    "chat" | "productMode" | "setProductMode" | "registerFileCreatedRefresh"
-  >,
+    | "chat"
+    | "productMode"
+    | "setProductMode"
+    | "registerFileCreatedRefresh"
+    | "onInitialPromptClaim"
+    | "onInitialPromptStatusChange"
+    | "onInitialPromptRetry"
+    | "onInitialPromptHandled"
+  > & {
+    workspaceKey?: string | number;
+    onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
+  },
 ) {
+  const [ownedSubmission, setOwnedSubmission] = useState(
+    props.initialPromptSubmission ?? null,
+  );
+  const ownedSubmissionRef = useRef(ownedSubmission);
+  const updateOwnedSubmission = (
+    update: (
+      current: InitialPromptSubmission | null,
+    ) => InitialPromptSubmission | null,
+  ) => {
+    const next = update(ownedSubmissionRef.current);
+    ownedSubmissionRef.current = next;
+    setOwnedSubmission(next);
+  };
+  const claimSubmission = (id: InitialPromptSubmissionId) => {
+    const current = ownedSubmissionRef.current;
+    if (!current || current.id !== id || current.status !== "queued") {
+      return false;
+    }
+    updateOwnedSubmission((submission) =>
+      submission ? { ...submission, status: "submitting" } : null,
+    );
+    return true;
+  };
+  const updateSubmissionStatus = (
+    id: InitialPromptSubmissionId,
+    status: InitialPromptSubmissionStatus,
+  ) => {
+    const current = ownedSubmissionRef.current;
+    if (!current || current.id !== id || current.status !== "submitting") {
+      return;
+    }
+    updateOwnedSubmission((submission) =>
+      submission ? { ...submission, status } : null,
+    );
+  };
+  const retrySubmission = (id: InitialPromptSubmissionId) => {
+    const current = ownedSubmissionRef.current;
+    if (!current || current.id !== id || current.status !== "failed") return;
+    updateOwnedSubmission((submission) =>
+      submission ? { ...submission, status: "queued" } : null,
+    );
+  };
+  const settleSubmission = (id: InitialPromptSubmissionId) => {
+    if (ownedSubmissionRef.current?.id !== id) return;
+    updateOwnedSubmission(() => null);
+    props.onInitialPromptHandled?.(id);
+  };
+  const { workspaceKey, ...workspaceProps } = props;
   return (
     <Workspace
-      {...props}
+      key={workspaceKey}
+      {...workspaceProps}
+      initialPromptSubmission={ownedSubmission}
       chat={mockChatState as unknown as UseChatResult}
       productMode="ask_always"
       setProductMode={() => undefined}
       registerFileCreatedRefresh={() => undefined}
+      onInitialPromptClaim={claimSubmission}
+      onInitialPromptStatusChange={updateSubmissionStatus}
+      onInitialPromptRetry={retrySubmission}
+      onInitialPromptHandled={settleSubmission}
     />
   );
 }
@@ -250,7 +318,6 @@ vi.mock("../git/GitCommitDialog", () => ({
 
 describe("Workspace", () => {
   beforeEach(() => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockUseGitStatusInputs.length = 0;
@@ -286,7 +353,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         setIsRightSidebarOpen={setIsRightSidebarOpen}
         summaryActionRequest={{ id: 1, action: "changes" }}
@@ -303,18 +369,24 @@ describe("Workspace", () => {
   });
 
   it("submits an initial setup prompt once across workspace remounts", async () => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockResolvedValue(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-prompt-1"),
       prompt:
         "Hey, read my readme and tell what do you think of this project??",
+      status: "queued" as const,
     };
-    const firstRender = render(
+    let resolveAppend!: (outcome: ReturnType<typeof acceptedSubmission>) => void;
+    mockChatState.append.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveAppend = resolve;
+      }),
+    );
+    const { rerender } = render(
       <TestWorkspace
+        workspaceKey="first"
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         initialPromptSubmission={initialPromptSubmission}
         onInitialPromptHandled={onInitialPromptHandled}
@@ -324,22 +396,23 @@ describe("Workspace", () => {
     await waitFor(() => {
       expect(mockChatState.append).toHaveBeenCalledTimes(1);
     });
-    firstRender.unmount();
-
-    render(
+    rerender(
       <TestWorkspace
+        workspaceKey="second"
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         initialPromptSubmission={initialPromptSubmission}
         onInitialPromptHandled={onInitialPromptHandled}
       />,
     );
 
-    await waitFor(() => {
-      expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-prompt-1");
-    });
     expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    resolveAppend(acceptedSubmission());
+    await waitFor(() => {
+      expect(onInitialPromptHandled).toHaveBeenCalledWith(
+        createInitialPromptSubmissionId("setup-prompt-1"),
+      );
+    });
     expect(mockChatState.append).toHaveBeenCalledWith({
       id: "client_msg_setup-prompt-1",
       role: "user",
@@ -349,17 +422,16 @@ describe("Workspace", () => {
   });
 
   it("waits for model configuration before submitting an initial setup prompt", async () => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockClear();
     mockChatState.isModelConfigReady = false;
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-prompt-2"),
       prompt: "Read README",
+      status: "queued" as const,
     };
     const { rerender } = render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         initialPromptSubmission={initialPromptSubmission}
       />,
@@ -371,7 +443,6 @@ describe("Workspace", () => {
     rerender(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         initialPromptSubmission={initialPromptSubmission}
       />,
@@ -383,17 +454,16 @@ describe("Workspace", () => {
   });
 
   it("waits for the session save before admitting the queued setup prompt", async () => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockClear();
     mockChatState.append.mockResolvedValue(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-delayed-save"),
       prompt: "Read README",
+      status: "queued" as const,
     };
     const props = {
       sessionId: "session-delayed",
-      runId: "run-123",
       repository: "owner/repo",
       initialPromptSubmission,
       onInitialPromptHandled,
@@ -413,17 +483,16 @@ describe("Workspace", () => {
   });
 
   it("keeps the setup prompt queued while save fails and resumes after the existing retry succeeds", async () => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockClear();
     mockChatState.append.mockResolvedValue(acceptedSubmission());
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-save-retry"),
       prompt: "Read README",
+      status: "queued" as const,
     };
     const props = {
       sessionId: "session-retry",
-      runId: "run-123",
       repository: "owner/repo",
       initialPromptSubmission,
       onInitialPromptHandled,
@@ -444,7 +513,6 @@ describe("Workspace", () => {
   });
 
   it("waits for explicit retry after rejection despite parent callback churn and reuses the client identity", async () => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockReset();
     mockChatState.append.mockRejectedValueOnce(new Error("response lost"));
     mockChatState.append.mockResolvedValueOnce(acceptedSubmission());
@@ -452,6 +520,7 @@ describe("Workspace", () => {
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-admission-retry"),
       prompt: "Read README",
+      status: "queued" as const,
     };
     function ParentConsumer() {
       const [runStatus, setRunStatus] = useState("running");
@@ -465,9 +534,8 @@ describe("Workspace", () => {
             Refresh workspace
           </button>
           <TestWorkspace
-            key={workspaceVersion}
+            workspaceKey={workspaceVersion}
             sessionId="session-admission-retry"
-            runId="run-123"
             repository="owner/repo"
             initialPromptSubmission={initialPromptSubmission}
             onInitialPromptHandled={onInitialPromptHandled}
@@ -504,78 +572,12 @@ describe("Workspace", () => {
     );
   });
 
-  it.each([
-    [
-      "before dispatch",
-      { status: "cancelled", admission: "not-dispatched" },
-      true,
-      false,
-    ],
-    [
-      "after admission",
-      { status: "cancelled", admission: "accepted" },
-      true,
-      false,
-    ],
-    [
-      "with uncertain admission",
-      { status: "cancelled", admission: "unconfirmed" },
-      false,
-      true,
-    ],
-  ] as const)(
-    "handles a stopped setup submission %s according to its admission fact",
-    async (_label, outcome, handled, showsRetry) => {
-      clearInitialPromptSubmissionClaimsForTests();
-      mockChatState.append.mockReset();
-      mockChatState.append.mockResolvedValueOnce(outcome);
-      const onInitialPromptHandled = vi.fn();
-      const initialPromptSubmission = {
-        id: createInitialPromptSubmissionId(
-          `setup-stop-${_label.replaceAll(" ", "-")}`,
-        ),
-        prompt: "Stop this setup prompt",
-      };
-      const { queryByRole } = render(
-        <TestWorkspace
-          sessionId={`session-stop-${_label}`}
-          runId="run-123"
-          repository="owner/repo"
-          initialPromptSubmission={initialPromptSubmission}
-          onInitialPromptHandled={onInitialPromptHandled}
-        />,
-      );
-
-      await waitFor(() =>
-        expect(mockChatState.append).toHaveBeenCalledTimes(1),
-      );
-      if (handled) {
-        await waitFor(() =>
-          expect(onInitialPromptHandled).toHaveBeenCalledWith(
-            initialPromptSubmission.id,
-          ),
-        );
-      } else {
-        await waitFor(() =>
-          expect(
-            queryByRole("button", { name: "Retry setup prompt" }),
-          ).toBeTruthy(),
-        );
-        expect(onInitialPromptHandled).not.toHaveBeenCalled();
-      }
-      expect(
-        Boolean(queryByRole("button", { name: "Retry setup prompt" })),
-      ).toBe(showsRetry);
-    },
-  );
-
   it("blocks composer and revision admission while the session is unsaved", async () => {
     mockChatState.handleSubmit.mockClear();
     mockChatState.reviseTurn.mockClear();
     const { rerender } = render(
       <TestWorkspace
         sessionId="session-unsaved"
-        runId="run-123"
         repository="owner/repo"
         sessionPersistenceStatus="saving"
       />,
@@ -603,7 +605,6 @@ describe("Workspace", () => {
     rerender(
       <TestWorkspace
         sessionId="session-unsaved"
-        runId="run-123"
         repository="owner/repo"
         sessionPersistenceStatus="saved"
       />,
@@ -616,11 +617,11 @@ describe("Workspace", () => {
   });
 
   it("preserves setup-composer images in the first workspace message", async () => {
-    clearInitialPromptSubmissionClaimsForTests();
     mockChatState.append.mockResolvedValue(acceptedSubmission());
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-image-1"),
       prompt: "Inspect this screenshot",
+      status: "queued" as const,
       attachments: {
         imageAttachments: [
           {
@@ -639,7 +640,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         initialPromptSubmission={initialPromptSubmission}
       />,
@@ -685,7 +685,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="Puneet-Pal-Singh/career-crew"
       />,
     );
@@ -710,7 +709,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career crew renamed"
       />,
     );
@@ -729,7 +727,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
       />,
     );
@@ -749,7 +746,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         isSessionRunning
       />,
@@ -770,7 +766,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         isSessionRunning
       />,
@@ -790,7 +785,6 @@ describe("Workspace", () => {
     const { rerender } = render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         setIsRightSidebarOpen={setIsRightSidebarOpen}
         reviewSidebarFocusRequest={0}
@@ -802,7 +796,6 @@ describe("Workspace", () => {
     rerender(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         setIsRightSidebarOpen={setIsRightSidebarOpen}
         reviewSidebarFocusRequest={1}
@@ -821,7 +814,6 @@ describe("Workspace", () => {
     render(
       <TestWorkspace
         sessionId="session-123"
-        runId="run-123"
         repository="career-crew"
         onGitReviewOpenChange={onGitReviewOpenChange}
         setIsRightSidebarOpen={setIsRightSidebarOpen}

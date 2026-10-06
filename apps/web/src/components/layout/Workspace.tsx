@@ -37,16 +37,10 @@ import {
   deriveWorkspaceRunUiState,
 } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
-import {
-  claimInitialPromptSubmission,
-  clearInitialPromptSubmissionFailure,
-  isInitialPromptSubmissionFailed,
-  markInitialPromptSubmissionFailed,
-  releaseInitialPromptSubmissionClaim,
-} from "./workspace/initialPromptSubmissionGuard";
 import type {
   InitialPromptSubmission,
   InitialPromptSubmissionId,
+  InitialPromptSubmissionStatus,
 } from "../../lib/initial-prompt-submission";
 import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
 import {
@@ -64,7 +58,6 @@ interface WorkspaceProps {
   sessionTitle?: string;
   sessionCreatedAt?: string;
   sessionUpdatedAt?: string;
-  runId: string;
   repository: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
@@ -74,7 +67,13 @@ interface WorkspaceProps {
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
   initialPromptSubmission?: InitialPromptSubmission | null;
-  onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
+  onInitialPromptClaim: (id: InitialPromptSubmissionId) => boolean;
+  onInitialPromptStatusChange: (
+    id: InitialPromptSubmissionId,
+    status: InitialPromptSubmissionStatus,
+  ) => void;
+  onInitialPromptRetry: (id: InitialPromptSubmissionId) => void;
+  onInitialPromptHandled: (id: InitialPromptSubmissionId) => void;
   onHookSettingsContextChange?: (context: {
     workspaceId: string;
     audits: readonly HookSettingsAuditReadModel[];
@@ -109,6 +108,9 @@ export function Workspace({
   onSessionStatusChange,
   onPromptSubmitted,
   initialPromptSubmission = null,
+  onInitialPromptClaim,
+  onInitialPromptStatusChange,
+  onInitialPromptRetry,
   onInitialPromptHandled,
   onHookSettingsContextChange,
   isRightSidebarOpen = false,
@@ -314,56 +316,27 @@ export function Workspace({
       activeTurn.isActive,
     ],
   );
-  const handledInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
-    null,
-  );
-  const failedInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
-    null,
-  );
-  const [failedInitialPromptId, setFailedInitialPromptId] =
-    useState<InitialPromptSubmissionId | null>(null);
-  const [initialPromptRetryRevision, setInitialPromptRetryRevision] =
-    useState(0);
-
-  const retryInitialPrompt = useCallback(() => {
-    const failedId = initialPromptSubmission?.id;
-    if (!failedId || !isInitialPromptSubmissionFailed(failedId)) return;
-    clearInitialPromptSubmissionFailure(failedId);
-    failedInitialPromptIdRef.current = null;
-    setFailedInitialPromptId(null);
-    setInitialPromptRetryRevision((revision) => revision + 1);
-  }, [initialPromptSubmission?.id]);
-
   useEffect(() => {
     if (!initialPromptSubmission) {
       return;
     }
-    if (isInitialPromptSubmissionFailed(initialPromptSubmission.id)) {
-      return;
-    }
+    if (initialPromptSubmission.status !== "queued") return;
     if (!isSessionPersisted) {
       return;
     }
     if (!isModelConfigReady) {
       return;
     }
-    if (failedInitialPromptIdRef.current === initialPromptSubmission.id) {
-      return;
-    }
-    if (handledInitialPromptIdRef.current === initialPromptSubmission.id) {
-      return;
-    }
-    if (!claimInitialPromptSubmission(initialPromptSubmission.id)) {
+    if (!onInitialPromptClaim(initialPromptSubmission.id)) {
       return;
     }
 
     const prompt = initialPromptSubmission.prompt.trim();
     if (!prompt) {
-      onInitialPromptHandled?.(initialPromptSubmission.id);
+      onInitialPromptHandled(initialPromptSubmission.id);
       return;
     }
 
-    handledInitialPromptIdRef.current = initialPromptSubmission.id;
     void appendWhenPersisted({
       ...buildChatAppendMessage(
         prompt,
@@ -379,10 +352,7 @@ export function Workspace({
           (outcome.status === "cancelled" &&
             outcome.admission !== "unconfirmed")
         ) {
-          clearInitialPromptSubmissionFailure(initialPromptSubmission.id);
-          failedInitialPromptIdRef.current = null;
-          setFailedInitialPromptId(null);
-          onInitialPromptHandled?.(initialPromptSubmission.id);
+          onInitialPromptHandled(initialPromptSubmission.id);
           return;
         }
         {
@@ -393,32 +363,22 @@ export function Workspace({
                 ? "The stopped request may have been admitted. Check the saved conversation before retrying."
                 : "The queued prompt belongs to a conversation that is no longer active.";
           console.warn("[Workspace] Setup prompt was not confirmed:", message);
-          markInitialPromptSubmissionFailed(initialPromptSubmission.id);
-          failedInitialPromptIdRef.current = initialPromptSubmission.id;
-          setFailedInitialPromptId(initialPromptSubmission.id);
-          handledInitialPromptIdRef.current = null;
-          releaseInitialPromptSubmissionClaim(initialPromptSubmission.id);
+          onInitialPromptStatusChange(initialPromptSubmission.id, "failed");
           return;
         }
       })
       .catch((error) => {
         console.error("[Workspace] Failed to submit setup prompt:", error);
-        // Keep the queued prompt stable, but wait for an explicit retry so a
-        // parent rerender or callback identity change cannot resubmit it.
-        markInitialPromptSubmissionFailed(initialPromptSubmission.id);
-        failedInitialPromptIdRef.current = initialPromptSubmission.id;
-        setFailedInitialPromptId(initialPromptSubmission.id);
-        handledInitialPromptIdRef.current = null;
-        releaseInitialPromptSubmissionClaim(initialPromptSubmission.id);
+        onInitialPromptStatusChange(initialPromptSubmission.id, "failed");
       });
   }, [
     appendWhenPersisted,
     initialPromptSubmission,
     isModelConfigReady,
     isSessionPersisted,
+    onInitialPromptClaim,
+    onInitialPromptStatusChange,
     onInitialPromptHandled,
-    onSessionStatusChange,
-    initialPromptRetryRevision,
   ]);
   const {
     isApprovalWaitingRun,
@@ -570,8 +530,7 @@ export function Workspace({
           {/* Chat Area */}
           <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
             {initialPromptSubmission &&
-            (failedInitialPromptId === initialPromptSubmission.id ||
-              isInitialPromptSubmissionFailed(initialPromptSubmission.id)) ? (
+            initialPromptSubmission.status === "failed" ? (
               <div
                 role="alert"
                 className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100"
@@ -582,7 +541,9 @@ export function Workspace({
                 <button
                   type="button"
                   className="rounded-md border border-amber-200/30 px-3 py-1 font-medium hover:bg-amber-500/15"
-                  onClick={retryInitialPrompt}
+                  onClick={() =>
+                    onInitialPromptRetry(initialPromptSubmission.id)
+                  }
                 >
                   Retry setup prompt
                 </button>

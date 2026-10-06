@@ -100,7 +100,6 @@ interface ChatSubmitAttachments {
 }
 
 interface UseChatCoreResult {
-  messages: Message[];
   optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
@@ -534,7 +533,6 @@ export function useChatCore(
     if (!externalRunId) {
       setInternalRunId(createRunId());
     }
-    // setMessages will be called after the new instance is created via instanceKey change
   }, [externalRunId]);
 
   const resolveSelectedProviderConfigForRequest = useCallback(
@@ -928,7 +926,7 @@ export function useChatCore(
           (await hasCanonicalLifecycleEvidence(lifecycleClient, requestScope));
         if (attempt.stopRequested && canonicalTurnAccepted) {
           try {
-            await interruptAndAwaitTerminal(
+            await interruptAndAbortTransport(
               lifecycleClient,
               requestScope,
               () => {
@@ -1091,12 +1089,18 @@ export function useChatCore(
       buildChatRequestBody,
       isActiveRunScope,
       lifecycleClient,
+      mode,
+      productMode,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
       runId,
       runScopeKey,
       sessionId,
+      selectedCredentialId,
+      selectedModelEfforts,
+      selectedModelId,
+      selectedProviderId,
       status,
       stopStream,
       submitResolvedMessage,
@@ -1178,7 +1182,6 @@ export function useChatCore(
       pushDebugEvent,
       restoreChatInput,
       runId,
-      runScopeKey,
       sessionId,
     ],
   );
@@ -1320,9 +1323,13 @@ export function useChatCore(
           // absent after transport cancellation.
           if (stopOwnsInvocation()) stopStream();
         } else if (requestScope) {
-          await interruptAndAwaitTerminal(lifecycleClient, requestScope, () => {
-            if (stopOwnsInvocation()) stopStream();
-          });
+          await interruptAndAbortTransport(
+            lifecycleClient,
+            requestScope,
+            () => {
+              if (stopOwnsInvocation()) stopStream();
+            },
+          );
         } else {
           preAdmissionStopKeyRef.current = runScopeKey;
           if (stopOwnsInvocation()) stopStream();
@@ -1377,7 +1384,6 @@ export function useChatCore(
   );
 
   return {
-    messages: optimisticUserMessage ? [optimisticUserMessage] : [],
     optimisticUserMessage,
     optimisticUserMessageId,
     input,
@@ -1416,26 +1422,20 @@ export async function interruptAndAwaitTerminal(
     import("../services/api/lifecycleClient").LifecycleEvent
   > | null = null;
   try {
-    const response = await raceWithAbort(
-      lifecycleClient.interruptTurn(
-        {
-          runId: RunIdSchema.parse(scope.runId),
-          workspaceId: scope.workspaceId,
-          sessionId: scope.sessionId,
-          threadId: ThreadIdSchema.parse(scope.threadId),
-          turnId: TurnIdSchema.parse(scope.turnId),
-          runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
-          reason: "User stopped the turn.",
-        },
-        { signal: settlementAbort.signal },
-      ),
+    const response = await requestExactInterrupt(
+      lifecycleClient,
+      scope,
       settlementAbort.signal,
     );
     // The runtime command is now durably admitted. Stop the chat transport
     // immediately so the composer reflects the user's hard-stop action while
     // lifecycle continuation independently waits for canonical settlement.
-    onInterruptAccepted();
-    if (isExactTerminalEvent(response.terminalEvent, scope)) return;
+    const terminalAlreadySettled = isExactTerminalEvent(
+      response.terminalEvent,
+      scope,
+    );
+    if (response.accepted || terminalAlreadySettled) onInterruptAccepted();
+    if (terminalAlreadySettled) return;
     const events = lifecycleClient.followTurnLifecycle(
       { turnId: TurnIdSchema.parse(scope.turnId) },
       { signal: settlementAbort.signal },
@@ -1463,6 +1463,63 @@ export async function interruptAndAwaitTerminal(
       void Promise.resolve(iterator.return()).catch(() => undefined);
     }
   }
+}
+
+async function interruptAndAbortTransport(
+  lifecycleClient: ReturnType<typeof createLifecycleClient>,
+  scope: ConversationScope,
+  onInterruptAccepted: () => void,
+): Promise<void> {
+  const abort = new AbortController();
+  const timeout = window.setTimeout(
+    () => abort.abort("Timed out sending the interrupt command."),
+    15_000,
+  );
+  try {
+    const response = await requestExactInterrupt(
+      lifecycleClient,
+      scope,
+      abort.signal,
+    );
+    if (
+      response.accepted ||
+      isExactTerminalEvent(response.terminalEvent, scope)
+    ) {
+      onInterruptAccepted();
+    }
+  } finally {
+    window.clearTimeout(timeout);
+    abort.abort("Interrupt command completed.");
+  }
+}
+
+async function requestExactInterrupt(
+  lifecycleClient: ReturnType<typeof createLifecycleClient>,
+  scope: ConversationScope,
+  signal: AbortSignal,
+): Promise<import("@repo/platform-client-sdk").InterruptTurnResponse> {
+  const response = await raceWithAbort(
+    lifecycleClient.interruptTurn(
+      {
+        runId: RunIdSchema.parse(scope.runId),
+        workspaceId: scope.workspaceId,
+        sessionId: scope.sessionId,
+        threadId: ThreadIdSchema.parse(scope.threadId),
+        turnId: TurnIdSchema.parse(scope.turnId),
+        runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
+        reason: "User stopped the turn.",
+      },
+      { signal },
+    ),
+    signal,
+  );
+  if (response.runId !== scope.runId) {
+    throw new Error("The interrupt response did not match the requested run.");
+  }
+  if (!response.accepted && !isExactTerminalEvent(response.terminalEvent, scope)) {
+    throw new Error("The runtime did not accept the interrupt request.");
+  }
+  return response;
 }
 
 function raceWithAbort<T>(

@@ -91,6 +91,7 @@ describe("useChatPresentation", () => {
         initialPromptSubmission: {
           id: createInitialPromptSubmissionId("setup-1"),
           prompt: "Inspect the README",
+          status: "queued",
         },
       }),
     );
@@ -127,6 +128,7 @@ describe("useChatPresentation", () => {
         initialPromptSubmission: {
           id: createInitialPromptSubmissionId("setup-1"),
           prompt: "Inspect the README",
+          status: "queued",
         },
       }),
     );
@@ -167,6 +169,7 @@ describe("useChatPresentation", () => {
         initialPromptSubmission: {
           id: createInitialPromptSubmissionId("setup-image"),
           prompt: "Inspect this screenshot",
+          status: "queued",
         },
       }),
     );
