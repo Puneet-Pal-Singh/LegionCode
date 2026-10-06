@@ -235,6 +235,26 @@ function TurnWorkflowEntry({
         projection={entry.projection}
         onArtifactOpen={props.onArtifactOpen}
       />
+      {terminal?.state !== "completed" && entry.projection.assistantText.trim() ? (
+        <ChatMessage
+          message={{
+            id: `canonical-assistant:${turnId}`,
+            role: "assistant",
+            content: entry.projection.assistantText,
+          }}
+          metadata={buildLifecycleMessageMetadata(
+            entry.projection,
+            entry.assistantMessage
+              ? props.messageMetadataById[entry.assistantMessage.id]
+              : undefined,
+            props.resolveModelLabel,
+            props.modeLabel,
+          )}
+          onArtifactOpen={props.onArtifactOpen}
+          onReviewOpen={props.onReviewOpen}
+          hookAudits={entry.projection.hookAudits}
+        />
+      ) : null}
       {terminal?.errorCode ? (
         <span
           data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}

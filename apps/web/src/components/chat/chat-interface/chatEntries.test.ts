@@ -19,7 +19,7 @@ describe("buildChatEntries", () => {
     );
   });
 
-  it("does not render failed assistant text as a completed transcript answer", () => {
+  it("preserves durable assistant text from a failed turn", () => {
     const user = createMessage("user-1", "user", "Inspect the repo");
     const failed = {
       ...createMessage("assistant-1", "assistant", "failed"),
@@ -28,6 +28,7 @@ describe("buildChatEntries", () => {
 
     expect(buildChatEntries(buildConversationTurns([user, failed]))).toEqual([
       { kind: "message", message: user },
+      { kind: "message", message: failed },
     ]);
   });
 

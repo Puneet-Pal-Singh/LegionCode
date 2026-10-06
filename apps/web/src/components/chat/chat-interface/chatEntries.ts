@@ -100,11 +100,7 @@ function shouldIncludeAssistantMessage(
   projection?: LifecycleProjection,
 ): message is Message {
   if (!message || message.role !== "assistant") return false;
-  if (isRepresentedByWorkflow(message, projection)) {
-    return false;
-  }
-  const terminalState = readTerminalState(message);
-  return terminalState == null || terminalState === "completed";
+  return !isRepresentedByWorkflow(message, projection);
 }
 
 function isRepresentedByWorkflow(
@@ -117,16 +113,27 @@ function isRepresentedByWorkflow(
   const itemId = metadata?.itemId;
   if (typeof itemId !== "string") return false;
   const phase = metadata?.phase;
-  const expectedKind =
-    phase === "commentary"
-      ? "commentary"
-      : phase === "final_answer"
-        ? "assistant_message"
-        : null;
-  if (!expectedKind) return false;
-  return projection.items.some(
-    (item) => item.kind === expectedKind && item.itemId === itemId,
+  const messageContent = message.content.trim();
+  if (!messageContent) return false;
+  if (phase === "commentary") {
+    return projection.items.some(
+      (item) =>
+        item.kind === "commentary" &&
+        item.itemId === itemId &&
+        item.text.trim() === messageContent,
+    );
+  }
+  if (phase !== "final_answer") return false;
+  const item = projection.items.find(
+    (candidate) =>
+      candidate.kind === "assistant_message" && candidate.itemId === itemId,
   );
+  if (!item || !item.text.trim().startsWith(messageContent)) return false;
+  const renderedFinalText =
+    projection.terminal?.state === "completed"
+      ? projection.assistantText || projection.terminal.content
+      : projection.assistantText;
+  return renderedFinalText.includes(messageContent);
 }
 
 function readMessageMetadata(message: Message): Record<string, unknown> | null {
@@ -136,13 +143,4 @@ function readMessageMetadata(message: Message): Record<string, unknown> | null {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata)
     ? (metadata as Record<string, unknown>)
     : null;
-}
-
-function readTerminalState(message: Message): string | null {
-  const data = (message as Message & { data?: unknown }).data;
-  if (!data || typeof data !== "object") return null;
-  const metadata = (data as Record<string, unknown>).metadata;
-  if (!metadata || typeof metadata !== "object") return null;
-  const terminalState = (metadata as Record<string, unknown>).terminalState;
-  return typeof terminalState === "string" ? terminalState : null;
 }
