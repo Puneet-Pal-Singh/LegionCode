@@ -64,8 +64,6 @@ export const sessions = pgTable(
     }),
     threadId: text("thread_id"),
     threadBindingSource: text("thread_binding_source"),
-    threadBindingMigrationId: text("thread_binding_migration_id"),
-    threadIdMigratedAt: timestamp("thread_id_migrated_at", { withTimezone: true }),
     currentTurnId: text("current_turn_id"),
     admissionSequence: bigint("admission_sequence", { mode: "number" })
       .notNull()

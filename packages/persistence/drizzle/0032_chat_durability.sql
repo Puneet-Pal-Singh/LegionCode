@@ -18,10 +18,6 @@ ALTER TABLE "message_parts" ADD COLUMN IF NOT EXISTS "source_event_id" text;
 --> statement-breakpoint
 ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "thread_binding_source" text;
 --> statement-breakpoint
-ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "thread_binding_migration_id" text;
---> statement-breakpoint
-ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "thread_id_migrated_at" timestamptz;
---> statement-breakpoint
 ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "current_turn_id" text;
 --> statement-breakpoint
 ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "admission_sequence" bigint NOT NULL DEFAULT 0;
@@ -63,15 +59,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS "canonical_turn_admissions_session_order_idx" 
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "canonical_turn_admissions_run_idx" ON "canonical_turn_admissions" ("run_id");
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "conversation_recovery_checkpoints" (
-  "migration_id" text NOT NULL,
-  "session_id" uuid NOT NULL REFERENCES "sessions"("id") ON DELETE CASCADE,
-  "source_fingerprint" text NOT NULL,
-  "target_fingerprint" text,
-  "status" text NOT NULL CHECK ("status" IN ('started','completed','conflict')),
-  "message_count" integer NOT NULL DEFAULT 0,
-  "part_count" integer NOT NULL DEFAULT 0,
-  "details_json" jsonb NOT NULL DEFAULT '{}'::jsonb,
-  "migrated_at" timestamptz,
-  PRIMARY KEY ("migration_id", "session_id")
-);

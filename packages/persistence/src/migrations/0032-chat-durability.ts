@@ -10,8 +10,6 @@ export const chatDurabilityMigration: SqlMigration = {
     `ALTER TABLE messages ADD COLUMN IF NOT EXISTS canonical_phase TEXT`,
     `ALTER TABLE message_parts ADD COLUMN IF NOT EXISTS source_event_id TEXT`,
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS thread_binding_source TEXT`,
-    `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS thread_binding_migration_id TEXT`,
-    `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS thread_id_migrated_at TIMESTAMPTZ`,
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS current_turn_id TEXT`,
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS admission_sequence BIGINT NOT NULL DEFAULT 0`,
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM sessions WHERE thread_id IS NOT NULL GROUP BY thread_id HAVING COUNT(*) > 1) THEN RAISE EXCEPTION 'duplicate session thread_id values prevent immutable thread ownership'; END IF; END $$`,
@@ -44,17 +42,5 @@ export const chatDurabilityMigration: SqlMigration = {
     `CREATE INDEX IF NOT EXISTS canonical_turn_admissions_session_turn_idx ON canonical_turn_admissions (session_id, turn_id)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS canonical_turn_admissions_session_order_idx ON canonical_turn_admissions (session_id, admission_order) WHERE admission_order IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS canonical_turn_admissions_run_idx ON canonical_turn_admissions (run_id)`,
-    `CREATE TABLE IF NOT EXISTS conversation_recovery_checkpoints (
-      migration_id TEXT NOT NULL,
-      session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      source_fingerprint TEXT NOT NULL,
-      target_fingerprint TEXT,
-      status TEXT NOT NULL CHECK (status IN ('started','completed','conflict')),
-      message_count INTEGER NOT NULL DEFAULT 0,
-      part_count INTEGER NOT NULL DEFAULT 0,
-      details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-      migrated_at TIMESTAMPTZ,
-      PRIMARY KEY (migration_id, session_id)
-    )`,
   ],
 };

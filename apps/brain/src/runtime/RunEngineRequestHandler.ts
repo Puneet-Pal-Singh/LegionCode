@@ -61,13 +61,9 @@ import {
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
 import { SecureGitArtifactClient } from "../services/edit-artifacts/SecureGitArtifactClient";
 import { SecureRuntimeGitSnapshotPort } from "../services/edit-artifacts/SecureRuntimeGitSnapshotPort";
-import {
-  type PersistedAssistantMessageResult,
-} from "./RunEngineResponsePersistence";
 import { withTurnAdmissionRepository } from "../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
-import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import {
   InMemoryRunInterruptRegistry,
   type RunInterruptRegistry,
@@ -131,18 +127,6 @@ const TurnDiffQuerySchema = z.object({ turnId: TurnIdSchema });
 export interface RunEngineRequestLock {
   <T>(runId: string, operation: () => Promise<T>): Promise<T>;
 }
-
-export interface RunEngineExecuteResult {
-  correlationId: string;
-  runId: string;
-  sessionId: string;
-  response: Response;
-  identity: z.infer<typeof TurnScopeBootstrapSchema>;
-  assistantMessageId?: string | null;
-}
-
-export type RunEnginePostExecutionResult =
-  PersistedAssistantMessageResult | null | void;
 
 export interface CanonicalRunEventSink {
   persist(event: RunEvent, correlationId: string): Promise<void>;
@@ -994,9 +978,6 @@ export class RunEngineRequestHandler {
 
   async handleExecuteRequest(
     request: Request,
-    onExecuteResult?: (
-      result: RunEngineExecuteResult,
-    ) => Promise<RunEnginePostExecutionResult> | RunEnginePostExecutionResult,
   ): Promise<Response> {
     let executionClaim: { turnId: string; claimId: string } | null = null;
     let payload: ExecuteRunPayload;
@@ -1253,9 +1234,6 @@ export class RunEngineRequestHandler {
               payload.input.mode === "plan" ? "plan" : "auto_edit",
             backendId: payload.input.executionBackend,
           });
-          const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
-            store: this.createLifecycleEventStore(),
-          });
           const pendingInterruptReason = this.interruptRegistry.register(
             turnId,
             async (reason) => {
@@ -1282,7 +1260,7 @@ export class RunEngineRequestHandler {
             input: payload.input,
             messages: payload.messages as CoreMessage[],
             tools: runtimeTools,
-            lifecycleEvents: kernelLifecycleEvents,
+            lifecycleEvents: this.createLifecycleEventStore(),
             hookOrchestration,
             turnId,
             runAttemptId,
@@ -1313,28 +1291,17 @@ export class RunEngineRequestHandler {
               phase: "final_answer",
             }) ?? Promise.resolve(null),
           );
-          const postExecutionResult = onExecuteResult
-            ? await onExecuteResult({
-                correlationId: payload.correlationId,
-                runId: payload.runId,
-                sessionId: payload.sessionId,
-                response: executionResponse,
-                identity,
-                assistantMessageId: persistedAssistantMessageId,
-              })
-            : null;
           console.log(
             formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
-              assistantMessageId:
-                postExecutionResult?.assistantMessageId ?? null,
+              assistantMessageId: persistedAssistantMessageId,
             }),
           );
-          if (postExecutionResult?.assistantMessageId) {
+          if (persistedAssistantMessageId) {
             editArtifactCoordinator.setMessageContext({
-              assistantMessageId: postExecutionResult.assistantMessageId,
+              assistantMessageId: persistedAssistantMessageId,
             });
           }
           await editArtifactCoordinator.waitForPendingCapture();

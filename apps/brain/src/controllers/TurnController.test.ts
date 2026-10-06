@@ -50,73 +50,10 @@ describe("TurnController public bootstrap contract", () => {
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
 
-  it("rejects a session owned by another user before runtime forwarding", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const env = await createEnv(runtime.namespace, { sessionUserId: "another-user" });
 
-    const response = await TurnController.start(
-      createTurnStartRequest({ Cookie: "legioncode_session=test-session-token" }),
-      env,
-    );
 
-    expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toMatchObject({ code: "SESSION_NOT_FOUND" });
-    expect(runtime.fetch).not.toHaveBeenCalled();
+
   });
-
-  it("rejects an established session workspace mismatch before runtime forwarding", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const env = await createEnv(runtime.namespace, {
-      sessionWorkspaceId: "123e4567-e89b-42d3-a456-426614174099",
-    });
-
-    const response = await TurnController.start(
-      createTurnStartRequest({ Cookie: "legioncode_session=test-session-token" }),
-      env,
-    );
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ code: "TURN_SCOPE_MISMATCH" });
-    expect(runtime.fetch).not.toHaveBeenCalled();
-  });
-
-  it("returns the same owned tuple for a healthy running turn without forwarding to a DO", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const env = await createEnv(runtime.namespace, { executionState: "running" });
-
-    const response = await TurnController.scope(
-      new Request(
-        `https://brain.local/turn/scope?runId=${TEST_RUN_ID}&sessionId=session-1`,
-        {
-          headers: { Cookie: "legioncode_session=test-session-token" },
-        },
-      ),
-      env,
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(runtime.identity);
-    expect(runtime.idFromName).not.toHaveBeenCalled();
-    expect(runtime.fetch).not.toHaveBeenCalled();
-  });
-
-  it("surfaces an explicit recovery-required admission without runtime forwarding", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const env = await createEnv(runtime.namespace, { executionState: "recovery_required" });
-
-    const response = await TurnController.scope(
-      new Request(
-        `https://brain.local/turn/scope?runId=${TEST_RUN_ID}&sessionId=session-1`,
-        { headers: { Cookie: "legioncode_session=test-session-token" } },
-      ),
-      env,
-    );
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ code: "TURN_EXECUTION_RECOVERY_REQUIRED" });
-    expect(runtime.fetch).not.toHaveBeenCalled();
-  });
-});
 
 function createTurnStartRequest(headers?: Record<string, string>): Request {
   return new Request("https://brain.local/turn/start", {

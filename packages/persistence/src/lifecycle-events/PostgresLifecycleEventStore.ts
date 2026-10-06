@@ -10,7 +10,6 @@ import {
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
-import { projectLifecycleEvents } from "../lifecycle-projections/LifecycleProjector.js";
 
 interface LifecycleEventRow extends SqlRow {
   event_json?: unknown;
@@ -53,7 +52,6 @@ export class PostgresLifecycleEventStore implements LifecycleEventStore {
     const parsed = events.map((event) => LifecycleEventSchema.parse(event));
     return await this.client.transaction(async (tx) => {
       const result: LifecycleEvent[] = [];
-      const turns = new Set<string>();
       for (const event of parsed) {
         if (this.options.validateAdmission !== false) {
           await assertAdmittedIdentity(tx, event);
@@ -66,21 +64,8 @@ export class PostgresLifecycleEventStore implements LifecycleEventStore {
           if (isTerminalLifecycleEventType(appended.type)) {
             await projectTerminalStatus(tx, appended);
           }
-          turns.add(appended.turnId);
         }
         result.push(appended);
-      }
-      for (const turnId of turns) {
-        const events = await tx.query<LifecycleEventRow>(READ_TURN_EVENTS_SQL, [turnId]);
-        const snapshot = projectLifecycleEvents(events.rows.map(readEvent));
-        if (snapshot) {
-          await tx.query(UPSERT_LIFECYCLE_PROJECTION_SQL, [
-            snapshot.turnId,
-            snapshot.lastSequence,
-            1,
-            JSON.stringify(snapshot),
-          ]);
-        }
       }
       return result;
     });
@@ -403,5 +388,3 @@ const READ_ACTIVE_TURN_SQL = `SELECT s.active_run_id, s.current_turn_id AS lates
 const SETTLE_RUN_STATUS_SQL = `UPDATE runs SET status = $3, completed_at = $4, updated_at = now() WHERE id = $1 AND session_id = $2 AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions later JOIN canonical_turn_admissions settled ON settled.turn_id = $5 WHERE later.session_id = settled.session_id AND later.run_id = $1 AND later.admission_order > settled.admission_order)`;
 const SETTLE_ACTIVE_SESSION_SQL = `UPDATE sessions SET status = $3, active_run_id = NULL, updated_at = $4 WHERE id = $1 AND active_run_id = $2 AND current_turn_id = $5`;
 const SETTLE_ADMISSION_EXECUTION_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'settled' WHERE turn_id = $1 AND admission_state = 'admitted'`;
-const READ_TURN_EVENTS_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 ORDER BY sequence ASC`;
-const UPSERT_LIFECYCLE_PROJECTION_SQL = `INSERT INTO canonical_lifecycle_projections (turn_id, last_sequence, projection_version, projection_json) VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (turn_id) DO UPDATE SET last_sequence = EXCLUDED.last_sequence, projection_version = EXCLUDED.projection_version, projection_json = EXCLUDED.projection_json, updated_at = now() WHERE canonical_lifecycle_projections.last_sequence <= EXCLUDED.last_sequence`;
