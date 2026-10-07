@@ -742,6 +742,14 @@ function AppContent() {
   const hasRepoContext =
     Boolean(repo?.full_name) ||
     sessions.some((session) => (session.repository?.trim() ?? "").length > 0);
+  const hasMatchingActiveWorkspaceContext = Boolean(
+    repo?.full_name &&
+      activeSession &&
+      doesSessionContextMatchRepository(activeSession.repository, {
+        fullName: repo.full_name,
+        repoName: repo.name,
+      }),
+  );
   const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(
     () =>
@@ -954,8 +962,7 @@ function AppContent() {
   const isShellContextLoading =
     isLoading ||
     isSessionContextLoading ||
-    isWorkspaceContextRepairing ||
-    workspaceSelectionBootstrapStatus === "loading";
+    (workspaceSelectionBootstrapStatus === "loading" && !hasRealSession);
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
@@ -1087,7 +1094,11 @@ function AppContent() {
           isAuthenticated={isAuthenticated}
           onConnectGitHub={login}
           environmentSummary={
-            isAuthenticated && activeSessionId && activeSession
+            isAuthenticated &&
+            activeSessionId &&
+            activeSession &&
+            !isWorkspaceContextRepairing &&
+            hasMatchingActiveWorkspaceContext
               ? {
                   repo,
                   branch,
