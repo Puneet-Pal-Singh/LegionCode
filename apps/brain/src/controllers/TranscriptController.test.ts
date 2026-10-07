@@ -257,7 +257,7 @@ describe("TranscriptController", () => {
 
     const response = await TranscriptController.getHistory(
       authenticatedRequest(
-        `https://brain.local/api/chat/history?runId=${TEST_RUN_ID}&session=${TEST_SESSION_ID}`,
+        `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`,
       ),
       env,
     );
@@ -328,7 +328,7 @@ describe("TranscriptController", () => {
 
     const response = await TranscriptController.getHistory(
       authenticatedRequest(
-        `https://brain.local/api/chat/history?runId=${TEST_RUN_ID}&session=${TEST_SESSION_ID}`,
+        `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`,
       ),
       env,
     );

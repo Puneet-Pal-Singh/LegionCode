@@ -31,6 +31,16 @@ export async function restoreTranscriptMessage(input: {
 }): Promise<CoreMessage[]> {
   const { record } = input;
   if (record.role === "tool") return [];
+  const canonicalAssistantText = readCanonicalAssistantText(record);
+  if (canonicalAssistantText !== null) {
+    return canonicalAssistantText.length > 0
+      ? [{
+          id: record.clientMessageId ?? record.id,
+          role: "assistant",
+          content: canonicalAssistantText,
+        } as unknown as CoreMessage]
+      : [];
+  }
   const text = record.parts
     .map((part) =>
       typeof part.content === "string"
@@ -84,6 +94,28 @@ export async function restoreTranscriptMessage(input: {
       content: [...(text ? [{ type: "text" as const, text }] : []), ...images],
     },
   ];
+}
+
+function readCanonicalAssistantText(
+  message: TranscriptMessageRecord,
+): string | null {
+  if (message.role !== "assistant" || message.parts.length === 0) return null;
+  const chunks: string[] = [];
+  for (const part of message.parts) {
+    const content = readRecord(part.content);
+    const metadata = readRecord(content?.metadata);
+    const identity = readRecord(metadata?.canonicalIdentity);
+    if (
+      typeof identity?.turnId !== "string" ||
+      typeof identity.runAttemptId !== "string" ||
+      typeof metadata?.itemId !== "string" ||
+      (metadata.phase !== "commentary" && metadata.phase !== "final_answer")
+    ) {
+      return null;
+    }
+    if (typeof content?.text === "string") chunks.push(content.text);
+  }
+  return chunks.join("");
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

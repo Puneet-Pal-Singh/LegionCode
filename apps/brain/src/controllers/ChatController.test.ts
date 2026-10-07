@@ -8,6 +8,21 @@ import {
 import { ChatController } from "./ChatController";
 import type { Env } from "../types/ai";
 
+vi.mock("../services/persistence/BrainPersistenceRepositoryFactory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/persistence/BrainPersistenceRepositoryFactory")>();
+  return {
+    ...actual,
+    withBrainPersistenceRepository: async (env, override, createRepository, callback) => {
+      const admissionFixture = env.AUTH_TURN_ADMISSION_REPOSITORY;
+      const repositoryProbe = override ?? createRepository({} as never);
+      if (admissionFixture && typeof repositoryProbe.admitWithPrompt === "function") {
+        return callback(admissionFixture);
+      }
+      return actual.withBrainPersistenceRepository(env, override, createRepository, callback);
+    },
+  };
+});
+
 const VALID_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
 const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -423,6 +438,7 @@ describe("ChatController DO runtime migration", () => {
           turnId: "trn_test001",
           runAttemptId: "attempt_test001",
         },
+        clientMessageId: "client_msg_scope_payload",
         messages: [
           {
             role: "user",
@@ -509,7 +525,7 @@ async function createChatRequest(
       executionBackend: overrides.executionBackend,
       harnessMode: overrides.harnessMode,
       authMode: overrides.authMode,
-      clientMessageId: overrides.clientMessageId,
+      clientMessageId: overrides.clientMessageId ?? "client_msg_chat_default",
       repositoryOwner: overrides.repositoryOwner,
       repositoryName: overrides.repositoryName,
       repositoryBranch: overrides.repositoryBranch,
@@ -522,6 +538,92 @@ async function createChatRequest(
       ],
     }),
   });
+}
+
+function createAdmissionFixture(
+  transcripts: MemoryTranscriptRepository,
+  runs: MemoryRunRepository,
+) {
+  return {
+    async admitWithPrompt(input: {
+      sessionId: string;
+      clientMessageId: string;
+      turnId: string;
+      runAttemptId: string;
+      runId: string;
+      requestFingerprint: string;
+      userId: string;
+      workspaceId: string;
+      taskId: string;
+      mode: string;
+      providerId?: string | null;
+      modelId?: string | null;
+      branch?: string | null;
+      runStatus?: "created" | "running" | "paused" | "completed" | "failed" | "cancelled";
+      promptMessage: {
+        role: "user";
+        clientMessageId: string;
+        dedupeKey: string;
+        parts: Array<{ type: "text" | "tool_call" | "tool_result" | "activity" | "compaction_summary" | "raw"; content: any }>;
+      };
+    }) {
+      const promptContent = input.promptMessage.parts[0]?.content as {
+        metadata?: { canonicalIdentity?: { threadId?: string } };
+      } | undefined;
+      const threadId = promptContent?.metadata?.canonicalIdentity?.threadId ?? "thr_test001";
+      const session = await transcripts.ensureSession({
+        sessionId: input.sessionId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        threadId,
+        taskId: input.taskId,
+        title: null,
+        activeRunId: input.runId,
+        mode: input.mode,
+        status: "running",
+      });
+      const run = await runs.ensureRun({
+        id: input.runId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+        status: input.runStatus ?? "running",
+        mode: input.mode,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        branch: input.branch,
+      });
+      const prompt = await transcripts.appendMessage({
+        sessionId: session.id,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        threadId,
+        taskId: input.taskId,
+        activeRunId: input.runId,
+        mode: input.mode,
+        status: "running",
+        runId: input.runId,
+        role: "user",
+        clientMessageId: input.promptMessage.clientMessageId,
+        dedupeKey: input.promptMessage.dedupeKey,
+        parts: input.promptMessage.parts,
+      });
+      return {
+        admission: {
+          sessionId: input.sessionId,
+          clientMessageId: input.clientMessageId,
+          turnId: input.turnId,
+          runAttemptId: input.runAttemptId,
+          runId: input.runId,
+          requestFingerprint: input.requestFingerprint,
+          state: "admitted",
+        },
+        promptMessageId: prompt.id,
+        run,
+      };
+    },
+  } as unknown as NonNullable<Env["AUTH_TURN_ADMISSION_REPOSITORY"]>;
 }
 
 function createMockRuntimeNamespace() {
@@ -574,6 +676,7 @@ function createEnv(
     },
     AUTH_TRANSCRIPT_REPOSITORY: transcripts,
     AUTH_RUN_REPOSITORY: runs,
+    AUTH_TURN_ADMISSION_REPOSITORY: createAdmissionFixture(transcripts, runs),
     AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
       transcripts,
       events,

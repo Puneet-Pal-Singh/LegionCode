@@ -1,6 +1,7 @@
 # Capability ownership
 
-This ledger records the chat title, workflow activity, and image-context boundaries.
+This entry records the title, workflow display, conversation durability, and
+image-context boundaries changed by this work.
 
 | Responsibility                                      | Canonical owner                                            | Producers and consumers                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -42,6 +43,26 @@ only its matching request, and terminal events close unresolved request history.
 No question tool, response API, or approval owner is introduced by this display
 change; adapters must emit the existing canonical user-input events for question
 history and its waiting status to appear.
+
+## Conversation durability
+
+| Responsibility                                          | Canonical owner                                  | Producers and consumers                                                                                                                                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saved conversation ownership and stable thread identity | Postgres session repository                      | Brain history reads are scoped to the authenticated session; missing runtime scope does not hide saved messages.                                                                                                        |
+| Turn identity and execution admission                   | Postgres `canonical_turn_admissions`             | Brain reserves the exact request tuple and commits its prompt/run atomically. Runtime claims that admitted tuple once; local identity caches are reconstructable.                                                       |
+| Assistant transcript and terminal status                | Canonical lifecycle append transaction           | Runtime events, assistant transcript parts, and session/run terminal status commit together. History and context assembly consume durable rows. The append path does not rebuild the unused full-turn projection cache. |
+| Delivery confirmation and explicit retry                | Web `useChatCore` and its observed-fetch adapter | The SDK parses transport output. Exact HTTP tuple acknowledgement or canonical lifecycle evidence confirms admission. Unconfirmed retries retain the original client identity and serialized payload.                   |
+| Session save readiness and queued setup intent          | Web session manager and App's per-session queue  | Workspace waits for a saved session and claims queued intent synchronously. Settlement is guarded by session/submission ID; unconfirmed delivery requires explicit retry.                                               |
+| Saved transcript and history replacement                | Session-owned `useChat` with `useChatHydration`  | Complete snapshots replace verified rows; partial reads preserve previous rows. Only the pending user message is optimistic. SDK transport frames do not overwrite verified history.                                    |
+| Live and partial assistant presentation                 | Canonical lifecycle projection rendered by Web   | Assistant text is rendered before terminal settlement and retained after failure/interruption. Exact turn/item/phase matching suppresses saved rows only when their text is represented on screen.                      |
+| Setup selection                                         | `SessionConversationSurface`, keyed by session   | History loads before choosing setup. Only a complete empty read with no pending intent selects setup; run changes do not replace the history owner.                                                                     |
+| Authenticated shell continuity                          | Web `App` shell, gated by `AuthProvider`'s initial authentication resolution | `AuthProvider` gates initial authentication only. `App` keeps saved chats mounted during background auth refresh and repository-context repair; header repository actions wait for context matching the active session. |
+| Local worker persistence location                       | Existing local launchers                         | Both launchers pass an explicit absolute `LEGIONCODE_LOCAL_PERSIST_DIR` to Wrangler. Starting a worker does not clear or migrate existing state.                                                                        |
+
+Manual historical imports and custom local writer supervision are excluded from
+this change. Their preserved operator copies are not part of the active product
+path. Unknown historical turn identity remains unset; opening saved history does
+not require fabricating or importing runtime identity.
 
 ## Image context and compaction ownership
 

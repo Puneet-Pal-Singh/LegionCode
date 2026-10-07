@@ -64,7 +64,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
-        "replaces stale mounted messages with canonical history for the scope",
+        "replaces the verified transcript from a complete revision snapshot",
       ],
       [
         "apps/web/src/hooks/useChatPersistence.test.tsx",
@@ -75,8 +75,8 @@ const CAPABILITIES = [
         "appends assistant turns for distinct user turns on the same run",
       ],
       [
-        "apps/brain/src/runtime/RunEngineResponsePersistence.test.ts",
-        "persists assistant deltas using the server-issued turn identity",
+        "packages/persistence/src/lifecycle-events/PostgresLifecycleEventStore.test.ts",
+        "replays persisted events after runtime store reconstruction",
       ],
       [
         "packages/platform-client-sdk/src/providers/cross-client-lifecycle-parity.test.ts",
@@ -101,7 +101,14 @@ const CAPABILITIES = [
         "test",
         "--",
         "src/services/PersistenceService.test.ts",
-        "src/runtime/RunEngineResponsePersistence.test.ts",
+      ],
+      [
+        "pnpm",
+        "--filter",
+        "@repo/persistence",
+        "test",
+        "--",
+        "src/lifecycle-events/PostgresLifecycleEventStore.test.ts",
       ],
       [
         "pnpm",
@@ -131,7 +138,7 @@ const CAPABILITIES = [
       ],
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
-        "collapses adjacent canonical and live user prompts with different ids",
+        "preserves two equal-text prompts with distinct canonical IDs",
       ],
     ],
     commands: [

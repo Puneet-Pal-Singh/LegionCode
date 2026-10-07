@@ -9,13 +9,11 @@ import type {
   RunStatus,
   TranscriptRepository,
   TranscriptMessageRecord,
-  SessionStatus,
-  UpdateRunStatusInput,
   UpsertRunStepInput,
 } from "@repo/persistence";
 import { pruneToolResults } from "@legioncode/context-pruner";
 import { Env } from "../types/ai";
-import { DomainError } from "../domain/errors";
+import { DomainError, ValidationError } from "../domain/errors";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
 import { withRunRepository } from "./runs/RunPersistenceFactory";
 import {
@@ -24,6 +22,8 @@ import {
 } from "./chat/ImageMessageRedactor";
 import { persistChatMessageImages } from "./chat/ChatMessageImagePersistence";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
+import { PostgresTurnAdmissionRepository } from "@repo/persistence";
+import { withBrainPersistenceRepository } from "./persistence/BrainPersistenceRepositoryFactory";
 
 interface PersistMessageContext {
   userId?: string;
@@ -104,24 +104,6 @@ export class PersistenceService {
     });
   }
 
-  async updateRunStatus(
-    runId: string,
-    status: RunStatus,
-    startedAt?: string,
-    completedAt?: string,
-  ): Promise<RunRecord> {
-    const run = await withRunRepository(this.env, async (repository) => {
-      return await repository.updateRunStatus({
-        id: runId,
-        status,
-        startedAt,
-        completedAt,
-      });
-    });
-    await this.syncSessionStatus(run, status);
-    return run;
-  }
-
   async appendRunEvent(input: {
     runId: string;
     sessionId: string;
@@ -137,44 +119,16 @@ export class PersistenceService {
   async writeRunProjection(input: {
     event: AppendRunEventInput;
     step?: UpsertRunStepInput;
-    status?: UpdateRunStatusInput;
   }): Promise<RunEventRecord> {
-    const statusUpdate = input.status;
-    const event = await withRunRepository(this.env, async (repository) =>
+    return await withRunRepository(this.env, async (repository) =>
       repository.transaction(async (txRepository) => {
         const event = await txRepository.appendEvent(input.event);
         if (input.step) {
           await txRepository.upsertStep(resolveRunStepIndex(input.step, event));
         }
-        if (statusUpdate) {
-          await txRepository.updateRunStatus(statusUpdate);
-        }
         return event;
       }),
     );
-    if (statusUpdate) {
-      const run = await withRunRepository(this.env, async (repository) =>
-        repository.getRun(statusUpdate.id),
-      );
-      if (run) {
-        await this.syncSessionStatus(run, statusUpdate.status);
-      }
-    }
-    return event;
-  }
-
-  private async syncSessionStatus(
-    run: RunRecord,
-    status: RunStatus,
-  ): Promise<void> {
-    const sessionStatus = mapRunStatusToSessionStatus(status);
-    await withTranscriptRepository(this.env, async (repository) => {
-      await repository.updateSessionStatus({
-        userId: run.userId,
-        sessionId: run.sessionId,
-        status: sessionStatus,
-      });
-    });
   }
 
   private async generateIdempotencyKey(
@@ -255,6 +209,83 @@ export class PersistenceService {
       if (error instanceof DomainError) throw error;
       throw new TranscriptPersistenceError("persistUserMessage", error);
     }
+  }
+
+  async admitUserTurn(input: {
+    sessionId: string;
+    runId: string;
+    userId: string;
+    workspaceId: string;
+    taskId: string;
+    identity: TurnScopeBootstrap;
+    message: CoreMessage;
+    mode: string;
+    providerId?: string | null;
+    modelId?: string | null;
+    branch?: string | null;
+  }): Promise<{ id: string; run: RunRecord }> {
+    const clientMessageId = readClientMessageId(input.message);
+    if (!clientMessageId) {
+      throw new ValidationError(
+        "A stable client message id is required before turn admission.",
+        "CLIENT_MESSAGE_ID_REQUIRED",
+      );
+    }
+    const content = buildPersistenceDedupeContent(input.message);
+    const dedupeKey = await this.generateMessageIdempotencyKey(
+      input.sessionId,
+      input.runId,
+      input.message,
+      content,
+    );
+    const imageRefs = await persistChatMessageImages(this.env, {
+      sessionId: input.sessionId,
+      userId: input.userId,
+      message: input.message,
+      idempotencyKey: dedupeKey,
+      revisionOfTurnId: input.identity.revisionOfTurnId,
+    });
+    const requestFingerprint = await this.generateIdempotencyKey(
+      input.sessionId,
+      input.identity.turnId,
+      `${clientMessageId}:${input.identity.revisionOfTurnId ?? "root"}:${input.mode}:${input.providerId ?? ""}:${input.modelId ?? ""}:${input.branch ?? ""}`,
+      `${content}:${JSON.stringify(input.message)}`,
+    );
+
+    return await withBrainPersistenceRepository(
+      this.env,
+      undefined,
+      (client) => new PostgresTurnAdmissionRepository(client),
+      async (repository) => {
+        const result = await repository.admitWithPrompt({
+          sessionId: input.sessionId,
+          clientMessageId,
+          turnId: input.identity.turnId,
+          runAttemptId: input.identity.runAttemptId,
+          runId: input.runId,
+          requestFingerprint,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          taskId: input.taskId,
+          mode: input.mode,
+          providerId: input.providerId,
+          modelId: input.modelId,
+          branch: input.branch,
+          runStatus: "running",
+          promptMessage: {
+            role: "user",
+            clientMessageId,
+            dedupeKey,
+            parts: coreMessageToTranscriptParts(
+              input.message,
+              input.identity,
+              imageRefs,
+            ),
+          },
+        });
+        return { id: result.promptMessageId, run: result.run };
+      },
+    );
   }
 
   async findFirstPersistedUserMessage(input: {
@@ -517,22 +548,6 @@ function resolveRunStepIndex(
     ...step,
     stepIndex: event.sequence,
   };
-}
-
-function mapRunStatusToSessionStatus(status: RunStatus): SessionStatus {
-  switch (status) {
-    case "created":
-      return "idle";
-    case "running":
-      return "running";
-    case "completed":
-      return "completed";
-    case "paused":
-      return "paused";
-    case "failed":
-    case "cancelled":
-      return "failed";
-  }
 }
 
 function coreMessageToTranscriptParts(

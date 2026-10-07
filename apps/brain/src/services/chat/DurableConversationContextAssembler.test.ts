@@ -22,6 +22,9 @@ describe("DurableConversationContextAssembler", () => {
       readTranscriptPage: async () => ({
         messages: transcript,
         nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
       }),
       replayLifecyclePage,
     });
@@ -58,7 +61,13 @@ describe("DurableConversationContextAssembler", () => {
       nextSequence: null,
     }));
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: transcript, nextCursor: null }),
+      readTranscriptPage: async () => ({
+        messages: transcript,
+        nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
       replayLifecyclePage,
     });
 
@@ -73,6 +82,8 @@ describe("DurableConversationContextAssembler", () => {
     expect(replayLifecyclePage).not.toHaveBeenCalled();
   });
 
+
+
   it("prefers the submitted client message id in restored provider context", async () => {
     const current = message(
       "persisted-user",
@@ -83,7 +94,13 @@ describe("DurableConversationContextAssembler", () => {
     );
     current.clientMessageId = "client_msg_current";
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: [current], nextCursor: null }),
+      readTranscriptPage: async () => ({
+        messages: [current],
+        nextCursor: null,
+        snapshot: 1,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
       replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
     });
 

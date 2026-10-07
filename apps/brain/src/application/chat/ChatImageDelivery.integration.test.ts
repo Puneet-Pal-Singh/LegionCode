@@ -40,6 +40,20 @@ vi.mock("../../services/runs/RunPersistenceFactory", () => ({
 vi.mock("../../services/sessions/TranscriptPersistenceFactory", () => ({
   withTranscriptRepository: withTranscriptRepositoryMock,
 }));
+vi.mock("../../services/persistence/BrainPersistenceRepositoryFactory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../services/persistence/BrainPersistenceRepositoryFactory")>();
+  return {
+    ...actual,
+    withBrainPersistenceRepository: async (env, override, createRepository, callback) => {
+      const fixture = env.AUTH_TURN_ADMISSION_REPOSITORY;
+      const repositoryProbe = override ?? createRepository({} as never);
+      if (fixture && typeof repositoryProbe.admitWithPrompt === "function") {
+        return callback(fixture);
+      }
+      return actual.withBrainPersistenceRepository(env, override, createRepository, callback);
+    },
+  };
+});
 
 const sessionId = "123e4567-e89b-42d3-a456-426614174001";
 const userId = "123e4567-e89b-42d3-a456-426614174002";
@@ -64,6 +78,7 @@ describe("authenticated image submission through native provider delivery", () =
   let repository: MemoryTranscriptRepository;
   let bucket: MemoryMediaBucket;
   let env: Env;
+  let admissionFixture: NonNullable<Env["AUTH_TURN_ADMISSION_REPOSITORY"]>;
   beforeEach(() => {
     repository = new MemoryTranscriptRepository();
     const runs = new MemoryRunRepository();
@@ -72,7 +87,12 @@ describe("authenticated image submission through native provider delivery", () =
         callback(runs),
     );
     bucket = new MemoryMediaBucket();
-    env = { EDIT_ARTIFACTS: bucket as unknown as R2Bucket } as Env;
+    admissionFixture = createAdmissionFixture(repository, runs);
+    vi.spyOn(admissionFixture, "admitWithPrompt");
+    env = {
+      EDIT_ARTIFACTS: bucket as unknown as R2Bucket,
+      AUTH_TURN_ADMISSION_REPOSITORY: admissionFixture,
+    } as Env;
     withTranscriptRepositoryMock.mockImplementation(
       async (
         _env: Env,
@@ -139,6 +159,15 @@ describe("authenticated image submission through native provider delivery", () =
     expect(readTranscriptImageAttachments(saved.messages.at(-1)!)).toEqual(
       refs,
     );
+    expect(admissionFixture.admitWithPrompt).toHaveBeenCalledTimes(3);
+    expect(admissionFixture.admitWithPrompt.mock.calls[0]?.[0]).toMatchObject({
+      turnId: identity.turnId,
+      clientMessageId: `client_${identity.turnId}`,
+    });
+    expect(admissionFixture.admitWithPrompt.mock.calls[2]?.[0]).toMatchObject({
+      turnId: revisionIdentity.turnId,
+      clientMessageId: `client_${revisionIdentity.turnId}`,
+    });
     expect(bucket.objects.size).toBe(1);
   });
 
@@ -346,7 +375,7 @@ describe("authenticated image submission through native provider delivery", () =
         modelInputModalities: { image: true },
         agentType: "coding",
         prompt: "recall",
-        messages: [{ role: "user", content: "recall" }],
+        messages: [{ id: "client_other_session_media_scope", role: "user", content: "recall" }],
       }),
     ).rejects.toMatchObject({ code: "CHAT_MEDIA_NOT_FOUND" });
   });
@@ -362,6 +391,10 @@ function submit(
   contextWindowTokens = 100_000,
   imageSupport: boolean | null = true,
 ) {
+  const submittedMessage = {
+    ...message,
+    id: (message as CoreMessage & { id?: string }).id ?? `client_${scope.turnId}`,
+  } as CoreMessage;
   return new HandleChatRequest(env).execute({
     sessionId,
     userId,
@@ -372,15 +405,84 @@ function submit(
     agentType: "coding",
     prompt:
       typeof message.content === "string"
-        ? message.content
-        : message.content
+        ? submittedMessage.content
+        : submittedMessage.content
             .map((part) => (part.type === "text" ? part.text : ""))
             .join(""),
-    messages: [message],
+    messages: [submittedMessage],
     contextWindowTokens,
     modelInputModalities:
       imageSupport === null ? undefined : { image: imageSupport },
   });
+}
+
+function createAdmissionFixture(
+  transcripts: MemoryTranscriptRepository,
+  runs: MemoryRunRepository,
+): NonNullable<Env["AUTH_TURN_ADMISSION_REPOSITORY"]> {
+  return {
+    async admitWithPrompt(input) {
+      const session = await transcripts.ensureSession({
+        sessionId: input.sessionId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        threadId: input.promptMessage.parts.flatMap((part) => {
+          const content = part.content;
+          if (!content || typeof content !== "object" || Array.isArray(content)) return [];
+          const metadata = (content as Record<string, unknown>).metadata;
+          if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
+          const canonicalIdentity = (metadata as Record<string, unknown>).canonicalIdentity;
+          if (!canonicalIdentity || typeof canonicalIdentity !== "object" || Array.isArray(canonicalIdentity)) return [];
+          const threadId = (canonicalIdentity as Record<string, unknown>).threadId;
+          return typeof threadId === "string" ? [threadId] : [];
+        })[0] ?? "thr_image_delivery01",
+        taskId: input.taskId,
+        activeRunId: input.runId,
+        mode: input.mode,
+        status: "running",
+      });
+      const run = await runs.ensureRun({
+        id: input.runId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+        status: input.runStatus ?? "running",
+        mode: input.mode,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        branch: input.branch,
+      });
+      const prompt = await transcripts.appendMessage({
+        sessionId: session.id,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        threadId: session.threadId,
+        taskId: input.taskId,
+        activeRunId: input.runId,
+        mode: input.mode,
+        status: "running",
+        runId: input.runId,
+        role: "user",
+        clientMessageId: input.promptMessage.clientMessageId,
+        dedupeKey: input.promptMessage.dedupeKey,
+        parts: input.promptMessage.parts,
+      });
+      return {
+        admission: {
+          sessionId: input.sessionId,
+          clientMessageId: input.clientMessageId,
+          turnId: input.turnId,
+          runAttemptId: input.runAttemptId,
+          runId: input.runId,
+          requestFingerprint: input.requestFingerprint,
+          state: "admitted",
+        },
+        promptMessageId: prompt.id,
+        run,
+      };
+    },
+  } as NonNullable<Env["AUTH_TURN_ADMISSION_REPOSITORY"]>;
 }
 
 async function expectProviderImage(payload: Payload) {

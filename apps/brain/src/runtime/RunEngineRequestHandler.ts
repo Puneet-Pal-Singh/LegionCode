@@ -13,11 +13,9 @@ import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
   createRunAttemptId,
-  createThreadId,
   EventSequenceSchema,
   type LifecycleEvent,
   RunIdSchema,
-  turnIdFromRunId,
   TurnScopeBootstrapRequestSchema,
   TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
@@ -63,12 +61,9 @@ import {
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
 import { SecureGitArtifactClient } from "../services/edit-artifacts/SecureGitArtifactClient";
 import { SecureRuntimeGitSnapshotPort } from "../services/edit-artifacts/SecureRuntimeGitSnapshotPort";
-import {
-  persistAssistantMessageText,
-  type PersistedAssistantMessageResult,
-} from "./RunEngineResponsePersistence";
+import { withTurnAdmissionRepository } from "../services/turn-admissions/TurnAdmissionPersistenceFactory";
+import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
-import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import {
   InMemoryRunInterruptRegistry,
   type RunInterruptRegistry,
@@ -132,18 +127,6 @@ const TurnDiffQuerySchema = z.object({ turnId: TurnIdSchema });
 export interface RunEngineRequestLock {
   <T>(runId: string, operation: () => Promise<T>): Promise<T>;
 }
-
-export interface RunEngineExecuteResult {
-  correlationId: string;
-  runId: string;
-  sessionId: string;
-  response: Response;
-  identity: z.infer<typeof TurnScopeBootstrapSchema>;
-  assistantMessageId?: string | null;
-}
-
-export type RunEnginePostExecutionResult =
-  PersistedAssistantMessageResult | null | void;
 
 export interface CanonicalRunEventSink {
   persist(event: RunEvent, correlationId: string): Promise<void>;
@@ -382,12 +365,8 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const replay = await this.createLifecycleEventStore().replay({
-      turnId: payload.turnId,
-      afterSequence: null,
-      limit: 1_000,
-    });
-    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
+    const replayEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), payload.turnId);
+    const terminalEvent = replayEvents.find(isTerminalLifecycleEvent);
     if (terminalEvent) {
       return runEngineJsonResponse(request, this.env, {
         runId: payload.runId,
@@ -440,12 +419,8 @@ export class RunEngineRequestHandler {
         409,
       );
     }
-    const replay = await this.createLifecycleEventStore().replay({
-      turnId: payload.turnId,
-      afterSequence: null,
-      limit: 1_000,
-    });
-    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
+    const replayEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), payload.turnId);
+    const terminalEvent = replayEvents.find(isTerminalLifecycleEvent);
     if (terminalEvent) {
       return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
         turnId: payload.turnId,
@@ -787,10 +762,22 @@ export class RunEngineRequestHandler {
             candidate.workspaceId === workspaceId,
         );
         const requestedTurnId = input.clientMessageId
-          ? turnIdFromRunId(input.runId, input.clientMessageId)
+          ? input.admittedIdentity?.turnId ?? null
           : null;
-        if (input.revisionOfTurnId) {
-          await this.assertRevisionAdmission(input, existingScopes, workspaceId);
+        const admittedIdentity = input.admittedIdentity;
+        if (
+          !input.clientMessageId ||
+          !admittedIdentity ||
+          admittedIdentity.workspaceId !== workspaceId ||
+          (input.revisionOfTurnId ?? undefined) !== admittedIdentity.revisionOfTurnId
+        ) {
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            "A durable turn admission identity is required before runtime scope import.",
+            409,
+            "TURN_ADMISSION_REQUIRED",
+          );
         }
         const existing = requestedTurnId
           ? this.turnRuntimeIdentities.get(requestedTurnId)
@@ -804,7 +791,12 @@ export class RunEngineRequestHandler {
             // Brain's workspace scope may be a UUID; tolerate the server-owned
             // workspaceId when the caller-supplied scope is absent or empty.
             !input.workspaceId.trim();
-          if (!sessionMatch || !workspaceMatch) {
+          const identityMatch =
+            existing.turnId === admittedIdentity.turnId &&
+            existing.threadId === admittedIdentity.threadId &&
+            existing.runAttemptId === admittedIdentity.runAttemptId &&
+            existing.revisionOfTurnId === admittedIdentity.revisionOfTurnId;
+          if (!sessionMatch || !workspaceMatch || !identityMatch) {
             if (requestedTurnId) {
               return runEngineErrorResponse(
                 request,
@@ -838,25 +830,14 @@ export class RunEngineRequestHandler {
           );
         }
 
-        const identity = TurnScopeBootstrapSchema.parse({
-          workspaceId,
-          threadId: existingScopes.at(-1)?.threadId ?? createThreadId(),
-          // Public lifecycle routes can recover the owning run only when the
-          // server-issued turn carries the canonical run routing segment.
-          turnId:
-            requestedTurnId ?? turnIdFromRunId(input.runId, input.sessionId),
-          runAttemptId: createRunAttemptId(),
-          ...(input.revisionOfTurnId
-            ? { revisionOfTurnId: input.revisionOfTurnId }
-            : {}),
-        });
+        const identity = TurnScopeBootstrapSchema.parse(admittedIdentity);
         await this.mapTurnToRun(identity.turnId, input.runId, {
           ...identity,
           runId: input.runId,
           sessionId: input.sessionId,
           ownerUserId: input.userId,
         });
-        return runEngineJsonResponse(request, this.env, identity, 201);
+        return runEngineJsonResponse(request, this.env, identity, existing ? 200 : 201);
       });
     } catch (error: unknown) {
       if (isDomainError(error)) {
@@ -878,82 +859,6 @@ export class RunEngineRequestHandler {
         "TURN_BOOTSTRAP_FAILED",
       );
     }
-  }
-
-  private async assertRevisionAdmission(
-    input: z.infer<typeof TurnScopeBootstrapRequestSchema>,
-    existingScopes: readonly TurnRuntimeIdentity[],
-    workspaceId: string,
-  ): Promise<void> {
-    const revisionOfTurnId = input.revisionOfTurnId;
-    if (!revisionOfTurnId || !input.userId) {
-      throw new DomainError(
-        "TURN_REVISION_OWNER_REQUIRED",
-        "An authenticated owner is required to revise a turn.",
-        409,
-        false,
-        input.correlationId,
-      );
-    }
-    const target = this.turnRuntimeIdentities.get(revisionOfTurnId);
-    if (
-      !target ||
-      target.sessionId !== input.sessionId ||
-      target.workspaceId !== workspaceId ||
-      target.ownerUserId !== input.userId
-    ) {
-      throw new DomainError(
-        "TURN_REVISION_SCOPE_MISMATCH",
-        "The turn revision target is not owned by this session and user.",
-        409,
-        false,
-        input.correlationId,
-      );
-    }
-    const replay = await this.createLifecycleEventStore().replay({
-      turnId: TurnIdSchema.parse(revisionOfTurnId),
-      afterSequence: null,
-      limit: 1_000,
-    });
-    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
-    if (!terminalEvent) {
-      throw new DomainError(
-        "TURN_REVISION_NOT_TERMINAL",
-        "Only a settled turn can be revised.",
-        409,
-        false,
-        input.correlationId,
-      );
-    }
-    // `retryable` controls unattended runtime recovery. An explicit user edit
-    // is a new run attempt with a new prompt/model choice, so a terminal
-    // provider or billing failure must not prevent the user from revising it.
-    const latestTerminal = await this.readLatestTerminalTurn(existingScopes);
-    if (latestTerminal && latestTerminal !== revisionOfTurnId) {
-      throw new DomainError(
-        "TURN_REVISION_NOT_LATEST",
-        "Only the latest terminal turn can be revised.",
-        409,
-        false,
-        input.correlationId,
-      );
-    }
-  }
-
-  private async readLatestTerminalTurn(
-    scopes: readonly TurnRuntimeIdentity[],
-  ): Promise<string | null> {
-    for (let index = scopes.length - 1; index >= 0; index -= 1) {
-      const scope = scopes[index];
-      if (!scope) continue;
-      const replay = await this.createLifecycleEventStore().replay({
-        turnId: TurnIdSchema.parse(scope.turnId),
-        afterSequence: null,
-        limit: 1_000,
-      });
-      if (replay.events.some(isTerminalLifecycleEvent)) return scope.turnId;
-    }
-    return null;
   }
 
   async handleWorkspaceScopeRequest(request: Request): Promise<Response> {
@@ -1073,10 +978,8 @@ export class RunEngineRequestHandler {
 
   async handleExecuteRequest(
     request: Request,
-    onExecuteResult?: (
-      result: RunEngineExecuteResult,
-    ) => Promise<RunEnginePostExecutionResult> | RunEnginePostExecutionResult,
   ): Promise<Response> {
+    let executionClaim: { turnId: string; claimId: string } | null = null;
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1135,8 +1038,32 @@ export class RunEngineRequestHandler {
         }
         const identity = TurnScopeBootstrapSchema.parse(payload.identity);
         await this.ensureTurnToRunMapLoaded();
-        const storedIdentity = this.turnRuntimeIdentities.get(identity.turnId);
-        const storedRunId = this.turnToRunMap.get(identity.turnId);
+        let storedIdentity = this.turnRuntimeIdentities.get(identity.turnId);
+        let storedRunId = this.turnToRunMap.get(identity.turnId);
+        if (!storedIdentity || !storedRunId) {
+          const durableAdmission = await withTurnAdmissionRepository(this.env, (repository) =>
+            repository.getByTurnId(identity.turnId),
+          );
+          if (
+            durableAdmission?.state === "admitted" &&
+            durableAdmission.userId === payload.userId &&
+            durableAdmission.sessionId === payload.sessionId &&
+            durableAdmission.runId === payload.runId &&
+            durableAdmission.workspaceId === workspaceId.data &&
+            durableAdmission.threadId === identity.threadId &&
+            durableAdmission.runAttemptId === identity.runAttemptId &&
+            durableAdmission.revisionOfTurnId === (identity.revisionOfTurnId ?? null)
+          ) {
+            await this.mapTurnToRun(identity.turnId, payload.runId, {
+              ...identity,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              ownerUserId: payload.userId,
+            });
+            storedIdentity = this.turnRuntimeIdentities.get(identity.turnId);
+            storedRunId = this.turnToRunMap.get(identity.turnId);
+          }
+        }
         if (
           !storedIdentity ||
           storedRunId !== payload.runId ||
@@ -1155,6 +1082,33 @@ export class RunEngineRequestHandler {
           );
         }
         const { turnId, runAttemptId, threadId } = identity;
+        if (!payload.userId) {
+          return runEngineErrorResponse(request, this.env, "Authenticated user scope is required for execution claim", 409, "RUN_SCOPE_MISMATCH");
+        }
+        const claimId = crypto.randomUUID();
+        const claimResult = await withTurnAdmissionRepository(this.env, (repository) =>
+          repository.claimExecution({
+            turnId,
+            runAttemptId,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            userId: payload.userId!,
+            workspaceId: workspaceId.data,
+            threadId,
+            claimId,
+          }),
+        );
+        if (claimResult.status !== "claimed") {
+          const recovery = claimResult.status === "already_claimed" || claimResult.status === "recovery_required";
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            recovery ? "This admitted turn already has an execution claim and requires recovery review." : "This turn is already settled or does not match its durable admission.",
+            409,
+            recovery ? "TURN_EXECUTION_ALREADY_CLAIMED" : "TURN_EXECUTION_NOT_CLAIMABLE",
+          );
+        }
+        executionClaim = { turnId, claimId };
         const runtimeState = this.createRuntimeState();
         const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
           this.env,
@@ -1280,23 +1234,6 @@ export class RunEngineRequestHandler {
               payload.input.mode === "plan" ? "plan" : "auto_edit",
             backendId: payload.input.executionBackend,
           });
-          let persistedAssistantMessageId: string | null = null;
-          const assistantTranscript = {
-            commentary: "",
-            final_answer: "",
-          };
-          const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
-            store: this.createLifecycleEventStore(),
-            onAssistantMessageDelta: async (event) => {
-              if (event.type === "assistant_message.delta") {
-                assistantTranscript[
-                  event.payload.phase === "commentary"
-                    ? "commentary"
-                    : "final_answer"
-                ] += event.payload.delta;
-              }
-            },
-          });
           const pendingInterruptReason = this.interruptRegistry.register(
             turnId,
             async (reason) => {
@@ -1323,7 +1260,7 @@ export class RunEngineRequestHandler {
             input: payload.input,
             messages: payload.messages as CoreMessage[],
             tools: runtimeTools,
-            lifecycleEvents: kernelLifecycleEvents,
+            lifecycleEvents: this.createLifecycleEventStore(),
             hookOrchestration,
             turnId,
             runAttemptId,
@@ -1346,54 +1283,30 @@ export class RunEngineRequestHandler {
             }),
           );
 
-          for (const phase of ["commentary", "final_answer"] as const) {
-            const text = assistantTranscript[phase];
-            if (!text) continue;
-            const persisted = await persistAssistantMessageText(
-              this.env,
-              payload.sessionId,
-              payload.runId,
-              identity,
-              text,
-              phase,
-            );
-            persistedAssistantMessageId =
-              persisted?.assistantMessageId ?? persistedAssistantMessageId;
-          }
-
-          const postExecutionResult = onExecuteResult
-            ? await onExecuteResult({
-                correlationId: payload.correlationId,
-                runId: payload.runId,
-                sessionId: payload.sessionId,
-                response: executionResponse,
-                identity,
-                assistantMessageId: persistedAssistantMessageId,
-              })
-            : null;
+          const persistedAssistantMessageId = await withTranscriptRepository(this.env, (repository) =>
+            repository.getCanonicalAssistantMessageId?.({
+              sessionId: payload.sessionId,
+              userId: payload.userId!,
+              turnId,
+              phase: "final_answer",
+            }) ?? Promise.resolve(null),
+          );
           console.log(
             formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
-              assistantMessageId:
-                postExecutionResult?.assistantMessageId ?? null,
+              assistantMessageId: persistedAssistantMessageId,
             }),
           );
-          if (postExecutionResult?.assistantMessageId) {
+          if (persistedAssistantMessageId) {
             editArtifactCoordinator.setMessageContext({
-              assistantMessageId: postExecutionResult.assistantMessageId,
+              assistantMessageId: persistedAssistantMessageId,
             });
           }
           await editArtifactCoordinator.waitForPendingCapture();
-          const lifecycleReplay = await this.createLifecycleEventStore().replay({
-            turnId,
-            afterSequence: null,
-            limit: 1_000,
-          });
-          const terminalLifecycleEvent = lifecycleReplay.events.find(
-            isTerminalLifecycleEvent,
-          );
+          const lifecycleEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), turnId);
+          const terminalLifecycleEvent = lifecycleEvents.find(isTerminalLifecycleEvent);
           if (!terminalLifecycleEvent) {
             throw new DomainError(
               "RUNTIME_TERMINAL_SETTLEMENT_MISSING",
@@ -1457,6 +1370,15 @@ export class RunEngineRequestHandler {
         }
       });
     } catch (error: unknown) {
+      if (executionClaim) {
+        try {
+          await withTurnAdmissionRepository(this.env, (repository) =>
+            repository.markRecoveryRequired(executionClaim!),
+          );
+        } catch (recoveryError) {
+          console.error("Failed to record interrupted execution claim", recoveryError);
+        }
+      }
       const domainError = mapRunExecutionErrorToDomain(
         error,
         payload.correlationId,
@@ -1759,6 +1681,27 @@ async function readLatestTurnDiff(store: LifecycleEventStore, turnId: string) {
   }
 
   return latestDiff === null ? null : TurnDiffPayloadSchema.parse(latestDiff);
+}
+
+async function readAllLifecycleEvents(
+  store: LifecycleEventStore,
+  turnId: string,
+): Promise<LifecycleEvent[]> {
+  const events: LifecycleEvent[] = [];
+  let afterSequence: number | null = null;
+  for (;;) {
+    const replay = await store.replay({
+      turnId: TurnIdSchema.parse(turnId),
+      afterSequence,
+      limit: 1_000,
+    });
+    events.push(...replay.events);
+    if (replay.events.length < 1_000 || replay.nextSequence === null) return events;
+    if (replay.nextSequence === afterSequence) {
+      throw new Error(`Lifecycle replay cursor did not advance for turn ${turnId}`);
+    }
+    afterSequence = replay.nextSequence;
+  }
 }
 
 function mapLifecycleApprovalDecision(

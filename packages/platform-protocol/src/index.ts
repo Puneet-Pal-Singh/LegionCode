@@ -68,6 +68,14 @@ export {
   type InterruptTurnRequest,
 } from "./turn-scope-bootstrap.js";
 export {
+  ConversationHistoryRequestSchema,
+  ConversationHistoryMessageSchema,
+  ConversationHistoryResponseSchema,
+  type ConversationHistoryRequest,
+  type ConversationHistoryMessage,
+  type ConversationHistoryResponse,
+} from "./conversation-history.js";
+export {
   GeneratedThreadTitleSchema,
   ThreadTitleUpdatedPayloadSchema,
   ThreadTitleUpdateSourceSchema,

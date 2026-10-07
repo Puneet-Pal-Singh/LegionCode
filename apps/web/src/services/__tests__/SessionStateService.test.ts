@@ -181,7 +181,7 @@ describe("SessionStateService", () => {
       });
     });
 
-    it("drops server sessions that still use legacy UUID run ids", async () => {
+    it("keeps server sessions that still use legacy UUID run ids", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
@@ -204,9 +204,13 @@ describe("SessionStateService", () => {
         ),
       );
 
-      await expect(
-        SessionStateService.hydrateSessionsFromServer(),
-      ).resolves.toEqual({});
+      await expect(SessionStateService.hydrateSessionsFromServer()).resolves.toMatchObject({
+        "550e8400-e29b-41d4-a716-446655440000": {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          activeRunId: null,
+          persistenceStatus: "saved",
+        },
+      });
     });
 
     it("persists created sessions to Brain", async () => {
@@ -574,6 +578,12 @@ describe("SessionStateService", () => {
 
     it("should warn when adding duplicate run", () => {
       const session = SessionStateService.createSession("Test", "repo");
+      const runId = "run_duplicate";
+      const sessionWithRun = SessionStateService.addRunToSession(
+        session,
+        runId,
+        true,
+      );
       const originalWarn = globalThis.console.warn;
       let warnCalled = false;
 
@@ -581,7 +591,7 @@ describe("SessionStateService", () => {
         warnCalled = true;
       };
 
-      SessionStateService.addRunToSession(session, session.activeRunId, true);
+      SessionStateService.addRunToSession(sessionWithRun, runId, true);
 
       globalThis.console.warn = originalWarn;
       expect(warnCalled).toBe(true);

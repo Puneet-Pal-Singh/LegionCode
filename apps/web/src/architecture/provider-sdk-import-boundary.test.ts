@@ -9,6 +9,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "services/api/lifecycleClient.ts",
   "components/chat/workflow/CanonicalWorkflowSurface.tsx",
   "services/lifecycle/LifecycleProjection.ts",
+  "services/ChatHydrationService.ts",
   "components/chat/ChatInputBar.tsx",
   "components/chat/ChatInterface.tsx",
   "components/chat/ContextWindowIndicator.tsx",
@@ -26,7 +27,7 @@ const ALLOWED_IMPORT_FILES = new Set([
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {
-  it("allows the provider API and canonical workflow projection boundaries", () => {
+  it("allows API, transcript, and canonical workflow SDK boundaries", () => {
     const violations = collectSourceFiles(SOURCE_ROOT)
       .filter((filePath) => !isAllowedImportFile(filePath))
       .filter((filePath) => containsSdkImport(filePath))

@@ -150,6 +150,69 @@ describe("useSessionManager", () => {
       expect(result.current.sessions[0]?.repository).toBe("test-repo");
     });
 
+    it("keeps edits made while the initial save is pending", async () => {
+      let resolvePersist!: (session: AgentSession) => void;
+      vi.mocked(SessionStateService.persistSession).mockReturnValueOnce(
+        new Promise((resolve) => { resolvePersist = resolve; }),
+      );
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Initial title", "owner/repo");
+      });
+      const original = result.current.sessions.find((session) => session.id === sessionId)!;
+      const newerRunId = "run_newer123456";
+      act(() => {
+        result.current.updateSession(sessionId, {
+          name: "Renamed while saving",
+          titleSource: "user",
+          mode: "plan",
+          status: "running",
+          activeRunId: newerRunId,
+          runIds: [...original.runIds, newerRunId],
+        });
+      });
+      await act(async () => {
+        resolvePersist({
+          ...original,
+          persistenceStatus: undefined,
+          name: "Initial title",
+        });
+      });
+      await waitFor(() => expect(
+        result.current.sessions.find((session) => session.id === sessionId)?.persistenceStatus,
+      ).toBe("saved"));
+      expect(result.current.sessions.find((session) => session.id === sessionId)).toMatchObject({
+        name: "Renamed while saving",
+        mode: "plan",
+        status: "running",
+        activeRunId: newerRunId,
+      });
+    });
+
+    it("keeps a failed creation as an explicit draft and retries the save", async () => {
+      vi.mocked(SessionStateService.persistSession)
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockImplementationOnce(async (session) => session);
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Draft task", "owner/repo");
+      });
+      await waitFor(() => expect(
+        result.current.sessions.find((session) => session.id === sessionId)?.persistenceStatus,
+      ).toBe("failed"));
+      expect(result.current.sessions.find((session) => session.id === sessionId)?.name).toBe("Draft task");
+
+      await act(async () => result.current.retrySessionPersistence(sessionId));
+      expect(result.current.sessions.find((session) => session.id === sessionId)?.persistenceStatus).toBe("saved");
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[useSessionManager] Failed to persist session:",
+        expect.any(Error),
+      );
+    });
+
     it("should create session with default name", () => {
       const { result } = renderHook(() => useSessionManager());
 

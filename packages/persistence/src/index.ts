@@ -63,6 +63,9 @@ export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepositor
 export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
 export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepository.js";
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
+export { InvalidTranscriptSnapshotError } from "./sessions/types.js";
+export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
+export type { AdmitTurnWithPromptInput, ReserveTurnAdmissionInput, TurnAdmissionRecord, TurnAdmissionRepository } from "./turn-admissions/types.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
@@ -89,6 +92,7 @@ export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/P
 export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
 export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
 export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title-read-receipts.js";
+export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
 export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";

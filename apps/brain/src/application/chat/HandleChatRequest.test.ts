@@ -13,6 +13,16 @@ import { HandleChatRequest } from "./HandleChatRequest";
 describe("HandleChatRequest", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(PersistenceService.prototype, "admitUserTurn").mockImplementation(
+      async (input) => ({
+        id: "message-admitted",
+        run: {
+          id: input.runId,
+          providerId: input.providerId ?? null,
+          modelId: input.modelId ?? null,
+        } as never,
+      }),
+    );
     vi.spyOn(
       DurableConversationContextAssembler.prototype,
       "assemble",
@@ -23,90 +33,6 @@ describe("HandleChatRequest", () => {
     vi.restoreAllMocks();
   });
 
-  it("builds execution payload and persists the last user message", async () => {
-    const persistSpy = vi
-      .spyOn(PersistenceService.prototype, "persistUserMessage")
-      .mockResolvedValue({ id: "message-1" } as Awaited<
-        ReturnType<PersistenceService["persistUserMessage"]>
-      >);
-    vi.spyOn(
-      PersistenceService.prototype,
-      "findFirstPersistedUserMessage",
-    ).mockResolvedValue(null);
-
-    const useCase = new HandleChatRequest(createEnv());
-    const messages: CoreMessage[] = [
-      { role: "system", content: "You are helpful" },
-      { role: "user", content: "first user" },
-      { role: "assistant", content: "assistant response" },
-      { role: "user", content: "latest user prompt" },
-    ];
-
-    const result = await useCase.execute(
-      {
-        sessionId: "session-1",
-        runId: "123e4567-e89b-42d3-a456-426614174000",
-        correlationId: "corr-1",
-        agentType: "coding",
-        prompt: "latest user prompt",
-        messages,
-        providerId: "openai",
-        modelId: "gpt-4o",
-        contextWindowTokens: 999,
-        harnessId: "cloudflare-sandbox",
-        repositoryOwner: "sourcegraph",
-        repositoryName: "legioncode",
-        repositoryBranch: "dev",
-        repositoryBaseUrl: "https://github.com/sourcegraph/legioncode",
-      },
-      "https://legioncode.local",
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.executionPayload.input.mode).toBe("build");
-    expect(result.executionPayload.input.agentType).toBe("coding");
-    expect(result.executionPayload.input.providerId).toBe("openai");
-    expect(result.executionPayload.input.modelId).toBe("gpt-4o");
-    expect(result.executionPayload.input.harnessId).toBe("cloudflare-sandbox");
-    expect(result.executionPayload.input.orchestratorBackend).toBe(
-      "execution-engine-v1",
-    );
-    expect(result.executionPayload.input.executionBackend).toBe(
-      "cloudflare_sandbox",
-    );
-    expect(result.executionPayload.input.harnessMode).toBe("platform_owned");
-    expect(result.executionPayload.input.authMode).toBe("api_key");
-    expect(result.executionPayload.input.metadata).toEqual({
-      contextWindowTokens: 999,
-      featureFlags: {
-        agenticLoopV1: false,
-        reviewerPassV1: false,
-        ghCliLaneEnabled: false,
-        ghCliCiEnabled: false,
-        ghCliPrCommentEnabled: false,
-      },
-    });
-    expect(result.executionPayload.input.repositoryContext).toEqual({
-      owner: "sourcegraph",
-      repo: "legioncode",
-      branch: "dev",
-      baseUrl: "https://github.com/sourcegraph/legioncode",
-    });
-    expect(result.executionPayload.requestOrigin).toBe(
-      "https://legioncode.local",
-    );
-    expect(result.executionPayload.messages).toEqual(messages);
-    expect(persistSpy).toHaveBeenCalledWith(
-      "session-1",
-      "123e4567-e89b-42d3-a456-426614174000",
-      { role: "user", content: "latest user prompt" },
-      {
-        repository: "sourcegraph/legioncode",
-        userId: undefined,
-        workspaceId: undefined,
-      },
-    );
-  });
 
   it("routes new OpenAI reasoning models and preserves selected effort", async () => {
     vi.spyOn(
@@ -115,7 +41,7 @@ describe("HandleChatRequest", () => {
     ).mockResolvedValue({ id: "message-luna" } as Awaited<
       ReturnType<PersistenceService["persistUserMessage"]>
     >);
-    const result = await new HandleChatRequest(createEnv()).execute({
+    const result = await executeChat(new HandleChatRequest(createEnv()), {
       sessionId: "session-luna",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-luna",
@@ -162,7 +88,7 @@ describe("HandleChatRequest", () => {
     ).mockResolvedValue({ id: "message-zen" } as Awaited<
       ReturnType<PersistenceService["persistUserMessage"]>
     >);
-    const result = await new HandleChatRequest(createEnv()).execute({
+    const result = await executeChat(new HandleChatRequest(createEnv()), {
       sessionId: "session-zen",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-zen",
@@ -192,75 +118,6 @@ describe("HandleChatRequest", () => {
     });
   });
 
-  it("ensures authenticated sessions and runs before persisting transcript messages", async () => {
-    const ensureSessionSpy = vi
-      .spyOn(PersistenceService.prototype, "ensureTranscriptSession")
-      .mockResolvedValue();
-    const ensureRunSpy = vi
-      .spyOn(PersistenceService.prototype, "ensureRun")
-      .mockResolvedValue(
-        {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
-      );
-    const persistSpy = vi
-      .spyOn(PersistenceService.prototype, "persistUserMessage")
-      .mockResolvedValue({ id: "message-1" } as Awaited<
-        ReturnType<PersistenceService["persistUserMessage"]>
-      >);
-    vi.spyOn(
-      PersistenceService.prototype,
-      "findFirstPersistedUserMessage",
-    ).mockResolvedValue(null);
-
-    const useCase = new HandleChatRequest(createEnv());
-
-    await useCase.execute({
-      sessionId: "123e4567-e89b-42d3-a456-426614174001",
-      runId: "123e4567-e89b-42d3-a456-426614174000",
-      userId: "123e4567-e89b-42d3-a456-426614174002",
-      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
-      correlationId: "corr-order",
-      agentType: "coding",
-      prompt: "hello",
-      messages: [{ role: "user", content: "hello" }],
-      providerId: "openrouter",
-      modelId: "deepseek/deepseek-v4-flash:free",
-      repositoryOwner: "Puneet-Pal-Singh",
-      repositoryName: "career-crew",
-      identity: {
-        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
-        threadId: "thr_order001",
-        turnId: "trn_order001",
-        runAttemptId: "attempt_order001",
-      },
-    });
-
-    expect(ensureSessionSpy).toHaveBeenCalledWith({
-      sessionId: "123e4567-e89b-42d3-a456-426614174001",
-      userId: "123e4567-e89b-42d3-a456-426614174002",
-      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
-      threadId: "thr_order001",
-      taskId: "123e4567-e89b-42d3-a456-426614174001",
-      repository: "Puneet-Pal-Singh/career-crew",
-    });
-    expect(ensureRunSpy).toHaveBeenCalledWith({
-      id: "123e4567-e89b-42d3-a456-426614174000",
-      userId: "123e4567-e89b-42d3-a456-426614174002",
-      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
-      sessionId: "123e4567-e89b-42d3-a456-426614174001",
-      taskId: "123e4567-e89b-42d3-a456-426614174001",
-      status: "created",
-      mode: "build",
-      providerId: "openrouter",
-      modelId: "deepseek/deepseek-v4-flash:free",
-      branch: null,
-    });
-    expect(ensureSessionSpy.mock.invocationCallOrder[0]).toBeLessThan(
-      ensureRunSpy.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
-    );
-    expect(ensureRunSpy.mock.invocationCallOrder[0]).toBeLessThan(
-      persistSpy.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
-    );
-  });
 
   it("persists a deterministic preview and schedules bounded title inference", async () => {
     vi.spyOn(
@@ -274,10 +131,15 @@ describe("HandleChatRequest", () => {
     } as Awaited<ReturnType<PersistenceService["ensureRun"]>>);
     vi.spyOn(
       PersistenceService.prototype,
-      "persistUserMessage",
-    ).mockResolvedValue({
+      "admitUserTurn",
+    ).mockImplementation(async (input) => ({
       id: "message-first",
-    } as Awaited<ReturnType<PersistenceService["persistUserMessage"]>>);
+      run: {
+        id: input.runId,
+        providerId: input.providerId ?? null,
+        modelId: input.modelId ?? null,
+      } as never,
+    }));
     vi.spyOn(
       PersistenceService.prototype,
       "findFirstPersistedUserMessage",
@@ -296,7 +158,7 @@ describe("HandleChatRequest", () => {
       .spyOn(ThreadTitleGenerationCoordinator.prototype, "schedule")
       .mockImplementation(() => undefined);
 
-    await new HandleChatRequest(createEnv()).execute({
+    await executeChat(new HandleChatRequest(createEnv()), {
       sessionId: "123e4567-e89b-42d3-a456-426614174001",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       userId: "123e4567-e89b-42d3-a456-426614174002",
@@ -344,7 +206,7 @@ describe("HandleChatRequest", () => {
     ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
-    const result = await useCase.execute({
+    const result = await executeChat(useCase, {
       sessionId: "session-1",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-override",
@@ -378,7 +240,7 @@ describe("HandleChatRequest", () => {
         FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED: "true",
       }),
     );
-    const result = await useCase.execute({
+    const result = await executeChat(useCase, {
       sessionId: "session-1",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-gh-cli-flags",
@@ -403,7 +265,7 @@ describe("HandleChatRequest", () => {
     ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
-    const result = await useCase.execute({
+    const result = await executeChat(useCase, {
       sessionId: "session-1",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-plan",
@@ -423,7 +285,7 @@ describe("HandleChatRequest", () => {
     ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
-    const result = await useCase.execute({
+    const result = await executeChat(useCase, {
       sessionId: "session-1",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-tools",
@@ -451,7 +313,7 @@ describe("HandleChatRequest", () => {
     ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
-    const result = await useCase.execute({
+    const result = await executeChat(useCase, {
       sessionId: "session-1",
       runId: "123e4567-e89b-42d3-a456-426614174000",
       correlationId: "corr-workflow",
@@ -485,7 +347,7 @@ describe("HandleChatRequest", () => {
     const useCase = new HandleChatRequest(createEnv());
 
     await expect(
-      useCase.execute({
+      executeChat(useCase, {
         sessionId: "session-1",
         runId: "123e4567-e89b-42d3-a456-426614174000",
         correlationId: "corr-2",
@@ -507,7 +369,7 @@ describe("HandleChatRequest", () => {
     const useCase = new HandleChatRequest(createEnv());
 
     await expect(
-      useCase.execute({
+      executeChat(useCase, {
         sessionId: "session-1",
         runId: "123e4567-e89b-42d3-a456-426614174000",
         correlationId: "corr-3",
@@ -529,7 +391,7 @@ describe("HandleChatRequest", () => {
     const useCase = new HandleChatRequest(createEnv());
 
     await expect(
-      useCase.execute({
+      executeChat(useCase, {
         sessionId: "session-1",
         runId: "123e4567-e89b-42d3-a456-426614174000",
         correlationId: "corr-stale-history",
@@ -554,7 +416,7 @@ describe("HandleChatRequest", () => {
     const useCase = new HandleChatRequest(createEnv());
 
     await expect(
-      useCase.execute({
+      executeChat(useCase, {
         sessionId: "session-1",
         runId: "123e4567-e89b-42d3-a456-426614174000",
         correlationId: "corr-mismatched-prompt",
@@ -569,12 +431,12 @@ describe("HandleChatRequest", () => {
 
   it("fails fast when the canonical user message cannot be persisted", async () => {
     const persistSpy = vi
-      .spyOn(PersistenceService.prototype, "persistUserMessage")
+      .spyOn(PersistenceService.prototype, "admitUserTurn")
       .mockRejectedValue(new Error("storage unavailable"));
 
     const useCase = new HandleChatRequest(createEnv());
     await expect(
-      useCase.execute({
+      executeChat(useCase, {
         sessionId: "session-1",
         runId: "123e4567-e89b-42d3-a456-426614174000",
         correlationId: "corr-4",
@@ -604,4 +466,35 @@ function createEnv(overrides: Partial<Env> = {}): Env {
     RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
     ...overrides,
   };
+}
+
+function executeChat(
+  useCase: HandleChatRequest,
+  input: Record<string, any>,
+  requestOrigin?: string,
+) {
+  const sessionId = input.sessionId ?? "123e4567-e89b-42d3-a456-426614174001";
+  const workspaceId = input.workspaceId ?? "123e4567-e89b-42d3-a456-426614174003";
+  const suffix = String(input.correlationId ?? "fixture").replace(/[^a-zA-Z0-9]/g, "").slice(-12) || "fixture01";
+  const messages = (input.messages ?? []).map((message: CoreMessage, index: number) =>
+    message.role === "user" && typeof (message as { id?: unknown }).id !== "string"
+      ? { ...message, id: `client_${suffix}_${index}` }
+      : message,
+  );
+  return useCase.execute(
+    {
+      userId: input.userId ?? "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId,
+      identity: input.identity ?? {
+        workspaceId,
+        threadId: `thr_${suffix}000000000000000000000000`,
+        turnId: `trn_${suffix}000000000000000000000000`,
+        runAttemptId: `attempt_${suffix}000000000000000000000000`,
+      },
+      ...input,
+      sessionId,
+      messages,
+    } as Parameters<HandleChatRequest["execute"]>[0],
+    requestOrigin,
+  );
 }

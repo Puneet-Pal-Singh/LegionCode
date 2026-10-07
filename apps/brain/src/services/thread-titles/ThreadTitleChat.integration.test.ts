@@ -18,6 +18,21 @@ vi.mock("../providers/stores/PostgresStoreFactory", () => ({
   }),
 }));
 
+vi.mock("../persistence/BrainPersistenceRepositoryFactory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../persistence/BrainPersistenceRepositoryFactory")>();
+  return {
+    ...actual,
+    withBrainPersistenceRepository: async (env, override, createRepository, callback) => {
+      const admissionFixture = env.AUTH_TURN_ADMISSION_REPOSITORY;
+      const repositoryProbe = override ?? createRepository({} as never);
+      if (admissionFixture && typeof repositoryProbe.admitWithPrompt === "function") {
+        return callback(admissionFixture);
+      }
+      return actual.withBrainPersistenceRepository(env, override, createRepository, callback);
+    },
+  };
+});
+
 const userId = "550e8400-e29b-41d4-a716-446655440000";
 const workspaceId = "550e8400-e29b-41d4-a716-446655440002";
 afterEach(() => {
@@ -26,12 +41,95 @@ afterEach(() => {
 
 function harness() {
   const transcripts = new MemoryTranscriptRepository();
+  const runs = new MemoryRunRepository();
   const events = new MemoryEventStore();
+  const scopes = new Map<string, { threadId: string; turnId: string; runAttemptId: string; runId: string }>();
+  const admissionFixture = {
+    async admitWithPrompt(input: {
+      sessionId: string;
+      clientMessageId: string;
+      turnId: string;
+      runAttemptId: string;
+      runId: string;
+      requestFingerprint: string;
+      userId: string;
+      workspaceId: string;
+      taskId: string;
+      mode: string;
+      providerId?: string | null;
+      modelId?: string | null;
+      branch?: string | null;
+      runStatus?: "created" | "running" | "paused" | "completed" | "failed" | "cancelled";
+      promptMessage: {
+        role: "user";
+        clientMessageId: string;
+        dedupeKey: string;
+        parts: Array<{ type: "text" | "tool_call" | "tool_result" | "activity" | "compaction_summary" | "raw"; content: any }>;
+      };
+    }) {
+      const scope = scopes.get(input.sessionId);
+      if (!scope || scope.turnId !== input.turnId || scope.runAttemptId !== input.runAttemptId || scope.runId !== input.runId) {
+        throw new Error("Integration admission fixture did not receive the exact reserved identity");
+      }
+      const session = await transcripts.ensureSession({
+        sessionId: input.sessionId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        threadId: scope.threadId,
+        taskId: input.taskId,
+        title: "Create a dark mode toggle",
+        activeRunId: input.runId,
+        mode: input.mode,
+        status: "running",
+      });
+      const run = await runs.ensureRun({
+        id: input.runId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+        status: input.runStatus ?? "running",
+        mode: input.mode,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        branch: input.branch,
+      });
+      const prompt = await transcripts.appendMessage({
+        sessionId: session.id,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        threadId: scope.threadId,
+        taskId: input.taskId,
+        activeRunId: input.runId,
+        mode: input.mode,
+        status: "running",
+        runId: input.runId,
+        role: "user",
+        clientMessageId: input.promptMessage.clientMessageId,
+        dedupeKey: input.promptMessage.dedupeKey,
+        parts: input.promptMessage.parts,
+      });
+      return {
+        admission: {
+          sessionId: input.sessionId,
+          clientMessageId: input.clientMessageId,
+          turnId: input.turnId,
+          runAttemptId: input.runAttemptId,
+          runId: input.runId,
+          requestFingerprint: input.requestFingerprint,
+          state: "admitted",
+        },
+        promptMessageId: prompt.id,
+        run,
+      };
+    },
+  };
   const env = {
     OPENAI_API_KEY: "test-fixture-key",
     AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
     AUTH_LIFECYCLE_EVENT_STORE: new MemoryLifecycleEventStore(),
     AUTH_TRANSCRIPT_REPOSITORY: transcripts,
+    AUTH_TURN_ADMISSION_REPOSITORY: admissionFixture,
     AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
       transcripts,
       events,
@@ -39,7 +137,12 @@ function harness() {
   } as Env;
   const pending: Promise<unknown>[] = [];
   const submit = (suffix: string, structured = false, turn = "first") =>
-    new HandleChatRequest(env).execute({
+    (scopes.set(`session_${suffix}`, {
+      threadId: `thr_${suffix}`,
+      turnId: `trn_${suffix}_${turn}`,
+      runAttemptId: `attempt_${suffix}_${turn}`,
+      runId: `run_${suffix}_${turn}`,
+    }), new HandleChatRequest(env).execute({
       userId,
       workspaceId,
       sessionId: `session_${suffix}`,
@@ -65,9 +168,9 @@ function harness() {
         runAttemptId: `attempt_${suffix}_${turn}`,
       },
       prompt: "Create a dark mode toggle",
-      messages: [{ role: "user", content: "Create a dark mode toggle" }],
+      messages: [{ id: `client_msg_${suffix}_${turn}`, role: "user", content: "Create a dark mode toggle" }],
       backgroundTaskOwner: { waitUntil: (promise) => pending.push(promise) },
-    });
+    }));
   return { transcripts, events, env, pending, submit };
 }
 

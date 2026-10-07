@@ -1,5 +1,8 @@
 import type { Message } from "@ai-sdk/react";
-import { buildConversationTurns } from "../messageMetadata";
+import {
+  buildConversationTurns,
+  readCanonicalTurnId,
+} from "../messageMetadata";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 
 export type ChatInterfaceEntry =
@@ -30,34 +33,38 @@ export function buildChatEntries(
       entries.push({
         kind: "message",
         message: conversationTurn.userMessage,
-        ...(projection
-          ? { projection }
-          : {}),
+        ...(projection ? { projection } : {}),
       });
     }
-    if (turnId && projection && projection.lastSequence > 0) {
+    if (
+      turnId &&
+      projection &&
+      projection.lastSequence > 0 &&
+      !emittedWorkflowTurnIds.has(turnId)
+    ) {
       entries.push({
         kind: "workflow",
         key: `workflow:${turnId}`,
         turnId,
         projection,
-        ...(conversationTurn.assistantMessage
-          ? { assistantMessage: conversationTurn.assistantMessage }
+        ...(representativeAssistant(conversationTurn.assistantMessages ?? [])
+          ? {
+              assistantMessage: representativeAssistant(
+                conversationTurn.assistantMessages ?? [],
+              ),
+            }
           : {}),
       });
       emittedWorkflowTurnIds.add(turnId);
     }
-    if (
-      shouldIncludeAssistantMessage(
-        conversationTurn.assistantMessage,
-        projection,
-      )
-    ) {
-      entries.push({
-        kind: "message",
-        message: conversationTurn.assistantMessage,
-        ...(projection ? { projection } : {}),
-      });
+    for (const assistantMessage of conversationTurn.assistantMessages ?? []) {
+      if (shouldIncludeAssistantMessage(assistantMessage, projection)) {
+        entries.push({
+          kind: "message",
+          message: assistantMessage,
+          ...(projection ? { projection } : {}),
+        });
+      }
     }
   }
   const orphanedActiveProjection = activeTurnId
@@ -78,26 +85,62 @@ export function buildChatEntries(
   return entries;
 }
 
+function representativeAssistant(messages: Message[]): Message | undefined {
+  return (
+    [...messages]
+      .reverse()
+      .find(
+        (message) => readMessageMetadata(message)?.phase === "final_answer",
+      ) ?? messages[messages.length - 1]
+  );
+}
+
 function shouldIncludeAssistantMessage(
   message: Message | undefined,
   projection?: LifecycleProjection,
 ): message is Message {
   if (!message || message.role !== "assistant") return false;
-  if (
-    projection?.terminal?.state === "completed" &&
-    (projection.assistantText.trim() || projection.terminal.content.trim())
-  ) {
-    return false;
-  }
-  const terminalState = readTerminalState(message);
-  return terminalState == null || terminalState === "completed";
+  return !isRepresentedByWorkflow(message, projection);
 }
 
-function readTerminalState(message: Message): string | null {
+function isRepresentedByWorkflow(
+  message: Message,
+  projection?: LifecycleProjection,
+): boolean {
+  if (!projection || readCanonicalTurnId(message) !== projection.turnId)
+    return false;
+  const metadata = readMessageMetadata(message);
+  const itemId = metadata?.itemId;
+  if (typeof itemId !== "string") return false;
+  const phase = metadata?.phase;
+  const messageContent = message.content.trim();
+  if (!messageContent) return false;
+  if (phase === "commentary") {
+    return projection.items.some(
+      (item) =>
+        item.kind === "commentary" &&
+        item.itemId === itemId &&
+        item.text.trim() === messageContent,
+    );
+  }
+  if (phase !== "final_answer") return false;
+  const item = projection.items.find(
+    (candidate) =>
+      candidate.kind === "assistant_message" && candidate.itemId === itemId,
+  );
+  if (!item || !item.text.trim().startsWith(messageContent)) return false;
+  const renderedFinalText =
+    projection.terminal?.state === "completed"
+      ? projection.assistantText || projection.terminal.content
+      : projection.assistantText;
+  return renderedFinalText.includes(messageContent);
+}
+
+function readMessageMetadata(message: Message): Record<string, unknown> | null {
   const data = (message as Message & { data?: unknown }).data;
   if (!data || typeof data !== "object") return null;
   const metadata = (data as Record<string, unknown>).metadata;
-  if (!metadata || typeof metadata !== "object") return null;
-  const terminalState = (metadata as Record<string, unknown>).terminalState;
-  return typeof terminalState === "string" ? terminalState : null;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : null;
 }

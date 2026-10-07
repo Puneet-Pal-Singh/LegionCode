@@ -65,13 +65,16 @@ export class DurableConversationContextAssembler {
     revisionOfTurnId?: string;
     imageModelMetadata?: ChatImageModelMetadata;
   }): Promise<CoreMessage[]> {
-    const durableTranscript = await this.readTranscript(
+    const { messages: durableTranscript, supersededTurnIds } = await this.readTranscript(
       input.sessionId,
       input.userId,
     );
     const transcript = projectActiveTranscriptBranch(
       durableTranscript,
-      input.revisionOfTurnId ? [input.revisionOfTurnId] : [],
+      [
+        ...supersededTurnIds,
+        ...(input.revisionOfTurnId ? [input.revisionOfTurnId] : []),
+      ],
     );
     const messages: CoreMessage[] = [];
     for (const record of transcript) {
@@ -118,20 +121,28 @@ export class DurableConversationContextAssembler {
   private async readTranscript(
     sessionId: string,
     userId: string,
-  ): Promise<TranscriptMessageRecord[]> {
+  ): Promise<{ messages: TranscriptMessageRecord[]; supersededTurnIds: string[] }> {
     const messages: TranscriptMessageRecord[] = [];
+    const supersededTurnIds = new Set<string>();
     let cursor: number | null = 0;
+    let snapshot: number | null = null;
     while (cursor !== null) {
       const page = await this.readTranscriptPage({
         sessionId,
         userId,
         cursor,
+        snapshot,
         limit: TRANSCRIPT_PAGE_SIZE,
       });
+      if (snapshot === null) snapshot = page.snapshot;
+      for (const turnId of page.supersededTurnIds) supersededTurnIds.add(turnId);
       messages.push(...page.messages);
+      if (page.nextCursor !== null && page.nextCursor <= cursor) {
+        throw new Error("Transcript pagination cursor did not advance");
+      }
       cursor = page.nextCursor;
     }
-    return messages;
+    return { messages, supersededTurnIds: [...supersededTurnIds] };
   }
 
   private async readFailedTurnRecord(
@@ -198,8 +209,8 @@ function formatFailedTurnRecord(
     } else if (event.type === "tool_call.completed") {
       const current = toolItems.get(itemId);
       if (current) current.completed = true;
-    }
   }
+}
   const failurePayload = readRecord(failure.payload);
   const outcome = readRecord(failurePayload?.outcome);
   const failureDetail = readRecord(outcome?.failure);

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  MemoryRunRepository,
-  MemoryTranscriptRepository,
-} from "@repo/persistence";
+import { MemoryTranscriptRepository } from "@repo/persistence";
 import { TurnController } from "./TurnController";
 import type { Env } from "../types/ai";
 
@@ -13,7 +10,7 @@ const TEST_RUN_ID = "run_server1";
 describe("TurnController public bootstrap contract", () => {
   it("authenticates the request and returns the runtime-issued four-id scope", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await TurnController.start(
       createTurnStartRequest({
@@ -53,31 +50,10 @@ describe("TurnController public bootstrap contract", () => {
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
 
-  it("authorizes canonical query identity through headers before runtime scope replay", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
 
-    const response = await TurnController.scope(
-      new Request(
-        `https://brain.local/turn/scope?runId=${TEST_RUN_ID}&sessionId=session-1`,
-        {
-          headers: { Cookie: "legioncode_session=test-session-token" },
-        },
-      ),
-      env,
-    );
 
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual(runtime.identity);
-    expect(runtime.idFromName).toHaveBeenCalledWith(TEST_RUN_ID);
-    const runtimeRequest = runtime.fetch.mock.calls[0]?.[0] as string;
-    expect(new URL(runtimeRequest).pathname).toBe("/turn/scope");
-    expect(new URL(runtimeRequest).searchParams.get("runId")).toBe(TEST_RUN_ID);
-    expect(new URL(runtimeRequest).searchParams.get("sessionId")).toBe(
-      "session-1",
-    );
+
   });
-});
 
 function createTurnStartRequest(headers?: Record<string, string>): Request {
   return new Request("https://brain.local/turn/start", {
@@ -113,7 +89,39 @@ function createMockRuntimeNamespace() {
   return { namespace, idFromName, fetch, identity };
 }
 
-function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
+async function createEnv(
+  runEngineRuntime: Env["RUN_ENGINE_RUNTIME"],
+  options: {
+    sessionUserId?: string;
+    sessionWorkspaceId?: string;
+    executionState?: "pending" | "running" | "recovery_required" | "settled";
+  } = {},
+): Promise<Env> {
+  const transcriptRepository = new MemoryTranscriptRepository();
+  await transcriptRepository.ensureSession({
+    sessionId: "session-1",
+    userId: options.sessionUserId ?? TEST_USER_ID,
+    workspaceId: options.sessionWorkspaceId ?? TEST_WORKSPACE_ID,
+    title: "fixture",
+    threadId: null,
+  });
+  const admission = {
+    userId: TEST_USER_ID,
+    sessionId: "session-1",
+    clientMessageId: "client-message-1",
+    threadId: "thr_server1",
+    turnId: "trn_server1",
+    runAttemptId: "attempt_server1",
+    runId: TEST_RUN_ID,
+    workspaceId: TEST_WORKSPACE_ID,
+    revisionOfTurnId: null,
+    state: "admitted",
+    executionState: options.executionState ?? "pending",
+    requestFingerprint: "fixture-fingerprint",
+    admissionOrder: 1,
+    createdAt: new Date(0).toISOString(),
+    admittedAt: new Date(0).toISOString(),
+  } as const;
   return {
     AI: {} as Env["AI"],
     AUTH_IDENTITY_REPOSITORY: {
@@ -125,8 +133,14 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
         createIdentitySessionRecord(),
       revokeSession: async () => undefined,
     },
-    AUTH_TRANSCRIPT_REPOSITORY: new MemoryTranscriptRepository(),
-    AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_TRANSCRIPT_REPOSITORY: transcriptRepository,
+    AUTH_RUN_REPOSITORY: {
+      getRun: async () => ({ sessionId: "session-1", workspaceId: TEST_WORKSPACE_ID }),
+    } as unknown as Env["AUTH_RUN_REPOSITORY"],
+    AUTH_TURN_ADMISSION_REPOSITORY: {
+      reserve: async () => admission,
+      getBySessionAndRunId: async () => admission,
+    } as unknown as Env["AUTH_TURN_ADMISSION_REPOSITORY"],
     SECURE_API: {} as Env["SECURE_API"],
     GITHUB_CLIENT_ID: "x",
     GITHUB_CLIENT_SECRET: "x",

@@ -32,16 +32,16 @@ describe("messageMetadata", () => {
       },
     ] satisfies Message[]);
 
-    expect(turns).toHaveLength(2);
+    expect(turns).toHaveLength(4);
     expect(turns[0]?.key).toBe("user-1");
     expect(turns[0]?.userMessage?.id).toBe("user-1");
-    expect(turns[0]?.assistantMessage?.id).toBe("assistant-1");
-    expect(turns[1]?.key).toBe("user-2");
-    expect(turns[1]?.userMessage?.id).toBe("user-2");
-    expect(turns[1]?.assistantMessage?.id).toBe("assistant-2");
+    expect(turns[1]?.assistantMessages?.[0]?.id).toBe("assistant-1");
+    expect(turns[2]?.key).toBe("user-2");
+    expect(turns[2]?.userMessage?.id).toBe("user-2");
+    expect(turns[3]?.assistantMessages?.[0]?.id).toBe("assistant-2");
   });
 
-  it("promotes a live user turn to the canonical assistant turn id", () => {
+  it("does not infer a user turn from an assistant canonical identity", () => {
     const turns = buildConversationTurns([
       {
         id: "client-user",
@@ -62,11 +62,12 @@ describe("messageMetadata", () => {
       },
     ] as Message[]);
 
-    expect(turns).toHaveLength(1);
-    expect(turns[0]?.turnId).toBe("trn_liveturn01");
+    expect(turns).toHaveLength(2);
+    expect(turns[0]?.turnId).not.toBe("trn_liveturn01");
+    expect(turns[1]?.turnId).toBe("trn_liveturn01");
   });
 
-  it("keeps the latest assistant message for a user turn when progress chatter streams first", () => {
+  it("preserves unidentified assistant rows instead of guessing their user turn", () => {
     const turns = buildConversationTurns([
       {
         id: "user-1",
@@ -90,9 +91,15 @@ describe("messageMetadata", () => {
       },
     ] satisfies Message[]);
 
-    expect(turns).toHaveLength(1);
+    expect(turns).toHaveLength(4);
     expect(turns[0]?.userMessage?.id).toBe("user-1");
-    expect(turns[0]?.assistantMessage?.id).toBe("assistant-final");
+    expect(
+      turns.slice(1).map((turn) => turn.assistantMessages?.[0]?.id),
+    ).toEqual([
+      "assistant-progress-1",
+      "assistant-progress-2",
+      "assistant-final",
+    ]);
   });
 
   it("projects replayed message ids once and keeps their latest payload", () => {
@@ -119,15 +126,15 @@ describe("messageMetadata", () => {
       },
     ] satisfies Message[]);
 
-    expect(turns).toHaveLength(1);
+    expect(turns).toHaveLength(2);
     expect(turns[0]?.userMessage?.id).toBe("client_msg_same");
-    expect(turns[0]?.assistantMessage).toMatchObject({
+    expect(turns[1]?.assistantMessages?.[0]).toMatchObject({
       id: "assistant-same",
       content: "Hello! How can I help?",
     });
   });
 
-  it("uses persisted canonical turn identity and excludes commentary transcript rows", () => {
+  it("groups exact canonical assistant identities and preserves commentary rows", () => {
     const canonicalIdentity = {
       workspaceId: "wsp_metadata01",
       threadId: "thr_metadata01",
@@ -159,7 +166,7 @@ describe("messageMetadata", () => {
     expect(turns[0]).toMatchObject({
       turnId: "trn_metadata01",
       userMessage: { id: "user-1" },
-      assistantMessage: { id: "assistant-1" },
+      assistantMessages: [{ id: "commentary-1" }, { id: "assistant-1" }],
     });
   });
 

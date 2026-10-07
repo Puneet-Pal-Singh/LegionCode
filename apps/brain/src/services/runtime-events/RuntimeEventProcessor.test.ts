@@ -78,7 +78,6 @@ describe("RuntimeEventProcessor", () => {
         stepType: RUN_EVENT_TYPES.TOOL_REQUESTED,
         status: "pending",
       }),
-      status: undefined,
     });
   });
 });

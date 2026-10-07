@@ -14,6 +14,10 @@ export class ArtifactService {
     this.onArtifactCreatedCallback = onArtifactCreated;
   }
 
+  setOnArtifactCreatedCallback(callback?: () => void): void {
+    this.onArtifactCreatedCallback = callback;
+  }
+
   /**
    * Process tool call and extract artifact if present
    */
