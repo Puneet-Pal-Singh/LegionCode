@@ -50,30 +50,7 @@ export {
 } from "./provider-capability-matrix";
 export type { IProviderConfigService } from "./IProviderConfigService";
 
-// Base types and errors
-export {
-  ProviderError,
-  type ProviderAdapter,
-  type GenerationParams,
-  type GenerationResult,
-  type StreamChunk,
-} from "./base";
-
 // Encryption configuration
 export { readByokEncryptionConfig } from "./provider-encryption-key";
 
-// Adapter implementations
-export { LiteLLMAdapter } from "./adapters";
-export { OpenAIAdapter } from "./adapters";
-export { AnthropicAdapter } from "./adapters";
-export { AnthropicMessagesAdapter } from "./adapters";
-export { GoogleAdapter } from "./adapters";
-export { OpenAIResponsesAdapter } from "./adapters";
-export {
-  OpenAICompatibleAdapter,
-  streamGenerationHelper,
-  type OpenAICompatibleConfig,
-  type StreamHelperOptions,
-  type StreamProducer,
-  type UsageStandardizer,
-} from "./adapters";
+export { LiteLLMAdapter } from "./adapters/LiteLLMAdapter";

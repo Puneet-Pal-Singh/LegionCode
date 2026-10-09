@@ -55,3 +55,11 @@ export {
   type ResolvedProviderRuntimeRoute,
   type ProviderRuntimeRouteRegistry,
 } from "./runtime-route.js";
+export {
+  resolveProviderModelRoute,
+  ProviderRouteResolutionError,
+  type ProviderModelRoute,
+  type ProviderModelRouteInput,
+  type ProviderRouteRegistryEntry,
+  type GetProvider,
+} from "./model-route.js";

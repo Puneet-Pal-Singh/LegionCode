@@ -7,6 +7,7 @@ import {
 } from "@legioncode/app-server/protocol";
 import {
   AppServerEnvironmentSnapshotSchema,
+  APP_SERVER_PROTOCOL_VERSION,
 } from "@repo/platform-protocol";
 import {
   APP_SERVER_REQUEST_CHANNEL,
@@ -16,6 +17,9 @@ import {
   ENVIRONMENT_RESTART_CHANNEL,
   WORKSPACE_PICK_CHANNEL,
   CREDENTIAL_COMMAND_CHANNEL,
+  TURN_CONTINUATION_CHANNEL,
+  DesktopContinuationRequestSchema,
+  DesktopContinuationEventSchema,
   DesktopCredentialCommandSchema,
   DesktopCredentialResultSchema,
   type DesktopApi,
@@ -51,6 +55,52 @@ const desktopApi: DesktopApi = {
       throw new Error("Desktop App Server response did not match its request");
     }
     return response;
+  },
+  subscribeContinuation: async (request, listener) => {
+    const subscriptionId = crypto.randomUUID();
+    const subscribe = DesktopContinuationRequestSchema.parse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      operation: "subscribe",
+      subscriptionId,
+      request,
+    });
+    let closed = false;
+    let registered = false;
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = DesktopContinuationEventSchema.safeParse(value);
+      if (!parsed.success || parsed.data.subscriptionId !== subscriptionId) return;
+      listener(parsed.data);
+      if (parsed.data.operation === "failed") close();
+    };
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      ipcRenderer.removeListener(TURN_CONTINUATION_CHANNEL, handler);
+      if (registered) {
+        void ipcRenderer.invoke(TURN_CONTINUATION_CHANNEL, DesktopContinuationRequestSchema.parse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          operation: "unsubscribe",
+          subscriptionId,
+        })).catch(() => undefined);
+      }
+    };
+    if (typeof listener !== "function") throw new Error("Desktop continuation listener is invalid");
+    ipcRenderer.on(TURN_CONTINUATION_CHANNEL, handler);
+    try {
+      await ipcRenderer.invoke(TURN_CONTINUATION_CHANNEL, subscribe);
+      registered = true;
+      if (closed) {
+        void ipcRenderer.invoke(TURN_CONTINUATION_CHANNEL, DesktopContinuationRequestSchema.parse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          operation: "unsubscribe",
+          subscriptionId,
+        })).catch(() => undefined);
+      }
+      return close;
+    } catch {
+      close();
+      throw new Error("Desktop Turn continuation could not start");
+    }
   },
   getBuildInfo: async () => BuildInfoSchema.parse(
     await ipcRenderer.invoke(BUILD_INFO_CHANNEL),

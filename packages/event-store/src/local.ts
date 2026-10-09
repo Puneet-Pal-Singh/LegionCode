@@ -1,16 +1,20 @@
 import Database from "better-sqlite3";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import {
   EventCursorSchema,
+  EventIdSchema,
+  EVENT_SCHEMA_VERSION,
   EventScopeSchema,
+  LocalTurnAdmissionSchema,
   LocalWorkspaceGrantPathSchema,
   LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ProviderIdSchema,
   type EventCursor,
   type EventId,
+  type LocalTurnAdmission,
   type PlatformEvent,
   type LocalWorkspaceGrant,
   type ProviderId,
@@ -37,7 +41,8 @@ import type {
 } from "./lifecycle-types.js";
 
 const DATABASE_NAME = "local-events.sqlite";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const PRE_ADMISSION_SCHEMA_VERSION = 1;
 const MAX_REPLAY_LIMIT = 1_000;
 const PROVIDER_SELECTION_METADATA_KEY = "provider_selection_v1";
 const ProviderSelectionSchema = z.object({
@@ -88,6 +93,19 @@ type EventRow = {
   idempotency_key: string;
 };
 
+type TurnAdmissionRow = {
+  workspace_id: string;
+  thread_id: string;
+  run_id: string;
+  turn_id: string;
+  run_attempt_id: string;
+  idempotency_key: string;
+  fingerprint: string;
+  run_created_event_id: string;
+  turn_started_event_id: string;
+  user_message_completed_event_id: string;
+};
+
 /**
  * One process-owned SQLite writer for all local durable product records.
  * Construction performs validation and one-time legacy migration synchronously,
@@ -105,6 +123,16 @@ export class LocalPersistence {
     read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
     write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
     clear(): Promise<void>;
+  };
+  readonly turnAdmissions: {
+    admit(candidate: LocalTurnAdmission): Promise<{
+      readonly entry: LocalTurnAdmission;
+      readonly newlyAdmitted: boolean;
+    }>;
+    listByThreadWorkspace(input: {
+      readonly workspaceId: LocalTurnAdmission["identity"]["workspaceId"];
+      readonly threadId: LocalTurnAdmission["identity"]["threadId"];
+    }): Promise<readonly LocalTurnAdmission[]>;
   };
 
   private readonly database!: Database.Database;
@@ -160,6 +188,10 @@ export class LocalPersistence {
       write: async (value) => this.writeProviderSelection(value),
       clear: async () => this.clearProviderSelection(),
     };
+    this.turnAdmissions = {
+      admit: async (candidate) => this.admitTurn(candidate),
+      listByThreadWorkspace: async (input) => this.listTurnAdmissions(input),
+    };
   }
 
   close(): void {
@@ -204,7 +236,7 @@ export class LocalPersistence {
         throw new LocalPersistenceError("corrupt", "Local database schema is incomplete");
       }
       const schemaVersion = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-      if (schemaVersion && schemaVersion.value !== String(SCHEMA_VERSION)) {
+      if (schemaVersion && ![String(PRE_ADMISSION_SCHEMA_VERSION), String(SCHEMA_VERSION)].includes(schemaVersion.value)) {
         throw new LocalPersistenceError("corrupt", "Local database schema version is unsupported");
       }
       const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
@@ -240,18 +272,34 @@ export class LocalPersistence {
           id INTEGER PRIMARY KEY CHECK (id = 1),
           value_json TEXT NOT NULL
         );
+        CREATE TABLE turn_admissions (
+          workspace_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          run_id TEXT NOT NULL UNIQUE,
+          turn_id TEXT NOT NULL UNIQUE,
+          run_attempt_id TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          run_created_event_id TEXT NOT NULL UNIQUE,
+          turn_started_event_id TEXT NOT NULL UNIQUE,
+          user_message_completed_event_id TEXT NOT NULL UNIQUE,
+          PRIMARY KEY (workspace_id, thread_id, idempotency_key)
+        ) WITHOUT ROWID;
       `);
     }).exclusive();
   }
 
   private migrateOrValidate(): void {
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-    if (version && version.value !== String(SCHEMA_VERSION)) {
+    if (version && ![String(PRE_ADMISSION_SCHEMA_VERSION), String(SCHEMA_VERSION)].includes(version.value)) {
       throw corruptStore("Local database schema version is unsupported");
     }
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     if (marker) {
       if (marker.value !== "1") throw corruptStore("Local migration marker is invalid");
+      if (version?.value === String(PRE_ADMISSION_SCHEMA_VERSION)) {
+        this.migrateAdmissionIndex();
+      }
       return;
     }
     if (this.hasArchivedMigrationEvidence()) {
@@ -273,6 +321,28 @@ export class LocalPersistence {
       this.database.prepare("INSERT INTO metadata(key, value) VALUES ('schema_version', ?)")
         .run(String(SCHEMA_VERSION));
       this.database.prepare("INSERT INTO metadata(key, value) VALUES ('legacy_migration_complete', '1')").run();
+    }).exclusive();
+  }
+
+  private migrateAdmissionIndex(): void {
+    this.database.transaction(() => {
+      this.database.exec(`
+        CREATE TABLE turn_admissions (
+          workspace_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          run_id TEXT NOT NULL UNIQUE,
+          turn_id TEXT NOT NULL UNIQUE,
+          run_attempt_id TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          run_created_event_id TEXT NOT NULL UNIQUE,
+          turn_started_event_id TEXT NOT NULL UNIQUE,
+          user_message_completed_event_id TEXT NOT NULL UNIQUE,
+          PRIMARY KEY (workspace_id, thread_id, idempotency_key)
+        ) WITHOUT ROWID;
+      `);
+      this.database.prepare("UPDATE metadata SET value = ? WHERE key = 'schema_version'")
+        .run(String(SCHEMA_VERSION));
     }).exclusive();
   }
 
@@ -496,6 +566,162 @@ export class LocalPersistence {
     });
   }
 
+  private admitTurn(candidateInput: LocalTurnAdmission): {
+    readonly entry: LocalTurnAdmission;
+    readonly newlyAdmitted: boolean;
+  } {
+    const candidate = LocalTurnAdmissionSchema.parse(candidateInput);
+    const fingerprint = admissionFingerprint(candidate);
+    return this.guardStorage(() => this.database.transaction(() => {
+      const existing = this.database.prepare(`
+        SELECT * FROM turn_admissions WHERE workspace_id = ? AND thread_id = ? AND idempotency_key = ?
+      `).get(candidate.identity.workspaceId, candidate.identity.threadId, candidate.idempotencyKey) as TurnAdmissionRow | undefined;
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) {
+          throw new EventStoreError("idempotency_conflict", "Turn admission key was already used for a different request");
+        }
+        return { entry: this.reconstructTurnAdmission(existing), newlyAdmitted: false };
+      }
+      const identity = candidate.identity;
+      const duplicateIdentity = this.database.prepare(`
+        SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? LIMIT 1
+      `).get(identity.runId, identity.turnId);
+      if (duplicateIdentity) {
+        throw new EventStoreError("event_id_conflict", "Turn admission identity already belongs to another request");
+      }
+      const stream = this.database.prepare(`
+        SELECT 1 FROM events WHERE family = 'platform' AND stream_type = 'run' AND stream_id = ? LIMIT 1
+      `).get(identity.runId);
+      if (stream) throw new EventStoreError("event_id_conflict", "Run already has canonical event history");
+
+      const runCreated = this.appendPlatformWithin({
+        threadId: identity.threadId,
+        workspaceId: identity.workspaceId,
+        runId: identity.runId,
+        scopeType: "run",
+        scopeId: identity.runId,
+        type: "run.created",
+        payload: { run: candidate.run },
+        idempotencyKey: admissionEventKey(identity.runId, "run-created"),
+        producer: { kind: "runtime_kernel", id: "local-admission" },
+        schemaVersion: EVENT_SCHEMA_VERSION,
+      });
+      const turnStarted = this.appendPlatformWithin({
+        threadId: identity.threadId,
+        workspaceId: identity.workspaceId,
+        runId: identity.runId,
+        scopeType: "run",
+        scopeId: identity.runId,
+        type: "turn.started",
+        payload: { turn: candidate.turn },
+        idempotencyKey: admissionEventKey(identity.runId, "turn-started"),
+        producer: { kind: "runtime_kernel", id: "local-admission" },
+        schemaVersion: EVENT_SCHEMA_VERSION,
+      });
+      const userMessageCompleted = this.appendPlatformWithin({
+        threadId: identity.threadId,
+        workspaceId: identity.workspaceId,
+        runId: identity.runId,
+        scopeType: "run",
+        scopeId: identity.runId,
+        type: "item.completed",
+        payload: { item: candidate.userMessage },
+        idempotencyKey: admissionEventKey(identity.runId, "user-message"),
+        producer: { kind: "runtime_kernel", id: "local-admission" },
+        schemaVersion: EVENT_SCHEMA_VERSION,
+      });
+      if (runCreated.sequence !== 1 || turnStarted.sequence !== 2
+        || userMessageCompleted.sequence !== 3
+        || candidate.userMessage.eventSequence !== userMessageCompleted.sequence) {
+        throw new EventStoreError("sequence_gap", "Local turn admission event sequence is inconsistent");
+      }
+      this.database.prepare(`
+        INSERT INTO turn_admissions(
+          workspace_id, thread_id, run_id, turn_id, run_attempt_id,
+          idempotency_key, fingerprint, run_created_event_id, turn_started_event_id,
+          user_message_completed_event_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        identity.workspaceId,
+        identity.threadId,
+        identity.runId,
+        identity.turnId,
+        identity.runAttemptId,
+        candidate.idempotencyKey,
+        fingerprint,
+        runCreated.eventId,
+        turnStarted.eventId,
+        userMessageCompleted.eventId,
+      );
+      const row = this.database.prepare(`
+        SELECT * FROM turn_admissions WHERE workspace_id = ? AND thread_id = ? AND idempotency_key = ?
+      `).get(identity.workspaceId, identity.threadId, candidate.idempotencyKey) as TurnAdmissionRow;
+      return { entry: this.reconstructTurnAdmission(row), newlyAdmitted: true };
+    }).immediate());
+  }
+
+  private listTurnAdmissions(input: {
+    readonly workspaceId: LocalTurnAdmission["identity"]["workspaceId"];
+    readonly threadId: LocalTurnAdmission["identity"]["threadId"];
+  }): readonly LocalTurnAdmission[] {
+    return this.guardStorage(() => {
+      const rows = this.database.prepare(`
+        SELECT admission.* FROM turn_admissions AS admission
+        JOIN events AS accepted ON accepted.event_id = admission.run_created_event_id
+        WHERE admission.workspace_id = ? AND admission.thread_id = ?
+        ORDER BY accepted.insertion_order
+      `).all(input.workspaceId, input.threadId) as TurnAdmissionRow[];
+      return rows.map((row) => this.reconstructTurnAdmission(row));
+    });
+  }
+
+  private reconstructTurnAdmission(row: TurnAdmissionRow): LocalTurnAdmission {
+    try {
+      const refs = [
+        EventIdSchema.parse(row.run_created_event_id),
+        EventIdSchema.parse(row.turn_started_event_id),
+        EventIdSchema.parse(row.user_message_completed_event_id),
+      ];
+      const events = refs.map((eventId) => {
+        const stored = this.database.prepare("SELECT event_json FROM events WHERE family = 'platform' AND event_id = ?")
+          .get(eventId) as { event_json: string } | undefined;
+        if (!stored) throw new Error("Admission event reference is missing");
+        return parseStoredPlatformEvent(stored.event_json);
+      });
+      const [runCreated, turnStarted, itemCompleted] = events;
+      if (runCreated?.type !== "run.created" || turnStarted?.type !== "turn.started"
+        || itemCompleted?.type !== "item.completed") throw new Error("Admission event types are invalid");
+      if (runCreated.sequence !== 1 || turnStarted.sequence !== 2 || itemCompleted.sequence !== 3) {
+        throw new Error("Admission event sequence is invalid");
+      }
+      const admission = LocalTurnAdmissionSchema.parse({
+        identity: {
+          workspaceId: row.workspace_id,
+          threadId: row.thread_id,
+          runId: row.run_id,
+          turnId: row.turn_id,
+          runAttemptId: row.run_attempt_id,
+        },
+        run: runCreated.payload.run,
+        turn: turnStarted.payload.turn,
+        userMessage: itemCompleted.payload.item,
+        providerId: (runCreated.payload.run as LocalTurnAdmission["run"]).providerId,
+        modelId: (runCreated.payload.run as LocalTurnAdmission["run"]).modelId,
+        idempotencyKey: row.idempotency_key,
+      });
+      if (runCreated.eventId !== refs[0] || turnStarted.eventId !== refs[1] || itemCompleted.eventId !== refs[2]
+        || events.some((event) => event.threadId !== row.thread_id || event.workspaceId !== row.workspace_id
+          || event.runId !== row.run_id || event.scopeType !== "run" || event.scopeId !== row.run_id)
+        || admission.turn.id !== row.turn_id || admission.identity.runAttemptId !== row.run_attempt_id
+        || admissionFingerprint(admission) !== row.fingerprint) {
+        throw new Error("Admission index does not match canonical event history");
+      }
+      return admission;
+    } catch {
+      throw corruptStore("Local turn admission index does not match canonical event history");
+    }
+  }
+
   private readWorkspaceGrant(): StoredLocalWorkspaceGrant | null {
     return this.guardStorage(() => {
       const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id = 1").get() as { value_json: string } | undefined;
@@ -562,12 +788,12 @@ export class LocalPersistence {
     }
   }
 
-  private validateDatabase(): void {
+  private validateDatabase(expectedVersion = SCHEMA_VERSION): void {
     const result = this.database.pragma("quick_check") as { quick_check: string }[];
     if (result.length !== 1 || result[0]?.quick_check !== "ok") throw corruptStore("Local database integrity check failed");
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-    if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
+    if (marker?.value !== "1" || version?.value !== String(expectedVersion)) throw corruptStore("Local database metadata is invalid");
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
 
@@ -613,6 +839,10 @@ export class LocalPersistence {
       }
     }
     this.readWorkspaceGrant();
+    if (expectedVersion === SCHEMA_VERSION) {
+      this.assertTurnAdmissionIndex();
+      this.validateTurnAdmissions();
+    }
   }
 
   private validateProviderSelectionMetadata(): void {
@@ -655,6 +885,57 @@ export class LocalPersistence {
     }
   }
 
+  private validateTurnAdmissions(): void {
+    const rows = this.database.prepare("SELECT * FROM turn_admissions")
+      .all() as TurnAdmissionRow[];
+    for (const row of rows) this.reconstructTurnAdmission(row);
+  }
+
+  private assertTurnAdmissionIndex(): void {
+    const columns = this.database.pragma("table_info(turn_admissions)") as { name: string; type: string; pk: number }[];
+    const expected = [
+      ["workspace_id", "TEXT"],
+      ["thread_id", "TEXT"],
+      ["run_id", "TEXT"],
+      ["turn_id", "TEXT"],
+      ["run_attempt_id", "TEXT"],
+      ["idempotency_key", "TEXT"],
+      ["fingerprint", "TEXT"],
+      ["run_created_event_id", "TEXT"],
+      ["turn_started_event_id", "TEXT"],
+      ["user_message_completed_event_id", "TEXT"],
+    ] as const;
+    if (columns.length !== expected.length || columns.some((column, index) =>
+      column.name !== expected[index]?.[0] || column.type.toUpperCase() !== expected[index]?.[1])) {
+      throw corruptStore("Local turn admission index schema is incompatible");
+    }
+    const indexes = this.database.pragma("index_list(turn_admissions)") as { name: string; unique: number; partial: number }[];
+    const actual = indexes.map((index) => {
+      const escaped = index.name.replaceAll("'", "''");
+      const indexedColumns = this.database.pragma(`index_info('${escaped}')`) as { name: string | null }[];
+      return {
+        unique: Boolean(index.unique),
+        partial: index.partial,
+        columns: indexedColumns.map(({ name }) => name ?? ""),
+      };
+    });
+    const primaryKey = columns.filter(({ pk }) => pk > 0).sort((a, b) => a.pk - b.pk).map(({ name }) => name);
+    const expectedIndexes = [
+      "workspace_id,thread_id,idempotency_key",
+      "run_id",
+      "turn_id",
+      "run_created_event_id",
+      "turn_started_event_id",
+      "user_message_completed_event_id",
+    ];
+    if (primaryKey.join(",") !== expectedIndexes[0]
+      || actual.length !== expectedIndexes.length
+      || actual.some((index) => !index.unique || index.partial !== 0)
+      || expectedIndexes.some((expectedIndex) => !actual.some((index) => index.columns.join(",") === expectedIndex))) {
+      throw corruptStore("Local turn admission index constraints are incomplete");
+    }
+  }
+
   private assertRequiredTableKeys(): void {
     const metadata = this.database.pragma("table_info(metadata)") as { name: string; type: string; pk: number }[];
     const events = this.database.pragma("table_info(events)") as { name: string; type: string; pk: number }[];
@@ -693,7 +974,8 @@ export class LocalPersistence {
     try {
       const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
       const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
-      if (version?.value !== String(SCHEMA_VERSION) || marker?.value !== "1") {
+      if (!version || ![String(PRE_ADMISSION_SCHEMA_VERSION), String(SCHEMA_VERSION)].includes(version.value)
+        || marker?.value !== "1") {
         throw new Error("missing migration marker");
       }
     } catch {
@@ -715,17 +997,17 @@ export class LocalPersistence {
       throw corruptStore("Local database schema is incomplete");
     }
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-    if (version && version.value !== String(SCHEMA_VERSION)) {
+    if (version && ![String(PRE_ADMISSION_SCHEMA_VERSION), String(SCHEMA_VERSION)].includes(version.value)) {
       throw corruptStore("Local database schema version is unsupported");
     }
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     if (marker) {
-      if (marker.value !== "1" || version?.value !== String(SCHEMA_VERSION)) {
+      if (marker.value !== "1" || !version || ![String(PRE_ADMISSION_SCHEMA_VERSION), String(SCHEMA_VERSION)].includes(version.value)) {
         throw corruptStore("Local database metadata is invalid");
       }
-      this.validateDatabase();
+      this.validateDatabase(Number(version.value));
       return;
     }
     const records = this.database.prepare("SELECT 1 FROM events UNION ALL SELECT 1 FROM workspace_grant LIMIT 1").get();

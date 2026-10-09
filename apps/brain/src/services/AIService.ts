@@ -7,7 +7,7 @@ import type {
   ReasoningEffort,
 } from "@repo/shared-types";
 import type { Env } from "../types/ai";
-import type { ProviderAdapter } from "./providers";
+import type { ProviderAdapter } from "@legioncode/execution-engine/runtime/provider";
 import { ProviderConfigService } from "./providers";
 import {
   resolveModelSelection,
@@ -34,7 +34,7 @@ import {
 } from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
 import type { ChatStreamInput } from "./ai/ChatStreamInput";
-import { PROVIDER_SDK_MAX_RETRIES } from "./providers/ProviderRequestPolicy";
+import { PROVIDER_SDK_MAX_RETRIES } from "@legioncode/execution-engine/runtime/provider";
 
 export class AIService {
   private adapter: ProviderAdapter;

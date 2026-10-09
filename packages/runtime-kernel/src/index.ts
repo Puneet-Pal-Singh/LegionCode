@@ -7,6 +7,7 @@ export {
 } from "./errors.js";
 export {
   type RuntimeLifecycleEventStore,
+  type LocalTurnAdmissionPort,
   type RuntimeGitSnapshotPort,
   type RuntimeGitDiffFile,
   type RuntimeGitWorkspaceSnapshot,
@@ -44,6 +45,8 @@ export {
   type RuntimeContext,
   type StartTurnInput,
   type StartTurnResult,
+  type AdmitTurnInput,
+  type AdmitTurnResult,
   type ToolAuthorizationErrorCode,
   type ToolAuthorizationResult,
   type ToolResult,

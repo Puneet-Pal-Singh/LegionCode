@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ProviderAdapter, GenerationParams } from "../providers";
+import type {
+  ProviderAdapter,
+  GenerationParams,
+} from "@legioncode/execution-engine/runtime/provider";
 import { createChatStream } from "./StreamGenerationService";
 
 describe("createChatStream", () => {

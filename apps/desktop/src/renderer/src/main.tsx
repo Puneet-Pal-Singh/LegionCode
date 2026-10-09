@@ -18,6 +18,7 @@ import type {
   WorkspaceSelection,
 } from "../../shared/desktop-api";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
+import { createDesktopAppServerTransport } from "../desktop-app-server-transport";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -45,7 +46,7 @@ function DesktopApp(): React.JSX.Element {
       ? createAppServerClient({
           clientId: "legioncode-desktop",
           clientVersion: build.version,
-          transport: { request: (envelope) => window.desktop.request(envelope) },
+          transport: createDesktopAppServerTransport(window.desktop),
         })
       : null,
     [build?.version],

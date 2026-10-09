@@ -3,6 +3,12 @@ import {
   AppServerRequestSchema,
   AppServerResponseSchema,
   AppServerResultSchemas,
+  LocalTurnReplayParamsSchema,
+  LocalTurnContinuationRequestSchema,
+  LocalTurnContinuationEventSchema,
+  type LocalTurnContinuationRequest,
+  type LocalTurnContinuationEvent,
+  type LocalTurnStartParams,
   type AppServerMethod,
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
@@ -11,19 +17,32 @@ import {
   ProviderIdSchema,
   type LocalWorkspaceGrant,
   type AppServerInitializeResponse,
+  type LifecycleEvent,
+  type LocalTurnAdmission,
+  type LocalTurnIdentity,
+  type Run,
   type ProviderId,
   type Thread,
+  type Turn,
 } from "@repo/platform-protocol";
 import type {
   BYOKDiscoveredProviderModelsResponse,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { z } from "zod";
+import { followLifecycleEvents } from "./lifecycle-continuation.js";
+import type { FollowLifecycleRequest } from "./lifecycle-types.js";
 
 export type { AppServerRequest } from "@legioncode/app-server/protocol";
 
 export type AppServerTransport = {
   request(envelope: AppServerRequest): Promise<unknown>;
+  subscribe?(
+    request: LocalTurnContinuationRequest,
+    listener: (event: LocalTurnContinuationEvent) => void,
+    onError: (error: Error) => void,
+    options?: { signal?: AbortSignal },
+  ): Promise<() => void>;
 };
 
 export type AppServerClientOptions = {
@@ -39,6 +58,16 @@ export type WorkspaceGrantSource =
 export type ProviderSelection = {
   providerId: ProviderId;
   modelId: string;
+};
+
+export type LocalTurnStartResponse = {
+  identity: LocalTurnIdentity;
+  run: Run;
+  turn: Turn;
+};
+export type LocalTurnReplayResponse = {
+  events: readonly LifecycleEvent[];
+  nextSequence: number | null;
 };
 
 export class AppServerClientError extends Error {
@@ -74,6 +103,18 @@ export type AppServerClient = {
   getProviderSelection(): Promise<ProviderSelection | null>;
   selectProvider(providerId: string, modelId: string): Promise<ProviderSelection>;
   clearProviderSelection(): Promise<null>;
+  startTurn(input: LocalTurnStartParams): Promise<LocalTurnStartResponse>;
+  getThreadHistory(workspaceId: string, threadId: string): Promise<readonly LocalTurnAdmission[]>;
+  replayTurn(
+    identity: LocalTurnIdentity,
+    afterSequence: number | null,
+    limit?: number,
+  ): Promise<LocalTurnReplayResponse>;
+  followTurn(
+    identity: LocalTurnIdentity,
+    afterSequence?: number | null,
+    options?: { signal?: AbortSignal },
+  ): AsyncIterable<LifecycleEvent>;
 };
 
 export function createAppServerClient(
@@ -180,7 +221,166 @@ export function createAppServerClient(
       const result = await request(options, { method: "provider/clear", params: {} }, AppServerResultSchemas["provider/clear"]);
       return result.selection;
     },
+    startTurn: async (input) => {
+      const result = await request(options, {
+        method: "turn/start",
+        params: input,
+      }, AppServerResultSchemas["turn/start"]);
+      return result;
+    },
+    getThreadHistory: async (workspaceId, threadId) => {
+      const result = await request(options, {
+        method: "thread/history",
+        params: { workspaceId, threadId },
+      }, AppServerResultSchemas["thread/history"]);
+      return result.entries;
+    },
+    replayTurn: async (identity, afterSequence, limit = 200) => {
+      const params = LocalTurnReplayParamsSchema.parse({ identity, afterSequence, limit });
+      const result = await request(options, {
+        method: "turn/replay",
+        params,
+      }, AppServerResultSchemas["turn/replay"]);
+      return result;
+    },
+    followTurn: (identity, afterSequence = null, operationOptions) => {
+      const continuation = options.transport.subscribe;
+      return followLocalTurn({
+        identity,
+        afterSequence,
+        options: operationOptions,
+        replay: async (cursor, limit) => {
+          const params = LocalTurnReplayParamsSchema.parse({ identity, afterSequence: cursor, limit });
+          return await request(options, {
+            method: "turn/replay",
+            params,
+          }, AppServerResultSchemas["turn/replay"]);
+        },
+        ...(continuation
+          ? {
+              subscribe: async (cursor, onEvent, onError, subscribeOptions) => {
+                const cleanUp = await continuation.call(options.transport, LocalTurnContinuationRequestSchema.parse({
+                  protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+                  identity,
+                  afterSequence: cursor,
+                }), onEvent, onError, subscribeOptions);
+                return cleanUp;
+              },
+            }
+          : {}),
+      });
+    },
   };
+}
+
+function followLocalTurn(input: {
+  identity: LocalTurnIdentity;
+  afterSequence: number | null;
+  options?: { signal?: AbortSignal };
+  replay(
+    afterSequence: number | null,
+    limit: number,
+    options?: { signal?: AbortSignal },
+  ): Promise<LocalTurnReplayResponse>;
+  subscribe?(
+    afterSequence: number | null,
+    onEvent: (event: LocalTurnContinuationEvent) => void,
+    onError: (error: Error) => void,
+    options?: { signal?: AbortSignal },
+  ): Promise<() => void>;
+}): AsyncIterable<LifecycleEvent> {
+  const request: FollowLifecycleRequest = {
+    turnId: input.identity.turnId,
+    afterSequence: input.afterSequence,
+    replayLimit: 200,
+  };
+  return followLifecycleEvents({
+    request,
+    options: input.options,
+    replay: async ({ afterSequence, limit }) =>
+      input.replay(afterSequence ?? null, limit ?? 200, input.options),
+    ...(input.subscribe
+      ? {
+          subscribe: async ({ afterSequence }) => {
+            return createContinuationIterable(input.identity, input.options, (onEvent, onError) =>
+              input.subscribe?.(afterSequence ?? null, onEvent, onError, input.options) ??
+                Promise.reject(new Error("Local Turn continuation is unavailable")),
+            );
+          },
+        }
+      : {}),
+  });
+}
+
+function createContinuationIterable(
+  identity: LocalTurnIdentity,
+  options: { signal?: AbortSignal } | undefined,
+  subscribe: (
+    onEvent: (event: LocalTurnContinuationEvent) => void,
+    onError: (error: Error) => void,
+  ) => Promise<() => void>,
+): Promise<AsyncIterable<LifecycleEvent>> {
+  const events: LifecycleEvent[] = [];
+  const waiters: Array<{
+    resolve(value: IteratorResult<LifecycleEvent>): void;
+    reject(error: Error): void;
+  }> = [];
+  let closed = false;
+  let failure: Error | null = null;
+  let unsubscribe: (() => void) | null = null;
+  const close = (error?: Error) => {
+    if (closed) return;
+    closed = true;
+    failure = error ?? null;
+    options?.signal?.removeEventListener("abort", onAbort);
+    unsubscribe?.();
+    for (const waiter of waiters.splice(0)) {
+      if (failure) waiter.reject(failure);
+      else waiter.resolve({ done: true, value: undefined });
+    }
+  };
+  const onAbort = () => close();
+  const onError = (error: Error) => close(error);
+  const onEvent = (envelope: LocalTurnContinuationEvent) => {
+    const parsed = LocalTurnContinuationEventSchema.parse(envelope);
+    if (!sameIdentity(parsed.identity, identity) || parsed.event.turnId !== identity.turnId) {
+      close(invalidResponse("turn/replay", "Local Turn continuation identity did not match"));
+      return;
+    }
+    const waiter = waiters.shift();
+    if (waiter) waiter.resolve({ done: false, value: parsed.event });
+    else events.push(parsed.event);
+  };
+  options?.signal?.addEventListener("abort", onAbort, { once: true });
+  if (options?.signal?.aborted) onAbort();
+  return (async () => {
+    if (!closed) unsubscribe = await subscribe(onEvent, onError);
+    if (closed) unsubscribe?.();
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            if (events.length > 0) return { done: false as const, value: events.shift()! };
+            if (failure) throw failure;
+            if (closed) return { done: true as const, value: undefined };
+            return await new Promise<IteratorResult<LifecycleEvent>>((resolve, reject) => waiters.push({ resolve, reject }));
+          },
+          return: async () => {
+            close();
+            return { done: true as const, value: undefined };
+          },
+        };
+      },
+    };
+  })();
+}
+
+function sameIdentity(left: LocalTurnIdentity, right: LocalTurnIdentity): boolean {
+  return left.workspaceId === right.workspaceId &&
+    left.threadId === right.threadId &&
+    left.runId === right.runId &&
+    left.turnId === right.turnId &&
+    left.runAttemptId === right.runAttemptId;
 }
 
 async function request<Schema extends z.ZodTypeAny>(

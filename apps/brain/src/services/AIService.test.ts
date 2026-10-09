@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreMessage } from "ai";
 import type { Env } from "../types/ai";
-import type { ProviderAdapter } from "./providers";
+import type { ProviderAdapter } from "@legioncode/execution-engine/runtime/provider";
 import { AIService } from "./AIService";
 import { ProviderConfigService } from "./providers";
 

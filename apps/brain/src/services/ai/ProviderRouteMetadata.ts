@@ -1,10 +1,10 @@
 import type { ProviderModelTransport } from "@repo/shared-types";
 import { ValidationError } from "../../domain/errors";
-import type { SDKModelConfig } from "./SDKModelFactory";
 import {
   toOpenAICompatibleBaseURL,
   type ProviderTransportRoute,
-} from "./ProviderTransportAdapterFactory";
+} from "@legioncode/execution-engine/runtime/provider";
+import type { SDKModelConfig } from "./SDKModelFactory";
 
 export function buildProviderTransportRoute(input: {
   providerId?: string;

@@ -6,9 +6,13 @@ import type {
   ItemId,
   JsonRecord,
   ProtocolError,
+  LocalTurnAdmission,
+  ModelId,
+  ProviderId,
   Run,
   RunAttemptId,
   ToolCallItemContent,
+  ThreadItem,
   Turn,
   UserId,
   UsageCostSnapshot,
@@ -114,6 +118,18 @@ export interface StartTurnInput {
   readonly run: Run;
   readonly turn: Turn;
   readonly runAttemptId: RunAttemptId;
+}
+
+export interface AdmitTurnInput extends StartTurnInput {
+  readonly userMessage: ThreadItem;
+  readonly providerId: ProviderId;
+  readonly modelId: ModelId;
+  readonly idempotencyKey: string;
+}
+
+export interface AdmitTurnResult {
+  readonly entry: LocalTurnAdmission;
+  readonly newlyAdmitted: boolean;
 }
 
 export interface StartTurnResult {

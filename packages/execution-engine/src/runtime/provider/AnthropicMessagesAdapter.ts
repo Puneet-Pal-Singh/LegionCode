@@ -1,14 +1,14 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, streamText } from "ai";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import type { LLMUsage } from "../cost/index.js";
 import type {
   GenerationParams,
   GenerationResult,
   ProviderAdapter,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import { ProviderError } from "../base/ProviderAdapter";
-import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+} from "./ProviderAdapter.js";
+import { ProviderError } from "./ProviderAdapter.js";
+import { PROVIDER_SDK_MAX_RETRIES } from "./ProviderRequestPolicy.js";
 
 interface AnthropicMessagesConfig {
   apiKey: string;

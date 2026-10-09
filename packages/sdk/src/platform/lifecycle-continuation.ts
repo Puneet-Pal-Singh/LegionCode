@@ -65,6 +65,10 @@ interface LifecycleContinuationInput {
     request: ReplayLifecycleEventsRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<ReplayLifecycleEventsResponse>;
+  subscribe?(
+    request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<AsyncIterable<LifecycleEvent>>;
 }
 
 export async function* followLifecycleEvents(
@@ -84,6 +88,30 @@ export async function* followLifecycleEvents(
   }
 
   if (terminal) {
+    return;
+  }
+
+  if (input.subscribe) {
+    const liveEvents = await input.subscribe({
+      turnId: input.request.turnId,
+      afterSequence: state.lastSequence,
+      ...(input.request.replayLimit === undefined
+        ? {}
+        : { limit: input.request.replayLimit }),
+    }, input.options);
+    for await (const event of liveEvents) {
+      if (!state.accept(event)) continue;
+      yield event;
+      if (isTerminalLifecycleEventType(event.type)) return;
+    }
+    if (!input.options?.signal?.aborted) {
+      throw new LifecycleContinuationError(
+        "lifecycle_stream_ended",
+        "Lifecycle continuation ended before the turn settled",
+        state.lastSequence + 1,
+        null,
+      );
+    }
     return;
   }
 

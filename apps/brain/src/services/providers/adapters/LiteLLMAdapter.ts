@@ -5,7 +5,7 @@ import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import {
   OpenAICompatibleAdapter,
   type OpenAICompatibleConfig,
-} from "./OpenAICompatibleAdapter";
+} from "@legioncode/execution-engine/runtime/provider";
 import {
   OPENAI_BASE_URL,
   OPENROUTER_BASE_URL,

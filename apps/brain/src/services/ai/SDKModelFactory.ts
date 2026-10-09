@@ -7,7 +7,7 @@
  */
 
 import type { Env } from "../../types/ai";
-import { ProviderError } from "../providers";
+import { ProviderError } from "@legioncode/execution-engine/runtime/provider";
 import { resolveProviderKey } from "./ProviderKeyValidator";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
 

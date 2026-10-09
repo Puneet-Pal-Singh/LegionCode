@@ -2,10 +2,17 @@ import {
   APP_SERVER_PROTOCOL_VERSION,
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
+  EventSequenceSchema,
+  LocalTurnIdentitySchema,
+  LocalTurnAdmissionSchema,
   LocalWorkspaceGrantResponseSchema,
+  LifecycleEventSchema,
+  ModelIdSchema,
   ProviderIdSchema,
+  RunSchema,
   ThreadIdSchema,
   ThreadSchema,
+  TurnSchema,
 } from "@repo/platform-protocol";
 import {
   BYOKDiscoveredProviderModelsResponseSchema,
@@ -20,6 +27,36 @@ const ProviderSelectionSchema = z.object({
   providerId: ProviderIdSchema,
   modelId: z.string().min(1).max(256).refine((value) => value.trim() === value),
 }).strict();
+export const LocalTurnStartParamsSchema = z.object({
+  workspaceId: LocalTurnIdentitySchema.shape.workspaceId,
+  threadId: ThreadIdSchema,
+  providerId: ProviderIdSchema,
+  modelId: ModelIdSchema,
+  prompt: z.string().min(1).refine((value) => value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= 16_000, "Prompt is empty or exceeds the local Turn limit"),
+  idempotencyKey: z.string().min(1).max(160).refine((value) => value.trim() === value),
+}).strict();
+export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
+const LocalTurnHistoryParamsSchema = z.object({
+  workspaceId: LocalTurnIdentitySchema.shape.workspaceId,
+  threadId: ThreadIdSchema,
+}).strict();
+export const LocalTurnReplayParamsSchema = z.object({
+  identity: LocalTurnIdentitySchema,
+  afterSequence: EventSequenceSchema.nullable(),
+  limit: z.number().int().min(1).max(1_000),
+}).strict();
+export const LocalTurnContinuationRequestSchema = z.object({
+  protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
+  identity: LocalTurnIdentitySchema,
+  afterSequence: EventSequenceSchema.nullable(),
+}).strict();
+export type LocalTurnContinuationRequest = z.infer<typeof LocalTurnContinuationRequestSchema>;
+export const LocalTurnContinuationEventSchema = z.object({
+  protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
+  identity: LocalTurnIdentitySchema,
+  event: LifecycleEventSchema,
+}).strict();
+export type LocalTurnContinuationEvent = z.infer<typeof LocalTurnContinuationEventSchema>;
 const ClientSchema = z
   .object({
     id: z.string().min(1).max(120),
@@ -54,6 +91,9 @@ export const AppServerMethodSchema = z.enum([
   "provider/current",
   "provider/select",
   "provider/clear",
+  "turn/start",
+  "thread/history",
+  "turn/replay",
 ]);
 
 const AppServerRequestShape = {
@@ -76,6 +116,9 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("provider/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/select"), params: ProviderSelectionSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/clear"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/start"), params: LocalTurnStartParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("thread/history"), params: LocalTurnHistoryParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/replay"), params: LocalTurnReplayParamsSchema }).strict(),
 ]);
 export type AppServerRequest = z.infer<typeof AppServerRequestSchema>;
 export type AppServerMethod = z.infer<typeof AppServerMethodSchema>;
@@ -96,6 +139,16 @@ export const AppServerResultSchemas = {
   "provider/current": z.object({ selection: ProviderSelectionSchema.nullable() }).strict(),
   "provider/select": z.object({ selection: ProviderSelectionSchema }).strict(),
   "provider/clear": z.object({ selection: z.null() }).strict(),
+  "turn/start": z.object({
+    identity: LocalTurnIdentitySchema,
+    run: RunSchema,
+    turn: TurnSchema,
+  }).strict(),
+  "thread/history": z.object({ entries: z.array(LocalTurnAdmissionSchema) }).strict(),
+  "turn/replay": z.object({
+    events: z.array(LifecycleEventSchema),
+    nextSequence: EventSequenceSchema.nullable(),
+  }).strict(),
 } as const;
 
 export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
@@ -114,6 +167,9 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("provider/current", AppServerResultSchemas["provider/current"]),
   success("provider/select", AppServerResultSchemas["provider/select"]),
   success("provider/clear", AppServerResultSchemas["provider/clear"]),
+  success("turn/start", AppServerResultSchemas["turn/start"]),
+  success("thread/history", AppServerResultSchemas["thread/history"]),
+  success("turn/replay", AppServerResultSchemas["turn/replay"]),
 ]);
 
 export const AppServerFailureResponseSchema = z

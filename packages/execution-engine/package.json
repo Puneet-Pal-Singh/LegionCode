@@ -38,6 +38,10 @@
       "types": "./dist/runtime/llm/index.d.ts",
       "import": "./dist/runtime/llm/index.js"
     },
+    "./runtime/provider": {
+      "types": "./dist/runtime/provider/index.d.ts",
+      "import": "./dist/runtime/provider/index.js"
+    },
     "./runtime/orchestration": {
       "types": "./dist/runtime/orchestration/index.d.ts",
       "import": "./dist/runtime/orchestration/index.js"
@@ -84,8 +88,13 @@
     "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "@legioncode/orchestrator-core": "workspace:*",
+    "@ai-sdk/anthropic": "1.1.0",
+    "@ai-sdk/google": "1.1.0",
+    "@ai-sdk/openai": "^1.1.0",
+    "ai": "4.1.0",
     "safe-regex": "^2.1.1",
-    "zod": "^3.22.0"
+    "zod": "^3.22.4",
+    "zod-to-json-schema": "3.25.1"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",

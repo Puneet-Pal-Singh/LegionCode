@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Env } from "../../types/ai";
-import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
-import { GoogleAdapter } from "../providers/adapters/GoogleAdapter";
+import { AnthropicMessagesAdapter } from "./AnthropicMessagesAdapter.js";
+import { GoogleAdapter } from "./GoogleAdapter.js";
+import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter.js";
 import {
   createTransportAdapter,
   toOpenAICompatibleBaseURL,
@@ -23,7 +23,6 @@ describe("ProviderTransportAdapterFactory", () => {
         transport: "openai-responses",
         endpoint: "https://opencode.ai/zen/v1/responses",
       },
-      createEnv(),
       "oc-test",
     );
 
@@ -38,7 +37,6 @@ describe("ProviderTransportAdapterFactory", () => {
         transport: "anthropic-messages",
         endpoint: "https://opencode.ai/zen/v1/messages",
       },
-      createEnv(),
       "oc-test",
     );
 
@@ -61,7 +59,6 @@ describe("ProviderTransportAdapterFactory", () => {
         transport: "google-generative",
         endpoint: "https://opencode.ai/zen/v1",
       },
-      createEnv(),
       "oc-test",
     );
 
@@ -76,7 +73,6 @@ describe("ProviderTransportAdapterFactory", () => {
         transport: "openai-chat-completions",
         endpoint: "https://openrouter.ai/api/v1/chat/completions",
       },
-      createEnv(),
       "or-test",
     );
 
@@ -91,13 +87,14 @@ describe("ProviderTransportAdapterFactory", () => {
         endpoint:
           "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
       },
-      createEnv(),
       "cf-test",
       {
-        providerId: "cloudflare-ai",
-        accountId: "account_123",
-        gatewayId: "gateway-123",
-        routeMode: "ai-gateway",
+        connectionConfig: {
+          providerId: "cloudflare-ai",
+          accountId: "account_123",
+          gatewayId: "gateway-123",
+          routeMode: "ai-gateway",
+        },
       },
     );
 
@@ -119,15 +116,8 @@ describe("ProviderTransportAdapterFactory", () => {
           transport: "cloudflare-ai-run",
           endpoint: "https://example.com/run",
         },
-        createEnv(),
         "cf-test",
       ),
     ).toThrow("not wired");
   });
 });
-
-function createEnv(): Env {
-  return {
-    DEFAULT_MODEL: "gpt-4o-mini",
-  } as Env;
-}

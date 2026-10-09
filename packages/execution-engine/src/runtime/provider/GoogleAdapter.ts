@@ -5,12 +5,12 @@ import type {
   GenerationParams,
   GenerationResult,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import { ProviderError } from "../base/ProviderAdapter";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
-import { LLMUnusableResponseError } from "@legioncode/execution-engine/runtime";
-import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
-import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
+} from "./ProviderAdapter.js";
+import { ProviderError } from "./ProviderAdapter.js";
+import type { LLMUsage } from "../cost/index.js";
+import { LLMUnusableResponseError } from "../index.js";
+import { PROVIDER_SDK_MAX_RETRIES } from "./ProviderRequestPolicy.js";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts.js";
 
 // Google documents this sentinel for client-generated/replayed function calls
 // that cannot preserve Gemini 3's encrypted thought signature.
@@ -411,8 +411,8 @@ function createGeminiThoughtSignatureFetchBridge(
 }
 
 export function addMissingGoogleThoughtSignaturesToRequestBody(
-  body: BodyInit | null | undefined,
-): BodyInit | null | undefined {
+  body: RequestInit["body"],
+): RequestInit["body"] {
   if (typeof body !== "string") {
     return body;
   }

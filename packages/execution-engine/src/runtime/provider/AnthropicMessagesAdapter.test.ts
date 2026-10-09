@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AnthropicMessagesAdapter } from "./AnthropicMessagesAdapter";
+import { AnthropicMessagesAdapter } from "./AnthropicMessagesAdapter.js";
 
 const mockGenerateText = vi.fn();
 const mockStreamText = vi.fn();

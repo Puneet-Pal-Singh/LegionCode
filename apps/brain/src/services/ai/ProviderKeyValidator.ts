@@ -4,7 +4,7 @@
 
 import type { ProviderAdapterFamily } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
-import { ProviderError } from "../providers";
+import { ProviderError } from "@legioncode/execution-engine/runtime/provider";
 import {
   GROQ_BASE_URL,
   OPENAI_BASE_URL,

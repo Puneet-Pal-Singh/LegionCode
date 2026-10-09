@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter";
+import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter.js";
 
 describe("OpenAIResponsesAdapter", () => {
   afterEach(() => {
