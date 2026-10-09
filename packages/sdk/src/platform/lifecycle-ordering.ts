@@ -9,7 +9,8 @@ import type {
 export type LifecycleContinuationErrorCode =
   | "lifecycle_turn_mismatch"
   | "lifecycle_sequence_gap"
-  | "lifecycle_sequence_regression";
+  | "lifecycle_sequence_regression"
+  | "lifecycle_stream_ended";
 
 export class LifecycleContinuationError extends Error {
   constructor(

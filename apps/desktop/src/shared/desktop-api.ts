@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { BYOKConnectRequestSchema, ProviderIdSchema } from "@repo/shared-types";
-import type { AppServerRequest } from "@legioncode/app-server/protocol";
-import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
+import {
+  LocalTurnContinuationRequestSchema,
+  LocalTurnContinuationEventSchema,
+  type AppServerRequest,
+} from "@legioncode/app-server/protocol";
+import {
+  APP_SERVER_PROTOCOL_VERSION,
+  type AppServerEnvironmentSnapshot,
+} from "@repo/platform-protocol";
 
 export const APP_SERVER_REQUEST_CHANNEL = "desktop:app-server-request";
 export const BUILD_INFO_CHANNEL = "desktop:get-build-info";
@@ -10,6 +17,38 @@ export const ENVIRONMENT_STATUS_CHANNEL = "desktop:environment-status";
 export const ENVIRONMENT_RESTART_CHANNEL = "desktop:restart-environment";
 export const WORKSPACE_PICK_CHANNEL = "desktop:pick-workspace";
 export const CREDENTIAL_COMMAND_CHANNEL = "desktop:credential-command";
+export const TURN_CONTINUATION_CHANNEL = "desktop:turn-continuation";
+
+export const DesktopContinuationRequestSchema = z.discriminatedUnion("operation", [
+  z.object({
+    protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
+    operation: z.literal("subscribe"),
+    subscriptionId: z.string().min(16).max(120),
+    request: LocalTurnContinuationRequestSchema,
+  }).strict(),
+  z.object({
+    protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
+    operation: z.literal("unsubscribe"),
+    subscriptionId: z.string().min(16).max(120),
+  }).strict(),
+]);
+export type DesktopContinuationRequest = z.infer<typeof DesktopContinuationRequestSchema>;
+
+export const DesktopContinuationEventSchema = z.discriminatedUnion("operation", [
+  z.object({
+    protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
+    operation: z.literal("events"),
+    subscriptionId: z.string().min(16).max(120),
+    event: LocalTurnContinuationEventSchema,
+  }).strict(),
+  z.object({
+    protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
+    operation: z.literal("failed"),
+    subscriptionId: z.string().min(16).max(120),
+    code: z.enum(["unavailable", "identity_mismatch"]),
+  }).strict(),
+]);
+export type DesktopContinuationEvent = z.infer<typeof DesktopContinuationEventSchema>;
 
 export const DesktopCredentialStatusSchema = z.object({
   providerId: ProviderIdSchema,
@@ -48,6 +87,10 @@ export type WorkspaceSelection = {
 
 export type DesktopApi = {
   request(envelope: AppServerRequest): Promise<unknown>;
+  subscribeContinuation(
+    request: Extract<DesktopContinuationRequest, { operation: "subscribe" }>["request"],
+    listener: (event: DesktopContinuationEvent) => void,
+  ): Promise<() => void>;
   getBuildInfo(): Promise<DesktopBuildInfo>;
   getEnvironment(): Promise<AppServerEnvironmentSnapshot>;
   onEnvironmentStatus(
