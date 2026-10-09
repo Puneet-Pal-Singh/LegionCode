@@ -7,7 +7,7 @@ import type {
   GenerationParams,
   GenerationResult,
   StreamChunk,
-} from "../providers";
+} from "@legioncode/execution-engine/runtime/provider";
 import { createDefaultAdapter } from "./ProviderAdapterFactory";
 import { ValidationError } from "../../domain/errors";
 import { logWarnRateLimited } from "../../lib/rate-limited-log";

@@ -8,7 +8,10 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
 import type { ProviderTranscriptPart } from "@legioncode/execution-engine/runtime/llm";
-import type { ProviderAdapter, GenerationParams } from "../providers";
+import type {
+  ProviderAdapter,
+  GenerationParams,
+} from "@legioncode/execution-engine/runtime/provider";
 import type { ReasoningEffort } from "@repo/shared-types";
 
 /**

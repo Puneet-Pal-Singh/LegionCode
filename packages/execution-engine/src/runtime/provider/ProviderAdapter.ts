@@ -1,10 +1,10 @@
-// apps/brain/src/services/providers/base/ProviderAdapter.ts
+// Shared provider adapter contract for runtime inference.
 // Phase 3.1: Base interface for all LLM provider adapters
 
 import type { CoreMessage, CoreTool, TextStreamPart } from "ai";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import type { LLMUsage } from "../cost/index.js";
 import type { ReasoningEffort } from "@repo/shared-types";
-import type { ProviderTranscriptPart } from "@legioncode/execution-engine/runtime/llm";
+import type { ProviderTranscriptPart } from "../llm/index.js";
 
 /**
  * Parameters for generation

@@ -8,6 +8,9 @@
       "@legioncode/execution-engine/runtime": [
         "../../packages/execution-engine/src/runtime/index.ts"
       ],
+      "@legioncode/execution-engine/runtime/provider": [
+        "../../packages/execution-engine/src/runtime/provider/index.ts"
+      ],
       "@legioncode/execution-engine/runtime/*": [
         "../../packages/execution-engine/src/runtime/*"
       ],

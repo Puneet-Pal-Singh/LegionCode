@@ -11,12 +11,15 @@
  *   - Falls back to default adapter with structured logging
  */
 
-import type { ProviderAdapter } from "../providers";
+import type { ProviderAdapter } from "@legioncode/execution-engine/runtime/provider";
 import type { ProviderConfigService } from "../providers";
 import type { ModelSelection, RuntimeProvider } from "./ModelSelectionPolicy";
 import { getRuntimeProviderFromAdapter } from "./ModelSelectionPolicy";
-import type { ProviderTransportRoute } from "./ProviderTransportAdapterFactory";
-import { createTransportAdapter } from "./ProviderTransportAdapterFactory";
+import {
+  createTransportAdapter,
+  ProviderTransportError,
+  type ProviderTransportRoute,
+} from "@legioncode/execution-engine/runtime/provider";
 import {
   createOpenAIAdapter,
   createAnthropicAdapter,
@@ -97,12 +100,17 @@ export async function selectAdapter(
     const connectionConfig = selection.providerId
       ? await providerConfigService?.getConnectionConfig(selection.providerId)
       : undefined;
-    return createTransportAdapter(
-      route,
-      env,
-      overrideApiKey,
-      connectionConfig,
-    );
+    try {
+      return createTransportAdapter(route, overrideApiKey, {
+        defaultModel: env.DEFAULT_MODEL,
+        connectionConfig,
+      });
+    } catch (error) {
+      if (!(error instanceof ProviderTransportError)) {
+        throw error;
+      }
+      throw new ValidationError(error.message, "UNKNOWN_PROVIDER");
+    }
   }
 
   return createAdapterForProvider(

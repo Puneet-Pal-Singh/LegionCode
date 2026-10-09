@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addMissingGoogleThoughtSignaturesToRequestBody,
   GoogleAdapter,
-} from "./GoogleAdapter";
-import { LLMUnusableResponseError } from "@legioncode/execution-engine/runtime";
+} from "./GoogleAdapter.js";
+import { LLMUnusableResponseError } from "../index.js";
 
 const mockGenerateText = vi.fn();
 const mockStreamText = vi.fn();

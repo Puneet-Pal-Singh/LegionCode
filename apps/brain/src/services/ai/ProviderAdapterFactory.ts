@@ -13,12 +13,12 @@
 
 import type { Env } from "../../types/ai";
 import {
-  LiteLLMAdapter,
-  OpenAIAdapter,
   AnthropicAdapter,
   GoogleAdapter,
+  OpenAIAdapter,
   type ProviderAdapter,
-} from "../providers";
+} from "@legioncode/execution-engine/runtime/provider";
+import { LiteLLMAdapter } from "../providers/adapters/LiteLLMAdapter";
 import {
   resolveOpenAIKey,
   resolveAnthropicKey,

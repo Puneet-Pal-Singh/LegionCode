@@ -1,4 +1,4 @@
-import type { ProviderTranscriptPart } from "@legioncode/execution-engine/runtime/llm";
+import type { ProviderTranscriptPart } from "../llm/index.js";
 
 /**
  * Preserve the model-visible text boundaries produced by the AI SDK.

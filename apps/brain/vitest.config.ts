@@ -15,6 +15,10 @@ export default defineConfig({
         __dirname,
         "../../packages/shared-types/src/index.ts",
       ),
+      "@legioncode/execution-engine/runtime/provider": path.resolve(
+        __dirname,
+        "../../packages/execution-engine/src/runtime/provider/index.ts",
+      ),
       "@legioncode/execution-engine/runtime": path.resolve(
         __dirname,
         "../../packages/execution-engine/src/runtime/index.ts",

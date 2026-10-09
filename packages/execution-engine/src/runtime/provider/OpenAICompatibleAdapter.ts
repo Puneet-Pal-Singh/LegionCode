@@ -8,11 +8,11 @@ import type {
   GenerationParams,
   GenerationResult,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
-import { normalizeProviderGenerationError } from "./ProviderGenerationError";
-import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
-import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
+} from "./ProviderAdapter.js";
+import type { LLMUsage } from "../cost/index.js";
+import { normalizeProviderGenerationError } from "./ProviderGenerationError.js";
+import { PROVIDER_SDK_MAX_RETRIES } from "./ProviderRequestPolicy.js";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts.js";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;

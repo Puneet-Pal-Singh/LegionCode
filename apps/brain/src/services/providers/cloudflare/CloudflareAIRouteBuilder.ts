@@ -12,8 +12,6 @@ export interface CloudflareAIRouteInput {
   transport: ProviderModelTransport;
 }
 
-const DEFAULT_CLOUDFLARE_GATEWAY_ID = "default";
-
 export type CloudflareConnectionConfig =
   | CloudflareAIConnectionConfig
   | CloudflareWorkersAIConnectionConfig
@@ -34,30 +32,4 @@ export function resolveCloudflareRuntimeModelId(
   modelId: string,
 ): string {
   return modelId;
-}
-
-export function buildCloudflareAIRouteHeaders(
-  config: CloudflareConnectionConfig,
-): Record<string, string> | undefined {
-  if (
-    config.providerId !== "cloudflare-ai-gateway" &&
-    !(config.providerId === "cloudflare-ai" && config.routeMode === "ai-gateway")
-  ) {
-    return undefined;
-  }
-  return {
-    "cf-aig-gateway-id": resolveCloudflareGatewayId(config),
-  };
-}
-
-function resolveCloudflareGatewayId(
-  config: CloudflareConnectionConfig,
-): string {
-  const gatewayId =
-    config.providerId === "cloudflare-workers-ai"
-      ? undefined
-      : config.gatewayId?.trim();
-  return gatewayId && gatewayId.length > 0
-    ? gatewayId
-    : DEFAULT_CLOUDFLARE_GATEWAY_ID;
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCloudflareAIRoute,
-  buildCloudflareAIRouteHeaders,
   resolveCloudflareRuntimeModelId,
 } from "./CloudflareAIRouteBuilder";
+import { buildCloudflareAIRouteHeaders } from "@legioncode/execution-engine/runtime/provider";
 
 describe("CloudflareAIRouteBuilder", () => {
   it("builds direct Workers AI chat-completions routes", () => {

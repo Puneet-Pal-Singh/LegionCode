@@ -8,9 +8,9 @@ import type {
   GenerationParams,
   GenerationResult,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
-import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+} from "./ProviderAdapter.js";
+import type { LLMUsage } from "../cost/index.js";
+import { PROVIDER_SDK_MAX_RETRIES } from "./ProviderRequestPolicy.js";
 
 interface AnthropicConfig {
   apiKey: string;

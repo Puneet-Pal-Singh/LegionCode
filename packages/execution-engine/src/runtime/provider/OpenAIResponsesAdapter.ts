@@ -1,14 +1,14 @@
 import { z } from "zod";
-import zodToJsonSchema from "zod-to-json-schema";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import type { CoreMessage, CoreTool } from "ai";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import type { LLMUsage } from "../cost/index.js";
 import type {
   GenerationParams,
   GenerationResult,
   ProviderAdapter,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import { ProviderError } from "../base/ProviderAdapter";
+} from "./ProviderAdapter.js";
+import { ProviderError } from "./ProviderAdapter.js";
 
 interface OpenAIResponsesConfig {
   apiKey: string;
@@ -388,7 +388,11 @@ function readJsonSchemaRecord(value: unknown): Record<string, unknown> | null {
   }
   const record = value as Record<string, unknown>;
   if (typeof record.safeParse === "function" && "_def" in record) {
-    const schema = zodToJsonSchema(value as z.ZodTypeAny, {
+    const convertSchema = zodToJsonSchema as (
+      input: z.ZodTypeAny,
+      options: { $refStrategy: "none" },
+    ) => unknown;
+    const schema = convertSchema(value as z.ZodTypeAny, {
       $refStrategy: "none",
     });
     if (!schema || typeof schema !== "object" || Array.isArray(schema)) {

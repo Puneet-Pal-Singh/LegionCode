@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
-import type { ProviderAdapter } from "../providers";
-import { OpenAIResponsesAdapter } from "../providers";
+import {
+  OpenAIResponsesAdapter,
+  type ProviderAdapter,
+} from "@legioncode/execution-engine/runtime/provider";
 import { selectAdapter } from "./AdapterSelectionService";
 
 function createDefaultAdapter(provider = "litellm"): ProviderAdapter {
