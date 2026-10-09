@@ -1,6 +1,9 @@
 import {
   ItemIdSchema,
+  LocalTurnAdmissionSchema,
+  LocalTurnIdentitySchema,
   RunAttemptIdSchema,
+  ThreadItemSchema,
   RunSchema,
   TurnSchema,
   LifecycleTransitionError,
@@ -24,6 +27,7 @@ import type {
   ProviderPort,
   RuntimeLifecycleEventStore,
   RuntimeGitSnapshotPort,
+  LocalTurnAdmissionPort,
   RuntimeKernelClock,
   RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
@@ -31,7 +35,7 @@ import type {
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
-import type { StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
+import type { AdmitTurnInput, AdmitTurnResult, StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
 import { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
 import {
@@ -45,8 +49,10 @@ const systemClock: RuntimeKernelClock = { now: () => new Date().toISOString() };
 
 export interface RuntimeKernelDependencies {
   readonly lifecycleEvents: RuntimeLifecycleEventStore;
-  readonly gitSnapshots: RuntimeGitSnapshotPort;
-  readonly turnArtifacts: RuntimeTurnArtifactPort;
+  readonly gitSnapshots?: RuntimeGitSnapshotPort;
+  readonly turnArtifacts?: RuntimeTurnArtifactPort;
+  readonly turnAdmissions?: LocalTurnAdmissionPort;
+  readonly artifactCapture?: "required" | "omitted_read_only";
   readonly workspaceManifests: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
   readonly contextCompaction?: ContextCompactionPort;
@@ -67,7 +73,7 @@ interface PreparedTurn {
   readonly runAttemptId: StartTurnInput["runAttemptId"];
   readonly workspace: WorkspaceManifest;
   readonly lifecycle: RuntimeLifecycleCoordinator;
-  readonly artifacts: TurnArtifactSettlementCoordinator;
+  readonly artifacts: TurnArtifactSettlementCoordinator | null;
   readonly tools: ToolExecutionCoordinator;
   readonly executionSignal: AbortSignal;
   readonly hookTriggerEvents: {
@@ -104,8 +110,18 @@ export class RuntimeKernel {
   private readonly compactions = new Map<string, Promise<void>>();
   private readonly automaticCompactions = new Set<string>();
   private readonly executionControllers = new Map<string, AbortController>();
+  private readonly newlyAdmittedEntries = new WeakSet<object>();
 
   constructor(private readonly dependencies: RuntimeKernelDependencies) {
+    if (
+      dependencies.artifactCapture !== "omitted_read_only" &&
+      (!dependencies.gitSnapshots || !dependencies.turnArtifacts)
+    ) {
+      throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Artifact capture is required unless the runtime is explicitly read-only.",
+      );
+    }
     this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
     this.maxToolCalls = dependencies.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
     this.clock = dependencies.clock ?? systemClock;
@@ -149,6 +165,86 @@ export class RuntimeKernel {
     }
   }
 
+  async admitTurn(input: AdmitTurnInput): Promise<AdmitTurnResult> {
+    const admissionStore = this.dependencies.turnAdmissions;
+    if (!admissionStore) {
+      throw new RuntimeKernelError(
+        "turn_admission_unavailable",
+        "Durable local turn admission is unavailable.",
+      );
+    }
+    const run = RunSchema.parse(input.run);
+    const turn = TurnSchema.parse(input.turn);
+    const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
+    const userMessage = ThreadItemSchema.parse(input.userMessage);
+    this.assertTurnIdentity(run, turn);
+    if (userMessage.threadId !== run.threadId || userMessage.runId !== run.id
+      || userMessage.turnId !== turn.id || userMessage.role !== "user"
+      || userMessage.type !== "user_message") {
+      throw new RuntimeKernelError(
+        "invalid_turn_identity",
+        "The admitted user message must belong to the supplied run and turn.",
+      );
+    }
+    const now = this.clock.now();
+    const acceptedRun = RunSchema.parse({
+      ...run,
+      status: "running",
+      startedAt: now,
+      updatedAt: now,
+      lastEventSequence: 1,
+    });
+    const acceptedTurn = TurnSchema.parse({
+      ...turn,
+      status: "running",
+      startedAt: now,
+      updatedAt: now,
+      lastEventSequence: 2,
+    });
+    const acceptedUserMessage = ThreadItemSchema.parse({
+      ...userMessage,
+      runId: acceptedRun.id,
+      turnId: acceptedTurn.id,
+      status: "completed",
+      completedAt: now,
+      eventSequence: 3,
+    });
+    const candidate = LocalTurnAdmissionSchema.parse({
+      identity: LocalTurnIdentitySchema.parse({
+        workspaceId: acceptedRun.workspaceId,
+        threadId: acceptedRun.threadId,
+        runId: acceptedRun.id,
+        turnId: acceptedTurn.id,
+        runAttemptId,
+      }),
+      run: acceptedRun,
+      turn: acceptedTurn,
+      userMessage: acceptedUserMessage,
+      providerId: input.providerId,
+      modelId: input.modelId,
+      idempotencyKey: input.idempotencyKey,
+    });
+    const admitted = await admissionStore.admit(candidate);
+    if (admitted.newlyAdmitted) this.newlyAdmittedEntries.add(admitted.entry);
+    return admitted;
+  }
+
+  async executeAdmittedTurn(entry: import("@repo/platform-protocol").LocalTurnAdmission): Promise<StartTurnResult> {
+    const admission = LocalTurnAdmissionSchema.parse(entry);
+    if (!this.newlyAdmittedEntries.has(entry)) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        "Only a turn admitted by this runtime process can execute.",
+      );
+    }
+    this.newlyAdmittedEntries.delete(entry);
+    return await this.startTurn({
+      run: admission.run,
+      turn: admission.turn,
+      runAttemptId: admission.identity.runAttemptId,
+    });
+  }
+
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
     const run = RunSchema.parse(input.run);
     const turn = TurnSchema.parse(input.turn);
@@ -157,15 +253,24 @@ export class RuntimeKernel {
     this.assertTurnAvailable(turn);
     const workspace = await this.workspaces.loadExecutableManifest(run.id);
     this.assertWorkspaceIdentity(run, workspace);
-    const artifactSettlement = new TurnArtifactSettlementCoordinator({
-      git: this.dependencies.gitSnapshots,
-      artifacts: this.dependencies.turnArtifacts,
-      clock: this.clock,
-      run,
-      turn,
-      workspace,
-    });
-    const startArtifacts = await artifactSettlement.begin();
+    const captureArtifacts = this.dependencies.artifactCapture !== "omitted_read_only";
+    if (!captureArtifacts && !["ask", "review", "plan"].includes(run.mode)) {
+      throw new RuntimeKernelError(
+        "tool_policy_denied",
+        "Turns without artifact capture require a read-only run mode.",
+      );
+    }
+    const artifactSettlement = captureArtifacts
+      ? new TurnArtifactSettlementCoordinator({
+          git: requirePort(this.dependencies.gitSnapshots),
+          artifacts: requirePort(this.dependencies.turnArtifacts),
+          clock: this.clock,
+          run,
+          turn,
+          workspace,
+        })
+      : null;
+    const startArtifacts = artifactSettlement ? await artifactSettlement.begin() : null;
     const lifecycle = this.createLifecycle(run, turn, runAttemptId);
     this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
@@ -185,7 +290,7 @@ export class RuntimeKernel {
     }
     this.executionControllers.set(turn.id, executionController);
     const lifecycleStart = await lifecycle.start();
-    await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    if (startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
     return {
       run,
       turn,
@@ -242,7 +347,7 @@ export class RuntimeKernel {
           "turn was interrupted before successful settlement",
         );
       }
-      await this.settleArtifacts(turn.id, lifecycle, artifacts);
+      if (artifacts) await this.settleArtifacts(turn.id, lifecycle, artifacts);
       await lifecycle.complete(result.output, result.finalItemId);
       return {
         status: result.status,
@@ -252,7 +357,7 @@ export class RuntimeKernel {
       };
     } catch (error) {
       if (!lifecycle.isTerminal) {
-        if (!isArtifactSettlementError(error)) {
+        if (artifacts && !isArtifactSettlementError(error)) {
           await this.settleArtifacts(turn.id, lifecycle, artifacts);
         }
         if (isTurnCancelled(error) || prepared.executionSignal.aborted) {
@@ -781,6 +886,16 @@ export class RuntimeKernel {
 
 function isTurnCancelled(error: unknown): error is RuntimeKernelError {
   return error instanceof RuntimeKernelError && error.code === "turn_cancelled";
+}
+
+function requirePort<T>(port: T | undefined): T {
+  if (port === undefined) {
+    throw new RuntimeKernelError(
+      "turn_artifact_settlement_failed",
+      "Required runtime artifact port is unavailable.",
+    );
+  }
+  return port;
 }
 
 function isArtifactSettlementError(error: unknown): boolean {

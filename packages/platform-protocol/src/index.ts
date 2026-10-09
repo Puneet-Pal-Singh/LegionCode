@@ -442,3 +442,9 @@ export {
   type TranscriptPartEvent,
   type TranscriptPartId,
 } from "./transcript-parts.js";
+export {
+  LocalTurnAdmissionSchema,
+  LocalTurnIdentitySchema,
+  type LocalTurnAdmission,
+  type LocalTurnIdentity,
+} from "./local-turn.js";

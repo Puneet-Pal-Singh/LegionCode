@@ -1,14 +1,17 @@
 import type {
   EventId,
   ItemId,
+  LocalTurnAdmission,
   JsonRecord,
   LifecycleEventType,
   Run,
   RunAttemptId,
   ToolCallItemContent,
+  ThreadId,
   Turn,
   TurnDiffPayload,
   TurnWorkspaceSnapshot,
+  WorkspaceId,
 } from "@repo/platform-protocol";
 import type { LifecycleEventStore } from "@repo/event-store";
 import type { WorkspaceManifest } from "@repo/workspace-core";
@@ -22,6 +25,17 @@ import type {
 } from "./types.js";
 
 export type ContextCompactionMode = "automatic" | "manual";
+
+export interface LocalTurnAdmissionPort {
+  admit(candidate: LocalTurnAdmission): Promise<{
+    readonly entry: LocalTurnAdmission;
+    readonly newlyAdmitted: boolean;
+  }>;
+  listByThreadWorkspace(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly threadId: ThreadId;
+  }): Promise<readonly LocalTurnAdmission[]>;
+}
 
 export interface ContextCompactionPort {
   compact(input: {
