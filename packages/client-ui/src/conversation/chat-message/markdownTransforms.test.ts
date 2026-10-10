@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   shortenTextMentions,
   stripAssistantChangeCounts,
-} from "./markdownTransforms";
+} from "./markdownTransforms.js";
 
 describe("chat message markdown transforms", () => {
   it("shortens file mentions without changing unrelated text", () => {

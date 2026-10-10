@@ -1,3 +1,4 @@
+import type { ChatMessageMetadata } from "@legioncode/client-ui";
 import { forwardRef, type ReactNode } from "react";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
 import type {
@@ -5,10 +6,7 @@ import type {
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import {
-  buildLifecycleMessageMetadata,
-  type ChatMessageMetadata,
-} from "../messageMetadata";
+import { buildLifecycleMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";

@@ -368,9 +368,6 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@7.3.1(@types/node@24.10.9)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.9.0))
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
       framer-motion:
         specifier: ^12.30.0
         version: 12.30.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -395,9 +392,6 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
-      tailwind-merge:
-        specifier: ^3.4.0
-        version: 3.4.0
       xterm:
         specifier: ^5.3.0
         version: 5.3.0
@@ -557,6 +551,9 @@ importers:
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       lucide-react:
         specifier: ^0.563.0
         version: 0.563.0(react@19.2.4)
@@ -566,6 +563,15 @@ importers:
       react-icons:
         specifier: ^5.5.0
         version: 5.7.0(react@19.2.4)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.10)(react@19.2.4)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+      tailwind-merge:
+        specifier: ^3.4.0
+        version: 3.4.0
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*

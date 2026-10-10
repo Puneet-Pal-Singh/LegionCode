@@ -1,12 +1,9 @@
 import type { Message } from "@ai-sdk/react";
 import type { ArtifactOpenHandler } from "./artifactOpen";
 import { useState } from "react";
-import { cn } from "../../lib/utils";
-import type { ChatMessageMetadata } from "./messageMetadata";
+import { cn, MessageContent, MessageActions, type ChatMessageMetadata } from "@legioncode/client-ui";
 import { ChangedFilesCard } from "./chat-message/ChangedFilesCard";
-import { MessageActions } from "./chat-message/MessageActions";
 import { MessageArtifacts } from "./chat-message/MessageArtifacts";
-import { MessageContent } from "./chat-message/MessageContent";
 import type { ChangedFilesSummary } from "./chat-message/types";
 import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent";
 import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClient";

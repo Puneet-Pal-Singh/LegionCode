@@ -1,6 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
 import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
 

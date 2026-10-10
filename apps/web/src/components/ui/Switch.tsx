@@ -1,4 +1,4 @@
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 
 export function Switch({
   checked,

@@ -1,5 +1,5 @@
 import { Atom, Braces, File, FileCode2, FileText } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 
 interface FileTypeIconProps {
   path: string;

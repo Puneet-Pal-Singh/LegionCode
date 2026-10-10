@@ -1,5 +1,5 @@
 import { ArrowUpRight, Maximize2, Minimize2 } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { ChangeStats } from "./DiffStatistics";
 import type { ChangeLineStats } from "./types";
 

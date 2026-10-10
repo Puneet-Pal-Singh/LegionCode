@@ -1,5 +1,5 @@
 import type { ProviderModelOption } from "../../services/api/providerClient.js";
-import { cn } from "../../lib/utils.js";
+import { cn } from "@legioncode/client-ui";
 import { formatModelDisplayName } from "./modelDisplayName";
 
 interface ModelPickerDetailsPanelProps {

@@ -14,7 +14,7 @@ import { ChatInterface } from "../chat/ChatInterface";
 import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
 import { buildChatAppendMessage } from "../../hooks/useChatCore";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { Resizer } from "../ui/Resizer";
 import { useWorkspaceState } from "./workspace/useWorkspaceState";

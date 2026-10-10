@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Maximize2, PanelRight } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import type { SidebarContentTab } from "./useWorkspaceState";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 

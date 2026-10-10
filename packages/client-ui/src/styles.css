@@ -326,6 +326,10 @@ body {
 }
 
 @layer utilities {
+  .ui-surface-popover {
+    @apply rounded-xl border border-zinc-800 bg-[#111112]/98 text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.42)] backdrop-blur-md;
+  }
+
   /* Shared by the provider setup surface and existing Web forms. */
   .ui-input {
     @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400;

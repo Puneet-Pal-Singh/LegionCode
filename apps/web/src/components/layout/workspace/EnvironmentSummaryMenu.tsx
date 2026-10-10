@@ -27,7 +27,7 @@ import {
   listOpenPullRequests,
 } from "../../../services/GitHubService";
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
-import { cn } from "../../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { BranchSelectorPanel } from "../../github/BranchSelector";
 
 export interface EnvironmentSummaryMenuProps {

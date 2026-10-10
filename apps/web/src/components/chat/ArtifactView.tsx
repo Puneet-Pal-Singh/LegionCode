@@ -2,7 +2,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
 
 interface ArtifactViewProps {
