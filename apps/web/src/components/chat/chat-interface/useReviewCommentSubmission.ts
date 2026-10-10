@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReviewCommentDraft } from "../../git/reviewComments";
+import type { ReviewCommentDraft } from "@legioncode/client-ui";
 import {
   buildReviewCommentPrompt,
   validateReviewPromptBudget,
-} from "../../git/reviewComments";
+} from "@legioncode/client-ui";
 
 interface ReviewCommentSubmissionInput {
   comments: ReviewCommentDraft[];

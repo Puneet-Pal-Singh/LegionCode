@@ -6,22 +6,22 @@ import {
   SquareSplitHorizontal,
 } from "lucide-react";
 import type { DiffContent } from "@repo/shared-types";
-import { resolveDiffLanguage } from "./resolveDiffLanguage";
-import { useAnchorIndex } from "../../lib/diff/useAnchorIndex";
-import { useSelectionManager } from "../../lib/diff/useSelectionManager";
-import { useAnnotationDispatcher } from "../../lib/diff/useAnnotationDispatcher";
+import { resolveDiffLanguage } from "./resolveDiffLanguage.js";
+import { useAnchorIndex } from "./useAnchorIndex.js";
+import { useSelectionManager } from "./useSelectionManager.js";
+import { useAnnotationDispatcher } from "./useAnnotationDispatcher.js";
 import type {
   CreateReviewCommentInput,
   ReviewCommentDraft,
-} from "../git/reviewComments";
-import { buildRenderPlans, collectCommentedRowKeys } from "./diffRenderPlan";
-import { countDiffAdditions, countDiffDeletions } from "./diffStats";
-import { countUnmodifiedLinesBeforeHunk } from "./diffHunkGaps";
-import { CollapsedLinesBanner } from "./CollapsedLinesBanner";
-import { useCollapsedDiffRows } from "./useCollapsedDiffRows";
-import { DiffFileSummary } from "./DiffFileSummary";
-import { SplitHunkView } from "./SplitHunkView";
-import { StackedHunkView } from "./StackedHunkView";
+} from "./reviewComments.js";
+import { buildRenderPlans, collectCommentedRowKeys } from "./diffRenderPlan.js";
+import { countDiffAdditions, countDiffDeletions } from "./diffStats.js";
+import { countUnmodifiedLinesBeforeHunk } from "./diffHunkGaps.js";
+import { CollapsedLinesBanner } from "./CollapsedLinesBanner.js";
+import { useCollapsedDiffRows } from "./useCollapsedDiffRows.js";
+import { DiffFileSummary } from "./DiffFileSummary.js";
+import { SplitHunkView } from "./SplitHunkView.js";
+import { StackedHunkView } from "./StackedHunkView.js";
 
 interface DiffViewerProps {
   diff: DiffContent;

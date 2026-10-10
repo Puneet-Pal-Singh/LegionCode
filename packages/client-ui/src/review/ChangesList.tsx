@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import type { FileStatus } from "@repo/shared-types";
-import { ChangeItem } from "./ChangeItem";
-import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
-import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
-import { TreeFilter } from "../layout/workspace/TreeFilter";
+import { ChangeItem } from "./ChangeItem.js";
+import { ReviewScopeDropdown } from "./ReviewScopeDropdown.js";
+import type { ReviewScope } from "./reviewScope.js";
+import { TreeFilter } from "./TreeFilter.js";
 
 interface ChangesListProps {
   files: FileStatus[];

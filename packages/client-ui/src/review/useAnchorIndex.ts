@@ -3,8 +3,8 @@ import type { DiffContent, DiffLine as DiffLineType } from "@repo/shared-types";
 import type {
   ReviewCommentAnchor,
   ReviewCommentSide,
-} from "../../components/git/reviewComments";
-import { normalizeLinePreview } from "../../components/git/reviewComments";
+} from "./reviewComments.js";
+import { normalizeLinePreview } from "./reviewComments.js";
 
 export interface AnchorIndexState {
   rowOrder: string[];

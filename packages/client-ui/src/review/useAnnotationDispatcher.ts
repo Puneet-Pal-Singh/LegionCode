@@ -6,7 +6,7 @@ import type {
   ReviewCommentDraft,
   ReviewCommentSelectionMode,
   ReviewCommentSide,
-} from "../../components/git/reviewComments";
+} from "./reviewComments.js";
 
 interface AnnotationDispatcherInput {
   diff: DiffContent;

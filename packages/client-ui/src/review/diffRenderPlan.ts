@@ -3,8 +3,8 @@ import type {
   DiffHunk,
   DiffLine as DiffLineType,
 } from "@repo/shared-types";
-import { buildLineKey } from "../../lib/diff/useAnchorIndex";
-import type { ReviewCommentDraft } from "../git/reviewComments";
+import { buildLineKey } from "./useAnchorIndex.js";
+import type { ReviewCommentDraft } from "./reviewComments.js";
 
 export interface VisibleDiffRow {
   kind: "line";

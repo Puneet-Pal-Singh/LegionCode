@@ -6,10 +6,10 @@ import type {
 } from "@repo/shared-types";
 import { useEditArtifactDiff } from "./useEditArtifactDiff";
 import { useEditArtifactReviewSource } from "./useEditArtifactReviewSource";
+import type { ReviewScope } from "@legioncode/client-ui";
 import {
   resolveReviewSource,
   type OpenedReviewArtifact,
-  type ReviewScope,
   type CanonicalTurnReviewSource,
 } from "../services/review/ReviewSourceResolver";
 

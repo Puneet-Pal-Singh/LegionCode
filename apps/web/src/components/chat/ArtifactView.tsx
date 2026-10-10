@@ -3,7 +3,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@legioncode/client-ui";
-import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
+import { CODE_TYPOGRAPHY_STYLE } from "@legioncode/client-ui";
 
 interface ArtifactViewProps {
   isOpen: boolean;

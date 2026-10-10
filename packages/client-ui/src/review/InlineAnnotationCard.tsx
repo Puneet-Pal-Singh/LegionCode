@@ -1,5 +1,5 @@
 import { MessageSquareText } from "lucide-react";
-import type { ReviewCommentDraft } from "../git/reviewComments";
+import type { ReviewCommentDraft } from "./reviewComments.js";
 
 interface InlineAnnotationCardProps {
   annotation: ReviewCommentDraft;

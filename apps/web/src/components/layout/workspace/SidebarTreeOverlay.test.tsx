@@ -22,7 +22,8 @@ vi.mock("../../git/useGitReview", () => ({
   }),
 }));
 
-vi.mock("../../diff/ChangesList", () => ({
+vi.mock("@legioncode/client-ui", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@legioncode/client-ui")>(),
   ChangesList: ({
     files,
     onSelectFile,

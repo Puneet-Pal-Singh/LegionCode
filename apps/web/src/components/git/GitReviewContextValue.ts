@@ -7,15 +7,15 @@ import type {
   GitMutationErrorMetadata,
   GitStatusResponse,
 } from "@repo/shared-types";
+import type { ReviewScope } from "@legioncode/client-ui";
 import type {
-  ReviewScope,
   ReviewSourceSelection,
   CanonicalTurnReviewSource,
 } from "../../services/review/ReviewSourceResolver";
 import type {
   CreateReviewCommentInput,
   ReviewCommentDraft,
-} from "./reviewComments";
+} from "@legioncode/client-ui";
 
 export interface GitReviewProviderProps {
   children: React.ReactNode;

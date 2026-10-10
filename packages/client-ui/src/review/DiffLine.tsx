@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { Plus } from "lucide-react";
 import type { DiffLine as DiffLineType } from "@repo/shared-types";
-import { DiffCodeText } from "./DiffCodeText";
-import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
+import { DiffCodeText } from "./DiffCodeText.js";
+import { CODE_TYPOGRAPHY_STYLE } from "./codeTypography.js";
 
 interface DiffLineProps {
   line: DiffLineType;

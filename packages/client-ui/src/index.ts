@@ -35,3 +35,10 @@ export { ChangedFilesCard } from "./conversation/chat-message/ChangedFilesCard.j
 export type { ChangedFilesSummary } from "./conversation/chat-message/changed-files-types.js";
 export { ChatMessage, type ChatMessageProps } from "./conversation/ChatMessage.js";
 export type { ArtifactOpenHandler, ArtifactOpenOptions } from "./conversation/artifactOpen.js";
+export { DiffViewer, ChangesList, ChangeItem, DiffLine } from "./review/index.js";
+export { ReviewScopeDropdown } from "./review/ReviewScopeDropdown.js";
+export { FileTypeIcon } from "./review/FileTypeIcon.js";
+export { TreeFilter } from "./review/TreeFilter.js";
+export { CODE_TYPOGRAPHY_STYLE } from "./review/codeTypography.js";
+export { REVIEW_SOURCE_LABELS, type ReviewScope, type ReviewSourceKind } from "./review/reviewScope.js";
+export * from "./review/reviewComments.js";

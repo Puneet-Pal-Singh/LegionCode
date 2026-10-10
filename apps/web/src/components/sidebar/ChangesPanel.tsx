@@ -1,8 +1,8 @@
 import { useEffect, useMemo, type ReactNode } from "react";
-import { ChangesList } from "../diff/ChangesList";
-import { DiffViewer } from "../diff/DiffViewer";
+import { ChangesList } from "@legioncode/client-ui";
+import { DiffViewer } from "@legioncode/client-ui";
 import { useGitReview } from "../git/useGitReview";
-import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
+import { REVIEW_SOURCE_LABELS } from "@legioncode/client-ui";
 import { getDiffMessage, getEmptyReviewLabel } from "./changesPanelMessages";
 import {
   GitUnavailableState,

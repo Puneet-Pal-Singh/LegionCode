@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { FileStatus } from "@repo/shared-types";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { FileTypeIcon } from "@legioncode/client-ui";
 
 interface ReviewFileStackProps {
   files: FileStatus[];

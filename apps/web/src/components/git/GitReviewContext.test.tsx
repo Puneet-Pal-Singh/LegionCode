@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GitReviewProvider } from "./GitReviewContext";
 import { useGitReview } from "./useGitReview";
-import type { ReviewCommentAnchor } from "./reviewComments";
+import type { ReviewCommentAnchor } from "@legioncode/client-ui";
 import type {
   FileStatus,
   GitStatusResponse,
