@@ -46,7 +46,7 @@ import {
   ChatComposerControls,
   type ComposerLayout,
 } from "./chat-interface/ChatComposerControls";
-import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
+import { ChatInterfaceView } from "@legioncode/client-ui";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "@legioncode/client-ui";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";

@@ -1,33 +1,34 @@
 import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
-import type { ChatMessageProps, ChatMessageMetadata } from "@legioncode/client-ui";
+import type { ChatMessageProps } from "../ChatMessage.js";
+import type { ChatMessageMetadata } from "../chat-message/types.js";
 import { forwardRef, type ReactNode } from "react";
 import type {
   DiffContent,
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import { buildLifecycleMessageMetadata } from "@legioncode/client-ui";
-import type { LifecycleTerminalViewModel } from "@legioncode/client-ui";
-import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import { buildLifecycleMessageMetadata } from "./messageMetadata.js";
+import type { LifecycleTerminalViewModel } from "./LifecycleTerminalTypes.js";
+import type { TurnDiffPayload } from "@legioncode/sdk";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import {
   buildLifecycleTerminalViewModel,
-} from "@legioncode/client-ui";
-import type { CompletedTurnReview } from "@legioncode/client-ui";
-import { ChatMessage } from "@legioncode/client-ui";
+} from "./LifecycleTerminalViewModel.js";
+import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
+import { ChatMessage } from "../ChatMessage.js";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
-import { CanonicalWorkflowSurface } from "@legioncode/client-ui";
-import { PendingWorkflowSurface } from "@legioncode/client-ui";
+import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
+import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
 import {
   resolveChangedFilesSummary,
   resolveTerminalChangedFilesSummary,
-} from "@legioncode/client-ui";
-import type { ChatInterfaceEntry } from "@legioncode/client-ui";
-import type { ArtifactOpenHandler } from "@legioncode/client-ui";
+} from "./changedFiles.js";
+import type { ChatInterfaceEntry } from "./chatEntries.js";
+import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { ChevronDown, Folder } from "lucide-react";
 
-interface ChatInterfaceViewProps {
+export interface ChatInterfaceViewProps {
   workspaceId: string | null;
   threadId: string | null;
   runAttemptId: string | null;

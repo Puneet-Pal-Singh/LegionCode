@@ -20,7 +20,6 @@ const ALLOWED_IMPORT_FILES = new Set([
   "hooks/useConversationLifecycleProjections.ts",
   "hooks/useTurnLifecycleProjection.ts",
   "lib/session-sidebar-selectors.ts",
-  "components/chat/chat-interface/ChatInterfaceView.tsx",
   "components/chat/chat-interface/TurnLifecycleStatus.tsx",
   "components/layout/workspace/runUiState.ts",
 ]);

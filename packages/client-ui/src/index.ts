@@ -63,3 +63,4 @@ export { useChatPresentation } from "./conversation/chat-interface/useChatPresen
 export { useCompletedTurnReview, type CompletedTurnReview } from "./conversation/chat-interface/useCompletedTurnReview.js";
 export { useChatAutoScroll, isChatNearBottom } from "./conversation/chat-interface/useChatAutoScroll.js";
 export { useStableChatLoadingIndicator } from "./conversation/chat-interface/useStableChatLoadingIndicator.js";
+export { ChatInterfaceView, type ChatInterfaceViewProps } from "./conversation/chat-interface/ChatInterfaceView.js";
