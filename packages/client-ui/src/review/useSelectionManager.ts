@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type React from "react";
-import type { ReviewCommentDraft } from "../../components/git/reviewComments";
+import type { ReviewCommentDraft } from "./reviewComments.js";
 
 interface SelectionManagerInput {
   rowOrder: string[];

@@ -40,8 +40,8 @@ import {
   isProviderModelBootstrapLoading,
   isProviderVisibleModelHydrationPending,
 } from "../../lib/provider-model-bootstrap-loading.js";
-import type { ReviewCommentDraft } from "../git/reviewComments";
-import { getReviewCommentDisplayLabel } from "../git/reviewComments";
+import type { ReviewCommentDraft } from "@legioncode/client-ui";
+import { getReviewCommentDisplayLabel } from "@legioncode/client-ui";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,

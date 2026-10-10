@@ -4,7 +4,7 @@ import {
   rebindReviewCommentDraft,
   type CreateReviewCommentInput,
   type ReviewCommentDraft,
-} from "./reviewComments";
+} from "@legioncode/client-ui";
 
 interface UseReviewCommentsStateInput {
   runId: string | null;

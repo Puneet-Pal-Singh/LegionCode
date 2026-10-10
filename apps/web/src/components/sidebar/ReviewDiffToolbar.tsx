@@ -9,8 +9,8 @@ import {
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@legioncode/client-ui";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
-import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
-import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
+import { ReviewScopeDropdown } from "@legioncode/client-ui";
+import type { ReviewScope } from "@legioncode/client-ui";
 import type { DiffLayout } from "./useChangesPanelViewState";
 import { FileChangesIcon } from "./FileChangesIcon";
 import { FilesToggleButton } from "../layout/workspace/FilesToggleButton";

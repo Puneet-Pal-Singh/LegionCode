@@ -1,7 +1,7 @@
 import { AlertCircle, Folders, Loader2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ArtifactView } from "../../chat/ArtifactView";
-import { DiffViewer } from "../../diff/DiffViewer";
+import { DiffViewer } from "@legioncode/client-ui";
 import { FileNavigationBar } from "./FileNavigationBar";
 import { ResizableWorkspaceRail } from "./ResizableWorkspaceRail";
 import type { SelectedDiff, SelectedFile } from "./useWorkspaceState";

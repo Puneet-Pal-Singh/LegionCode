@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ReviewCommentDraft } from "../git/reviewComments";
-import { InlineAnnotationCard } from "./InlineAnnotationCard";
+import type { ReviewCommentDraft } from "./reviewComments.js";
+import { InlineAnnotationCard } from "./InlineAnnotationCard.js";
 
 const annotation: ReviewCommentDraft = {
   id: "comment-1",

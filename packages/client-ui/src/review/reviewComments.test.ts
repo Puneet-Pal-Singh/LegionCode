@@ -5,7 +5,7 @@ import {
   rebindReviewCommentDraft,
   validateReviewPromptBudget,
   type ReviewCommentDraft,
-} from "./reviewComments";
+} from "./reviewComments.js";
 
 function createDraft(
   overrides: Partial<ReviewCommentDraft> = {},

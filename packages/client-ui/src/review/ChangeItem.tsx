@@ -1,5 +1,5 @@
 import type { FileStatus } from "@repo/shared-types";
-import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { FileTypeIcon } from "./FileTypeIcon.js";
 
 interface ChangeItemProps {
   file: FileStatus;

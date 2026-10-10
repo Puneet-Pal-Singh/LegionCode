@@ -68,3 +68,19 @@ Replaced Web message/rendering/helpers are deleted. Only active host URL/HTTP
 bindings remain, with the artifact transport deletion trigger above. Existing
 message integration safeguards stay at the Web boundary to cover its bindings.
 No product HTTP/storage authority or Web imports enter shared presentation.
+
+## Plan 058.2D — Full diff and review renderers
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| DiffViewer, changed-file list, split/unified rows, collapsed context, selection and inline comment UI | `client-ui/src/review` | Web workflow, ChangesPanel, workspace content and sidebar tree render the shared source with supplied diffs/actions. |
+| Local review draft types, prompt formatting/budget, anchor matching and diff fingerprint | `client-ui/src/review/reviewComments.ts` | Shared diff/comment renderers and Web review draft/submission bindings retain the same functions. Drafts are unsent UI data, not runtime settlement. |
+| Visual review scope types/labels and dropdown | `client-ui/src/review/reviewScope.ts` and ReviewScopeDropdown | Shared changed-file list and Web review controls/resolver import the same visual declarations. Artifact selection/availability/identity stays in the existing Web resolver until its SDK operation slice. |
+| Existing review leaf file icons/filter and code typography | `client-ui/src/review` | Shared review and all existing Web workspace/repository/artifact callers. |
+
+All replaced Web renderers, helpers and four existing test files move with no
+compatibility copies. Their module bodies and visual declarations are unchanged
+after import normalization. Shared review owns no product HTTP, storage, Git or
+artifact loading; Web supplies the same data/actions. Existing immutable saved
+diff versus explicit live Git selection remains unchanged. No test is removed;
+Web integration safeguards stay at their application boundary.

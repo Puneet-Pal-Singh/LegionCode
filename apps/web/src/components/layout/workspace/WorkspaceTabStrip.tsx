@@ -1,7 +1,7 @@
 import { FileDiff, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@legioncode/client-ui";
-import { FileTypeIcon } from "../../ui/FileTypeIcon";
+import { FileTypeIcon } from "@legioncode/client-ui";
 import { ContextUsageRing } from "../../chat/context/ContextUsageRing";
 import type { SidebarContentTab } from "./useWorkspaceState";
 

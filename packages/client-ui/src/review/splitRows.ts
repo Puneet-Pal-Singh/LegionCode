@@ -3,7 +3,7 @@ import type {
   CollapsedDiffRow,
   DiffRenderRow,
   VisibleDiffRow,
-} from "./diffRenderPlan";
+} from "./diffRenderPlan.js";
 
 export interface SplitLineRow {
   kind: "line";

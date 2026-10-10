@@ -1,13 +1,13 @@
 import { Fragment, useMemo } from "react";
-import { CollapsedLinesBanner } from "./CollapsedLinesBanner";
-import { InlineAnnotationCard } from "./InlineAnnotationCard";
-import { InlineCommentComposer } from "./InlineCommentComposer";
-import { SplitDiffCell } from "./SplitDiffCell";
-import { getComposerAnchor } from "./diffSelection";
-import type { HunkRenderPlan } from "./diffRenderPlan";
-import { buildSplitRows } from "./splitRows";
-import type { ReviewCommentDraft } from "../git/reviewComments";
-import { useCollapsedDiffRows } from "./useCollapsedDiffRows";
+import { CollapsedLinesBanner } from "./CollapsedLinesBanner.js";
+import { InlineAnnotationCard } from "./InlineAnnotationCard.js";
+import { InlineCommentComposer } from "./InlineCommentComposer.js";
+import { SplitDiffCell } from "./SplitDiffCell.js";
+import { getComposerAnchor } from "./diffSelection.js";
+import type { HunkRenderPlan } from "./diffRenderPlan.js";
+import { buildSplitRows } from "./splitRows.js";
+import type { ReviewCommentDraft } from "./reviewComments.js";
+import { useCollapsedDiffRows } from "./useCollapsedDiffRows.js";
 
 interface SplitHunkViewProps {
   plan: HunkRenderPlan;

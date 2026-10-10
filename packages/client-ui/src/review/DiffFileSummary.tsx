@@ -1,4 +1,4 @@
-import { cn } from "@legioncode/client-ui";
+import { cn } from "../classnames.js";
 
 interface DiffFileSummaryProps {
   additions: number;

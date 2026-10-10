@@ -16,7 +16,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@legioncode/client-ui";
-import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { FileTypeIcon } from "@legioncode/client-ui";
 
 /**
  * Tree item representing a file or folder

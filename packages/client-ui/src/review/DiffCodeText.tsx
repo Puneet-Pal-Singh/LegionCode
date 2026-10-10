@@ -1,6 +1,6 @@
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
+import { CODE_TYPOGRAPHY_STYLE } from "./codeTypography.js";
 
 interface DiffCodeTextProps {
   content: string;

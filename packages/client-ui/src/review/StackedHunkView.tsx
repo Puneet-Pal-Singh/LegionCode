@@ -1,12 +1,12 @@
 import { Fragment } from "react";
-import DiffLine from "./DiffLine";
-import { CollapsedLinesBanner } from "./CollapsedLinesBanner";
-import { InlineAnnotationCard } from "./InlineAnnotationCard";
-import { InlineCommentComposer } from "./InlineCommentComposer";
-import { getComposerAnchor } from "./diffSelection";
-import type { HunkRenderPlan } from "./diffRenderPlan";
-import type { ReviewCommentDraft } from "../git/reviewComments";
-import { useCollapsedDiffRows } from "./useCollapsedDiffRows";
+import DiffLine from "./DiffLine.js";
+import { CollapsedLinesBanner } from "./CollapsedLinesBanner.js";
+import { InlineAnnotationCard } from "./InlineAnnotationCard.js";
+import { InlineCommentComposer } from "./InlineCommentComposer.js";
+import { getComposerAnchor } from "./diffSelection.js";
+import type { HunkRenderPlan } from "./diffRenderPlan.js";
+import type { ReviewCommentDraft } from "./reviewComments.js";
+import { useCollapsedDiffRows } from "./useCollapsedDiffRows.js";
 
 interface StackedHunkViewProps {
   plan: HunkRenderPlan;

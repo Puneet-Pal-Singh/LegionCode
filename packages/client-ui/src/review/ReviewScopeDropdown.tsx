@@ -1,8 +1,8 @@
 import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { cn } from "@legioncode/client-ui";
-import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
-import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
+import { cn } from "../classnames.js";
+import type { ReviewScope } from "./reviewScope.js";
+import { REVIEW_SOURCE_LABELS } from "./reviewScope.js";
 
 interface ReviewScopeDropdownProps {
   value: ReviewScope;

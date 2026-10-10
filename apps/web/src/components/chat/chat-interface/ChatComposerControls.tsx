@@ -6,7 +6,7 @@ import type {
 } from "@repo/shared-types";
 import type { ProviderId } from "../../../types/provider";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
-import type { ReviewCommentDraft } from "../../git/reviewComments";
+import type { ReviewCommentDraft } from "@legioncode/client-ui";
 import { ApprovalDock } from "../approval/ApprovalDock.js";
 import { ChatInputBar } from "../ChatInputBar";
 import type {

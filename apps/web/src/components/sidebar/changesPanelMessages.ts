@@ -1,5 +1,5 @@
 import type { FileStatus } from "@repo/shared-types";
-import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
+import type { ReviewScope } from "@legioncode/client-ui";
 
 export function getEmptyReviewLabel({
   isSavedEditMode,

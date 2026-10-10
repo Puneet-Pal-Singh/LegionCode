@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { DiffContent, DiffLine } from "@repo/shared-types";
-import { DiffViewer } from "./DiffViewer";
+import { DiffViewer } from "./DiffViewer.js";
 
 function unchangedLine(lineNumber: number): DiffLine {
   return {

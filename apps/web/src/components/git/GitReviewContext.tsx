@@ -6,7 +6,7 @@ import { useGitDiff } from "../../hooks/useGitDiff";
 import { useReviewSourceState } from "../../hooks/useReviewSourceState";
 import { useGitCommit } from "../../hooks/useGitCommit";
 import { EMPTY_FILE_STATUSES } from "../../lib/empty-collections";
-import { buildDiffFingerprint } from "./reviewComments";
+import { buildDiffFingerprint } from "@legioncode/client-ui";
 import {
   GitReviewContext,
   type GitReviewContextValue,

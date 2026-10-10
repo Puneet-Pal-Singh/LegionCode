@@ -2,12 +2,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useState, type RefObject } from "react";
 import { Resizer } from "../../ui/Resizer";
 import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
-import { ChangesList } from "../../diff/ChangesList";
+import { ChangesList } from "@legioncode/client-ui";
 import { RepoFileTree } from "../../github/RepoFileTree";
 import { useGitReview } from "../../git/useGitReview";
 import type { Repository } from "../../../services/GitHubService";
 import type { TabType } from "./useWorkspaceState";
-import { TreeFilter } from "./TreeFilter";
+import { TreeFilter } from "@legioncode/client-ui";
 
 interface SidebarTreeOverlayProps {
   activeTab: TabType;
