@@ -88,6 +88,7 @@ jobs:
         run: |
           pnpm --filter @legioncode/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
           pnpm --filter @legioncode/web test -- src/architecture/byok-sdk-boundary.test.ts src/architecture/provider-sdk-import-boundary.test.ts src/architecture/landing-boundary.test.ts
+          pnpm --filter @legioncode/client-ui test
           pnpm --filter @repo/ui-kit test -- src/architecture/provider-transport-boundary.test.ts
           pnpm --filter @legioncode/landing test -- --run
 

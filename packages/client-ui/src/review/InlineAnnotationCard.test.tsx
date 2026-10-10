@@ -1,7 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReviewCommentDraft } from "./reviewComments.js";
 import { InlineAnnotationCard } from "./InlineAnnotationCard.js";
+
+afterEach(cleanup);
 
 const annotation: ReviewCommentDraft = {
   id: "comment-1",
