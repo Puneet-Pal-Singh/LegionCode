@@ -28,6 +28,7 @@ import { lifecycleEventsProjectionsMigration } from "./0020-lifecycle-events-pro
 import { canonicalWorkspaceManifestMigration } from "./0021-canonical-workspace-manifest.js";
 import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
 import { threadTitleReadReceiptsMigration } from "./0023-thread-title-read-receipts.js";
+import { chatDurabilityMigration } from "./0032-chat-durability.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -100,4 +101,5 @@ export const persistenceMigrations = [
   taskCheckoutSecureSessionMigration,
   hookDefinitionsMigration,
   sessionThreadIdentityMigration,
+  chatDurabilityMigration,
 ] as const;

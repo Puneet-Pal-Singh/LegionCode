@@ -63,6 +63,14 @@ interface TranscriptRow extends SqlRow {
   content_json?: JsonValue | string;
   part_created_at?: string | Date;
   last_sequence?: number | string;
+  admission_turn_id?: string | null;
+  admission_thread_id?: string | null;
+  admission_run_attempt_id?: string | null;
+  admission_revision_of_turn_id?: string | null;
+  canonical_turn_id?: string | null;
+  canonical_run_attempt_id?: string | null;
+  canonical_item_id?: string | null;
+  canonical_phase?: string | null;
 }
 
 const systemClock: Clock = {
@@ -280,6 +288,22 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
         .filter((value): value is string => typeof value === "string"),
       sessionFound: true,
     };
+  }
+
+  async getCanonicalAssistantMessageId(input: {
+    sessionId: string;
+    userId: string;
+    turnId: string;
+    phase: "commentary" | "final_answer";
+  }): Promise<string | null> {
+    const result = await this.client.query<TranscriptRow>(READ_CANONICAL_ASSISTANT_ID_SQL, [
+      input.sessionId,
+      input.userId,
+      input.turnId,
+      input.phase,
+    ]);
+    const id = result.rows[0]?.message_id;
+    return typeof id === "string" ? id : null;
   }
 
   async listSessions(userId: string): Promise<ListSessionsResult> {
@@ -621,6 +645,63 @@ function mapMessageRow(
 }
 
 function mapMessagePartRow(row: TranscriptRow): TranscriptMessagePartRecord {
+  let content = parseContentJson(row.content_json, row.part_id);
+  if (
+    row.role === "user" &&
+    row.admission_turn_id &&
+    row.admission_thread_id &&
+    row.admission_run_attempt_id
+  ) {
+    const original = isJsonRecord(content) ? content : { value: content };
+    const originalMetadata = isJsonRecord(original.metadata) ? original.metadata : {};
+    const originalIdentity = isJsonRecord(originalMetadata.canonicalIdentity)
+      ? originalMetadata.canonicalIdentity
+      : {};
+    content = {
+      ...original,
+      metadata: {
+        ...originalMetadata,
+        canonicalIdentity: {
+          ...originalIdentity,
+          threadId: row.admission_thread_id,
+          turnId: row.admission_turn_id,
+          runAttemptId: row.admission_run_attempt_id,
+          ...(row.admission_revision_of_turn_id
+            ? { revisionOfTurnId: row.admission_revision_of_turn_id }
+            : {}),
+        },
+      },
+    } as JsonValue;
+  } else if (
+    row.role === "assistant" &&
+    row.canonical_turn_id &&
+    row.canonical_run_attempt_id &&
+    row.canonical_item_id &&
+    row.canonical_phase
+  ) {
+    const original = isJsonRecord(content) ? content : { value: content };
+    const originalMetadata = isJsonRecord(original.metadata) ? original.metadata : {};
+    const originalIdentity = isJsonRecord(originalMetadata.canonicalIdentity)
+      ? originalMetadata.canonicalIdentity
+      : {};
+    content = {
+      ...original,
+      metadata: {
+        ...originalMetadata,
+        canonicalIdentity: {
+          ...originalIdentity,
+          ...(row.admission_thread_id ? { threadId: row.admission_thread_id } : {}),
+          turnId: row.canonical_turn_id,
+          runAttemptId: row.canonical_run_attempt_id,
+          ...(row.admission_revision_of_turn_id
+            ? { revisionOfTurnId: row.admission_revision_of_turn_id }
+            : {}),
+        },
+        itemId: row.canonical_item_id,
+        phase: row.canonical_phase,
+      },
+    } as JsonValue;
+  }
   return {
     id: requireString(row.part_id, "part_id"),
     messageId: requireString(row.message_id, "message_id"),
@@ -628,9 +709,13 @@ function mapMessagePartRow(row: TranscriptRow): TranscriptMessagePartRecord {
     runId: row.run_id ?? null,
     type: mapPartType(requireString(row.part_type, "part_type")),
     sessionSequence: toNumber(row.session_sequence),
-    content: parseContentJson(row.content_json, row.part_id),
+    content,
     createdAt: toIsoString(row.part_created_at),
   };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function mapTaskStatus(status: string): TaskRecord["status"] {
@@ -1000,10 +1085,32 @@ const INCREMENT_SESSION_SEQUENCE_SQL = `
 `;
 
 const LIST_TRANSCRIPT_SQL = `
-  SELECT ${MESSAGE_COLUMNS}, ${PART_COLUMNS}
+  SELECT ${MESSAGE_COLUMNS}, ${PART_COLUMNS},
+    admission.turn_id AS admission_turn_id,
+    admission.thread_id AS admission_thread_id,
+    admission.run_attempt_id AS admission_run_attempt_id,
+    admission.revision_of_turn_id AS admission_revision_of_turn_id,
+    m.canonical_turn_id,
+    m.canonical_run_attempt_id,
+    m.canonical_item_id,
+    m.canonical_phase
   FROM messages m
   JOIN message_parts p ON p.message_id = m.id
   JOIN sessions s ON s.id = p.session_id
+  LEFT JOIN canonical_turn_admissions admission
+    ON (
+      (
+        m.role = 'user'
+        AND admission.session_id = m.session_id
+        AND admission.client_message_id = m.client_message_id
+      )
+      OR (
+        m.role = 'assistant'
+        AND admission.turn_id = m.canonical_turn_id
+        AND admission.run_attempt_id = m.canonical_run_attempt_id
+      )
+    )
+    AND admission.admission_state = 'admitted'
   WHERE m.id IN (
     SELECT m2.id
     FROM messages m2
@@ -1031,6 +1138,22 @@ const READ_TRANSCRIPT_SESSION_SQL = `
   WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2)
 `;
 
+const READ_CANONICAL_ASSISTANT_ID_SQL = `
+  SELECT m.id AS message_id
+  FROM messages m
+  JOIN sessions s ON s.id = m.session_id
+  WHERE m.session_id = $1
+    AND s.user_id = $2
+    AND m.canonical_turn_id = $3
+    AND m.canonical_phase = $4
+  ORDER BY (
+    SELECT MIN(p.session_sequence)
+    FROM message_parts p
+    WHERE p.message_id = m.id AND p.session_id = m.session_id
+  ) ASC
+  LIMIT 1
+`;
+
 const LIST_SUPERSEDED_TURNS_SQL = `
   SELECT DISTINCT branch.turn_id
   FROM (
@@ -1039,6 +1162,20 @@ const LIST_SUPERSEDED_TURNS_SQL = `
     WHERE session_id = $1
       AND session_sequence <= $2
       AND content_json #>> '{metadata,canonicalIdentity,revisionOfTurnId}' IS NOT NULL
+    UNION
+    SELECT admission.revision_of_turn_id AS turn_id
+    FROM canonical_turn_admissions admission
+    JOIN messages prompt
+      ON prompt.session_id = admission.session_id
+      AND prompt.client_message_id = admission.client_message_id
+      AND prompt.role = 'user'
+    JOIN message_parts prompt_part
+      ON prompt_part.session_id = prompt.session_id
+      AND prompt_part.message_id = prompt.id
+    WHERE admission.session_id = $1
+      AND admission.admission_state = 'admitted'
+      AND admission.revision_of_turn_id IS NOT NULL
+      AND prompt_part.session_sequence <= $2
   ) branch
   WHERE branch.turn_id IS NOT NULL
 `;

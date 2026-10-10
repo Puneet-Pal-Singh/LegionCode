@@ -41,7 +41,6 @@ import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
-import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
@@ -76,21 +75,7 @@ export class RunEngineRuntime extends DurableObject {
     const requestHandler = this.createRequestHandler();
 
     if (url.pathname === "/execute" && request.method === "POST") {
-      return requestHandler.handleExecuteRequest(request, async (result) => {
-        const terminalPersistenceResult =
-          await persistAssistantMessageFromRunResponse(
-          this.ctx,
-          this.env as Env,
-          result.sessionId,
-          result.runId,
-          result.correlationId,
-          result.response,
-          result.identity,
-          );
-        return result.assistantMessageId
-          ? { assistantMessageId: result.assistantMessageId }
-          : terminalPersistenceResult;
-      });
+      return requestHandler.handleExecuteRequest(request);
     }
 
     if (url.pathname === "/turn/start" && request.method === "POST") {

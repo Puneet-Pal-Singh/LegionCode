@@ -19,6 +19,8 @@ export const TurnScopeBootstrapRequestSchema = z.object({
   userId: z.string().trim().min(1).optional(),
   correlationId: z.string().trim().min(1),
   clientMessageId: z.string().trim().min(1).optional(),
+  /** Identity reserved by Brain before it is imported by a runtime DO. */
+  admittedIdentity: z.lazy(() => TurnScopeBootstrapSchema).optional(),
   /** The latest terminal turn whose prompt this turn supersedes. */
   revisionOfTurnId: TurnIdSchema.optional(),
 });

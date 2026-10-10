@@ -184,65 +184,9 @@ export class HandleChatRequest {
       const normalizedProviderRuntimeRoute =
         normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
-      // Create the task/session first with no active run, then create the run,
-      // then persist the message and mark the run active on the session.
-      if (userId) {
-        try {
-          console.log(
-            formatDiagnosticLogLine("chat/persistence", "ensure-started", {
-              correlationId,
-              runId,
-              sessionId,
-              userId,
-              workspaceId: workspaceId ?? null,
-              taskId,
-              repository: repositorySlug ?? null,
-              providerId: input.providerId ?? null,
-              modelId: input.modelId ?? null,
-            }),
-          );
-          await this.persistenceService.ensureTranscriptSession({
-            sessionId,
-            userId,
-            workspaceId,
-            threadId: identity.threadId,
-            taskId,
-            repository: repositorySlug,
-          });
-          await this.persistenceService.ensureRun({
-            id: runId,
-            userId,
-            workspaceId: workspaceId ?? null,
-            sessionId,
-            taskId,
-            status: "created",
-            mode,
-            providerId: input.providerId ?? null,
-            modelId: input.modelId ?? null,
-            branch: repositoryBranch ?? null,
-          });
-          console.log(
-            formatDiagnosticLogLine("chat/persistence", "run-ensured", {
-              correlationId,
-              runId,
-              sessionId,
-              taskId,
-              mode,
-              branch: repositoryBranch ?? null,
-            }),
-          );
-        } catch (ensureError) {
-          const message =
-            ensureError instanceof Error
-              ? ensureError.message
-              : "Unknown error";
-          console.error(
-            `[chat/usecase] ${correlationId}: Failed to ensure run: ${message}`,
-          );
-          throw ensureError;
-        }
+      if (!userId) {
+        throw new ValidationError("Authenticated ownership is required before turn admission.", "TURN_OWNER_REQUIRED", correlationId);
       }
-
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-started", {
           correlationId,
@@ -253,18 +197,13 @@ export class HandleChatRequest {
           messageCount: messages.length,
         }),
       );
-      const persistedUserMessage =
-        await this.persistenceService.persistUserMessage(
-          sessionId,
-          runId,
-          lastUserMessage,
-          {
-            userId,
-            workspaceId,
-            repository: repositorySlug,
-            identity,
-          },
-        );
+      const persistedUserMessage = await this.persistenceService.admitUserTurn({
+        sessionId, runId, userId, workspaceId: identity.workspaceId, taskId,
+        identity, message: lastUserMessage, mode,
+        providerId: input.providerId ?? null,
+        modelId: input.modelId ?? null,
+        branch: repositoryBranch ?? null,
+      });
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
           correlationId,
