@@ -13,7 +13,7 @@ import {
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
 } from "@legioncode/sdk";
-import type { ChatSubmitAttachments } from "./chatImageAttachments";
+import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 import type { Message } from "@ai-sdk/react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";

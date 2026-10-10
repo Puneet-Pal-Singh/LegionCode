@@ -3,7 +3,7 @@ import {
   createChatImageAttachment,
   validateNextImageAttachment,
   type ChatImageAttachment,
-} from "./chatImageAttachments";
+} from "./chatImageAttachments.js";
 
 type AttachmentSource = "paste" | "upload";
 

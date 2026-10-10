@@ -7,8 +7,8 @@ import { MessageArtifacts } from "./chat-message/MessageArtifacts";
 import type { ChangedFilesSummary } from "./chat-message/types";
 import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent";
 import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClient";
-import { ChatImageGallery, type ChatImagePreview } from "./ChatImageGallery";
-import { isChatImageMimeType } from "./chatImageAttachments";
+import { ChatImageGallery, type ChatImagePreview } from "@legioncode/client-ui";
+import { isChatImageMimeType } from "@legioncode/client-ui";
 import {
   resolveHydratedChatImageSource,
   stripRedactedImageMarkers,

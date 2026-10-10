@@ -45,7 +45,7 @@ import {
   toImageParts,
   toRedactedImageMetadata,
   type ChatImageAttachment,
-} from "../components/chat/chatImageAttachments";
+} from "@legioncode/client-ui";
 import { createRunId } from "../lib/run-id";
 import {
   bootstrapConversationScope,

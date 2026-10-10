@@ -1,5 +1,5 @@
-import type { ChatImageAttachment } from "./chatImageAttachments";
-import { ChatImageGallery } from "./ChatImageGallery";
+import type { ChatImageAttachment } from "./chatImageAttachments.js";
+import { ChatImageGallery } from "./ChatImageGallery.js";
 
 interface ChatImageAttachmentStripProps {
   attachments: ChatImageAttachment[];

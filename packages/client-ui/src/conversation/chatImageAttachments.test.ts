@@ -4,7 +4,7 @@ import {
   isChatImageMimeType,
   toImageParts,
   type ChatImageAttachment,
-} from "./chatImageAttachments";
+} from "./chatImageAttachments.js";
 
 describe("chatImageAttachments", () => {
   it("narrows supported image MIME types without accepting unknown values", () => {

@@ -24,13 +24,13 @@ import { useFileLoader } from "../layout/workspace/useFileLoader";
 import { Resizer } from "../ui/Resizer";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
-import { ChatImageAttachmentStrip } from "../chat/ChatImageAttachmentStrip";
+import { ChatImageAttachmentStrip } from "@legioncode/client-ui";
 import { ChatImageDropOverlay } from "../chat/ChatImageDropOverlay";
-import { useChatImageAttachmentDraft } from "../chat/useChatImageAttachmentDraft";
+import { useChatImageAttachmentDraft } from "@legioncode/client-ui";
 import {
   CHAT_IMAGE_MIME_TYPES,
   type ChatSubmitAttachments,
-} from "../chat/chatImageAttachments";
+} from "@legioncode/client-ui";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
 import { ReasoningEffortPicker } from "../chat/ReasoningEffortPicker.js";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";

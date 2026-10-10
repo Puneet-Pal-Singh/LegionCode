@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Image as ImageIcon, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { cn } from "@legioncode/client-ui";
-import { formatAttachmentSize, isChatImageMimeType } from "./chatImageAttachments";
+import { cn } from "../classnames.js";
+import { formatAttachmentSize, isChatImageMimeType } from "./chatImageAttachments.js";
 
 export interface ChatImagePreview {
   id: string;
