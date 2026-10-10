@@ -249,3 +249,37 @@ message, workflow and composer surfaces. Web ChatInterface renders this source,
 providing existing image/artifact callbacks and its debug panel. Network/auth,
 provider selection and lifecycle subscription orchestration remain Web host
 bindings pending their SDK operation slices. The old Web view is deleted.
+
+### Plan 058 hosted conversation history application
+
+`brain/src/integration/app-server/HostedConversationHistory.ts` composes the
+existing transcript repository and revision projection for server-authenticated
+readers. The HTTP controller delegates to this owner during the App Server/SDK
+cutover; the old route is deleted when its Web reader migrates in this slice.
+The snapshot, message/image metadata and ownership algorithms are preserved.
+
+### Plan 058 authenticated App Server history
+
+The existing App Server dispatches `session/history` using the canonical
+ConversationHistory request/response schemas (real UUID session identity).
+Brain composes its existing history/repository owner only after cookie auth;
+resource reads scope to the verified user and return explicit missing/unavailable
+states. Local Thread/workspace semantics are unchanged. Web cutover follows.
+
+### Plan 058 SDK conversation history operation
+
+The existing SDK AppServerClient exposes the validated `session/history` page
+operation. Its existing HTTP transport supports hosted cookie credentials and
+explicitly disabling its default deadline so existing cancellable history reads
+keep their lifetime. No second public client, history loop or projection exists.
+Web will use this operation with the existing SDK pinned-page reader.
+
+### Plan 058 Web history cutover
+
+Web ChatHydrationService uses the existing SDK AppServerClient page operation
+through the authenticated hosted composition, with the existing pinned-page SDK
+reader and Web-only message presentation conversion. Cancellation, partial/failed
+reads and complete-snapshot replacement retain their existing safeguards.
+The unused Brain `/api/chat/history?session=...` route/controller and Web URL
+builder are deleted; the separate secure-agent-api run-history route is outside
+this session read and unchanged. No browser storage is deleted or migrated.

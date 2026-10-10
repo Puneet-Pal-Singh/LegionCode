@@ -1,11 +1,11 @@
 import type { Message } from "@ai-sdk/react";
 import {
   ConversationHistoryReadError,
-  parseConversationHistoryPage,
+  AppServerClientError,
   readConversationHistory,
   type ConversationHistoryPage,
 } from "@legioncode/sdk";
-import { chatHistoryPath } from "../lib/platform-endpoints.js";
+import { createHostedAppServerClient } from "./api/appServerClient";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
@@ -117,11 +117,6 @@ export class ChatHydrationService {
     snapshot: string | null,
     signal?: AbortSignal,
   ): Promise<ConversationHistoryPage<ServerMessage>> {
-    const url = new URL(chatHistoryPath(sessionId));
-    url.searchParams.set("limit", "50");
-    if (cursor !== null) url.searchParams.set("cursor", cursor);
-    if (snapshot !== null) url.searchParams.set("snapshot", snapshot);
-
     const pageRequestId = crypto.randomUUID();
     logClientEvent("chat/history", "page-requested", {
       requestId: pageRequestId,
@@ -129,28 +124,20 @@ export class ChatHydrationService {
       cursor,
       snapshot,
     });
-    const response = await fetch(url.toString(), {
-      credentials: "include",
-      signal,
-    });
-    if (!response.ok) {
-      const preview = await readResponsePreview(response);
-      logClientWarning("chat/history", "page-failed", {
-        requestId: pageRequestId,
-        sessionId,
-        status: response.status,
-        statusText: response.statusText,
-        preview,
-      });
-      throw new Error(`History fetch failed: ${response.status} ${response.statusText}`);
-    }
-
-    const data: unknown = await response.json();
     let page: HistoryPagePayload;
     try {
-      page = parseConversationHistoryPage(data) as HistoryPagePayload;
-    } catch {
-      throw new Error("Invalid history format: response failed the shared contract");
+      page = await createHostedAppServerClient({ signal, timeoutMs: null, maxResponseBytes: null }).getConversationHistoryPage({
+        session: sessionId, limit: 50,
+        ...(cursor !== null ? { cursor } : {}),
+        ...(snapshot !== null ? { snapshot } : {}),
+      }) as HistoryPagePayload;
+    } catch (error) {
+      if (error instanceof AppServerClientError) {
+        if (error.serverCode === "not_found") throw new Error("History fetch failed: 404 Conversation not found");
+        if (error.serverCode === "server_unavailable") throw new Error("History fetch failed: 503 Conversation history is unavailable");
+        if (error.code === "invalid_response") throw new Error("Invalid history format: response failed the shared contract");
+      }
+      throw error;
     }
     logClientEvent("chat/history", "page-received", {
       requestId: pageRequestId,
@@ -201,10 +188,6 @@ function convertServerMessages(history: ServerMessage[]): Message[] {
 
 function summarizeServerMessages(messages: ServerMessage[]): string {
   return messages.map((message) => `${message.role}:${message.id ?? "missing"}`).join(",");
-}
-
-async function readResponsePreview(response: Response): Promise<string> {
-  try { return (await response.text()).slice(0, 240); } catch { return ""; }
 }
 
 function isCoreTextPart(value: ServerMessagePart): value is CorePart & { type: "text"; text: string } {

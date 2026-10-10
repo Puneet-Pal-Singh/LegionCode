@@ -7,6 +7,8 @@ import {
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 import {
+  type ConversationHistoryRequest,
+  type ConversationHistoryResponse,
   ThreadIdSchema,
   ProviderIdSchema,
   type LocalWorkspaceGrant,
@@ -60,6 +62,7 @@ export type AppServerClient = {
   initialize(
     requestedCapabilities?: readonly string[],
   ): Promise<AppServerInitializeResponse>;
+  getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
@@ -90,6 +93,9 @@ export function createAppServerClient(
       }, AppServerResultSchemas.initialize);
       return result;
     },
+    getConversationHistoryPage: async (params) => request(options, {
+      method: "session/history", params,
+    }, AppServerResultSchemas["session/history"]),
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",

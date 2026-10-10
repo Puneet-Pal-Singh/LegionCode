@@ -1,3 +1,4 @@
+import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
   AppServerMethodSchema,
@@ -22,7 +23,19 @@ export type AppServerComposition = {
   threadService?: LocalThreadService;
   providerService?: LocalProviderService;
   providerConfiguration?: ProviderConfiguration;
+  conversationHistoryService?: {
+    readPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
+  };
 };
+
+/** A composed owner can preserve an explicit domain failure at the validated boundary. */
+export class AppServerOperationError extends Error {
+  constructor(
+    readonly statusCode: number,
+    readonly code: AppServerError["code"],
+    message: string,
+  ) { super(message); }
+}
 
 export type AppServerHttpInput = {
   method: string;
@@ -90,6 +103,9 @@ export async function handleAppServerHttpRequest(
     });
     return { statusCode: 200, headers: JSON_HEADERS, payload: response };
   } catch (error) {
+    if (error instanceof AppServerOperationError) {
+      return methodError(request.method, error.statusCode, error.code, error.message);
+    }
     if (error instanceof LocalPersistenceError) {
       return methodError(
         request.method,
@@ -132,6 +148,10 @@ async function dispatch(
   composition: AppServerComposition,
 ): Promise<unknown> {
   switch (request.method) {
+    case "session/history": {
+      if (!composition.conversationHistoryService) throw new Error("unsupported");
+      return composition.conversationHistoryService.readPage(request.params);
+    }
     case "initialize": {
       const result = initializeAppServer(
         {
@@ -233,11 +253,7 @@ function hasIncompatibleVersion(body: unknown): boolean {
 function methodError(
   method: AppServerMethod,
   statusCode: number,
-  code:
-    | "unauthorized"
-    | "protocol_incompatible"
-    | "invalid_request"
-    | "server_unavailable",
+  code: AppServerError["code"],
   message: string,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({

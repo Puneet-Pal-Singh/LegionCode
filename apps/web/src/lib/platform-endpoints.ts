@@ -155,15 +155,6 @@ export function runApprovalPath(): string {
 }
 
 /**
- * Build the full chat history endpoint URL
- * Used for fetching canonical transcript messages from Brain
- * Path: /api/chat/history?session=:sessionId
- */
-export function chatHistoryPath(sessionId: string): string {
-  return `${getBrainHttpBase()}/api/chat/history?session=${encodeURIComponent(sessionId)}`;
-}
-
-/**
  * Build the canonical sessions endpoint URL
  * Used for hydrating and creating task/sidebar session roots from Brain
  * Path: /api/sessions

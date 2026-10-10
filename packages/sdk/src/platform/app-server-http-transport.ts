@@ -8,7 +8,10 @@ export type AppServerHttpTransportOptions = {
   baseUrl: string;
   credential?: string;
   fetchImpl?: typeof fetch;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
+  /** Null preserves an operation's existing uncapped response-body contract. */
+  maxResponseBytes?: number | null;
+  credentials?: RequestCredentials;
   signal?: AbortSignal;
   requestHeaders?: (
     envelope: AppServerRequest,
@@ -42,7 +45,7 @@ export function createAppServerHttpTransport(
       const abort = () => controller.abort();
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) controller.abort();
-      const timeout = setTimeout(() => {
+      const timeout = options.timeoutMs === null ? null : setTimeout(() => {
         timedOut = true;
         controller.abort();
       }, options.timeoutMs ?? 5_000);
@@ -63,9 +66,10 @@ export function createAppServerHttpTransport(
           headers,
           body: JSON.stringify(envelope),
           redirect: "error",
+          credentials: options.credentials,
           signal: controller.signal,
         });
-        const payload = await readBoundedJson(response);
+        const payload = await readBoundedJson(response, options.maxResponseBytes === undefined ? MAX_RESPONSE_BYTES : options.maxResponseBytes);
         if (payload === undefined) {
           throw new AppServerTransportError(
             "transport",
@@ -108,16 +112,16 @@ export function createAppServerHttpTransport(
         }
         throw new AppServerTransportError("transport", "App Server is unreachable");
       } finally {
-        clearTimeout(timeout);
+        if (timeout !== null) clearTimeout(timeout);
         options.signal?.removeEventListener("abort", abort);
       }
     },
   };
 }
 
-async function readBoundedJson(response: Response): Promise<unknown | undefined> {
+async function readBoundedJson(response: Response, maxResponseBytes: number | null): Promise<unknown | undefined> {
   const declaredLength = response.headers.get("content-length");
-  if (declaredLength && Number(declaredLength) > MAX_RESPONSE_BYTES) {
+  if (maxResponseBytes !== null && declaredLength && Number(declaredLength) > maxResponseBytes) {
     await response.body?.cancel();
     throw new AppServerTransportError("transport", "App Server response is too large", response.status);
   }
@@ -131,7 +135,7 @@ async function readBoundedJson(response: Response): Promise<unknown | undefined>
       const { done, value } = await reader.read();
       if (done) break;
       totalBytes += value.byteLength;
-      if (totalBytes > MAX_RESPONSE_BYTES) {
+      if (maxResponseBytes !== null && totalBytes > maxResponseBytes) {
         await reader.cancel();
         throw new AppServerTransportError("transport", "App Server response is too large", response.status);
       }

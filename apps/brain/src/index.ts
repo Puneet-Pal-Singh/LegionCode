@@ -91,7 +91,6 @@ function createRouter(): Router {
     ChatController.handleLegacyRoute,
     "POST",
   );
-  router.add(/^\/api\/chat\/history$/, TranscriptController.getHistory, "GET");
   router.add(/^\/api\/chat\/media\/[^/]+$/, ChatMediaController.get, "GET");
   router.add(/\/chat/, ChatController.handle, "POST");
   router.add(/^\/turn\/start$/, TurnController.start, "POST");

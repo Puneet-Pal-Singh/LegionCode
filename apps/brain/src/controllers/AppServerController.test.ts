@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAppServerClient, type AppServerRequest } from "@legioncode/sdk";
+import { createAppServerClient, createAppServerHttpTransport, type AppServerRequest } from "@legioncode/sdk";
 
 import { AppServerController } from "./AppServerController";
 import type { Env } from "../types/ai";
@@ -28,6 +28,19 @@ describe("hosted App Server integration", () => {
       environment: "hosted",
       server: { id: "legioncode-hosted" },
       unavailableCapabilities: [],
+    });
+  });
+
+  it("preserves unauthorized history errors through the actual SDK HTTP transport", async () => {
+    const client = createAppServerClient({
+      clientId: "hosted-test-client", clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: "https://brain.example", credentials: "include",
+        fetchImpl: async (input, init) => AppServerController.request(new Request(input, init), {} as Env),
+      }),
+    });
+    await expect(client.getConversationHistoryPage({ session: "550e8400-e29b-41d4-a716-446655440001" })).rejects.toMatchObject({
+      code: "server_error", serverCode: "unauthorized", method: "session/history",
     });
   });
 
