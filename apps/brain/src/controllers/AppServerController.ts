@@ -1,5 +1,6 @@
 import { AppServerRequestSchema } from "@legioncode/app-server/protocol";
 import { getAuthenticatedUserSession, isSessionStoreUnavailableError } from "../services/AuthService";
+import { composeHostedSessionMetadata } from "../integration/app-server/HostedSessionMetadata";
 import { composeHostedConversationHistory } from "../integration/app-server/HostedConversationHistory";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
@@ -20,6 +21,7 @@ export const AppServerController = {
     // Initialize remains a public handshake. Resource services are composed only
     // after an HttpOnly cookie resolves to a server-verified principal.
     let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
+    let sessionMetadataService: ReturnType<typeof composeHostedSessionMetadata> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
@@ -31,6 +33,7 @@ export const AppServerController = {
           ok: false, error: { code: "unauthorized", message: "Unauthorized" },
         });
         historyService = composeHostedConversationHistory(env, auth.userId);
+        sessionMetadataService = composeHostedSessionMetadata(env, auth.userId);
       } catch (error) {
         return json(env, request, isSessionStoreUnavailableError(error) ? 503 : 500, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
@@ -51,6 +54,7 @@ export const AppServerController = {
         serverId: "legioncode-hosted",
         serverVersion: "0.1.0",
         conversationHistoryService: historyService,
+        sessionMetadataService,
       },
     );
     return json(env, request, result.statusCode, result.payload);

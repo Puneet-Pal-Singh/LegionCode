@@ -1,21 +1,13 @@
-import { z } from "zod";
-import { RunIdSchema } from "@repo/platform-protocol";
+import { HostedSessionCreateRequestSchema, type HostedSessionCreateRequest } from "@repo/platform-protocol";
 import type { SessionRecord } from "@repo/persistence";
 import type { Env } from "../../types/ai";
 import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../../services/sessions/TranscriptPersistenceFactory";
 
-export const SessionCreateRequestSchema = z.object({
-  sessionId: z.string().uuid(),
-  runId: RunIdSchema.optional(),
-  workspaceId: z.string().uuid().optional(),
-  title: z.string().trim().min(1).max(160).optional(),
-  repository: z.string().trim().min(1).max(240).optional(),
-  mode: z.string().trim().min(1).max(64).optional(),
-});
+export const SessionCreateRequestSchema = HostedSessionCreateRequestSchema.strip();
 
 export async function createPersistedSession(
-  body: z.infer<typeof SessionCreateRequestSchema>,
+  body: HostedSessionCreateRequest,
   userId: string,
   env: Env,
 ): Promise<SessionRecord> {
@@ -29,7 +21,7 @@ export async function createPersistedSession(
 }
 
 async function ensureTranscriptSession(
-  body: z.infer<typeof SessionCreateRequestSchema>,
+  body: HostedSessionCreateRequest,
   userId: string,
   env: Env,
   activeRunId: string | null,
@@ -50,7 +42,7 @@ async function ensureTranscriptSession(
 }
 
 async function ensureSessionRun(
-  body: z.infer<typeof SessionCreateRequestSchema>,
+  body: HostedSessionCreateRequest,
   runId: string,
   userId: string,
   env: Env,

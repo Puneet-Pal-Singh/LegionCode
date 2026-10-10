@@ -7,6 +7,22 @@ import {
 } from "./protocol.js";
 
 describe("App Server protocol", () => {
+  it("validates hosted session identity and rejects client-supplied tenancy", () => {
+    const envelope = { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/create", params: {
+      sessionId: "550e8400-e29b-41d4-a716-446655440001", title: "Saved task",
+    } };
+    expect(AppServerRequestSchema.safeParse(envelope).success).toBe(true);
+    for (const params of [
+      { ...envelope.params, sessionId: "thr_local123" },
+      { ...envelope.params, userId: "another-user" },
+      { ...envelope.params, titleSource: "user" },
+      { ...envelope.params, workspaceId: "wrk_local123" },
+      { ...envelope.params, runId: "550e8400-e29b-41d4-a716-446655440099" },
+    ]) expect(AppServerRequestSchema.safeParse({ ...envelope, params }).success).toBe(false);
+    expect(AppServerRequestSchema.safeParse({ ...envelope, method: "session/rename", params: {
+      sessionId: envelope.params.sessionId, title: "x".repeat(81),
+    } }).success).toBe(false);
+  });
   it("accepts only strict, versioned requests with canonical IDs and params", () => {
     expect(
       AppServerRequestSchema.safeParse({
