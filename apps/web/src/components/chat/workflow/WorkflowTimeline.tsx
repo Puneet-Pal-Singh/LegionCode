@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   buildActiveWorkflowTrace,
+  buildDiffContentFromTurnDiff,
   buildSegmentTitle,
   type ToolActivitySegment,
   type WorkflowItem,
@@ -26,7 +27,6 @@ import { itemDisplayText } from "./workflowPresentation.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
-import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
 
 // Parent activity groups are intentionally airy enough to read as separate

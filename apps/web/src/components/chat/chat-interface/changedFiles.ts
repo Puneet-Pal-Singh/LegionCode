@@ -4,7 +4,7 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
-import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
+import { buildDiffContentFromTurnDiff } from "@legioncode/sdk";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 
 export function resolveChangedFilesSummary(input: {

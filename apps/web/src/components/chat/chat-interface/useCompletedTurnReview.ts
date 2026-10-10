@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
-import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
+import { buildDiffContentFromTurnDiff } from "@legioncode/sdk";
 import { collectLifecycleTurnDiffFiles } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 
 export interface CompletedTurnReview {

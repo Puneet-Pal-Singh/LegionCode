@@ -71,6 +71,7 @@ export {
   turnIdFromRunId,
   turnSeedFromLatestUserMessage,
 } from "@repo/platform-protocol/lifecycle-turn-routing";
+export { buildDiffContentFromTurnDiff } from "./platform/turn-diff-patch.js";
 export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
 export {
   LifecycleContinuationError,
