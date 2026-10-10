@@ -1,12 +1,17 @@
 import { z } from "zod";
 import type { JsonValue } from "@repo/shared-types";
-import { RunIdSchema } from "@repo/platform-protocol";
+import {
+  ConversationHistoryRequestSchema,
+  ConversationHistoryResponseSchema,
+  RunIdSchema,
+} from "@repo/platform-protocol";
 import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
 import type {
   SessionRecord,
   TranscriptMessagePartRecord,
   TranscriptMessageRecord,
 } from "@repo/persistence";
+import { InvalidTranscriptSnapshotError } from "@repo/persistence";
 import { projectActiveTranscriptBranch } from "../services/chat/TranscriptBranchProjection";
 import { errorResponse, jsonResponse } from "../http/response";
 import type { Env } from "../types/ai";
@@ -28,13 +33,6 @@ const SessionCreateRequestSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   repository: z.string().trim().min(1).max(240).optional(),
   mode: z.string().trim().min(1).max(64).optional(),
-});
-
-const TranscriptQuerySchema = z.object({
-  session: z.string().uuid(),
-  runId: RunIdSchema,
-  cursor: z.coerce.number().int().nonnegative().optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 const ArchiveSessionParamsSchema = z.object({
@@ -231,48 +229,54 @@ export class TranscriptController {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
     const queryParams = new URL(request.url).searchParams;
-    const requestedRunId = queryParams.get("runId")?.trim() ?? "";
     const requestedSessionId = queryParams.get("session")?.trim() ?? "";
     try {
       console.log(
-        `[chat/history] requestId=${requestId} runId=${requestedRunId || "missing"} sessionId=${requestedSessionId || "missing"} status=started`,
+        `[chat/history] requestId=${requestId} sessionId=${requestedSessionId || "missing"} status=started`,
       );
       const auth = await getAuthenticatedUserSession(request, env);
       if (!auth) {
         console.warn(
-          `[chat/history] requestId=${requestId} runId=${requestedRunId || "missing"} sessionId=${requestedSessionId || "missing"} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
+          `[chat/history] requestId=${requestId} sessionId=${requestedSessionId || "missing"} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
         );
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
-      const query = TranscriptQuerySchema.parse(
+      const query = ConversationHistoryRequestSchema.parse(
         Object.fromEntries(queryParams),
       );
       const result = await withTranscriptRepository(env, (repository) =>
         repository.listTranscript({
           sessionId: query.session,
           userId: auth.userId,
-          runId: query.runId,
-          cursor: query.cursor,
+          cursor: query.cursor === undefined ? undefined : Number(query.cursor),
+          snapshot: query.snapshot === undefined ? undefined : Number(query.snapshot),
           limit: query.limit,
         }),
       );
+      if (!result.sessionFound) {
+        return errorResponse(request, env, "Conversation not found", 404);
+      }
 
-      const response = {
+      const response = ConversationHistoryResponseSchema.parse({
         // Superseded turns remain durable/auditable, but the active transcript
         // projection excludes their prompt/assistant range after a revision.
-        messages: projectActiveTranscriptBranch(result.messages).map(
+        messages: projectActiveTranscriptBranch(
+          result.messages,
+          result.supersededTurnIds,
+        ).map(
           toHydrationMessage,
         ),
-        nextCursor: result.nextCursor?.toString(),
-      };
+        nextCursor: result.nextCursor === null ? null : result.nextCursor.toString(),
+        snapshot: result.snapshot.toString(),
+      });
       console.log(
-        `[chat/history] requestId=${requestId} runId=${query.runId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+        `[chat/history] requestId=${requestId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} snapshot=${response.snapshot} elapsedMs=${Date.now() - startedAt}`,
       );
       return jsonResponse(request, env, response);
     } catch (error) {
       console.error(
-        `[chat/history] requestId=${requestId} runId=${requestedRunId || "unknown"} sessionId=${requestedSessionId || "unknown"} status=failed elapsedMs=${Date.now() - startedAt}`,
+        `[chat/history] requestId=${requestId} sessionId=${requestedSessionId || "unknown"} status=failed elapsedMs=${Date.now() - startedAt}`,
         summarizeTranscriptError(error),
       );
       return transcriptErrorResponse(request, env, error);
@@ -512,6 +516,10 @@ function transcriptErrorResponse(
   if (error instanceof z.ZodError) {
     console.warn("[transcript/request] invalid request", error.issues);
     return errorResponse(request, env, "Invalid transcript request", 400);
+  }
+
+  if (error instanceof InvalidTranscriptSnapshotError) {
+    return errorResponse(request, env, error.message, 400, "HISTORY_SNAPSHOT_INVALID");
   }
 
   if (isSessionStoreUnavailableError(error)) {

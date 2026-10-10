@@ -33,7 +33,6 @@ export function useChatHydration(
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
-  const scopeRef = useRef(scope);
   const scopeKey = scope ? conversationScopeKey(scope) : null;
   const hydrationKey = scopeKey
     ? `${scopeKey}:${replayRevision ?? "initial"}`
@@ -44,10 +43,6 @@ export function useChatHydration(
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-  useEffect(() => {
-    scopeRef.current = scope;
-  }, [scope]);
 
   const {
     signal: retrySignal,
@@ -106,7 +101,7 @@ export function useChatHydration(
     async function hydrate() {
       try {
         const result = await hydrationServiceRef.current.hydrateMessages(
-          scopeRef.current!,
+          sessionId!,
         );
 
         if (!isCurrentScope()) {

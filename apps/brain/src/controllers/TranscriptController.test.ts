@@ -241,6 +241,29 @@ describe("TranscriptController", () => {
     });
   });
 
+  it("does not disclose a saved transcript to an unauthenticated or different user", async () => {
+    await repository.ensureSession({ sessionId: TEST_SESSION_ID, userId: "550e8400-e29b-41d4-a716-446655440099" });
+    const url = `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`;
+    const unauthenticated = await TranscriptController.getHistory(new Request(url), env);
+    const otherUser = await TranscriptController.getHistory(authenticatedRequest(url), env);
+    expect(unauthenticated.status).toBe(401);
+    expect(otherUser.status).toBe(404);
+    await expect(otherUser.json()).resolves.toMatchObject({ error: "Conversation not found" });
+  });
+
+  it("returns a pinned empty transcript and rejects invalid cursor/snapshot requests", async () => {
+    await repository.ensureSession({ sessionId: TEST_SESSION_ID, userId: TEST_USER_ID });
+    const url = `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`;
+    const empty = await TranscriptController.getHistory(authenticatedRequest(url), env);
+    expect(empty.status).toBe(200);
+    await expect(empty.json()).resolves.toEqual({ messages: [], nextCursor: null, snapshot: "0" });
+    const missingSnapshot = await TranscriptController.getHistory(authenticatedRequest(`${url}&cursor=1`), env);
+    const futureSnapshot = await TranscriptController.getHistory(authenticatedRequest(`${url}&snapshot=1`), env);
+    expect(missingSnapshot.status).toBe(400);
+    expect(futureSnapshot.status).toBe(400);
+    await expect(futureSnapshot.json()).resolves.toMatchObject({ code: "HISTORY_SNAPSHOT_INVALID" });
+  });
+
   it("hydrates transcript messages in session sequence order", async () => {
     await repository.appendMessage({
       sessionId: TEST_SESSION_ID,
@@ -257,7 +280,7 @@ describe("TranscriptController", () => {
 
     const response = await TranscriptController.getHistory(
       authenticatedRequest(
-        `https://brain.local/api/chat/history?runId=${TEST_RUN_ID}&session=${TEST_SESSION_ID}`,
+        `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`,
       ),
       env,
     );
@@ -328,7 +351,7 @@ describe("TranscriptController", () => {
 
     const response = await TranscriptController.getHistory(
       authenticatedRequest(
-        `https://brain.local/api/chat/history?runId=${TEST_RUN_ID}&session=${TEST_SESSION_ID}`,
+        `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`,
       ),
       env,
     );

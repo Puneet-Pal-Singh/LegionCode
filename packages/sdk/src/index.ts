@@ -233,3 +233,5 @@ export {
 } from "./navigation/thread-sidebar-projection.js";
 export { workspaceIdFromExternalId } from "@repo/platform-protocol";
 export { parseReadFileOutput, normalizeReadFileContent, type ReadFileOutput } from "./platform/read-file-output.js";
+
+export * from "./platform/conversation-history.js";

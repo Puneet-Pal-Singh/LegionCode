@@ -16,8 +16,8 @@ function scopeFor(sessionId: string, runId: string) {
 }
 
 vi.mock("../lib/platform-endpoints.js", () => ({
-  chatHistoryPath: (runId: string) =>
-    `https://brain.local/api/chat/history/${runId}`,
+  chatHistoryPath: (sessionId: string) =>
+    `https://brain.local/api/chat/history?session=${sessionId}`,
 }));
 
 describe("useChatHydration", () => {
@@ -105,7 +105,7 @@ describe("useChatHydration", () => {
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("run-reused"),
+        expect.stringContaining("session=session-1"),
         expect.objectContaining({ credentials: "include" }),
       );
     });
@@ -213,7 +213,7 @@ describe("useChatHydration", () => {
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("run-current"),
+        expect.stringContaining("session=session-current"),
         expect.objectContaining({ credentials: "include" }),
       );
       expect(setMessages).toHaveBeenCalledWith([
@@ -420,5 +420,12 @@ function createMessage(
 }
 
 function createHistoryResponse(messages: unknown[]): Response {
-  return new Response(JSON.stringify({ messages }), { status: 200 });
+  return new Response(JSON.stringify({
+    messages: messages.map((message) => ({
+      ...(message as Record<string, unknown>),
+      createdAt: "2026-10-03T00:00:00.000Z",
+    })),
+    nextCursor: null,
+    snapshot: String(messages.length),
+  }), { status: 200 });
 }

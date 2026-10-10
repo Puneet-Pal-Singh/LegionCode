@@ -119,3 +119,19 @@ assertions and native browser setup. Existing custom composer/plus-menu styles
 move exactly into shared styles, with no old copies. UI preferences and unsent
 drafts remain local UI state; submitted history/admission/Stop remain with their
 existing owners until the command slices.
+
+## Plan 058 baseline — Session transcript paging
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Authorized session transcript pages and committed snapshot watermark | Existing persistence TranscriptRepository and Brain TranscriptController | Web ChatHydrationService reads the same session-scoped contract, independent of execution-run filtering. |
+| Validated complete/partial paginated reads | `sdk/src/platform/conversation-history.ts` | Web ChatHydrationService retains verified pages, rejects invalid identity/timestamp/cursor data, and no longer fabricates message identities or truncates after ten pages. |
+
+This adopts only the pinned session-history portion of the incoming durability
+fix from main. Existing browser hydration scope/live binding remains pending the
+session-surface/admission adoption; it is not counted as completed saved-history
+restoration. Admission-backed identity enrichment and its immutable binding
+migration remain with the admission-writer slice, so no constraints are installed
+before their writer is wired. Current Web HTTP history loading is temporary until
+058.3A routes the typed operation through the authenticated hosted App Server;
+then delete the Web fetch method. No product storage or migration is altered here.

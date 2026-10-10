@@ -27,6 +27,41 @@ describe("MemoryTranscriptRepository", () => {
     expect(transcript.messages[1]?.parts[0]?.sessionSequence).toBe(2);
   });
 
+  it("pins all pages to a committed watermark while later messages arrive", async () => {
+    const repository = new MemoryTranscriptRepository();
+    const first = await repository.appendMessage({
+      ...createMessageInput("first", "user"),
+      parts: [
+        { type: "text", content: { text: "first" } },
+        { type: "text", content: { text: "continued" } },
+      ],
+    });
+    const second = await repository.appendMessage(createMessageInput("second", "assistant"));
+    const page = await repository.listTranscript({ sessionId: "session-1", userId: "user-1", limit: 1 });
+    await repository.appendMessage(createMessageInput("later", "user"));
+    const next = await repository.listTranscript({
+      sessionId: "session-1", userId: "user-1", cursor: page.nextCursor, snapshot: page.snapshot,
+    });
+    expect(page.snapshot).toBe(3);
+    expect(page.messages.map(({ id }) => id)).toEqual([first.id]);
+    expect(next.messages.map(({ id }) => id)).toEqual([second.id]);
+    expect(next.snapshot).toBe(page.snapshot);
+    await expect(repository.listTranscript({ sessionId: "session-1", userId: "user-1", snapshot: 100 })).rejects.toThrow("watermark");
+    await expect(repository.listTranscript({ sessionId: "session-1", userId: "other-user" })).resolves.toMatchObject({ sessionFound: false, messages: [] });
+  });
+
+  it("finds superseded turns across pages within the pinned snapshot", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.appendMessage(createMessageInput("original", "user"));
+    await repository.appendMessage({
+      ...createMessageInput("revision", "user"),
+      parts: [{ type: "text", content: { text: "revised", metadata: { canonicalIdentity: { turnId: "new-turn", revisionOfTurnId: "old-turn" } } } }],
+    });
+    const page = await repository.listTranscript({ sessionId: "session-1", userId: "user-1", limit: 1 });
+    expect(page.messages).toHaveLength(1);
+    expect(page.supersededTurnIds).toEqual(["old-turn"]);
+  });
+
   it("dedupes repeated message appends without advancing sequence", async () => {
     const repository = new MemoryTranscriptRepository();
 
