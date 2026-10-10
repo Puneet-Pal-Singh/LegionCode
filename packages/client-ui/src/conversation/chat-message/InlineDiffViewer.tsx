@@ -1,6 +1,6 @@
 import type { DiffContent, DiffLine } from "@repo/shared-types";
-import { cn } from "@legioncode/client-ui";
-import { buildInlineDiffRows } from "./inlineDiffRows";
+import { cn } from "../../classnames.js";
+import { buildInlineDiffRows } from "./inlineDiffRows.js";
 
 export function InlineDiffViewer({ diff }: { diff: DiffContent }) {
   if (diff.isBinary)

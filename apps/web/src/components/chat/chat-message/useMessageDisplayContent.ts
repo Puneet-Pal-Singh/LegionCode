@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
 import { getVisibleMessageContent } from "../AssistantMessageParts";
 import { stripAssistantChangeCounts } from "@legioncode/client-ui";
-import type { ChangedFilesSummary } from "./types";
+import type { ChangedFilesSummary } from "@legioncode/client-ui";
 
 export function useMessageDisplayContent(
   message: Message,

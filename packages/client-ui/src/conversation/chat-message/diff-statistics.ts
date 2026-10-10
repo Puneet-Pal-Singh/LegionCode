@@ -1,5 +1,5 @@
 import type { DiffContent, FileStatus } from "@repo/shared-types";
-import type { ChangeLineStats, ChangedFileDiffState } from "./types";
+import type { ChangeLineStats, ChangedFileDiffState } from "./changed-files-types.js";
 
 export function calculateChangedFileTotals(
   files: FileStatus[],

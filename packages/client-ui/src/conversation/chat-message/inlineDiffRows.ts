@@ -1,5 +1,5 @@
 import type { DiffContent, DiffLine } from "@repo/shared-types";
-import type { InlineDiffRow } from "./types";
+import type { InlineDiffRow } from "./changed-files-types.js";
 
 export function buildInlineDiffRows(
   diff: DiffContent,

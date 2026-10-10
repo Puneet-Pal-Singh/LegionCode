@@ -1,6 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
-import type { ChangedFileDiffState } from "./types";
+import type { ChangedFileDiffState } from "./changed-files-types.js";
 
 export function useChangedFileDiffStates(
   files: FileStatus[],
