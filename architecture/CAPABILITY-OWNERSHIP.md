@@ -249,3 +249,11 @@ message, workflow and composer surfaces. Web ChatInterface renders this source,
 providing existing image/artifact callbacks and its debug panel. Network/auth,
 provider selection and lifecycle subscription orchestration remain Web host
 bindings pending their SDK operation slices. The old Web view is deleted.
+
+### Plan 058 hosted conversation history application
+
+`brain/src/integration/app-server/HostedConversationHistory.ts` composes the
+existing transcript repository and revision projection for server-authenticated
+readers. The HTTP controller delegates to this owner during the App Server/SDK
+cutover; the old route is deleted when its Web reader migrates in this slice.
+The snapshot, message/image metadata and ownership algorithms are preserved.

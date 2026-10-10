@@ -1,18 +1,14 @@
+import { readHostedConversationHistory, ConversationHistoryNotFoundError } from "../integration/app-server/HostedConversationHistory";
 import { z } from "zod";
-import type { JsonValue } from "@repo/shared-types";
 import {
   ConversationHistoryRequestSchema,
-  ConversationHistoryResponseSchema,
+  type ConversationHistoryResponse,
   RunIdSchema,
 } from "@repo/platform-protocol";
-import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
 import type {
   SessionRecord,
-  TranscriptMessagePartRecord,
-  TranscriptMessageRecord,
 } from "@repo/persistence";
 import { InvalidTranscriptSnapshotError } from "@repo/persistence";
-import { projectActiveTranscriptBranch } from "../services/chat/TranscriptBranchProjection";
 import { errorResponse, jsonResponse } from "../http/response";
 import type { Env } from "../types/ai";
 import {
@@ -245,31 +241,7 @@ export class TranscriptController {
       const query = ConversationHistoryRequestSchema.parse(
         Object.fromEntries(queryParams),
       );
-      const result = await withTranscriptRepository(env, (repository) =>
-        repository.listTranscript({
-          sessionId: query.session,
-          userId: auth.userId,
-          cursor: query.cursor === undefined ? undefined : Number(query.cursor),
-          snapshot: query.snapshot === undefined ? undefined : Number(query.snapshot),
-          limit: query.limit,
-        }),
-      );
-      if (!result.sessionFound) {
-        return errorResponse(request, env, "Conversation not found", 404);
-      }
-
-      const response = ConversationHistoryResponseSchema.parse({
-        // Superseded turns remain durable/auditable, but the active transcript
-        // projection excludes their prompt/assistant range after a revision.
-        messages: projectActiveTranscriptBranch(
-          result.messages,
-          result.supersededTurnIds,
-        ).map(
-          toHydrationMessage,
-        ),
-        nextCursor: result.nextCursor === null ? null : result.nextCursor.toString(),
-        snapshot: result.snapshot.toString(),
-      });
+      const response = await readHostedConversationHistory(env, auth.userId, query);
       console.log(
         `[chat/history] requestId=${requestId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} snapshot=${response.snapshot} elapsedMs=${Date.now() - startedAt}`,
       );
@@ -285,7 +257,7 @@ export class TranscriptController {
 }
 
 function summarizeHydrationMessages(
-  messages: Array<ReturnType<typeof toHydrationMessage>>,
+  messages: ConversationHistoryResponse["messages"],
 ): string {
   return messages
     .map((message) => `${message.role}:${message.id}`)
@@ -409,110 +381,15 @@ function readSessionParams(url: string): { sessionId: string | null } {
   return { sessionId: match?.[1] ?? null };
 }
 
-function toHydrationMessage(message: TranscriptMessageRecord): {
-  id: string;
-  role: TranscriptMessageRecord["role"];
-  content: string | Array<{ type: "text"; text: string } | JsonValue>;
-  createdAt: string;
-  data?: {
-    metadata?: Record<string, unknown>;
-  };
-} {
-  const textContent = readSingleTextPart(message.parts);
-  const data = readHydrationData(message.parts, message.sessionId);
-  const hydratedMessage = {
-    id: message.clientMessageId ?? message.id,
-    role: message.role,
-    content: textContent ?? message.parts.map(partToHydrationContent),
-    createdAt: message.createdAt,
-  };
-  return data ? { ...hydratedMessage, data } : hydratedMessage;
-}
-
-function readSingleTextPart(
-  parts: TranscriptMessagePartRecord[],
-): string | null {
-  if (parts.length !== 1 || parts[0]?.type !== "text") {
-    return null;
-  }
-
-  const content = parts[0].content;
-  if (typeof content === "object" && content && !Array.isArray(content)) {
-    const text = content.text;
-    return typeof text === "string" ? text : null;
-  }
-
-  return typeof content === "string" ? content : null;
-}
-
-function partToHydrationContent(
-  part: TranscriptMessagePartRecord,
-): { type: "text"; text: string } | JsonValue {
-  if (part.type !== "text") {
-    return part.content;
-  }
-
-  const text = readSingleTextPart([part]);
-  return { type: "text", text: text ?? "" };
-}
-
-function readHydrationData(
-  parts: TranscriptMessagePartRecord[],
-  sessionId: string,
-):
-  | {
-      metadata?: Record<string, unknown>;
-    }
-  | undefined {
-  const metadata = parts
-    .filter((part) => part.type === "text")
-    .map((part) => readPartMetadata(part.content))
-    .find((value): value is Record<string, unknown> => value !== null);
-  if (!metadata) {
-    return undefined;
-  }
-  const imageAttachments = readImageAttachmentRefs(metadata.imageAttachments)
-    .map((attachment) => ({
-      ...attachment,
-      src: `/api/chat/media/${encodeURIComponent(attachment.attachmentId)}?session=${encodeURIComponent(sessionId)}`,
-    }));
-  return {
-    metadata: {
-      ...metadata,
-      ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
-    },
-  };
-}
-
-function readImageAttachmentRefs(value: unknown): Array<{
-  type: "image_attachment";
-  attachmentId: string;
-  name: string;
-  mediaType: string;
-  byteSize: number;
-}> {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((candidate) => {
-    const parsed = ChatImageAttachmentRefSchema.safeParse(candidate);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
-function readPartMetadata(value: JsonValue): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const metadata = value.metadata;
-  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? metadata
-    : null;
-}
-
 function transcriptErrorResponse(
   request: Request,
   env: Env,
   error: unknown,
 ): Response {
+  if (error instanceof ConversationHistoryNotFoundError) {
+    return errorResponse(request, env, "Conversation not found", 404);
+  }
+
   if (error instanceof z.ZodError) {
     console.warn("[transcript/request] invalid request", error.issues);
     return errorResponse(request, env, "Invalid transcript request", 400);
