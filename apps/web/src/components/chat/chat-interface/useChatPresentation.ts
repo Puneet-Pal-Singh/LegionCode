@@ -25,44 +25,30 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
     input.lifecycleProjectionsByTurnId,
     input.lifecycleProjection?.turnId,
   );
+  const submissionId = input.initialPromptSubmission?.id;
   const initialPrompt = input.initialPromptSubmission?.prompt.trim();
+  if (
+    input.initialPromptSubmission?.status === "submitting" &&
+    input.hasImmediateUserSubmission
+  ) {
+    return canonicalEntries;
+  }
   const alreadyProjected = input.messages.some(
     (message) =>
-      message.role === "user" &&
-      readMessageText(message).trim() === initialPrompt,
+      message.role === "user" && message.id === `client_msg_${submissionId}`,
   );
   if (!initialPrompt || alreadyProjected) return canonicalEntries;
   return [
     {
       kind: "message" as const,
       message: {
-        id: `initial-prompt:${input.initialPromptSubmission?.id}`,
+        id: `client_msg_${submissionId}`,
         role: "user" as const,
         content: initialPrompt,
       },
     },
     ...canonicalEntries,
   ];
-}
-
-function readMessageText(message: Message): string {
-  const content: unknown = message.content;
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return "";
-  }
-  return content
-    .filter(
-      (part): part is { type: "text"; text: string } => {
-        if (!part || typeof part !== "object") return false;
-        const candidate = part as { type?: unknown; text?: unknown };
-        return candidate.type === "text" && typeof candidate.text === "string";
-      },
-    )
-    .map((part) => part.text)
-    .join("\n");
 }
 
 function derivePresentationVisibility(

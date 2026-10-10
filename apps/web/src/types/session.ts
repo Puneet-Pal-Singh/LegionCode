@@ -34,7 +34,9 @@ export type SessionStatus =
  * - A list of all run IDs tied to this session
  * - Session-scoped metadata (name, repository, status)
  *
- * Key invariant: `activeRunId` MUST be in `runIds`
+ * A persisted conversation may have no current execution attempt. In that
+ * case `activeRunId` is null and `runIds` may be empty; the session still
+ * identifies a readable durable transcript.
  */
 export interface AgentSession {
   /** Unique session identifier (UI-level) */
@@ -49,6 +51,8 @@ export interface AgentSession {
   /** Server-owned title projection metadata. */
   titleVersion?: number;
   titleStatus?: "pending" | "ready" | "failed";
+  /** Local acknowledgement state for optimistic conversation creation. */
+  persistenceStatus?: "saving" | "saved" | "failed";
   lastTerminalTurnId?: string | null;
   lastAcknowledgedTerminalTurnId?: string | null;
 
@@ -56,7 +60,7 @@ export interface AgentSession {
   repository: string | null;
 
   /** Active run ID within this session (execution context) */
-  activeRunId: string;
+  activeRunId: string | null;
 
   /** All run IDs associated with this session (for multi-run support) */
   runIds: string[];

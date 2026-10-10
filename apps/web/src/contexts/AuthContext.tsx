@@ -48,7 +48,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const request = (async () => {
       try {
-        setIsLoading(true);
         const session = await GitHubService.getSession();
 
         setIsAuthenticated(session.authenticated);

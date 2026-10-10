@@ -27,7 +27,7 @@ export function RunContextProvider({
   sessionId,
 }: {
   children: React.ReactNode;
-  runId: string;
+  runId: string | null;
   sessionId: string;
 }) {
   const value = useMemo(() => ({ runId, sessionId }), [runId, sessionId]);

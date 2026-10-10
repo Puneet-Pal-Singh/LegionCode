@@ -2,41 +2,54 @@ import type {
   LifecycleClient,
   TurnId,
 } from "../../services/api/lifecycleClient";
+import type { ConversationScope } from "../conversationScope";
 
 const DEFAULT_CANONICAL_EVIDENCE_TIMEOUT_MS = 2_000;
 
 /**
- * A chat HTTP connection is only a submission transport. Once the canonical
- * lifecycle contains an event for the turn, replay owns the product state and
- * a detached chat response must not turn an accepted run into a UI failure.
+ * A chat HTTP connection is only a submission transport. A failure is
+ * accepted only when replay proves the exact reserved thread, turn and attempt.
  */
 export async function hasCanonicalLifecycleEvidence(
   lifecycleClient: LifecycleClient,
-  turnId: TurnId,
+  scope: ConversationScope,
   timeoutMs = DEFAULT_CANONICAL_EVIDENCE_TIMEOUT_MS,
 ): Promise<boolean> {
   const abortController = new AbortController();
-  const timeoutId = window.setTimeout(
-    () => abortController.abort("Canonical lifecycle evidence timed out."),
-    timeoutMs,
-  );
-  const stream = lifecycleClient.followTurnLifecycle(
-    { turnId },
-    { signal: abortController.signal },
-  );
-  const iterator = stream[Symbol.asyncIterator]();
+  let timeoutResolver: (() => void) | null = null;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeoutResolver = () => resolve(null);
+  });
+  const timeoutId = window.setTimeout(() => {
+    abortController.abort("Canonical lifecycle evidence timed out.");
+    timeoutResolver?.();
+  }, timeoutMs);
+  let iterator: AsyncIterator<import("../../services/api/lifecycleClient").LifecycleEvent> | null = null;
 
   try {
-    const first = await iterator.next();
-    return !first.done;
+    const stream = lifecycleClient.followTurnLifecycle(
+      { turnId: scope.turnId as TurnId },
+      { signal: abortController.signal },
+    );
+    iterator = stream[Symbol.asyncIterator]();
+    while (true) {
+      const next = await Promise.race([iterator.next(), timeoutPromise]);
+      if (next === null || next.done) return false;
+      if (
+        next.value.threadId === scope.threadId &&
+        next.value.turnId === scope.turnId &&
+        next.value.runAttemptId === scope.runAttemptId
+      ) {
+        return true;
+      }
+    }
   } catch {
     return false;
   } finally {
     window.clearTimeout(timeoutId);
-    try {
-      await iterator.return?.();
-    } catch {
-      // The abort signal is the authoritative iterator cleanup mechanism.
+    abortController.abort("Canonical lifecycle evidence check settled.");
+    if (iterator?.return) {
+      void Promise.resolve(iterator.return()).catch(() => undefined);
     }
   }
 }

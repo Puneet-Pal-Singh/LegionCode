@@ -39,11 +39,13 @@ describe("useConversationLifecycleProjections", () => {
       {
         key: "turn:user-1",
         userMessage: { id: "user-1", role: "user", content: "Edit it" },
-        assistantMessage: {
-          id: "assistant-1",
-          role: "assistant",
-          content: "Done",
-        },
+        assistantMessages: [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Done",
+          },
+        ],
         turnId: TURN_ID,
       },
     ];

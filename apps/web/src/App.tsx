@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ClientShell, ClientShellLoading, WorkspaceFrame, type AppServerEnvironmentSnapshot } from "@legioncode/client-ui";
+import {
+  ClientShell,
+  ClientShellLoading,
+  WorkspaceFrame,
+  type AppServerEnvironmentSnapshot,
+} from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
+import { SessionConversationSurface } from "./components/layout/SessionConversationSurface";
 import { TabType } from "./components/layout/workspace/useWorkspaceState";
 import { AgentSetup } from "./components/agent/AgentSetup";
 import { TopNavBar } from "./components/layout/TopNavBar";
@@ -44,9 +50,16 @@ import { initializeHostedAppServer } from "./services/api/appServerClient";
 import {
   createInitialPromptSubmissionId,
   type InitialPromptSubmission,
+  type InitialPromptSubmissionId,
+  type InitialPromptSubmissionStatus,
 } from "./lib/initial-prompt-submission";
 import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
 import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
+import { isSessionPersistenceReady } from "./lib/session-persistence";
+import {
+  retireSessionSubmissionAttempts,
+  retireSubmissionIntent,
+} from "./hooks/chat/submissionAttemptRegistry";
 
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
 const MIN_RIGHT_SIDEBAR_WIDTH = 420;
@@ -209,6 +222,7 @@ function AppContent() {
     sessionHydrationStatus,
     setActiveSessionId,
     createSession,
+    retrySessionPersistence,
     renameSession,
     refreshSessionProjection,
     pinSession,
@@ -331,7 +345,8 @@ function AppContent() {
   // @ts-expect-error - intentionally unused, will be used in next PR
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const convertSessionsToRuns = (): RunInboxItem[] => {
-    return sessions.map((session) => {
+    return sessions.flatMap((session) => {
+      if (!session.activeRunId) return [];
       let status:
         | "idle"
         | "queued"
@@ -354,14 +369,16 @@ function AppContent() {
       const savedUpdateTime = localStorage.getItem(sessionUpdateKey);
       const updatedAt = savedUpdateTime || new Date().toISOString();
 
-      return {
-        runId: session.activeRunId,
-        sessionId: session.id,
-        title: session.name,
-        status,
-        updatedAt,
-        repository: session.repository ?? "No repository",
-      };
+      return [
+        {
+          runId: session.activeRunId,
+          sessionId: session.id,
+          title: session.name,
+          status,
+          updatedAt,
+          repository: session.repository ?? "No repository",
+        },
+      ];
     });
   };
 
@@ -657,9 +674,83 @@ function AppContent() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(
     getInitialRightSidebarWidth,
   );
-  const [initialPromptSubmission, setInitialPromptSubmission] = useState<
-    (InitialPromptSubmission & { sessionId: string }) | null
-  >(null);
+  const [initialPromptSubmissions, setInitialPromptSubmissions] = useState<
+    Record<string, InitialPromptSubmission>
+  >({});
+  const initialPromptSubmissionsRef = useRef(initialPromptSubmissions);
+  const updateInitialPromptSubmissions = useCallback(
+    (
+      update: (
+        current: Record<string, InitialPromptSubmission>,
+      ) => Record<string, InitialPromptSubmission>,
+    ) => {
+      const next = update(initialPromptSubmissionsRef.current);
+      initialPromptSubmissionsRef.current = next;
+      setInitialPromptSubmissions(next);
+    },
+    [],
+  );
+  const claimInitialPrompt = useCallback(
+    (sessionId: string, id: InitialPromptSubmissionId): boolean => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id || current.status !== "queued") {
+        return false;
+      }
+      updateInitialPromptSubmissions((submissions) => ({
+        ...submissions,
+        [sessionId]: { ...current, status: "submitting" },
+      }));
+      return true;
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const updateInitialPromptStatus = useCallback(
+    (
+      sessionId: string,
+      id: InitialPromptSubmissionId,
+      status: InitialPromptSubmissionStatus,
+    ) => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id || current.status !== "submitting") return;
+      updateInitialPromptSubmissions((submissions) => ({
+        ...submissions,
+        [sessionId]: { ...current, status },
+      }));
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const settleInitialPrompt = useCallback(
+    (sessionId: string, id: InitialPromptSubmissionId) => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id) return;
+      retireSubmissionIntent(sessionId, `client_msg_${id}`);
+      updateInitialPromptSubmissions((submissions) => {
+        const next = { ...submissions };
+        delete next[sessionId];
+        return next;
+      });
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const retryInitialPrompt = useCallback(
+    (sessionId: string, id: InitialPromptSubmissionId) => {
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current?.id !== id || current.status !== "failed") return;
+      updateInitialPromptSubmissions((submissions) => ({
+        ...submissions,
+        [sessionId]: { ...current, status: "queued" },
+      }));
+    },
+    [updateInitialPromptSubmissions],
+  );
+  const retireSessionInitialPrompt = useCallback(
+    (sessionId: string) => {
+      retireSessionSubmissionAttempts(sessionId);
+      const current = initialPromptSubmissionsRef.current[sessionId];
+      if (current) settleInitialPrompt(sessionId, current.id);
+    },
+    [settleInitialPrompt],
+  );
 
   useEffect(() => {
     localStorage.setItem(
@@ -681,30 +772,19 @@ function AppContent() {
     localStorage.setItem("legioncode_active_tab", activeTab);
   }, [activeTab]);
 
-  // A session is considered to have "started" if:
-  // 1. Its name has been changed from "New Task"
-  // 2. OR its status is not "idle"
-  const isSessionStarted =
-    !!activeSession &&
-    ((activeSession.name !== "New Task" && activeSession.name !== "") ||
-      (activeSession.status && activeSession.status !== "idle"));
-
-  // Robust visibility flags
-  const showSetup =
-    isAuthenticated &&
-    !!activeSessionId &&
-    !!activeSession &&
-    !isSessionStarted;
-  const showWorkspace =
-    isAuthenticated &&
-    !!activeSessionId &&
-    !!activeSession &&
-    !!isSessionStarted;
   const hasProviderConnection = isAuthenticated && credentials.length > 0;
   const hasRealSession = sessions.length > 0;
   const hasRepoContext =
     Boolean(repo?.full_name) ||
     sessions.some((session) => (session.repository?.trim() ?? "").length > 0);
+  const hasMatchingActiveWorkspaceContext = Boolean(
+    repo?.full_name &&
+    activeSession &&
+    doesSessionContextMatchRepository(activeSession.repository, {
+      fullName: repo.full_name,
+      repoName: repo.name,
+    }),
+  );
   const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(
     () =>
@@ -758,9 +838,11 @@ function AppContent() {
 
   const handleArchiveActiveSession = useCallback(async (): Promise<void> => {
     if (activeSessionId) {
-      await archiveSession(activeSessionId);
+      if (await archiveSession(activeSessionId)) {
+        retireSessionInitialPrompt(activeSessionId);
+      }
     }
-  }, [activeSessionId, archiveSession]);
+  }, [activeSessionId, archiveSession, retireSessionInitialPrompt]);
 
   const handleOpenRepositoryPicker = () => {
     if (!isAuthenticated) {
@@ -923,8 +1005,7 @@ function AppContent() {
   const isShellContextLoading =
     isLoading ||
     isSessionContextLoading ||
-    isWorkspaceContextRepairing ||
-    workspaceSelectionBootstrapStatus === "loading";
+    (workspaceSelectionBootstrapStatus === "loading" && !hasRealSession);
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
@@ -951,7 +1032,11 @@ function AppContent() {
               hydrationStatus={sessionHydrationStatus}
               onSelect={handleSelectSession}
               onCreate={handleNewTask}
-              onArchive={archiveSession}
+              onArchive={async (sessionId) => {
+                if (await archiveSession(sessionId)) {
+                  retireSessionInitialPrompt(sessionId);
+                }
+              }}
               onUnarchive={unarchiveSession}
               onRemoveRepository={removeRepository}
               onRenameRepository={renameRepository}
@@ -977,42 +1062,66 @@ function AppContent() {
           </div>
         }
         topBar={
-          <TopNavBar
-            onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
-            isRightSidebarOpen={showWorkspace && isRightSidebarOpen}
-            rightSidebarWidth={rightSidebarWidth}
-            onToggleRightSidebar={handleToggleRightSidebar}
-            threadTitle={threadTitle}
-            taskTitle={taskTitle}
-            activeSession={activeSession}
-            onRenameSession={handleRenameActiveSession}
-            onPinSession={handlePinActiveSession}
-            onUnpinSession={handleUnpinActiveSession}
-            onArchiveSession={handleArchiveActiveSession}
-            isAuthenticated={isAuthenticated}
-            onConnectGitHub={login}
-            environmentSummary={
-              showWorkspace && activeSessionId && activeSession
-                ? {
-                    repo,
-                    branch,
-                    onBranchChange: switchBranch,
-                    onOpenChanges: () =>
-                      setSummaryActionRequest({
-                        id: Date.now(),
-                        action: "changes",
-                      }),
-                    onOpenCommit: () =>
-                      setSummaryActionRequest({
-                        id: Date.now(),
-                        action: "commit",
-                      }),
-                  }
-                : undefined
-            }
-            isCompact={isCompact}
-            isMobile={isMobile}
-          />
+          <>
+            {activeSession?.persistenceStatus === "failed" ? (
+              <div
+                role="alert"
+                data-testid="session-persistence-state"
+                className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100"
+              >
+                <span>
+                  This conversation is an unsaved draft. It remains available in
+                  this tab.
+                </span>
+                <button
+                  type="button"
+                  className="rounded-md border border-amber-200/30 px-3 py-1 font-medium hover:bg-amber-500/15"
+                  onClick={() => void retrySessionPersistence(activeSession.id)}
+                >
+                  Retry save
+                </button>
+              </div>
+            ) : null}
+            <TopNavBar
+              onReview={activeSession ? handleOpenReviewSidebar : undefined}
+              isRightSidebarOpen={Boolean(activeSession) && isRightSidebarOpen}
+              rightSidebarWidth={rightSidebarWidth}
+              onToggleRightSidebar={handleToggleRightSidebar}
+              threadTitle={threadTitle}
+              taskTitle={taskTitle}
+              activeSession={activeSession}
+              onRenameSession={handleRenameActiveSession}
+              onPinSession={handlePinActiveSession}
+              onUnpinSession={handleUnpinActiveSession}
+              onArchiveSession={handleArchiveActiveSession}
+              isAuthenticated={isAuthenticated}
+              onConnectGitHub={login}
+              environmentSummary={
+                activeSessionId &&
+                activeSession &&
+                !isWorkspaceContextRepairing &&
+                hasMatchingActiveWorkspaceContext
+                  ? {
+                      repo,
+                      branch,
+                      onBranchChange: switchBranch,
+                      onOpenChanges: () =>
+                        setSummaryActionRequest({
+                          id: Date.now(),
+                          action: "changes",
+                        }),
+                      onOpenCommit: () =>
+                        setSummaryActionRequest({
+                          id: Date.now(),
+                          action: "commit",
+                        }),
+                    }
+                  : undefined
+              }
+              isCompact={isCompact}
+              isMobile={isMobile}
+            />
+          </>
         }
         sidebarOpen={isSidebarOpen}
         onSidebarOpenChange={setIsSidebarOpen}
@@ -1021,50 +1130,170 @@ function AppContent() {
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative bg-black">
           <AnimatePresence initial={false} mode="wait">
-            {showSetup ? (
-              <motion.div
-                key={`setup-${activeSessionId}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="absolute inset-0 flex"
+            {activeSessionId && activeSession ? (
+              <SessionConversationSurface
+                key={activeSessionId}
+                sessionId={activeSessionId}
+                runId={activeSession.activeRunId || ""}
+                mode={activeSession.mode}
+                isSessionPersistenceReady={isSessionPersistenceReady(
+                  activeSession.persistenceStatus,
+                )}
+                hasQueuedIntent={Boolean(
+                  initialPromptSubmissions[activeSessionId],
+                )}
+                onServerProjectionAvailable={() =>
+                  void refreshSessionProjection(activeSessionId)
+                }
               >
-                <RunContextProvider
-                  runId={activeSession.activeRunId}
-                  sessionId={activeSession.id}
-                >
-                  <AgentSetup
-                    sessionId={activeSessionId}
-                    mode={activeSession.mode}
-                    onModeChange={(mode) =>
-                      updateSession(activeSessionId, { mode })
-                    }
-                    isRightSidebarOpen={isRightSidebarOpen}
-                    reviewSidebarFocusRequest={reviewSidebarFocusRequest}
-                    onRepoClick={handleOpenRepositoryPicker}
-                    projects={repositories.filter(
-                      (repository) => repository !== "New Project",
-                    )}
-                    onProjectSelect={handleChooseExistingProject}
-                    onNoProject={handleChooseNoProject}
-                    onStart={(config) => {
-                      updateSession(activeSessionId, {
-                        status: "running",
-                        mode: config.mode,
-                      });
-                      setInitialPromptSubmission({
-                        id: createInitialPromptSubmissionId(
-                          crypto.randomUUID(),
-                        ),
-                        sessionId: activeSessionId,
-                        prompt: config.task,
-                        attachments: config.attachments,
-                      });
-                    }}
-                  />
-                </RunContextProvider>
-              </motion.div>
+                {({
+                  chat,
+                  productMode,
+                  setProductMode,
+                  showWorkspace,
+                  registerFileCreatedRefresh,
+                }) =>
+                  showWorkspace ? (
+                    <motion.div
+                      key={`conversation-${activeSessionId}`}
+                      initial={false}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 1 }}
+                      transition={{ duration: 0 }}
+                      className="absolute inset-0 flex"
+                    >
+                      <Workspace
+                        sessionId={activeSessionId}
+                        chat={chat}
+                        productMode={productMode}
+                        setProductMode={setProductMode}
+                        registerFileCreatedRefresh={registerFileCreatedRefresh}
+                        sessionTitle={activeSession.name}
+                        sessionCreatedAt={activeSession.createdAt}
+                        sessionUpdatedAt={activeSession.updatedAt}
+                        repository={activeSession.repository || ""}
+                        mode={activeSession.mode}
+                        isSessionRunning={activeSession.status === "running"}
+                        hasStartedSession
+                        sessionPersistenceStatus={
+                          activeSession.persistenceStatus
+                        }
+                        onModeChange={(mode) =>
+                          updateSession(activeSessionId, { mode })
+                        }
+                        onSessionStatusChange={(status) => {
+                          updateSession(
+                            activeSessionId,
+                            { status },
+                            { preserveActivityTimestamp: true },
+                          );
+                          if (status === "completed" || status === "failed") {
+                            void refreshSessionProjection(activeSessionId);
+                          }
+                        }}
+                        initialPromptSubmission={
+                          initialPromptSubmissions[activeSessionId] ?? null
+                        }
+                        onInitialPromptClaim={(id) =>
+                          claimInitialPrompt(activeSessionId, id)
+                        }
+                        onInitialPromptStatusChange={(id, status) =>
+                          updateInitialPromptStatus(activeSessionId, id, status)
+                        }
+                        onInitialPromptRetry={(id) =>
+                          retryInitialPrompt(activeSessionId, id)
+                        }
+                        onInitialPromptHandled={(id) =>
+                          settleInitialPrompt(activeSessionId, id)
+                        }
+                        onPromptSubmitted={(prompt) => {
+                          if (prompt.trim())
+                            updateSession(activeSessionId, {
+                              status: "running",
+                            });
+                        }}
+                        onHookSettingsContextChange={
+                          handleHookSettingsContextChange
+                        }
+                        isRightSidebarOpen={isRightSidebarOpen}
+                        setIsRightSidebarOpen={setIsRightSidebarOpen}
+                        rightSidebarWidth={rightSidebarWidth}
+                        setRightSidebarWidth={setRightSidebarWidth}
+                        reviewSidebarFocusRequest={reviewSidebarFocusRequest}
+                        isGitReviewOpen={
+                          isGitReviewOpen &&
+                          gitReviewSessionId === activeSessionId
+                        }
+                        onGitReviewOpenChange={(open) => {
+                          setIsGitReviewOpen(open);
+                          setGitReviewSessionId(open ? activeSessionId : null);
+                        }}
+                        onTabChange={setActiveTab}
+                        summaryActionRequest={summaryActionRequest}
+                        onOpenRepositoryPicker={handleOpenRepositoryPicker}
+                      />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key={`setup-${activeSessionId}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute inset-0 flex"
+                    >
+                      <RunContextProvider
+                        runId={activeSession.activeRunId}
+                        sessionId={activeSession.id}
+                      >
+                        <AgentSetup
+                          sessionId={activeSessionId}
+                          mode={activeSession.mode}
+                          onModeChange={(mode) =>
+                            updateSession(activeSessionId, { mode })
+                          }
+                          isRightSidebarOpen={isRightSidebarOpen}
+                          reviewSidebarFocusRequest={reviewSidebarFocusRequest}
+                          onRepoClick={handleOpenRepositoryPicker}
+                          projects={repositories.filter(
+                            (repository) => repository !== "New Project",
+                          )}
+                          onProjectSelect={handleChooseExistingProject}
+                          onNoProject={handleChooseNoProject}
+                          onStart={(config) => {
+                            updateSession(activeSessionId, {
+                              status: "running",
+                              mode: config.mode,
+                            });
+                            const submission: InitialPromptSubmission = {
+                              id: createInitialPromptSubmissionId(
+                                crypto.randomUUID(),
+                              ),
+                              prompt: config.task,
+                              attachments: config.attachments,
+                              status: "queued",
+                            };
+                            const previous =
+                              initialPromptSubmissionsRef.current[
+                                activeSessionId
+                              ];
+                            if (previous) {
+                              retireSubmissionIntent(
+                                activeSessionId,
+                                `client_msg_${previous.id}`,
+                              );
+                            }
+                            updateInitialPromptSubmissions((current) => ({
+                              ...current,
+                              [activeSessionId]: submission,
+                            }));
+                          }}
+                        />
+                      </RunContextProvider>
+                    </motion.div>
+                  )
+                }
+              </SessionConversationSurface>
             ) : showShellSetupSurface && setupSession ? (
               <motion.div
                 key={`setup-shell-${setupSession.id}`}
@@ -1094,77 +1323,6 @@ function AppContent() {
                     }}
                   />
                 </RunContextProvider>
-              </motion.div>
-            ) : showWorkspace ? (
-              <motion.div
-                key={`workspace-${activeSessionId}-${activeSession.activeRunId}`}
-                initial={false}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 1 }}
-                transition={{ duration: 0 }}
-                className="absolute inset-0 flex"
-              >
-                <Workspace
-                  key={`${activeSessionId}:${activeSession.activeRunId}`}
-                  sessionId={activeSessionId}
-                  sessionTitle={activeSession.name}
-                  sessionCreatedAt={activeSession.createdAt}
-                  sessionUpdatedAt={activeSession.updatedAt}
-                  runId={activeSession?.activeRunId || ""}
-                  repository={activeSession?.repository || ""}
-                  mode={activeSession?.mode}
-                  isSessionRunning={activeSession?.status === "running"}
-                  hasStartedSession={isSessionStarted}
-                  onModeChange={(mode) =>
-                    updateSession(activeSessionId, { mode })
-                  }
-                  onSessionStatusChange={(status) => {
-                    // Lifecycle replay changes status, but it is not new task
-                    // activity. The server thread projection owns ordering.
-                    updateSession(
-                      activeSessionId,
-                      { status },
-                      { preserveActivityTimestamp: true },
-                    );
-                    if (status === "completed" || status === "failed") {
-                      void refreshSessionProjection(activeSessionId);
-                    }
-                  }}
-                  initialPromptSubmission={
-                    initialPromptSubmission?.sessionId === activeSessionId
-                      ? initialPromptSubmission
-                      : null
-                  }
-                  onInitialPromptHandled={(id) => {
-                    setInitialPromptSubmission((current) =>
-                      current?.id === id ? null : current,
-                    );
-                  }}
-                  onPromptSubmitted={(prompt) => {
-                    if (prompt.trim()) {
-                      updateSession(activeSessionId, { status: "running" });
-                    }
-                  }}
-                  onServerProjectionAvailable={() => {
-                    void refreshSessionProjection(activeSessionId);
-                  }}
-                  onHookSettingsContextChange={handleHookSettingsContextChange}
-                  isRightSidebarOpen={isRightSidebarOpen}
-                  setIsRightSidebarOpen={setIsRightSidebarOpen}
-                  rightSidebarWidth={rightSidebarWidth}
-                  setRightSidebarWidth={setRightSidebarWidth}
-                  reviewSidebarFocusRequest={reviewSidebarFocusRequest}
-                  isGitReviewOpen={
-                    isGitReviewOpen && gitReviewSessionId === activeSessionId
-                  }
-                  onGitReviewOpenChange={(open) => {
-                    setIsGitReviewOpen(open);
-                    setGitReviewSessionId(open ? activeSessionId : null);
-                  }}
-                  onTabChange={setActiveTab}
-                  summaryActionRequest={summaryActionRequest}
-                  onOpenRepositoryPicker={handleOpenRepositoryPicker}
-                />
               </motion.div>
             ) : isPreparingSetupShell ? (
               <motion.div

@@ -28,6 +28,7 @@ import {
   resolveTerminalChangedFilesSummary,
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
+import type { HydrationStatus } from "../../../services/ChatHydrationService";
 import type { ComposerLayout } from "./ChatComposerControls";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { ChevronDown, Folder } from "lucide-react";
@@ -45,6 +46,9 @@ interface ChatInterfaceViewProps {
   showDebugPanel: boolean;
   debugEvents: ChatDebugEvent[];
   chatEntries: ChatInterfaceEntry[];
+  hydrationStatus: HydrationStatus | "loading" | "idle";
+  hydrationError: string | null;
+  retryHydration?: () => void;
   messageMetadataById: Record<string, ChatMessageMetadata>;
   modeLabel: string;
   resolveModelLabel: (modelId: string) => string;
@@ -110,6 +114,33 @@ export const ChatInterfaceView = forwardRef<
           <ChatLoadingIndicator />
         ) : (
           <div className="mx-auto max-w-4xl space-y-5 sm:space-y-6">
+            {props.hydrationStatus === "recovery-required" ||
+            props.hydrationStatus === "failed" ||
+            props.hydrationStatus === "partial" ? (
+              <div
+                role="alert"
+                data-testid="chat-history-state"
+                className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+              >
+                <span>
+                  {props.hydrationStatus === "partial"
+                    ? "Some saved messages could not be loaded."
+                    : props.hydrationStatus === "recovery-required"
+                      ? "Saved history needs recovery before it can be read."
+                      : "Saved history could not be loaded."}
+                  {props.hydrationError ? ` ${props.hydrationError}` : ""}
+                </span>
+                {props.retryHydration ? (
+                  <button
+                    type="button"
+                    onClick={props.retryHydration}
+                    className="shrink-0 rounded-md border border-amber-200/30 px-3 py-1.5 font-medium hover:bg-amber-500/15"
+                  >
+                    Retry history
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {props.showDebugPanel ? (
               <ChatDebugPanel events={props.debugEvents} />
             ) : null}
@@ -206,6 +237,28 @@ function TurnWorkflowEntry({
         projection={entry.projection}
         onArtifactOpen={props.onArtifactOpen}
       />
+      {terminal?.state !== "completed" && entry.projection.assistantText.trim() ? (
+        <ChatMessage
+          message={{
+            id: `canonical-assistant:${turnId}`,
+            role: "assistant",
+            content: entry.projection.assistantText,
+          }}
+          metadata={buildLifecycleMessageMetadata(
+            entry.projection,
+            entry.assistantMessage
+              ? props.messageMetadataById[entry.assistantMessage.id]
+              : undefined,
+            props.resolveModelLabel,
+            props.modeLabel,
+          )}
+          onArtifactOpen={props.onArtifactOpen}
+          onReviewOpen={props.onReviewOpen}
+          hookAudits={entry.projection.hookAudits}
+          resolveHydratedImageSource={resolveHydratedChatImageSource}
+          loadArtifactContent={loadColdStorageArtifact}
+        />
+      ) : null}
       {terminal?.errorCode ? (
         <span
           data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}

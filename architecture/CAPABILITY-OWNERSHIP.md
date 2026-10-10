@@ -155,3 +155,23 @@ claim/revision safeguards. New-session creation is awaited before publishing the
 conversation to submit callers; canonical delta fragments retain exact whitespace
 in subsequent model context. Browser admission binding remains pending the next baseline
 slice; hosted command routing through App Server remains pending 058.3.
+
+## Plan 058 baseline — Session conversation and delivery binding
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Submitted transcript and terminal state | Existing Brain admission, transcript and lifecycle append owners | Web reads verified session history independently of execution scope and renders SDK lifecycle projections, including partial replies. |
+| Request acknowledgement and explicit delivery retry | Existing server admission identity; temporary Web submissionAttemptRegistry/submissionTransport binding | useChatCore and queued setup intent retain the exact reserved tuple, client message identity and serialized payload; only bound acknowledgements or canonical evidence confirm admission. |
+| Mounted conversation and history recovery presentation | Web SessionConversationSurface and useChatHydration | Setup/workspace share one useChat owner for the selected session; partial/failed reads preserve verified rows, and stale reads cannot replace another session. |
+
+The run-filtered message identity/visibility helpers and the component-local
+initial prompt guard are deleted. Session metadata without an active execution
+keeps a null run identity. Background authentication refresh retains the mounted
+conversation. Existing meaningful transport outcome safeguards are retained,
+including suites removed by the incoming baseline's unrelated test cleanup.
+Browser product caches are preserved; no storage cutover or import is performed.
+Request mechanics remain temporary Web bindings until 058.3C moves them into the
+existing SDK, and history transport moves through authenticated App Server in
+058.3A. Shared conversation composition remains pending 058.2E. The earlier
+baseline entries' pending browser binding is fulfilled here, without claiming
+completion of hosted routing or final browser acceptance.
