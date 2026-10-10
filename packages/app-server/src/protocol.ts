@@ -1,4 +1,6 @@
 import {
+  HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
+  HostedSessionsResponseSchema, HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
@@ -43,6 +45,16 @@ export const ThreadRenameParamsSchema = z
 export const AppServerMethodSchema = z.enum([
   "initialize",
   "session/history",
+  "session/list",
+  "session/create",
+  "session/rename",
+  "session/pin",
+  "session/unpin",
+  "session/archive",
+  "session/unarchive",
+  "session/delete",
+  "session/archived",
+
   "workspace/current",
   "workspace/grant",
   "workspace/revoke",
@@ -64,6 +76,16 @@ const AppServerRequestShape = {
 };
 
 export const AppServerRequestSchema = z.discriminatedUnion("method", [
+  z.object({ ...AppServerRequestShape, method: z.literal("session/list"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/create"), params: HostedSessionCreateRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/rename"), params: HostedSessionRenameRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/pin"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/unpin"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/archive"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/unarchive"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/delete"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/archived"), params: EmptyParamsSchema }).strict(),
+
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
@@ -85,6 +107,16 @@ export type AppServerRequest = z.infer<typeof AppServerRequestSchema>;
 export type AppServerMethod = z.infer<typeof AppServerMethodSchema>;
 
 export const AppServerResultSchemas = {
+  "session/list": HostedSessionsResponseSchema,
+  "session/create": HostedSessionResponseSchema,
+  "session/rename": HostedSessionResponseSchema,
+  "session/pin": HostedSessionResponseSchema,
+  "session/unpin": HostedSessionResponseSchema,
+  "session/archive": HostedSessionResponseSchema,
+  "session/unarchive": HostedSessionResponseSchema,
+  "session/delete": z.object({ deleted: z.literal(true) }).strict(),
+  "session/archived": HostedArchivedSessionsResponseSchema,
+
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
@@ -104,6 +136,16 @@ export const AppServerResultSchemas = {
 } as const;
 
 export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
+  success("session/list", AppServerResultSchemas["session/list"]),
+  success("session/create", AppServerResultSchemas["session/create"]),
+  success("session/rename", AppServerResultSchemas["session/rename"]),
+  success("session/pin", AppServerResultSchemas["session/pin"]),
+  success("session/unpin", AppServerResultSchemas["session/unpin"]),
+  success("session/archive", AppServerResultSchemas["session/archive"]),
+  success("session/unarchive", AppServerResultSchemas["session/unarchive"]),
+  success("session/delete", AppServerResultSchemas["session/delete"]),
+  success("session/archived", AppServerResultSchemas["session/archived"]),
+
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),

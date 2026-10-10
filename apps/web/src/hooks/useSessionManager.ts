@@ -1,3 +1,4 @@
+import * as SessionMetadata from "../services/api/sessionMetadata";
 // apps/web/src/hooks/useSessionManager.ts
 /**
  * useSessionManager Hook
@@ -239,7 +240,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       const hydrationVersion = localMutationVersionRef.current;
       try {
         const serverSessions =
-          await SessionStateService.hydrateSessionsFromServer();
+          await SessionMetadata.hydrateSessionsFromServer();
         if (cancelled) {
           return;
         }
@@ -286,7 +287,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const mergeTitleServerSessions = useCallback(
     (
       serverSessions: Awaited<
-        ReturnType<typeof SessionStateService.hydrateSessionsFromServer>
+        ReturnType<typeof SessionMetadata.hydrateSessionsFromServer>
       >,
     ) => {
       setSessions((current) => {
@@ -340,7 +341,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
       // Admission requires the owned conversation to exist before it is visible
       // to setup/submit callers. A failed create must not publish a local session.
-      await SessionStateService.persistSession(newSession);
+      await SessionMetadata.persistSession(newSession);
       const nextSessions = [
         ...sessionsRef.current,
         { ...newSession, persistenceStatus: "saved" as const },
@@ -377,7 +378,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       );
       try {
         const serverSession =
-          await SessionStateService.persistSession(savingSession);
+          await SessionMetadata.persistSession(savingSession);
         next = reconcileSessionPersistence(
           sessionsRef.current,
           id,
@@ -479,7 +480,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     }
 
     try {
-      const serverSession = await SessionStateService.archiveSession(id);
+      const serverSession = await SessionMetadata.archiveSession(id);
       setSessions((current) => {
         const next = replaceSessionById(current, serverSession);
         sessionsRef.current = next;
@@ -564,7 +565,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
           titleSource: "user",
           updatedAt: new Date().toISOString(),
         }),
-        () => SessionStateService.renameSessionTitle(id, trimmedTitle),
+        () => SessionMetadata.renameSessionTitle(id, trimmedTitle),
       );
     },
     [reconcileSessionMutation],
@@ -574,7 +575,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     async (id: string): Promise<void> => {
       try {
         const serverSessions =
-          await SessionStateService.hydrateSessionsFromServer();
+          await SessionMetadata.hydrateSessionsFromServer();
         const serverSession = serverSessions[id];
         if (!serverSession) {
           return;
@@ -603,7 +604,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
           pinnedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }),
-        () => SessionStateService.pinSession(id),
+        () => SessionMetadata.pinSession(id),
       );
     },
     [reconcileSessionMutation],
@@ -618,7 +619,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
           pinnedAt: null,
           updatedAt: new Date().toISOString(),
         }),
-        () => SessionStateService.unpinSession(id),
+        () => SessionMetadata.unpinSession(id),
       );
     },
     [reconcileSessionMutation],
@@ -633,7 +634,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
           archivedAt: null,
           updatedAt: new Date().toISOString(),
         }),
-        () => SessionStateService.unarchiveSession(id),
+        () => SessionMetadata.unarchiveSession(id),
       );
     },
     [reconcileSessionMutation],

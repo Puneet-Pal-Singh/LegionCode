@@ -1,13 +1,14 @@
 import { AppServerController } from "./AppServerController";
-import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+import { createAppServerClient, createAppServerHttpTransport } from "@legioncode/sdk";
+import { APP_SERVER_PROTOCOL_VERSION, type AppServerMethod } from "@legioncode/app-server/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   MemoryEventStore,
   MemoryThreadTitleRepository,
   MemoryRunRepository,
   MemoryTranscriptRepository,
+  MemoryWorkspaceRepository,
 } from "@repo/persistence";
-import { TranscriptController } from "./TranscriptController";
 import type { Env } from "../types/ai";
 
 const TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -34,18 +35,44 @@ describe("TranscriptController", () => {
     env = createEnv(repository, runRepository, titleEvents);
   });
 
+  it("round-trips hosted metadata and title versions through the actual SDK HTTP boundary", async () => {
+    const client = createAppServerClient({
+      clientId: "web-test", clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: "https://brain.local", credentials: "include",
+        fetchImpl: async (input, init) => AppServerController.request(authenticatedRequest(String(input), init), env),
+      }),
+    });
+    const created = await client.createSession({ sessionId: TEST_SESSION_ID, title: "Task" });
+    expect(created).toMatchObject({ id: TEST_SESSION_ID, threadId: null, activeRunId: null, titleVersion: 1 });
+    await ensureCanonicalTitleScope(repository);
+    const renamed = await client.renameSession(TEST_SESSION_ID, "Saved title");
+    expect(renamed).toMatchObject({ id: TEST_SESSION_ID, title: "Saved title", titleSource: "user", titleVersion: 2 });
+    await expect(client.pinSession(TEST_SESSION_ID)).resolves.toMatchObject({ pinnedAt: "2026-05-15T00:00:00.000Z" });
+    await expect(client.unpinSession(TEST_SESSION_ID)).resolves.toMatchObject({ pinnedAt: null });
+    await expect(client.deleteArchivedSession(TEST_SESSION_ID)).rejects.toMatchObject({ serverCode: "not_found" });
+    await client.archiveSession(TEST_SESSION_ID);
+    await expect(client.listSessions()).resolves.toEqual([]);
+    await expect(client.listArchivedSessions()).resolves.toMatchObject([{ id: TEST_SESSION_ID, titleVersion: 2 }]);
+    await client.unarchiveSession(TEST_SESSION_ID);
+    await expect(client.listSessions()).resolves.toMatchObject([{ id: TEST_SESSION_ID, title: "Saved title", titleVersion: 2 }]);
+    await client.archiveSession(TEST_SESSION_ID);
+    await client.deleteArchivedSession(TEST_SESSION_ID);
+    await expect(client.listArchivedSessions()).resolves.toEqual([]);
+  });
+
   it("creates and lists authenticated sessions from the transcript repository", async () => {
-    const createResponse = await TranscriptController.createSession(
+    const createResponse = await requestHostedSession("session/create",
       createSessionRequest(),
       env,
     );
 
-    const listResponse = await TranscriptController.listSessions(
+    const listResponse = await requestHostedSession("session/list",
       authenticatedRequest("https://brain.local/api/sessions"),
       env,
     );
 
-    expect(createResponse.status).toBe(201);
+    expect(createResponse.status).toBe(200);
     await expect(
       runRepository.getRun(TEST_RUN_ID, TEST_USER_ID),
     ).resolves.toMatchObject({
@@ -68,16 +95,16 @@ describe("TranscriptController", () => {
   });
 
   it("archives sessions so they no longer hydrate", async () => {
-    await TranscriptController.createSession(createSessionRequest(), env);
+    await requestHostedSession("session/create", createSessionRequest(), env);
 
-    const archiveResponse = await TranscriptController.archiveSession(
+    const archiveResponse = await requestHostedSession("session/archive",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/archive`,
         { method: "POST" },
       ),
       env,
     );
-    const listResponse = await TranscriptController.listSessions(
+    const listResponse = await requestHostedSession("session/list",
       authenticatedRequest("https://brain.local/api/sessions"),
       env,
     );
@@ -89,23 +116,23 @@ describe("TranscriptController", () => {
   });
 
   it("permanently deletes only authenticated archived sessions", async () => {
-    await TranscriptController.createSession(createSessionRequest(), env);
+    await requestHostedSession("session/create", createSessionRequest(), env);
 
-    const activeDelete = await TranscriptController.deleteArchivedSession(
+    const activeDelete = await requestHostedSession("session/delete",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}`,
         { method: "DELETE" },
       ),
       env,
     );
-    await TranscriptController.archiveSession(
+    await requestHostedSession("session/archive",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/archive`,
         { method: "POST" },
       ),
       env,
     );
-    const deleted = await TranscriptController.deleteArchivedSession(
+    const deleted = await requestHostedSession("session/delete",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}`,
         { method: "DELETE" },
@@ -122,10 +149,10 @@ describe("TranscriptController", () => {
   });
 
   it("renames, pins, and unarchives session metadata", async () => {
-    await TranscriptController.createSession(createSessionRequest(), env);
+    await requestHostedSession("session/create", createSessionRequest(), env);
     await ensureCanonicalTitleScope(repository);
 
-    const renameResponse = await TranscriptController.renameSessionTitle(
+    const renameResponse = await requestHostedSession("session/rename",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`,
         {
@@ -135,14 +162,14 @@ describe("TranscriptController", () => {
       ),
       env,
     );
-    const pinResponse = await TranscriptController.pinSession(
+    const pinResponse = await requestHostedSession("session/pin",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/pin`,
         { method: "POST" },
       ),
       env,
     );
-    const archiveResponse = await TranscriptController.archiveSession(
+    const archiveResponse = await requestHostedSession("session/archive",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/archive`,
         { method: "POST" },
@@ -150,11 +177,11 @@ describe("TranscriptController", () => {
       env,
     );
     const archivedListResponse =
-      await TranscriptController.listArchivedSessions(
+      await requestHostedSession("session/archived",
         authenticatedRequest("https://brain.local/api/sessions/archived"),
         env,
       );
-    const unarchiveResponse = await TranscriptController.unarchiveSession(
+    const unarchiveResponse = await requestHostedSession("session/unarchive",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/unarchive`,
         { method: "POST" },
@@ -200,10 +227,10 @@ describe("TranscriptController", () => {
   });
 
   it("does not grant generated title authority to browser requests", async () => {
-    await TranscriptController.createSession(createSessionRequest(), env);
+    await requestHostedSession("session/create", createSessionRequest(), env);
     await ensureCanonicalTitleScope(repository);
 
-    const response = await TranscriptController.renameSessionTitle(
+    const response = await requestHostedSession("session/rename",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`,
         {
@@ -217,16 +244,22 @@ describe("TranscriptController", () => {
       env,
     );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(response.status).toBe(400);
+    const validRename = await requestHostedSession("session/rename", authenticatedRequest(
+      `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`, {
+        method: "PATCH", body: JSON.stringify({ title: "Generated from prompt" }),
+      },
+    ), env);
+    expect(validRename.status).toBe(200);
+    await expect(validRename.json()).resolves.toMatchObject({
       session: { title: "Generated from prompt", titleSource: "user" },
     });
   });
 
   it("rejects a rename until the session has a persisted canonical title scope", async () => {
-    await TranscriptController.createSession(createSessionRequest(), env);
+    await requestHostedSession("session/create", createSessionRequest(), env);
 
-    const response = await TranscriptController.renameSessionTitle(
+    const response = await requestHostedSession("session/rename",
       authenticatedRequest(
         `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`,
         {
@@ -241,6 +274,27 @@ describe("TranscriptController", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "TITLE_SCOPE_UNAVAILABLE",
     });
+  });
+
+  it("scopes every session metadata mutation to the verified user", async () => {
+    await repository.ensureSession({ sessionId: TEST_SESSION_ID, userId: "another-user" });
+    for (const method of ["session/pin", "session/unpin", "session/archive", "session/unarchive", "session/delete"] as const) {
+      const response = await requestHostedSession(method, authenticatedRequest(`https://brain.local/api/sessions/${TEST_SESSION_ID}`, { method: "POST" }), env);
+      expect(response.status).toBe(404);
+    }
+    expect((await repository.listSessions("another-user")).sessions).toHaveLength(1);
+    const list = await requestHostedSession("session/list", authenticatedRequest("https://brain.local/api/sessions"), env);
+    await expect(list.json()).resolves.toMatchObject({ sessions: [] });
+  });
+
+  it("rejects an unauthorized workspace before creating session metadata", async () => {
+    env.AUTH_WORKSPACE_REPOSITORY = new MemoryWorkspaceRepository();
+    const request = authenticatedRequest("https://brain.local/api/sessions", { method: "POST", body: JSON.stringify({
+      sessionId: TEST_SESSION_ID, workspaceId: "550e8400-e29b-41d4-a716-446655440099",
+    }) });
+    const response = await requestHostedSession("session/create", request, env);
+    expect(response.status).toBe(404);
+    expect((await repository.listSessions(TEST_USER_ID)).sessions).toEqual([]);
   });
 
   it("does not disclose a saved transcript to an unauthenticated or different user", async () => {
@@ -484,4 +538,18 @@ async function requestHostedHistory(request: Request, env: Env): Promise<Respons
     headers: { ...Object.fromEntries(request.headers), "content-type": "application/json" },
     body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/history", params: query }),
   }), env);
+}
+
+async function requestHostedSession(method: AppServerMethod, request: Request, env: Env): Promise<Response> {
+  const body = request.body ? await request.json() as Record<string, unknown> : {};
+  const sessionId = new URL(request.url).pathname.match(/^\/api\/sessions\/([^/]+)/)?.[1];
+  const params = method === "session/list" || method === "session/archived" ? {}
+    : method === "session/create" ? body : { sessionId, ...body };
+  const response = await AppServerController.request(new Request("https://brain.local/app-server/request", {
+    method: "POST", headers: { ...Object.fromEntries(request.headers), "content-type": "application/json" },
+    body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method, params }),
+  }), env);
+  const envelope = await response.json() as { ok: boolean; result?: unknown; error?: unknown };
+  expect(envelope).toMatchObject({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method });
+  return new Response(JSON.stringify(envelope.ok ? envelope.result : envelope.error), { status: response.status });
 }

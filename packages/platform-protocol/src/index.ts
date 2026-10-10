@@ -444,3 +444,10 @@ export {
 } from "./transcript-parts.js";
 
 export * from "./conversation-history.js";
+
+export {
+  HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
+  HostedSessionSchema, HostedTaskSchema, HostedSessionsResponseSchema,
+  HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
+  type HostedSession, type HostedSessionCreateRequest, type HostedSessionRenameRequest, type HostedSessionsResponse,
+} from "./hosted-sessions.js";

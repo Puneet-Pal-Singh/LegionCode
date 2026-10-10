@@ -56,6 +56,7 @@ export const AppServerErrorSchema = z
     code: z.enum([
       "unauthorized",
       "not_found",
+      "TITLE_SCOPE_UNAVAILABLE",
       "protocol_incompatible",
       "invalid_request",
       "server_unavailable",

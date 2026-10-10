@@ -154,50 +154,9 @@ export function runApprovalPath(): string {
   return `${getBrainHttpBase()}/api/run/approval`;
 }
 
-/**
- * Build the canonical sessions endpoint URL
- * Used for hydrating and creating task/sidebar session roots from Brain
- * Path: /api/sessions
- */
-export function sessionsPath(): string {
-  return `${getBrainHttpBase()}/api/sessions`;
-}
-
-/**
- * Build the canonical session archive endpoint URL.
- * Used when removing a sidebar task so it stays hidden after hydration.
- * Path: /api/sessions/:sessionId/archive
- */
-export function sessionArchivePath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/archive`;
-}
-
-export function sessionDeletePath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}`;
-}
-
-export function sessionTitlePath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/title`;
-}
-
+/** Remaining read-receipt baseline path awaits its scoped hosted owner cutover. */
 export function sessionReadReceiptPath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/read-receipt`;
-}
-
-export function sessionPinPath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/pin`;
-}
-
-export function sessionUnpinPath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/unpin`;
-}
-
-export function sessionUnarchivePath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/unarchive`;
-}
-
-export function archivedSessionsPath(): string {
-  return `${sessionsPath()}/archived`;
+  return `${getBrainHttpBase()}/api/sessions/${encodeURIComponent(sessionId)}/read-receipt`;
 }
 
 /**

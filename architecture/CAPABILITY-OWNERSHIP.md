@@ -283,3 +283,24 @@ reads and complete-snapshot replacement retain their existing safeguards.
 The unused Brain `/api/chat/history?session=...` route/controller and Web URL
 builder are deleted; the separate secure-agent-api run-history route is outside
 this session read and unchanged. No browser storage is deleted or migrated.
+
+### Plan 058 hosted session metadata boundary
+
+The existing session creation helpers are extracted unchanged to hosted
+integration. Validated UUID session metadata operations bind a verified cookie
+principal before App Server dispatch and reuse TranscriptRepository and
+ThreadTitleService. Optional workspace references are checked against the user's
+existing active workspace records. Local Thread semantics remain separate.
+Web metadata cutover follows; read-receipt producer/store wiring needs its scoped
+ownership decision before that missing baseline path can be completed.
+
+### Plan 058 Web session metadata cutover
+
+Navigation, title refresh and archived-session callers use existing SDK
+AppServerClient operations through a Web-only presentation adapter. The mixed
+SessionStateService no longer owns their HTTP methods, and old Brain metadata
+routes/controller and Web URL builders are removed with all consumers wired.
+The canonical owners remain TranscriptRepository and ThreadTitleService.
+Browser cache/selection/draft storage is preserved pending actual profile
+inventory. The missing read-receipt path remains explicitly incomplete pending
+its scoped ownership decision; no success or server unread projection is claimed.

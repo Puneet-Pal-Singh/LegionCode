@@ -1,3 +1,4 @@
+import type { HostedSession, HostedSessionCreateRequest, HostedSessionRenameRequest, HostedSessionsResponse } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -23,6 +24,17 @@ export type AppServerComposition = {
   threadService?: LocalThreadService;
   providerService?: LocalProviderService;
   providerConfiguration?: ProviderConfiguration;
+  sessionMetadataService?: {
+    list(): Promise<HostedSessionsResponse>;
+    listArchived(): Promise<{ sessions: HostedSession[] }>;
+    create(params: HostedSessionCreateRequest): Promise<{ session: HostedSession }>;
+    rename(params: HostedSessionRenameRequest): Promise<{ session: HostedSession }>;
+    pin(sessionId: string): Promise<{ session: HostedSession }>;
+    unpin(sessionId: string): Promise<{ session: HostedSession }>;
+    archive(sessionId: string): Promise<{ session: HostedSession }>;
+    unarchive(sessionId: string): Promise<{ session: HostedSession }>;
+    deleteArchived(sessionId: string): Promise<{ deleted: true }>;
+  };
   conversationHistoryService?: {
     readPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
   };
@@ -148,6 +160,42 @@ async function dispatch(
   composition: AppServerComposition,
 ): Promise<unknown> {
   switch (request.method) {
+    case "session/list": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.list();
+    }
+    case "session/archived": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.listArchived();
+    }
+    case "session/create": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.create(request.params);
+    }
+    case "session/rename": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.rename(request.params);
+    }
+    case "session/pin": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.pin(request.params.sessionId);
+    }
+    case "session/unpin": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.unpin(request.params.sessionId);
+    }
+    case "session/archive": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.archive(request.params.sessionId);
+    }
+    case "session/unarchive": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.unarchive(request.params.sessionId);
+    }
+    case "session/delete": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.deleteArchived(request.params.sessionId);
+    }
     case "session/history": {
       if (!composition.conversationHistoryService) throw new Error("unsupported");
       return composition.conversationHistoryService.readPage(request.params);
