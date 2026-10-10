@@ -7,6 +7,7 @@ import {
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 import {
+  type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
   type HostedSession,
   type HostedSessionCreateRequest,
   type ConversationHistoryRequest,
@@ -74,6 +75,8 @@ export type AppServerClient = {
   unarchiveSession(sessionId: string): Promise<HostedSession>;
   deleteArchivedSession(sessionId: string): Promise<void>;
   getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
+  listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
+  selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
@@ -116,6 +119,8 @@ export function createAppServerClient(
     getConversationHistoryPage: async (params) => request(options, {
       method: "session/history", params,
     }, AppServerResultSchemas["session/history"]),
+    listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
+    selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",

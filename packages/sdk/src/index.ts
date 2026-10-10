@@ -248,3 +248,8 @@ export { buildConversationTurns, readCanonicalTurnId, resolveMessageTimestamp, t
 export { collectLifecycleTurnDiffFiles } from "./platform/conversation-turn-diff.js";
 
 export type { HostedSession, HostedSessionCreateRequest } from "@repo/platform-protocol";
+
+export type {
+  HostedWorkspaceSelectRequest, HostedWorkspaceRepository, HostedWorkspaceRecord,
+  HostedWorkspaceSelection, HostedWorkspaceListItem, HostedWorkspaceListResponse,
+} from "@repo/platform-protocol";

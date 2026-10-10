@@ -1,3 +1,4 @@
+import { createAppServerClient, createAppServerHttpTransport } from "@legioncode/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encryptToken, GitHubAPIClient, type Repository } from "@legioncode/github-bridge";
 import { MemoryWorkspaceRepository } from "@repo/persistence";
@@ -32,6 +33,23 @@ describe("authenticated hosted workspace selection", () => {
     const reloaded = await command(await createEnv(workspaces, USER), "workspace/list");
     expect(reloaded).toMatchObject({ ok: true, result: { selection: { selectedBranch: "feature/task" }, workspaces: [{ selected: true, workspace: { userId: USER, lastSelectedBranch: "feature/task" } }] } });
     expect(await command(await createEnv(workspaces, OTHER_USER), "workspace/list")).toMatchObject({ ok: true, result: { workspaces: [], selection: null } });
+  });
+
+  it("round-trips persisted hosted records through the actual SDK transport", async () => {
+    const client = createAppServerClient({
+      clientId: "web-fixture", clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: "https://brain.local", credentials: "include",
+        fetchImpl: async (input, init) => {
+          const headers = new Headers(init?.headers);
+          headers.set("Cookie", "legioncode_session=workspace-fixture");
+          return AppServerController.request(new Request(input, { ...init, headers }), env);
+        },
+      }),
+    });
+    const selected = await client.selectHostedWorkspace({ repository: { owner: "acme", name: "repo" }, selectedBranch: "feature/sdk" });
+    expect(selected).toMatchObject({ selectedBranch: "feature/sdk", repository: { fullName: "acme/repo" } });
+    expect(await client.listHostedWorkspaces()).toMatchObject({ selection: { workspaceId: selected.workspaceId }, workspaces: [{ workspace: { id: selected.workspaceId, userId: USER } }] });
   });
 
   it("never persists a selection when GitHub denies repository access", async () => {
