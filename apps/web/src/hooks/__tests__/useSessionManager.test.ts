@@ -218,6 +218,16 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Removal", () => {
+    it("reports an unsuccessful archive and restores the selected conversation", async () => {
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      await act(async () => { sessionId = await result.current.createSession("Task", "repo"); });
+      vi.mocked(SessionStateService.archiveSession).mockRejectedValueOnce(new Error("archive unavailable"));
+      await act(async () => { expect(await result.current.archiveSession(sessionId)).toBe(false); });
+      expect(result.current.activeSessionId).toBe(sessionId);
+      expect(result.current.sessions[0]?.archivedAt).toBeNull();
+    });
+
     it("should archive session", async () => {
       const { result } = renderHook(() => useSessionManager());
 

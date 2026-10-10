@@ -588,7 +588,7 @@ export class SessionStateService {
       },
       {
         name: "activeRunId",
-        pass: isCanonicalRunId(session.activeRunId),
+        pass: session.activeRunId === null || isCanonicalRunId(session.activeRunId),
       },
       {
         name: "runIds",
@@ -608,7 +608,9 @@ export class SessionStateService {
       },
       {
         name: "activeRunId-in-runIds",
-        pass: session.runIds.includes(session.activeRunId),
+        pass:
+          session.activeRunId === null ||
+          session.runIds.includes(session.activeRunId),
       },
       {
         name: "repository",
@@ -654,18 +656,19 @@ function normalizeStoredSessionStatus(
 }
 
 function mapServerSession(session: ServerSessionRecord): AgentSession | null {
-  if (!isCanonicalRunId(session.activeRunId)) {
-    return null;
-  }
+  const activeRunId = isCanonicalRunId(session.activeRunId)
+    ? session.activeRunId
+    : null;
 
   return {
     id: session.id,
     name: session.title,
     titleSource: session.titleSource ?? "preview",
     ...mapServerThreadMetadata(session),
+    persistenceStatus: "saved",
     repository: session.repository,
-    activeRunId: session.activeRunId,
-    runIds: [session.activeRunId],
+    activeRunId,
+    runIds: activeRunId ? [activeRunId] : [],
     status: mapServerStatus(session.status),
     mode: session.mode ?? DEFAULT_RUN_MODE,
     pinnedAt: session.pinnedAt ?? null,

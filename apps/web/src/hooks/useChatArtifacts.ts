@@ -21,12 +21,19 @@ export function useChatArtifacts({
   const [artifact, setArtifactState] = useState<ArtifactData | null>(null);
   const [isArtifactOpen, setIsArtifactOpenState] = useState(false);
 
+  useEffect(() => {
+    artifactServiceRef.current.setOnArtifactCreatedCallback(onFileCreated);
+  }, [onFileCreated]);
+
   // Process tool calls from messages
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage || lastMessage.role !== "assistant") return;
 
-    if (lastMessage.toolInvocations && Array.isArray(lastMessage.toolInvocations)) {
+    if (
+      lastMessage.toolInvocations &&
+      Array.isArray(lastMessage.toolInvocations)
+    ) {
       for (const invocation of lastMessage.toolInvocations) {
         if ("toolName" in invocation && "args" in invocation) {
           artifactServiceRef.current.processToolCall(

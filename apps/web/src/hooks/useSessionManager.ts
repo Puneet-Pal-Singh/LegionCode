@@ -76,9 +76,45 @@ function replaceSessionById(
 ): AgentSession[] {
   return sessions.map((session) =>
     session.id === updatedSession.id
-      ? mergeServerSessionProjection(session, updatedSession)
+      ? mergeProjectionIfChanged(session, updatedSession)
       : session,
   );
+}
+
+function reconcileSessionPersistence(
+  sessions: AgentSession[],
+  sessionId: string,
+  persisted: AgentSession | null,
+  persistenceStatus: NonNullable<AgentSession["persistenceStatus"]>,
+): AgentSession[] {
+  const current = sessions.find((session) => session.id === sessionId);
+  if (!current) return sessions;
+  const next = persisted
+    ? { ...persisted, ...current, persistenceStatus }
+    : { ...current, persistenceStatus };
+  return replaceSessionById(sessions, next);
+}
+
+function mergeProjectionIfChanged(
+  current: AgentSession,
+  incoming: AgentSession,
+): AgentSession {
+  const merged = mergeServerSessionProjection(current, incoming);
+  const keys = Object.keys(current) as Array<keyof AgentSession>;
+  const unchanged =
+    keys.length === Object.keys(merged).length &&
+    keys.every((key) => {
+      const currentValue = current[key];
+      const mergedValue = merged[key];
+      if (Array.isArray(currentValue) && Array.isArray(mergedValue)) {
+        return (
+          currentValue.length === mergedValue.length &&
+          currentValue.every((value, index) => value === mergedValue[index])
+        );
+      }
+      return currentValue === mergedValue;
+    });
+  return unchanged ? current : merged;
 }
 
 function mergeHydratedSessions(
@@ -257,9 +293,11 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         const next = current.map((session) => {
           const serverSession = serverSessions[session.id];
           return serverSession
-            ? mergeServerSessionProjection(session, serverSession)
+            ? mergeProjectionIfChanged(session, serverSession)
             : session;
         });
+        if (next.every((session, index) => session === current[index]))
+          return current;
         sessionsRef.current = next;
         return next;
       });
@@ -303,7 +341,10 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       // Admission requires the owned conversation to exist before it is visible
       // to setup/submit callers. A failed create must not publish a local session.
       await SessionStateService.persistSession(newSession);
-      const nextSessions = [...sessionsRef.current, newSession];
+      const nextSessions = [
+        ...sessionsRef.current,
+        { ...newSession, persistenceStatus: "saved" as const },
+      ];
       const sessionsMap = createSessionsMap(nextSessions);
 
       SessionStateService.saveSessions(sessionsMap, newSession.id);
@@ -315,6 +356,49 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       setSessions(nextSessions);
       setActiveSessionId(newSession.id);
       return newSession.id;
+    },
+    [],
+  );
+
+  const retrySessionPersistence = useCallback(
+    async (id: string): Promise<void> => {
+      const current = sessionsRef.current.find((session) => session.id === id);
+      if (!current || current.persistenceStatus !== "failed") return;
+      const savingSession = {
+        ...current,
+        persistenceStatus: "saving" as const,
+      };
+      let next = replaceSessionById(sessionsRef.current, savingSession);
+      sessionsRef.current = next;
+      setSessions(next);
+      SessionStateService.saveSessions(
+        createSessionsMap(next),
+        activeSessionIdRef.current,
+      );
+      try {
+        const serverSession =
+          await SessionStateService.persistSession(savingSession);
+        next = reconcileSessionPersistence(
+          sessionsRef.current,
+          id,
+          serverSession,
+          "saved",
+        );
+      } catch (error) {
+        console.warn("[useSessionManager] Session retry failed:", error);
+        next = reconcileSessionPersistence(
+          sessionsRef.current,
+          id,
+          null,
+          "failed",
+        );
+      }
+      sessionsRef.current = next;
+      setSessions(next);
+      SessionStateService.saveSessions(
+        createSessionsMap(next),
+        activeSessionIdRef.current,
+      );
     },
     [],
   );
@@ -378,7 +462,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   /**
    * Archive a session so it leaves normal navigation without deleting run state.
    */
-  const archiveSession = useCallback(async (id: string) => {
+  const archiveSession = useCallback(async (id: string): Promise<boolean> => {
     const previousSessions = sessionsRef.current;
     const archivedAt = new Date().toISOString();
     const optimisticSessions = previousSessions.map((session) =>
@@ -401,20 +485,25 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         sessionsRef.current = next;
         return next;
       });
+      return true;
     } catch (error) {
       if (isMissingServerSessionArchive(error)) {
         console.warn(
           "[useSessionManager] Archived local-only session; server record was absent:",
           error,
         );
-        return;
+        return true;
       }
       console.warn("[useSessionManager] Failed to archive session:", error);
       sessionsRef.current = previousSessions;
       setSessions(previousSessions);
-      if (activeSessionIdRef.current === nextActive?.id) {
+      if (
+        activeSessionIdRef.current === id ||
+        activeSessionIdRef.current === (nextActive?.id ?? null)
+      ) {
         setActiveSessionId(id);
       }
+      return false;
     }
   }, []);
 
@@ -630,33 +719,33 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       updates: Partial<Omit<AgentSession, "id">>,
       options?: { preserveActivityTimestamp?: boolean },
     ) => {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          if (!hasSessionUpdates(s, updates)) {
-            return s;
-          }
-          // Merge updates and refresh updatedAt only when values actually changed
-          const updated: AgentSession = {
-            ...s,
-            ...updates,
-            id: s.id, // Preserve original id
-            updatedAt: options?.preserveActivityTimestamp
-              ? s.updatedAt
-              : new Date().toISOString(),
-          };
-          // Validate session invariants
-          if (!SessionStateService.validateSession(updated)) {
-            console.warn(
-              "[useSessionManager] Invalid session update:",
-              id,
-              updates,
-            );
-            return s;
-          }
-          return updated;
-        }),
-      );
+      const next = sessionsRef.current.map((s) => {
+        if (s.id !== id) return s;
+        if (!hasSessionUpdates(s, updates)) {
+          return s;
+        }
+        // Merge updates and refresh updatedAt only when values actually changed
+        const updated: AgentSession = {
+          ...s,
+          ...updates,
+          id: s.id, // Preserve original id
+          updatedAt: options?.preserveActivityTimestamp
+            ? s.updatedAt
+            : new Date().toISOString(),
+        };
+        // Validate session invariants
+        if (!SessionStateService.validateSession(updated)) {
+          console.warn(
+            "[useSessionManager] Invalid session update:",
+            id,
+            updates,
+          );
+          return s;
+        }
+        return updated;
+      });
+      sessionsRef.current = next;
+      setSessions(next);
     },
     [],
   );
@@ -697,6 +786,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     repositories,
     setActiveSessionId: selectActiveSession,
     createSession,
+    retrySessionPersistence,
     removeSession,
     renameSession,
     refreshSessionProjection,

@@ -34,7 +34,7 @@ export interface ConversationTurn {
   key: string;
   turnId?: string;
   userMessage?: Message;
-  assistantMessage?: Message;
+  assistantMessages?: Message[];
   userAtMs?: number;
   assistantAtMs?: number;
   request?: RequestTiming;
@@ -62,15 +62,13 @@ export function buildConversationTurns(
   messages: Message[],
 ): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
-  let turnIndex = 0;
   for (const message of collapseRepeatedMessageIds(messages)) {
     const messageAtMs = resolveMessageTimestamp(message);
     const canonicalTurnId = readCanonicalTurnId(message);
     if (message.role === "user") {
-      turnIndex += 1;
       turns.push({
         key: message.id,
-        turnId: canonicalTurnId ?? `turn-${turnIndex}`,
+        ...(canonicalTurnId ? { turnId: canonicalTurnId } : {}),
         userMessage: message,
         userAtMs: messageAtMs,
       });
@@ -79,23 +77,21 @@ export function buildConversationTurns(
     if (message.role !== "assistant") {
       continue;
     }
-    if (readMessagePhase(message) === "commentary") {
-      continue;
-    }
-    const latestUserTurn =
-      findConversationTurnByCanonicalId(turns, canonicalTurnId) ??
-      findLatestUserConversationTurn(turns);
-    if (latestUserTurn) {
-      if (canonicalTurnId) {
-        latestUserTurn.turnId = canonicalTurnId;
-      }
-      latestUserTurn.assistantMessage = message;
-      latestUserTurn.assistantAtMs = messageAtMs;
+    const matchingCanonicalUser = canonicalTurnId
+      ? turns.find(
+          (turn) => turn.userMessage && turn.turnId === canonicalTurnId,
+        )
+      : undefined;
+    if (matchingCanonicalUser) {
+      matchingCanonicalUser.assistantMessages ??= [];
+      matchingCanonicalUser.assistantMessages.push(message);
+      matchingCanonicalUser.assistantAtMs = messageAtMs;
       continue;
     }
     turns.push({
       key: message.id,
-      assistantMessage: message,
+      ...(canonicalTurnId ? { turnId: canonicalTurnId } : {}),
+      assistantMessages: [message],
       assistantAtMs: messageAtMs,
     });
   }
@@ -113,11 +109,6 @@ export function readCanonicalTurnId(message: Message): string | null {
   return parsed.success ? parsed.data : null;
 }
 
-function readMessagePhase(message: Message): string | null {
-  const phase = readMessageMetadata(message)?.phase;
-  return typeof phase === "string" ? phase : null;
-}
-
 function readMessageMetadata(message: Message): Record<string, unknown> | null {
   const data = (message as Message & { data?: unknown }).data;
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
@@ -125,13 +116,6 @@ function readMessageMetadata(message: Message): Record<string, unknown> | null {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata)
     ? (metadata as Record<string, unknown>)
     : null;
-}
-
-function findConversationTurnByCanonicalId(
-  turns: ConversationTurn[],
-  turnId: string | null,
-): ConversationTurn | undefined {
-  return turnId ? turns.find((turn) => turn.turnId === turnId) : undefined;
 }
 
 function collapseRepeatedMessageIds(messages: Message[]): Message[] {
@@ -150,17 +134,6 @@ function collapseRepeatedMessageIds(messages: Message[]): Message[] {
     collapsed.push(latestById.get(message.id) ?? message);
   }
   return collapsed;
-}
-
-function findLatestUserConversationTurn(
-  turns: ConversationTurn[],
-): ConversationTurn | undefined {
-  for (let i = turns.length - 1; i >= 0; i -= 1) {
-    if (turns[i]?.userMessage) {
-      return turns[i];
-    }
-  }
-  return undefined;
 }
 
 function buildRequestTimings(debugEvents: ChatDebugEvent[]): RequestTiming[] {
@@ -252,9 +225,6 @@ function mapTurnsToMessageMetadata(
     const userTimeLabel = formatTimestamp(
       turn.userAtMs ?? turn.request?.startedAtMs,
     );
-    const assistantTimeLabel = formatTimestamp(
-      turn.assistantAtMs ?? turn.request?.finishedAtMs,
-    );
     const durationLabel = formatDuration(resolveTurnDurationMs(turn));
 
     if (turn.userMessage) {
@@ -264,12 +234,15 @@ function mapTurnsToMessageMetadata(
         timeLabel: userTimeLabel,
       };
     }
-    if (turn.assistantMessage) {
-      metadata[turn.assistantMessage.id] = {
+    for (const assistantMessage of turn.assistantMessages ?? []) {
+      metadata[assistantMessage.id] = {
         modeLabel,
         modelLabel,
         durationLabel,
-        timeLabel: assistantTimeLabel,
+        timeLabel: formatTimestamp(
+          resolveMessageTimestamp(assistantMessage) ??
+            turn.request?.finishedAtMs,
+        ),
       };
     }
   }
