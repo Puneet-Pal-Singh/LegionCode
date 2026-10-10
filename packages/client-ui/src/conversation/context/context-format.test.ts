@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompactTokenCount, formatCost } from "./context-format";
+import { formatCompactTokenCount, formatCost } from "./context-format.js";
 
 describe("context formatting", () => {
   it("uses k and M suffixes at the correct scale", () => {

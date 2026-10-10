@@ -1,10 +1,15 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
 } from "@legioncode/sdk";
-import { ContextDetailsPanel } from "./ContextDetailsPanel";
+import { ContextDetailsPanel } from "./ContextDetailsPanel.js";
+
+afterEach(cleanup);
 
 const budget: ContextBudgetSnapshot = {
   providerId: "openai",

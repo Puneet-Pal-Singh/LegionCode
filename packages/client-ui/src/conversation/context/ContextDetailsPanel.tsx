@@ -2,7 +2,7 @@ import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
 } from "@legioncode/sdk";
-import { formatCost, formatTokenCount } from "./context-format";
+import { formatCost, formatTokenCount } from "./context-format.js";
 
 interface ContextDetailsPanelProps {
   budget: ContextBudgetSnapshot;

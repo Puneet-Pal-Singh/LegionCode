@@ -1,7 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PRODUCT_MODES } from "@repo/shared-types";
-import { PermissionModeControl } from "./PermissionModeControl";
+import { PermissionModeControl } from "./PermissionModeControl.js";
+
+afterEach(cleanup);
 
 describe("PermissionModeControl", () => {
   it("shows the current permission selection", () => {

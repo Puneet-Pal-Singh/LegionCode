@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { SelectedDiff, SelectedFile } from "./useWorkspaceState";
 import { WorkspaceContentView } from "./WorkspaceContentView";
 import type { SidebarContentTab } from "./useWorkspaceState";
-import { ContextDetailsPanel } from "../../chat/context/ContextDetailsPanel";
+import { ContextDetailsPanel } from "@legioncode/client-ui";
 
 interface WorkspaceSurfaceBodyProps {
   reviewActive: boolean;

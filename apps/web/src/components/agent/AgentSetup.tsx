@@ -23,22 +23,22 @@ import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
 import { Resizer } from "../ui/Resizer";
 import type { FileExplorerHandle } from "../FileExplorer";
-import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
+import { ChatComposerPlusMenu } from "@legioncode/client-ui";
 import { ChatImageAttachmentStrip } from "@legioncode/client-ui";
-import { ChatImageDropOverlay } from "../chat/ChatImageDropOverlay";
+import { ChatImageDropOverlay } from "@legioncode/client-ui";
 import { useChatImageAttachmentDraft } from "@legioncode/client-ui";
 import {
   CHAT_IMAGE_MIME_TYPES,
   type ChatSubmitAttachments,
 } from "@legioncode/client-ui";
-import { PermissionModeControl } from "../chat/PermissionModeControl.js";
+import { PermissionModeControl } from "@legioncode/client-ui";
 import { ReasoningEffortPicker } from "../chat/ReasoningEffortPicker.js";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import {
   applyFileMention,
   filterFileMentionCandidates,
   findActiveFileMention,
-} from "../chat/fileMentions";
+} from "@legioncode/client-ui";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootstrap-loading.js";

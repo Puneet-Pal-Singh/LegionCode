@@ -1,4 +1,4 @@
-import { cn } from "@legioncode/client-ui";
+import { cn } from "../../classnames.js";
 
 interface ContextUsageRingProps {
   percent: number | null;

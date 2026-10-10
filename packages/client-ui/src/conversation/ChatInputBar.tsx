@@ -21,16 +21,16 @@ import {
   filterFileMentionCandidates,
   findActiveFileMention,
   getPreferredMentionPath,
-} from "./fileMentions";
+} from "./fileMentions.js";
 import {
   CHAT_IMAGE_MIME_TYPES,
   type ChatSubmitAttachments,
-} from "@legioncode/client-ui";
-import { ChatImageAttachmentStrip } from "@legioncode/client-ui";
-import { ChatImageDropOverlay } from "./ChatImageDropOverlay";
-import { useChatImageAttachmentDraft } from "@legioncode/client-ui";
-import type { ReviewCommentDraft } from "@legioncode/client-ui";
-import { getReviewCommentDisplayLabel } from "@legioncode/client-ui";
+} from "./chatImageAttachments.js";
+import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip.js";
+import { ChatImageDropOverlay } from "./ChatImageDropOverlay.js";
+import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft.js";
+import type { ReviewCommentDraft } from "../review/reviewComments.js";
+import { getReviewCommentDisplayLabel } from "../review/reviewComments.js";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
@@ -38,7 +38,7 @@ import type {
 import {
   ChatComposerContextControl,
   ChatComposerPermissionControl,
-} from "./ChatComposerStatusControls";
+} from "./ChatComposerStatusControls.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";

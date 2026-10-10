@@ -1,5 +1,5 @@
 import type { ProviderId } from "@repo/shared-types";
-import { ChatInputBar, type ChatInputBarProps } from "./ChatInputBar.js";
+import { ChatInputBar, type ChatInputBarProps } from "@legioncode/client-ui";
 import { useComposerPreferences } from "../../lib/composer-preferences";
 import { useWebComposerProviderControls } from "./useWebComposerProviderControls.js";
 

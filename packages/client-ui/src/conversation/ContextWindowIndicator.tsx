@@ -2,9 +2,9 @@ import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
 } from "@legioncode/sdk";
-import { cn } from "@legioncode/client-ui";
-import { ContextUsageRing } from "./context/ContextUsageRing";
-import { ContextWindowTooltip } from "./context/ContextWindowTooltip";
+import { cn } from "../classnames.js";
+import { ContextUsageRing } from "./context/ContextUsageRing.js";
+import { ContextWindowTooltip } from "./context/ContextWindowTooltip.js";
 
 interface ContextWindowIndicatorProps {
   budget: ContextBudgetSnapshot | null;
