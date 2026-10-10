@@ -1,3 +1,4 @@
+import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
 import { resolveHydratedChatImageSource } from "../chatMessageImagePresentation";
 import { loadColdStorageArtifact } from "../../../services/ArtifactService";
 import type { ChatMessageMetadata } from "@legioncode/client-ui";
@@ -15,7 +16,6 @@ import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import {
   buildLifecycleTerminalViewModel,
-  collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "@legioncode/client-ui";

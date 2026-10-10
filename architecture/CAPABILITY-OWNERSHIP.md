@@ -203,3 +203,15 @@ message type through a narrow structural input, without depending on the AI UI
 transport package. UI timing labels/debug metadata remain presentation-local.
 Conversation entry visibility remains UI-specific until its shared view move.
 No new HTTP, storage, reducer or identity inference is added.
+
+## Plan 058.1 — Saved turn-diff file mapping
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Saved canonical turn-diff file mapping | SDK platform/conversation-turn-diff | Web inline/completed review and terminal presentation use the same mapping. |
+
+The existing mapping and its useful test move; replaced Web function is deleted
+and all callers import SDK. Unchanged/copied status normalization, missing stats
+and unstaged presentation values are preserved. Terminal failed_runtime display
+wording stays presentation-local; no canonical settlement is derived there.
+No live Git fallback or artifact transport is introduced.

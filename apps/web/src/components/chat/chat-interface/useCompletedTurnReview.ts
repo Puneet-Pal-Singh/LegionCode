@@ -1,8 +1,8 @@
+import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
 import { useCallback, useMemo } from "react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import { buildDiffContentFromTurnDiff } from "@legioncode/sdk";
-import { collectLifecycleTurnDiffFiles } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 
 export interface CompletedTurnReview {
   readonly turnId: string | null;
