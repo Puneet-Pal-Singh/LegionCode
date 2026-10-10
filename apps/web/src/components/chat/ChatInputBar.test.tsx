@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useState } from "react";
-import { ChatInputBar } from "./ChatInputBar.js";
+import { WebChatInputBar as ChatInputBar } from "./WebChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 import * as providerHelpersModule from "../../lib/provider-helpers.js";
 

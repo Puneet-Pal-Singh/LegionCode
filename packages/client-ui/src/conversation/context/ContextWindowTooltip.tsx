@@ -1,4 +1,4 @@
-import { formatCompactTokenCount, formatCost } from "./context-format";
+import { formatCompactTokenCount, formatCost } from "./context-format.js";
 
 interface ContextWindowTooltipBudget {
   tokensUsed: number;

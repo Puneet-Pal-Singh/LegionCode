@@ -557,12 +557,18 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      framer-motion:
+        specifier: ^12.30.0
+        version: 12.30.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       lucide-react:
         specifier: ^0.563.0
         version: 0.563.0(react@19.2.4)
       react:
         specifier: ^19.2.0
         version: 19.2.4
+      react-dom:
+        specifier: ^19.2.0
+        version: 19.2.4(react@19.2.4)
       react-icons:
         specifier: ^5.5.0
         version: 5.7.0(react@19.2.4)
@@ -603,9 +609,6 @@ importers:
       jsdom:
         specifier: ^23.0.0
         version: 23.2.0
-      react-dom:
-        specifier: ^19.2.0
-        version: 19.2.4(react@19.2.4)
       typescript:
         specifier: ~5.9.3
         version: 5.9.3

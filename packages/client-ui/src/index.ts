@@ -46,3 +46,10 @@ export { CanonicalWorkflowSurface } from "./conversation/workflow/CanonicalWorkf
 export { PendingWorkflowSurface } from "./conversation/workflow/PendingWorkflowSurface.js";
 export { ApprovalDock } from "./conversation/approval/ApprovalDock.js";
 export { getDisplayedApprovalDecisions } from "./conversation/approval/approvalDecisions.js";
+export { ChatInputBar, type ChatInputBarProps } from "./conversation/ChatInputBar.js";
+export { ChatComposerPlusMenu } from "./conversation/ChatComposerPlusMenu.js";
+export { ChatImageDropOverlay } from "./conversation/ChatImageDropOverlay.js";
+export { PermissionModeControl } from "./conversation/PermissionModeControl.js";
+export { ContextUsageRing } from "./conversation/context/ContextUsageRing.js";
+export { ContextDetailsPanel, type ContextSessionSnapshot } from "./conversation/context/ContextDetailsPanel.js";
+export * from "./conversation/fileMentions.js";

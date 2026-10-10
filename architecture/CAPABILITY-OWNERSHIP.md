@@ -101,3 +101,21 @@ projection remains the canonical read model; shared UI has no runtime commands,
 HTTP or product storage. Approval settlement and artifact loading stay with
 existing owners until their command slices. Unused Web WorkflowPlanDiff and
 explorationCopy are untouched; no unrelated cleanup or new input UI is included.
+
+## Plan 058.2B — Composer and context controls
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Composer text/mentions, image drafts, submit/Stop presentation, mode/permission/context controls and warning UI | `client-ui/src/conversation` | Web ChatComposerControls uses WebChatInputBar to supply existing provider picker slots/preference and renders the shared ChatInputBar. AgentSetup uses the same moved mention/plus/image/permission controls. |
+| Context usage/detail presentation and formatting | `client-ui/src/conversation/context` | Shared composer and Web workspace tabs/body/state supply the same canonical context/usage snapshots and session display data. |
+| Current hosted provider/model/credential control binding | Web `useWebComposerProviderControls.tsx` and `WebChatInputBar.tsx` | Existing ProviderStore effects/actions, model/reasoning picker, notice/quota/dialog nodes and composer UI preference are supplied explicitly. Product operations remain pending 058.3B; migrate them through existing SDK/App Server owners and delete competing Web product authority then. |
+
+The necessary host-binding commit precedes the mechanical move. The shared
+renderer takes only narrow presentation slots and existing callbacks/data; it
+does not receive a Web store/service object. All replaced Web renderer/leaf
+copies are deleted. Existing composer integration tests stay at the Web binding;
+permission, mention and context tests move with their implementation, preserving
+assertions and native browser setup. Existing custom composer/plus-menu styles
+move exactly into shared styles, with no old copies. UI preferences and unsent
+drafts remain local UI state; submitted history/admission/Stop remain with their
+existing owners until the command slices.

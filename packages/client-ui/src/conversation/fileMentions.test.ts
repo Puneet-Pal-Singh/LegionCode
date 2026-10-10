@@ -5,7 +5,7 @@ import {
   findActiveFileMention,
   getPreferredMentionPath,
   listFileMentions,
-} from "./fileMentions";
+} from "./fileMentions.js";
 
 describe("fileMentions", () => {
   it("finds an active file mention at the caret", () => {

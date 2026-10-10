@@ -1,7 +1,7 @@
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
 import type { ComponentProps } from "react";
-import { ContextWindowIndicator } from "./ContextWindowIndicator";
-import { PermissionModeControl } from "./PermissionModeControl";
+import { ContextWindowIndicator } from "./ContextWindowIndicator.js";
+import { PermissionModeControl } from "./PermissionModeControl.js";
 
 interface ChatComposerPermissionControlProps {
   value?: ProductMode;

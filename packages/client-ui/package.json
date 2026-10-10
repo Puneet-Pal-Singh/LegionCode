@@ -27,7 +27,9 @@
     "remark-gfm": "^4.0.1",
     "@ai-sdk/react": "1.1.0",
     "react-syntax-highlighter": "^16.1.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "framer-motion": "^12.30.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
@@ -36,7 +38,6 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "jsdom": "^23.0.0",
-    "react-dom": "^19.2.0",
     "typescript": "~5.9.3",
     "vitest": "^1.6.0",
     "@types/react-syntax-highlighter": "^15.5.13"

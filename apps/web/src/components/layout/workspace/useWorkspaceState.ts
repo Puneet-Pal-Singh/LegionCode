@@ -4,7 +4,7 @@ import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
 } from "@legioncode/sdk";
-import type { ContextSessionSnapshot } from "../../chat/context/ContextDetailsPanel";
+import type { ContextSessionSnapshot } from "@legioncode/client-ui";
 
 export type TabType = "review" | "changes" | "files";
 
