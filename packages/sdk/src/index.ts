@@ -243,3 +243,5 @@ export {
   type LifecycleProjectionItem, type LifecycleProjectionApproval, type LifecycleProjectionTerminal,
 } from "./workflow/conversation-lifecycle-projection.js";
 export { mergeLifecycleProjections } from "./workflow/merge-lifecycle-projections.js";
+
+export { buildConversationTurns, readCanonicalTurnId, resolveMessageTimestamp, type ConversationMessage, type ConversationTurn } from "./platform/conversation-turns.js";
