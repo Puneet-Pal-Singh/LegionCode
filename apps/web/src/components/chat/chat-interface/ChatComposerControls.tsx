@@ -5,7 +5,7 @@ import type {
   RunMode,
 } from "@repo/shared-types";
 import type { ProviderId } from "../../../types/provider";
-import type { ChatSubmitAttachments } from "../chatImageAttachments";
+import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 import type { ReviewCommentDraft } from "../../git/reviewComments";
 import { ApprovalDock } from "../approval/ApprovalDock.js";
 import { ChatInputBar } from "../ChatInputBar";

@@ -31,10 +31,10 @@ import {
 import {
   CHAT_IMAGE_MIME_TYPES,
   type ChatSubmitAttachments,
-} from "./chatImageAttachments";
-import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip";
+} from "@legioncode/client-ui";
+import { ChatImageAttachmentStrip } from "@legioncode/client-ui";
 import { ChatImageDropOverlay } from "./ChatImageDropOverlay";
-import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft";
+import { useChatImageAttachmentDraft } from "@legioncode/client-ui";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import {
   isProviderModelBootstrapLoading,

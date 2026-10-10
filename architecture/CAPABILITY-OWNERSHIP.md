@@ -27,3 +27,16 @@ markdown and action tests move with their source. The existing popover style
 moves into shared styles imported by both Web and Desktop. Shared presentation has no
 Web imports or product HTTP/storage authority. Browser clipboard remains UI
 behavior; authentication, runtime commands and metadata derivation are unchanged.
+
+## Plan 058.2A — Image preview and composer drafts
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Image gallery/modal and attachment strip | `client-ui/src/conversation` | Web ChatMessage, ChatInputBar and AgentSetup render the shared source. |
+| Browser image draft validation, file reading, preview URL lifecycle and submission detach/restore | `client-ui/src/conversation/useChatImageAttachmentDraft.ts` and `chatImageAttachments.ts` | Web composer/setup supply files and submission callbacks; existing submit/initial-intent bindings consume the same attachment types and transformations. |
+
+Old Web files and the adjacent attachment-helper test are moved, with no
+compatibility copies. Existing accept/reject cleanup, URL revocation, paste,
+drop, Escape and gallery-navigation behavior is unchanged. Drafts remain local
+UI state; submitted history and hydrated media authorization stay with their
+existing server/Web bindings until the command/history slices.

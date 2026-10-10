@@ -1,4 +1,4 @@
-import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
+import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 
 declare const initialPromptSubmissionIdBrand: unique symbol;
 

@@ -7,7 +7,7 @@ import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
-import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
+import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 import type { ConversationScope } from "./conversationScope";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 

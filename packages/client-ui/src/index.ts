@@ -22,3 +22,12 @@ export { MessageContent, MarkdownMessageContent } from "./conversation/chat-mess
 export { MessageActions } from "./conversation/chat-message/MessageActions.js";
 export type { ChatMessageMetadata } from "./conversation/chat-message/types.js";
 export { stripAssistantChangeCounts } from "./conversation/chat-message/markdownTransforms.js";
+export { ChatImageGallery, type ChatImagePreview } from "./conversation/ChatImageGallery.js";
+export { ChatImageAttachmentStrip } from "./conversation/ChatImageAttachmentStrip.js";
+export { useChatImageAttachmentDraft } from "./conversation/useChatImageAttachmentDraft.js";
+export {
+  CHAT_IMAGE_MIME_TYPES, isChatImageMimeType, validateNextImageAttachment,
+  createChatImageAttachment, toImageParts, toRedactedImageMetadata,
+  formatAttachmentSize, type ChatImageMimeType, type ChatImageAttachment,
+  type ChatSubmitAttachments,
+} from "./conversation/chatImageAttachments.js";
