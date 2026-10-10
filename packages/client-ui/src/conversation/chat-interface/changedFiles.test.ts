@@ -3,8 +3,8 @@ import type { DiffContent, FileStatus } from "@repo/shared-types";
 import type {
   TurnDiffPayload,
   TurnId,
-} from "../../../services/api/lifecycleClient";
-import { resolveTerminalChangedFilesSummary } from "./changedFiles";
+} from "@legioncode/sdk";
+import { resolveTerminalChangedFilesSummary } from "./changedFiles.js";
 
 const TURN_ID = "trn_changedfiles001" as TurnId;
 const FILE: FileStatus = {

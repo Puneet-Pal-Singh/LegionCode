@@ -6,14 +6,14 @@ import type {
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import { buildLifecycleMessageMetadata } from "../messageMetadata";
-import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
+import { buildLifecycleMessageMetadata } from "@legioncode/client-ui";
+import type { LifecycleTerminalViewModel } from "@legioncode/client-ui";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import {
   buildLifecycleTerminalViewModel,
-} from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
+} from "@legioncode/client-ui";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "@legioncode/client-ui";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
@@ -22,8 +22,8 @@ import { PendingWorkflowSurface } from "@legioncode/client-ui";
 import {
   resolveChangedFilesSummary,
   resolveTerminalChangedFilesSummary,
-} from "./changedFiles";
-import type { ChatInterfaceEntry } from "./chatEntries";
+} from "@legioncode/client-ui";
+import type { ChatInterfaceEntry } from "@legioncode/client-ui";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { ChevronDown, Folder } from "lucide-react";
 

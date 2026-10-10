@@ -31,7 +31,7 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
 import {
   buildChatMessageMetadata,
-} from "./messageMetadata";
+} from "@legioncode/client-ui";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";

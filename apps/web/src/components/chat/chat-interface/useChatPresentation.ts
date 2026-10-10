@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
-import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel";
+import { buildLifecycleTerminalViewModel } from "@legioncode/client-ui";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import type { ConversationTurn } from "@legioncode/sdk";
-import { buildChatEntries } from "./chatEntries";
+import { buildChatEntries } from "@legioncode/client-ui";
 
 interface ChatPresentationInput {
   messages: Message[];

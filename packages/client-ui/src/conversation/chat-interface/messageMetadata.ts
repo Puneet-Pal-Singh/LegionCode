@@ -1,7 +1,7 @@
 import type { Message } from "@ai-sdk/react";
 import { buildConversationTurns, resolveMessageTimestamp, type ConversationTurn as CanonicalConversationTurn } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
-import type { ChatMessageMetadata } from "@legioncode/client-ui";
+import type { ChatMessageMetadata } from "../chat-message/types.js";
 
 interface MessageTimingEvent {
   phase: "request" | "response" | "finish" | "error";

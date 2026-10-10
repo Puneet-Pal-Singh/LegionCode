@@ -17,7 +17,7 @@ import {
   areFileStatusListsEqual,
   buildArtifactChangedFileDiffCacheKey,
   cloneFileStatuses,
-} from "./changedFiles";
+} from "@legioncode/client-ui";
 import {
   logClientEvent,
   logClientWarning,

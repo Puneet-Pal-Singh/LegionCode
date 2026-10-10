@@ -5,7 +5,7 @@ import type {
 import type {
   LifecycleTerminalDisplayState,
   LifecycleTerminalViewModel,
-} from "./LifecycleTerminalTypes";
+} from "./LifecycleTerminalTypes.js";
 
 export function buildLifecycleTerminalViewModel(
   projection: LifecycleProjection | null,

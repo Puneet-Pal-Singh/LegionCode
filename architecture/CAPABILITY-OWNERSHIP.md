@@ -223,3 +223,12 @@ client debug panel to the conversation view. The view receives presentation
 values/callbacks; authenticated transport and debug collection remain Web-owned.
 No runtime, admission or hydration algorithm changes. This boundary permits the
 existing view and presentation hooks to move into shared client UI next.
+
+### Plan 058 conversation presentation helpers
+
+`client-ui/src/conversation/chat-interface` owns transcript render entries,
+message display metadata, terminal labels and changed-file summary presentation.
+Web ChatInterface, the view/presentation hook and changed-files controller use
+these shared helpers; SDK remains the canonical identity/projection/diff owner.
+The replaced Web helpers/types and their tests are moved, preserving assertions.
+The prompt-terminal capability gate executes the moved terminal display test.

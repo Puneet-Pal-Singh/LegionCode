@@ -137,7 +137,7 @@ const CAPABILITIES = [
         "records interrupted terminal summary message on cancel when contract is enabled",
       ],
       [
-        "apps/web/src/services/lifecycle/LifecycleTerminalViewModel.test.ts",
+        "packages/client-ui/src/conversation/chat-interface/LifecycleTerminalViewModel.test.ts",
         "renders terminal failure content from canonical terminal projection",
       ],
     ],
@@ -160,10 +160,10 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@legioncode/web",
+        "@legioncode/client-ui",
         "test",
         "--",
-        "src/services/lifecycle/LifecycleTerminalViewModel.test.ts",
+        "src/conversation/chat-interface/LifecycleTerminalViewModel.test.ts",
       ],
     ],
   },

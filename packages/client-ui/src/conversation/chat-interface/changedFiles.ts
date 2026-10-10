@@ -3,9 +3,9 @@ import type {
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
+import type { LifecycleTerminalViewModel } from "./LifecycleTerminalTypes.js";
 import { buildDiffContentFromTurnDiff } from "@legioncode/sdk";
-import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type { TurnDiffPayload } from "@legioncode/sdk";
 
 export function resolveChangedFilesSummary(input: {
   messageId: string;

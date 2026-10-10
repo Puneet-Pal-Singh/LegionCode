@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { TurnId } from "../api/lifecycleClient";
+import type { TurnId } from "@legioncode/sdk";
 import {
   buildLifecycleTerminalViewModel,
-} from "./LifecycleTerminalViewModel";
+} from "./LifecycleTerminalViewModel.js";
 import type { LifecycleProjection } from "@legioncode/sdk";
 
 const TURN_ID = "trn_view01" as TurnId;
