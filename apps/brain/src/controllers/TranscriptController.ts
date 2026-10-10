@@ -1,14 +1,10 @@
-import { readHostedConversationHistory, ConversationHistoryNotFoundError } from "../integration/app-server/HostedConversationHistory";
 import { z } from "zod";
 import {
-  ConversationHistoryRequestSchema,
-  type ConversationHistoryResponse,
   RunIdSchema,
 } from "@repo/platform-protocol";
 import type {
   SessionRecord,
 } from "@repo/persistence";
-import { InvalidTranscriptSnapshotError } from "@repo/persistence";
 import { errorResponse, jsonResponse } from "../http/response";
 import type { Env } from "../types/ai";
 import {
@@ -221,47 +217,6 @@ export class TranscriptController {
     }
   }
 
-  static async getHistory(request: Request, env: Env): Promise<Response> {
-    const requestId = crypto.randomUUID();
-    const startedAt = Date.now();
-    const queryParams = new URL(request.url).searchParams;
-    const requestedSessionId = queryParams.get("session")?.trim() ?? "";
-    try {
-      console.log(
-        `[chat/history] requestId=${requestId} sessionId=${requestedSessionId || "missing"} status=started`,
-      );
-      const auth = await getAuthenticatedUserSession(request, env);
-      if (!auth) {
-        console.warn(
-          `[chat/history] requestId=${requestId} sessionId=${requestedSessionId || "missing"} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
-        );
-        return errorResponse(request, env, "Unauthorized", 401);
-      }
-
-      const query = ConversationHistoryRequestSchema.parse(
-        Object.fromEntries(queryParams),
-      );
-      const response = await readHostedConversationHistory(env, auth.userId, query);
-      console.log(
-        `[chat/history] requestId=${requestId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} snapshot=${response.snapshot} elapsedMs=${Date.now() - startedAt}`,
-      );
-      return jsonResponse(request, env, response);
-    } catch (error) {
-      console.error(
-        `[chat/history] requestId=${requestId} sessionId=${requestedSessionId || "unknown"} status=failed elapsedMs=${Date.now() - startedAt}`,
-        summarizeTranscriptError(error),
-      );
-      return transcriptErrorResponse(request, env, error);
-    }
-  }
-}
-
-function summarizeHydrationMessages(
-  messages: ConversationHistoryResponse["messages"],
-): string {
-  return messages
-    .map((message) => `${message.role}:${message.id}`)
-    .join(",");
 }
 
 async function createPersistedSession(
@@ -386,17 +341,9 @@ function transcriptErrorResponse(
   env: Env,
   error: unknown,
 ): Response {
-  if (error instanceof ConversationHistoryNotFoundError) {
-    return errorResponse(request, env, "Conversation not found", 404);
-  }
-
   if (error instanceof z.ZodError) {
     console.warn("[transcript/request] invalid request", error.issues);
     return errorResponse(request, env, "Invalid transcript request", 400);
-  }
-
-  if (error instanceof InvalidTranscriptSnapshotError) {
-    return errorResponse(request, env, error.message, 400, "HISTORY_SNAPSHOT_INVALID");
   }
 
   if (isSessionStoreUnavailableError(error)) {
@@ -405,14 +352,4 @@ function transcriptErrorResponse(
 
   console.error("[transcript/persistence] request failed:", error);
   return errorResponse(request, env, "Failed to load transcript state", 500);
-}
-
-function summarizeTranscriptError(error: unknown): {
-  name: string;
-  message: string;
-} {
-  if (error instanceof Error) {
-    return { name: error.name, message: error.message };
-  }
-  return { name: "UnknownError", message: String(error) };
 }

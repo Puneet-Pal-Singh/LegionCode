@@ -273,3 +273,13 @@ operation. Its existing HTTP transport supports hosted cookie credentials and
 explicitly disabling its default deadline so existing cancellable history reads
 keep their lifetime. No second public client, history loop or projection exists.
 Web will use this operation with the existing SDK pinned-page reader.
+
+### Plan 058 Web history cutover
+
+Web ChatHydrationService uses the existing SDK AppServerClient page operation
+through the authenticated hosted composition, with the existing pinned-page SDK
+reader and Web-only message presentation conversion. Cancellation, partial/failed
+reads and complete-snapshot replacement retain their existing safeguards.
+The unused Brain `/api/chat/history?session=...` route/controller and Web URL
+builder are deleted; the separate secure-agent-api run-history route is outside
+this session read and unchanged. No browser storage is deleted or migrated.

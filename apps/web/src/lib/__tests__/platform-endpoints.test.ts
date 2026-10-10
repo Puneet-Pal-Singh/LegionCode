@@ -8,7 +8,6 @@ import {
   getMuscleHttpBase,
   getMuscleWsBase,
   chatStreamPath,
-  chatHistoryPath,
   gitStatusPath,
   gitDiffPath,
   gitStagePath,
@@ -113,18 +112,6 @@ describe("Platform Endpoints", () => {
 
     it("should build chat stream path from Brain", () => {
       expect(chatStreamPath()).toBe("https://brain.local/chat");
-    });
-
-    it("should build chat history path with sessionId", () => {
-      expect(chatHistoryPath("session-123")).toBe(
-        "https://brain.local/api/chat/history?session=session-123",
-      );
-    });
-
-    it("should encode sessionId in chat history path", () => {
-      expect(chatHistoryPath("session/with/slashes")).toBe(
-        "https://brain.local/api/chat/history?session=session%2Fwith%2Fslashes",
-      );
     });
 
     it("should build the canonical git status path through Brain", () => {
