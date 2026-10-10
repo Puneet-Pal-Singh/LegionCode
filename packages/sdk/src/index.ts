@@ -245,3 +245,4 @@ export {
 export { mergeLifecycleProjections } from "./workflow/merge-lifecycle-projections.js";
 
 export { buildConversationTurns, readCanonicalTurnId, resolveMessageTimestamp, type ConversationMessage, type ConversationTurn } from "./platform/conversation-turns.js";
+export { collectLifecycleTurnDiffFiles } from "./platform/conversation-turn-diff.js";
