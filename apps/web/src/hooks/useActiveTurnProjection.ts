@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { TurnIdSchema } from "@legioncode/sdk";
 import { useTurnLifecycleProjection } from "./useTurnLifecycleProjection.js";
-import type { LifecycleProjection } from "../services/lifecycle/LifecycleProjection";
+import type { LifecycleProjection } from "@legioncode/sdk";
 
 export interface ActiveTurnProjection {
   readonly turnId: string | null;

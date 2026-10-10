@@ -48,7 +48,7 @@ import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
-import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
+import { mergeLifecycleProjections } from "@legioncode/sdk";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoadingIndicator.js";
 import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";

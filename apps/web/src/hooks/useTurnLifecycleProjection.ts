@@ -7,10 +7,10 @@ import {
   type TurnId,
 } from "../services/api/lifecycleClient";
 import {
-  applyLifecycleEvent,
+  applyConversationLifecycleEvent as applyLifecycleEvent,
   createLifecycleProjection,
   type LifecycleProjection,
-} from "../services/lifecycle/LifecycleProjection";
+} from "@legioncode/sdk";
 
 interface UseTurnLifecycleProjectionResult {
   readonly projection: LifecycleProjection | null;

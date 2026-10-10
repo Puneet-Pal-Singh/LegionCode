@@ -17,7 +17,7 @@ import {
 import type {
   LifecycleProjection,
   LifecycleProjectionApproval,
-} from "../../../services/lifecycle/LifecycleProjection";
+} from "@legioncode/sdk";
 import { getDisplayedApprovalDecisions } from "@legioncode/client-ui";
 
 interface ApprovalControllerInput {

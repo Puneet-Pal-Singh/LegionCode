@@ -235,3 +235,11 @@ export { workspaceIdFromExternalId } from "@repo/platform-protocol";
 export { parseReadFileOutput, normalizeReadFileContent, type ReadFileOutput } from "./platform/read-file-output.js";
 
 export * from "./platform/conversation-history.js";
+
+export {
+  createLifecycleProjection, applyConversationLifecycleEvent, replayLifecycleProjection,
+  lifecyclePhaseLabel, type LifecycleProjection, type LifecycleProjectionTerminalState,
+  type LifecycleProjectionPhase, type LifecycleProjectionItemStatus,
+  type LifecycleProjectionItem, type LifecycleProjectionApproval, type LifecycleProjectionTerminal,
+} from "./workflow/conversation-lifecycle-projection.js";
+export { mergeLifecycleProjections } from "./workflow/merge-lifecycle-projections.js";

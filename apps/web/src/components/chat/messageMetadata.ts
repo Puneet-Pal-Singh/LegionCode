@@ -1,7 +1,7 @@
 import type { Message } from "@ai-sdk/react";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { TurnIdSchema } from "@legioncode/sdk";
-import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
+import type { LifecycleProjection } from "@legioncode/sdk";
 import type { ChatMessageMetadata } from "@legioncode/client-ui";
 
 export function buildLifecycleMessageMetadata(

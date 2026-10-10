@@ -2,7 +2,7 @@ import type { Message } from "@ai-sdk/react";
 import { describe, expect, it } from "vitest";
 import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
-import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
+import { createLifecycleProjection } from "@legioncode/sdk";
 import { TurnIdSchema } from "@legioncode/sdk";
 import { ItemIdSchema } from "@legioncode/sdk";
 

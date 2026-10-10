@@ -12,14 +12,14 @@ import { buildLifecycleMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
-import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
+import type { LifecycleProjection } from "@legioncode/sdk";
 import {
   buildLifecycleTerminalViewModel,
   collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "@legioncode/client-ui";
-import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
+import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "@legioncode/client-ui";
 import { PendingWorkflowSurface } from "@legioncode/client-ui";
 import { formatDebugPayload } from "./debugPayload.js";

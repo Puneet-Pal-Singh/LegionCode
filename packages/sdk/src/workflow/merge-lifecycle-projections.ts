@@ -1,4 +1,4 @@
-import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
+import type { LifecycleProjection } from "./conversation-lifecycle-projection.js";
 
 type ProjectionMap = Readonly<Record<string, LifecycleProjection>>;
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   lifecyclePhaseLabel,
   type LifecycleProjection,
-} from "../../../services/lifecycle/LifecycleProjection.js";
+} from "@legioncode/sdk";
 
 interface TurnLifecycleStatusProps {
   projection: LifecycleProjection;
