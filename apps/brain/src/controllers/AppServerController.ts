@@ -26,11 +26,15 @@ export const AppServerController = {
     if (parsed.success && parsed.data.method !== "initialize") {
       try {
         const auth = await getAuthenticatedUserSession(request, env);
-        if (!auth) return json(env, request, 401, { code: "unauthorized", message: "Unauthorized" });
+        if (!auth) return json(env, request, 401, {
+          protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
+          ok: false, error: { code: "unauthorized", message: "Unauthorized" },
+        });
         historyService = composeHostedConversationHistory(env, auth.userId);
       } catch (error) {
         return json(env, request, isSessionStoreUnavailableError(error) ? 503 : 500, {
-          code: "server_unavailable", message: "Authentication is unavailable",
+          protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
+          ok: false, error: { code: "server_unavailable", message: "Authentication is unavailable" },
         });
       }
     }

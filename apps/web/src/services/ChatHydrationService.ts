@@ -126,7 +126,7 @@ export class ChatHydrationService {
     });
     let page: HistoryPagePayload;
     try {
-      page = await createHostedAppServerClient({ signal, timeoutMs: null }).getConversationHistoryPage({
+      page = await createHostedAppServerClient({ signal, timeoutMs: null, maxResponseBytes: null }).getConversationHistoryPage({
         session: sessionId, limit: 50,
         ...(cursor !== null ? { cursor } : {}),
         ...(snapshot !== null ? { snapshot } : {}),

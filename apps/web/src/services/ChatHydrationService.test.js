@@ -4,6 +4,19 @@ import { ChatHydrationService } from "./ChatHydrationService";
 
 describe("ChatHydrationService", () => {
   const message = (id, role, content) => ({ id, role, content, createdAt: "2026-10-03T00:00:00.000Z" });
+  it("hydrates a valid fifty-message page larger than the transport default limit", async () => {
+    const messages = Array.from({ length: 50 }, (_, index) => message(`m${index}`, "assistant", "x".repeat(22_000)));
+    const body = JSON.stringify({ messages, nextCursor: null, snapshot: "50" });
+    expect(body.length).toBeGreaterThan(1_048_576);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(historyResponse(body, {
+      headers: { "content-length": String(body.length) },
+    })));
+    const result = await new ChatHydrationService().hydrateMessages("550e8400-e29b-41d4-a716-446655440001");
+    expect(result.status).toBe("readable");
+    expect(result.messages).toHaveLength(50);
+    expect(result.messages[49].content).toBe(messages[49].content);
+  });
+
   beforeEach(() => {
     _resetEndpointCache();
     vi.stubEnv("VITE_BRAIN_BASE_URL", "http://localhost:8787");

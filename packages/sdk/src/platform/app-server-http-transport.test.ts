@@ -89,6 +89,19 @@ describe("App Server HTTP transport", () => {
     });
   });
 
+  it("retains the default declared size limit unless the operation explicitly disables it", async () => {
+    const payload = { content: "x".repeat(1_048_577) };
+    const serialized = JSON.stringify(payload);
+    const fetchImpl = async () => new Response(serialized, {
+      headers: { "content-length": String(serialized.length) },
+    });
+    const options = { baseUrl: "https://brain.example", fetchImpl };
+    await expect(createAppServerHttpTransport(options).request(envelope)).rejects.toMatchObject({
+      code: "transport", message: "App Server response is too large",
+    });
+    await expect(createAppServerHttpTransport({ ...options, maxResponseBytes: null }).request(envelope)).resolves.toEqual(payload);
+  });
+
   it("times out while waiting for the response body", async () => {
     const transport = createAppServerHttpTransport({
       baseUrl: "http://127.0.0.1:4310",

@@ -11,7 +11,7 @@ export function initializeHostedAppServer() {
 
 /** Cookie authorization and cancellation are host transport bindings. */
 export function createHostedAppServerClient(
-  options: Pick<AppServerHttpTransportOptions, "signal" | "timeoutMs"> = {},
+  options: Pick<AppServerHttpTransportOptions, "signal" | "timeoutMs" | "maxResponseBytes"> = {},
 ) {
   return createAppServerClient({
     clientId: "legioncode-web",
