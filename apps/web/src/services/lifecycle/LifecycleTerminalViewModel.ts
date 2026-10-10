@@ -2,7 +2,7 @@ import type { FileStatus } from "@repo/shared-types";
 import type {
   LifecycleProjection,
   LifecycleProjectionTerminalState,
-} from "./LifecycleProjection";
+} from "@legioncode/sdk";
 import type {
   LifecycleTerminalDisplayState,
   LifecycleTerminalViewModel,

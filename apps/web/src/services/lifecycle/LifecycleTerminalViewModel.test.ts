@@ -4,7 +4,7 @@ import {
   buildLifecycleTerminalViewModel,
   collectLifecycleTurnDiffFiles,
 } from "./LifecycleTerminalViewModel";
-import type { LifecycleProjection } from "./LifecycleProjection";
+import type { LifecycleProjection } from "@legioncode/sdk";
 
 const TURN_ID = "trn_view01" as TurnId;
 

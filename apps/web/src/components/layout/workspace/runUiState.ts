@@ -2,7 +2,7 @@ import {
   isApprovalRequiredRunStatus,
   isTerminalRunStatus,
 } from "../../../lib/run-status";
-import type { LifecycleProjectionTerminalState } from "../../../services/lifecycle/LifecycleProjection";
+import type { LifecycleProjectionTerminalState } from "@legioncode/sdk";
 
 export type CanonicalRunStatus =
   | "RUNNING"

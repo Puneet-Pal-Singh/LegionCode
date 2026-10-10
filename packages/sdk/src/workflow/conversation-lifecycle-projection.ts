@@ -1,20 +1,7 @@
-import type {
-  HookInvocationAuditEvent,
-  ItemKind,
-  LifecycleEvent,
-  TurnDiffPayload,
-  TurnId,
-} from "../api/lifecycleClient";
-import {
-  applyHookAuditLifecycleEvent,
-  createHookAuditProjection,
-} from "../api/lifecycleClient";
-import {
-  applyLifecycleEvent as applySdkLifecycleEvent,
-  createTurnWorkflowProjection,
-  workflowPhaseLabel,
-  type TurnWorkflowProjection,
-} from "@legioncode/sdk";
+import type { HookInvocationAuditEvent } from "@repo/hook-protocol";
+import type { ItemKind, LifecycleEvent, TurnDiffPayload, TurnId } from "@repo/platform-protocol";
+import { applyHookAuditLifecycleEvent, createHookAuditProjection } from "../platform/hook-audit-projection.js";
+import { applyLifecycleEvent as applySdkLifecycleEvent, createTurnWorkflowProjection, workflowPhaseLabel, type TurnWorkflowProjection } from "./turn-workflow-projection.js";
 
 export type LifecycleProjectionTerminalState = NonNullable<
   TurnWorkflowProjection["terminal"]
@@ -43,7 +30,7 @@ export function createLifecycleProjection(
   };
 }
 
-export function applyLifecycleEvent(
+export function applyConversationLifecycleEvent(
   projection: LifecycleProjection,
   event: LifecycleEvent,
 ): LifecycleProjection {
@@ -61,7 +48,7 @@ export function replayLifecycleProjection(
   turnId: TurnId,
   events: readonly LifecycleEvent[],
 ): LifecycleProjection {
-  return events.reduce(applyLifecycleEvent, createLifecycleProjection(turnId));
+  return events.reduce(applyConversationLifecycleEvent, createLifecycleProjection(turnId));
 }
 
 export { workflowPhaseLabel as lifecyclePhaseLabel };

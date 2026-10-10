@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { TurnIdSchema } from "@legioncode/sdk";
-import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
-import { mergeLifecycleProjections } from "./mergeLifecycleProjections";
+import { TurnIdSchema } from "@repo/platform-protocol";
+import { createLifecycleProjection } from "./conversation-lifecycle-projection.js";
+import { mergeLifecycleProjections } from "./merge-lifecycle-projections.js";
 
 describe("mergeLifecycleProjections", () => {
   it("keeps a prior live turn while durable replay catches up", () => {

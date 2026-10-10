@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createLifecycleProjection,
   type LifecycleProjection,
-} from "../../../services/lifecycle/LifecycleProjection.js";
+} from "@legioncode/sdk";
 import { TurnLifecycleStatus } from "./TurnLifecycleStatus.js";
 
 afterEach(() => {

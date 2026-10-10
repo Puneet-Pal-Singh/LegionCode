@@ -9,13 +9,13 @@ import {
   type RunAttemptId,
   type ThreadId,
   type TurnId,
-} from "../api/lifecycleClient";
+} from "../index.js";
 import {
   createLifecycleProjection,
   replayLifecycleProjection,
-  applyLifecycleEvent,
+  applyConversationLifecycleEvent as applyLifecycleEvent,
   lifecyclePhaseLabel,
-} from "./LifecycleProjection";
+} from "./conversation-lifecycle-projection.js";
 
 const THREAD_ID = "thr_life01" as ThreadId;
 const TURN_ID = "trn_life01" as TurnId;

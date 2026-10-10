@@ -175,3 +175,18 @@ existing SDK, and history transport moves through authenticated App Server in
 058.3A. Shared conversation composition remains pending 058.2E. The earlier
 baseline entries' pending browser binding is fulfilled here, without claiming
 completion of hosted routing or final browser acceptance.
+
+## Plan 058.1 — Lifecycle projection composition and selection
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Compose workflow and hook-audit read models | SDK workflow/conversation-lifecycle-projection | Web active/historical replay, approval, conversation and terminal presentation use the moved composition of existing SDK reducers. |
+| Select the newest observed/replayed/active projection per turn | SDK workflow/merge-lifecycle-projections | Web ChatInterface uses the same sequence/terminal/item tie-breaking rules. |
+
+The Web composition and selection copies and their tests move and are deleted
+at their original paths. No second reducer or lifecycle producer is added.
+The existing SDK workflow applyLifecycleEvent export remains unchanged; the
+composed function is named applyConversationLifecycleEvent to avoid collision.
+Terminal wording and conversation presentation stay UI-local until 058.2E;
+canonical saved-diff derivation and transcript grouping remain pending their
+respective capability slices. Existing assertions and edge cases are retained.

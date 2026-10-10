@@ -3,7 +3,7 @@ import {
   buildConversationTurns,
   readCanonicalTurnId,
 } from "../messageMetadata";
-import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
+import type { LifecycleProjection } from "@legioncode/sdk";
 
 export type ChatInterfaceEntry =
   | {

@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { createInitialPromptSubmissionId } from "../../../lib/initial-prompt-submission";
-import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
+import type { LifecycleProjection } from "@legioncode/sdk";
 import { useChatPresentation } from "./useChatPresentation";
 
 describe("useChatPresentation", () => {

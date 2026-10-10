@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
+import { createLifecycleProjection } from "@legioncode/sdk";
 import type { TurnId } from "../../../services/api/lifecycleClient";
 import { useCompletedTurnReview } from "./useCompletedTurnReview";
 
