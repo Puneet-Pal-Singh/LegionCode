@@ -1,5 +1,5 @@
 import type { DiffContent, DiffLine } from "@repo/shared-types";
-import { cn } from "../../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { buildInlineDiffRows } from "./inlineDiffRows";
 
 export function InlineDiffViewer({ diff }: { diff: DiffContent }) {

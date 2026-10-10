@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown, GitBranch, Loader2, Search } from "lucide-react";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 
 export interface BranchSelectorBranch {
   name: string;

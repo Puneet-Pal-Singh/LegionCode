@@ -1,5 +1,5 @@
 import { Folders } from "lucide-react";
-import { cn } from "../../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 
 interface FilesToggleButtonProps {
   isOpen: boolean;

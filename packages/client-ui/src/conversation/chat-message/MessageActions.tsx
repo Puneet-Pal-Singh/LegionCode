@@ -1,8 +1,8 @@
 import { Anchor } from "lucide-react";
 import { useCallback, useState } from "react";
-import { cn } from "../../../lib/utils";
-import type { HookInvocationAuditEvent } from "../../../services/api/lifecycleClient";
-import type { ChatMessageMetadata } from "../messageMetadata";
+import { cn } from "../../classnames.js";
+import type { HookInvocationAuditEvent } from "@legioncode/sdk";
+import type { ChatMessageMetadata } from "./types.js";
 
 export function MessageActions({
   content,

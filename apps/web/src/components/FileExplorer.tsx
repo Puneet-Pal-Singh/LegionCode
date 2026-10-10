@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { Folder, File, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn } from '@legioncode/client-ui';
 import { terminalCommandPath } from '../lib/platform-endpoints';
 
 interface FileItem {

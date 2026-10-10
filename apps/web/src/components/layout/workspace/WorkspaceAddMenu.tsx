@@ -1,7 +1,7 @@
 import { Folders, Plus } from "lucide-react";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
-import { cn } from "../../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { FileChangesIcon } from "../../sidebar/FileChangesIcon";
 
 interface WorkspaceAddMenuProps {

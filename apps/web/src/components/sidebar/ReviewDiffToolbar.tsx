@@ -7,7 +7,7 @@ import {
   SquareSplitHorizontal,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
 import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
 import type { ReviewScope } from "../../services/review/ReviewSourceResolver";

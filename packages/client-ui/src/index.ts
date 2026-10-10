@@ -17,3 +17,8 @@ export {
   ProviderIcon,
   type ProviderIconProps,
 } from "./provider/ProviderIcon.js";
+export { cn } from "./classnames.js";
+export { MessageContent, MarkdownMessageContent } from "./conversation/chat-message/MessageContent.js";
+export { MessageActions } from "./conversation/chat-message/MessageActions.js";
+export type { ChatMessageMetadata } from "./conversation/chat-message/types.js";
+export { stripAssistantChangeCounts } from "./conversation/chat-message/markdownTransforms.js";

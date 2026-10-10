@@ -1,7 +1,7 @@
 import { ChevronDown, Folder, Plus, MoreHorizontal, Trash2, Edit2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 
 interface TaskItem {
   id: string;

@@ -21,8 +21,7 @@ import {
   type ToolActivitySegment,
   type WorkflowItem,
 } from "@legioncode/sdk";
-import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
-import { cn } from "../../../lib/utils.js";
+import { cn, MarkdownMessageContent } from "@legioncode/client-ui";
 import { itemDisplayText } from "./workflowPresentation.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";

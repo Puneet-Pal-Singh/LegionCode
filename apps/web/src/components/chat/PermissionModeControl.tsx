@@ -9,7 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
-import { cn } from "../../lib/utils";
+import { cn } from "@legioncode/client-ui";
 
 interface PermissionModeControlProps {
   value: ProductMode;
