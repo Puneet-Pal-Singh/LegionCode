@@ -193,9 +193,6 @@
     @apply rounded-2xl border border-zinc-800 bg-[#151516]/98 text-zinc-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)];
   }
 
-  .ui-surface-popover {
-    @apply rounded-xl border border-zinc-800 bg-[#111112]/98 text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.42)] backdrop-blur-md;
-  }
 
   .ui-popover-label {
     @apply px-3 py-2 text-sm font-medium text-zinc-500;

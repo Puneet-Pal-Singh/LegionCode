@@ -23,6 +23,7 @@ removed. Completed review continues to use the canonical saved patch.
 | Class-name conflict merging | `client-ui/src/classnames.ts` | Shared renderers and all existing Web class-name callers. |
 
 Old Web implementations are deleted; no compatibility copies remain. Existing
-markdown and action tests move with their source. Shared presentation has no
+markdown and action tests move with their source. The existing popover style
+moves into shared styles imported by both Web and Desktop. Shared presentation has no
 Web imports or product HTTP/storage authority. Browser clipboard remains UI
 behavior; authentication, runtime commands and metadata derivation are unchanged.
