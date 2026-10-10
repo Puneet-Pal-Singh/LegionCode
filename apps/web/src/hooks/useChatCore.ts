@@ -816,7 +816,7 @@ export function useChatCore(
           attempt.scope ??
           (await bootstrapConversationScope(
             sessionId,
-            runId,
+            attempt.originalRunId,
             submittedMessage.id,
             revisionTarget,
           ));

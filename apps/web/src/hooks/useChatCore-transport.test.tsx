@@ -68,6 +68,7 @@ function terminalEvent() {
 }
 function installServer(
   chat: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  turnStart?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
 ) {
   const requests: Array<{ url: string; method: string; body: string | null }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -79,6 +80,7 @@ function installServer(
       return new Response("scope unavailable", { status: 404 });
     }
     if (url.endsWith("/turn/start")) {
+      if (turnStart) return turnStart(input, init);
       return Response.json({
         workspaceId: FIXTURE.workspaceId,
         threadId: FIXTURE.threadId,
@@ -175,6 +177,39 @@ describe("useChatCore installed SDK request outcomes", () => {
     expect(chatRequests).toHaveLength(2);
     expect(chatRequests[1]?.body).toBe(firstWire);
     expect(starts).toHaveLength(1);
+  });
+
+  it("retains the reservation request when its response is lost before remount", async () => {
+    let reservationBody: string | undefined;
+    const requests = installServer(
+      async () => new Response("upstream unavailable", { status: 503 }),
+      async (_input, init) => {
+        const body = String(init?.body);
+        if (!reservationBody) {
+          reservationBody = body;
+          throw new Error("reservation response lost after commit");
+        }
+        if (body !== reservationBody) return new Response("identity conflict", { status: 409 });
+        return Response.json({
+          workspaceId: FIXTURE.workspaceId,
+          threadId: FIXTURE.threadId,
+          turnId: FIXTURE.turnId,
+          runAttemptId: FIXTURE.runAttemptId,
+        });
+      },
+    );
+    const original = { content: "retry lost reservation", id: "client_msg_lost_reservation01" };
+    const firstCore = renderCore("run_before_reservation_loss01");
+    expect((await append(firstCore.result, original)).status).toBe("unconfirmed");
+    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(0);
+    firstCore.unmount();
+    const retryCore = renderCore("run_after_reservation_remount02");
+    expect((await append(retryCore.result, original)).status).toBe("unconfirmed");
+    const starts = requests.filter(({ url }) => url.endsWith("/turn/start"));
+    expect(starts).toHaveLength(2);
+    expect(starts[1]?.body).toBe(starts[0]?.body);
+    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
+    expect(retryCore.result.current.error).toMatch(/503/);
   });
 
   it("allocates one new CID for changed intent with a supplied queue CID, then freezes that CID on retry", async () => {

@@ -30,6 +30,7 @@ export interface SubmissionAttempt {
 }
 
 interface SubmissionRecord {
+  readonly originalRunId: string;
   readonly key: string;
   readonly intentKey: string;
   intentFingerprint: string;
@@ -106,6 +107,7 @@ export function acquireSubmissionAttempt(input: {
       return { attempt: null, reused: true, previousOutcome: existing.outcome };
     }
     record = existing ?? {
+      originalRunId: input.runId,
       key: `${input.sessionId}\u0000${clientMessageId}`,
       intentKey: input.intentKey,
       intentFingerprint: input.intentFingerprint,
@@ -125,7 +127,7 @@ export function acquireSubmissionAttempt(input: {
   const attempt: SubmissionAttempt = {
     token: crypto.randomUUID(),
     sessionId: input.sessionId,
-    originalRunId: record.scope?.runId ?? input.runId,
+    originalRunId: record.originalRunId,
     runScopeGeneration: input.runScopeGeneration,
     clientMessageId: record.clientMessageId,
     intentKey: record.intentKey,
