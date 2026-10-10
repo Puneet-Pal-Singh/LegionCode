@@ -18,7 +18,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
-        "replaces stale mounted messages with canonical history for the scope",
+        "replaces the verified transcript from a complete revision snapshot",
       ],
       [
         "apps/web/src/hooks/useChatPersistence.test.tsx",
@@ -83,8 +83,8 @@ const CAPABILITIES = [
         "preserves typed tool families and repeated ordered children",
       ],
       [
-        "apps/web/src/hooks/useChatHydration.test.tsx",
-        "collapses adjacent canonical and live user prompts with different ids",
+        "apps/web/src/hooks/useChat-transcript-identity.test.tsx",
+        "renders a confirmed optimistic prompt once while preserving distinct equal-text prompts",
       ],
     ],
     commands: [
@@ -96,6 +96,7 @@ const CAPABILITIES = [
         "--",
         "src/hooks/useTurnLifecycleProjection.test.tsx",
         "src/hooks/useChatHydration.test.tsx",
+        "src/hooks/useChat-transcript-identity.test.tsx",
       ],
       [
         "pnpm",

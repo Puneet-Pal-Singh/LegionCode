@@ -182,7 +182,12 @@ describe("useChatCore installed SDK request outcomes", () => {
   it("retains the reservation request when its response is lost before remount", async () => {
     let reservationBody: string | undefined;
     const requests = installServer(
-      async () => new Response("upstream unavailable", { status: 503 }),
+      async () => new Response('0:"Accepted reply"\n', { headers: {
+        "X-Run-Id": "run_before_reservation_loss01",
+        "X-Thread-Id": FIXTURE.threadId,
+        "X-Turn-Id": FIXTURE.turnId,
+        "X-Run-Attempt-Id": FIXTURE.runAttemptId,
+      } }),
       async (_input, init) => {
         const body = String(init?.body);
         if (!reservationBody) {
@@ -204,12 +209,16 @@ describe("useChatCore installed SDK request outcomes", () => {
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(0);
     firstCore.unmount();
     const retryCore = renderCore("run_after_reservation_remount02");
-    expect((await append(retryCore.result, original)).status).toBe("unconfirmed");
+    expect((await append(retryCore.result, original)).status).toBe("accepted");
     const starts = requests.filter(({ url }) => url.endsWith("/turn/start"));
     expect(starts).toHaveLength(2);
     expect(starts[1]?.body).toBe(starts[0]?.body);
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
-    expect(retryCore.result.current.error).toMatch(/503/);
+    expect(retryCore.result.current.error).toBeNull();
+    expect(retryCore.result.current.scope?.runId).toBe("run_before_reservation_loss01");
+    expect(retryCore.result.current.serverTurnId).toBe(FIXTURE.turnId);
+    retryCore.rerender({ currentRunId: "run_after_reservation_remount02" });
+    expect(retryCore.result.current.scope?.turnId).toBe(FIXTURE.turnId);
   });
 
   it("allocates one new CID for changed intent with a supplied queue CID, then freezes that CID on retry", async () => {

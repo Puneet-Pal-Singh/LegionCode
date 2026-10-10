@@ -829,6 +829,7 @@ export function useChatCore(
           finishSubmissionAttempt(attempt, outcome);
           return outcome;
         }
+        retainedSubmissionScopeRef.current = requestScope;
         const requestScopeKey = conversationScopeKey(requestScope);
         activeScopeKeyRef.current = requestScopeKey;
         activeConversationScopeRef.current = requestScope;
