@@ -1,7 +1,7 @@
 import type { Message } from "@ai-sdk/react";
 import { z } from "zod";
-import { ArtifactPreview } from "../ArtifactPreview";
-import type { ArtifactOpenHandler } from "../artifactOpen";
+import { ArtifactPreview } from "../ArtifactPreview.js";
+import type { ArtifactOpenHandler } from "../artifactOpen.js";
 
 const codeArtifactArgsSchema = z.object({
   path: z.string().optional(),
@@ -11,9 +11,11 @@ const codeArtifactArgsSchema = z.object({
 export function MessageArtifacts({
   message,
   onArtifactOpen,
+  loadArtifactContent,
 }: {
   message: Message;
   onArtifactOpen?: ArtifactOpenHandler;
+  loadArtifactContent?: (key: string) => Promise<string>;
 }) {
   return message.toolInvocations
     ?.filter((invocation) => invocation.toolName === "create_code_artifact")
@@ -27,6 +29,7 @@ export function MessageArtifacts({
           key={invocation.toolCallId || `tool-${index}`}
           title={path}
           content={content}
+          loadContent={loadArtifactContent}
           status={invocation.state}
           onOpen={() => onArtifactOpen?.(path, content)}
         />

@@ -2,17 +2,17 @@ import { Maximize2, FileCode, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { cn } from "@legioncode/client-ui";
-import { getMuscleHttpBase } from "../../lib/platform-endpoints";
+import { cn } from "../classnames.js";
 
 interface ArtifactPreviewProps {
   title: string;
   content: string | { type: 'r2_ref'; key: string };
   onOpen: (path: string, content: string) => void;
   status: 'submitted' | 'call' | 'result' | 'partial-call';
+  loadContent?: (key: string) => Promise<string>;
 }
 
-export function ArtifactPreview({ title, content: initialContent, onOpen, status }: ArtifactPreviewProps) {
+export function ArtifactPreview({ title, content: initialContent, onOpen, status, loadContent }: ArtifactPreviewProps) {
   const [content, setContent] = useState<string>("");
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const isRunning = status === 'call' || status === 'partial-call';
@@ -22,11 +22,8 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
       (async () => {
         setIsLoadingContent(true);
         try {
-          const res = await fetch(`${getMuscleHttpBase()}/artifact?key=${encodeURIComponent(initialContent.key)}`);
-          if (!res.ok) {
-            throw new Error(`Artifact fetch failed: ${res.status}`);
-          }
-          const text = await res.text();
+          if (!loadContent) throw new Error("Artifact content loading unavailable");
+          const text = await loadContent(initialContent.key);
           setContent(text);
           setIsLoadingContent(false);
         } catch (err) {
@@ -38,7 +35,7 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
     } else if (typeof initialContent === 'string') {
       setContent(initialContent);
     }
-  }, [initialContent]);
+  }, [initialContent, loadContent]);
 
   return (
     <div className={cn(

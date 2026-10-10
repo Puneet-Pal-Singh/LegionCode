@@ -54,3 +54,17 @@ saved-patch loading remain with existing SDK/Web owners until their operation
 slice. Shared presentation invokes only the supplied loader; it owns no Git,
 artifact transport or runtime state. Existing loading/error/missing-diff,
 binary/no-line-change, known-stat preservation and hunk context behavior remain.
+
+## Plan 058.2A — Shared message composition and artifacts
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and cold-storage loader. |
+| Artifact-open callback types | `client-ui/src/conversation/artifactOpen.ts` | Shared message/artifact UI and Web workflow/conversation callers use the same type. |
+| Hosted hydrated-image URL binding | Web `chatMessageImagePresentation.ts` | Existing scoped-path validation and Brain base resolution supplied explicitly to ChatMessage. |
+| Existing cold-storage artifact transport | Web `services/ArtifactService.ts` until 058.3E | Existing Muscle artifact fetch supplied as callback; move required typed operation to SDK/App Server during the artifact operation slice, then delete this Web transport. |
+
+Replaced Web message/rendering/helpers are deleted. Only active host URL/HTTP
+bindings remain, with the artifact transport deletion trigger above. Existing
+message integration safeguards stay at the Web boundary to cover its bindings.
+No product HTTP/storage authority or Web imports enter shared presentation.

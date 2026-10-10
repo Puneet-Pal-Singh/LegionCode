@@ -10,7 +10,7 @@ import {
   resolveWorkflowTitle,
   useWorkflowClock,
 } from "./workflowPresentation.js";
-import type { ArtifactOpenHandler } from "../artifactOpen.js";
+import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 
 interface CanonicalWorkflowSurfaceProps {
   projection: TurnWorkflowProjection;

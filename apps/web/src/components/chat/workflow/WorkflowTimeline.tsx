@@ -24,7 +24,7 @@ import {
 import { cn, MarkdownMessageContent } from "@legioncode/client-ui";
 import { itemDisplayText } from "./workflowPresentation.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
-import type { ArtifactOpenHandler } from "../artifactOpen.js";
+import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
 import { DiffViewer } from "../../diff/DiffViewer.js";
 

@@ -33,3 +33,5 @@ export {
 } from "./conversation/chatImageAttachments.js";
 export { ChangedFilesCard } from "./conversation/chat-message/ChangedFilesCard.js";
 export type { ChangedFilesSummary } from "./conversation/chat-message/changed-files-types.js";
+export { ChatMessage, type ChatMessageProps } from "./conversation/ChatMessage.js";
+export type { ArtifactOpenHandler, ArtifactOpenOptions } from "./conversation/artifactOpen.js";

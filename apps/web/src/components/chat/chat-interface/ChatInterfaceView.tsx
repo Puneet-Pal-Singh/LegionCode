@@ -1,3 +1,5 @@
+import { resolveHydratedChatImageSource } from "../chatMessageImagePresentation";
+import { loadColdStorageArtifact } from "../../../services/ArtifactService";
 import type { ChatMessageMetadata } from "@legioncode/client-ui";
 import { forwardRef, type ReactNode } from "react";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
@@ -16,7 +18,7 @@ import {
   collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
-import { ChatMessage } from "../ChatMessage";
+import { ChatMessage } from "@legioncode/client-ui";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
 import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
@@ -27,7 +29,7 @@ import {
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
-import type { ArtifactOpenHandler } from "../artifactOpen";
+import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { ChevronDown, Folder } from "lucide-react";
 
 interface ChatInterfaceViewProps {
@@ -137,6 +139,8 @@ function Transcript(props: ChatInterfaceViewProps) {
         }
         return (
           <ChatMessage
+            resolveHydratedImageSource={resolveHydratedChatImageSource}
+            loadArtifactContent={loadColdStorageArtifact}
             key={entry.message.id}
             message={entry.message}
             metadata={props.messageMetadataById[entry.message.id]}
@@ -285,6 +289,8 @@ function TerminalMessage(
 
   return (
     <ChatMessage
+            resolveHydratedImageSource={resolveHydratedChatImageSource}
+            loadArtifactContent={loadColdStorageArtifact}
       message={{
         id: terminal.id,
         role: "assistant",

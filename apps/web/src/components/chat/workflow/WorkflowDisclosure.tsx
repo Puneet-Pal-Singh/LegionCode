@@ -4,7 +4,7 @@ import type {
 } from "@legioncode/sdk";
 import { WorkflowTimeline } from "./WorkflowTimeline.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
-import type { ArtifactOpenHandler } from "../artifactOpen.js";
+import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 
 interface WorkflowDisclosureProps {
   projection: TurnWorkflowProjection;
