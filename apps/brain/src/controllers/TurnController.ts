@@ -1,13 +1,20 @@
 import {
+  createRunAttemptId,
+  createThreadId,
+  turnIdFromRunId,
+  TurnIdSchema,
   TurnScopeBootstrapRequestSchema,
-  type TurnId,
+  TurnScopeBootstrapSchema,
 } from "@repo/platform-protocol";
 import { errorResponse, jsonResponse } from "../http/response";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
 import type { Env } from "../types/ai";
+import { TurnAdmissionConflictError } from "@repo/persistence";
+import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
+import { withTurnAdmissionRepository } from "../services/turn-admissions/TurnAdmissionPersistenceFactory";
+import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import {
-  fetchRunTurnScope,
   resolveExecutionScope,
   startRunTurn,
 } from "./chat-runtime-helpers";
@@ -17,12 +24,12 @@ const PUBLIC_TURN_START_SCHEMA = TurnScopeBootstrapRequestSchema.pick({
   sessionId: true,
   clientMessageId: true,
   revisionOfTurnId: true,
-});
+}).extend({ clientMessageId: TurnScopeBootstrapRequestSchema.shape.clientMessageId.unwrap() });
 type PublicTurnStartRequest = {
   runId: string;
   sessionId: string;
-  clientMessageId?: string;
-  revisionOfTurnId?: TurnId;
+  clientMessageId: string;
+  revisionOfTurnId?: ReturnType<typeof TurnIdSchema.parse>;
 };
 
 /** Public control-plane handoff for the server-owned turn scope. */
@@ -43,6 +50,39 @@ export class TurnController {
         body.runId,
         correlationId,
       );
+      const session = await withTranscriptRepository(env, async (repository) =>
+        (await repository.listSessions(scope.userId)).sessions.find(
+          (candidate) => candidate.id === body.sessionId,
+        ) ?? null,
+      );
+      if (!session) {
+        return errorResponse(req, env, "Conversation not found", 404, "SESSION_NOT_FOUND");
+      }
+      if (session.workspaceId != null && session.workspaceId !== scope.workspaceId) {
+        return errorResponse(req, env, "Conversation workspace does not match", 409, "TURN_SCOPE_MISMATCH");
+      }
+      const reserved = await withTurnAdmissionRepository(env, (repository) =>
+        repository.reserve({
+          sessionId: body.sessionId,
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          clientMessageId: body.clientMessageId,
+          threadId: session.threadId ?? createThreadId(),
+          turnId: turnIdFromRunId(body.runId, body.clientMessageId),
+          runAttemptId: createRunAttemptId(),
+          runId: body.runId,
+          revisionOfTurnId: body.revisionOfTurnId
+            ? TurnIdSchema.parse(body.revisionOfTurnId)
+            : undefined,
+        }),
+      );
+      const admittedIdentity = TurnScopeBootstrapSchema.parse({
+        workspaceId: scope.workspaceId,
+        threadId: reserved.threadId,
+        turnId: reserved.turnId,
+        runAttemptId: reserved.runAttemptId,
+        ...(reserved.revisionOfTurnId ? { revisionOfTurnId: reserved.revisionOfTurnId } : {}),
+      });
       const identity = await startRunTurn(
         env,
         body.runId,
@@ -53,6 +93,7 @@ export class TurnController {
           correlationId,
           clientMessageId: body.clientMessageId,
           revisionOfTurnId: body.revisionOfTurnId,
+          admittedIdentity,
         },
         "execution-engine-v1",
       );
@@ -61,6 +102,9 @@ export class TurnController {
       if (isDomainError(error)) {
         const { status, code, message, metadata } = mapDomainErrorToHttp(error);
         return errorResponse(req, env, message, status, code, metadata);
+      }
+      if (error instanceof TurnAdmissionConflictError) {
+        return errorResponse(req, env, error.message, 409, error.code.toUpperCase());
       }
       return errorResponse(
         req,
@@ -89,19 +133,37 @@ export class TurnController {
     }
 
     try {
-      // Resolve the authenticated run workspace before forwarding to its DO.
-      // The DO then applies the exact session/run identity match.
-      await resolveExecutionScope(req, env, runId, correlationId);
-      const response = await fetchRunTurnScope(
-        env,
-        runId,
-        sessionId,
-        "execution-engine-v1",
+      const scope = await resolveExecutionScope(req, env, runId, correlationId);
+      const run = await withRunRepository(env, (repository) =>
+        repository.getRun(runId, scope.userId),
       );
-      return new Response(response.body, {
-        status: response.status,
-        headers: response.headers,
-      });
+      if (!run || run.sessionId !== sessionId) {
+        return errorResponse(req, env, "Run not found for owned conversation", 404, "RUN_SCOPE_NOT_FOUND");
+      }
+      const admission = await withTurnAdmissionRepository(env, (repository) =>
+        repository.getBySessionAndRunId(sessionId, runId),
+      );
+      if (
+        !admission ||
+        admission.userId !== scope.userId ||
+        admission.workspaceId !== scope.workspaceId ||
+        (run.workspaceId !== null && run.workspaceId !== scope.workspaceId)
+      ) {
+        return errorResponse(req, env, "No durable turn admission exists for this conversation and run", 404, "TURN_SCOPE_NOT_FOUND");
+      }
+      if (admission.state !== "admitted") {
+        return errorResponse(req, env, "Turn admission is reserved but prompt persistence has not completed", 409, "TURN_ADMISSION_RECOVERY_REQUIRED");
+      }
+      if (admission.executionState === "recovery_required") {
+        return errorResponse(req, env, "This turn has an execution claim without a confirmed terminal result and requires recovery review.", 409, "TURN_EXECUTION_RECOVERY_REQUIRED");
+      }
+      return jsonResponse(req, env, TurnScopeBootstrapSchema.parse({
+        workspaceId: scope.workspaceId,
+        threadId: admission.threadId,
+        turnId: admission.turnId,
+        runAttemptId: admission.runAttemptId,
+        ...(admission.revisionOfTurnId ? { revisionOfTurnId: admission.revisionOfTurnId } : {}),
+      }));
     } catch (error: unknown) {
       if (isDomainError(error)) {
         const { status, code, message, metadata } = mapDomainErrorToHttp(error);

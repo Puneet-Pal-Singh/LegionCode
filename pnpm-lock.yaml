@@ -945,6 +945,9 @@ importers:
         specifier: ^8.16.3
         version: 8.20.0
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.3.16
+        version: 0.3.16
       '@repo/contract-conformance':
         specifier: workspace:*
         version: link:../contract-conformance
@@ -7306,8 +7309,7 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
-  '@electric-sql/pglite@0.3.16':
-    optional: true
+  '@electric-sql/pglite@0.3.16': {}
 
   '@electron/asar@3.4.1':
     dependencies:

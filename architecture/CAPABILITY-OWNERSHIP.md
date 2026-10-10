@@ -135,3 +135,23 @@ migration remain with the admission-writer slice, so no constraints are installe
 before their writer is wired. Current Web HTTP history loading is temporary until
 058.3A routes the typed operation through the authenticated hosted App Server;
 then delete the Web fetch method. No product storage or migration is altered here.
+
+## Plan 058 baseline — Durable admission and canonical transcript append
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Owned session/thread binding, idempotent prompt admission and execution claim | Existing PostgresTurnAdmissionRepository | Brain TurnController reserves identity; HandleChatRequest admits prompt/run atomically; RunEngineRequestHandler imports that identity and claims execution. |
+| Assistant transcript deltas and terminal run/session settlement | PostgresLifecycleEventStore canonical append transaction | RuntimeKernel emits through the existing lifecycle store; TranscriptRepository reads the same committed projection and admission identity. |
+
+The incoming durability implementation is adopted before client command extraction.
+The obsolete runtime lifecycle wrapper, response transcript writer and unused
+PersistenceService assistant writer are deleted. RuntimeEventProcessor retains
+run-event/step projections but no longer independently settles run/session status.
+Migration 0032 installs immutable thread binding, admission identity and canonical
+transcript keys with the writer. Existing title and image policy remains in place.
+SQL gates replace the removed writer tests with admission rollback/retry, canonical
+append rollback/replay/deduplication, distinct turns, owner isolation and execution
+claim/revision safeguards. New-session creation is awaited before publishing the
+conversation to submit callers; canonical delta fragments retain exact whitespace
+in subsequent model context. Browser admission binding remains pending the next baseline
+slice; hosted command routing through App Server remains pending 058.3.

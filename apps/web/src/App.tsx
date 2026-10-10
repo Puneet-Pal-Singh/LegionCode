@@ -777,7 +777,7 @@ function AppContent() {
     });
   }, [openSettingsDialog]);
 
-  const handleNewTask = (repositoryName?: string) => {
+  const handleNewTask = async (repositoryName?: string) => {
     if (!isAuthenticated) {
       login();
       return;
@@ -792,10 +792,16 @@ function AppContent() {
 
     if (targetRepo) {
       setShowRepoPicker(false);
-      clearSetupSessionState();
-      // Create a session for this specific repository
+      // Create the durable conversation before exposing setup/submit controls.
       const sessionName = `New Task`;
-      const sessionId = createSession(sessionName, targetRepo);
+      let sessionId: string;
+      try {
+        sessionId = await createSession(sessionName, targetRepo);
+      } catch (error) {
+        console.warn("[session/create] Failed to persist session:", error);
+        return;
+      }
+      clearSetupSessionState();
 
       // Sync GitHub context with new session
       // Use SessionStateService for session-scoped storage
@@ -828,10 +834,14 @@ function AppContent() {
     handleNewTask(repository);
   };
 
-  const handleChooseNoProject = () => {
-    clearContext();
-    clearSetupSessionState();
-    createSession("New Task", "New Project");
+  const handleChooseNoProject = async () => {
+    try {
+      await createSession("New Task", "New Project");
+      clearContext();
+      clearSetupSessionState();
+    } catch (error) {
+      console.warn("[session/create] Failed to persist session:", error);
+    }
   };
 
   const focusReviewSidebar = () => {
@@ -890,11 +900,11 @@ function AppContent() {
     setGitReviewSessionId(null);
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
-    clearSetupSessionState();
 
-    // Create a session immediately for this repository so it shows in sidebar
+    // Publish setup only after the owned conversation exists.
     const sessionName = `New Task`;
-    const sessionId = createSession(sessionName, selectedRepo.full_name);
+    const sessionId = await createSession(sessionName, selectedRepo.full_name);
+    clearSetupSessionState();
 
     // Store GitHub context for the session using SessionStateService
     SessionStateService.saveSessionGitHubContext(sessionId, {

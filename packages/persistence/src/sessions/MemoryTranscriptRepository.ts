@@ -268,6 +268,28 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     };
   }
 
+  async getCanonicalAssistantMessageId(input: {
+    sessionId: string;
+    userId: string;
+    turnId: string;
+    phase: "commentary" | "final_answer";
+  }): Promise<string | null> {
+    const session = this.sessions.get(input.sessionId);
+    if (!session || session.userId !== input.userId) return null;
+    const messages = this.readSessionMessages({ sessionId: input.sessionId });
+    const found = messages.find((message) =>
+      message.role === "assistant" &&
+      readCanonicalIdentity(message)?.turnId === input.turnId &&
+      message.parts.some((part) => {
+        if (!part.content || typeof part.content !== "object" || Array.isArray(part.content)) return false;
+        const metadata = (part.content as Record<string, unknown>).metadata;
+        return !!metadata && typeof metadata === "object" && !Array.isArray(metadata) &&
+          (metadata as Record<string, unknown>).phase === input.phase;
+      }),
+    );
+    return found?.id ?? null;
+  }
+
   async listSessions(userId: string): Promise<ListSessionsResult> {
     const tasks = Array.from(this.tasks.values())
       .filter((task) => task.userId === userId)

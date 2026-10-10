@@ -34,8 +34,7 @@ describe("RuntimeKernel live path boundary", () => {
     const source = readFileSync(BRAIN_RUN_HANDLER, "utf8");
 
     expect(source).toContain("new RuntimeKernelNativeRunner");
-    expect(source).toContain("new RunEngineKernelLifecycleEventStore");
-    expect(source).toMatch(/lifecycleEvents:\s*kernelLifecycleEvents/);
+    expect(source).toContain("lifecycleEvents: this.createLifecycleEventStore()");
     expect(source).not.toContain("new RunEngine(");
     expect(source).not.toContain("executeRunEngineThroughRuntimeKernel");
     expect(source).not.toMatch(

@@ -45,7 +45,7 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Creation", () => {
-    it("defers server hydration until explicitly enabled", () => {
+    it("defers server hydration until explicitly enabled", async () => {
       const hydrateSpy = vi.mocked(
         SessionStateService.hydrateSessionsFromServer,
       );
@@ -63,12 +63,39 @@ describe("useSessionManager", () => {
       expect(hydrateSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("should create a new session", () => {
+    it("publishes a new conversation only after durable session creation completes", async () => {
+      let release!: (session: AgentSession) => void;
+      let pendingSession!: AgentSession;
+      vi.mocked(SessionStateService.persistSession).mockImplementationOnce((session) => {
+        pendingSession = session;
+        return new Promise<AgentSession>((resolve) => { release = resolve; });
+      });
+      const { result } = renderHook(() => useSessionManager());
+      let creation!: Promise<string>;
+      await act(async () => { creation = result.current.createSession("Pending", "repo"); });
+      expect(result.current.sessions).toEqual([]);
+      expect(result.current.activeSessionId).toBeNull();
+      await act(async () => { release(pendingSession); await creation; });
+      expect(result.current.sessions[0]?.id).toBe(await creation);
+      expect(result.current.activeSessionId).toBe(await creation);
+    });
+
+    it("retains existing conversation selection when durable session creation fails", async () => {
+      const { result } = renderHook(() => useSessionManager());
+      let original = "";
+      await act(async () => { original = await result.current.createSession("Existing", "repo"); });
+      vi.mocked(SessionStateService.persistSession).mockRejectedValueOnce(new Error("create failed"));
+      await act(async () => { await expect(result.current.createSession("Failed", "repo")).rejects.toThrow("create failed"); });
+      expect(result.current.sessions.map((session) => session.id)).toEqual([original]);
+      expect(result.current.activeSessionId).toBe(original);
+    });
+
+    it("should create a new session", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Test Task", "test-repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Test Task", "test-repo");
       });
 
       expect(sessionId).toBeTruthy();
@@ -77,45 +104,45 @@ describe("useSessionManager", () => {
       expect(result.current.sessions[0]?.repository).toBe("test-repo");
     });
 
-    it("should create session with default name", () => {
+    it("should create session with default name", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
-        result.current.createSession(undefined, "test-repo");
+      await act(async () => {
+        await result.current.createSession(undefined, "test-repo");
       });
 
       expect(result.current.sessions[0]?.name).toBe("New Task");
     });
 
-    it("should add repository on session creation", () => {
+    it("should add repository on session creation", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
-        result.current.createSession("Task", "new-repo");
+      await act(async () => {
+        await result.current.createSession("Task", "new-repo");
       });
 
       expect(result.current.repositories).toContain("new-repo");
     });
 
-    it("should set created session as active", () => {
+    it("should set created session as active", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       expect(result.current.activeSessionId).toBe(sessionId);
     });
 
-    it("should generate unique run IDs for each session", () => {
+    it("should generate unique run IDs for each session", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId1 = "";
       let sessionId2 = "";
-      act(() => {
-        sessionId1 = result.current.createSession("Task 1", "repo");
-        sessionId2 = result.current.createSession("Task 2", "repo");
+      await act(async () => {
+        sessionId1 = await result.current.createSession("Task 1", "repo");
+        sessionId2 = await result.current.createSession("Task 2", "repo");
       });
 
       const session1 = result.current.sessions.find(
@@ -130,28 +157,28 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Switching", () => {
-    it("should switch active session", () => {
+    it("should switch active session", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId1 = "";
-      act(() => {
-        sessionId1 = result.current.createSession("Task 1", "repo");
-        result.current.createSession("Task 2", "repo");
+      await act(async () => {
+        sessionId1 = await result.current.createSession("Task 1", "repo");
+        await result.current.createSession("Task 2", "repo");
       });
 
-      act(() => {
+      await act(async () => {
         result.current.setActiveSessionId(sessionId1);
       });
 
       expect(result.current.activeSessionId).toBe(sessionId1);
     });
 
-    it("should persist active session to tab storage", () => {
+    it("should persist active session to tab storage", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
@@ -160,8 +187,8 @@ describe("useSessionManager", () => {
     it("does not treat acknowledging an unread task as recent activity", async () => {
       const { result } = renderHook(() => useSessionManager());
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Unread task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Unread task", "repo");
         result.current.updateSession(sessionId, {
           lastTerminalTurnId: "trn_terminal001",
         });
@@ -191,17 +218,17 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Removal", () => {
-    it("should archive session", () => {
+    it("should archive session", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       expect(result.current.sessions).toHaveLength(1);
 
-      act(() => {
+      await act(async () => {
         result.current.removeSession(sessionId);
       });
 
@@ -212,29 +239,29 @@ describe("useSessionManager", () => {
       );
     });
 
-    it("should clear active session if removed session is active", () => {
+    it("should clear active session if removed session is active", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       expect(result.current.activeSessionId).toBe(sessionId);
 
-      act(() => {
+      await act(async () => {
         result.current.removeSession(sessionId);
       });
 
       expect(result.current.activeSessionId).toBeNull();
     });
 
-    it("should preserve session GitHub context on archive", () => {
+    it("should preserve session GitHub context on archive", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       // Save context for session
@@ -247,7 +274,7 @@ describe("useSessionManager", () => {
       SessionStateService.saveSessionGitHubContext(sessionId, context);
 
       // Remove session
-      act(() => {
+      await act(async () => {
         result.current.removeSession(sessionId);
       });
 
@@ -262,11 +289,11 @@ describe("useSessionManager", () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
-      act(() => {
+      await act(async () => {
         result.current.removeSession(sessionId);
       });
 
@@ -278,15 +305,15 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Updates", () => {
-    it("should update session properties", () => {
+    it("should update session properties", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
-      act(() => {
+      await act(async () => {
         result.current.updateSession(sessionId, { name: "Updated Task" });
       });
 
@@ -296,15 +323,15 @@ describe("useSessionManager", () => {
       expect(session?.name).toBe("Updated Task");
     });
 
-    it("should update session status", () => {
+    it("should update session status", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
-      act(() => {
+      await act(async () => {
         result.current.updateSession(sessionId, { status: "running" });
       });
 
@@ -314,12 +341,12 @@ describe("useSessionManager", () => {
       expect(session?.status).toBe("running");
     });
 
-    it("should not update updatedAt for no-op updates", () => {
+    it("should not update updatedAt for no-op updates", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       const original = result.current.sessions.find(
@@ -327,7 +354,7 @@ describe("useSessionManager", () => {
       );
       expect(original).toBeDefined();
 
-      act(() => {
+      await act(async () => {
         result.current.updateSession(sessionId, { status: original!.status });
       });
 
@@ -337,15 +364,15 @@ describe("useSessionManager", () => {
       expect(afterNoOp?.updatedAt).toBe(original?.updatedAt);
     });
 
-    it("can project lifecycle status without reordering recent activity", () => {
+    it("can project lifecycle status without reordering recent activity", async () => {
       const { result } = renderHook(() => useSessionManager());
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
       const originalUpdatedAt = result.current.sessions[0]!.updatedAt;
 
-      act(() => {
+      await act(async () => {
         result.current.updateSession(
           sessionId,
           { status: "waiting_for_approval" },
@@ -357,12 +384,12 @@ describe("useSessionManager", () => {
       expect(result.current.sessions[0]?.updatedAt).toBe(originalUpdatedAt);
     });
 
-    it("should reject invalid session updates", () => {
+    it("should reject invalid session updates", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       const originalSession = result.current.sessions.find(
@@ -370,7 +397,7 @@ describe("useSessionManager", () => {
       );
 
       // Try to set activeRunId to a non-existent run
-      act(() => {
+      await act(async () => {
         result.current.updateSession(sessionId, {
           activeRunId: "non-existent-run",
         } as unknown as Partial<Omit<AgentSession, "id">>);
@@ -385,20 +412,20 @@ describe("useSessionManager", () => {
   });
 
   describe("Repository Management", () => {
-    it("should add repository", () => {
+    it("should add repository", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
+      await act(async () => {
         result.current.addRepository("new-repo");
       });
 
       expect(result.current.repositories).toContain("new-repo");
     });
 
-    it("should not add duplicate repositories", () => {
+    it("should not add duplicate repositories", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
+      await act(async () => {
         result.current.addRepository("repo");
         result.current.addRepository("repo");
       });
@@ -409,48 +436,48 @@ describe("useSessionManager", () => {
       expect(repoCount).toBe(1);
     });
 
-    it("should remove repository", () => {
+    it("should remove repository", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
+      await act(async () => {
         result.current.addRepository("repo");
       });
 
       expect(result.current.repositories).toContain("repo");
 
-      act(() => {
+      await act(async () => {
         result.current.removeRepository("repo");
       });
 
       expect(result.current.repositories).not.toContain("repo");
     });
 
-    it("should remove sessions when removing repository", () => {
+    it("should remove sessions when removing repository", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
-        result.current.createSession("Task 1", "repo");
-        result.current.createSession("Task 2", "repo");
+      await act(async () => {
+        await result.current.createSession("Task 1", "repo");
+        await result.current.createSession("Task 2", "repo");
       });
 
       expect(result.current.sessions).toHaveLength(2);
 
-      act(() => {
+      await act(async () => {
         result.current.removeRepository("repo");
       });
 
       expect(result.current.sessions).toHaveLength(0);
     });
 
-    it("should rename repository", () => {
+    it("should rename repository", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "old-repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "old-repo");
       });
 
-      act(() => {
+      await act(async () => {
         result.current.renameRepository("old-repo", "new-repo");
       });
 
@@ -464,11 +491,11 @@ describe("useSessionManager", () => {
   });
 
   describe("Persistence", () => {
-    it("should persist sessions to localStorage", () => {
+    it("should persist sessions to localStorage", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
-        result.current.createSession("Task", "repo");
+      await act(async () => {
+        await result.current.createSession("Task", "repo");
       });
 
       // Load from localStorage to verify persistence
@@ -476,14 +503,14 @@ describe("useSessionManager", () => {
       expect(Object.keys(loaded)).toHaveLength(1);
     });
 
-    it("should restore sessions on mount", () => {
+    it("should restore sessions on mount", async () => {
       // Create and persist sessions via first hook instance
       let sessionId = "";
       const { result: result1, unmount } = renderHook(() =>
         useSessionManager(),
       );
-      act(() => {
-        sessionId = result1.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result1.current.createSession("Task", "repo");
       });
 
       // Unmount the hook (which persists sessions to localStorage)
@@ -495,12 +522,12 @@ describe("useSessionManager", () => {
       expect(result2.current.sessions[0]?.id).toBe(sessionId);
     });
 
-    it("should persist active session ID", () => {
+    it("should persist active session ID", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
@@ -541,8 +568,8 @@ describe("useSessionManager", () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Fresh task", "repo");
+      await act(async () => {
+        sessionId = await result.current.createSession("Fresh task", "repo");
       });
 
       await act(async () => {
@@ -614,14 +641,14 @@ describe("useSessionManager", () => {
   });
 
   describe("Multi-Session Isolation", () => {
-    it("should isolate session state", () => {
+    it("should isolate session state", async () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId1 = "";
       let sessionId2 = "";
-      act(() => {
-        sessionId1 = result.current.createSession("Task 1", "repo1");
-        sessionId2 = result.current.createSession("Task 2", "repo2");
+      await act(async () => {
+        sessionId1 = await result.current.createSession("Task 1", "repo1");
+        sessionId2 = await result.current.createSession("Task 2", "repo2");
       });
 
       const session1 = result.current.sessions.find(
@@ -637,15 +664,15 @@ describe("useSessionManager", () => {
       expect(session1?.activeRunId).not.toBe(session2?.activeRunId);
     });
 
-    it("should not leak messages between sessions", () => {
+    it("should not leak messages between sessions", async () => {
       // This test verifies that agentStore properly isolates messages by runId
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId1 = "";
       let sessionId2 = "";
-      act(() => {
-        sessionId1 = result.current.createSession("Task 1", "repo");
-        sessionId2 = result.current.createSession("Task 2", "repo");
+      await act(async () => {
+        sessionId1 = await result.current.createSession("Task 1", "repo");
+        sessionId2 = await result.current.createSession("Task 2", "repo");
       });
 
       const session1 = result.current.sessions.find(
@@ -669,18 +696,18 @@ describe("useSessionManager", () => {
   });
 
   describe("Clear All Sessions", () => {
-    it("should clear all sessions and cleanup", () => {
+    it("should clear all sessions and cleanup", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
-        result.current.createSession("Task 1", "repo1");
-        result.current.createSession("Task 2", "repo2");
+      await act(async () => {
+        await result.current.createSession("Task 1", "repo1");
+        await result.current.createSession("Task 2", "repo2");
       });
 
       expect(result.current.sessions).toHaveLength(2);
       expect(result.current.repositories).toHaveLength(2);
 
-      act(() => {
+      await act(async () => {
         result.current.clearAllSessions();
       });
 
@@ -689,14 +716,14 @@ describe("useSessionManager", () => {
       expect(result.current.activeSessionId).toBeNull();
     });
 
-    it("should clear v2 schema storage when clearing all sessions", () => {
+    it("should clear v2 schema storage when clearing all sessions", async () => {
       const { result } = renderHook(() => useSessionManager());
 
-      act(() => {
-        result.current.createSession("Task", "repo");
+      await act(async () => {
+        await result.current.createSession("Task", "repo");
       });
 
-      act(() => {
+      await act(async () => {
         result.current.clearAllSessions();
       });
 

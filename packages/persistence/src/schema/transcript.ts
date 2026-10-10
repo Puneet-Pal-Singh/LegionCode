@@ -63,6 +63,10 @@ export const sessions = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id, {
       onDelete: "set null",
     }),
+    threadId: text("thread_id"),
+    threadBindingSource: text("thread_binding_source"),
+    currentTurnId: text("current_turn_id"),
+    admissionSequence: bigint("admission_sequence", { mode: "number" }).notNull().default(0),
     taskId: uuid("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
@@ -103,6 +107,7 @@ export const sessions = pgTable(
       table.updatedAt,
     ),
     index("sessions_user_pinned_idx").on(table.userId, table.pinnedAt),
+    uniqueIndex("sessions_thread_id_unique_idx").on(table.threadId).where(sql`${table.threadId} IS NOT NULL`),
     index("sessions_task_idx").on(table.taskId),
     index("sessions_workspace_idx").on(table.workspaceId),
   ],
@@ -118,6 +123,10 @@ export const messages = pgTable(
     runId: text("run_id"),
     role: text("role").notNull(),
     clientMessageId: text("client_message_id"),
+    canonicalTurnId: text("canonical_turn_id"),
+    canonicalRunAttemptId: text("canonical_run_attempt_id"),
+    canonicalItemId: text("canonical_item_id"),
+    canonicalPhase: text("canonical_phase"),
     dedupeKey: text("dedupe_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -135,6 +144,9 @@ export const messages = pgTable(
     ),
     index("messages_session_created_idx").on(table.sessionId, table.createdAt),
     index("messages_run_idx").on(table.runId),
+    uniqueIndex("messages_canonical_item_phase_idx")
+      .on(table.sessionId, table.canonicalTurnId, table.canonicalRunAttemptId, table.canonicalItemId, table.canonicalPhase)
+      .where(sql`${table.canonicalTurnId} IS NOT NULL AND ${table.canonicalRunAttemptId} IS NOT NULL AND ${table.canonicalItemId} IS NOT NULL AND ${table.canonicalPhase} IS NOT NULL`),
   ],
 );
 
@@ -148,6 +160,7 @@ export const messageParts = pgTable(
     messageId: uuid("message_id").notNull(),
     runId: text("run_id"),
     partType: text("part_type").notNull(),
+    sourceEventId: text("source_event_id"),
     sessionSequence: bigint("session_sequence", { mode: "number" }).notNull(),
     contentJson: jsonb("content_json").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -170,6 +183,9 @@ export const messageParts = pgTable(
     ),
     index("message_parts_message_idx").on(table.messageId),
     index("message_parts_run_idx").on(table.runId),
+    uniqueIndex("message_parts_source_event_id_idx")
+      .on(table.sourceEventId)
+      .where(sql`${table.sourceEventId} IS NOT NULL`),
   ],
 );
 

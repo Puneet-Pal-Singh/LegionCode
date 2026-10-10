@@ -25,12 +25,12 @@ const CAPABILITIES = [
         "does not read browser storage while mirroring messages",
       ],
       [
-        "apps/brain/src/services/PersistenceService.test.ts",
+        "packages/persistence/src/turn-admissions/ChatDurability.sql.test.ts",
         "appends assistant turns for distinct user turns on the same run",
       ],
       [
-        "apps/brain/src/runtime/RunEngineResponsePersistence.test.ts",
-        "persists assistant deltas using the server-issued turn identity",
+        "packages/persistence/src/turn-admissions/ChatDurability.sql.test.ts",
+        "persists assistant deltas using the server-issued turn identity exactly once",
       ],
       [
         "packages/sdk/src/providers/cross-client-lifecycle-parity.test.ts",
@@ -51,11 +51,10 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
-        "@legioncode/brain",
+        "@repo/persistence",
         "test",
         "--",
-        "src/services/PersistenceService.test.ts",
-        "src/runtime/RunEngineResponsePersistence.test.ts",
+        "src/turn-admissions/ChatDurability.sql.test.ts",
       ],
       [
         "pnpm",

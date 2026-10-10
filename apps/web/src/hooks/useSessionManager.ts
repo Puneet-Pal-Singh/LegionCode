@@ -277,7 +277,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
    * Generates initial active run ID
    */
   const createSession = useCallback(
-    (
+    async (
       name?: string,
       repository: string = "New Project",
       mode: RunMode = DEFAULT_RUN_MODE,
@@ -300,14 +300,14 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         mode,
       );
 
+      // Admission requires the owned conversation to exist before it is visible
+      // to setup/submit callers. A failed create must not publish a local session.
+      await SessionStateService.persistSession(newSession);
       const nextSessions = [...sessionsRef.current, newSession];
       const sessionsMap = createSessionsMap(nextSessions);
 
       SessionStateService.saveSessions(sessionsMap, newSession.id);
       SessionStateService.saveActiveSessionId(newSession.id, sessionsMap);
-      void SessionStateService.persistSession(newSession).catch((error) => {
-        console.warn("[useSessionManager] Failed to persist session:", error);
-      });
 
       sessionsRef.current = nextSessions;
       activeSessionIdRef.current = newSession.id;

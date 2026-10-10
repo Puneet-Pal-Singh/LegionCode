@@ -205,6 +205,12 @@ export interface TranscriptRepository {
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord>;
   listTranscript(input: ListTranscriptInput): Promise<ListTranscriptResult>;
+  getCanonicalAssistantMessageId?(input: {
+    sessionId: string;
+    userId: string;
+    turnId: string;
+    phase: "commentary" | "final_answer";
+  }): Promise<string | null>;
   listSessions(userId: string): Promise<ListSessionsResult>;
   listArchivedSessions(userId: string): Promise<SessionRecord[]>;
   transaction<T>(

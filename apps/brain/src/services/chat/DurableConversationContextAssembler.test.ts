@@ -73,6 +73,23 @@ describe("DurableConversationContextAssembler", () => {
     expect(replayLifecyclePage).not.toHaveBeenCalled();
   });
 
+  it("concatenates canonical assistant deltas including whitespace without changing legacy multipart text", async () => {
+    const assistant = message("assistant", "assistant", "hel", "trn_prior001", 1);
+    assistant.parts = ["hel", " ", "lo"].map((text, index) => ({
+      ...assistant.parts[0]!, id: `delta-${index}`, sessionSequence: index + 1,
+      content: { text, metadata: { canonicalIdentity: { turnId: "trn_prior001" }, itemId: "itm_prior001", phase: "final_answer" } },
+    }));
+    const legacy = message("legacy", "assistant", "first", undefined, 4);
+    legacy.parts.push({ ...legacy.parts[0]!, id: "legacy-2", sessionSequence: 5, content: { text: "second" } });
+    const current = message("current", "user", "continue", "trn_current01", 6);
+    const assembler = new DurableConversationContextAssembler({} as Env, {
+      readTranscriptPage: async () => ({ messages: [assistant, legacy, current], nextCursor: null }),
+      replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
+    });
+    const context = await assembler.assemble({ sessionId: "session-1", userId: "user-1", currentTurnId: "trn_current01" });
+    expect(context.map((entry) => entry.content)).toEqual(["hel lo", "first\nsecond", "continue"]);
+  });
+
   it("prefers the submitted client message id in restored provider context", async () => {
     const current = message(
       "persisted-user",
