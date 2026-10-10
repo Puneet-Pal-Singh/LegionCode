@@ -7,6 +7,8 @@ import {
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 import {
+  type HostedSession,
+  type HostedSessionCreateRequest,
   type ConversationHistoryRequest,
   type ConversationHistoryResponse,
   ThreadIdSchema,
@@ -62,6 +64,15 @@ export type AppServerClient = {
   initialize(
     requestedCapabilities?: readonly string[],
   ): Promise<AppServerInitializeResponse>;
+  listSessions(): Promise<HostedSession[]>;
+  listArchivedSessions(): Promise<HostedSession[]>;
+  createSession(params: HostedSessionCreateRequest): Promise<HostedSession>;
+  renameSession(sessionId: string, title: string): Promise<HostedSession>;
+  pinSession(sessionId: string): Promise<HostedSession>;
+  unpinSession(sessionId: string): Promise<HostedSession>;
+  archiveSession(sessionId: string): Promise<HostedSession>;
+  unarchiveSession(sessionId: string): Promise<HostedSession>;
+  deleteArchivedSession(sessionId: string): Promise<void>;
   getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
@@ -93,6 +104,15 @@ export function createAppServerClient(
       }, AppServerResultSchemas.initialize);
       return result;
     },
+    listSessions: async () => (await request(options, { method: "session/list", params: {} }, AppServerResultSchemas["session/list"])).sessions,
+    listArchivedSessions: async () => (await request(options, { method: "session/archived", params: {} }, AppServerResultSchemas["session/archived"])).sessions,
+    createSession: async (params) => (await request(options, { method: "session/create", params }, AppServerResultSchemas["session/create"])).session,
+    renameSession: async (sessionId, title) => (await request(options, { method: "session/rename", params: { sessionId, title } }, AppServerResultSchemas["session/rename"])).session,
+    pinSession: async (sessionId) => (await request(options, { method: "session/pin", params: { sessionId } }, AppServerResultSchemas["session/pin"])).session,
+    unpinSession: async (sessionId) => (await request(options, { method: "session/unpin", params: { sessionId } }, AppServerResultSchemas["session/unpin"])).session,
+    archiveSession: async (sessionId) => (await request(options, { method: "session/archive", params: { sessionId } }, AppServerResultSchemas["session/archive"])).session,
+    unarchiveSession: async (sessionId) => (await request(options, { method: "session/unarchive", params: { sessionId } }, AppServerResultSchemas["session/unarchive"])).session,
+    deleteArchivedSession: async (sessionId) => { await request(options, { method: "session/delete", params: { sessionId } }, AppServerResultSchemas["session/delete"]); },
     getConversationHistoryPage: async (params) => request(options, {
       method: "session/history", params,
     }, AppServerResultSchemas["session/history"]),

@@ -1,4 +1,5 @@
 import { AppServerController } from "./AppServerController";
+import { createAppServerClient, createAppServerHttpTransport } from "@legioncode/sdk";
 import { APP_SERVER_PROTOCOL_VERSION, type AppServerMethod } from "@legioncode/app-server/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -32,6 +33,32 @@ describe("TranscriptController", () => {
       now: () => "2026-05-15T00:00:00.000Z",
     });
     env = createEnv(repository, runRepository, titleEvents);
+  });
+
+  it("round-trips hosted metadata and title versions through the actual SDK HTTP boundary", async () => {
+    const client = createAppServerClient({
+      clientId: "web-test", clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: "https://brain.local", credentials: "include",
+        fetchImpl: async (input, init) => AppServerController.request(authenticatedRequest(String(input), init), env),
+      }),
+    });
+    const created = await client.createSession({ sessionId: TEST_SESSION_ID, title: "Task" });
+    expect(created).toMatchObject({ id: TEST_SESSION_ID, threadId: null, activeRunId: null, titleVersion: 1 });
+    await ensureCanonicalTitleScope(repository);
+    const renamed = await client.renameSession(TEST_SESSION_ID, "Saved title");
+    expect(renamed).toMatchObject({ id: TEST_SESSION_ID, title: "Saved title", titleSource: "user", titleVersion: 2 });
+    await expect(client.pinSession(TEST_SESSION_ID)).resolves.toMatchObject({ pinnedAt: "2026-05-15T00:00:00.000Z" });
+    await expect(client.unpinSession(TEST_SESSION_ID)).resolves.toMatchObject({ pinnedAt: null });
+    await expect(client.deleteArchivedSession(TEST_SESSION_ID)).rejects.toMatchObject({ serverCode: "not_found" });
+    await client.archiveSession(TEST_SESSION_ID);
+    await expect(client.listSessions()).resolves.toEqual([]);
+    await expect(client.listArchivedSessions()).resolves.toMatchObject([{ id: TEST_SESSION_ID, titleVersion: 2 }]);
+    await client.unarchiveSession(TEST_SESSION_ID);
+    await expect(client.listSessions()).resolves.toMatchObject([{ id: TEST_SESSION_ID, title: "Saved title", titleVersion: 2 }]);
+    await client.archiveSession(TEST_SESSION_ID);
+    await client.deleteArchivedSession(TEST_SESSION_ID);
+    await expect(client.listArchivedSessions()).resolves.toEqual([]);
   });
 
   it("creates and lists authenticated sessions from the transcript repository", async () => {
