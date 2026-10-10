@@ -1,7 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { ItemIdSchema } from "@legioncode/sdk";
 import { WorkflowTimeline } from "./WorkflowTimeline.js";
+
+afterEach(cleanup);
 
 describe("WorkflowTimeline", () => {
   it("labels a classified write as a created-file activity", () => {

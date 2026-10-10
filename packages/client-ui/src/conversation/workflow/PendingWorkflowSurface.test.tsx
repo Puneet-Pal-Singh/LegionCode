@@ -1,6 +1,11 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { PendingWorkflowSurface } from "./PendingWorkflowSurface.js";
+
+afterEach(cleanup);
 
 describe("PendingWorkflowSurface", () => {
   it("acknowledges submission without inventing canonical activity", () => {

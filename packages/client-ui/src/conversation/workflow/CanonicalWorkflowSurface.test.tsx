@@ -1,5 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   EventIdSchema,
   ItemIdSchema,
@@ -8,6 +11,8 @@ import {
 } from "@legioncode/sdk";
 import { createTurnWorkflowProjection } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "./CanonicalWorkflowSurface.js";
+
+afterEach(cleanup);
 
 describe("CanonicalWorkflowSurface", () => {
   it("keeps settled workflow history visible without waiting for refresh", () => {

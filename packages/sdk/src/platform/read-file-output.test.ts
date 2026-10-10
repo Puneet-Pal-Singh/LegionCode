@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeReadFileContent,
   parseReadFileOutput,
-} from "./ReadFileOutputParser";
+} from "./read-file-output.js";
 
 describe("parseReadFileOutput", () => {
   it("removes runtime metadata and model-facing line prefixes", () => {

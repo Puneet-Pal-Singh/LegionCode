@@ -1,9 +1,9 @@
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
-import { ApprovalActions } from "./ApprovalActions";
+import { ApprovalActions } from "./ApprovalActions.js";
 import {
   buildApprovalCategoryLabel,
   buildApprovalQuestion,
-} from "./approvalLabels";
+} from "./approvalLabels.js";
 
 interface ApprovalDockProps {
   pendingApproval: ApprovalRequest;

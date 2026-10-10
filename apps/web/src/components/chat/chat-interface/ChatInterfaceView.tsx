@@ -20,8 +20,8 @@ import {
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "@legioncode/client-ui";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
-import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
-import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
+import { CanonicalWorkflowSurface } from "@legioncode/client-ui";
+import { PendingWorkflowSurface } from "@legioncode/client-ui";
 import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,

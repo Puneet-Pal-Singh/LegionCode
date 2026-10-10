@@ -21,12 +21,13 @@ import {
   type ToolActivitySegment,
   type WorkflowItem,
 } from "@legioncode/sdk";
-import { cn, MarkdownMessageContent } from "@legioncode/client-ui";
+import { cn } from "../../classnames.js";
+import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { itemDisplayText } from "./workflowPresentation.js";
-import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
-import type { ArtifactOpenHandler } from "@legioncode/client-ui";
-import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
-import { DiffViewer } from "@legioncode/client-ui";
+import type { TurnDiffPayload } from "@legioncode/sdk";
+import type { ArtifactOpenHandler } from "../artifactOpen.js";
+import { parseReadFileOutput } from "@legioncode/sdk";
+import { DiffViewer } from "../../review/DiffViewer.js";
 
 // Parent activity groups are intentionally airy enough to read as separate
 // phases in the trace. Once a group is opened, its child calls use a shorter

@@ -4,7 +4,7 @@ import { useGitHub } from "../../github/GitHubContextProvider";
 import { getFileContent } from "../../../services/GitHubService";
 import { terminalCommandPath } from "../../../lib/platform-endpoints";
 import type { SelectedFile } from "./useWorkspaceState";
-import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser";
+import { parseReadFileOutput } from "@legioncode/sdk";
 
 interface UseFileLoaderProps {
   sandboxId: string;

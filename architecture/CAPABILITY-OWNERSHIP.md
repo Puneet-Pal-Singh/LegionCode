@@ -84,3 +84,20 @@ after import normalization. Shared review owns no product HTTP, storage, Git or
 artifact loading; Web supplies the same data/actions. Existing immutable saved
 diff versus explicit live Git selection remains unchanged. No test is removed;
 Web integration safeguards stay at their application boundary.
+
+## Plan 058.2C — Workflow and approval presentation
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Canonical workflow surface/timeline, pending acknowledgement, clock/labels and disclosure | `client-ui/src/conversation/workflow` | Web ChatInterfaceView supplies the same SDK workflow projection and artifact-open callback. |
+| Approval dock/actions, displayed-decision labels/styles | `client-ui/src/conversation/approval` | Web ChatComposerControls renders the shared dock; useApprovalController consumes unchanged displayed-decision selection and retains existing command ownership until 058.3D. |
+| Read-file output envelope normalization | `sdk/src/platform/read-file-output.ts` | Shared workflow file preview and Web workspace useFileLoader consume the same parser. |
+| Existing lifecycle shimmer and reduced-motion presentation | `client-ui/src/styles.css` | Shared workflow and existing Web turn status use the same moved CSS. |
+
+Old workflow/approval presentation and parser copies are deleted after all
+active callers migrate. Existing tests move with their source, using the same
+client-ui browser-test setup pattern; no assertions are removed. SDK workflow
+projection remains the canonical read model; shared UI has no runtime commands,
+HTTP or product storage. Approval settlement and artifact loading stay with
+existing owners until their command slices. Unused Web WorkflowPlanDiff and
+explorationCopy are untouched; no unrelated cleanup or new input UI is included.
