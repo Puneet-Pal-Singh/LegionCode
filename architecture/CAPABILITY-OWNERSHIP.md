@@ -257,3 +257,11 @@ existing transcript repository and revision projection for server-authenticated
 readers. The HTTP controller delegates to this owner during the App Server/SDK
 cutover; the old route is deleted when its Web reader migrates in this slice.
 The snapshot, message/image metadata and ownership algorithms are preserved.
+
+### Plan 058 authenticated App Server history
+
+The existing App Server dispatches `session/history` using the canonical
+ConversationHistory request/response schemas (real UUID session identity).
+Brain composes its existing history/repository owner only after cookie auth;
+resource reads scope to the verified user and return explicit missing/unavailable
+states. Local Thread/workspace semantics are unchanged. Web cutover follows.

@@ -1,3 +1,5 @@
+import { AppServerController } from "./AppServerController";
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   MemoryEventStore,
@@ -244,24 +246,24 @@ describe("TranscriptController", () => {
   it("does not disclose a saved transcript to an unauthenticated or different user", async () => {
     await repository.ensureSession({ sessionId: TEST_SESSION_ID, userId: "550e8400-e29b-41d4-a716-446655440099" });
     const url = `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`;
-    const unauthenticated = await TranscriptController.getHistory(new Request(url), env);
-    const otherUser = await TranscriptController.getHistory(authenticatedRequest(url), env);
+    const unauthenticated = await requestHostedHistory(new Request(url), env);
+    const otherUser = await requestHostedHistory(authenticatedRequest(url), env);
     expect(unauthenticated.status).toBe(401);
     expect(otherUser.status).toBe(404);
-    await expect(otherUser.json()).resolves.toMatchObject({ error: "Conversation not found" });
+    await expect(otherUser.json()).resolves.toMatchObject({ ok: false, error: { code: "not_found", message: "Conversation not found" } });
   });
 
   it("returns a pinned empty transcript and rejects invalid cursor/snapshot requests", async () => {
     await repository.ensureSession({ sessionId: TEST_SESSION_ID, userId: TEST_USER_ID });
     const url = `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`;
-    const empty = await TranscriptController.getHistory(authenticatedRequest(url), env);
+    const empty = await requestHostedHistory(authenticatedRequest(url), env);
     expect(empty.status).toBe(200);
-    await expect(empty.json()).resolves.toEqual({ messages: [], nextCursor: null, snapshot: "0" });
-    const missingSnapshot = await TranscriptController.getHistory(authenticatedRequest(`${url}&cursor=1`), env);
-    const futureSnapshot = await TranscriptController.getHistory(authenticatedRequest(`${url}&snapshot=1`), env);
+    await expect(empty.json()).resolves.toEqual({ ok: true, result: { messages: [], nextCursor: null, snapshot: "0" }, method: "session/history", protocolVersion: APP_SERVER_PROTOCOL_VERSION });
+    const missingSnapshot = await requestHostedHistory(authenticatedRequest(`${url}&cursor=1`), env);
+    const futureSnapshot = await requestHostedHistory(authenticatedRequest(`${url}&snapshot=1`), env);
     expect(missingSnapshot.status).toBe(400);
     expect(futureSnapshot.status).toBe(400);
-    await expect(futureSnapshot.json()).resolves.toMatchObject({ code: "HISTORY_SNAPSHOT_INVALID" });
+    await expect(futureSnapshot.json()).resolves.toMatchObject({ ok: false, error: { code: "invalid_request" } });
   });
 
   it("hydrates transcript messages in session sequence order", async () => {
@@ -278,7 +280,7 @@ describe("TranscriptController", () => {
       parts: [{ type: "text", content: { text: "hello" } }],
     });
 
-    const response = await TranscriptController.getHistory(
+    const response = await requestHostedHistory(
       authenticatedRequest(
         `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`,
       ),
@@ -287,13 +289,14 @@ describe("TranscriptController", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      messages: [
+      ok: true,
+      result: { messages: [
         {
           id: "client-user-1",
           role: "user",
           content: "hello",
         },
-      ],
+      ] },
     });
   });
 
@@ -349,7 +352,7 @@ describe("TranscriptController", () => {
       ],
     });
 
-    const response = await TranscriptController.getHistory(
+    const response = await requestHostedHistory(
       authenticatedRequest(
         `https://brain.local/api/chat/history?session=${TEST_SESSION_ID}`,
       ),
@@ -358,7 +361,8 @@ describe("TranscriptController", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      messages: [
+      ok: true,
+      result: { messages: [
         {
           id: "client-assistant-1",
           role: "assistant",
@@ -366,7 +370,7 @@ describe("TranscriptController", () => {
             metadata: { terminalState: "completed" },
           },
         },
-      ],
+      ] },
     });
   });
 });
@@ -471,4 +475,13 @@ function createIdentitySessionRecord() {
     defaultWorkspaceId: TEST_WORKSPACE_ID,
     workspaceIds: [TEST_WORKSPACE_ID],
   };
+}
+
+async function requestHostedHistory(request: Request, env: Env): Promise<Response> {
+  const query = Object.fromEntries(new URL(request.url).searchParams);
+  return AppServerController.request(new Request("https://brain.local/app-server/request", {
+    method: "POST",
+    headers: { ...Object.fromEntries(request.headers), "content-type": "application/json" },
+    body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/history", params: query }),
+  }), env);
 }

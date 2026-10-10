@@ -1,3 +1,5 @@
+import { AppServerOperationError, type AppServerComposition } from "@legioncode/app-server/server";
+import { InvalidTranscriptSnapshotError } from "@repo/persistence";
 import type { JsonValue } from "@repo/shared-types";
 import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
 import {
@@ -132,4 +134,26 @@ function readPartMetadata(value: JsonValue): Record<string, unknown> | null {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata)
     ? metadata
     : null;
+}
+
+
+export function composeHostedConversationHistory(
+  env: Env,
+  userId: string,
+): NonNullable<AppServerComposition["conversationHistoryService"]> {
+  return {
+    async readPage(params) {
+      try {
+        return await readHostedConversationHistory(env, userId, params);
+      } catch (error) {
+        if (error instanceof ConversationHistoryNotFoundError) {
+          throw new AppServerOperationError(404, "not_found", "Conversation not found");
+        }
+        if (error instanceof InvalidTranscriptSnapshotError) {
+          throw new AppServerOperationError(400, "invalid_request", error.message);
+        }
+        throw new AppServerOperationError(503, "server_unavailable", "Conversation history is unavailable");
+      }
+    },
+  };
 }

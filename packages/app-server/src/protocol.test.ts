@@ -33,6 +33,20 @@ describe("App Server protocol", () => {
     }
   });
 
+  it("preserves UUID session scope and pinned history validation without local Thread IDs", () => {
+    const request = { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/history", params: { session: "550e8400-e29b-41d4-a716-446655440001", limit: 50 } };
+    expect(AppServerRequestSchema.safeParse(request).success).toBe(true);
+    for (const params of [
+      { session: "thr_local123" },
+      { ...request.params, userId: "another-user" },
+      { ...request.params, cursor: "1" },
+      { ...request.params, cursor: "2", snapshot: "1" },
+    ]) {
+      expect(AppServerRequestSchema.safeParse({ ...request, params }).success).toBe(false);
+    }
+    expect(AppServerResponseSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/history", ok: true, result: { messages: [], nextCursor: null, snapshot: "0" } }).success).toBe(true);
+  });
+
   it("validates strict success and failure response envelopes", () => {
     expect(
       AppServerResponseSchema.safeParse({

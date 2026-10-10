@@ -1,3 +1,6 @@
+import { AppServerRequestSchema } from "@legioncode/app-server/protocol";
+import { getAuthenticatedUserSession, isSessionStoreUnavailableError } from "../services/AuthService";
+import { composeHostedConversationHistory } from "../integration/app-server/HostedConversationHistory";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
 import { getCorsHeaders } from "../lib/cors";
@@ -14,6 +17,23 @@ export const AppServerController = {
         message: "App Server request is too large",
       });
     }
+    // Initialize remains a public handshake. Resource services are composed only
+    // after an HttpOnly cookie resolves to a server-verified principal.
+    let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
+    let envelope: unknown;
+    try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
+    const parsed = AppServerRequestSchema.safeParse(envelope);
+    if (parsed.success && parsed.data.method !== "initialize") {
+      try {
+        const auth = await getAuthenticatedUserSession(request, env);
+        if (!auth) return json(env, request, 401, { code: "unauthorized", message: "Unauthorized" });
+        historyService = composeHostedConversationHistory(env, auth.userId);
+      } catch (error) {
+        return json(env, request, isSessionStoreUnavailableError(error) ? 503 : 500, {
+          code: "server_unavailable", message: "Authentication is unavailable",
+        });
+      }
+    }
     const result = await handleAppServerHttpRequest(
       {
         method: request.method,
@@ -26,6 +46,7 @@ export const AppServerController = {
         environment: "hosted",
         serverId: "legioncode-hosted",
         serverVersion: "0.1.0",
+        conversationHistoryService: historyService,
       },
     );
     return json(env, request, result.statusCode, result.payload);
