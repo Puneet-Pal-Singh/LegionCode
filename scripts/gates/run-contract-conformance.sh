@@ -26,6 +26,7 @@ run corepack pnpm --filter @legioncode/app-server test
 run corepack pnpm --filter @legioncode/sdk test -- \
   src/platform/app-server-client.test.ts \
   src/platform/app-server-http-transport.test.ts
+run corepack pnpm --filter @legioncode/github-bridge build
 run corepack pnpm --filter @legioncode/brain test -- \
   src/controllers/AppServerController.test.ts
 run corepack pnpm --filter @legioncode/sdk test -- src/platform/http-transport.test.ts
