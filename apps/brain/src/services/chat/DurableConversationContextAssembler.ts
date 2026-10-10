@@ -136,10 +136,18 @@ export class DurableConversationContextAssembler {
 
 function toCoreTextMessage(record: TranscriptMessageRecord): CoreMessage[] {
   if (record.role === "tool") return [];
+  const canonicalAssistantItem = record.role === "assistant" && record.parts.every((part) => {
+    const metadata = readRecord(readRecord(part.content)?.metadata);
+    return typeof metadata?.itemId === "string" &&
+      (metadata.phase === "commentary" || metadata.phase === "final_answer");
+  });
   const content = record.parts
-    .map((part) => readText(part.content))
-    .filter((text): text is string => Boolean(text?.trim()))
-    .join("\n");
+    .map((part) => canonicalAssistantItem
+      ? readRecord(part.content)?.text
+      : readText(part.content))
+    .filter((text): text is string => typeof text === "string" &&
+      (canonicalAssistantItem || Boolean(text.trim())))
+    .join(canonicalAssistantItem ? "" : "\n");
   return content
     ? [
         {

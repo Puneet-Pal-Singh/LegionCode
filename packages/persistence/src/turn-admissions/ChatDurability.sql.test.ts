@@ -112,6 +112,31 @@ describe("durable admission and canonical append SQL", () => {
     expect((await admissions.claimExecution({ ...claim, claimId: "claim-retry" })).status).toBe("recovery_required");
   });
 
+  it("authorizes revisions against the latest owned terminal turn at reservation and admission", async () => {
+    const fixture = await createFixture(client);
+    const admissions = new PostgresTurnAdmissionRepository(client);
+    const store = new PostgresLifecycleEventStore(client);
+    await admissions.reserve(fixture.admission);
+    await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "original"));
+    const revision = { ...fixture.admission, clientMessageId: "revision-client", turnId: `trn_${randomUUID().replaceAll("-", "")}`, runAttemptId: `attempt_${randomUUID().replaceAll("-", "")}`, revisionOfTurnId: fixture.admission.turnId };
+    await expect(admissions.reserve(revision)).rejects.toMatchObject({ code: "revision_target_not_terminal" });
+    await store.appendBatch([lifecycleTurnStarted(fixture, 1), lifecycleTurnCompleted(fixture, 2)]);
+    const other = await createFixture(client);
+    await expect(admissions.reserve({ ...other.admission, revisionOfTurnId: fixture.admission.turnId })).rejects.toMatchObject({ code: "revision_target_not_found" });
+    await admissions.reserve(revision);
+    const next = { ...fixture.admission, clientMessageId: "new-client", turnId: `trn_${randomUUID().replaceAll("-", "")}`, runAttemptId: `attempt_${randomUUID().replaceAll("-", "")}` };
+    await admissions.reserve(next);
+    await admissions.admitWithPrompt(admissionInput(fixture, next, "new-turn"));
+    await expect(admissions.admitWithPrompt(admissionInput(fixture, revision, "stale-revision"))).rejects.toMatchObject({ code: "revision_target_not_current" });
+    const current = { ...fixture, admission: next };
+    await store.appendBatch([lifecycleTurnStarted(current, 1), lifecycleTurnCompleted(current, 2)]);
+    const valid = { ...revision, clientMessageId: "valid-revision", turnId: `trn_${randomUUID().replaceAll("-", "")}`, runAttemptId: `attempt_${randomUUID().replaceAll("-", "")}`, revisionOfTurnId: next.turnId };
+    await admissions.reserve(valid);
+    expect((await admissions.admitWithPrompt(admissionInput(fixture, valid, "valid"))).admission).toMatchObject({ state: "admitted", revisionOfTurnId: next.turnId });
+    await expect(admissions.reserve({ ...revision, clientMessageId: "stale-target" })).rejects.toMatchObject({ code: "revision_target_not_found" });
+    await expect(client.query("UPDATE sessions SET thread_id = $2 WHERE id = $1", [fixture.sessionId, "thr_rebound01"])).rejects.toThrow("session thread_id is immutable");
+  });
+
   it.each([
     { type: "turn.interrupted", payload: { outcome: { status: "interrupted", reason: "user_cancelled" } }, run: "cancelled", session: "paused" },
     { type: "turn.failed", payload: { outcome: { status: "failed", failure: { code: "internal_error", message: "fixture failure", retryable: false, correlationId: null, details: null } } }, run: "failed", session: "failed" },

@@ -151,5 +151,7 @@ Migration 0032 installs immutable thread binding, admission identity and canonic
 transcript keys with the writer. Existing title and image policy remains in place.
 SQL gates replace the removed writer tests with admission rollback/retry, canonical
 append rollback/replay/deduplication, distinct turns, owner isolation and execution
-claim safeguards. Browser admission binding remains pending the next baseline
+claim/revision safeguards. New-session creation is awaited before publishing the
+conversation to submit callers; canonical delta fragments retain exact whitespace
+in subsequent model context. Browser admission binding remains pending the next baseline
 slice; hosted command routing through App Server remains pending 058.3.

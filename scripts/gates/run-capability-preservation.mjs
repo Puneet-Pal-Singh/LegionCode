@@ -30,7 +30,7 @@ const CAPABILITIES = [
       ],
       [
         "packages/persistence/src/turn-admissions/ChatDurability.sql.test.ts",
-        "persists assistant deltas using the server-issued turn identity",
+        "persists assistant deltas using the server-issued turn identity exactly once",
       ],
       [
         "packages/sdk/src/providers/cross-client-lifecycle-parity.test.ts",
