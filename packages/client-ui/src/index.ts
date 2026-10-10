@@ -42,3 +42,7 @@ export { TreeFilter } from "./review/TreeFilter.js";
 export { CODE_TYPOGRAPHY_STYLE } from "./review/codeTypography.js";
 export { REVIEW_SOURCE_LABELS, type ReviewScope, type ReviewSourceKind } from "./review/reviewScope.js";
 export * from "./review/reviewComments.js";
+export { CanonicalWorkflowSurface } from "./conversation/workflow/CanonicalWorkflowSurface.js";
+export { PendingWorkflowSurface } from "./conversation/workflow/PendingWorkflowSurface.js";
+export { ApprovalDock } from "./conversation/approval/ApprovalDock.js";
+export { getDisplayedApprovalDecisions } from "./conversation/approval/approvalDecisions.js";

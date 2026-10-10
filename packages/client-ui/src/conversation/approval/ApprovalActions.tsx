@@ -1,7 +1,7 @@
 import { Check, ShieldCheck, X } from "lucide-react";
 import type { ApprovalDecisionKind } from "@repo/shared-types";
-import { formatApprovalDecisionLabel } from "./approvalDecisions";
-import { approvalDecisionButtonClassName } from "./approvalStyles";
+import { formatApprovalDecisionLabel } from "./approvalDecisions.js";
+import { approvalDecisionButtonClassName } from "./approvalStyles.js";
 
 interface ApprovalActionsProps {
   decisions: ApprovalDecisionKind[];

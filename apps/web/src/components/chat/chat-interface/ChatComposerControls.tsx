@@ -7,7 +7,7 @@ import type {
 import type { ProviderId } from "../../../types/provider";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 import type { ReviewCommentDraft } from "@legioncode/client-ui";
-import { ApprovalDock } from "../approval/ApprovalDock.js";
+import { ApprovalDock } from "@legioncode/client-ui";
 import { ChatInputBar } from "../ChatInputBar";
 import type {
   ContextBudgetSnapshot,
