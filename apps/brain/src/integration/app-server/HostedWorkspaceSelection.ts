@@ -1,14 +1,10 @@
-import { z } from "zod";
-import { HostedWorkspaceSelectRequestSchema } from "@repo/platform-protocol";
+import type { HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
 import { AppServerOperationError, type AppServerComposition } from "@legioncode/app-server/server";
 import { getGitHubClient, isSessionStoreUnavailableError } from "../../services/AuthService";
 import type { GitHubAPIClient } from "@legioncode/github-bridge";
 import type { Env } from "../../types/ai";
 import { WorkspaceSelectionService } from "../../services/workspaces/WorkspaceSelectionService";
 import { withWorkspaceRepository } from "../../services/workspaces/WorkspacePersistenceFactory";
-
-// The old HTTP controller delegates here only until the Web caller cutover.
-export const SelectWorkspaceRequestSchema = HostedWorkspaceSelectRequestSchema.strip();
 
 export function listHostedWorkspaces(env: Env, userId: string) {
   return withWorkspaceRepository(env, (repository) =>
@@ -20,7 +16,7 @@ export async function selectHostedWorkspace(
   env: Env,
   userId: string,
   client: Pick<GitHubAPIClient, "getRepository">,
-  params: z.infer<typeof SelectWorkspaceRequestSchema>,
+  params: HostedWorkspaceSelectRequest,
 ) {
   const repository = await client.getRepository(params.repository.owner, params.repository.name);
   return withWorkspaceRepository(env, (workspaceRepo) =>

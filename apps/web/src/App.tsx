@@ -21,11 +21,9 @@ import {
 import { AuthorizedRepositoryPicker } from "./components/github/AuthorizedRepositoryPicker";
 import type {
   Repository,
-  WorkspaceListItem,
-  WorkspaceListResponse,
-  WorkspaceRepositoryRecord,
 } from "./services/GitHubService";
-import * as GitHubService from "./services/GitHubService";
+import * as WorkspaceSelection from "./services/api/workspaceSelection";
+import type { WorkspaceListItem, WorkspaceListResponse, WorkspaceRepositoryRecord } from "./services/api/workspaceSelection";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
@@ -505,7 +503,7 @@ function AppContent() {
 
       const repairSessionContextFromWorkspace = async (): Promise<void> => {
         try {
-          const workspaceState = await GitHubService.listWorkspaces();
+          const workspaceState = await WorkspaceSelection.listWorkspaces();
           if (cancelled) {
             return;
           }
@@ -588,7 +586,7 @@ function AppContent() {
 
     const persistActiveWorkspaceSelection = async (): Promise<void> => {
       try {
-        await GitHubService.selectWorkspace(repo, selectedBranch);
+        await WorkspaceSelection.selectWorkspace(repo, selectedBranch);
         if (cancelled) {
           return;
         }
@@ -964,7 +962,7 @@ function AppContent() {
     selectedBranch: string,
   ): Promise<void> => {
     try {
-      await GitHubService.selectWorkspace(selectedRepo, selectedBranch);
+      await WorkspaceSelection.selectWorkspace(selectedRepo, selectedBranch);
     } catch (error) {
       console.error("[workspace/select] Failed to persist selection:", error);
       window.dispatchEvent(

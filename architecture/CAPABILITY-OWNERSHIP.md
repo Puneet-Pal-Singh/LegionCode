@@ -313,3 +313,13 @@ still resolves repository access through the authenticated GitHub client before
 writing. Typed hosted record results remain distinct from local filesystem
 grants. SDK/Web cutover follows in this slice; browser context reconciliation
 and storage retirement remain pending their server-reconstruction proof.
+
+### Plan 058 Web workspace operation cutover
+
+App selection/reconstruction and workspace bootstrap call the existing SDK
+hosted workspace operations. GitHubService no longer owns workspace HTTP,
+wire-record interfaces or response parsers; both replaced Brain HTTP routes
+and WorkspaceController are deleted. Workspace hooks routes remain separate.
+Current browser context reconciliation is explicitly not retired by this
+transport cutover; its deletion requires authenticated server reconstruction
+and existing-profile data preservation in the later authority slice.
