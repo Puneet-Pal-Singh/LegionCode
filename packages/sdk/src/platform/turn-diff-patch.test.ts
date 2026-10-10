@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { TurnDiffPayload, TurnId } from "../api/lifecycleClient";
-import { buildDiffContentFromTurnDiff } from "./TurnDiffPatchParser";
+import type { TurnDiffPayload, TurnId } from "@repo/platform-protocol";
+import { buildDiffContentFromTurnDiff } from "./turn-diff-patch.js";
 
 const TURN_ID = "trn_diff01" as TurnId;
 

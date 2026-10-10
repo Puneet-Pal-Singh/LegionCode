@@ -1,5 +1,5 @@
 import type { DiffContent, DiffHunk } from "@repo/shared-types";
-import type { TurnDiffPayload } from "../api/lifecycleClient";
+import type { TurnDiffPayload } from "@repo/platform-protocol";
 
 const HUNK_HEADER_PATTERN =
   /^@@ -(?<oldStart>\d+)(?:,(?<oldLines>\d+))? \+(?<newStart>\d+)(?:,(?<newLines>\d+))? @@(?<header>.*)$/u;
