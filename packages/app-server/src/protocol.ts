@@ -1,4 +1,5 @@
 import {
+  HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
   HostedSessionsResponseSchema, HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
@@ -55,6 +56,8 @@ export const AppServerMethodSchema = z.enum([
   "session/delete",
   "session/archived",
 
+  "workspace/list",
+  "workspace/select",
   "workspace/current",
   "workspace/grant",
   "workspace/revoke",
@@ -76,6 +79,8 @@ const AppServerRequestShape = {
 };
 
 export const AppServerRequestSchema = z.discriminatedUnion("method", [
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/list"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/select"), params: HostedWorkspaceSelectRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/list"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/create"), params: HostedSessionCreateRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/rename"), params: HostedSessionRenameRequestSchema }).strict(),
@@ -107,6 +112,8 @@ export type AppServerRequest = z.infer<typeof AppServerRequestSchema>;
 export type AppServerMethod = z.infer<typeof AppServerMethodSchema>;
 
 export const AppServerResultSchemas = {
+  "workspace/list": HostedWorkspaceListResponseSchema,
+  "workspace/select": HostedWorkspaceSelectResponseSchema,
   "session/list": HostedSessionsResponseSchema,
   "session/create": HostedSessionResponseSchema,
   "session/rename": HostedSessionResponseSchema,
@@ -136,6 +143,8 @@ export const AppServerResultSchemas = {
 } as const;
 
 export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
+  success("workspace/list", AppServerResultSchemas["workspace/list"]),
+  success("workspace/select", AppServerResultSchemas["workspace/select"]),
   success("session/list", AppServerResultSchemas["session/list"]),
   success("session/create", AppServerResultSchemas["session/create"]),
   success("session/rename", AppServerResultSchemas["session/rename"]),

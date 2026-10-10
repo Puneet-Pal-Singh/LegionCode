@@ -304,3 +304,12 @@ The canonical owners remain TranscriptRepository and ThreadTitleService.
 Browser cache/selection/draft storage is preserved pending actual profile
 inventory. The missing read-receipt path remains explicitly incomplete pending
 its scoped ownership decision; no success or server unread projection is claimed.
+
+### Plan 058 authenticated hosted workspace selection
+
+Hosted workspace list/select use the existing WorkspaceSelectionService and
+WorkspaceRepository, composed with the cookie-verified principal. Selection
+still resolves repository access through the authenticated GitHub client before
+writing. Typed hosted record results remain distinct from local filesystem
+grants. SDK/Web cutover follows in this slice; browser context reconciliation
+and storage retirement remain pending their server-reconstruction proof.

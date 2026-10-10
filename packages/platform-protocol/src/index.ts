@@ -451,3 +451,9 @@ export {
   HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
   type HostedSession, type HostedSessionCreateRequest, type HostedSessionRenameRequest, type HostedSessionsResponse,
 } from "./hosted-sessions.js";
+
+export {
+  HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
+  type HostedWorkspaceSelectRequest, type HostedWorkspaceRepository, type HostedWorkspaceRecord,
+  type HostedWorkspaceSelection, type HostedWorkspaceListItem, type HostedWorkspaceListResponse,
+} from "./hosted-workspaces.js";

@@ -1,3 +1,4 @@
+import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionRenameRequest, HostedSessionsResponse } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
@@ -21,6 +22,10 @@ export type AppServerComposition = {
   serverId: string;
   serverVersion: string;
   workspaceService?: LocalWorkspaceService;
+  hostedWorkspaceService?: {
+    list(): Promise<HostedWorkspaceListResponse>;
+    select(params: HostedWorkspaceSelectRequest): Promise<{ selection: HostedWorkspaceSelection }>;
+  };
   threadService?: LocalThreadService;
   providerService?: LocalProviderService;
   providerConfiguration?: ProviderConfiguration;
@@ -215,6 +220,14 @@ async function dispatch(
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");
       return result.payload;
+    }
+    case "workspace/list": {
+      if (!composition.hostedWorkspaceService) throw new Error("unsupported");
+      return composition.hostedWorkspaceService.list();
+    }
+    case "workspace/select": {
+      if (!composition.hostedWorkspaceService) throw new Error("unsupported");
+      return composition.hostedWorkspaceService.select(request.params);
     }
     case "workspace/current": {
       if (!composition.workspaceService) throw new Error("unsupported");
