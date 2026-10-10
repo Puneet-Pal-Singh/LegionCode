@@ -1,3 +1,4 @@
+import { getMuscleHttpBase } from "../lib/platform-endpoints";
 import type { ArtifactData } from "../types/chat";
 
 /**
@@ -64,4 +65,13 @@ export class ArtifactService {
   setIsOpen(isOpen: boolean): void {
     this.isArtifactOpen = isOpen;
   }
+}
+
+/** Existing cold-storage transport, supplied to the shared artifact renderer. */
+export async function loadColdStorageArtifact(key: string): Promise<string> {
+  const res = await fetch(`${getMuscleHttpBase()}/artifact?key=${encodeURIComponent(key)}`);
+  if (!res.ok) {
+    throw new Error(`Artifact fetch failed: ${res.status}`);
+  }
+  return res.text();
 }

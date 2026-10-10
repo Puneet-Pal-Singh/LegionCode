@@ -11,9 +11,11 @@ const codeArtifactArgsSchema = z.object({
 export function MessageArtifacts({
   message,
   onArtifactOpen,
+  loadArtifactContent,
 }: {
   message: Message;
   onArtifactOpen?: ArtifactOpenHandler;
+  loadArtifactContent?: (key: string) => Promise<string>;
 }) {
   return message.toolInvocations
     ?.filter((invocation) => invocation.toolName === "create_code_artifact")
@@ -27,6 +29,7 @@ export function MessageArtifacts({
           key={invocation.toolCallId || `tool-${index}`}
           title={path}
           content={content}
+          loadContent={loadArtifactContent}
           status={invocation.state}
           onOpen={() => onArtifactOpen?.(path, content)}
         />

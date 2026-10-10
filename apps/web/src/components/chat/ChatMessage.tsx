@@ -10,11 +10,10 @@ import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClien
 import { ChatImageGallery, type ChatImagePreview } from "@legioncode/client-ui";
 import { isChatImageMimeType } from "@legioncode/client-ui";
 import {
-  resolveHydratedChatImageSource,
   stripRedactedImageMarkers,
 } from "./chatMessageImagePresentation";
 
-interface ChatMessageProps {
+export interface ChatMessageProps {
   message: Message;
   metadata?: ChatMessageMetadata;
   onArtifactOpen?: ArtifactOpenHandler;
@@ -22,6 +21,8 @@ interface ChatMessageProps {
   changedFilesSummary?: ChangedFilesSummary;
   hookAudits?: readonly HookInvocationAuditEvent[];
   onEdit?: (content: string) => Promise<boolean>;
+  resolveHydratedImageSource?: (source: string) => string | undefined;
+  loadArtifactContent?: (key: string) => Promise<string>;
 }
 
 export function ChatMessage({
@@ -32,6 +33,8 @@ export function ChatMessage({
   changedFilesSummary,
   hookAudits = [],
   onEdit,
+  resolveHydratedImageSource,
+  loadArtifactContent,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isEditing, setIsEditing] = useState(false);
@@ -41,7 +44,7 @@ export function ChatMessage({
     isUser,
     changedFilesSummary,
   );
-  const imagePreviews = isUser ? readMessageImagePreviews(message) : [];
+  const imagePreviews = isUser ? readMessageImagePreviews(message, resolveHydratedImageSource) : [];
   const visibleContent =
     isUser && imagePreviews.length > 0
       ? stripRedactedImageMarkers(displayContent)
@@ -109,7 +112,7 @@ export function ChatMessage({
           </>
         )}
         {!isUser && (
-          <MessageArtifacts message={message} onArtifactOpen={onArtifactOpen} />
+          <MessageArtifacts message={message} onArtifactOpen={onArtifactOpen} loadArtifactContent={loadArtifactContent} />
         )}
         {!isUser &&
           changedFilesSummary &&
@@ -132,7 +135,10 @@ export function ChatMessage({
   );
 }
 
-function readMessageImagePreviews(message: Message): ChatImagePreview[] {
+function readMessageImagePreviews(
+  message: Message,
+  resolveHydratedImageSource?: (source: string) => string | undefined,
+): ChatImagePreview[] {
   const metadata = readMessageMetadata(message);
   const metadataImages = Array.isArray(metadata?.imageAttachments)
     ? metadata.imageAttachments.flatMap((value, index) => {
@@ -152,7 +158,7 @@ function readMessageImagePreviews(message: Message): ChatImagePreview[] {
               : `image-${index + 1}`;
         const src =
           typeof record.src === "string"
-            ? resolveHydratedChatImageSource(record.src)
+            ? resolveHydratedImageSource?.(record.src)
             : undefined;
         return [
           {

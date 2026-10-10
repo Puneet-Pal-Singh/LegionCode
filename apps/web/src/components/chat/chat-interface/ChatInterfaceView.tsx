@@ -1,3 +1,5 @@
+import { resolveHydratedChatImageSource } from "../chatMessageImagePresentation";
+import { loadColdStorageArtifact } from "../../../services/ArtifactService";
 import type { ChatMessageMetadata } from "@legioncode/client-ui";
 import { forwardRef, type ReactNode } from "react";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
@@ -137,6 +139,8 @@ function Transcript(props: ChatInterfaceViewProps) {
         }
         return (
           <ChatMessage
+            resolveHydratedImageSource={resolveHydratedChatImageSource}
+            loadArtifactContent={loadColdStorageArtifact}
             key={entry.message.id}
             message={entry.message}
             metadata={props.messageMetadataById[entry.message.id]}
@@ -285,6 +289,8 @@ function TerminalMessage(
 
   return (
     <ChatMessage
+            resolveHydratedImageSource={resolveHydratedChatImageSource}
+            loadArtifactContent={loadColdStorageArtifact}
       message={{
         id: terminal.id,
         role: "assistant",
