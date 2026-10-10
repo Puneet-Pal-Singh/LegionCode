@@ -1,3 +1,6 @@
+import { resolveHydratedChatImageSource } from "./chatMessageImagePresentation";
+import { loadColdStorageArtifact } from "../../services/ArtifactService";
+import { ChatDebugPanel } from "./chat-interface/ChatDebugPanel";
 import { buildConversationTurns } from "@legioncode/sdk";
 import {
   useRef,
@@ -431,8 +434,9 @@ export function ChatInterface({
       onProjectClick={onProjectClick}
       showSessionPlaceholder={showStableSessionPlaceholder}
       renderComposer={renderComposerControls}
-      showDebugPanel={showDebugPanel}
-      debugEvents={debugEvents}
+      debugPanel={showDebugPanel ? <ChatDebugPanel events={debugEvents} /> : null}
+      resolveHydratedImageSource={resolveHydratedChatImageSource}
+      loadArtifactContent={loadColdStorageArtifact}
       chatEntries={chatEntries}
       hydrationStatus={hydrationStatus}
       hydrationError={hydrationError ?? null}

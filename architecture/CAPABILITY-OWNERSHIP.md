@@ -215,3 +215,11 @@ and all callers import SDK. Unchanged/copied status normalization, missing stats
 and unstaged presentation values are preserved. Terminal failed_runtime display
 wording stays presentation-local; no canonical settlement is derived there.
 No live Git fallback or artifact transport is introduced.
+
+### Plan 058 conversation view host bindings
+
+Web `ChatInterface` supplies image URL resolution, cold-storage loading and the
+client debug panel to the conversation view. The view receives presentation
+values/callbacks; authenticated transport and debug collection remain Web-owned.
+No runtime, admission or hydration algorithm changes. This boundary permits the
+existing view and presentation hooks to move into shared client UI next.

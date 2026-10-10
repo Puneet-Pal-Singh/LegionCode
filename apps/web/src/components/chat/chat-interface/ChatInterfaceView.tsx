@@ -1,9 +1,6 @@
 import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
-import { resolveHydratedChatImageSource } from "../chatMessageImagePresentation";
-import { loadColdStorageArtifact } from "../../../services/ArtifactService";
-import type { ChatMessageMetadata } from "@legioncode/client-ui";
+import type { ChatMessageProps, ChatMessageMetadata } from "@legioncode/client-ui";
 import { forwardRef, type ReactNode } from "react";
-import type { ChatDebugEvent } from "../../../types/chat-debug.js";
 import type {
   DiffContent,
   FileStatus,
@@ -22,14 +19,11 @@ import { ChatMessage } from "@legioncode/client-ui";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "@legioncode/client-ui";
 import { PendingWorkflowSurface } from "@legioncode/client-ui";
-import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,
   resolveTerminalChangedFilesSummary,
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
-import type { HydrationStatus } from "../../../services/ChatHydrationService";
-import type { ComposerLayout } from "./ChatComposerControls";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { ChevronDown, Folder } from "lucide-react";
 
@@ -42,11 +36,12 @@ interface ChatInterfaceViewProps {
   projectName?: string;
   onProjectClick?: () => void;
   showSessionPlaceholder: boolean;
-  renderComposer: (layout: ComposerLayout) => ReactNode;
-  showDebugPanel: boolean;
-  debugEvents: ChatDebugEvent[];
+  renderComposer: (layout: "docked" | "hero") => ReactNode;
+  debugPanel?: ReactNode;
+  resolveHydratedImageSource: ChatMessageProps["resolveHydratedImageSource"];
+  loadArtifactContent: ChatMessageProps["loadArtifactContent"];
   chatEntries: ChatInterfaceEntry[];
-  hydrationStatus: HydrationStatus | "loading" | "idle";
+  hydrationStatus: "readable" | "empty" | "partial" | "recovery-required" | "failed" | "cancelled" | "loading" | "idle";
   hydrationError: string | null;
   retryHydration?: () => void;
   messageMetadataById: Record<string, ChatMessageMetadata>;
@@ -141,9 +136,7 @@ export const ChatInterfaceView = forwardRef<
                 ) : null}
               </div>
             ) : null}
-            {props.showDebugPanel ? (
-              <ChatDebugPanel events={props.debugEvents} />
-            ) : null}
+            {props.debugPanel}
             <Transcript {...props} />
           </div>
         )}
@@ -170,8 +163,8 @@ function Transcript(props: ChatInterfaceViewProps) {
         }
         return (
           <ChatMessage
-            resolveHydratedImageSource={resolveHydratedChatImageSource}
-            loadArtifactContent={loadColdStorageArtifact}
+            resolveHydratedImageSource={props.resolveHydratedImageSource}
+            loadArtifactContent={props.loadArtifactContent}
             key={entry.message.id}
             message={entry.message}
             metadata={props.messageMetadataById[entry.message.id]}
@@ -255,8 +248,8 @@ function TurnWorkflowEntry({
           onArtifactOpen={props.onArtifactOpen}
           onReviewOpen={props.onReviewOpen}
           hookAudits={entry.projection.hookAudits}
-          resolveHydratedImageSource={resolveHydratedChatImageSource}
-          loadArtifactContent={loadColdStorageArtifact}
+          resolveHydratedImageSource={props.resolveHydratedImageSource}
+          loadArtifactContent={props.loadArtifactContent}
         />
       ) : null}
       {terminal?.errorCode ? (
@@ -342,8 +335,8 @@ function TerminalMessage(
 
   return (
     <ChatMessage
-            resolveHydratedImageSource={resolveHydratedChatImageSource}
-            loadArtifactContent={loadColdStorageArtifact}
+            resolveHydratedImageSource={props.resolveHydratedImageSource}
+            loadArtifactContent={props.loadArtifactContent}
       message={{
         id: terminal.id,
         role: "assistant",
@@ -443,43 +436,6 @@ function ChatLoadingIndicator() {
         aria-label="Loading conversation"
         className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-800 border-t-zinc-300"
       />
-    </div>
-  );
-}
-
-function ChatDebugPanel({ events }: { events: ChatDebugEvent[] }) {
-  return (
-    <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
-      <div className="border-b border-cyan-800/40 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-cyan-200">
-        Debug Trace (Client)
-      </div>
-      <div className="max-h-56 space-y-3 overflow-y-auto p-3">
-        {events.length === 0 ? (
-          <div className="text-xs text-cyan-300/70">
-            Waiting for first request...
-          </div>
-        ) : (
-          events.map((event) => (
-            <div
-              key={event.id}
-              className="rounded border border-cyan-900/60 bg-black/50 p-2"
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
-                  {event.phase}
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  {new Date(event.timestamp).toLocaleTimeString()}
-                </span>
-              </div>
-              <div className="mb-2 text-xs text-cyan-100">{event.summary}</div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[11px] text-zinc-200">
-                {formatDebugPayload(event.payload)}
-              </pre>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }
