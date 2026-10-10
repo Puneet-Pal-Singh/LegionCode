@@ -1,6 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 import { describe, expect, it } from "vitest";
-import { buildConversationTurns } from "../messageMetadata";
+import { buildConversationTurns } from "@legioncode/sdk";
 import { buildChatEntries } from "./chatEntries";
 import { createLifecycleProjection } from "@legioncode/sdk";
 import { TurnIdSchema } from "@legioncode/sdk";

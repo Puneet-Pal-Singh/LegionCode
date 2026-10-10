@@ -2,13 +2,13 @@ import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
 import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel";
 import type { LifecycleProjection } from "@legioncode/sdk";
-import { buildConversationTurns } from "../messageMetadata";
+import type { ConversationTurn } from "@legioncode/sdk";
 import { buildChatEntries } from "./chatEntries";
 import type { InitialPromptSubmission } from "../../../lib/initial-prompt-submission";
 
 interface ChatPresentationInput {
   messages: Message[];
-  conversationTurns: ReturnType<typeof buildConversationTurns>;
+  conversationTurns: ConversationTurn<Message>[];
   hasHydrated: boolean;
   isLoading: boolean;
   hasPendingApproval: boolean;

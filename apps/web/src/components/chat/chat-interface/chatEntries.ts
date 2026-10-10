@@ -1,8 +1,8 @@
 import type { Message } from "@ai-sdk/react";
 import {
-  buildConversationTurns,
+  type ConversationTurn,
   readCanonicalTurnId,
-} from "../messageMetadata";
+} from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
 
 export type ChatInterfaceEntry =
@@ -20,7 +20,7 @@ export type ChatInterfaceEntry =
     };
 
 export function buildChatEntries(
-  conversationTurns: ReturnType<typeof buildConversationTurns>,
+  conversationTurns: ConversationTurn<Message>[],
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>> = {},
   activeTurnId?: string | null,
 ): ChatInterfaceEntry[] {

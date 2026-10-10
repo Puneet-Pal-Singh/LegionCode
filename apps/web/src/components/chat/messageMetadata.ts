@@ -1,6 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
-import { TurnIdSchema } from "@legioncode/sdk";
+import { buildConversationTurns, resolveMessageTimestamp, type ConversationTurn as CanonicalConversationTurn } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import type { ChatMessageMetadata } from "@legioncode/client-ui";
 
@@ -30,15 +30,7 @@ export function buildLifecycleMessageMetadata(
   };
 }
 
-export interface ConversationTurn {
-  key: string;
-  turnId?: string;
-  userMessage?: Message;
-  assistantMessages?: Message[];
-  userAtMs?: number;
-  assistantAtMs?: number;
-  request?: RequestTiming;
-}
+type ConversationTurn = CanonicalConversationTurn<Message> & { request?: RequestTiming };
 
 interface RequestTiming {
   modelId?: string;
@@ -56,84 +48,6 @@ export function buildChatMessageMetadata(
   const requests = buildRequestTimings(debugEvents);
   assignRequestsToTurns(turns, requests);
   return mapTurnsToMessageMetadata(turns, resolveModelLabel, modeLabel);
-}
-
-export function buildConversationTurns(
-  messages: Message[],
-): ConversationTurn[] {
-  const turns: ConversationTurn[] = [];
-  for (const message of collapseRepeatedMessageIds(messages)) {
-    const messageAtMs = resolveMessageTimestamp(message);
-    const canonicalTurnId = readCanonicalTurnId(message);
-    if (message.role === "user") {
-      turns.push({
-        key: message.id,
-        ...(canonicalTurnId ? { turnId: canonicalTurnId } : {}),
-        userMessage: message,
-        userAtMs: messageAtMs,
-      });
-      continue;
-    }
-    if (message.role !== "assistant") {
-      continue;
-    }
-    const matchingCanonicalUser = canonicalTurnId
-      ? turns.find(
-          (turn) => turn.userMessage && turn.turnId === canonicalTurnId,
-        )
-      : undefined;
-    if (matchingCanonicalUser) {
-      matchingCanonicalUser.assistantMessages ??= [];
-      matchingCanonicalUser.assistantMessages.push(message);
-      matchingCanonicalUser.assistantAtMs = messageAtMs;
-      continue;
-    }
-    turns.push({
-      key: message.id,
-      ...(canonicalTurnId ? { turnId: canonicalTurnId } : {}),
-      assistantMessages: [message],
-      assistantAtMs: messageAtMs,
-    });
-  }
-  return turns;
-}
-
-export function readCanonicalTurnId(message: Message): string | null {
-  const metadata = readMessageMetadata(message);
-  const identity = metadata?.canonicalIdentity;
-  if (!identity || typeof identity !== "object" || Array.isArray(identity)) {
-    return null;
-  }
-  const turnId = (identity as Record<string, unknown>).turnId;
-  const parsed = TurnIdSchema.safeParse(turnId);
-  return parsed.success ? parsed.data : null;
-}
-
-function readMessageMetadata(message: Message): Record<string, unknown> | null {
-  const data = (message as Message & { data?: unknown }).data;
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const metadata = (data as Record<string, unknown>).metadata;
-  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? (metadata as Record<string, unknown>)
-    : null;
-}
-
-function collapseRepeatedMessageIds(messages: Message[]): Message[] {
-  const latestById = new Map<string, Message>();
-  for (const message of messages) {
-    latestById.set(message.id, message);
-  }
-
-  const emittedIds = new Set<string>();
-  const collapsed: Message[] = [];
-  for (const message of messages) {
-    if (emittedIds.has(message.id)) {
-      continue;
-    }
-    emittedIds.add(message.id);
-    collapsed.push(latestById.get(message.id) ?? message);
-  }
-  return collapsed;
 }
 
 function buildRequestTimings(debugEvents: ChatDebugEvent[]): RequestTiming[] {
@@ -263,20 +177,6 @@ function resolveTurnDurationMs(turn: ConversationTurn): number | undefined {
     turn.request.finishedAtMs >= turn.request.startedAtMs
   ) {
     return turn.request.finishedAtMs - turn.request.startedAtMs;
-  }
-  return undefined;
-}
-
-function resolveMessageTimestamp(message: Message): number | undefined {
-  const createdAt = message.createdAt;
-  if (createdAt instanceof Date && !Number.isNaN(createdAt.getTime())) {
-    return createdAt.getTime();
-  }
-  if (typeof createdAt === "string") {
-    const parsed = Date.parse(createdAt);
-    if (!Number.isNaN(parsed)) {
-      return parsed;
-    }
   }
   return undefined;
 }

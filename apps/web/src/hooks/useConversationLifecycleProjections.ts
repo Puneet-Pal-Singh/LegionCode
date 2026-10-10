@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { TurnIdSchema } from "@legioncode/sdk";
-import type { ConversationTurn } from "../components/chat/messageMetadata";
+import type { ConversationTurn } from "@legioncode/sdk";
 import {
   createLifecycleClient,
   type LifecycleClient,
