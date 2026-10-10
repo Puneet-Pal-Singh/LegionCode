@@ -6,16 +6,7 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
-import { WorkspaceSelectionService } from "../services/workspaces/WorkspaceSelectionService";
-import { withWorkspaceRepository } from "../services/workspaces/WorkspacePersistenceFactory";
-
-const SelectWorkspaceRequestSchema = z.object({
-  repository: z.object({
-    owner: z.string().min(1),
-    name: z.string().min(1),
-  }),
-  selectedBranch: z.string().min(1),
-});
+import { listHostedWorkspaces, selectHostedWorkspace, SelectWorkspaceRequestSchema } from "../integration/app-server/HostedWorkspaceSelection";
 
 export class WorkspaceController {
   static async listWorkspaces(request: Request, env: Env): Promise<Response> {
@@ -25,9 +16,7 @@ export class WorkspaceController {
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
-      const payload = await withWorkspaceRepository(env, (repository) =>
-        new WorkspaceSelectionService(repository).getWorkspaceList(auth.userId),
-      );
+      const payload = await listHostedWorkspaces(env, auth.userId);
       return jsonResponse(request, env, payload);
     } catch (error) {
       return workspaceErrorResponse(request, env, error);
@@ -42,17 +31,7 @@ export class WorkspaceController {
       }
 
       const body = SelectWorkspaceRequestSchema.parse(await request.json());
-      const repository = await auth.client.getRepository(
-        body.repository.owner,
-        body.repository.name,
-      );
-      const selection = await withWorkspaceRepository(env, (workspaceRepo) =>
-        new WorkspaceSelectionService(workspaceRepo).selectGitHubWorkspace({
-          userId: auth.userId,
-          repository,
-          selectedBranch: body.selectedBranch,
-        }),
-      );
+      const selection = await selectHostedWorkspace(env, auth.userId, auth.client, body);
 
       return jsonResponse(request, env, { selection });
     } catch (error) {
