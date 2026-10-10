@@ -442,3 +442,5 @@ export {
   type TranscriptPartEvent,
   type TranscriptPartId,
 } from "./transcript-parts.js";
+
+export * from "./conversation-history.js";

@@ -16,6 +16,7 @@ import type {
   TranscriptMessageRole,
   TranscriptRepository,
 } from "./types.js";
+import { InvalidTranscriptSnapshotError as InvalidSnapshotError } from "./types.js";
 import {
   assertHasParts,
   firstSequence,
@@ -235,10 +236,32 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
   async listTranscript(
     input: ListTranscriptInput,
   ): Promise<ListTranscriptResult> {
+    const sessionResult = await this.client.query<TranscriptRow>(
+      READ_TRANSCRIPT_SESSION_SQL,
+      [input.sessionId, input.userId ?? null],
+    );
+    const sessionRow = sessionResult.rows[0];
+    if (!sessionRow) {
+      return { messages: [], nextCursor: null, snapshot: 0, supersededTurnIds: [], sessionFound: false };
+    }
+    const snapshot = input.snapshot ?? toNumber(sessionRow.last_sequence ?? 0);
+    if (
+      !Number.isSafeInteger(snapshot) ||
+      snapshot < 0 ||
+      snapshot > toNumber(sessionRow.last_sequence ?? 0) ||
+      (input.cursor != null && (!Number.isSafeInteger(input.cursor) || input.cursor < 0 || input.cursor > snapshot))
+    ) {
+      throw new InvalidSnapshotError();
+    }
+    const supersededResult = await this.client.query<TranscriptRow>(
+      LIST_SUPERSEDED_TURNS_SQL,
+      [input.sessionId, snapshot],
+    );
     const result = await this.client.query<TranscriptRow>(LIST_TRANSCRIPT_SQL, [
       input.sessionId,
       input.runId ?? null,
       input.cursor ?? 0,
+      snapshot,
       input.limit ?? 100,
       input.userId ?? null,
     ]);
@@ -249,8 +272,13 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
       messages,
       nextCursor:
         messages.length >= (input.limit ?? 100) && lastMessage
-          ? lastSequence(lastMessage)
+          ? firstSequence(lastMessage)
           : null,
+      snapshot,
+      supersededTurnIds: supersededResult.rows
+        .map((row) => row.turn_id)
+        .filter((value): value is string => typeof value === "string"),
+      sessionFound: true,
     };
   }
 
@@ -983,16 +1011,36 @@ const LIST_TRANSCRIPT_SQL = `
     JOIN sessions s2 ON s2.id = p2.session_id
     WHERE p2.session_id = $1
       AND ($2::text IS NULL OR p2.run_id = $2 OR m2.run_id = $2)
-      AND p2.session_sequence > $3
-      AND ($5::uuid IS NULL OR s2.user_id = $5)
+      AND p2.session_sequence <= $4
+      AND ($6::uuid IS NULL OR s2.user_id = $6)
     GROUP BY m2.id
+    HAVING MIN(p2.session_sequence) > $3
     ORDER BY MIN(p2.session_sequence) ASC, m2.id ASC
-    LIMIT $4
+    LIMIT $5
   )
     AND p.session_id = $1
     AND ($2::text IS NULL OR p.run_id = $2 OR m.run_id = $2)
-    AND ($5::uuid IS NULL OR s.user_id = $5)
+    AND p.session_sequence <= $4
+    AND ($6::uuid IS NULL OR s.user_id = $6)
   ORDER BY p.session_sequence ASC, p.id ASC
+`;
+
+const READ_TRANSCRIPT_SESSION_SQL = `
+  SELECT last_sequence
+  FROM sessions
+  WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2)
+`;
+
+const LIST_SUPERSEDED_TURNS_SQL = `
+  SELECT DISTINCT branch.turn_id
+  FROM (
+    SELECT content_json #>> '{metadata,canonicalIdentity,revisionOfTurnId}' AS turn_id
+    FROM message_parts
+    WHERE session_id = $1
+      AND session_sequence <= $2
+      AND content_json #>> '{metadata,canonicalIdentity,revisionOfTurnId}' IS NOT NULL
+  ) branch
+  WHERE branch.turn_id IS NOT NULL
 `;
 
 const LIST_SESSIONS_SQL = `

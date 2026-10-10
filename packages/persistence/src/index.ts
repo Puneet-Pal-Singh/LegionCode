@@ -61,6 +61,7 @@ export { MemoryIdentitySessionRepository } from "./identity/MemoryIdentitySessio
 export { PostgresIdentitySessionRepository } from "./identity/PostgresIdentitySessionRepository.js";
 export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepository.js";
 export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
+export { InvalidTranscriptSnapshotError } from "./sessions/types.js";
 export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepository.js";
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";

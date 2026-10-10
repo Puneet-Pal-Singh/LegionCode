@@ -1,117 +1,101 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetEndpointCache } from "../lib/platform-endpoints";
 import { ChatHydrationService } from "./ChatHydrationService";
-import { createConversationScope } from "../hooks/conversationScope";
-
-function scopeFor(sessionId, runId) {
-  return createConversationScope({
-    workspaceId: "123e4567-e89b-42d3-a456-426614174000",
-    threadId: `thr_${sessionId.replace(/[^A-Za-z0-9]/g, "")}001`,
-    turnId: `trn_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
-    runAttemptId: `attempt_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
-    sessionId,
-    runId,
-  });
-}
 
 describe("ChatHydrationService", () => {
+  const message = (id, role, content) => ({ id, role, content, createdAt: "2026-10-03T00:00:00.000Z" });
   beforeEach(() => {
     _resetEndpointCache();
     vi.stubEnv("VITE_BRAIN_BASE_URL", "http://localhost:8787");
   });
-
   afterEach(() => {
     _resetEndpointCache();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("hydrates paginated history and preserves runId/sessionId query contract", async () => {
-    const runId = "123e4567-e89b-42d3-a456-426614174000";
-    const sessionId = "agent-session-1";
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            messages: [{ role: "user", content: "hello from user" }],
-            nextCursor: "cursor-page-2",
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            messages: [{ role: "assistant", content: "hello from assistant" }],
-          }),
-          { status: 200 },
-        ),
-      );
-
+  it("reads every session page under one snapshot without an execution run", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [message("m1", "user", "hello")],
+        nextCursor: "1",
+        snapshot: "2",
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [message("m2", "assistant", "world")],
+        nextCursor: null,
+        snapshot: "2",
+      })));
     vi.stubGlobal("fetch", fetchMock);
 
-    const service = new ChatHydrationService("http://localhost:8787");
-    const result = await service.hydrateMessages(scopeFor(sessionId, runId));
-
-    expect(result.error).toBeUndefined();
-    expect(result.messages).toHaveLength(2);
-    expect(result.messages[0]?.role).toBe("user");
-    expect(result.messages[1]?.role).toBe("assistant");
-
+    const result = await new ChatHydrationService().hydrateMessages("saved-session");
+    expect(result.status).toBe("readable");
+    expect(result.messages.map(({ id }) => id)).toEqual(["m1", "m2"]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const firstUrl = new URL(fetchMock.mock.calls[0]?.[0]);
-    const secondUrl = new URL(fetchMock.mock.calls[1]?.[0]);
-    // runId is now a query param via chatHistoryPath(runId)
-    expect(firstUrl.pathname).toBe("/api/chat/history");
-    expect(firstUrl.searchParams.get("runId")).toBe(runId);
-    expect(firstUrl.searchParams.get("session")).toBe(sessionId);
-    expect(secondUrl.pathname).toBe("/api/chat/history");
-    expect(secondUrl.searchParams.get("runId")).toBe(runId);
-    expect(secondUrl.searchParams.get("cursor")).toBe("cursor-page-2");
+    const firstUrl = new URL(fetchMock.mock.calls[0][0]);
+    const secondUrl = new URL(fetchMock.mock.calls[1][0]);
+    expect(firstUrl.searchParams.get("session")).toBe("saved-session");
+    expect(firstUrl.searchParams.has("runId")).toBe(false);
+    expect(secondUrl.searchParams.get("cursor")).toBe("1");
+    expect(secondUrl.searchParams.get("snapshot")).toBe("2");
   });
 
-  it("rejects legacy array chat history responses", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          { role: "user", content: "legacy user message" },
-          { role: "assistant", content: "legacy assistant message" },
-        ]),
-        { status: 200 },
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const service = new ChatHydrationService("http://localhost:8787");
-    const result = await service.hydrateMessages(
-      scopeFor(
-        "agent-session-legacy",
-        "123e4567-e89b-42d3-a456-426614174001",
-      ),
-    );
-
-    expect(result.messages).toHaveLength(0);
-    expect(result.error).toBe("Invalid history format");
+  it("distinguishes a real empty transcript from a failed read", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messages: [], nextCursor: null, snapshot: "0" })))
+      .mockResolvedValueOnce(new Response("missing", { status: 404 })));
+    const service = new ChatHydrationService();
+    expect((await service.hydrateMessages("empty-session")).status).toBe("empty");
+    expect((await service.hydrateMessages("lost-session")).status).toBe("recovery-required");
   });
 
-  it("returns a hydration error for invalid history response shape", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ invalid: true }), { status: 200 }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
+  it("returns partial status when a later page fails", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [message("m1", "user", "saved")],
+        nextCursor: "1",
+        snapshot: "2",
+      })))
+      .mockResolvedValueOnce(new Response("offline", { status: 503 })));
 
-    const service = new ChatHydrationService("http://localhost:8787");
-    const result = await service.hydrateMessages(
-      scopeFor(
-        "agent-session-invalid",
-        "123e4567-e89b-42d3-a456-426614174002",
-      ),
-    );
+    const result = await new ChatHydrationService().hydrateMessages("session");
+    expect(result.status).toBe("partial");
+    expect(result.messages.map(({ id }) => id)).toEqual(["m1"]);
+    expect(result.error).toContain("503");
+  });
 
-    expect(result.messages).toHaveLength(0);
-    expect(result.error).toBe("Invalid history format");
+  it.each([{ payload: [{ role: "assistant", content: "legacy array" }] }, { payload: { invalid: true } }])(
+    "rejects the previous malformed or legacy history shape: %j",
+    async ({ payload }) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(payload))));
+      const result = await new ChatHydrationService().hydrateMessages("session");
+      expect(result.status).toBe("failed");
+      expect(result.messages).toEqual([]);
+      expect(result.error).toContain("Invalid history format");
+    },
+  );
+
+  it("rejects malformed message IDs and missing timestamps at the transport boundary", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      messages: [{ role: "assistant", content: "not durable" }],
+      nextCursor: null,
+      snapshot: "1",
+    }))));
+    const result = await new ChatHydrationService().hydrateMessages("session");
+    expect(result.status).toBe("failed");
+    expect(result.messages).toEqual([]);
+  });
+
+  it("returns a partial transcript when numeric cursors decrease", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [message("m1", "user", "saved")], nextCursor: "100", snapshot: "200",
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [message("m2", "assistant", "stale page")], nextCursor: "99", snapshot: "200",
+      }))));
+    const result = await new ChatHydrationService().hydrateMessages("session");
+    expect(result.status).toBe("partial");
+    expect(result.messages.map(({ id }) => id)).toEqual(["m1"]);
   });
 });
