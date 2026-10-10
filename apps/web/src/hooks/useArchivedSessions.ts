@@ -1,5 +1,5 @@
+import * as SessionMetadata from "../services/api/sessionMetadata";
 import { useCallback, useEffect, useState } from "react";
-import { SessionStateService } from "../services/SessionStateService";
 import type { AgentSession } from "../types/session";
 
 export function useArchivedSessions(isEnabled: boolean): {
@@ -20,7 +20,7 @@ export function useArchivedSessions(isEnabled: boolean): {
     setError(null);
     try {
       setSessions(
-        await SessionStateService.hydrateArchivedSessionsFromServer(),
+        await SessionMetadata.hydrateArchivedSessionsFromServer(),
       );
     } catch (refreshError) {
       setError(
@@ -49,7 +49,7 @@ export function useArchivedSessions(isEnabled: boolean): {
     async (sessionId: string): Promise<void> => {
       setError(null);
       try {
-        await SessionStateService.deleteArchivedSession(sessionId);
+        await SessionMetadata.deleteArchivedSession(sessionId);
         removeSession(sessionId);
       } catch (deleteError) {
         setError(
@@ -68,7 +68,7 @@ export function useArchivedSessions(isEnabled: boolean): {
     try {
       await Promise.all(
         sessions.map((session) =>
-          SessionStateService.deleteArchivedSession(session.id),
+          SessionMetadata.deleteArchivedSession(session.id),
         ),
       );
       setSessions([]);

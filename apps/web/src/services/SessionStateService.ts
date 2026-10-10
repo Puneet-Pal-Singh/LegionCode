@@ -14,17 +14,8 @@
  */
 
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
-import {
-  archivedSessionsPath,
-  sessionArchivePath,
-  sessionDeletePath,
-  sessionPinPath,
-  sessionTitlePath,
-  sessionReadReceiptPath,
-  sessionUnarchivePath,
-  sessionUnpinPath,
-  sessionsPath,
-} from "../lib/platform-endpoints";
+import { sessionReadReceiptPath } from "../lib/platform-endpoints";
+import { mapServerSession, type ServerSessionRecord } from "./api/sessionMetadata";
 import type {
   AgentSession,
   ChatTitleSource,
@@ -48,28 +39,6 @@ type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
   pinnedAt?: string | null;
   archivedAt?: string | null;
 };
-
-interface ServerSessionRecord {
-  id: string;
-  title: string;
-  titleSource?: ChatTitleSource;
-  repository: string | null;
-  activeRunId: string | null;
-  mode: RunMode;
-  status: "idle" | "running" | "completed" | "paused" | "failed";
-  pinnedAt?: string | null;
-  archivedAt?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  titleVersion?: number;
-  titleStatus?: "pending" | "ready" | "failed";
-  lastTerminalTurnId?: string | null;
-  lastAcknowledgedTerminalTurnId?: string | null;
-}
-
-interface ServerSessionsResponse {
-  sessions: ServerSessionRecord[];
-}
 
 interface ServerSessionResponse {
   session: ServerSessionRecord;
@@ -149,67 +118,6 @@ export class SessionStateService {
     }
   }
 
-  static async hydrateSessionsFromServer(): Promise<
-    Record<string, AgentSession>
-  > {
-    const response = await fetch(sessionsPath(), { credentials: "include" });
-    if (!response.ok) {
-      throw new Error(`Session hydration failed: ${response.status}`);
-    }
-
-    const payload = (await response.json()) as Partial<ServerSessionsResponse>;
-    if (!Array.isArray(payload.sessions)) {
-      throw new Error("Invalid session hydration response");
-    }
-
-    return Object.fromEntries(
-      payload.sessions
-        .map(mapServerSession)
-        .filter((session): session is AgentSession => session !== null)
-        .map((session) => [session.id, session]),
-    );
-  }
-
-  static async persistSession(session: AgentSession): Promise<AgentSession> {
-    const response = await fetch(sessionsPath(), {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sessionId: session.id,
-        runId: session.activeRunId,
-        title: session.name,
-        titleSource: session.titleSource,
-        repository: session.repository,
-        mode: session.mode,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Session persistence failed: ${response.status}`);
-    }
-
-    return readServerSessionResponse(response);
-  }
-
-  static async renameSessionTitle(
-    sessionId: string,
-    title: string,
-  ): Promise<AgentSession> {
-    const response = await fetch(sessionTitlePath(sessionId), {
-      method: "PATCH",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ title }),
-    });
-
-    return readMetadataMutationResponse(response, "Session rename");
-  }
-
   static async acknowledgeSession(
     sessionId: string,
     terminalTurnId: string,
@@ -221,56 +129,6 @@ export class SessionStateService {
       body: JSON.stringify({ terminalTurnId }),
     });
     return readMetadataMutationResponse(response, "Session read receipt");
-  }
-
-  static async pinSession(sessionId: string): Promise<AgentSession> {
-    return sendSessionMutation(sessionPinPath(sessionId), "Session pin");
-  }
-
-  static async unpinSession(sessionId: string): Promise<AgentSession> {
-    return sendSessionMutation(sessionUnpinPath(sessionId), "Session unpin");
-  }
-
-  static async archiveSession(sessionId: string): Promise<AgentSession> {
-    const response = await fetch(sessionArchivePath(sessionId), {
-      method: "POST",
-      credentials: "include",
-    });
-
-    return readMetadataMutationResponse(response, "Session archive");
-  }
-
-  static async unarchiveSession(sessionId: string): Promise<AgentSession> {
-    return sendSessionMutation(
-      sessionUnarchivePath(sessionId),
-      "Session unarchive",
-    );
-  }
-
-  static async deleteArchivedSession(sessionId: string): Promise<void> {
-    const response = await fetch(sessionDeletePath(sessionId), {
-      method: "DELETE",
-      credentials: "include",
-    });
-    if (!response.ok) {
-      throw new Error(`Archived session deletion failed: ${response.status}`);
-    }
-  }
-
-  static async hydrateArchivedSessionsFromServer(): Promise<AgentSession[]> {
-    const response = await fetch(archivedSessionsPath(), {
-      credentials: "include",
-    });
-    if (!response.ok) {
-      throw new Error(`Archived session hydration failed: ${response.status}`);
-    }
-    const payload = (await response.json()) as Partial<ServerSessionsResponse>;
-    if (!Array.isArray(payload.sessions)) {
-      throw new Error("Invalid archived session hydration response");
-    }
-    return payload.sessions
-      .map(mapServerSession)
-      .filter((session): session is AgentSession => session !== null);
   }
 
   /**
@@ -653,82 +511,6 @@ function normalizeStoredSessionStatus(
 ): SessionStatus {
   if (status === "error") return "failed";
   return status ?? "idle";
-}
-
-function mapServerSession(session: ServerSessionRecord): AgentSession | null {
-  const activeRunId = isCanonicalRunId(session.activeRunId)
-    ? session.activeRunId
-    : null;
-
-  return {
-    id: session.id,
-    name: session.title,
-    titleSource: session.titleSource ?? "preview",
-    ...mapServerThreadMetadata(session),
-    persistenceStatus: "saved",
-    repository: session.repository,
-    activeRunId,
-    runIds: activeRunId ? [activeRunId] : [],
-    status: mapServerStatus(session.status),
-    mode: session.mode ?? DEFAULT_RUN_MODE,
-    pinnedAt: session.pinnedAt ?? null,
-    archivedAt: session.archivedAt ?? null,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-  };
-}
-
-function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
-  return status;
-}
-
-function mapServerThreadMetadata(
-  session: ServerSessionRecord,
-): Pick<
-  AgentSession,
-  | "titleVersion"
-  | "titleStatus"
-  | "lastTerminalTurnId"
-  | "lastAcknowledgedTerminalTurnId"
-> {
-  return {
-    ...(isTitleVersion(session.titleVersion)
-      ? { titleVersion: session.titleVersion }
-      : {}),
-    ...(isTitleStatus(session.titleStatus)
-      ? { titleStatus: session.titleStatus }
-      : {}),
-    ...(typeof session.lastTerminalTurnId === "string"
-      ? { lastTerminalTurnId: session.lastTerminalTurnId }
-      : {}),
-    ...(typeof session.lastAcknowledgedTerminalTurnId === "string"
-      ? {
-          lastAcknowledgedTerminalTurnId:
-            session.lastAcknowledgedTerminalTurnId,
-        }
-      : {}),
-  };
-}
-
-function isTitleVersion(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
-}
-
-function isTitleStatus(
-  value: unknown,
-): value is NonNullable<AgentSession["titleStatus"]> {
-  return value === "pending" || value === "ready" || value === "failed";
-}
-
-async function sendSessionMutation(
-  path: string,
-  operation: string,
-): Promise<AgentSession> {
-  const response = await fetch(path, {
-    method: "POST",
-    credentials: "include",
-  });
-  return readMetadataMutationResponse(response, operation);
 }
 
 async function readMetadataMutationResponse(

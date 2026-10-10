@@ -1,5 +1,5 @@
+import * as SessionMetadata from "../services/api/sessionMetadata";
 import { useEffect, useMemo, useRef } from "react";
-import { SessionStateService } from "../services/SessionStateService";
 import type { AgentSession } from "../types/session";
 
 const POLL_INTERVAL_MS = 750;
@@ -12,7 +12,7 @@ const MAX_POLLS = Math.ceil(
 );
 
 type ServerSessions = Awaited<
-  ReturnType<typeof SessionStateService.hydrateSessionsFromServer>
+  ReturnType<typeof SessionMetadata.hydrateSessionsFromServer>
 >;
 
 interface PendingTitleProjectionRefreshInput {
@@ -68,7 +68,7 @@ export function usePendingTitleProjectionRefresh({
       );
       try {
         const serverSessions =
-          await SessionStateService.hydrateSessionsFromServer();
+          await SessionMetadata.hydrateSessionsFromServer();
         if (cancelled) return;
         onServerSessions(serverSessions);
         if (hasPendingProjection(eligibleKeys, serverSessions)) schedule();

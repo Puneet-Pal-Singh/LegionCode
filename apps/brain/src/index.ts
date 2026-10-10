@@ -8,7 +8,6 @@ import { ProviderController } from "./controllers/ProviderController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
-import { TranscriptController } from "./controllers/TranscriptController";
 import { ChatMediaController } from "./controllers/ChatMediaController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
@@ -147,44 +146,6 @@ function createRouter(): Router {
     HookDefinitionController.delete,
     "DELETE",
   );
-  router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
-  router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
-  router.add(
-    /^\/api\/sessions\/archived$/,
-    TranscriptController.listArchivedSessions,
-    "GET",
-  );
-  router.add(
-    /^\/api\/sessions\/[^/]+\/title$/,
-    TranscriptController.renameSessionTitle,
-    "PATCH",
-  );
-  router.add(
-    /^\/api\/sessions\/[^/]+\/pin$/,
-    TranscriptController.pinSession,
-    "POST",
-  );
-  router.add(
-    /^\/api\/sessions\/[^/]+\/unpin$/,
-    TranscriptController.unpinSession,
-    "POST",
-  );
-  router.add(
-    /^\/api\/sessions\/[^/]+\/archive$/,
-    TranscriptController.archiveSession,
-    "POST",
-  );
-  router.add(
-    /^\/api\/sessions\/[^/]+\/unarchive$/,
-    TranscriptController.unarchiveSession,
-    "POST",
-  );
-  router.add(
-    /^\/api\/sessions\/[^/]+$/,
-    TranscriptController.deleteArchivedSession,
-    "DELETE",
-  );
-
   // Git local routes (for sidebar)
   router.add(/\/api\/git\/status/, GitController.getStatus);
   router.add(/\/api\/git\/diff/, GitController.getDiff);

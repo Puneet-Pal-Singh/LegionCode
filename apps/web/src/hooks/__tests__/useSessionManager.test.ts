@@ -1,3 +1,4 @@
+import * as SessionMetadata from "../../services/api/sessionMetadata";
 /**
  * useSessionManager Tests
  *
@@ -18,13 +19,13 @@ describe("useSessionManager", () => {
     localStorage.clear();
     sessionStorage.clear();
     vi.spyOn(
-      SessionStateService,
+      SessionMetadata,
       "hydrateSessionsFromServer",
     ).mockResolvedValue({});
-    vi.spyOn(SessionStateService, "persistSession").mockImplementation(
+    vi.spyOn(SessionMetadata, "persistSession").mockImplementation(
       async (session) => session,
     );
-    vi.spyOn(SessionStateService, "archiveSession").mockImplementation(
+    vi.spyOn(SessionMetadata, "archiveSession").mockImplementation(
       async (sessionId) =>
         createArchivedServerSession(sessionId, "2026-05-15T00:00:00.000Z"),
     );
@@ -47,7 +48,7 @@ describe("useSessionManager", () => {
   describe("Session Creation", () => {
     it("defers server hydration until explicitly enabled", async () => {
       const hydrateSpy = vi.mocked(
-        SessionStateService.hydrateSessionsFromServer,
+        SessionMetadata.hydrateSessionsFromServer,
       );
       const { result, rerender } = renderHook(
         ({ enabled }) => useSessionManager({ hydrateFromServer: enabled }),
@@ -66,7 +67,7 @@ describe("useSessionManager", () => {
     it("publishes a new conversation only after durable session creation completes", async () => {
       let release!: (session: AgentSession) => void;
       let pendingSession!: AgentSession;
-      vi.mocked(SessionStateService.persistSession).mockImplementationOnce((session) => {
+      vi.mocked(SessionMetadata.persistSession).mockImplementationOnce((session) => {
         pendingSession = session;
         return new Promise<AgentSession>((resolve) => { release = resolve; });
       });
@@ -84,7 +85,7 @@ describe("useSessionManager", () => {
       const { result } = renderHook(() => useSessionManager());
       let original = "";
       await act(async () => { original = await result.current.createSession("Existing", "repo"); });
-      vi.mocked(SessionStateService.persistSession).mockRejectedValueOnce(new Error("create failed"));
+      vi.mocked(SessionMetadata.persistSession).mockRejectedValueOnce(new Error("create failed"));
       await act(async () => { await expect(result.current.createSession("Failed", "repo")).rejects.toThrow("create failed"); });
       expect(result.current.sessions.map((session) => session.id)).toEqual([original]);
       expect(result.current.activeSessionId).toBe(original);
@@ -222,7 +223,7 @@ describe("useSessionManager", () => {
       const { result } = renderHook(() => useSessionManager());
       let sessionId = "";
       await act(async () => { sessionId = await result.current.createSession("Task", "repo"); });
-      vi.mocked(SessionStateService.archiveSession).mockRejectedValueOnce(new Error("archive unavailable"));
+      vi.mocked(SessionMetadata.archiveSession).mockRejectedValueOnce(new Error("archive unavailable"));
       await act(async () => { expect(await result.current.archiveSession(sessionId)).toBe(false); });
       expect(result.current.activeSessionId).toBe(sessionId);
       expect(result.current.sessions[0]?.archivedAt).toBeNull();
@@ -244,7 +245,7 @@ describe("useSessionManager", () => {
 
       expect(result.current.sessions).toHaveLength(1);
       expect(result.current.sessions[0]?.archivedAt).not.toBeNull();
-      expect(SessionStateService.archiveSession).toHaveBeenCalledWith(
+      expect(SessionMetadata.archiveSession).toHaveBeenCalledWith(
         sessionId,
       );
     });
@@ -293,7 +294,7 @@ describe("useSessionManager", () => {
     });
 
     it("keeps local-only sessions archived when the server archive returns not found", async () => {
-      vi.mocked(SessionStateService.archiveSession).mockRejectedValueOnce(
+      vi.mocked(SessionMetadata.archiveSession).mockRejectedValueOnce(
         new Error("Session archive failed: 404"),
       );
       const { result } = renderHook(() => useSessionManager());
@@ -554,7 +555,7 @@ describe("useSessionManager", () => {
         [staleSession.id]: staleSession,
       });
       vi.mocked(
-        SessionStateService.hydrateSessionsFromServer,
+        SessionMetadata.hydrateSessionsFromServer,
       ).mockResolvedValueOnce({ [serverSession.id]: serverSession });
 
       const { result } = renderHook(() => useSessionManager());
@@ -572,7 +573,7 @@ describe("useSessionManager", () => {
     it("preserves a locally-created active session when stale hydration resolves later", async () => {
       const hydration = createDeferred<Record<string, AgentSession>>();
       vi.mocked(
-        SessionStateService.hydrateSessionsFromServer,
+        SessionMetadata.hydrateSessionsFromServer,
       ).mockReturnValueOnce(hydration.promise);
 
       const { result } = renderHook(() => useSessionManager());
@@ -629,7 +630,7 @@ describe("useSessionManager", () => {
         titleSource: "generated",
         titleVersion: 3,
       });
-      vi.mocked(SessionStateService.hydrateSessionsFromServer)
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer)
         .mockResolvedValueOnce({ [pending.id]: pending })
         .mockResolvedValueOnce({ [ready.id]: ready });
 

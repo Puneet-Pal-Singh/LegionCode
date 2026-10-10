@@ -48,6 +48,6 @@ export const HostedArchivedSessionsResponseSchema = z.object({ sessions: z.array
 export const HostedSessionResponseSchema = z.object({ session: HostedSessionSchema }).strict();
 
 export type HostedSession = z.infer<typeof HostedSessionSchema>;
-export type HostedSessionCreateRequest = z.infer<typeof HostedSessionCreateRequestSchema>;
+export type HostedSessionCreateRequest = z.input<typeof HostedSessionCreateRequestSchema>;
 export type HostedSessionRenameRequest = z.infer<typeof HostedSessionRenameRequestSchema>;
 export type HostedSessionsResponse = z.infer<typeof HostedSessionsResponseSchema>;

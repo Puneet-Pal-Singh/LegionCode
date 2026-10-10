@@ -1,10 +1,8 @@
-import { HostedSessionCreateRequestSchema, type HostedSessionCreateRequest } from "@repo/platform-protocol";
+import { type HostedSessionCreateRequest } from "@repo/platform-protocol";
 import type { SessionRecord } from "@repo/persistence";
 import type { Env } from "../../types/ai";
 import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../../services/sessions/TranscriptPersistenceFactory";
-
-export const SessionCreateRequestSchema = HostedSessionCreateRequestSchema.strip();
 
 export async function createPersistedSession(
   body: HostedSessionCreateRequest,
