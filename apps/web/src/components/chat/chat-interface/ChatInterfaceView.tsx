@@ -14,7 +14,7 @@ import type { LifecycleProjection } from "@legioncode/sdk";
 import {
   buildLifecycleTerminalViewModel,
 } from "@legioncode/client-ui";
-import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
+import type { CompletedTurnReview } from "@legioncode/client-ui";
 import { ChatMessage } from "@legioncode/client-ui";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "@legioncode/client-ui";

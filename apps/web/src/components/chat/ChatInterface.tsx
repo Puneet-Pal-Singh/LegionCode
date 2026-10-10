@@ -40,7 +40,7 @@ import {
   useActiveTurnProjection,
   type ActiveTurnProjection,
 } from "../../hooks/useActiveTurnProjection.js";
-import { useCompletedTurnReview } from "./chat-interface/useCompletedTurnReview.js";
+import { useCompletedTurnReview } from "@legioncode/client-ui";
 import { useReviewCommentSubmission } from "./chat-interface/useReviewCommentSubmission";
 import {
   ChatComposerControls,
@@ -48,13 +48,13 @@ import {
 } from "./chat-interface/ChatComposerControls";
 import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
-import { useChatPresentation } from "./chat-interface/useChatPresentation";
+import { useChatPresentation } from "@legioncode/client-ui";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import { mergeLifecycleProjections } from "@legioncode/sdk";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
-import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoadingIndicator.js";
-import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";
+import { useStableChatLoadingIndicator } from "@legioncode/client-ui";
+import { useChatAutoScroll } from "@legioncode/client-ui";
 
 interface ChatInterfaceProps {
   chatProps: {

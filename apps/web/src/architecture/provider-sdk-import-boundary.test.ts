@@ -12,7 +12,6 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/chat/ChatInterface.tsx",
   "components/chat/chat-interface/ChatComposerControls.tsx",
   "components/chat/chat-interface/useChangedFilesController.ts",
-  "components/chat/chat-interface/useCompletedTurnReview.ts",
   "hooks/useActiveTurnProjection.ts",
   "components/chat/chat-interface/useApprovalController.ts",
   "components/layout/workspace/useWorkspaceState.ts",
@@ -23,7 +22,6 @@ const ALLOWED_IMPORT_FILES = new Set([
   "lib/session-sidebar-selectors.ts",
   "components/chat/chat-interface/ChatInterfaceView.tsx",
   "components/chat/chat-interface/TurnLifecycleStatus.tsx",
-  "components/chat/chat-interface/useChatPresentation.ts",
   "components/layout/workspace/runUiState.ts",
 ]);
 

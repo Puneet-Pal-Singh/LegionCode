@@ -232,3 +232,11 @@ Web ChatInterface, the view/presentation hook and changed-files controller use
 these shared helpers; SDK remains the canonical identity/projection/diff owner.
 The replaced Web helpers/types and their tests are moved, preserving assertions.
 The prompt-terminal capability gate executes the moved terminal display test.
+
+### Plan 058 conversation presentation hooks
+
+Shared client UI owns conversation visibility/loading, bottom-follow scrolling
+and completed-turn review presentation over SDK projections. Web ChatInterface
+and Workspace consume the shared hooks; request transport, authentication and
+canonical lifecycle follow remain outside these hooks. Existing regressions
+move with the implementations and retain their assertions.
