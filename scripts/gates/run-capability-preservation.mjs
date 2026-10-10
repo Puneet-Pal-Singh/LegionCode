@@ -72,7 +72,7 @@ const CAPABILITIES = [
     owner: "@legioncode/web",
     requiredTests: [
       [
-        "apps/web/src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
+        "packages/client-ui/src/conversation/workflow/CanonicalWorkflowSurface.test.tsx",
         "keeps settled workflow history visible without waiting for refresh",
       ],
       [
@@ -95,9 +95,16 @@ const CAPABILITIES = [
         "@legioncode/web",
         "test",
         "--",
-        "src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
         "src/hooks/useTurnLifecycleProjection.test.tsx",
         "src/hooks/useChatHydration.test.tsx",
+      ],
+      [
+        "pnpm",
+        "--filter",
+        "@legioncode/client-ui",
+        "test",
+        "--",
+        "src/conversation/workflow/CanonicalWorkflowSurface.test.tsx",
       ],
       [
         "pnpm",
