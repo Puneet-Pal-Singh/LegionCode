@@ -1,8 +1,13 @@
 import type { Message } from "@ai-sdk/react";
-import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { buildConversationTurns, resolveMessageTimestamp, type ConversationTurn as CanonicalConversationTurn } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
-import type { ChatMessageMetadata } from "@legioncode/client-ui";
+import type { ChatMessageMetadata } from "../chat-message/types.js";
+
+interface MessageTimingEvent {
+  phase: "request" | "response" | "finish" | "error";
+  timestamp: string;
+  payload: unknown;
+}
 
 export function buildLifecycleMessageMetadata(
   projection: LifecycleProjection,
@@ -40,7 +45,7 @@ interface RequestTiming {
 
 export function buildChatMessageMetadata(
   messages: Message[],
-  debugEvents: ChatDebugEvent[],
+  debugEvents: MessageTimingEvent[],
   resolveModelLabel: (modelId: string) => string,
   modeLabel = "Build",
 ): Record<string, ChatMessageMetadata> {
@@ -50,7 +55,7 @@ export function buildChatMessageMetadata(
   return mapTurnsToMessageMetadata(turns, resolveModelLabel, modeLabel);
 }
 
-function buildRequestTimings(debugEvents: ChatDebugEvent[]): RequestTiming[] {
+function buildRequestTimings(debugEvents: MessageTimingEvent[]): RequestTiming[] {
   const chronological = [...debugEvents].sort(
     (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
   );

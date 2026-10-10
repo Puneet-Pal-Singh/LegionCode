@@ -1,10 +1,9 @@
 import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
-import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel";
+import { buildLifecycleTerminalViewModel } from "./LifecycleTerminalViewModel.js";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import type { ConversationTurn } from "@legioncode/sdk";
-import { buildChatEntries } from "./chatEntries";
-import type { InitialPromptSubmission } from "../../../lib/initial-prompt-submission";
+import { buildChatEntries } from "./chatEntries.js";
 
 interface ChatPresentationInput {
   messages: Message[];
@@ -15,7 +14,11 @@ interface ChatPresentationInput {
   hasStartedSession: boolean;
   lifecycleProjection?: LifecycleProjection | null;
   lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
-  initialPromptSubmission?: InitialPromptSubmission | null;
+  initialPromptSubmission?: {
+    id: string;
+    prompt: string;
+    status: "queued" | "submitting" | "failed";
+  } | null;
   hasImmediateUserSubmission?: boolean;
 }
 

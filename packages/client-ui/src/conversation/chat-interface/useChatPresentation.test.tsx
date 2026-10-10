@@ -1,7 +1,9 @@
-import { renderHook } from "@testing-library/react";
-import { createInitialPromptSubmissionId } from "../../../lib/initial-prompt-submission";
+// @vitest-environment jsdom
+
+import { cleanup, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import type { LifecycleProjection } from "@legioncode/sdk";
-import { useChatPresentation } from "./useChatPresentation";
+import { useChatPresentation } from "./useChatPresentation.js";
 
 describe("useChatPresentation", () => {
   it("keeps the loading placeholder visible while a new task identity hydrates", () => {
@@ -89,7 +91,7 @@ describe("useChatPresentation", () => {
         hasPendingApproval: false,
         hasStartedSession: true,
         initialPromptSubmission: {
-          id: createInitialPromptSubmissionId("setup-1"),
+          id: "setup-1",
           prompt: "Inspect the README",
           status: "queued",
         },
@@ -126,7 +128,7 @@ describe("useChatPresentation", () => {
         hasPendingApproval: false,
         hasStartedSession: true,
         initialPromptSubmission: {
-          id: createInitialPromptSubmissionId("setup-1"),
+          id: "setup-1",
           prompt: "Inspect the README",
           status: "queued",
         },
@@ -167,7 +169,7 @@ describe("useChatPresentation", () => {
         hasPendingApproval: false,
         hasStartedSession: true,
         initialPromptSubmission: {
-          id: createInitialPromptSubmissionId("setup-image"),
+          id: "setup-image",
           prompt: "Inspect this screenshot",
           status: "queued",
         },
@@ -227,3 +229,5 @@ function failedProjection(): LifecycleProjection {
     usage: null,
   };
 }
+
+afterEach(cleanup);

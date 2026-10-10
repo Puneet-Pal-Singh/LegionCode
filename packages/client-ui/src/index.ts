@@ -53,3 +53,14 @@ export { PermissionModeControl } from "./conversation/PermissionModeControl.js";
 export { ContextUsageRing } from "./conversation/context/ContextUsageRing.js";
 export { ContextDetailsPanel, type ContextSessionSnapshot } from "./conversation/context/ContextDetailsPanel.js";
 export * from "./conversation/fileMentions.js";
+
+export { buildChatEntries, type ChatInterfaceEntry } from "./conversation/chat-interface/chatEntries.js";
+export * from "./conversation/chat-interface/changedFiles.js";
+export { buildChatMessageMetadata, buildLifecycleMessageMetadata } from "./conversation/chat-interface/messageMetadata.js";
+export { buildLifecycleTerminalViewModel } from "./conversation/chat-interface/LifecycleTerminalViewModel.js";
+export type { LifecycleTerminalDisplayState, LifecycleTerminalViewModel } from "./conversation/chat-interface/LifecycleTerminalTypes.js";
+export { useChatPresentation } from "./conversation/chat-interface/useChatPresentation.js";
+export { useCompletedTurnReview, type CompletedTurnReview } from "./conversation/chat-interface/useCompletedTurnReview.js";
+export { useChatAutoScroll, isChatNearBottom } from "./conversation/chat-interface/useChatAutoScroll.js";
+export { useStableChatLoadingIndicator } from "./conversation/chat-interface/useStableChatLoadingIndicator.js";
+export { ChatInterfaceView, type ChatInterfaceViewProps } from "./conversation/chat-interface/ChatInterfaceView.js";

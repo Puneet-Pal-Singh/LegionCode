@@ -1,9 +1,11 @@
-import { act, renderHook } from "@testing-library/react";
+// @vitest-environment jsdom
+
+import { cleanup, act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isChatNearBottom,
   useChatAutoScroll,
-} from "./useChatAutoScroll";
+} from "./useChatAutoScroll.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -65,3 +67,5 @@ describe("isChatNearBottom", () => {
     expect(scrollTo).toHaveBeenCalledTimes(2);
   });
 });
+
+afterEach(cleanup);

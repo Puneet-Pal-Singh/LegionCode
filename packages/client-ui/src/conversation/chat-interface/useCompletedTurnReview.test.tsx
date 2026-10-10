@@ -1,8 +1,10 @@
-import { renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { cleanup, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { createLifecycleProjection } from "@legioncode/sdk";
-import type { TurnId } from "../../../services/api/lifecycleClient";
-import { useCompletedTurnReview } from "./useCompletedTurnReview";
+import type { TurnId } from "@legioncode/sdk";
+import { useCompletedTurnReview } from "./useCompletedTurnReview.js";
 
 describe("useCompletedTurnReview", () => {
   it("does not synthesize review files before terminal canonical diff settlement", async () => {
@@ -42,3 +44,5 @@ describe("useCompletedTurnReview", () => {
     expect(result.current.messageId).toBe("assistant-1");
   });
 });
+
+afterEach(cleanup);

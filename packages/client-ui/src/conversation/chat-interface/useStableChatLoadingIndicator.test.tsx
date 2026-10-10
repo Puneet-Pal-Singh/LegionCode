@@ -1,6 +1,8 @@
-import { act, renderHook } from "@testing-library/react";
+// @vitest-environment jsdom
+
+import { cleanup, act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useStableChatLoadingIndicator } from "./useStableChatLoadingIndicator";
+import { useStableChatLoadingIndicator } from "./useStableChatLoadingIndicator.js";
 
 describe("useStableChatLoadingIndicator", () => {
   afterEach(() => {
@@ -59,3 +61,5 @@ describe("useStableChatLoadingIndicator", () => {
     expect(result.current).toBe(false);
   });
 });
+
+afterEach(cleanup);

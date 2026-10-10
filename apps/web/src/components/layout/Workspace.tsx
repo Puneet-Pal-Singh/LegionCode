@@ -42,7 +42,7 @@ import type {
   InitialPromptSubmissionId,
   InitialPromptSubmissionStatus,
 } from "../../lib/initial-prompt-submission";
-import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
+import { useCompletedTurnReview } from "@legioncode/client-ui";
 import {
   buildHookSettingsAuditReadModel,
   type HookSettingsAuditReadModel,

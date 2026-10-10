@@ -19,7 +19,7 @@ removed. Completed review continues to use the canonical saved patch.
 | --- | --- | --- |
 | Message markdown, mention presentation and assistant change-count stripping | `client-ui/src/conversation/chat-message` | Web ChatMessage, WorkflowTimeline and useMessageDisplayContent use the shared implementation. |
 | Copy/edit controls, metadata labels and hook audit popover | `client-ui/src/conversation/chat-message/MessageActions.tsx` | Web ChatMessage supplies presentation metadata, canonical SDK hook audits and edit callback. |
-| Message presentation metadata type | `client-ui/src/conversation/chat-message/types.ts` | Shared actions and Web metadata builders/ChatInterfaceView/ChatMessage. Metadata derivation remains Web-owned until its composition slice. |
+| Message presentation metadata type | `client-ui/src/conversation/chat-message/types.ts` | Shared actions and Web metadata builders/ChatInterfaceView/ChatMessage. Metadata display derivation is shared in `client-ui/src/conversation/chat-interface`. |
 | Class-name conflict merging | `client-ui/src/classnames.ts` | Shared renderers and all existing Web class-name callers. |
 
 Old Web implementations are deleted; no compatibility copies remain. Existing
@@ -215,3 +215,37 @@ and all callers import SDK. Unchanged/copied status normalization, missing stats
 and unstaged presentation values are preserved. Terminal failed_runtime display
 wording stays presentation-local; no canonical settlement is derived there.
 No live Git fallback or artifact transport is introduced.
+
+### Plan 058 conversation view host bindings
+
+Web `ChatInterface` supplies image URL resolution, cold-storage loading and the
+client debug panel to the conversation view. The view receives presentation
+values/callbacks; authenticated transport and debug collection remain Web-owned.
+No runtime, admission or hydration algorithm changes. This boundary permits the
+existing view and presentation hooks to move into shared client UI next.
+
+### Plan 058 conversation presentation helpers
+
+`client-ui/src/conversation/chat-interface` owns transcript render entries,
+message display metadata, terminal labels and changed-file summary presentation.
+Web ChatInterface, the view/presentation hook and changed-files controller use
+these shared helpers; SDK remains the canonical identity/projection/diff owner.
+The replaced Web helpers/types and their tests are moved, preserving assertions.
+The prompt-terminal capability gate executes the moved terminal display test.
+
+### Plan 058 conversation presentation hooks
+
+Shared client UI owns conversation visibility/loading, bottom-follow scrolling
+and completed-turn review presentation over SDK projections. Web ChatInterface
+and Workspace consume the shared hooks; request transport, authentication and
+canonical lifecycle follow remain outside these hooks. Existing regressions
+move with the implementations and retain their assertions.
+
+### Plan 058 shared conversation surface
+
+`client-ui/src/conversation/chat-interface/ChatInterfaceView.tsx` owns the
+existing setup/history/active conversation renderer, composed from shared
+message, workflow and composer surfaces. Web ChatInterface renders this source,
+providing existing image/artifact callbacks and its debug panel. Network/auth,
+provider selection and lifecycle subscription orchestration remain Web host
+bindings pending their SDK operation slices. The old Web view is deleted.
