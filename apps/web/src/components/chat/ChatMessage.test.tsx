@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Message } from "@ai-sdk/react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
-import { ChatMessage } from "./ChatMessage";
+import { ChatMessage } from "@legioncode/client-ui";
 
 describe("ChatMessage", () => {
   it("renders assistant content as markdown", () => {

@@ -1,7 +1,7 @@
 import type { Message } from "@ai-sdk/react";
 import { z } from "zod";
-import { ArtifactPreview } from "../ArtifactPreview";
-import type { ArtifactOpenHandler } from "../artifactOpen";
+import { ArtifactPreview } from "../ArtifactPreview.js";
+import type { ArtifactOpenHandler } from "../artifactOpen.js";
 
 const codeArtifactArgsSchema = z.object({
   path: z.string().optional(),

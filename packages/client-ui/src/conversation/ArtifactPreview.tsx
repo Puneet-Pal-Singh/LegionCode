@@ -2,7 +2,7 @@ import { Maximize2, FileCode, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { cn } from "@legioncode/client-ui";
+import { cn } from "../classnames.js";
 
 interface ArtifactPreviewProps {
   title: string;

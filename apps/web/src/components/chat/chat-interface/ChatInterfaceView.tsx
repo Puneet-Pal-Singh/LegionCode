@@ -18,7 +18,7 @@ import {
   collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
-import { ChatMessage } from "../ChatMessage";
+import { ChatMessage } from "@legioncode/client-ui";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
 import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
@@ -29,7 +29,7 @@ import {
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
-import type { ArtifactOpenHandler } from "../artifactOpen";
+import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { ChevronDown, Folder } from "lucide-react";
 
 interface ChatInterfaceViewProps {

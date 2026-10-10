@@ -1,17 +1,20 @@
 import type { Message } from "@ai-sdk/react";
-import type { ArtifactOpenHandler } from "./artifactOpen";
+import type { ArtifactOpenHandler } from "./artifactOpen.js";
 import { useState } from "react";
-import { cn, MessageContent, MessageActions, type ChatMessageMetadata } from "@legioncode/client-ui";
-import { ChangedFilesCard } from "@legioncode/client-ui";
-import { MessageArtifacts } from "./chat-message/MessageArtifacts";
-import type { ChangedFilesSummary } from "@legioncode/client-ui";
-import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent";
-import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClient";
-import { ChatImageGallery, type ChatImagePreview } from "@legioncode/client-ui";
-import { isChatImageMimeType } from "@legioncode/client-ui";
+import { cn } from "../classnames.js";
+import { MessageContent } from "./chat-message/MessageContent.js";
+import { MessageActions } from "./chat-message/MessageActions.js";
+import type { ChatMessageMetadata } from "./chat-message/types.js";
+import { ChangedFilesCard } from "./chat-message/ChangedFilesCard.js";
+import { MessageArtifacts } from "./chat-message/MessageArtifacts.js";
+import type { ChangedFilesSummary } from "./chat-message/changed-files-types.js";
+import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent.js";
+import type { HookInvocationAuditEvent } from "@legioncode/sdk";
+import { ChatImageGallery, type ChatImagePreview } from "./ChatImageGallery.js";
+import { isChatImageMimeType } from "./chatImageAttachments.js";
 import {
   stripRedactedImageMarkers,
-} from "./chatMessageImagePresentation";
+} from "./chatMessageImagePresentation.js";
 
 export interface ChatMessageProps {
   message: Message;
