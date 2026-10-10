@@ -8,7 +8,8 @@ export type AppServerHttpTransportOptions = {
   baseUrl: string;
   credential?: string;
   fetchImpl?: typeof fetch;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
+  credentials?: RequestCredentials;
   signal?: AbortSignal;
   requestHeaders?: (
     envelope: AppServerRequest,
@@ -42,7 +43,7 @@ export function createAppServerHttpTransport(
       const abort = () => controller.abort();
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) controller.abort();
-      const timeout = setTimeout(() => {
+      const timeout = options.timeoutMs === null ? null : setTimeout(() => {
         timedOut = true;
         controller.abort();
       }, options.timeoutMs ?? 5_000);
@@ -63,6 +64,7 @@ export function createAppServerHttpTransport(
           headers,
           body: JSON.stringify(envelope),
           redirect: "error",
+          credentials: options.credentials,
           signal: controller.signal,
         });
         const payload = await readBoundedJson(response);
@@ -108,7 +110,7 @@ export function createAppServerHttpTransport(
         }
         throw new AppServerTransportError("transport", "App Server is unreachable");
       } finally {
-        clearTimeout(timeout);
+        if (timeout !== null) clearTimeout(timeout);
         options.signal?.removeEventListener("abort", abort);
       }
     },

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { createAppServerHttpTransport } from "./app-server-http-transport.js";
@@ -146,5 +146,32 @@ describe("App Server HTTP transport", () => {
         ),
     });
     await expect(transport.request(envelope)).rejects.toMatchObject({ code: "transport" });
+  });
+});
+
+describe("hosted history transport lifetime", () => {
+  it("keeps cookie-scoped reads cancellable without introducing a five-second history deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveResponse!: (response: Response) => void;
+      let request: RequestInit | undefined;
+      const controller = new AbortController();
+      const transport = createAppServerHttpTransport({
+        baseUrl: "https://brain.example", credentials: "include", timeoutMs: null,
+        signal: controller.signal,
+        fetchImpl: async (_input, init) => {
+          request = init;
+          return new Promise<Response>((resolve) => { resolveResponse = resolve; });
+        },
+      });
+      const result = transport.request(envelope);
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(request?.credentials).toBe("include");
+      expect(request?.signal?.aborted).toBe(false);
+      controller.abort();
+      expect(request?.signal?.aborted).toBe(true);
+      resolveResponse(new Response(JSON.stringify({ ok: true })));
+      await result;
+    } finally { vi.useRealTimers(); }
   });
 });

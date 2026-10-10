@@ -265,3 +265,11 @@ ConversationHistory request/response schemas (real UUID session identity).
 Brain composes its existing history/repository owner only after cookie auth;
 resource reads scope to the verified user and return explicit missing/unavailable
 states. Local Thread/workspace semantics are unchanged. Web cutover follows.
+
+### Plan 058 SDK conversation history operation
+
+The existing SDK AppServerClient exposes the validated `session/history` page
+operation. Its existing HTTP transport supports hosted cookie credentials and
+explicitly disabling its default deadline so existing cancellable history reads
+keep their lifetime. No second public client, history loop or projection exists.
+Web will use this operation with the existing SDK pinned-page reader.
