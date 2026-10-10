@@ -1,7 +1,7 @@
 import { ArrowUpRight, Maximize2, Minimize2 } from "lucide-react";
-import { cn } from "@legioncode/client-ui";
-import { ChangeStats } from "./DiffStatistics";
-import type { ChangeLineStats } from "./types";
+import { cn } from "../../classnames.js";
+import { ChangeStats } from "./DiffStatistics.js";
+import type { ChangeLineStats } from "./changed-files-types.js";
 
 export function ChangedFilesCardHeader({
   fileCount,

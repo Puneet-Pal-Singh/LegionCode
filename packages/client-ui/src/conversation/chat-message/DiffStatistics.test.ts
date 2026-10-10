@@ -5,7 +5,7 @@ import {
   calculateDiffStats,
   getFileStats,
   splitPathForDisplay,
-} from "./diff-statistics";
+} from "./diff-statistics.js";
 
 describe("chat message diff statistics", () => {
   it("counts added and deleted lines from typed diff hunks", () => {

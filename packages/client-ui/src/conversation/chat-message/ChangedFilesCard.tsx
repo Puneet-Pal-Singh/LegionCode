@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
-import { ChangeStats } from "./DiffStatistics";
-import { ChangedFilesCardHeader } from "./ChangedFilesCardHeader";
+import { ChangeStats } from "./DiffStatistics.js";
+import { ChangedFilesCardHeader } from "./ChangedFilesCardHeader.js";
 import {
   calculateChangedFileTotals,
   getFileStats,
   splitPathForDisplay,
-} from "./diff-statistics";
-import { InlineDiffViewer } from "./InlineDiffViewer";
-import { useChangedFileDiffStates } from "./useChangedFileDiffStates";
-import type { ChangedFileDiffState } from "./types";
+} from "./diff-statistics.js";
+import { InlineDiffViewer } from "./InlineDiffViewer.js";
+import { useChangedFileDiffStates } from "./useChangedFileDiffStates.js";
+import type { ChangedFileDiffState } from "./changed-files-types.js";
 
 export function ChangedFilesCard({
   files,

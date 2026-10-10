@@ -1,4 +1,4 @@
-import type { ChangeLineStats } from "./types";
+import type { ChangeLineStats } from "./changed-files-types.js";
 
 export function ChangeStats({ additions, deletions }: ChangeLineStats) {
   return (

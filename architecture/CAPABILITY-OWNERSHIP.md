@@ -40,3 +40,17 @@ compatibility copies. Existing accept/reject cleanup, URL revocation, paste,
 drop, Escape and gallery-navigation behavior is unchanged. Drafts remain local
 UI state; submitted history and hydrated media authorization stay with their
 existing server/Web bindings until the command/history slices.
+
+## Plan 058.2D — Inline changed-file review presentation
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Changed-files card, stats, inline hunk context and asynchronous diff display states | `client-ui/src/conversation/chat-message` | Web ChatMessage renders supplied canonical files/diff loader and forwards the existing review callback. |
+| Changed-file presentation types | `client-ui/src/conversation/chat-message/changed-files-types.ts` | Shared renderers and Web ChatMessage/useMessageDisplayContent consume the same type. |
+
+Old Web renderers/helpers/types and the existing statistics test are moved and
+deleted at their old paths. Data selection, artifact identity and immutable
+saved-patch loading remain with existing SDK/Web owners until their operation
+slice. Shared presentation invokes only the supplied loader; it owns no Git,
+artifact transport or runtime state. Existing loading/error/missing-diff,
+binary/no-line-change, known-stat preservation and hunk context behavior remain.

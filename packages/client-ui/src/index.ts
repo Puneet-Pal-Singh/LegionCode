@@ -31,3 +31,5 @@ export {
   formatAttachmentSize, type ChatImageMimeType, type ChatImageAttachment,
   type ChatSubmitAttachments,
 } from "./conversation/chatImageAttachments.js";
+export { ChangedFilesCard } from "./conversation/chat-message/ChangedFilesCard.js";
+export type { ChangedFilesSummary } from "./conversation/chat-message/changed-files-types.js";
