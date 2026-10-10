@@ -1,3 +1,4 @@
+import { buildConversationTurns } from "@legioncode/sdk";
 import {
   useRef,
   useEffect,
@@ -27,7 +28,6 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
 import {
   buildChatMessageMetadata,
-  buildConversationTurns,
 } from "./messageMetadata";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";

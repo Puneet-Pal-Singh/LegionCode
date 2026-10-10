@@ -190,3 +190,16 @@ composed function is named applyConversationLifecycleEvent to avoid collision.
 Terminal wording and conversation presentation stay UI-local until 058.2E;
 canonical saved-diff derivation and transcript grouping remain pending their
 respective capability slices. Existing assertions and edge cases are retained.
+
+## Plan 058.1 — Transcript identity and grouping
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Canonical turn identity, repeated-message collapse and exact assistant grouping | SDK platform/conversation-turns | Web conversation entries, metadata presentation and historical replay use the same grouping. |
+
+Existing algorithms and their useful tests move; replaced Web functions are
+deleted and every caller imports SDK. The grouping preserves each caller's full
+message type through a narrow structural input, without depending on the AI UI
+transport package. UI timing labels/debug metadata remain presentation-local.
+Conversation entry visibility remains UI-specific until its shared view move.
+No new HTTP, storage, reducer or identity inference is added.
