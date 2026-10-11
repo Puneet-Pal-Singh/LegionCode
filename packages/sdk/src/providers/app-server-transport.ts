@@ -12,8 +12,8 @@ import { BYOKDiscoveredProviderModelsQuerySchema } from "./types.js";
 import {
   createOperationErrorFromResponse,
   resolveCanonicalRunId,
-  type ProviderHttpTransportOptions,
-} from "./http-transport.js";
+} from "./transport-support.js";
+import type { ProviderHttpTransportOptions } from "./http-transport.js";
 import {
   ProviderClientOperationError,
   isRetryableProviderClientErrorCode,
