@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { createProviderClient } from "./client.js";
+import { createByokHttpTransport } from "./http-transport.js";
 import { createProviderAppServerTransport } from "./app-server-transport.js";
 
 const runId = "run_123456";
@@ -14,6 +15,64 @@ function response(method: string, result: unknown) {
 }
 
 describe("hosted provider AppServer transport", () => {
+  it.each([401, 429, 503])(
+    "preserves existing non-JSON HTTP %s error behavior",
+    async (status) => {
+      const options = {
+        baseUrl: "https://brain.test/api/byok",
+        getRunId: () => runId,
+        fetchImpl: async () =>
+          new Response("Upstream temporarily unavailable", {
+            status,
+            headers: { "content-type": "text/plain" },
+          }),
+      };
+      const capture = async (operation: () => Promise<unknown>) => {
+        try {
+          await operation();
+          throw new Error("Expected error");
+        } catch (error) {
+          return error;
+        }
+      };
+      const previous = await capture(() =>
+        createByokHttpTransport(options).discoverProviders(),
+      );
+      const current = await capture(() =>
+        createProviderAppServerTransport({
+          ...options,
+          appServerBaseUrl: "https://brain.test",
+        }).discoverProviders(),
+      );
+      expect(current).toMatchObject(previous as object);
+      expect(current).toMatchObject({
+        code: "INVALID_ERROR_RESPONSE",
+        statusCode: status,
+        retryable: status >= 500 || status === 429,
+      });
+    },
+  );
+
+  it("preserves malformed JSON error status and retry guidance", async () => {
+    const client = createProviderClient(
+      createProviderAppServerTransport({
+        baseUrl: "https://brain.test/api/byok",
+        appServerBaseUrl: "https://brain.test",
+        getRunId: () => runId,
+        fetchImpl: async () =>
+          new Response('{"error":', {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          }),
+      }),
+    );
+    await expect(client.discoverProviders()).rejects.toMatchObject({
+      code: "INVALID_ERROR_RESPONSE",
+      statusCode: 503,
+      retryable: false,
+    });
+  });
+
   it("retains the full discovery query, cookie authorization and canonical run scope", async () => {
     const fetchImpl = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -136,7 +195,7 @@ describe("hosted provider AppServer transport", () => {
             refreshedAt: "2026-10-10T00:00:00.000Z",
             source: "provider_api",
             cacheInvalidated: true,
-          modelsCount: 150,
+            modelsCount: 150,
           });
         return response("provider/models", {
           providerId: "openrouter",

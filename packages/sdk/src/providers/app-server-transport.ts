@@ -11,6 +11,7 @@ import { AppServerProviderErrorSchema } from "@legioncode/app-server/protocol";
 import { BYOKDiscoveredProviderModelsQuerySchema } from "./types.js";
 import {
   createByokHttpTransport,
+  createOperationErrorFromResponse,
   resolveCanonicalRunId,
   type ProviderHttpTransportOptions,
 } from "./http-transport.js";
@@ -50,12 +51,27 @@ export function createProviderAppServerTransport(
           if (
             !response.headers.get("content-type")?.includes("application/json")
           ) {
+            if (!response.ok)
+              throw await createOperationErrorFromResponse(
+                response,
+                options.responsePreviewLimit ?? 120,
+              );
             await response.body?.cancel();
             throw new AppServerTransportError(
               "invalid_response",
               "Expected JSON provider response",
               response.status,
             );
+          }
+          if (!response.ok) {
+            try {
+              await response.clone().json();
+            } catch {
+              throw await createOperationErrorFromResponse(
+                response,
+                options.responsePreviewLimit ?? 120,
+              );
+            }
           }
           return response;
         },
@@ -145,6 +161,8 @@ function providerError(
     }
     const transport = error.cause;
     if (transport instanceof AppServerTransportError) {
+      if (transport.cause instanceof ProviderClientOperationError)
+        return transport.cause;
       if (transport.code === "invalid_response")
         return new ProviderClientOperationError(
           "INVALID_RESPONSE_FORMAT",

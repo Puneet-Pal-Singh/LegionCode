@@ -222,7 +222,7 @@ async function parseSuccessResponse(
   }
 }
 
-async function createOperationErrorFromResponse(
+export async function createOperationErrorFromResponse(
   response: Response,
   responsePreviewLimit: number,
 ): Promise<ProviderClientOperationError> {
