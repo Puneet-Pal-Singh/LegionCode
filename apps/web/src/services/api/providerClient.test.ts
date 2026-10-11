@@ -47,7 +47,6 @@ function discoveryResponse(method: string, value: unknown, status = 200) {
 }
 
 describe("ProviderApiClient", () => {
-  const providerApiBaseUrl = `${window.location.origin}/__legioncode/brain/api/byok`;
   const appServerUrl = `${window.location.origin}/__legioncode/brain/app-server/request`;
   const testRunId = "run_123456";
   let client: ProviderApiClient;
@@ -263,138 +262,94 @@ describe("ProviderApiClient", () => {
     });
   });
 
-  describe("getCredentials", () => {
-    it("fetches credentials", async () => {
-      const mockCredentials = [createCredentialFixture()];
-
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce(mockCredentials),
-      });
-
-      const credentials = await client.getCredentials();
-
+  describe("credential operations", () => {
+    function expectCommand(method: string, params: object) {
+      expect(
+        new Headers(
+          (fetchSpy.mock.calls.at(-1)?.[1] as RequestInit).headers,
+        ).get("Content-Type"),
+      ).toBe("application/json");
       expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/credentials`,
-        {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Run-Id": testRunId,
-          },
-          signal: expect.any(AbortSignal),
-        },
-      );
-      expect(credentials).toEqual(mockCredentials);
-    });
-  });
-
-  describe("connectCredential", () => {
-    it("connects a new credential", async () => {
-      const mockCredential = createCredentialFixture();
-
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce(mockCredential),
-      });
-
-      const credential = await client.connectCredential({
-        providerId: "openai",
-        secret: "sk-test",
-      });
-
-      expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/credentials`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Run-Id": testRunId,
-          },
-          signal: expect.any(AbortSignal),
-          body: JSON.stringify({
-            providerId: "openai",
-            secret: "sk-test",
-          }),
-        },
-      );
-      expect(credential).toEqual(mockCredential);
-    });
-  });
-
-  describe("disconnectCredential", () => {
-    it("disconnects credential", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        status: 204,
-      });
-
-      await client.disconnectCredential("cred-1");
-
-      expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/credentials/cred-1`,
-        {
-          method: "DELETE",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Run-Id": testRunId,
-          },
-          signal: expect.any(AbortSignal),
-        },
-      );
-    });
-  });
-
-  describe("validateCredential", () => {
-    it("validates credential with format mode", async () => {
-      const responseBody = {
-        credentialId: "550e8400-e29b-41d4-a716-446655440000",
-        valid: true,
-        validatedAt: "2026-03-04T00:00:00.000Z",
-      };
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce(responseBody),
-      });
-
-      const result = await client.validateCredential("cred-1", {
-        mode: "format",
-      });
-
-      expect(result).toEqual(responseBody);
-      expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/credentials/cred-1/validate`,
+        appServerUrl,
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ mode: "format" }),
+          credentials: "include",
+          signal: expect.any(AbortSignal),
+          headers: expect.any(Headers),
+          body: JSON.stringify({
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method,
+            params: { runId: testRunId, ...params },
+          }),
         }),
       );
+    }
+
+    it("fetches credentials", async () => {
+      const mockCredentials = [createCredentialFixture()];
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse("provider/credentials/list", mockCredentials),
+      );
+      expect(await client.getCredentials()).toEqual(mockCredentials);
+      expectCommand("provider/credentials/list", {});
     });
 
-    it("validates credential with live mode", async () => {
-      const responseBody = {
-        credentialId: "550e8400-e29b-41d4-a716-446655440000",
-        valid: true,
-        validatedAt: "2026-03-04T00:00:00.000Z",
-      };
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce(responseBody),
-      });
-
-      const result = await client.validateCredential("cred-1", {
-        mode: "live",
-      });
-
-      expect(result).toEqual(responseBody);
+    it("connects a new credential", async () => {
+      const credential = createCredentialFixture();
+      const request = { providerId: "openai", secret: "sk-test" };
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse("provider/credentials/connect", credential),
+      );
+      expect(await client.connectCredential(request)).toEqual(credential);
+      expectCommand("provider/credentials/connect", { request });
     });
+
+    it("updates the credential label", async () => {
+      const credential = { ...createCredentialFixture(), label: "Updated" };
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse("provider/credentials/update", credential),
+      );
+      expect(
+        await client.updateCredential("cred-1", { label: "Updated" }),
+      ).toEqual(credential);
+      expectCommand("provider/credentials/update", {
+        credentialId: "cred-1",
+        request: { label: "Updated" },
+      });
+    });
+
+    it("disconnects a credential", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse("provider/credentials/disconnect", {
+          disconnected: true,
+        }),
+      );
+      await client.disconnectCredential("cred-1");
+      expectCommand("provider/credentials/disconnect", {
+        credentialId: "cred-1",
+      });
+    });
+
+    it.each(["format", "live"] as const)(
+      "validates credentials with %s mode",
+      async (mode) => {
+        const responseBody = {
+          credentialId: "550e8400-e29b-41d4-a716-446655440000",
+          valid: true,
+          validatedAt: "2026-03-04T00:00:00.000Z",
+        };
+        fetchSpy.mockResolvedValueOnce(
+          discoveryResponse("provider/credentials/validate", responseBody),
+        );
+        expect(await client.validateCredential("cred-1", { mode })).toEqual(
+          responseBody,
+        );
+        expectCommand("provider/credentials/validate", {
+          credentialId: "cred-1",
+          request: { mode },
+        });
+      },
+    );
   });
 
   describe("error handling", () => {

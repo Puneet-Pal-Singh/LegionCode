@@ -343,3 +343,28 @@ existing SDK HTTP transport until their separate 058.3B slice; that slice must
 converge them on AppServer and retire the remaining BYOK transport/routes.
 The public standalone BYOK HTTP transport remains during this staged provider
 cutover; its deletion trigger is migration of the remaining provider operations.
+
+
+## Plan 058 hosted credential operations
+
+Credential list/connect/label-update/disconnect/validate retain the existing
+runtime provider credential owner, product policy and workspace preferences.
+`ProviderCredentialOperations` contains the extracted operations; Brain's hosted
+App Server composition authenticates the viewer and validates the canonical run
+and workspace scope. Existing BYOK credential/request/validation schemas define
+the wire contract. Secrets pass only to the runtime connect operation; returned
+credential metadata retains the existing masked placeholder and fingerprints.
+Web's ProviderApiClient/ProviderStore and provider dialogs consume the SDK
+ProviderClient through the hosted App Server transport. Existing virtual
+credential identifiers and default-on-connect behavior remain unchanged.
+The exported standalone SDK HTTP/cloud transports still consume legacy routes;
+those route adapters call the same operations and must be removed when those
+remaining consumers migrate with provider preferences/resolution. Focused
+credential isolation, policy, error, cancellation and transport tests guard
+that final deletion. No second vault or browser credential persistence is added.
+
+Credential mutations consume and validate the existing runtime response before
+returning success. Connect, default-on-connect, label writes, disconnect and
+label cleanup propagate normalized failures; a failed runtime mutation cannot
+be reported as a successful credential change. Existing runtime persistence
+remains authoritative if a later step fails after an earlier step committed.

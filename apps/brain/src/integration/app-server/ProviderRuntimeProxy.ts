@@ -1,3 +1,9 @@
+import {
+  ProviderConnectionsResponseSchema,
+  BYOKPreferencesSchema,
+  type ProviderConnectionsResponse,
+  type BYOKPreferences,
+} from "@repo/shared-types";
 import { z } from "zod";
 import {
   ProviderCatalogResponseSchema,
@@ -359,4 +365,52 @@ export function buildRuntimeModelsPath(
     params.set("cursor", query.cursor);
   }
   return `/providers/models?${params.toString()}`;
+}
+
+export async function fetchRuntimeConnections(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+): Promise<ProviderConnectionsResponse> {
+  const response = await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "GET",
+      path: "/providers/connections",
+    },
+    ProviderConnectionsResponseSchema,
+    correlationId,
+  );
+  return await readProxyResponseJson(
+    response,
+    ProviderConnectionsResponseSchema,
+    correlationId,
+  );
+}
+
+export async function fetchRuntimePreferences(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+): Promise<BYOKPreferences> {
+  const response = await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "GET",
+      path: "/providers/preferences",
+    },
+    BYOKPreferencesSchema,
+    correlationId,
+  );
+  return await readProxyResponseJson(
+    response,
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }

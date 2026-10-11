@@ -235,3 +235,129 @@ describe("hosted provider AppServer transport", () => {
     ).toBe(true);
   });
 });
+
+describe("hosted credential transport", () => {
+  const credentialId = "550e8400-e29b-41d4-a716-446655440000";
+  const credential = {
+    credentialId,
+    userId: "viewer",
+    workspaceId: "workspace",
+    providerId: "openai",
+    label: "Primary",
+    keyFingerprint: "masked-1234",
+    encryptedSecretJson: "{}",
+    keyVersion: "v2",
+    status: "connected",
+    lastValidatedAt: null,
+    createdAt: "2026-10-11T00:00:00.000Z",
+    updatedAt: "2026-10-11T00:00:00.000Z",
+    deletedAt: null,
+  };
+
+  it("routes all five operations with canonical run scope and cookie credentials", async () => {
+    const envelopes: Array<{
+      method: string;
+      params: Record<string, unknown>;
+    }> = [];
+    const fetchImpl = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.credentials).toBe("include");
+        const envelope = JSON.parse(String(init?.body));
+        envelopes.push(envelope);
+        const result = envelope.method.endsWith("/list")
+          ? [credential]
+          : envelope.method.endsWith("/disconnect")
+            ? { disconnected: true }
+            : envelope.method.endsWith("/validate")
+              ? { credentialId, valid: true, validatedAt: credential.updatedAt }
+              : credential;
+        return response(envelope.method, result);
+      },
+    );
+    const client = createProviderClient(
+      createProviderAppServerTransport({
+        baseUrl: "https://brain.test/api/byok",
+        appServerBaseUrl: "https://brain.test",
+        getRunId: () => runId,
+        fetchImpl,
+      }),
+    );
+    expect(await client.listCredentials()).toEqual([credential]);
+    expect(
+      await client.connectCredential({
+        providerId: "openai",
+        secret: "test-secret",
+      }),
+    ).toEqual(credential);
+    await client.updateCredential(credentialId, { label: "Updated" });
+    await client.validateCredential(credentialId, { mode: "live" });
+    await client.disconnectCredential(credentialId);
+    expect(envelopes.map((e) => e.method)).toEqual(
+      ["list", "connect", "update", "validate", "disconnect"].map(
+        (m) => `provider/credentials/${m}`,
+      ),
+    );
+    for (const e of envelopes) expect(e.params.runId).toBe(runId);
+    expect(envelopes[1]?.params.request).toEqual({
+      providerId: "openai",
+      secret: "test-secret",
+    });
+    expect(envelopes[2]?.params).toMatchObject({
+      credentialId,
+      request: { label: "Updated" },
+    });
+    expect(envelopes[3]?.params).toMatchObject({
+      credentialId,
+      request: { mode: "live" },
+    });
+    expect(
+      fetchImpl.mock.calls.every(
+        ([url]) => url === "https://brain.test/app-server/request",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects malformed credential metadata and mismatched response methods", async () => {
+    for (const wireResponse of [
+      response("provider/credentials/list", [
+        { ...credential, credentialId: "invalid" },
+      ]),
+      response("provider/credentials/connect", credential),
+    ]) {
+      const client = createProviderClient(
+        createProviderAppServerTransport({
+          baseUrl: "https://brain.test/api/byok",
+          appServerBaseUrl: "https://brain.test",
+          getRunId: () => runId,
+          fetchImpl: async () => wireResponse,
+        }),
+      );
+      await expect(client.listCredentials()).rejects.toMatchObject({
+        code: "INVALID_RESPONSE_CONTRACT",
+      });
+    }
+  });
+
+  it("preserves cancellation while connecting", async () => {
+    const controller = new AbortController();
+    const client = createProviderClient(
+      createProviderAppServerTransport({
+        baseUrl: "https://brain.test/api/byok",
+        appServerBaseUrl: "https://brain.test",
+        getRunId: () => runId,
+        fetchImpl: async (_input, init) => {
+          expect(init?.signal?.aborted).toBe(false);
+          controller.abort();
+          expect(init?.signal?.aborted).toBe(true);
+          throw new DOMException("Aborted", "AbortError");
+        },
+      }),
+    );
+    await expect(
+      client.connectCredential(
+        { providerId: "openai", secret: "test-secret" },
+        { signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({ code: "ABORTED" });
+  });
+});
