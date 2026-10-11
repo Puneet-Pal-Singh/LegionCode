@@ -1,3 +1,4 @@
+import { readProviderCatalog, readProviderModels, refreshProviderModels } from "../integration/app-server/HostedProviderDiscovery";
 /**
  * ProviderController
  * Single Responsibility: Route handlers for provider API endpoints
@@ -8,7 +9,6 @@
 import { z } from "zod";
 import {
   AXIS_PROVIDER_ID,
-  canShowProviderInPrimaryUi,
   canUseProviderAtRuntime,
   canUseProviderRuntimeFallback,
   type BYOKCredential,
@@ -20,7 +20,6 @@ import {
   BYOKCredentialValidateRequestSchema,
   BYOKDiscoveredProviderModelsResponseSchema,
   BYOKDiscoveredProviderModelsQuerySchema,
-  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   type BYOKResolution,
   type BYOKResolveRequest,
@@ -28,7 +27,6 @@ import {
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
   type BYOKDiscoveredProviderModelsResponse,
-  type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKPreferencesUpdateRequest,
   type BYOKValidateResponse,
   BYOKConnectRequestSchema,
@@ -67,7 +65,7 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
-import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, mapCatalogEntryToRegistry, buildRuntimeModelsPath } from "../services/providers/ProviderRuntimeProxy";
+import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, buildRuntimeModelsPath } from "../services/providers/ProviderRuntimeProxy";
 import { findDiscoveredChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 
 const WorkspaceByokMetadataSchema = z.object({
@@ -102,24 +100,7 @@ export class ProviderController {
         buildDiscoveryQueryParams(req.url),
         correlationId,
       );
-      const runtimePath = buildRuntimeModelsPath(providerId, discoveryQuery);
-
-      const response = await proxyByokOperation(
-        req,
-        env,
-        {
-          scope,
-          method: "GET",
-          path: runtimePath,
-        },
-        BYOKDiscoveredProviderModelsResponseSchema,
-        correlationId,
-      );
-      const payload = await readProxyResponseJson(
-        response,
-        BYOKDiscoveredProviderModelsResponseSchema,
-        correlationId,
-      );
+      const payload = await readProviderModels(req, env, scope, providerId, discoveryQuery, correlationId);
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -141,23 +122,7 @@ export class ProviderController {
         req.url,
         correlationId,
       );
-      const response = await proxyByokOperation(
-        req,
-        env,
-        {
-          scope,
-          method: "POST",
-          path: "/providers/models/refresh",
-          body: { providerId },
-        },
-        BYOKDiscoveredProviderModelsRefreshResponseSchema,
-        correlationId,
-      );
-      const payload = await readProxyResponseJson(
-        response,
-        BYOKDiscoveredProviderModelsRefreshResponseSchema,
-        correlationId,
-      );
+      const payload = await refreshProviderModels(req, env, scope, providerId, correlationId);
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -172,13 +137,7 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
-      const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-      const providers = catalog.providers
-        .map((provider) => mapCatalogEntryToRegistry(provider))
-        .filter((provider) =>
-          canShowProviderInPrimaryUi(policy, provider.providerId),
-        );
+      const { providers } = await readProviderCatalog(req, env, scope, correlationId);
       return withScopeJson(req, env, scope, providers);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);

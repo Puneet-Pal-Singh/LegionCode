@@ -1,3 +1,5 @@
+import type { BYOKDiscoveredProviderModelsQuery } from "@repo/shared-types";
+import type { AuthorizedProviderScope } from "../../controllers/provider/ProviderAuthScopeService";
 import { RunIdSchema } from "@repo/platform-protocol";
 import {
   BYOKProviderSlugSchema,
@@ -66,68 +68,93 @@ export function composeHostedProviderDiscovery(
   };
   return {
     catalog: (runId) =>
-      operation(runId, async (scope, correlationId) => {
-        const policy = resolveBrainProviderProductPolicy(env);
-        const catalog = await fetchRuntimeCatalog(
+      operation(runId, (scope, correlationId) =>
+        readProviderCatalog(request, env, scope, correlationId),
+      ),
+    models: (runId, providerId, query) =>
+      operation(runId, (scope, correlationId) =>
+        readProviderModels(
           request,
           env,
           scope,
-          correlationId,
-        );
-        return {
-          providers: catalog.providers
-            .map(mapCatalogEntryToRegistry)
-            .filter((provider) =>
-              canShowProviderInPrimaryUi(policy, provider.providerId),
-            ),
-        };
-      }),
-    models: (runId, providerId, query) =>
-      operation(runId, async (scope, correlationId) => {
-        const id = validateWithSchema<string>(
           providerId,
-          BYOKProviderSlugSchema,
+          BYOKDiscoveredProviderModelsQuerySchema.parse(query ?? {}),
           correlationId,
-        );
-        const discoveryQuery = BYOKDiscoveredProviderModelsQuerySchema.parse(
-          query ?? {},
-        );
-        const response = await proxyByokOperation(
-          request,
-          env,
-          {
-            scope,
-            method: "GET",
-            path: buildRuntimeModelsPath(id, discoveryQuery),
-          },
-          BYOKDiscoveredProviderModelsResponseSchema,
-          correlationId,
-        );
-        return readProxyResponseJson(
-          response,
-          BYOKDiscoveredProviderModelsResponseSchema,
-          correlationId,
-        );
-      }),
+        ),
+      ),
     refresh: (runId, providerId) =>
-      operation(runId, async (scope, correlationId) => {
-        const response = await proxyByokOperation(
-          request,
-          env,
-          {
-            scope,
-            method: "POST",
-            path: "/providers/models/refresh",
-            body: { providerId },
-          },
-          BYOKDiscoveredProviderModelsRefreshResponseSchema,
-          correlationId,
-        );
-        return readProxyResponseJson(
-          response,
-          BYOKDiscoveredProviderModelsRefreshResponseSchema,
-          correlationId,
-        );
-      }),
+      operation(runId, (scope, correlationId) =>
+        refreshProviderModels(request, env, scope, providerId, correlationId),
+      ),
   };
+}
+
+export async function readProviderCatalog(
+  request: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  const catalog = await fetchRuntimeCatalog(request, env, scope, correlationId);
+  return {
+    providers: catalog.providers
+      .map(mapCatalogEntryToRegistry)
+      .filter((provider) =>
+        canShowProviderInPrimaryUi(policy, provider.providerId),
+      ),
+  };
+}
+
+export async function readProviderModels(
+  request: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  providerId: string,
+  query: BYOKDiscoveredProviderModelsQuery,
+  correlationId: string,
+) {
+  const id = validateWithSchema<string>(
+    providerId,
+    BYOKProviderSlugSchema,
+    correlationId,
+  );
+  const response = await proxyByokOperation(
+    request,
+    env,
+    { scope, method: "GET", path: buildRuntimeModelsPath(id, query) },
+    BYOKDiscoveredProviderModelsResponseSchema,
+    correlationId,
+  );
+  return readProxyResponseJson(
+    response,
+    BYOKDiscoveredProviderModelsResponseSchema,
+    correlationId,
+  );
+}
+
+export async function refreshProviderModels(
+  request: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  providerId: string,
+  correlationId: string,
+) {
+  const response = await proxyByokOperation(
+    request,
+    env,
+    {
+      scope,
+      method: "POST",
+      path: "/providers/models/refresh",
+      body: { providerId },
+    },
+    BYOKDiscoveredProviderModelsRefreshResponseSchema,
+    correlationId,
+  );
+  return readProxyResponseJson(
+    response,
+    BYOKDiscoveredProviderModelsRefreshResponseSchema,
+    correlationId,
+  );
 }

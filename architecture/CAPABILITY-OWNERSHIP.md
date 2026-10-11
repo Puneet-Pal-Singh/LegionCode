@@ -336,8 +336,9 @@ BYOKDiscoveredProviderModelsRefreshResponse. Provider failures retain the existi
 NormalizedProviderError fields plus HTTP statusCode at the AppServer envelope.
 No credentials are included in discovery results. Server validates the cookie,
 user/workspace claims and canonical run before calling the existing runtime owner.
-The three replaced Brain BYOK discovery routes/controller bodies are deleted
-when Web switches. Credential/preferences/resolution operations retain their
+Web switches to AppServer; the replaced controller operation bodies are deleted.
+The three old discovery routes remain narrow adapters to the same extracted
+owner for the exported SDK HTTP/cloud transports (no active Web callers). Credential/preferences/resolution operations retain their
 existing SDK HTTP transport until their separate 058.3B slice; that slice must
 converge them on AppServer and retire the remaining BYOK transport/routes.
 The public standalone BYOK HTTP transport remains during this staged provider
