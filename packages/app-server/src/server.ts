@@ -1,3 +1,4 @@
+import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
@@ -42,6 +43,11 @@ export type AppServerComposition = {
     update(runId: string, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
     disconnect(runId: string, credentialId: string): Promise<void>;
     validate(runId: string, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
+  };
+  hostedProviderPreferenceService?: {
+    read(runId: string): Promise<BYOKPreference>;
+    update(runId: string, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
+    resolve(runId: string, request: BYOKResolveRequest): Promise<BYOKResolution>;
   };
   providerConfiguration?: ProviderConfiguration;
   sessionMetadataService?: {
@@ -341,6 +347,18 @@ async function dispatch(
     case "provider/credentials/validate": {
       if (!composition.hostedProviderCredentialService) throw new Error("unsupported");
       return composition.hostedProviderCredentialService.validate(request.params.runId, request.params.credentialId, request.params.request);
+    }
+    case "provider/preferences/read": {
+      if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
+      return composition.hostedProviderPreferenceService.read(request.params.runId);
+    }
+    case "provider/preferences/update": {
+      if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
+      return composition.hostedProviderPreferenceService.update(request.params.runId, request.params.request);
+    }
+    case "provider/resolve": {
+      if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
+      return composition.hostedProviderPreferenceService.resolve(request.params.runId, request.params.request);
     }
     case "provider/current": {
       if (!composition.providerService) throw new Error("unsupported");

@@ -368,3 +368,26 @@ returning success. Connect, default-on-connect, label writes, disconnect and
 label cleanup propagate normalized failures; a failed runtime mutation cannot
 be reported as a successful credential change. Existing runtime persistence
 remains authoritative if a later step fails after an earlier step committed.
+
+
+## Plan 058 hosted provider preferences and resolution
+
+Preference reads/updates and effective provider resolution reuse the existing
+BYOKPreference/BYOKPreferencesUpdateRequest and BYOKResolution/BYOKResolveRequest
+schemas. `ProviderPreferenceOperations` extracts the existing preference,
+credential/default/model policy and metadata/quota lookup bodies. The existing
+runtime workspace preferences and provider services remain authoritative;
+HostedProviderPreferences binds the verified viewer/run/workspace through the
+same hosted provider scope as discovery/credentials. SDK ProviderClient and
+Web ProviderApiClient/ProviderStore consume those validated hosted operations.
+Standalone SDK HTTP/cloud transports still require thin delegated route adapters
+until the final provider transport cutover. Remove them once every exported
+transport uses App Server and scope/error/default/visibility tests pass.
+Browser selection/readiness repair remains a separate pending authority slice;
+this extraction introduces no local vault, selection store or new policy.
+
+The existing uncapped visibility-list request is preserved only for authenticated
+`provider/preferences/update`: SDK supplies an exact method routing hint, Brain
+verifies the cookie before reading that body and rejects a mismatched envelope.
+Other methods retain the generic 32 KB request limit and streaming cancellation.
+The hint supplies no identity or permission and does not bypass provider scope.

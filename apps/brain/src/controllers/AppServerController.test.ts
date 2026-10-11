@@ -44,6 +44,18 @@ describe("hosted App Server integration", () => {
     });
   });
 
+  it("retains typed authorization errors when a provider preference body requests its existing uncapped contract", async () => {
+    const client = createAppServerClient({
+      clientId: "hosted-test-client", clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: "https://brain.example", credentials: "include",
+        requestHeaders: () => ({ "X-LegionCode-AppServer-Method": "provider/preferences/update" }),
+        fetchImpl: async (input, init) => AppServerController.request(new Request(input, init), {} as Env),
+      }),
+    });
+    await expect(client.updateProviderPreferences("run_valid123", { visibleModelIds: {} })).rejects.toMatchObject({ code: "server_error", serverCode: "unauthorized", method: "provider/preferences/update" });
+  });
+
   it("cancels a streamed body as soon as it exceeds the request limit", async () => {
     let canceled = false;
     const body = new ReadableStream<Uint8Array>({

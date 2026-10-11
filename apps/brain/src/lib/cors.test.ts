@@ -44,6 +44,16 @@ describe("brain cors policy", () => {
     );
   });
 
+  it("allows the hosted preference routing hint only for an allowed origin", () => {
+    const request = new Request("https://brain.test/app-server/request", { method: "OPTIONS", headers: { Origin: "https://app.legioncode.dev", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-legioncode-appserver-method" } });
+    const allowed = handleOptions(request, { CORS_ALLOWED_ORIGINS: "https://app.legioncode.dev" });
+    expect(allowed?.headers.get("Access-Control-Allow-Headers")).toContain("X-LegionCode-AppServer-Method");
+    expect(allowed?.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    const blocked = handleOptions(request, { CORS_ALLOWED_ORIGINS: "https://another.example" });
+    expect(blocked?.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(blocked?.headers.get("Access-Control-Allow-Headers")).toBeNull();
+  });
+
   it("silently blocks non-allowlisted origin on preflight", async () => {
     const request = new Request("https://brain.test/chat", {
       method: "OPTIONS",
