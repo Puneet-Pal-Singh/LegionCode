@@ -10,7 +10,6 @@ import {
 import { AppServerProviderErrorSchema } from "@legioncode/app-server/protocol";
 import { BYOKDiscoveredProviderModelsQuerySchema } from "./types.js";
 import {
-  createByokHttpTransport,
   createOperationErrorFromResponse,
   resolveCanonicalRunId,
   type ProviderHttpTransportOptions,
@@ -25,7 +24,7 @@ import type {
   ProviderClientTransport,
 } from "./client.js";
 
-/** Hosted discovery and credentials use AppServer; preferences/resolution retain their current transport until cutover. */
+/** All hosted provider operations use the existing authenticated App Server boundary. */
 export function createProviderAppServerTransport(
   options: ProviderHttpTransportOptions & { appServerBaseUrl: string },
 ): ProviderClientTransport {
@@ -88,7 +87,18 @@ export function createProviderAppServerTransport(
     }
   };
   return {
-    ...createByokHttpTransport(options),
+    getPreferences: (requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.readProviderPreferences(runId),
+      ),
+    updatePreferences: (params, requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.updateProviderPreferences(runId, params),
+      ),
+    resolveForRun: (params, requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.resolveProviderPreferences(runId, params),
+      ),
     listCredentials: (requestOptions) =>
       invoke(requestOptions, (client, runId) =>
         client.listProviderCredentials(runId),

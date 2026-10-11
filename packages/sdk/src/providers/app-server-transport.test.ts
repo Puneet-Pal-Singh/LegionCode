@@ -361,3 +361,95 @@ describe("hosted credential transport", () => {
     ).rejects.toMatchObject({ code: "ABORTED" });
   });
 });
+
+describe("hosted preference transport", () => {
+  it("reads, updates and resolves with canonical run scope and unchanged payloads", async () => {
+    const credentialId = "550e8400-e29b-41d4-a716-446655440000";
+    const preferences = {
+      userId: "viewer",
+      workspaceId: "workspace",
+      defaultProviderId: "openai",
+      defaultCredentialId: credentialId,
+      defaultModelId: "gpt-4o",
+      visibleModelIds: { openai: ["gpt-4o"] },
+      updatedAt: "2026-10-11T00:00:00.000Z",
+    };
+    const resolution = {
+      providerId: "openai",
+      credentialId,
+      modelId: "gpt-4o",
+      resolvedAt: "request_override",
+      resolvedAtTime: preferences.updatedAt,
+    };
+    const fetchImpl = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.credentials).toBe("include");
+        const envelope = JSON.parse(String(init?.body));
+        return response(
+          envelope.method,
+          envelope.method === "provider/resolve" ? resolution : preferences,
+        );
+      },
+    );
+    const client = createProviderClient(
+      createProviderAppServerTransport({
+        baseUrl: "https://brain.test/api/byok",
+        appServerBaseUrl: "https://brain.test",
+        getRunId: () => runId,
+        fetchImpl,
+      }),
+    );
+    expect(await client.getPreferences()).toEqual(preferences);
+    const patch = { visibleModelIds: { openai: ["gpt-4o"] } };
+    expect(await client.selectDefault(patch)).toEqual(preferences);
+    const intent = { providerId: "openai", credentialId, modelId: "gpt-4o" };
+    expect(await client.resolveForRun(intent)).toEqual(resolution);
+    expect(
+      fetchImpl.mock.calls.map(([, init]) => JSON.parse(String(init?.body))),
+    ).toEqual([
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "provider/preferences/read",
+        params: { runId },
+      },
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "provider/preferences/update",
+        params: { runId, request: patch },
+      },
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "provider/resolve",
+        params: { runId, request: intent },
+      },
+    ]);
+    expect(
+      fetchImpl.mock.calls.every(
+        ([url]) => url === "https://brain.test/app-server/request",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects invalid resolution identity and mismatched preference response methods", async () => {
+    for (const wireResponse of [
+      response("provider/resolve", {
+        providerId: "openai",
+        credentialId: "invalid",
+        modelId: "gpt-4o",
+      }),
+      response("provider/preferences/read", {}),
+    ]) {
+      const client = createProviderClient(
+        createProviderAppServerTransport({
+          baseUrl: "https://brain.test/api/byok",
+          appServerBaseUrl: "https://brain.test",
+          getRunId: () => runId,
+          fetchImpl: async () => wireResponse,
+        }),
+      );
+      await expect(client.resolveForRun({})).rejects.toMatchObject({
+        code: "INVALID_RESPONSE_CONTRACT",
+      });
+    }
+  });
+});

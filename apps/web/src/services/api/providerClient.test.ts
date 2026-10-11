@@ -352,6 +352,68 @@ describe("ProviderApiClient", () => {
     );
   });
 
+  it("reads and persists hosted preferences without a legacy HTTP request", async () => {
+    const preferences = {
+      userId: "viewer",
+      workspaceId: "workspace",
+      defaultProviderId: "openai",
+      defaultModelId: "gpt-4o",
+      visibleModelIds: { openai: ["gpt-4o"] },
+      updatedAt: "2026-10-11T00:00:00.000Z",
+    };
+    fetchSpy.mockResolvedValueOnce(
+      discoveryResponse("provider/preferences/read", preferences),
+    );
+    expect(await client.getPreferences()).toEqual(preferences);
+    expect(
+      JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body)),
+    ).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "provider/preferences/read",
+      params: { runId: testRunId },
+    });
+    const request = { visibleModelIds: { openai: ["gpt-4o"] } };
+    fetchSpy.mockResolvedValueOnce(
+      discoveryResponse("provider/preferences/update", preferences),
+    );
+    expect(await client.updatePreferences(request)).toEqual(preferences);
+    expect(
+      JSON.parse(String((fetchSpy.mock.calls[1]?.[1] as RequestInit).body)),
+    ).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "provider/preferences/update",
+      params: { runId: testRunId, request },
+    });
+    expect(fetchSpy.mock.calls.every(([url]) => url === appServerUrl)).toBe(
+      true,
+    );
+  });
+
+  it("resolves provider configuration with the server's credential and model metadata", async () => {
+    const credentialId = createCredentialFixture().credentialId;
+    const resolution = {
+      providerId: "openai",
+      credentialId,
+      modelId: "gpt-4o",
+      contextWindow: 128000,
+      resolvedAt: "request_override",
+      resolvedAtTime: "2026-10-11T00:00:00.000Z",
+    };
+    const request = { providerId: "openai", credentialId, modelId: "gpt-4o" };
+    fetchSpy.mockResolvedValueOnce(
+      discoveryResponse("provider/resolve", resolution),
+    );
+    expect(await client.resolveForChat(request)).toEqual(resolution);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(appServerUrl);
+    expect(
+      JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body)),
+    ).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "provider/resolve",
+      params: { runId: testRunId, request },
+    });
+  });
+
   describe("error handling", () => {
     it("maps HTTP 400 error", async () => {
       fetchSpy.mockResolvedValueOnce(
