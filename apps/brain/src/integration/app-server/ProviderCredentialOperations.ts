@@ -1,3 +1,15 @@
+import {
+  BYOKConnectResponseSchema,
+  BYOKDisconnectResponseSchema,
+  BYOKValidateResponseSchema,
+  type BYOKValidateResponse,
+  type BYOKCredentialConnectRequest,
+  type BYOKCredentialUpdateRequest,
+  type BYOKCredentialValidateRequest,
+} from "@repo/shared-types";
+import { NotFoundError, ValidationError } from "../../domain/errors";
+import { resolveBrainProviderProductPolicy } from "../../lib/provider-product-policy";
+import { readProxyResponseJson } from "./ProviderRuntimeProxy";
 import type { Env } from "../../types/ai";
 import type { AuthorizedProviderScope } from "../../controllers/provider/ProviderAuthScopeService";
 import {
@@ -206,5 +218,228 @@ export async function loadWorkspaceByokMetadata(
   );
   return {
     credentialLabels: preferences.credentialLabels ?? {},
+  };
+}
+
+export async function listProviderCredentials(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  const credentials = await loadConnectedCredentials(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  return credentials;
+}
+
+export async function connectProviderCredential(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  request: BYOKCredentialConnectRequest,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  if (!canUseProviderAtRuntime(policy, request.providerId)) {
+    throw new ValidationError(
+      `Provider "${request.providerId}" is not available in this environment.`,
+      "INVALID_PROVIDER_SELECTION",
+      correlationId,
+    );
+  }
+
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "POST",
+      path: "/providers/connect",
+      body: {
+        providerId: request.providerId,
+        apiKey: request.secret,
+        config: request.config,
+      },
+    },
+    BYOKConnectResponseSchema,
+    correlationId,
+  );
+
+  await configureDefaultPreferenceWhenAvailable(
+    req,
+    env,
+    scope,
+    request.providerId,
+    correlationId,
+  );
+
+  const credentialId = buildVirtualCredentialId(request.providerId);
+  if (request.label) {
+    await persistCredentialLabel(
+      req,
+      env,
+      scope,
+      credentialId,
+      request.label,
+      correlationId,
+    );
+  }
+
+  const credentials = await loadConnectedCredentials(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  const credential = credentials.find(
+    (entry) => entry.providerId === request.providerId,
+  );
+  if (!credential) {
+    throw new ValidationError(
+      `Provider "${request.providerId}" did not return a connected credential.`,
+      "PROVIDER_NOT_CONNECTED",
+      correlationId,
+    );
+  }
+  return credential;
+}
+
+export async function updateProviderCredential(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  credentialId: string,
+  patch: BYOKCredentialUpdateRequest,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  if (patch.label) {
+    await persistCredentialLabel(
+      req,
+      env,
+      scope,
+      credentialId,
+      patch.label,
+      correlationId,
+    );
+  }
+
+  const credentials = await loadConnectedCredentials(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  const credential = credentials.find(
+    (entry) => entry.credentialId === credentialId,
+  );
+  if (!credential) {
+    throw new NotFoundError(
+      `Credential "${credentialId}" was not found.`,
+      "CREDENTIAL_NOT_FOUND",
+      correlationId,
+    );
+  }
+  return credential;
+}
+
+export async function disconnectProviderCredential(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  credentialId: string,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  const credentials = await loadConnectedCredentials(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  const credential = credentials.find(
+    (entry) => entry.credentialId === credentialId,
+  );
+  if (!credential) {
+    throw new NotFoundError(
+      `Credential "${credentialId}" was not found.`,
+      "CREDENTIAL_NOT_FOUND",
+      correlationId,
+    );
+  }
+
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "POST",
+      path: "/providers/disconnect",
+      body: { providerId: credential.providerId },
+    },
+    BYOKDisconnectResponseSchema,
+    correlationId,
+  );
+  await deleteCredentialLabel(req, env, scope, credentialId, correlationId);
+}
+
+export async function validateProviderCredential(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  credentialId: string,
+  request: BYOKCredentialValidateRequest,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  const credentials = await loadConnectedCredentials(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  const credential = credentials.find(
+    (entry) => entry.credentialId === credentialId,
+  );
+  if (!credential) {
+    throw new NotFoundError(
+      `Credential "${credentialId}" was not found.`,
+      "CREDENTIAL_NOT_FOUND",
+      correlationId,
+    );
+  }
+
+  const runtimeResponse = await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "POST",
+      path: "/providers/validate",
+      body: { providerId: credential.providerId, mode: request.mode },
+    },
+    BYOKValidateResponseSchema,
+    correlationId,
+  );
+  const validated = await readProxyResponseJson<BYOKValidateResponse>(
+    runtimeResponse,
+    BYOKValidateResponseSchema,
+    correlationId,
+  );
+
+  return {
+    credentialId,
+    valid: validated.status === "valid",
+    validatedAt: validated.checkedAt,
   };
 }

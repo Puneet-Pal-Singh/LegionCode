@@ -1,9 +1,13 @@
 import {
+  listProviderCredentials,
+  connectProviderCredential,
+  updateProviderCredential,
+  disconnectProviderCredential,
+  validateProviderCredential,
+} from "../integration/app-server/ProviderCredentialOperations";
+import {
   loadConnectedCredentials,
   buildVirtualCredentialId,
-  configureDefaultPreferenceWhenAvailable,
-  persistCredentialLabel,
-  deleteCredentialLabel,
 } from "../integration/app-server/ProviderCredentialOperations";
 import {
   fetchRuntimeConnections,
@@ -185,13 +189,11 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
-      const credentials = await loadConnectedCredentials(
+      const credentials = await listProviderCredentials(
         req,
         env,
         scope,
         correlationId,
-        policy,
       );
       return withScopeJson(req, env, scope, credentials);
     } catch (error) {
@@ -210,7 +212,6 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKCredentialConnectRequest>(
         body,
@@ -218,68 +219,13 @@ export class ProviderController {
         correlationId,
       );
 
-      if (!canUseProviderAtRuntime(policy, request.providerId)) {
-        throw new ValidationError(
-          `Provider "${request.providerId}" is not available in this environment.`,
-          "INVALID_PROVIDER_SELECTION",
-          correlationId,
-        );
-      }
-
-      await proxyByokOperation(
-        req,
-        env,
-        {
-          scope,
-          method: "POST",
-          path: "/providers/connect",
-          body: {
-            providerId: request.providerId,
-            apiKey: request.secret,
-            config: request.config,
-          },
-        },
-        BYOKConnectResponseSchema,
-        correlationId,
-      );
-
-      await configureDefaultPreferenceWhenAvailable(
-        req,
-        env,
-        scope,
-        request.providerId,
-        correlationId,
-      );
-
-      const credentialId = buildVirtualCredentialId(request.providerId);
-      if (request.label) {
-        await persistCredentialLabel(
-          req,
-          env,
-          scope,
-          credentialId,
-          request.label,
-          correlationId,
-        );
-      }
-
-      const credentials = await loadConnectedCredentials(
+      const credential = await connectProviderCredential(
         req,
         env,
         scope,
         correlationId,
-        policy,
+        request,
       );
-      const credential = credentials.find(
-        (entry) => entry.providerId === request.providerId,
-      );
-      if (!credential) {
-        throw new ValidationError(
-          `Provider "${request.providerId}" did not return a connected credential.`,
-          "PROVIDER_NOT_CONNECTED",
-          correlationId,
-        );
-      }
       return withScopeJson(req, env, scope, credential);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -294,7 +240,6 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
       const credentialId = extractCredentialIdFromPath(
         req.url,
         false,
@@ -307,34 +252,14 @@ export class ProviderController {
         correlationId,
       );
 
-      if (patch.label) {
-        await persistCredentialLabel(
-          req,
-          env,
-          scope,
-          credentialId,
-          patch.label,
-          correlationId,
-        );
-      }
-
-      const credentials = await loadConnectedCredentials(
+      const credential = await updateProviderCredential(
         req,
         env,
         scope,
         correlationId,
-        policy,
+        credentialId,
+        patch,
       );
-      const credential = credentials.find(
-        (entry) => entry.credentialId === credentialId,
-      );
-      if (!credential) {
-        throw new NotFoundError(
-          `Credential "${credentialId}" was not found.`,
-          "CREDENTIAL_NOT_FOUND",
-          correlationId,
-        );
-      }
       return withScopeJson(req, env, scope, credential);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -352,44 +277,18 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
       const credentialId = extractCredentialIdFromPath(
         req.url,
         false,
         correlationId,
       );
-      const credentials = await loadConnectedCredentials(
+      await disconnectProviderCredential(
         req,
         env,
         scope,
         correlationId,
-        policy,
+        credentialId,
       );
-      const credential = credentials.find(
-        (entry) => entry.credentialId === credentialId,
-      );
-      if (!credential) {
-        throw new NotFoundError(
-          `Credential "${credentialId}" was not found.`,
-          "CREDENTIAL_NOT_FOUND",
-          correlationId,
-        );
-      }
-
-      await proxyByokOperation(
-        req,
-        env,
-        {
-          scope,
-          method: "POST",
-          path: "/providers/disconnect",
-          body: { providerId: credential.providerId },
-        },
-        BYOKDisconnectResponseSchema,
-        correlationId,
-      );
-      await deleteCredentialLabel(req, env, scope, credentialId, correlationId);
-
       return withEngineHeaders(
         req,
         env,
@@ -412,7 +311,6 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
       const credentialId = extractCredentialIdFromPath(
         req.url,
         true,
@@ -424,47 +322,15 @@ export class ProviderController {
         BYOKCredentialValidateRequestSchema,
         correlationId,
       );
-      const credentials = await loadConnectedCredentials(
+      const result = await validateProviderCredential(
         req,
         env,
         scope,
         correlationId,
-        policy,
-      );
-      const credential = credentials.find(
-        (entry) => entry.credentialId === credentialId,
-      );
-      if (!credential) {
-        throw new NotFoundError(
-          `Credential "${credentialId}" was not found.`,
-          "CREDENTIAL_NOT_FOUND",
-          correlationId,
-        );
-      }
-
-      const runtimeResponse = await proxyByokOperation(
-        req,
-        env,
-        {
-          scope,
-          method: "POST",
-          path: "/providers/validate",
-          body: { providerId: credential.providerId, mode: request.mode },
-        },
-        BYOKValidateResponseSchema,
-        correlationId,
-      );
-      const validated = await readProxyResponseJson<BYOKValidateResponse>(
-        runtimeResponse,
-        BYOKValidateResponseSchema,
-        correlationId,
-      );
-
-      return withScopeJson(req, env, scope, {
         credentialId,
-        valid: validated.status === "valid",
-        validatedAt: validated.checkedAt,
-      });
+        request,
+      );
+      return withScopeJson(req, env, scope, result);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
