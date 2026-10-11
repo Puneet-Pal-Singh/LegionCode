@@ -65,7 +65,7 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
-import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, buildRuntimeModelsPath } from "../services/providers/ProviderRuntimeProxy";
+import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, buildRuntimeModelsPath } from "../integration/app-server/ProviderRuntimeProxy";
 import { findDiscoveredChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 
 const WorkspaceByokMetadataSchema = z.object({

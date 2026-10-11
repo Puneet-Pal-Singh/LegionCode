@@ -1,4 +1,4 @@
-import type { BYOKDiscoveredProviderModelsQuery } from "@repo/shared-types";
+import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse } from "@repo/shared-types";
 import type { AuthorizedProviderScope } from "../../controllers/provider/ProviderAuthScopeService";
 import { RunIdSchema } from "@repo/platform-protocol";
 import {
@@ -26,7 +26,7 @@ import {
   mapCatalogEntryToRegistry,
   proxyByokOperation,
   readProxyResponseJson,
-} from "../../services/providers/ProviderRuntimeProxy";
+} from "./ProviderRuntimeProxy";
 import type { Env } from "../../types/ai";
 
 /** Cookie-bound hosted discovery; runtime catalog/cache and product policy remain the owners. */
@@ -126,7 +126,7 @@ export async function readProviderModels(
     BYOKDiscoveredProviderModelsResponseSchema,
     correlationId,
   );
-  return readProxyResponseJson(
+  return readProxyResponseJson<BYOKDiscoveredProviderModelsResponse>(
     response,
     BYOKDiscoveredProviderModelsResponseSchema,
     correlationId,
@@ -152,7 +152,7 @@ export async function refreshProviderModels(
     BYOKDiscoveredProviderModelsRefreshResponseSchema,
     correlationId,
   );
-  return readProxyResponseJson(
+  return readProxyResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
     response,
     BYOKDiscoveredProviderModelsRefreshResponseSchema,
     correlationId,
