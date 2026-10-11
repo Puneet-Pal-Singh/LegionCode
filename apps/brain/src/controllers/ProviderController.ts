@@ -1,4 +1,19 @@
-import { readProviderCatalog, readProviderModels, refreshProviderModels } from "../integration/app-server/HostedProviderDiscovery";
+import {
+  loadConnectedCredentials,
+  buildVirtualCredentialId,
+  configureDefaultPreferenceWhenAvailable,
+  persistCredentialLabel,
+  deleteCredentialLabel,
+} from "../integration/app-server/ProviderCredentialOperations";
+import {
+  fetchRuntimeConnections,
+  fetchRuntimePreferences,
+} from "../integration/app-server/ProviderRuntimeProxy";
+import {
+  readProviderCatalog,
+  readProviderModels,
+  refreshProviderModels,
+} from "../integration/app-server/HostedProviderDiscovery";
 /**
  * ProviderController
  * Single Responsibility: Route handlers for provider API endpoints
@@ -40,10 +55,8 @@ import {
   BYOKValidateResponseSchema,
   ProviderCatalogResponseSchema,
   type ProviderCatalogResponse,
-  type ProviderConnection,
   ProviderConnectionsResponseSchema,
   ProviderErrorEnvelopeSchema,
-  type ProviderConnectionsResponse,
   type BYOKDiscoveredProviderModelsQuery,
   BYOKProviderSlugSchema,
   ProviderIdSchema,
@@ -65,18 +78,20 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
-import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, buildRuntimeModelsPath } from "../integration/app-server/ProviderRuntimeProxy";
+import {
+  proxyProviderOperation,
+  proxyByokOperation,
+  readProxyResponseJson,
+  fetchRuntimeCatalog,
+  buildRuntimeModelsPath,
+} from "../integration/app-server/ProviderRuntimeProxy";
 import { findDiscoveredChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 
-const WorkspaceByokMetadataSchema = z.object({
-  credentialLabels: z.record(z.string(), z.string()).default({}),
-});
 const AxisQuotaMetadataSchema = z.object({
   used: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
   resetsAt: z.string().datetime(),
 });
-type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
 
 /**
  * ProviderController - Route handlers for provider API
@@ -100,7 +115,14 @@ export class ProviderController {
         buildDiscoveryQueryParams(req.url),
         correlationId,
       );
-      const payload = await readProviderModels(req, env, scope, providerId, discoveryQuery, correlationId);
+      const payload = await readProviderModels(
+        req,
+        env,
+        scope,
+        providerId,
+        discoveryQuery,
+        correlationId,
+      );
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -122,7 +144,13 @@ export class ProviderController {
         req.url,
         correlationId,
       );
-      const payload = await refreshProviderModels(req, env, scope, providerId, correlationId);
+      const payload = await refreshProviderModels(
+        req,
+        env,
+        scope,
+        providerId,
+        correlationId,
+      );
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -137,7 +165,12 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const { providers } = await readProviderCatalog(req, env, scope, correlationId);
+      const { providers } = await readProviderCatalog(
+        req,
+        env,
+        scope,
+        correlationId,
+      );
       return withScopeJson(req, env, scope, providers);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -880,7 +913,6 @@ function validateDiscoveryQuery(
   );
 }
 
-
 function extractProviderIdFromModelsRefreshPath(
   urlValue: string,
   correlationId: string,
@@ -1069,54 +1101,6 @@ async function proxyDiscoveredModels(
   );
 }
 
-async function fetchRuntimeConnections(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  correlationId: string,
-): Promise<ProviderConnectionsResponse> {
-  const response = await proxyByokOperation(
-    req,
-    env,
-    {
-      scope,
-      method: "GET",
-      path: "/providers/connections",
-    },
-    ProviderConnectionsResponseSchema,
-    correlationId,
-  );
-  return await readProxyResponseJson(
-    response,
-    ProviderConnectionsResponseSchema,
-    correlationId,
-  );
-}
-
-async function fetchRuntimePreferences(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  correlationId: string,
-): Promise<BYOKPreferences> {
-  const response = await proxyByokOperation(
-    req,
-    env,
-    {
-      scope,
-      method: "GET",
-      path: "/providers/preferences",
-    },
-    BYOKPreferencesSchema,
-    correlationId,
-  );
-  return await readProxyResponseJson(
-    response,
-    BYOKPreferencesSchema,
-    correlationId,
-  );
-}
-
 async function fetchRuntimeAxisQuota(
   req: Request,
   env: Env,
@@ -1139,83 +1123,6 @@ async function fetchRuntimeAxisQuota(
     AxisQuotaMetadataSchema,
     correlationId,
   );
-}
-
-async function loadConnectedCredentials(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  correlationId: string,
-  policy: ProviderProductPolicy,
-): Promise<BYOKCredential[]> {
-  const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
-  const metadata = await loadWorkspaceByokMetadata(
-    req,
-    env,
-    scope,
-    correlationId,
-  );
-  const now = new Date().toISOString();
-  const credentials: BYOKCredential[] = [];
-
-  for (const connection of runtime.connections) {
-    if (connection.status !== "connected") {
-      continue;
-    }
-    if (!canUseProviderAtRuntime(policy, connection.providerId)) {
-      continue;
-    }
-
-    const credentialId = buildVirtualCredentialId(connection.providerId);
-    credentials.push({
-      credentialId,
-      userId: scope.userId,
-      workspaceId: scope.workspaceId,
-      providerId: connection.providerId,
-      label: resolveCredentialLabel(connection, credentialId, metadata),
-      keyFingerprint: connection.keyFingerprint ?? "unavailable",
-      encryptedSecretJson: "{}",
-      keyVersion: "v2",
-      status: connection.status,
-      lastValidatedAt: connection.lastValidatedAt ?? null,
-      lastErrorCode: connection.errorCode,
-      lastErrorMessage: connection.errorMessage,
-      createdAt: connection.lastValidatedAt ?? now,
-      updatedAt: now,
-      deletedAt: null,
-    });
-  }
-
-  return credentials;
-}
-
-function resolveCredentialLabel(
-  connection: ProviderConnection,
-  credentialId: string,
-  metadata: WorkspaceByokMetadata,
-): string {
-  if (connection.providerId === AXIS_PROVIDER_ID) {
-    return metadata.credentialLabels[credentialId] ?? "Axis (Free)";
-  }
-  return (
-    metadata.credentialLabels[credentialId] ?? `${connection.providerId} key`
-  );
-}
-
-function buildVirtualCredentialId(providerId: string): string {
-  const bytes = new Uint8Array(16);
-  for (let index = 0; index < providerId.length; index += 1) {
-    const code = providerId.charCodeAt(index);
-    const position = index % 16;
-    const current = bytes[position] ?? 0;
-    bytes[position] = (current + code + index) & 0xff;
-  }
-
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
 }
 
 async function loadWorkspacePreference(
@@ -1304,10 +1211,8 @@ function resolveSelection(
     catalog.providers
       .find((provider) => provider.providerId === selectedCredential.providerId)
       ?.models.find((model) => model.id === modelId)?.contextWindow ??
-    builtinProviderRegistry.getModel(
-      selectedCredential.providerId,
-      modelId,
-    )?.contextWindow;
+    builtinProviderRegistry.getModel(selectedCredential.providerId, modelId)
+      ?.contextWindow;
 
   return {
     providerId: selectedCredential.providerId,
@@ -1526,119 +1431,4 @@ function extractCredentialIdFromPath(
     );
   }
   return decodeURIComponent(match[1]);
-}
-
-async function configureDefaultPreferenceWhenAvailable(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  providerId: string,
-  correlationId: string,
-): Promise<void> {
-  const existingPreference = await fetchRuntimePreferences(
-    req,
-    env,
-    scope,
-    correlationId,
-  );
-  if (existingPreference.defaultProviderId) {
-    return;
-  }
-
-  const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-  const defaultModel = resolveOptionalDefaultModel(providerId, catalog);
-  if (!defaultModel) {
-    console.warn(
-      `[provider/byok] ${correlationId} ${providerId}: connected without default model; catalog returned no selectable models`,
-    );
-    return;
-  }
-
-  await proxyByokOperation(
-    req,
-    env,
-    {
-      scope,
-      method: "PATCH",
-      path: "/providers/preferences",
-      body: {
-        defaultProviderId: providerId,
-        defaultModelId: defaultModel,
-      },
-    },
-    BYOKPreferencesSchema,
-    correlationId,
-  );
-}
-
-function resolveOptionalDefaultModel(
-  providerId: string,
-  catalog: ProviderCatalogResponse,
-): string | null {
-  const provider = catalog.providers.find(
-    (entry) => entry.providerId === providerId,
-  );
-  return provider?.defaultModelId ?? provider?.models[0]?.id ?? null;
-}
-
-async function persistCredentialLabel(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  credentialId: string,
-  label: string,
-  correlationId: string,
-): Promise<void> {
-  await proxyByokOperation(
-    req,
-    env,
-    {
-      scope,
-      method: "POST",
-      path: "/providers/preferences/credential-labels",
-      body: {
-        credentialId,
-        label,
-      },
-    },
-    BYOKPreferencesSchema,
-    correlationId,
-  );
-}
-
-async function deleteCredentialLabel(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  credentialId: string,
-  correlationId: string,
-): Promise<void> {
-  await proxyByokOperation(
-    req,
-    env,
-    {
-      scope,
-      method: "DELETE",
-      path: `/providers/preferences/credential-labels/${encodeURIComponent(credentialId)}`,
-    },
-    BYOKPreferencesSchema,
-    correlationId,
-  );
-}
-
-async function loadWorkspaceByokMetadata(
-  req: Request,
-  env: Env,
-  scope: AuthorizedProviderScope,
-  correlationId: string,
-): Promise<WorkspaceByokMetadata> {
-  const preferences = await fetchRuntimePreferences(
-    req,
-    env,
-    scope,
-    correlationId,
-  );
-  return {
-    credentialLabels: preferences.credentialLabels ?? {},
-  };
 }
