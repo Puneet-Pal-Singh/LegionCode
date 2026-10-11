@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { Repository, WorkspaceSelection } from "../services/GitHubService";
-import * as GitHubService from "../services/GitHubService";
+import type { Repository } from "../services/GitHubService";
+import type { WorkspaceSelection } from "../services/api/workspaceSelection";
+import * as WorkspaceSelectionApi from "../services/api/workspaceSelection";
 
 export type WorkspaceSelectionBootstrapStatus =
   | "idle"
@@ -27,7 +28,7 @@ export function useWorkspaceSelectionBootstrap({
     if (!enabled || currentRepository) return;
 
     let cancelled = false;
-    void GitHubService.listWorkspaces()
+    void WorkspaceSelectionApi.listWorkspaces()
       .then((workspaceState) => {
         if (cancelled) return;
         if (workspaceState.selection) {

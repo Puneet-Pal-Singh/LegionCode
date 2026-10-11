@@ -7,6 +7,7 @@ const SDK_IMPORT_PATH = "@legioncode/sdk";
 const ALLOWED_IMPORT_FILES = new Set([
   "services/api/appServerClient.ts",
   "services/api/sessionMetadata.ts",
+  "services/api/workspaceSelection.ts",
   "services/ChatHydrationService.ts",
   "services/api/providerClient.ts",
   "services/api/lifecycleClient.ts",

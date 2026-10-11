@@ -1,3 +1,4 @@
+import { composeHostedWorkspaceSelection } from "../integration/app-server/HostedWorkspaceSelection";
 import { AppServerRequestSchema } from "@legioncode/app-server/protocol";
 import { getAuthenticatedUserSession, isSessionStoreUnavailableError } from "../services/AuthService";
 import { composeHostedSessionMetadata } from "../integration/app-server/HostedSessionMetadata";
@@ -20,6 +21,7 @@ export const AppServerController = {
     }
     // Initialize remains a public handshake. Resource services are composed only
     // after an HttpOnly cookie resolves to a server-verified principal.
+    let hostedWorkspaceService: ReturnType<typeof composeHostedWorkspaceSelection> | undefined;
     let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
     let sessionMetadataService: ReturnType<typeof composeHostedSessionMetadata> | undefined;
     let envelope: unknown;
@@ -32,6 +34,7 @@ export const AppServerController = {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
           ok: false, error: { code: "unauthorized", message: "Unauthorized" },
         });
+        hostedWorkspaceService = composeHostedWorkspaceSelection(request, env, auth.userId);
         historyService = composeHostedConversationHistory(env, auth.userId);
         sessionMetadataService = composeHostedSessionMetadata(env, auth.userId);
       } catch (error) {
@@ -53,6 +56,7 @@ export const AppServerController = {
         environment: "hosted",
         serverId: "legioncode-hosted",
         serverVersion: "0.1.0",
+        hostedWorkspaceService,
         conversationHistoryService: historyService,
         sessionMetadataService,
       },
