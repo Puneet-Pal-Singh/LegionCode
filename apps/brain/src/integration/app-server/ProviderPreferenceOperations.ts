@@ -1,3 +1,7 @@
+import type { BYOKPreferencesUpdateRequest } from "@repo/shared-types";
+import { resolveBrainProviderProductPolicy } from "../../lib/provider-product-policy";
+import { loadConnectedCredentials } from "./ProviderCredentialOperations";
+import { fetchRuntimeCatalog } from "./ProviderRuntimeProxy";
 import { z } from "zod";
 import {
   AXIS_PROVIDER_ID,
@@ -420,4 +424,154 @@ function resolveDefaultModel(
     "MODEL_NOT_ALLOWED",
     correlationId,
   );
+}
+
+export async function readProviderPreferences(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  const preference = await loadWorkspacePreference(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  return preference;
+}
+
+export async function updateProviderPreferences(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  patch: BYOKPreferencesUpdateRequest,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  if (
+    patch.defaultProviderId &&
+    !canUseProviderAtRuntime(policy, patch.defaultProviderId)
+  ) {
+    throw new ValidationError(
+      `Provider "${patch.defaultProviderId}" is not available in this environment.`,
+      "INVALID_PROVIDER_SELECTION",
+      correlationId,
+    );
+  }
+
+  const runtimePatch: Record<string, string> = {};
+  if (patch.defaultProviderId) {
+    runtimePatch.defaultProviderId = patch.defaultProviderId;
+  }
+  if (patch.defaultModelId) {
+    runtimePatch.defaultModelId = patch.defaultModelId;
+  }
+
+  // Add visibleModelIds to patch if provided
+  const runtimePatchWithVisibility: typeof runtimePatch & {
+    visibleModelIds?: Record<string, string[]>;
+  } = { ...runtimePatch };
+  if (patch.visibleModelIds) {
+    runtimePatchWithVisibility.visibleModelIds = patch.visibleModelIds;
+  }
+
+  let runtimePreference: {
+    defaultProviderId?: string;
+    defaultModelId?: string;
+    visibleModelIds?: Record<string, string[]>;
+    updatedAt: string;
+  };
+  if (Object.keys(runtimePatchWithVisibility).length === 0) {
+    runtimePreference = await fetchRuntimePreferences(
+      req,
+      env,
+      scope,
+      correlationId,
+    );
+  } else {
+    const runtimeResponse = await proxyByokOperation(
+      req,
+      env,
+      {
+        scope,
+        method: "PATCH",
+        path: "/providers/preferences",
+        body: runtimePatchWithVisibility,
+      },
+      BYOKPreferencesSchema,
+      correlationId,
+    );
+    runtimePreference = await readProxyResponseJson(
+      runtimeResponse,
+      BYOKPreferencesSchema,
+      correlationId,
+    );
+  }
+
+  const preference: BYOKPreference = {
+    userId: scope.userId,
+    workspaceId: scope.workspaceId,
+    defaultProviderId: runtimePreference.defaultProviderId,
+    defaultCredentialId: runtimePreference.defaultProviderId
+      ? buildVirtualCredentialId(runtimePreference.defaultProviderId)
+      : undefined,
+    defaultModelId: runtimePreference.defaultModelId,
+    visibleModelIds: runtimePreference.visibleModelIds ?? {},
+    updatedAt: runtimePreference.updatedAt,
+  };
+  return preference;
+}
+
+export async function resolveProviderPreferences(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  request: BYOKResolveRequest,
+) {
+  const policy = resolveBrainProviderProductPolicy(env);
+  const credentials = await loadConnectedCredentials(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  const preference = await loadWorkspacePreference(
+    req,
+    env,
+    scope,
+    correlationId,
+    policy,
+  );
+  const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
+
+  const resolution = resolveSelection(
+    request,
+    credentials,
+    preference,
+    catalog,
+    correlationId,
+    policy,
+  );
+  const resolvedModelMetadata = await resolveSelectedModelMetadata(
+    req,
+    env,
+    scope,
+    correlationId,
+    resolution,
+  );
+
+  const axisQuota =
+    resolvedModelMetadata.providerId === AXIS_PROVIDER_ID
+      ? await fetchRuntimeAxisQuota(req, env, scope, correlationId)
+      : undefined;
+
+  return {
+    ...resolvedModelMetadata,
+    ...(axisQuota ? { quota: axisQuota } : {}),
+  };
 }

@@ -1,8 +1,7 @@
 import {
-  resolveSelectedModelMetadata,
-  fetchRuntimeAxisQuota,
-  loadWorkspacePreference,
-  resolveSelection,
+  readProviderPreferences,
+  updateProviderPreferences,
+  resolveProviderPreferences,
 } from "../integration/app-server/ProviderPreferenceOperations";
 import {
   listProviderCredentials,
@@ -11,14 +10,6 @@ import {
   disconnectProviderCredential,
   validateProviderCredential,
 } from "../integration/app-server/ProviderCredentialOperations";
-import {
-  loadConnectedCredentials,
-  buildVirtualCredentialId,
-} from "../integration/app-server/ProviderCredentialOperations";
-import {
-  fetchRuntimeConnections,
-  fetchRuntimePreferences,
-} from "../integration/app-server/ProviderRuntimeProxy";
 import {
   readProviderCatalog,
   readProviderModels,
@@ -32,9 +23,6 @@ import {
  */
 
 import {
-  AXIS_PROVIDER_ID,
-  canUseProviderAtRuntime,
-  type BYOKPreference,
   BYOKResolveRequestSchema,
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialUpdateRequestSchema,
@@ -74,12 +62,9 @@ import {
   resolveAuthorizedProviderScope,
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
-import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
 import {
   proxyProviderOperation,
   proxyByokOperation,
-  readProxyResponseJson,
-  fetchRuntimeCatalog,
 } from "../integration/app-server/ProviderRuntimeProxy";
 
 /**
@@ -329,13 +314,11 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
-      const preference = await loadWorkspacePreference(
+      const preference = await readProviderPreferences(
         req,
         env,
         scope,
         correlationId,
-        policy,
       );
       return withScopeJson(req, env, scope, preference);
     } catch (error) {
@@ -351,7 +334,6 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
       const body = await parseRequestBody(req, correlationId);
       const patch = validateWithSchema<BYOKPreferencesUpdateRequest>(
         body,
@@ -359,77 +341,13 @@ export class ProviderController {
         correlationId,
       );
 
-      if (
-        patch.defaultProviderId &&
-        !canUseProviderAtRuntime(policy, patch.defaultProviderId)
-      ) {
-        throw new ValidationError(
-          `Provider "${patch.defaultProviderId}" is not available in this environment.`,
-          "INVALID_PROVIDER_SELECTION",
-          correlationId,
-        );
-      }
-
-      const runtimePatch: Record<string, string> = {};
-      if (patch.defaultProviderId) {
-        runtimePatch.defaultProviderId = patch.defaultProviderId;
-      }
-      if (patch.defaultModelId) {
-        runtimePatch.defaultModelId = patch.defaultModelId;
-      }
-
-      // Add visibleModelIds to patch if provided
-      const runtimePatchWithVisibility: typeof runtimePatch & {
-        visibleModelIds?: Record<string, string[]>;
-      } = { ...runtimePatch };
-      if (patch.visibleModelIds) {
-        runtimePatchWithVisibility.visibleModelIds = patch.visibleModelIds;
-      }
-
-      let runtimePreference: {
-        defaultProviderId?: string;
-        defaultModelId?: string;
-        visibleModelIds?: Record<string, string[]>;
-        updatedAt: string;
-      };
-      if (Object.keys(runtimePatchWithVisibility).length === 0) {
-        runtimePreference = await fetchRuntimePreferences(
-          req,
-          env,
-          scope,
-          correlationId,
-        );
-      } else {
-        const runtimeResponse = await proxyByokOperation(
-          req,
-          env,
-          {
-            scope,
-            method: "PATCH",
-            path: "/providers/preferences",
-            body: runtimePatchWithVisibility,
-          },
-          BYOKPreferencesSchema,
-          correlationId,
-        );
-        runtimePreference = await readProxyResponseJson(
-          runtimeResponse,
-          BYOKPreferencesSchema,
-          correlationId,
-        );
-      }
-
-      const preference: BYOKPreference = {
-        userId: scope.userId,
-        workspaceId: scope.workspaceId,
-        defaultProviderId: runtimePreference.defaultProviderId,
-        defaultCredentialId: runtimePreference.defaultProviderId
-          ? buildVirtualCredentialId(runtimePreference.defaultProviderId)
-          : undefined,
-        defaultModelId: runtimePreference.defaultModelId,
-        visibleModelIds: runtimePreference.visibleModelIds ?? {},
-        updatedAt: runtimePreference.updatedAt,
-      };
+      const preference = await updateProviderPreferences(
+        req,
+        env,
+        scope,
+        correlationId,
+        patch,
+      );
       return withScopeJson(req, env, scope, preference);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -444,7 +362,6 @@ export class ProviderController {
         env,
         correlationId,
       );
-      const policy = resolveBrainProviderProductPolicy(env);
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKResolveRequest>(
         body,
@@ -452,47 +369,14 @@ export class ProviderController {
         correlationId,
       );
 
-      const credentials = await loadConnectedCredentials(
+      const resolution = await resolveProviderPreferences(
         req,
         env,
         scope,
         correlationId,
-        policy,
-      );
-      const preference = await loadWorkspacePreference(
-        req,
-        env,
-        scope,
-        correlationId,
-        policy,
-      );
-      const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-
-      const resolution = resolveSelection(
         request,
-        credentials,
-        preference,
-        catalog,
-        correlationId,
-        policy,
       );
-      const resolvedModelMetadata = await resolveSelectedModelMetadata(
-        req,
-        env,
-        scope,
-        correlationId,
-        resolution,
-      );
-
-      const axisQuota =
-        resolvedModelMetadata.providerId === AXIS_PROVIDER_ID
-          ? await fetchRuntimeAxisQuota(req, env, scope, correlationId)
-          : undefined;
-
-      return withScopeJson(req, env, scope, {
-        ...resolvedModelMetadata,
-        ...(axisQuota ? { quota: axisQuota } : {}),
-      });
+      return withScopeJson(req, env, scope, resolution);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
@@ -878,8 +762,6 @@ function withScopeJson(
   const response = jsonResponse(req, env, payload, { status });
   return withEngineHeaders(req, env, response, scope.runId);
 }
-
-
 
 function extractCredentialIdFromPath(
   urlValue: string,
