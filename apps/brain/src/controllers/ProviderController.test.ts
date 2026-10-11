@@ -1495,6 +1495,21 @@ describe("hosted App Server preferences and resolution", () => {
     expect(resolved.body.result).toMatchObject({ providerId: "openai", credentialId, modelId: "gpt-4o", contextWindow: 128_000, pricing: { inputPer1M: 2.5, outputPer1M: 10, currency: "USD" } });
   });
 
+  it("persists visibility lists larger than the generic body cap only with an authenticated matching method", async () => {
+    const env = createMockEnv();
+    const visibleModelIds = { openrouter: Array.from({ length: 2000 }, (_, index) => `provider/long-model-name-${index}`) };
+    const headers = new Headers(await withByokHeaders(env));
+    headers.set("X-LegionCode-AppServer-Method", "provider/preferences/update");
+    const updated = await call(env, "provider/preferences/update", { request: { visibleModelIds } }, headers);
+    expect(updated.status).toBe(200);
+    expect(updated.body.result.visibleModelIds).toEqual(visibleModelIds);
+    expect((await call(env, "provider/preferences/read", {})).body.result.visibleModelIds).toEqual(visibleModelIds);
+    expect((await call(env, "provider/preferences/update", { request: { visibleModelIds } })).status).toBe(413);
+    expect((await call(env, "provider/preferences/read", {}, headers)).status).toBe(400);
+    headers.delete("cookie");
+    expect((await call(env, "provider/preferences/update", { request: { visibleModelIds } }, headers)).status).toBe(401);
+  });
+
   it("preserves platform Axis resolution and quota when policy permits", async () => {
     const result = await call(createMockEnv(), "provider/resolve", { request: {} });
     expect(result.status).toBe(200);

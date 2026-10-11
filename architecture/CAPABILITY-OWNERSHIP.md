@@ -385,3 +385,9 @@ until the final provider transport cutover. Remove them once every exported
 transport uses App Server and scope/error/default/visibility tests pass.
 Browser selection/readiness repair remains a separate pending authority slice;
 this extraction introduces no local vault, selection store or new policy.
+
+The existing uncapped visibility-list request is preserved only for authenticated
+`provider/preferences/update`: SDK supplies an exact method routing hint, Brain
+verifies the cookie before reading that body and rejects a mismatched envelope.
+Other methods retain the generic 32 KB request limit and streaming cancellation.
+The hint supplies no identity or permission and does not bypass provider scope.

@@ -453,3 +453,39 @@ describe("hosted preference transport", () => {
     }
   });
 });
+
+it("sets the large visibility-body routing hint only from the actual SDK method", async () => {
+  const preferences = {
+    userId: "viewer",
+    workspaceId: "workspace",
+    visibleModelIds: {},
+    updatedAt: "2026-10-11T00:00:00.000Z",
+  };
+  const fetchImpl = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const envelope = JSON.parse(String(init?.body));
+      const hint = new Headers(init?.headers).get(
+        "X-LegionCode-AppServer-Method",
+      );
+      expect(hint).toBe(
+        envelope.method === "provider/preferences/update"
+          ? envelope.method
+          : null,
+      );
+      return response(envelope.method, preferences);
+    },
+  );
+  const client = createProviderClient(
+    createProviderAppServerTransport({
+      baseUrl: "https://brain.test/api/byok",
+      appServerBaseUrl: "https://brain.test",
+      getRunId: () => runId,
+      getHeaders: () => ({
+        "x-legioncode-appserver-method": "provider/preferences/update",
+      }),
+      fetchImpl,
+    }),
+  );
+  await client.getPreferences();
+  await client.selectDefault({ visibleModelIds: {} });
+});

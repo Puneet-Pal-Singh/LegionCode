@@ -77,7 +77,15 @@ export function createProviderAppServerTransport(
         timeoutMs: null,
         maxResponseBytes: null,
         signal: operationOptions?.signal,
-        requestHeaders: () => options.getHeaders?.() ?? {},
+        requestHeaders: (envelope) => {
+          const headers = new Headers(options.getHeaders?.() ?? {});
+          // Preserve the existing large visibility-list contract for this one
+          // authenticated hosted operation. Caller hints cannot select a method.
+          headers.delete("X-LegionCode-AppServer-Method");
+          if (envelope.method === "provider/preferences/update")
+            headers.set("X-LegionCode-AppServer-Method", envelope.method);
+          return Object.fromEntries(headers);
+        },
       }),
     });
     try {
