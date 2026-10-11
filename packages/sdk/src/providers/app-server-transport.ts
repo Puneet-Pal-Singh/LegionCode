@@ -25,7 +25,7 @@ import type {
   ProviderClientTransport,
 } from "./client.js";
 
-/** Hosted discovery uses AppServer; the remaining credential/settings operations retain their current transport until cutover. */
+/** Hosted discovery and credentials use AppServer; preferences/resolution retain their current transport until cutover. */
 export function createProviderAppServerTransport(
   options: ProviderHttpTransportOptions & { appServerBaseUrl: string },
 ): ProviderClientTransport {
@@ -89,6 +89,26 @@ export function createProviderAppServerTransport(
   };
   return {
     ...createByokHttpTransport(options),
+    listCredentials: (requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.listProviderCredentials(runId),
+      ),
+    connectCredential: (params, requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.connectProviderCredential(runId, params),
+      ),
+    updateCredential: (credentialId, params, requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.updateProviderCredential(runId, credentialId, params),
+      ),
+    disconnectCredential: (credentialId, requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.disconnectProviderCredential(runId, credentialId),
+      ),
+    validateCredential: (credentialId, params, requestOptions) =>
+      invoke(requestOptions, (client, runId) =>
+        client.validateProviderCredential(runId, credentialId, params),
+      ),
     discoverProviders: (requestOptions) =>
       invoke(requestOptions, (client, runId) =>
         client.getProviderCatalog(runId),
