@@ -1,3 +1,4 @@
+import { composeHostedProviderCredentials } from "../integration/app-server/HostedProviderCredentials";
 import { composeHostedProviderDiscovery } from "../integration/app-server/HostedProviderDiscovery";
 import { composeHostedWorkspaceSelection } from "../integration/app-server/HostedWorkspaceSelection";
 import { AppServerRequestSchema } from "@legioncode/app-server/protocol";
@@ -22,6 +23,7 @@ export const AppServerController = {
     }
     // Initialize remains a public handshake. Resource services are composed only
     // after an HttpOnly cookie resolves to a server-verified principal.
+    let hostedProviderCredentialService: ReturnType<typeof composeHostedProviderCredentials> | undefined;
     let hostedProviderDiscoveryService: ReturnType<typeof composeHostedProviderDiscovery> | undefined;
     let hostedWorkspaceService: ReturnType<typeof composeHostedWorkspaceSelection> | undefined;
     let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
@@ -36,6 +38,7 @@ export const AppServerController = {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
           ok: false, error: { code: "unauthorized", message: "Unauthorized" },
         });
+        hostedProviderCredentialService = composeHostedProviderCredentials(request, env, auth.userId);
         hostedProviderDiscoveryService = composeHostedProviderDiscovery(request, env, auth.userId);
         hostedWorkspaceService = composeHostedWorkspaceSelection(request, env, auth.userId);
         historyService = composeHostedConversationHistory(env, auth.userId);
@@ -61,6 +64,7 @@ export const AppServerController = {
         serverVersion: "0.1.0",
         hostedWorkspaceService,
         hostedProviderDiscoveryService,
+        hostedProviderCredentialService,
         conversationHistoryService: historyService,
         sessionMetadataService,
       },

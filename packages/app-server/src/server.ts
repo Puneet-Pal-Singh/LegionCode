@@ -1,3 +1,4 @@
+import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionRenameRequest, HostedSessionsResponse } from "@repo/platform-protocol";
@@ -34,6 +35,13 @@ export type AppServerComposition = {
     catalog(runId: string): Promise<{ providers: ProviderRegistryEntry[] }>;
     models(runId: string, providerId: string, query?: BYOKDiscoveredProviderModelsQuery): Promise<BYOKDiscoveredProviderModelsResponse>;
     refresh(runId: string, providerId: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
+  };
+  hostedProviderCredentialService?: {
+    list(runId: string): Promise<BYOKCredential[]>;
+    connect(runId: string, request: BYOKCredentialConnectRequest): Promise<BYOKCredential>;
+    update(runId: string, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
+    disconnect(runId: string, credentialId: string): Promise<void>;
+    validate(runId: string, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
   };
   providerConfiguration?: ProviderConfiguration;
   sessionMetadataService?: {
@@ -312,6 +320,27 @@ async function dispatch(
     case "provider/models/refresh": {
       if (!composition.hostedProviderDiscoveryService) throw new Error("unsupported");
       return composition.hostedProviderDiscoveryService.refresh(request.params.runId, request.params.providerId);
+    }
+    case "provider/credentials/list": {
+      if (!composition.hostedProviderCredentialService) throw new Error("unsupported");
+      return composition.hostedProviderCredentialService.list(request.params.runId);
+    }
+    case "provider/credentials/connect": {
+      if (!composition.hostedProviderCredentialService) throw new Error("unsupported");
+      return composition.hostedProviderCredentialService.connect(request.params.runId, request.params.request);
+    }
+    case "provider/credentials/update": {
+      if (!composition.hostedProviderCredentialService) throw new Error("unsupported");
+      return composition.hostedProviderCredentialService.update(request.params.runId, request.params.credentialId, request.params.request);
+    }
+    case "provider/credentials/disconnect": {
+      if (!composition.hostedProviderCredentialService) throw new Error("unsupported");
+      await composition.hostedProviderCredentialService.disconnect(request.params.runId, request.params.credentialId);
+      return { disconnected: true };
+    }
+    case "provider/credentials/validate": {
+      if (!composition.hostedProviderCredentialService) throw new Error("unsupported");
+      return composition.hostedProviderCredentialService.validate(request.params.runId, request.params.credentialId, request.params.request);
     }
     case "provider/current": {
       if (!composition.providerService) throw new Error("unsupported");

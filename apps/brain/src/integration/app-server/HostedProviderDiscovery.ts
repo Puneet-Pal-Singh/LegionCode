@@ -1,6 +1,10 @@
-import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse } from "@repo/shared-types";
+import { createHostedProviderOperation } from "./HostedProviderScope";
+import type {
+  BYOKDiscoveredProviderModelsQuery,
+  BYOKDiscoveredProviderModelsResponse,
+  BYOKDiscoveredProviderModelsRefreshResponse,
+} from "@repo/shared-types";
 import type { AuthorizedProviderScope } from "../../controllers/provider/ProviderAuthScopeService";
-import { RunIdSchema } from "@repo/platform-protocol";
 import {
   BYOKProviderSlugSchema,
   BYOKDiscoveredProviderModelsQuerySchema,
@@ -8,16 +12,7 @@ import {
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   canShowProviderInPrimaryUi,
 } from "@repo/shared-types";
-import {
-  AppServerProviderOperationError,
-  type AppServerComposition,
-} from "@legioncode/app-server/server";
-import { resolveAuthorizedProviderScope } from "../../controllers/provider/ProviderAuthScopeService";
-import {
-  DomainError,
-  isDomainError,
-  toNormalizedProviderError,
-} from "../../domain/errors";
+import { type AppServerComposition } from "@legioncode/app-server/server";
 import { validateWithSchema } from "../../http/validation";
 import { resolveBrainProviderProductPolicy } from "../../lib/provider-product-policy";
 import {
@@ -35,37 +30,7 @@ export function composeHostedProviderDiscovery(
   env: Env,
   userId: string,
 ): NonNullable<AppServerComposition["hostedProviderDiscoveryService"]> {
-  const operation = async <T>(
-    runId: string,
-    action: (
-      scope: Awaited<ReturnType<typeof resolveAuthorizedProviderScope>>,
-      correlationId: string,
-    ) => Promise<T>,
-  ): Promise<T> => {
-    const correlationId = Math.random().toString(36).substring(7);
-    try {
-      const scope = await resolveAuthorizedProviderScope(
-        request,
-        env,
-        correlationId,
-        RunIdSchema.parse(runId),
-      );
-      if (scope.userId !== userId)
-        throw new DomainError(
-          "AUTH_FAILED",
-          "Unauthorized",
-          401,
-          false,
-          correlationId,
-        );
-      return await action(scope, correlationId);
-    } catch (error) {
-      throw new AppServerProviderOperationError(
-        isDomainError(error) ? error.status : 500,
-        toNormalizedProviderError(error, correlationId),
-      );
-    }
-  };
+  const operation = createHostedProviderOperation(request, env, userId);
   return {
     catalog: (runId) =>
       operation(runId, (scope, correlationId) =>

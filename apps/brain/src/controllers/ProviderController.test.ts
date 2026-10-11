@@ -1356,3 +1356,80 @@ describe("ProviderController", () => {
     });
   });
 });
+
+describe("hosted App Server credentials", () => {
+  async function call(env: Env, operation: string, params: Record<string, unknown>, headers?: HeadersInit) {
+    const response = await AppServerController.request(new Request("http://localhost/app-server/request", {
+      method: "POST", headers: headers ?? await withByokHeaders(env),
+      body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: `provider/credentials/${operation}`, params: { runId: TEST_RUN_ID, ...params } }),
+    }), env);
+    return { status: response.status, body: await response.json() };
+  }
+
+  it("connects, lists, labels, validates and disconnects through the authenticated boundary", async () => {
+    const env = createMockEnv();
+    const secret = "sk-test-NOT-A-REAL-KEY-1234567890";
+    const connected = await call(env, "connect", { request: { providerId: "openai", secret, label: "Primary" } });
+    expect(connected.status).toBe(200);
+    expect(connected.body.ok).toBe(true);
+    const credentialId = connected.body.result.credentialId;
+    expect(connected.body.result).toMatchObject({ providerId: "openai", label: "Primary", userId: TEST_USER_ID, workspaceId: TEST_WORKSPACE_ID, encryptedSecretJson: "{}" });
+    expect(JSON.stringify(connected.body)).not.toContain(secret);
+    const listed = await call(env, "list", {});
+    expect(listed.body.result).toContainEqual(expect.objectContaining({ credentialId }));
+    const updated = await call(env, "update", { credentialId, request: { label: "Renamed" } });
+    expect(updated.body.result.label).toBe("Renamed");
+    const validated = await call(env, "validate", { credentialId, request: { mode: "format" } });
+    expect(validated.body.result).toMatchObject({ credentialId, valid: true });
+    const disconnected = await call(env, "disconnect", { credentialId });
+    expect(disconnected.body.result).toEqual({ disconnected: true });
+    const remaining = await call(env, "list", {});
+    expect(remaining.body.result).not.toContainEqual(expect.objectContaining({ credentialId }));
+    const missing = await call(env, "validate", { credentialId, request: { mode: "format" } });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("INTERNAL_ERROR");
+    expect(missing.body.error.message).toContain("was not found");
+  });
+
+  it("rejects unauthenticated credential commands", async () => {
+    const result = await call(createMockEnv(), "list", {}, { "content-type": "application/json" });
+    expect(result.status).toBe(401);
+    expect(result.body.error.code).toBe("unauthorized");
+  });
+
+  it("rejects missing authenticated workspace claims", async () => {
+    const result = await call(createMockEnv({ omitWorkspaceClaims: true }), "list", {});
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects another viewer or workspace scope", async () => {
+    const env = createMockEnv();
+    for (const [name, value] of [["X-User-Id", "another-viewer"], ["X-Workspace-Id", "another-workspace"]]) {
+      const headers = new Headers(await withByokHeaders(env));
+      headers.set(name!, value!);
+      const result = await call(env, "list", {}, headers);
+      expect(result.status).toBe(403);
+      expect(result.body.error.code).toBe("AUTH_FAILED");
+    }
+  });
+
+  it("rejects caller-supplied tenancy and invalid credential intent before dispatch", async () => {
+    const env = createMockEnv();
+    for (const params of [
+      { userId: "another-viewer" }, { workspaceId: "another-workspace" },
+      { runId: "invalid" },
+    ]) {
+      expect((await call(env, "list", params)).status).toBe(400);
+    }
+    expect((await call(env, "connect", { request: { providerId: "openai", secret: "" } })).status).toBe(400);
+  });
+
+  it("preserves production policy and normalized upstream failures", async () => {
+    const production = await call(createMockEnv({ environment: "production" }), "list", {});
+    expect(production.body.result.some((entry: { providerId: string }) => entry.providerId === "axis")).toBe(false);
+    const failed = await call(createMockEnv({ connectionsError: true }), "list", {});
+    expect(failed.status).toBe(500);
+    expect(failed.body.error).toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: true, statusCode: 500 });
+  });
+});
