@@ -19,7 +19,8 @@ const RESTRICTED_IMPORT_RULE = [
           "Provider SDK imports are restricted. Use core/llm/LLMGateway instead.",
       },
       {
-        group: ["**/services/providers/**"],
+        // Control-plane HTTP proxy; execution adapters remain behind LLMGateway.
+        group: ["**/services/providers/**", "!**/services/providers/ProviderRuntimeProxy"],
         message:
           "Provider adapters are restricted. Use core/llm/LLMGateway instead.",
       },

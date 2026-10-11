@@ -1,4 +1,4 @@
-import { APP_SERVER_PROTOCOL_VERSION } from "@repo/platform-protocol";
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/sdk";
 /**
  * ProviderApiClient Tests
  *
