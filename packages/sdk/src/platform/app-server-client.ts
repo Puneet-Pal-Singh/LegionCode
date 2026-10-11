@@ -5,6 +5,7 @@ import {
   AppServerResultSchemas,
   type AppServerMethod,
   type AppServerRequest,
+  type AppServerFailureResponse,
 } from "@legioncode/app-server/protocol";
 import {
   type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
@@ -13,6 +14,7 @@ import {
   type ConversationHistoryRequest,
   type ConversationHistoryResponse,
   ThreadIdSchema,
+  RunIdSchema,
   ProviderIdSchema,
   type LocalWorkspaceGrant,
   type AppServerInitializeResponse,
@@ -21,6 +23,8 @@ import {
 } from "@repo/platform-protocol";
 import type {
   BYOKDiscoveredProviderModelsResponse,
+  BYOKDiscoveredProviderModelsQuery,
+  BYOKDiscoveredProviderModelsRefreshResponse,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { z } from "zod";
@@ -55,6 +59,8 @@ export class AppServerClientError extends Error {
     message: string,
     public readonly method?: AppServerMethod,
     public readonly serverCode?: string,
+    public readonly serverError?: AppServerFailureResponse["error"],
+    public readonly cause?: unknown,
   ) {
     super(message);
     this.name = "AppServerClientError";
@@ -86,8 +92,9 @@ export type AppServerClient = {
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
   archiveThread(threadId: Thread["id"]): Promise<Thread>;
   unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
-  getProviderCatalog(): Promise<ProviderRegistryEntry[]>;
-  getProviderModels(providerId: string): Promise<BYOKDiscoveredProviderModelsResponse>;
+  getProviderCatalog(runId?: string): Promise<ProviderRegistryEntry[]>;
+  getProviderModels(providerId: string, runId?: string, query?: BYOKDiscoveredProviderModelsQuery): Promise<BYOKDiscoveredProviderModelsResponse>;
+  refreshProviderModels(providerId: string, runId: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getProviderSelection(): Promise<ProviderSelection | null>;
   selectProvider(providerId: string, modelId: string): Promise<ProviderSelection>;
   clearProviderSelection(): Promise<null>;
@@ -185,17 +192,18 @@ export function createAppServerClient(
       }, AppServerResultSchemas["thread/unarchive"]);
       return result.thread;
     },
-    getProviderCatalog: async () => {
-      const result = await request(options, { method: "provider/catalog", params: {} }, AppServerResultSchemas["provider/catalog"]);
+    getProviderCatalog: async (runId) => {
+      const result = await request(options, { method: "provider/catalog", params: runId === undefined ? {} : { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/catalog"]);
       return result.providers;
     },
-    getProviderModels: async (providerId) => {
+    getProviderModels: async (providerId, runId, query) => {
       const result = await request(options, {
         method: "provider/models",
-        params: { providerId: ProviderIdSchema.parse(providerId) },
+        params: { providerId: ProviderIdSchema.parse(providerId), ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), ...(query === undefined ? {} : { query }) },
       }, AppServerResultSchemas["provider/models"]);
       return result;
     },
+    refreshProviderModels: async (providerId, runId) => request(options, { method: "provider/models/refresh", params: { providerId, runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/models/refresh"]),
     getProviderSelection: async () => {
       const result = await request(options, { method: "provider/current", params: {} }, AppServerResultSchemas["provider/current"]);
       return result.selection;
@@ -227,8 +235,8 @@ async function request<Schema extends z.ZodTypeAny>(
   let payload: unknown;
   try {
     payload = await options.transport.request(envelope);
-  } catch {
-    throw new AppServerClientError("transport", "App Server request failed", envelope.method);
+  } catch (error) {
+    throw new AppServerClientError("transport", "App Server request failed", envelope.method, undefined, undefined, error);
   }
 
   const parsed = AppServerResponseSchema.safeParse(payload);
@@ -242,6 +250,7 @@ async function request<Schema extends z.ZodTypeAny>(
       parsed.data.error.message,
       envelope.method,
       parsed.data.error.code,
+      parsed.data.error,
     );
   }
   return resultSchema.parse(parsed.data.result);

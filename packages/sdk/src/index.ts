@@ -1,3 +1,4 @@
+export { createProviderAppServerTransport } from "./providers/app-server-transport.js";
 export {
   AppServerClientError,
   createAppServerClient,

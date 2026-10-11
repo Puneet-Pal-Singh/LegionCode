@@ -67,7 +67,7 @@ describe("App Server HTTP transport", () => {
         return new Response(null, { status: 302, headers: { location: "https://attacker.invalid/" } });
       },
     });
-    await expect(transport.request(envelope)).rejects.toMatchObject({ code: "transport" });
+    await expect(transport.request(envelope)).rejects.toMatchObject({ code: "invalid_response" });
     expect(callCount).toBe(1);
   });
 

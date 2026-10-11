@@ -127,7 +127,7 @@ function createTransportRequest(
   };
 }
 
-function resolveCanonicalRunId(getRunId: () => string | null): RunId {
+export function resolveCanonicalRunId(getRunId: () => string | null): RunId {
   const runId = getRunId();
   if (!runId) {
     throw new ProviderClientOperationError(
