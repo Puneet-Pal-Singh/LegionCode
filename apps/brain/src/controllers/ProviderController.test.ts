@@ -41,6 +41,7 @@ function createMockEnv(options?: {
       defaultProviderId?: ProviderId;
       defaultModelId?: string;
       credentialLabels?: Record<string, string>;
+      visibleModelIds?: Record<string, string[]>;
       updatedAt: string;
     }
   >();
@@ -381,6 +382,7 @@ function createMockEnv(options?: {
           const body = (await request.json()) as {
             defaultProviderId?: ProviderId;
             defaultModelId?: string;
+            visibleModelIds?: Record<string, string[]>;
           };
           const current = preferencesState.get(scopeKey) ?? {
             credentialLabels: {},
@@ -391,6 +393,7 @@ function createMockEnv(options?: {
               body.defaultProviderId ?? current.defaultProviderId,
             defaultModelId: body.defaultModelId ?? current.defaultModelId,
             credentialLabels: current.credentialLabels ?? {},
+            visibleModelIds: body.visibleModelIds ?? current.visibleModelIds ?? {},
             updatedAt: new Date().toISOString(),
           };
           preferencesState.set(scopeKey, next);
@@ -1465,5 +1468,68 @@ describe("hosted App Server credentials", () => {
     const failed = await call(createMockEnv({ connectionsError: true }), "list", {});
     expect(failed.status).toBe(500);
     expect(failed.body.error).toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: true, statusCode: 500 });
+  });
+});
+
+describe("hosted App Server preferences and resolution", () => {
+  async function call(env: Env, method: string, params: Record<string, unknown>, headers?: HeadersInit) {
+    const response = await AppServerController.request(new Request("http://localhost/app-server/request", {
+      method: "POST", headers: headers ?? await withByokHeaders(env),
+      body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method, params: { runId: TEST_RUN_ID, ...params } }),
+    }), env);
+    return { status: response.status, body: await response.json() };
+  }
+
+  it("reads persisted defaults, updates visibility and resolves the connected credential with model metadata", async () => {
+    const env = createMockEnv();
+    const connected = await call(env, "provider/credentials/connect", { request: { providerId: "openai", secret: "test-secret" } });
+    const credentialId = connected.body.result.credentialId;
+    const before = await call(env, "provider/preferences/read", {});
+    expect(before.body.result).toMatchObject({ userId: TEST_USER_ID, workspaceId: TEST_WORKSPACE_ID, defaultProviderId: "openai", defaultCredentialId: credentialId, defaultModelId: "gpt-4o" });
+    const updated = await call(env, "provider/preferences/update", { request: { visibleModelIds: { openai: ["gpt-4o"] } } });
+    expect(updated.status).toBe(200);
+    expect(updated.body.result.visibleModelIds).toEqual({ openai: ["gpt-4o"] });
+    expect((await call(env, "provider/preferences/read", {})).body.result.visibleModelIds).toEqual({ openai: ["gpt-4o"] });
+    const resolved = await call(env, "provider/resolve", { request: {} });
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.result).toMatchObject({ providerId: "openai", credentialId, modelId: "gpt-4o", contextWindow: 128_000, pricing: { inputPer1M: 2.5, outputPer1M: 10, currency: "USD" } });
+  });
+
+  it("preserves platform Axis resolution and quota when policy permits", async () => {
+    const result = await call(createMockEnv(), "provider/resolve", { request: {} });
+    expect(result.status).toBe(200);
+    expect(result.body.result).toMatchObject({ providerId: "axis", resolvedAt: "platform_defaults" });
+    expect(result.body.result.quota).toMatchObject({ used: expect.any(Number), limit: expect.any(Number) });
+  });
+
+  it("rejects unauthenticated or foreign viewer/workspace preference access", async () => {
+    const env = createMockEnv();
+    expect((await call(env, "provider/preferences/read", {}, { "content-type": "application/json" })).status).toBe(401);
+    for (const [name, value] of [["X-User-Id", "foreign-viewer"], ["X-Workspace-Id", "foreign-workspace"]]) {
+      const headers = new Headers(await withByokHeaders(env)); headers.set(name!, value!);
+      expect((await call(env, "provider/preferences/update", { request: { defaultModelId: "gpt-4o" } }, headers)).status).toBe(403);
+    }
+  });
+
+  it("preserves production provider policy and explicit missing-credential failures", async () => {
+    const env = createMockEnv({ environment: "production" });
+    const updated = await call(env, "provider/preferences/update", { request: { defaultProviderId: "axis" } });
+    expect(updated.status).toBe(400);
+    expect(updated.body.error.code).toBe("INVALID_PROVIDER_SELECTION");
+    const resolved = await call(env, "provider/resolve", { request: { providerId: "openai" } });
+    expect(resolved.status).toBe(400);
+    expect(resolved.body.error.code).toBe("PROVIDER_NOT_CONNECTED");
+  });
+
+  it("retains runtime errors and rejects malformed intent/caller tenancy", async () => {
+    const failed = await call(createMockEnv({ preferencesError: true }), "provider/preferences/read", {});
+    expect(failed.status).toBe(500);
+    expect(failed.body.error.code).toBe("PROVIDER_UNAVAILABLE");
+    const env = createMockEnv();
+    for (const [method, params] of [
+      ["provider/preferences/read", { userId: "other" }],
+      ["provider/preferences/update", { request: {} }],
+      ["provider/resolve", { request: { credentialId: "bad" } }],
+    ] as const) expect((await call(env, method, params)).status).toBe(400);
   });
 });

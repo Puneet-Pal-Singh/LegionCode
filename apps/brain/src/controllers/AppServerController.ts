@@ -1,3 +1,4 @@
+import { composeHostedProviderPreferences } from "../integration/app-server/HostedProviderPreferences";
 import { composeHostedProviderCredentials } from "../integration/app-server/HostedProviderCredentials";
 import { composeHostedProviderDiscovery } from "../integration/app-server/HostedProviderDiscovery";
 import { composeHostedWorkspaceSelection } from "../integration/app-server/HostedWorkspaceSelection";
@@ -24,6 +25,7 @@ export const AppServerController = {
     // Initialize remains a public handshake. Resource services are composed only
     // after an HttpOnly cookie resolves to a server-verified principal.
     let hostedProviderCredentialService: ReturnType<typeof composeHostedProviderCredentials> | undefined;
+    let hostedProviderPreferenceService: ReturnType<typeof composeHostedProviderPreferences> | undefined;
     let hostedProviderDiscoveryService: ReturnType<typeof composeHostedProviderDiscovery> | undefined;
     let hostedWorkspaceService: ReturnType<typeof composeHostedWorkspaceSelection> | undefined;
     let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
@@ -39,6 +41,7 @@ export const AppServerController = {
           ok: false, error: { code: "unauthorized", message: "Unauthorized" },
         });
         hostedProviderCredentialService = composeHostedProviderCredentials(request, env, auth.userId);
+        hostedProviderPreferenceService = composeHostedProviderPreferences(request, env, auth.userId);
         hostedProviderDiscoveryService = composeHostedProviderDiscovery(request, env, auth.userId);
         hostedWorkspaceService = composeHostedWorkspaceSelection(request, env, auth.userId);
         historyService = composeHostedConversationHistory(env, auth.userId);
@@ -64,6 +67,7 @@ export const AppServerController = {
         serverVersion: "0.1.0",
         hostedWorkspaceService,
         hostedProviderDiscoveryService,
+        hostedProviderPreferenceService,
         hostedProviderCredentialService,
         conversationHistoryService: historyService,
         sessionMetadataService,

@@ -1,3 +1,4 @@
+import { BYOKPreferenceSchema, BYOKPreferencesUpdateRequestSchema, BYOKResolutionSchema, BYOKResolveRequestSchema } from "@repo/shared-types";
 import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentialUpdateRequestSchema, BYOKCredentialValidateRequestSchema, BYOKCredentialValidateResponseSchema } from "@repo/shared-types";
 import {
   HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
@@ -80,6 +81,10 @@ export const AppServerMethodSchema = z.enum([
   "provider/catalog",
   "provider/models",
   "provider/models/refresh",
+  "provider/preferences/read",
+  "provider/preferences/update",
+  "provider/resolve",
+
   "provider/credentials/list",
   "provider/credentials/connect",
   "provider/credentials/update",
@@ -122,6 +127,9 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("provider/catalog"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/models"), params: z.object({ providerId: ProviderIdSchema, runId: RunIdSchema.optional(), query: BYOKDiscoveredProviderModelsQuerySchema.strict().optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/models/refresh"), params: z.object({ providerId: BYOKProviderSlugSchema, runId: RunIdSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/read"), params: z.object({ runId: RunIdSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/update"), params: z.object({ runId: RunIdSchema, request: BYOKPreferencesUpdateRequestSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/resolve"), params: z.object({ runId: RunIdSchema, request: BYOKResolveRequestSchema.strict() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/list"), params: z.object({ runId: RunIdSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/connect"), params: z.object({ runId: RunIdSchema, request: BYOKCredentialConnectRequestSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/update"), params: z.object({ runId: RunIdSchema, credentialId: z.string().min(1), request: BYOKCredentialUpdateRequestSchema.strict() }).strict() }).strict(),
@@ -161,6 +169,10 @@ export const AppServerResultSchemas = {
   "provider/catalog": z.object({ providers: ProviderRegistryEntrySchema.array() }).strict(),
   "provider/models": BYOKDiscoveredProviderModelsResponseSchema,
   "provider/models/refresh": BYOKDiscoveredProviderModelsRefreshResponseSchema,
+  "provider/preferences/read": BYOKPreferenceSchema,
+  "provider/preferences/update": BYOKPreferenceSchema,
+  "provider/resolve": BYOKResolutionSchema,
+
   "provider/credentials/list": BYOKCredentialSchema.array(),
   "provider/credentials/connect": BYOKCredentialSchema,
   "provider/credentials/update": BYOKCredentialSchema,
@@ -199,6 +211,10 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("provider/catalog", AppServerResultSchemas["provider/catalog"]),
   success("provider/models", AppServerResultSchemas["provider/models"]),
   success("provider/models/refresh", AppServerResultSchemas["provider/models/refresh"]),
+  success("provider/preferences/read", AppServerResultSchemas["provider/preferences/read"]),
+  success("provider/preferences/update", AppServerResultSchemas["provider/preferences/update"]),
+  success("provider/resolve", AppServerResultSchemas["provider/resolve"]),
+
   success("provider/credentials/list", AppServerResultSchemas["provider/credentials/list"]),
   success("provider/credentials/connect", AppServerResultSchemas["provider/credentials/connect"]),
   success("provider/credentials/update", AppServerResultSchemas["provider/credentials/update"]),
