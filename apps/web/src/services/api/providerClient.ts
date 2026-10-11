@@ -6,7 +6,7 @@
  */
 
 import {
-  createByokHttpTransport,
+  createProviderAppServerTransport,
   createProviderClient,
   ProviderClientContractError,
   ProviderClientOperationError,
@@ -127,7 +127,8 @@ export class ProviderApiClient {
 
   constructor(private readonly runIdResolver: RunIdResolver) {
     this.sdkClient = createProviderClient(
-      createByokHttpTransport({
+      createProviderAppServerTransport({
+        appServerBaseUrl: getBrainHttpBase(),
         baseUrl: `${getBrainHttpBase()}/api/byok`,
         getRunId: () => this.resolveRunId(),
         getHeaders: () => this.resolveAuthHeaders(),

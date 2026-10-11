@@ -22,10 +22,11 @@ const MAX_RESPONSE_BYTES = 1_048_576;
 
 export class AppServerTransportError extends Error {
   constructor(
-    public readonly code: "transport" | "timeout" | "aborted" | "server_error",
+    public readonly code: "transport" | "timeout" | "aborted" | "server_error" | "invalid_response",
     message: string,
     public readonly statusCode?: number,
     public readonly serverCode?: string,
+    public readonly cause?: unknown,
   ) {
     super(message);
     this.name = "AppServerTransportError";
@@ -72,7 +73,7 @@ export function createAppServerHttpTransport(
         const payload = await readBoundedJson(response, options.maxResponseBytes === undefined ? MAX_RESPONSE_BYTES : options.maxResponseBytes);
         if (payload === undefined) {
           throw new AppServerTransportError(
-            "transport",
+            "invalid_response",
             "App Server returned invalid JSON",
             response.status,
           );
@@ -110,7 +111,7 @@ export function createAppServerHttpTransport(
         if (options.signal?.aborted) {
           throw new AppServerTransportError("aborted", "App Server request was aborted");
         }
-        throw new AppServerTransportError("transport", "App Server is unreachable");
+        throw new AppServerTransportError("transport", "App Server is unreachable", undefined, undefined, error);
       } finally {
         if (timeout !== null) clearTimeout(timeout);
         options.signal?.removeEventListener("abort", abort);

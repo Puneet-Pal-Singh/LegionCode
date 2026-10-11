@@ -1,3 +1,4 @@
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/sdk";
 /**
  * ProviderApiClient Tests
  *
@@ -26,8 +27,28 @@ function createCredentialFixture(overrides?: { credentialId?: string }) {
   };
 }
 
+function discoveryResponse(method: string, value: unknown, status = 200) {
+  const result = method === "provider/catalog" ? { providers: value } : value;
+  const payload =
+    status < 400
+      ? { ok: true, result }
+      : {
+          ok: false,
+          error: {
+            ...(value as { error: object }).error,
+            retryable: status >= 500 || status === 429,
+            statusCode: status,
+          },
+        };
+  return Response.json(
+    { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method, ...payload },
+    { status },
+  );
+}
+
 describe("ProviderApiClient", () => {
   const providerApiBaseUrl = `${window.location.origin}/__legioncode/brain/api/byok`;
+  const appServerUrl = `${window.location.origin}/__legioncode/brain/app-server/request`;
   const testRunId = "run_123456";
   let client: ProviderApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -65,23 +86,25 @@ describe("ProviderApiClient", () => {
         },
       ];
 
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce(mockCatalog),
-      });
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse("provider/catalog", mockCatalog, 200),
+      );
 
       const catalog = await client.getCatalog();
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/providers`, {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Run-Id": testRunId,
-        },
-        signal: expect.any(AbortSignal),
-      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        appServerUrl,
+        expect.objectContaining({
+          method: "POST",
+          credentials: "include",
+          signal: expect.any(AbortSignal),
+          body: JSON.stringify({
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method: "provider/catalog",
+            params: { runId: testRunId },
+          }),
+        }),
+      );
       expect(catalog).toEqual(mockCatalog);
     });
   });
@@ -100,24 +123,26 @@ describe("ProviderApiClient", () => {
           },
         },
       ];
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({
-          providerId: "openrouter",
-          view: "popular",
-          models: mockModels,
-          page: {
-            limit: 20,
-            hasMore: false,
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/models",
+          {
+            providerId: "openrouter",
+            view: "popular",
+            models: mockModels,
+            page: {
+              limit: 20,
+              hasMore: false,
+            },
+            metadata: {
+              fetchedAt: "2026-03-04T00:00:00.000Z",
+              stale: false,
+              source: "provider_api",
+            },
           },
-          metadata: {
-            fetchedAt: "2026-03-04T00:00:00.000Z",
-            stale: false,
-            source: "provider_api",
-          },
-        }),
-      });
+          200,
+        ),
+      );
 
       const models = await client.getProviderModels("openrouter", {
         view: "popular",
@@ -125,16 +150,21 @@ describe("ProviderApiClient", () => {
       });
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/providers/openrouter/models?view=popular&limit=20`,
-        {
-          method: "GET",
+        appServerUrl,
+        expect.objectContaining({
+          method: "POST",
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Run-Id": testRunId,
-          },
           signal: expect.any(AbortSignal),
-        },
+          body: JSON.stringify({
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method: "provider/models",
+            params: {
+              providerId: "openrouter",
+              runId: testRunId,
+              query: { view: "popular", surface: "picker", limit: 20 },
+            },
+          }),
+        }),
       );
       expect(models.providerId).toBe("openrouter");
       expect(models.view).toBe("popular");
@@ -155,38 +185,49 @@ describe("ProviderApiClient", () => {
     });
 
     it("uses shared query defaults when options are omitted", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({
-          providerId: "openrouter",
-          view: "popular",
-          models: [],
-          page: {
-            limit: 50,
-            hasMore: false,
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/models",
+          {
+            providerId: "openrouter",
+            view: "popular",
+            models: [],
+            page: {
+              limit: 50,
+              hasMore: false,
+            },
+            metadata: {
+              fetchedAt: "2026-03-04T00:00:00.000Z",
+              stale: false,
+              source: "provider_api",
+            },
           },
-          metadata: {
-            fetchedAt: "2026-03-04T00:00:00.000Z",
-            stale: false,
-            source: "provider_api",
-          },
-        }),
-      });
+          200,
+        ),
+      );
 
       await client.getProviderModels("openrouter");
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/providers/openrouter/models?view=popular&limit=50`,
-        expect.objectContaining({ method: "GET" }),
+        appServerUrl,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+            method: "provider/models",
+            params: {
+              providerId: "openrouter",
+              runId: testRunId,
+              query: { view: "popular", surface: "picker", limit: 50 },
+            },
+          }),
+        }),
       );
     });
 
     it("does not cancel concurrent picker and manage inventory requests", async () => {
-      const responseFor = (surface: "picker" | "manage") => ({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValue({
+      const responseFor = (surface: "picker" | "manage") =>
+        discoveryResponse("provider/models", {
           providerId: "openrouter",
           view: surface === "picker" ? "popular" : "all",
           models: [],
@@ -197,8 +238,7 @@ describe("ProviderApiClient", () => {
             source: "provider_api",
             status: "available",
           },
-        }),
-      });
+        });
       fetchSpy
         .mockResolvedValueOnce(responseFor("picker"))
         .mockResolvedValueOnce(responseFor("manage"));
@@ -214,6 +254,7 @@ describe("ProviderApiClient", () => {
         limit: 150,
       });
 
+      await Promise.resolve();
       const firstSignal = (fetchSpy.mock.calls[0]?.[1] as RequestInit).signal;
       const secondSignal = (fetchSpy.mock.calls[1]?.[1] as RequestInit).signal;
       expect(firstSignal?.aborted).toBe(false);
@@ -358,17 +399,18 @@ describe("ProviderApiClient", () => {
 
   describe("error handling", () => {
     it("maps HTTP 400 error", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Provider ID is invalid",
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/catalog",
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Provider ID is invalid",
+            },
           },
-        }),
-      });
+          400,
+        ),
+      );
 
       try {
         await client.getCatalog();
@@ -381,14 +423,15 @@ describe("ProviderApiClient", () => {
     });
 
     it("marks 5xx errors as retryable", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({
-          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
-        }),
-      });
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/catalog",
+          {
+            error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+          },
+          500,
+        ),
+      );
 
       try {
         await client.getCatalog();
@@ -398,14 +441,15 @@ describe("ProviderApiClient", () => {
     });
 
     it("marks 429 errors as retryable", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({
-          error: { code: "RATE_LIMIT", message: "Too many requests" },
-        }),
-      });
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/catalog",
+          {
+            error: { code: "RATE_LIMITED", message: "Too many requests" },
+          },
+          429,
+        ),
+      );
 
       try {
         await client.getCatalog();
@@ -466,18 +510,19 @@ describe("ProviderApiClient", () => {
     });
 
     it("includes correlationId in error", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({
-          error: {
-            code: "INVALID_INPUT",
-            message: "Invalid credential",
-            correlationId: "req-123",
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/catalog",
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid credential",
+              correlationId: "req-123",
+            },
           },
-        }),
-      });
+          400,
+        ),
+      );
 
       try {
         await client.getCatalog();
@@ -501,16 +546,13 @@ describe("ProviderApiClient", () => {
     });
 
     it("fails when JSON payload violates shared response contract", async () => {
-      fetchSpy.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: vi
-          .fn()
-          .mockResolvedValueOnce([
-            { providerId: "openai", displayName: "OpenAI" },
-          ]),
-      });
+      fetchSpy.mockResolvedValueOnce(
+        discoveryResponse(
+          "provider/catalog",
+          [{ providerId: "openai", displayName: "OpenAI" }],
+          200,
+        ),
+      );
 
       await expect(client.getCatalog()).rejects.toMatchObject({
         code: "INVALID_RESPONSE_CONTRACT",
@@ -524,7 +566,7 @@ describe("ProviderApiClient", () => {
       fetchSpy.mockImplementationOnce((_url, init) => {
         const signal = (init as RequestInit).signal;
         return new Promise((_resolve, reject) => {
-          if (!signal) {
+          if (!signal || signal.aborted) {
             reject(new Error("Missing abort signal"));
             return;
           }

@@ -1,3 +1,5 @@
+export { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+export { createProviderAppServerTransport } from "./providers/app-server-transport.js";
 export {
   AppServerClientError,
   createAppServerClient,
