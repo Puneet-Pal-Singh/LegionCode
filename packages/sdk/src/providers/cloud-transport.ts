@@ -1,13 +1,13 @@
 import type { ProviderClientTransport } from "./client.js";
 import {
-  createByokHttpTransport,
-  type ProviderHttpTransportOptions,
-} from "./http-transport.js";
+  createProviderAppServerTransport,
+  type ProviderAppServerTransportOptions,
+} from "./app-server-transport.js";
 
 const CLOUD_DEFAULT_CREDENTIALS: RequestCredentials = "omit";
 
 export interface ProviderCloudTransportOptions
-  extends Omit<ProviderHttpTransportOptions, "credentials" | "getHeaders"> {
+  extends Omit<ProviderAppServerTransportOptions, "credentials" | "getHeaders"> {
   getAccessToken?: () => string | null;
   getHeaders?: () => Record<string, string>;
 }
@@ -15,8 +15,8 @@ export interface ProviderCloudTransportOptions
 export function createByokCloudTransport(
   options: ProviderCloudTransportOptions,
 ): ProviderClientTransport {
-  return createByokHttpTransport({
-    baseUrl: options.baseUrl,
+  return createProviderAppServerTransport({
+    appServerBaseUrl: options.appServerBaseUrl,
     getRunId: options.getRunId,
     fetchImpl: options.fetchImpl,
     responsePreviewLimit: options.responsePreviewLimit,

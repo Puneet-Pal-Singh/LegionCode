@@ -19,7 +19,6 @@ describe("hosted provider AppServer transport", () => {
     "preserves existing non-JSON HTTP %s error behavior",
     async (status) => {
       const options = {
-        baseUrl: "https://brain.test/api/byok",
         getRunId: () => runId,
         fetchImpl: async () =>
           new Response("Upstream temporarily unavailable", {
@@ -36,7 +35,7 @@ describe("hosted provider AppServer transport", () => {
         }
       };
       const previous = await capture(() =>
-        createByokHttpTransport(options).discoverProviders(),
+        createByokHttpTransport({ ...options, baseUrl: "https://brain.test/api/byok" }).discoverProviders(),
       );
       const current = await capture(() =>
         createProviderAppServerTransport({
@@ -56,7 +55,6 @@ describe("hosted provider AppServer transport", () => {
   it("preserves malformed JSON error status and retry guidance", async () => {
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async () =>
@@ -105,7 +103,6 @@ describe("hosted provider AppServer transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -127,7 +124,6 @@ describe("hosted provider AppServer transport", () => {
   it("preserves normalized provider errors, retryability, correlation and HTTP status", async () => {
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async () =>
@@ -159,7 +155,6 @@ describe("hosted provider AppServer transport", () => {
   it("rejects mismatched method errors instead of accepting their provider payload", async () => {
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async () =>
@@ -216,7 +211,6 @@ describe("hosted provider AppServer transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -276,7 +270,6 @@ describe("hosted credential transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -326,8 +319,7 @@ describe("hosted credential transport", () => {
     ]) {
       const client = createProviderClient(
         createProviderAppServerTransport({
-          baseUrl: "https://brain.test/api/byok",
-          appServerBaseUrl: "https://brain.test",
+            appServerBaseUrl: "https://brain.test",
           getRunId: () => runId,
           fetchImpl: async () => wireResponse,
         }),
@@ -342,7 +334,6 @@ describe("hosted credential transport", () => {
     const controller = new AbortController();
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async (_input, init) => {
@@ -393,7 +384,6 @@ describe("hosted preference transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -441,8 +431,7 @@ describe("hosted preference transport", () => {
     ]) {
       const client = createProviderClient(
         createProviderAppServerTransport({
-          baseUrl: "https://brain.test/api/byok",
-          appServerBaseUrl: "https://brain.test",
+            appServerBaseUrl: "https://brain.test",
           getRunId: () => runId,
           fetchImpl: async () => wireResponse,
         }),
@@ -477,7 +466,6 @@ it("sets the large visibility-body routing hint only from the actual SDK method"
   );
   const client = createProviderClient(
     createProviderAppServerTransport({
-      baseUrl: "https://brain.test/api/byok",
       appServerBaseUrl: "https://brain.test",
       getRunId: () => runId,
       getHeaders: () => ({

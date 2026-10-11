@@ -13,7 +13,6 @@ import {
   createOperationErrorFromResponse,
   resolveCanonicalRunId,
 } from "./transport-support.js";
-import type { ProviderHttpTransportOptions } from "./http-transport.js";
 import {
   ProviderClientOperationError,
   isRetryableProviderClientErrorCode,
@@ -24,9 +23,18 @@ import type {
   ProviderClientTransport,
 } from "./client.js";
 
+export interface ProviderAppServerTransportOptions {
+  appServerBaseUrl: string;
+  getRunId: () => string | null;
+  getHeaders?: () => Record<string, string>;
+  fetchImpl?: typeof fetch;
+  credentials?: RequestCredentials;
+  responsePreviewLimit?: number;
+}
+
 /** All hosted provider operations use the existing authenticated App Server boundary. */
 export function createProviderAppServerTransport(
-  options: ProviderHttpTransportOptions & { appServerBaseUrl: string },
+  options: ProviderAppServerTransportOptions,
 ): ProviderClientTransport {
   const invoke = async <T>(
     operationOptions: ProviderClientOperationOptions | undefined,
@@ -36,6 +44,7 @@ export function createProviderAppServerTransport(
     ) => Promise<T>,
   ): Promise<T> => {
     const runId = resolveCanonicalRunId(options.getRunId);
+    const suppliedHeaders = new Headers(options.getHeaders?.() ?? {});
     const client = createAppServerClient({
       clientId: "legioncode-provider",
       clientVersion: "0.1.0",
@@ -43,9 +52,14 @@ export function createProviderAppServerTransport(
         baseUrl: options.appServerBaseUrl,
         credentials: options.credentials ?? "include",
         fetchImpl: async (input, init) => {
+          // Provider callers retain their existing explicit authorization header.
+          // The generic App Server transport keeps its protected-header policy.
+          const headers = new Headers(init?.headers);
+          const authorization = suppliedHeaders.get("authorization");
+          if (authorization !== null) headers.set("Authorization", authorization);
           const response = await (options.fetchImpl ?? globalThis.fetch)(
             input,
-            init,
+            { ...init, headers },
           );
           if (
             !response.headers.get("content-type")?.includes("application/json")
@@ -78,7 +92,8 @@ export function createProviderAppServerTransport(
         maxResponseBytes: null,
         signal: operationOptions?.signal,
         requestHeaders: (envelope) => {
-          const headers = new Headers(options.getHeaders?.() ?? {});
+          const headers = new Headers(suppliedHeaders);
+          headers.set("X-Run-Id", runId);
           // Preserve the existing large visibility-list contract for this one
           // authenticated hosted operation. Caller hints cannot select a method.
           headers.delete("X-LegionCode-AppServer-Method");

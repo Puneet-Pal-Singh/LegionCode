@@ -129,7 +129,6 @@ export class ProviderApiClient {
     this.sdkClient = createProviderClient(
       createProviderAppServerTransport({
         appServerBaseUrl: getBrainHttpBase(),
-        baseUrl: `${getBrainHttpBase()}/api/byok`,
         getRunId: () => this.resolveRunId(),
         getHeaders: () => this.resolveAuthHeaders(),
       }),
