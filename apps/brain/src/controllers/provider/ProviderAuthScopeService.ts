@@ -11,7 +11,7 @@ import {
   getAuthenticatedUserSession,
   type UserSessionRecord,
 } from "../../services/AuthService";
-import { RunIdSchema } from "@repo/platform-protocol";
+import { RunIdSchema, type RunId } from "@repo/platform-protocol";
 
 const ScopeIdSchema = z
   .string()
@@ -34,9 +34,10 @@ export async function resolveAuthorizedProviderScope(
   request: Request,
   env: Env,
   correlationId: string,
+  validatedRunId?: RunId,
 ): Promise<AuthorizedProviderScope> {
   rejectLegacyQueryScope(request, correlationId);
-  const runId = parseRequiredRunId(request, correlationId);
+  const runId = validatedRunId ?? parseRequiredRunId(request, correlationId);
   const claims = await loadSessionClaims(request, env, correlationId);
 
   const requestedUserId = parseOptionalScopeHeader(

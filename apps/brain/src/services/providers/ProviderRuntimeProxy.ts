@@ -333,3 +333,30 @@ export function mapCatalogEntryToRegistry(
     ...(builtin?.keyFormat ? { keyFormat: builtin.keyFormat } : {}),
   };
 }
+
+export function buildRuntimeModelsPath(
+  providerId: string,
+  query: {
+    view?: string;
+    surface?: string;
+    limit?: string | number;
+    cursor?: string;
+  },
+): string {
+  const params = new URLSearchParams({
+    providerId,
+  });
+  if (query.view) {
+    params.set("view", query.view);
+  }
+  if (query.surface) {
+    params.set("surface", query.surface);
+  }
+  if (query.limit) {
+    params.set("limit", String(query.limit));
+  }
+  if (query.cursor) {
+    params.set("cursor", query.cursor);
+  }
+  return `/providers/models?${params.toString()}`;
+}

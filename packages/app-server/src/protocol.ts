@@ -11,14 +11,23 @@ import {
   ProviderIdSchema,
   ThreadIdSchema,
   ThreadSchema,
+  RunIdSchema,
 } from "@repo/platform-protocol";
 import {
   BYOKDiscoveredProviderModelsResponseSchema,
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
+  BYOKProviderSlugSchema,
+  NormalizedProviderErrorSchema,
   ProviderRegistryEntrySchema,
 } from "@repo/shared-types";
 import { z } from "zod";
 
 export { APP_SERVER_PROTOCOL_VERSION, AppServerErrorSchema };
+
+export const AppServerProviderErrorSchema = NormalizedProviderErrorSchema.extend({
+  statusCode: z.number().int().min(400).max(599),
+}).strict();
 
 const EmptyParamsSchema = z.object({}).strict();
 const ProviderSelectionSchema = z.object({
@@ -69,6 +78,7 @@ export const AppServerMethodSchema = z.enum([
   "thread/unarchive",
   "provider/catalog",
   "provider/models",
+  "provider/models/refresh",
   "provider/current",
   "provider/select",
   "provider/clear",
@@ -102,8 +112,9 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("thread/rename"), params: ThreadRenameParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/archive"), params: z.object({ threadId: ThreadIdSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/unarchive"), params: z.object({ threadId: ThreadIdSchema }).strict() }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("provider/catalog"), params: EmptyParamsSchema }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("provider/models"), params: z.object({ providerId: ProviderIdSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/catalog"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/models"), params: z.object({ providerId: ProviderIdSchema, runId: RunIdSchema.optional(), query: BYOKDiscoveredProviderModelsQuerySchema.strict().optional() }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/models/refresh"), params: z.object({ providerId: BYOKProviderSlugSchema, runId: RunIdSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/select"), params: ProviderSelectionSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/clear"), params: EmptyParamsSchema }).strict(),
@@ -137,6 +148,7 @@ export const AppServerResultSchemas = {
   "thread/unarchive": z.object({ thread: ThreadSchema }).strict(),
   "provider/catalog": z.object({ providers: ProviderRegistryEntrySchema.array() }).strict(),
   "provider/models": BYOKDiscoveredProviderModelsResponseSchema,
+  "provider/models/refresh": BYOKDiscoveredProviderModelsRefreshResponseSchema,
   "provider/current": z.object({ selection: ProviderSelectionSchema.nullable() }).strict(),
   "provider/select": z.object({ selection: ProviderSelectionSchema }).strict(),
   "provider/clear": z.object({ selection: z.null() }).strict(),
@@ -168,6 +180,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("thread/unarchive", AppServerResultSchemas["thread/unarchive"]),
   success("provider/catalog", AppServerResultSchemas["provider/catalog"]),
   success("provider/models", AppServerResultSchemas["provider/models"]),
+  success("provider/models/refresh", AppServerResultSchemas["provider/models/refresh"]),
   success("provider/current", AppServerResultSchemas["provider/current"]),
   success("provider/select", AppServerResultSchemas["provider/select"]),
   success("provider/clear", AppServerResultSchemas["provider/clear"]),
@@ -178,7 +191,7 @@ export const AppServerFailureResponseSchema = z
     protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
     method: AppServerMethodSchema,
     ok: z.literal(false),
-    error: AppServerErrorSchema,
+    error: z.union([AppServerErrorSchema, AppServerProviderErrorSchema]),
   })
   .strict();
 

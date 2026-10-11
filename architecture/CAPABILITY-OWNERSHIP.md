@@ -323,3 +323,22 @@ and WorkspaceController are deleted. Workspace hooks routes remain separate.
 Current browser context reconciliation is explicitly not retired by this
 transport cutover; its deletion requires authenticated server reconstruction
 and existing-profile data preservation in the later authority slice.
+
+## Plan 058.3B — Hosted provider discovery
+
+| Responsibility | Canonical owner | Active producers and consumers |
+| --- | --- | --- |
+| Provider catalog, discovered models/cache refresh and product policy | Existing RunEngine provider services and Brain product policy | HostedProviderDiscovery composes the existing runtime proxy with verified cookie identity and authorized workspace claims. |
+| Typed discovery transport | Existing AppServer provider/catalog and provider/models; provider/models/refresh | Existing SDK ProviderClient and Web ProviderApiClient use the hosted transport. Catalog adds optional canonical runId for hosted composition; models also accepts the existing BYOK query. Local operations retain their existing contracts. Refresh uses canonical runId/provider slug and the existing BYOK refresh result. |
+
+Results reuse ProviderRegistryEntry, BYOKDiscoveredProviderModelsResponse and
+BYOKDiscoveredProviderModelsRefreshResponse. Provider failures retain the existing
+NormalizedProviderError fields plus HTTP statusCode at the AppServer envelope.
+No credentials are included in discovery results. Server validates the cookie,
+user/workspace claims and canonical run before calling the existing runtime owner.
+The three replaced Brain BYOK discovery routes/controller bodies are deleted
+when Web switches. Credential/preferences/resolution operations retain their
+existing SDK HTTP transport until their separate 058.3B slice; that slice must
+converge them on AppServer and retire the remaining BYOK transport/routes.
+The public standalone BYOK HTTP transport remains during this staged provider
+cutover; its deletion trigger is migration of the remaining provider operations.

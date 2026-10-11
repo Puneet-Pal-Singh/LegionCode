@@ -1,3 +1,5 @@
+import { AppServerController } from "./AppServerController";
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { describe, it, expect } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
@@ -818,17 +820,35 @@ describe("ProviderController", () => {
     });
   });
 
+  describe("hosted provider discovery isolation", () => {
+    async function catalogRequest(env: Env, headers: Record<string, string>) {
+      return AppServerController.request(new Request("http://localhost/app-server/request", {
+        method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/catalog", params: { runId: TEST_RUN_ID } }),
+      }), env);
+    }
+    it("requires an authenticated cookie before runtime discovery", async () => {
+      const response = await catalogRequest(createMockEnv(), {});
+      expect(response.status).toBe(401);
+      expect((await response.json()).error.code).toBe("unauthorized");
+    });
+    it.each([
+      { "X-User-Id": "another-user" },
+      { "X-Workspace-Id": "another-workspace" },
+    ])("rejects unauthorized scope headers %j", async (scopeHeaders) => {
+      const env = createMockEnv();
+      const response = await catalogRequest(env, { ...await withByokHeaders(env), ...scopeHeaders });
+      expect(response.status).toBe(403);
+      expect((await response.json()).error).toMatchObject({ code: "AUTH_FAILED", retryable: false, statusCode: 403 });
+    });
+  });
+
   describe("byok v3", () => {
     it("returns the canonical discovery envelope for the selected provider", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviderModels(
-        new Request("http://localhost/api/byok/providers/openrouter/models", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"openrouter","query":{}}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(200);
       expect(Array.isArray(data)).toBe(false);
@@ -838,17 +858,9 @@ describe("ProviderController", () => {
 
     it("returns discovered provider model envelope for view queries", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviderModels(
-        new Request(
-          "http://localhost/api/byok/providers/openrouter/models?view=popular&limit=10",
-          {
-            method: "GET",
-            headers: await withByokHeaders(env),
-          },
-        ),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"openrouter","query":{"view":"popular","limit":"10"}}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(200);
       expect(data.providerId).toBe("openrouter");
@@ -859,80 +871,49 @@ describe("ProviderController", () => {
 
     it("rejects invalid discovery query params before proxying", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviderModels(
-        new Request(
-          "http://localhost/api/byok/providers/openrouter/models?view=invalid&limit=-1",
-          {
-            method: "GET",
-            headers: await withByokHeaders(env),
-          },
-        ),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"openrouter","query":{"view":"invalid","limit":"-1"}}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(400);
-      expect(data.error.code).toBe("VALIDATION_ERROR");
+      expect(data.error.code).toBe("invalid_request");
     });
 
     it("rejects empty discovery query params before proxying", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviderModels(
-        new Request(
-          "http://localhost/api/byok/providers/openrouter/models?view=",
-          {
-            method: "GET",
-            headers: await withByokHeaders(env),
-          },
-        ),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"openrouter","query":{"view":""}}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(400);
-      expect(data.error.code).toBe("VALIDATION_ERROR");
+      expect(data.error.code).toBe("invalid_request");
     });
 
-    it("rejects invalid provider slug in path before proxying", async () => {
+    it("rejects invalid provider slug before proxying", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviderModels(
-        new Request("http://localhost/api/byok/providers/OpenAI/models", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"OpenAI","query":{}}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(400);
-      expect(data.error.code).toBe("VALIDATION_ERROR");
+      expect(data.error.code).toBe("invalid_request");
     });
 
-    it("rejects malformed percent-encoded provider slug", async () => {
+    it("rejects malformed provider slug", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviderModels(
-        new Request("http://localhost/api/byok/providers/%E0%A4%A/models", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"%E0%A4%A","query":{}}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(400);
-      expect(data.error.code).toBe("VALIDATION_ERROR");
+      expect(data.error.code).toBe("invalid_request");
     });
 
     it("returns provider registry entries", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokProviders(
-        new Request("http://localhost/api/byok/providers", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/catalog", params: {"runId":TEST_RUN_ID}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result.providers : envelope;
 
       expect(response.status).toBe(200);
       expect(Array.isArray(data)).toBe(true);
@@ -946,14 +927,9 @@ describe("ProviderController", () => {
 
     it("hides axis from provider registry in production", async () => {
       const env = createMockEnv({ environment: "production" });
-      const response = await ProviderController.byokProviders(
-        new Request("http://localhost/api/byok/providers", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/catalog", params: {"runId":TEST_RUN_ID}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result.providers : envelope;
 
       expect(response.status).toBe(200);
       expect(Array.isArray(data)).toBe(true);
@@ -965,14 +941,9 @@ describe("ProviderController", () => {
 
     it("surfaces catalog runtime errors as typed provider errors", async () => {
       const env = createMockEnv({ catalogError: true });
-      const response = await ProviderController.byokProviders(
-        new Request("http://localhost/api/byok/providers", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/catalog", params: {"runId":TEST_RUN_ID}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result.providers : envelope;
 
       expect(response.status).toBe(500);
       expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
@@ -1034,17 +1005,9 @@ describe("ProviderController", () => {
 
     it("refreshes models for a provider", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokRefreshProviderModels(
-        new Request(
-          "http://localhost/api/byok/providers/openrouter/models/refresh",
-          {
-            method: "POST",
-            headers: await withByokHeaders(env),
-          },
-        ),
-        env,
-      );
-      const data = await response.json();
+      const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models/refresh", params: {"runId":TEST_RUN_ID,"providerId":"openrouter"}}) }), env);
+      const envelope = await response.json();
+      const data = envelope.ok ? envelope.result : envelope;
 
       expect(response.status).toBe(200);
       expect(data.providerId).toBe("openrouter");

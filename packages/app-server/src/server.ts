@@ -1,3 +1,4 @@
+import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionRenameRequest, HostedSessionsResponse } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
@@ -5,6 +6,7 @@ import {
   APP_SERVER_PROTOCOL_VERSION,
   AppServerMethodSchema,
   AppServerErrorSchema,
+  AppServerProviderErrorSchema,
   AppServerRequestSchema,
   AppServerResponseSchema,
   type AppServerMethod,
@@ -28,6 +30,11 @@ export type AppServerComposition = {
   };
   threadService?: LocalThreadService;
   providerService?: LocalProviderService;
+  hostedProviderDiscoveryService?: {
+    catalog(runId: string): Promise<{ providers: ProviderRegistryEntry[] }>;
+    models(runId: string, providerId: string, query?: BYOKDiscoveredProviderModelsQuery): Promise<BYOKDiscoveredProviderModelsResponse>;
+    refresh(runId: string, providerId: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
+  };
   providerConfiguration?: ProviderConfiguration;
   sessionMetadataService?: {
     list(): Promise<HostedSessionsResponse>;
@@ -52,6 +59,13 @@ export class AppServerOperationError extends Error {
     readonly code: AppServerError["code"],
     message: string,
   ) { super(message); }
+}
+
+/** Preserves the existing provider error contract across hosted dispatch. */
+export class AppServerProviderOperationError extends Error {
+  constructor(readonly statusCode: number, readonly providerError: NormalizedProviderError) {
+    super(providerError.message);
+  }
 }
 
 export type AppServerHttpInput = {
@@ -120,6 +134,15 @@ export async function handleAppServerHttpRequest(
     });
     return { statusCode: 200, headers: JSON_HEADERS, payload: response };
   } catch (error) {
+    if (error instanceof AppServerProviderOperationError) {
+      return {
+        statusCode: error.statusCode, headers: JSON_HEADERS,
+        payload: AppServerResponseSchema.parse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: request.method, ok: false,
+          error: AppServerProviderErrorSchema.parse({ ...error.providerError, statusCode: error.statusCode }),
+        }),
+      };
+    }
     if (error instanceof AppServerOperationError) {
       return methodError(request.method, error.statusCode, error.code, error.message);
     }
@@ -271,12 +294,24 @@ async function dispatch(
       return { thread: await composition.threadService.unarchive(request.params.threadId) };
     }
     case "provider/catalog": {
+      if (composition.hostedProviderDiscoveryService) {
+        if (!request.params.runId) throw new AppServerOperationError(400, "invalid_request", "Provider requests require a run ID");
+        return composition.hostedProviderDiscoveryService.catalog(request.params.runId);
+      }
       if (!composition.providerService) throw new Error("unsupported");
       return { providers: composition.providerService.listCatalog() };
     }
     case "provider/models": {
+      if (composition.hostedProviderDiscoveryService) {
+        if (!request.params.runId) throw new AppServerOperationError(400, "invalid_request", "Provider requests require a run ID");
+        return composition.hostedProviderDiscoveryService.models(request.params.runId, request.params.providerId, request.params.query);
+      }
       if (!composition.providerService) throw new Error("unsupported");
       return composition.providerService.listModels(request.params.providerId);
+    }
+    case "provider/models/refresh": {
+      if (!composition.hostedProviderDiscoveryService) throw new Error("unsupported");
+      return composition.hostedProviderDiscoveryService.refresh(request.params.runId, request.params.providerId);
     }
     case "provider/current": {
       if (!composition.providerService) throw new Error("unsupported");

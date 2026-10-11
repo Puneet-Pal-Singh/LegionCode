@@ -67,7 +67,7 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
-import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, mapCatalogEntryToRegistry } from "../services/providers/ProviderRuntimeProxy";
+import { proxyProviderOperation, proxyByokOperation, readProxyResponseJson, fetchRuntimeCatalog, mapCatalogEntryToRegistry, buildRuntimeModelsPath } from "../services/providers/ProviderRuntimeProxy";
 import { findDiscoveredChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 
 const WorkspaceByokMetadataSchema = z.object({
@@ -921,32 +921,6 @@ function validateDiscoveryQuery(
   );
 }
 
-function buildRuntimeModelsPath(
-  providerId: string,
-  query: {
-    view?: string;
-    surface?: string;
-    limit?: string | number;
-    cursor?: string;
-  },
-): string {
-  const params = new URLSearchParams({
-    providerId,
-  });
-  if (query.view) {
-    params.set("view", query.view);
-  }
-  if (query.surface) {
-    params.set("surface", query.surface);
-  }
-  if (query.limit) {
-    params.set("limit", String(query.limit));
-  }
-  if (query.cursor) {
-    params.set("cursor", query.cursor);
-  }
-  return `/providers/models?${params.toString()}`;
-}
 
 function extractProviderIdFromModelsRefreshPath(
   urlValue: string,
