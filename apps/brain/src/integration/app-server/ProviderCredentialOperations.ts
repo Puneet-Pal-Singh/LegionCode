@@ -132,7 +132,7 @@ export async function configureDefaultPreferenceWhenAvailable(
     return;
   }
 
-  await proxyByokOperation(
+  const response = await proxyByokOperation(
     req,
     env,
     {
@@ -147,6 +147,8 @@ export async function configureDefaultPreferenceWhenAvailable(
     BYOKPreferencesSchema,
     correlationId,
   );
+
+  await readProxyResponseJson(response, BYOKPreferencesSchema, correlationId);
 }
 
 export function resolveOptionalDefaultModel(
@@ -167,7 +169,7 @@ export async function persistCredentialLabel(
   label: string,
   correlationId: string,
 ): Promise<void> {
-  await proxyByokOperation(
+  const response = await proxyByokOperation(
     req,
     env,
     {
@@ -182,6 +184,8 @@ export async function persistCredentialLabel(
     BYOKPreferencesSchema,
     correlationId,
   );
+
+  await readProxyResponseJson(response, BYOKPreferencesSchema, correlationId);
 }
 
 export async function deleteCredentialLabel(
@@ -191,7 +195,7 @@ export async function deleteCredentialLabel(
   credentialId: string,
   correlationId: string,
 ): Promise<void> {
-  await proxyByokOperation(
+  const response = await proxyByokOperation(
     req,
     env,
     {
@@ -202,6 +206,8 @@ export async function deleteCredentialLabel(
     BYOKPreferencesSchema,
     correlationId,
   );
+
+  await readProxyResponseJson(response, BYOKPreferencesSchema, correlationId);
 }
 
 export async function loadWorkspaceByokMetadata(
@@ -254,7 +260,7 @@ export async function connectProviderCredential(
     );
   }
 
-  await proxyByokOperation(
+  const response = await proxyByokOperation(
     req,
     env,
     {
@@ -271,6 +277,11 @@ export async function connectProviderCredential(
     correlationId,
   );
 
+  await readProxyResponseJson(
+    response,
+    BYOKConnectResponseSchema,
+    correlationId,
+  );
   await configureDefaultPreferenceWhenAvailable(
     req,
     env,
@@ -377,7 +388,7 @@ export async function disconnectProviderCredential(
     );
   }
 
-  await proxyByokOperation(
+  const response = await proxyByokOperation(
     req,
     env,
     {
@@ -386,6 +397,12 @@ export async function disconnectProviderCredential(
       path: "/providers/disconnect",
       body: { providerId: credential.providerId },
     },
+    BYOKDisconnectResponseSchema,
+    correlationId,
+  );
+
+  await readProxyResponseJson(
+    response,
     BYOKDisconnectResponseSchema,
     correlationId,
   );

@@ -362,3 +362,9 @@ those route adapters call the same operations and must be removed when those
 remaining consumers migrate with provider preferences/resolution. Focused
 credential isolation, policy, error, cancellation and transport tests guard
 that final deletion. No second vault or browser credential persistence is added.
+
+Credential mutations consume and validate the existing runtime response before
+returning success. Connect, default-on-connect, label writes, disconnect and
+label cleanup propagate normalized failures; a failed runtime mutation cannot
+be reported as a successful credential change. Existing runtime persistence
+remains authoritative if a later step fails after an earlier step committed.

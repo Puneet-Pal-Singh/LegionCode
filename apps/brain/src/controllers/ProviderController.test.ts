@@ -17,6 +17,7 @@ const TEST_SESSION_TOKEN = "test-session-token";
 
 function createMockEnv(options?: {
   axisConnected?: boolean;
+  mutationFailure?: { path: string; method: string; enabled: boolean };
   catalogError?: boolean;
   connectionsError?: boolean;
   failedConnectionProviders?: ProviderId[];
@@ -118,6 +119,11 @@ function createMockEnv(options?: {
 
         if (userId !== TEST_USER_ID || workspaceId !== TEST_WORKSPACE_ID) {
           return jsonError("Invalid BYOK scope", 403, "AUTH_FAILED");
+        }
+
+        const mutationFailure = options?.mutationFailure;
+        if (mutationFailure?.enabled && mutationFailure.path === url.pathname && mutationFailure.method === request.method) {
+          return jsonError("Runtime credential mutation unavailable", 503, "PROVIDER_UNAVAILABLE");
         }
 
         const scopeKey = `${userId}:${workspaceId}`;
@@ -1389,6 +1395,34 @@ describe("hosted App Server credentials", () => {
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe("INTERNAL_ERROR");
     expect(missing.body.error.message).toContain("was not found");
+  });
+
+  it.each([
+    ["connect", "/providers/connect", "POST"],
+    ["connect", "/providers/preferences", "PATCH"],
+    ["update", "/providers/preferences/credential-labels", "POST"],
+    ["disconnect", "/providers/disconnect", "POST"],
+    ["disconnect", "label-delete", "DELETE"],
+  ])("surfaces %s failure at %s without claiming success", async (operation, path, method) => {
+    const failure = { path, method, enabled: false };
+    const env = createMockEnv({ mutationFailure: failure });
+    let credentialId: string | undefined;
+    if (operation !== "connect") {
+      const connected = await call(env, "connect", { request: { providerId: "openai", secret: "test-secret", label: "Primary" } });
+      credentialId = connected.body.result.credentialId;
+      if (path === "label-delete") failure.path = `/providers/preferences/credential-labels/${credentialId}`;
+    }
+    failure.enabled = true;
+    const params = operation === "connect" ? { request: { providerId: "openai", secret: "test-secret" } } : operation === "update" ? { credentialId, request: { label: "Updated" } } : { credentialId };
+    const result = await call(env, operation, params);
+    expect(result.status).toBe(503);
+    expect(result.body).toMatchObject({ ok: false, error: { code: "PROVIDER_UNAVAILABLE", retryable: true, statusCode: 503 } });
+    if (path === "/providers/connect") {
+      expect((await call(env, "list", {})).body.result.some((entry: { providerId: string }) => entry.providerId === "openai")).toBe(false);
+    }
+    if (operation === "update" || path === "/providers/disconnect") {
+      expect((await call(env, "list", {})).body.result).toContainEqual(expect.objectContaining({ credentialId, label: "Primary" }));
+    }
   });
 
   it("rejects unauthenticated credential commands", async () => {

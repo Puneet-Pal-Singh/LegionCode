@@ -47,7 +47,6 @@ import {
   type BYOKCredentialValidateRequest,
   type BYOKDiscoveredProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
-  type BYOKValidateResponse,
   BYOKConnectRequestSchema,
   BYOKConnectResponseSchema,
   BYOKDisconnectRequestSchema,
@@ -59,7 +58,6 @@ import {
   BYOKValidateResponseSchema,
   ProviderCatalogResponseSchema,
   type ProviderCatalogResponse,
-  ProviderConnectionsResponseSchema,
   ProviderErrorEnvelopeSchema,
   type BYOKDiscoveredProviderModelsQuery,
   BYOKProviderSlugSchema,
@@ -558,8 +556,7 @@ export class ProviderController {
           method: "GET",
           path: "/providers/connections",
         },
-        ProviderConnectionsResponseSchema,
-        correlationId,
+              correlationId,
       );
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
