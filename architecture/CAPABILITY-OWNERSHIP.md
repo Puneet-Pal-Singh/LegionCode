@@ -337,12 +337,10 @@ NormalizedProviderError fields plus HTTP statusCode at the AppServer envelope.
 No credentials are included in discovery results. Server validates the cookie,
 user/workspace claims and canonical run before calling the existing runtime owner.
 Web switches to AppServer; the replaced controller operation bodies are deleted.
-The three old discovery routes remain narrow adapters to the same extracted
-owner for the exported SDK HTTP/cloud transports (no active Web callers). Credential/preferences/resolution operations retain their
-existing SDK HTTP transport until their separate 058.3B slice; that slice must
-converge them on AppServer and retire the remaining BYOK transport/routes.
-The public standalone BYOK HTTP transport remains during this staged provider
-cutover; its deletion trigger is migration of the remaining provider operations.
+All provider discovery, credential, preference, and resolution consumers use
+the canonical App Server methods. Brain no longer registers standalone
+`/api/byok/*` routes; authenticated App Server composition remains the hosted
+boundary for these operations.
 
 
 ## Plan 058 hosted credential operations
@@ -357,11 +355,9 @@ credential metadata retains the existing masked placeholder and fingerprints.
 Web's ProviderApiClient/ProviderStore and provider dialogs consume the SDK
 ProviderClient through the hosted App Server transport. Existing virtual
 credential identifiers and default-on-connect behavior remain unchanged.
-The exported standalone SDK HTTP/cloud transports still consume legacy routes;
-those route adapters call the same operations and must be removed when those
-remaining consumers migrate with provider preferences/resolution. Focused
-credential isolation, policy, error, cancellation and transport tests guard
-that final deletion. No second vault or browser credential persistence is added.
+The retired standalone SDK transport has no remaining route consumers. Focused
+credential isolation, policy, error, cancellation and transport tests guard the
+hosted methods. No second vault or browser credential persistence is added.
 
 Credential mutations consume and validate the existing runtime response before
 returning success. Connect, default-on-connect, label writes, disconnect and
@@ -389,13 +385,11 @@ preference, and resolution requests. The standalone SDK `/api/byok` transport
 and its public root/subpath exports are retired; callers migrate from
 `baseUrl: "<brain-origin>/api/byok"` to `appServerBaseUrl: "<brain-origin>"`.
 
-Brain's older provider route/controller adapters remain temporarily without
-active SDK or Web consumers so their controller-specific auth, rate-limit, and
-response safeguards can be migrated in the next provider route retirement
-slice. Delete those adapters when equivalent App Server controller tests cover
-each retained safeguard and no route-specific behavior remains; the provider
-scope/error/default/visibility tests in the SDK/App Server path remain the
-acceptance gate for this transport cutover.
+Brain's legacy provider route adapters and `ProviderController` are deleted.
+The App Server provider integration suite retains the meaningful authentication,
+scope, policy, error, default-model, credential, and visibility safeguards;
+route-only response behavior no longer has an active consumer. The provider
+scope/error/default/visibility tests in this path remain the acceptance gate.
 Browser selection/readiness repair remains a separate pending authority slice;
 this extraction introduces no local vault, selection store or new policy.
 

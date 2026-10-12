@@ -4,7 +4,6 @@ import { AuthController } from "./controllers/AuthController";
 import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
 import { RunController } from "./controllers/RunController";
-import { ProviderController } from "./controllers/ProviderController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { ChatMediaController } from "./controllers/ChatMediaController";
@@ -189,59 +188,6 @@ function createRouter(): Router {
     EditArtifactController.getDiff,
     "GET",
   );
-
-  // BYOK v3 routes
-  router.add(
-    /^\/api\/byok\/providers\/[^/]+\/models$/,
-    ProviderController.byokProviderModels,
-    "GET",
-  );
-  router.add(
-    /^\/api\/byok\/providers\/[^/]+\/models\/refresh$/,
-    ProviderController.byokRefreshProviderModels,
-    "POST",
-  );
-  router.add(
-    /^\/api\/byok\/providers$/,
-    ProviderController.byokProviders,
-    "GET",
-  );
-  router.add(
-    /^\/api\/byok\/credentials$/,
-    ProviderController.byokCredentials,
-    "GET",
-  );
-  router.add(
-    /^\/api\/byok\/credentials$/,
-    ProviderController.byokConnectCredential,
-    "POST",
-  );
-  router.add(
-    /^\/api\/byok\/credentials\/[^/]+$/,
-    ProviderController.byokUpdateCredential,
-    "PATCH",
-  );
-  router.add(
-    /^\/api\/byok\/credentials\/[^/]+$/,
-    ProviderController.byokDisconnectCredential,
-    "DELETE",
-  );
-  router.add(
-    /^\/api\/byok\/credentials\/[^/]+\/validate$/,
-    ProviderController.byokValidateCredential,
-    "POST",
-  );
-  router.add(
-    /^\/api\/byok\/preferences$/,
-    ProviderController.byokGetPreferencesV3,
-    "GET",
-  );
-  router.add(
-    /^\/api\/byok\/preferences$/,
-    ProviderController.byokPreferencesV3,
-    "PATCH",
-  );
-  router.add(/^\/api\/byok\/resolve$/, ProviderController.byokResolve, "POST");
 
   return router;
 }
