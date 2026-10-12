@@ -103,6 +103,64 @@ describe("buildChatEntries", () => {
     });
   });
 
+  it.each([
+    { name: "assistant text exact match", terminalContent: "Unused", storedText: "  Done from canonical  ", expected: false },
+    { name: "terminal fallback exact match", assistantText: "", expected: false },
+    { name: "substring remains visible", storedText: "Done from", expected: true },
+    { name: "different final remains visible", storedText: "Older answer", expected: true },
+    { name: "another turn remains visible", messageTurnId: "trn_otherhistorical01", expected: true },
+    { name: "commentary remains visible", phase: "commentary", expected: true },
+    { name: "unreplayed text remains visible", lastSequence: 0, expected: true },
+    { name: "non-completed projection remains visible", terminalState: "interrupted" as const, expected: true },
+    { name: "explicit failed row remains visible", storedTerminalState: "failed", expected: true },
+    { name: "explicit interrupted row remains visible", storedTerminalState: "interrupted", expected: true },
+  ])("$name", (testCase) => {
+    const canonicalFinal = "Done from canonical";
+    const assistantText = testCase.assistantText ?? canonicalFinal;
+    const terminalContent = testCase.terminalContent ?? canonicalFinal;
+    const turnId = TurnIdSchema.parse("trn_historicalfinal01");
+    const user = withTurnIdentity(
+      createMessage("user-historical", "user", "Inspect the repo"),
+      turnId,
+    );
+    const assistant = withTurnIdentity(
+      createMessage(
+        "assistant-historical",
+        "assistant",
+        testCase.storedText ?? canonicalFinal,
+      ),
+      testCase.messageTurnId ?? turnId,
+    ) as Message & { data: { metadata: Record<string, unknown> } };
+    assistant.data.metadata = {
+      ...assistant.data.metadata,
+      phase: testCase.phase ?? "final_answer",
+      ...(testCase.storedTerminalState
+        ? { terminalState: testCase.storedTerminalState }
+        : {}),
+    };
+    const projection = {
+      ...createLifecycleProjection(turnId),
+      lastSequence: testCase.lastSequence ?? 1,
+      assistantText,
+      terminal: {
+        state: testCase.terminalState ?? ("completed" as const),
+        eventId: "evt_historicalfinal01",
+        content: terminalContent,
+        occurredAt: "2026-06-25T00:00:01.000Z",
+      },
+    };
+
+    const entries = buildChatEntries(buildConversationTurns([user, assistant]), {
+      [turnId]: projection,
+    });
+    expect(
+      entries.some(
+        (entry) =>
+          entry.kind === "message" && entry.message.id === "assistant-historical",
+      ),
+    ).toBe(testCase.expected);
+  });
+
   it("keeps the active canonical workflow visible while transcript identity catches up", () => {
     const turnId = TurnIdSchema.parse("trn_activegap01");
     const user = createMessage("user-1", "user", "Inspect the repo");
