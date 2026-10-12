@@ -11,6 +11,7 @@ import * as SessionMetadata from "../../services/api/sessionMetadata";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import type { AgentSession } from "../../types/session";
+import { TurnIdSchema } from "@repo/platform-protocol";
 import { useSessionManager } from "../useSessionManager";
 import { SessionStateService } from "../../services/SessionStateService";
 
@@ -29,12 +30,11 @@ describe("useSessionManager", () => {
       async (sessionId) =>
         createArchivedServerSession(sessionId, "2026-05-15T00:00:00.000Z"),
     );
-    vi.spyOn(SessionStateService, "acknowledgeSession").mockImplementation(
+    vi.spyOn(SessionMetadata, "acknowledgeSessionReadReceipt").mockImplementation(
       async (sessionId, terminalTurnId) => ({
-        ...createArchivedServerSession(sessionId, "2026-05-15T00:00:00.000Z"),
-        archivedAt: null,
-        lastTerminalTurnId: terminalTurnId,
-        lastAcknowledgedTerminalTurnId: terminalTurnId,
+        sessionId,
+        lastAcknowledgedTerminalTurnId: TurnIdSchema.parse(terminalTurnId),
+        acknowledgedAt: "2026-05-15T00:00:00.000Z",
       }),
     );
   });
@@ -198,10 +198,10 @@ describe("useSessionManager", () => {
         (session) => session.id === sessionId,
       )!.updatedAt;
 
-      vi.mocked(SessionStateService.acknowledgeSession).mockResolvedValueOnce({
-        ...result.current.sessions.find((session) => session.id === sessionId)!,
-        updatedAt: "2099-01-01T00:00:00.000Z",
-        lastAcknowledgedTerminalTurnId: "trn_terminal001",
+      vi.mocked(SessionMetadata.acknowledgeSessionReadReceipt).mockResolvedValueOnce({
+        sessionId,
+        lastAcknowledgedTerminalTurnId: TurnIdSchema.parse("trn_terminal001"),
+        acknowledgedAt: "2026-10-12T00:00:00.000Z",
       });
 
       await act(async () => {
@@ -215,6 +215,65 @@ describe("useSessionManager", () => {
         "trn_terminal001",
       );
       expect(acknowledged?.updatedAt).toBe(activityTimestamp);
+    });
+
+    it("does not let a late acknowledgement overwrite a newer terminal or receipt", async () => {
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      await act(async () => {
+        sessionId = await result.current.createSession("Unread task", "repo");
+        result.current.updateSession(sessionId, { lastTerminalTurnId: "trn_terminal001" });
+      });
+      let resolveAcknowledgement!: (value: { sessionId: string; lastAcknowledgedTerminalTurnId: ReturnType<typeof TurnIdSchema.parse>; acknowledgedAt: string }) => void;
+      vi.mocked(SessionMetadata.acknowledgeSessionReadReceipt).mockReturnValueOnce(new Promise((resolve) => {
+        resolveAcknowledgement = resolve;
+      }));
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = result.current.acknowledgeSession(sessionId);
+        await Promise.resolve();
+      });
+      await act(async () => {
+        result.current.updateSession(sessionId, {
+          lastTerminalTurnId: "trn_terminal002",
+          lastAcknowledgedTerminalTurnId: "trn_terminal002",
+        });
+      });
+      await act(async () => {
+        resolveAcknowledgement({ sessionId, lastAcknowledgedTerminalTurnId: TurnIdSchema.parse("trn_terminal001"), acknowledgedAt: "2026-10-12T00:00:01.000Z" });
+        await pending;
+      });
+      const current = result.current.sessions.find((session) => session.id === sessionId);
+      expect(current?.lastTerminalTurnId).toBe("trn_terminal002");
+      expect(current?.lastAcknowledgedTerminalTurnId).toBe("trn_terminal002");
+    });
+
+    it("rolls back an old optimistic receipt when its request fails after a newer terminal", async () => {
+      const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
+      await act(async () => {
+        sessionId = await result.current.createSession("Unread task", "repo");
+        result.current.updateSession(sessionId, { lastTerminalTurnId: "trn_terminal001" });
+      });
+      let rejectAcknowledgement!: (reason: Error) => void;
+      vi.mocked(SessionMetadata.acknowledgeSessionReadReceipt).mockReturnValueOnce(new Promise((_, reject) => {
+        rejectAcknowledgement = reject;
+      }));
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = result.current.acknowledgeSession(sessionId);
+        await Promise.resolve();
+      });
+      await act(async () => {
+        result.current.updateSession(sessionId, { lastTerminalTurnId: "trn_terminal002" });
+      });
+      await act(async () => {
+        rejectAcknowledgement(new Error("stale receipt"));
+        await pending;
+      });
+      const current = result.current.sessions.find((session) => session.id === sessionId);
+      expect(current?.lastTerminalTurnId).toBe("trn_terminal002");
+      expect(current?.lastAcknowledgedTerminalTurnId).toBeNull();
     });
   });
 

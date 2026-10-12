@@ -154,11 +154,6 @@ export function runApprovalPath(): string {
   return `${getBrainHttpBase()}/api/run/approval`;
 }
 
-/** Remaining read-receipt baseline path awaits its scoped hosted owner cutover. */
-export function sessionReadReceiptPath(sessionId: string): string {
-  return `${getBrainHttpBase()}/api/sessions/${encodeURIComponent(sessionId)}/read-receipt`;
-}
-
 /**
  * Build the canonical git status endpoint URL through Brain.
  * Used for fetching current git status for a run-scoped workspace.

@@ -666,7 +666,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     // untouched while optimistically clearing the unread marker.
     setSessions((current) => {
       const next = current.map((candidate) =>
-        candidate.id === id
+        candidate.id === id && candidate.lastTerminalTurnId === terminalTurnId
           ? updateAcknowledgement(candidate, terminalTurnId)
           : candidate,
       );
@@ -675,20 +675,22 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     });
 
     try {
-      const serverSession = await SessionStateService.acknowledgeSession(
+      const serverReceipt = await SessionMetadata.acknowledgeSessionReadReceipt(
         id,
         terminalTurnId,
       );
-      if (serverSession.id !== id) {
+      if (serverReceipt.sessionId !== id) {
         throw new Error("Session read receipt response id mismatch");
+      }
+      if (serverReceipt.lastAcknowledgedTerminalTurnId !== terminalTurnId) {
+        throw new Error("Session read receipt response turn mismatch");
       }
       setSessions((current) => {
         const next = current.map((candidate) =>
-          candidate.id === id
-            ? updateAcknowledgement(
-                candidate,
-                serverSession.lastAcknowledgedTerminalTurnId ?? terminalTurnId,
-              )
+          candidate.id === id &&
+          candidate.lastTerminalTurnId === terminalTurnId &&
+          candidate.lastAcknowledgedTerminalTurnId === terminalTurnId
+            ? updateAcknowledgement(candidate, serverReceipt.lastAcknowledgedTerminalTurnId)
             : candidate,
         );
         sessionsRef.current = next;
