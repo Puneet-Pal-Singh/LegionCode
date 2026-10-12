@@ -1,8 +1,7 @@
-import { AppServerController } from "./AppServerController";
+import { AppServerController } from "../../controllers/AppServerController";
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { describe, it, expect } from "vitest";
-import { ProviderController } from "./ProviderController";
-import type { Env } from "../types/ai";
+import type { Env } from "../../types/ai";
 import type {
   BYOKModelPricing,
   ProviderConnectionConfig,
@@ -559,276 +558,7 @@ function jsonError(message: string, status: number, code?: string): Response {
   });
 }
 
-describe("ProviderController", () => {
-  describe("byok v2", () => {
-    it("connects provider with valid API key", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        "http://localhost/api/byok/providers/connect",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            providerId: "openai",
-            apiKey: "sk-test-1234567890",
-          }),
-          headers: await withByokHeaders(env),
-        },
-      );
-
-      const response = await ProviderController.byokConnect(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.status).toBe("connected");
-      expect(data.providerId).toBe("openai");
-    });
-
-    it("fails connect without runId", async () => {
-      const env = createMockEnv();
-      const headers = await withByokHeaders(env);
-      delete headers["X-Run-Id"];
-
-      const request = new Request(
-        "http://localhost/api/byok/providers/connect",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            providerId: "openai",
-            apiKey: "sk-test-1234567890",
-          }),
-          headers,
-        },
-      );
-
-      const response = await ProviderController.byokConnect(request, env);
-      expect(response.status).toBe(400);
-    });
-
-    it("rejects requests without valid auth claims", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        "http://localhost/api/byok/providers/catalog",
-        {
-          method: "GET",
-          headers: { "X-Run-Id": TEST_RUN_ID },
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(401);
-      expect(data.error.code).toBe("AUTH_FAILED");
-    });
-
-    it("rejects client-supplied user scope mismatch", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        "http://localhost/api/byok/providers/catalog",
-        {
-          method: "GET",
-          headers: await withByokHeaders(env, {
-            "X-User-Id": "different-user",
-          }),
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(403);
-      expect(data.error.code).toBe("AUTH_FAILED");
-    });
-
-    it("rejects unauthorized workspace scope", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        "http://localhost/api/byok/providers/catalog",
-        {
-          method: "GET",
-          headers: await withByokHeaders(env, {
-            "X-Workspace-Id": "workspace-other",
-          }),
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(403);
-      expect(data.error.code).toBe("AUTH_FAILED");
-    });
-
-    it("rejects provider requests without a persisted workspace claim", async () => {
-      const env = createMockEnv({ omitWorkspaceClaims: true });
-      const request = new Request(
-        "http://localhost/api/byok/providers/catalog",
-        {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error.code).toBe("VALIDATION_ERROR");
-      expect(data.error.message).toBe("Missing default workspace claim.");
-    });
-
-    it("rejects legacy query scope parameters", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        `http://localhost/api/byok/providers/catalog?runId=${TEST_RUN_ID}`,
-        {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      expect(response.status).toBe(400);
-    });
-
-    it("returns provider catalog", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        "http://localhost/api/byok/providers/catalog",
-        {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(data.providers)).toBe(true);
-      expect(data.providers[0].capabilities.streaming).toBe(true);
-    });
-
-    it("returns connections after byok connect", async () => {
-      const env = createMockEnv();
-      await ProviderController.byokConnect(
-        new Request("http://localhost/api/byok/providers/connect", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "openai",
-            apiKey: "sk-test-1234567890",
-          }),
-        }),
-        env,
-      );
-
-      const response = await ProviderController.byokConnections(
-        new Request("http://localhost/api/byok/providers/connections", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(
-        data.connections.some(
-          (connection: { providerId: string; status: string }) =>
-            connection.providerId === "openai" &&
-            connection.status === "connected",
-        ),
-      ).toBe(true);
-    });
-
-    it("disconnects a connected provider", async () => {
-      const env = createMockEnv();
-      await ProviderController.byokConnect(
-        new Request("http://localhost/api/byok/providers/connect", {
-          method: "POST",
-          body: JSON.stringify({
-            providerId: "openai",
-            apiKey: "sk-test-1234567890",
-          }),
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-
-      const request = new Request(
-        "http://localhost/api/byok/providers/disconnect",
-        {
-          method: "POST",
-          body: JSON.stringify({ providerId: "openai" }),
-          headers: await withByokHeaders(env),
-        },
-      );
-
-      const response = await ProviderController.byokDisconnect(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.status).toBe("disconnected");
-      expect(data.providerId).toBe("openai");
-    });
-
-    it("returns normalized error envelope for validate on disconnected provider", async () => {
-      const env = createMockEnv();
-      const response = await ProviderController.byokValidate(
-        new Request("http://localhost/api/byok/providers/validate", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({ providerId: "openai" }),
-        }),
-        env,
-      );
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error.code).toBe("PROVIDER_NOT_CONNECTED");
-      expect(data.error.retryable).toBe(false);
-      expect(typeof data.error.correlationId).toBe("string");
-    });
-
-    it("stores and returns preferences", async () => {
-      const env = createMockEnv();
-      const patchResponse = await ProviderController.byokPreferences(
-        new Request("http://localhost/api/byok/preferences", {
-          method: "PATCH",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            defaultProviderId: "groq",
-            defaultModelId: "llama-3.3-70b-versatile",
-          }),
-        }),
-        env,
-      );
-      const patchData = await patchResponse.json();
-
-      expect(patchResponse.status).toBe(200);
-      expect(patchData.defaultProviderId).toBe("groq");
-      expect(patchData.defaultModelId).toBe("llama-3.3-70b-versatile");
-      expect(typeof patchData.updatedAt).toBe("string");
-
-      const getHeaders = await withByokHeaders(env);
-      delete getHeaders["Content-Type"];
-      const getResponse = await ProviderController.byokGetPreferences(
-        new Request("http://localhost/api/byok/preferences", {
-          method: "GET",
-          headers: getHeaders,
-        }),
-        env,
-      );
-      const getData = await getResponse.json();
-
-      expect(getResponse.status).toBe(200);
-      expect(getData.defaultProviderId).toBe("groq");
-      expect(getData.defaultModelId).toBe("llama-3.3-70b-versatile");
-      expect(typeof getData.updatedAt).toBe("string");
-    });
-  });
-
+describe("Hosted provider discovery", () => {
   describe("hosted provider discovery isolation", () => {
     async function catalogRequest(env: Env, headers: Record<string, string>) {
       return AppServerController.request(new Request("http://localhost/app-server/request", {
@@ -852,7 +582,7 @@ describe("ProviderController", () => {
     });
   });
 
-  describe("byok v3", () => {
+  describe("App Server provider discovery", () => {
     it("returns the canonical discovery envelope for the selected provider", async () => {
       const env = createMockEnv();
       const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models", params: {"runId":TEST_RUN_ID,"providerId":"openrouter","query":{}}}) }), env);
@@ -959,59 +689,6 @@ describe("ProviderController", () => {
       expect(data.error.message).toContain("Provider catalog unavailable");
     });
 
-    it("surfaces connection runtime errors as typed provider errors", async () => {
-      const env = createMockEnv({ connectionsError: true });
-      const response = await ProviderController.byokCredentials(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
-
-      expect(response.status).toBe(500);
-      expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
-      expect(data.error.message).toContain("Provider connections unavailable");
-    });
-
-    it("does not expose axis virtual credentials in production", async () => {
-      const env = createMockEnv({ environment: "production" });
-      const response = await ProviderController.byokCredentials(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        }),
-        env,
-      );
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
-      expect(
-        data.some(
-          (entry: { providerId: string }) => entry.providerId === "axis",
-        ),
-      ).toBe(false);
-    });
-
-    it("surfaces catalog runtime errors during resolution as typed provider errors", async () => {
-      const env = createMockEnv({ catalogError: true });
-      const response = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const data = await response.json();
-
-      expect(response.status).toBe(500);
-      expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
-      expect(data.error.message).toContain("Provider catalog unavailable");
-    });
-
     it("refreshes models for a provider", async () => {
       const env = createMockEnv();
       const response = await AppServerController.request(new Request("http://localhost/app-server/request", { method: "POST", headers: await withByokHeaders(env), body: JSON.stringify({protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/models/refresh", params: {"runId":TEST_RUN_ID,"providerId":"openrouter"}}) }), env);
@@ -1024,345 +701,7 @@ describe("ProviderController", () => {
       expect(data.cacheInvalidated).toBe(true);
     });
 
-    it("connects credential and resolves selection", async () => {
-      const env = createMockEnv();
-      const connectResponse = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "openai",
-            secret: "sk-test-NOT-A-REAL-KEY-1234567890",
-            label: "Primary",
-          }),
-        }),
-        env,
-      );
-      const connectData = await connectResponse.json();
 
-      expect(connectResponse.status).toBe(200);
-      expect(connectData.providerId).toBe("openai");
-      expect(connectData.label).toBe("Primary");
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(200);
-      expect(resolveData.providerId).toBe("openai");
-      expect(resolveData.credentialId).toBe(connectData.credentialId);
-      expect(resolveData.modelId).toBe("gpt-4o");
-      expect(resolveData.contextWindow).toBe(128_000);
-      expect(resolveData.pricing).toEqual({
-        inputPer1M: 2.5,
-        outputPer1M: 10,
-        currency: "USD",
-      });
-    });
-
-    it("connects credential when model discovery returns no selectable models", async () => {
-      const env = createMockEnv({ emptyCatalogProviders: ["openrouter"] });
-      const connectResponse = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "openrouter",
-            secret: "sk-or-test-NOT-A-REAL-KEY-1234567890",
-            label: "OpenRouter",
-          }),
-        }),
-        env,
-      );
-      const connectData = await connectResponse.json();
-
-      expect(connectResponse.status).toBe(200);
-      expect(connectData.providerId).toBe("openrouter");
-      expect(connectData.label).toBe("OpenRouter");
-    });
-
-    it("forwards Cloudflare AI connection config to the runtime", async () => {
-      const connectRequests: Array<{
-        providerId: ProviderId;
-        apiKey?: string;
-        config?: ProviderConnectionConfig;
-      }> = [];
-      const env = createMockEnv({ connectRequests });
-      const config: ProviderConnectionConfig = {
-        providerId: "cloudflare-ai",
-        accountId: "account_123",
-        gatewayId: "gateway-123",
-        routeMode: "ai-gateway",
-      };
-
-      const connectResponse = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "cloudflare-ai",
-            secret: "cf-test-token-1234567890",
-            label: "Cloudflare",
-            config,
-          }),
-        }),
-        env,
-      );
-      const connectData = await connectResponse.json();
-
-      expect(connectResponse.status).toBe(200);
-      expect(connectData.providerId).toBe("cloudflare-ai");
-      expect(connectRequests).toEqual([
-        {
-          providerId: "cloudflare-ai",
-          apiKey: "cf-test-token-1234567890",
-          config,
-        },
-      ]);
-    });
-
-    it("resolves axis platform defaults when no BYOK credential is selected in staging", async () => {
-      const env = createMockEnv({ environment: "staging" });
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(200);
-      expect(resolveData.providerId).toBe("axis");
-      expect(resolveData.resolvedAt).toBe("platform_defaults");
-      expect(resolveData.quota).toEqual({
-        used: 0,
-        limit: 5,
-        resetsAt: "2026-03-12T00:00:00.000Z",
-      });
-    });
-
-    it("ignores failed provider connection states during resolve selection", async () => {
-      const env = createMockEnv({
-        environment: "staging",
-        failedConnectionProviders: ["axis"],
-      });
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(400);
-      expect(resolveData.error.code).toBe("AUTH_FAILED");
-      expect(resolveData.error.message).toContain(
-        "Missing AXIS_OPENROUTER_API_KEY",
-      );
-    });
-
-    it("returns provider unavailable when session repository reads fail", async () => {
-      const env = createMockEnv({ sessionsGetError: true });
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(503);
-      expect(resolveData.error.code).toBe("PROVIDER_UNAVAILABLE");
-      expect(resolveData.error.retryable).toBe(true);
-      expect(resolveData.error.message).toContain(
-        "Session store is temporarily unavailable",
-      );
-    });
-
-    it("disables implicit axis fallback in production", async () => {
-      const env = createMockEnv({ environment: "production" });
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(400);
-      expect(resolveData.error.code).toBe("PROVIDER_NOT_CONNECTED");
-      expect(resolveData.error.message).toContain("provider");
-    });
-
-    it("returns recovery guidance when axis platform credential is unavailable in staging", async () => {
-      const env = createMockEnv({
-        axisConnected: false,
-        environment: "staging",
-      });
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({}),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(400);
-      expect(resolveData.error.code).toBe("AUTH_FAILED");
-      expect(resolveData.error.message).toContain(
-        "Missing AXIS_OPENROUTER_API_KEY",
-      );
-      expect(resolveData.error.message).toContain(
-        "Connect a BYOK API-key provider",
-      );
-    });
-
-    it("fails fast when session-selected provider is not connected", async () => {
-      const env = createMockEnv();
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({ providerId: "openai" }),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(400);
-      expect(resolveData.error.code).toBe("PROVIDER_NOT_CONNECTED");
-      expect(resolveData.error.message).toContain("openai");
-    });
-
-    it("does not leak workspace default model into a different session-selected provider", async () => {
-      const env = createMockEnv();
-
-      const connectOpenai = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "openai",
-            secret: "sk-test-openai-1234567890",
-          }),
-        }),
-        env,
-      );
-      expect(connectOpenai.status).toBe(200);
-
-      const connectGroq = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "groq",
-            secret: "gsk-test-groq-1234567890",
-          }),
-        }),
-        env,
-      );
-      expect(connectGroq.status).toBe(200);
-
-      const patchResponse = await ProviderController.byokPreferencesV3(
-        new Request("http://localhost/api/byok/preferences", {
-          method: "PATCH",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            defaultProviderId: "groq",
-            defaultModelId: "llama-3.3-70b-versatile",
-          }),
-        }),
-        env,
-      );
-      expect(patchResponse.status).toBe(200);
-
-      const resolveResponse = await ProviderController.byokResolve(
-        new Request("http://localhost/api/byok/resolve", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({ providerId: "openai" }),
-        }),
-        env,
-      );
-      const resolveData = await resolveResponse.json();
-
-      expect(resolveResponse.status).toBe(200);
-      expect(resolveData.providerId).toBe("openai");
-      expect(resolveData.modelId).toBe("gpt-4o");
-      expect(resolveData.resolvedAt).toBe("session_preference");
-    });
-
-    it("rejects fallback preference fields in v3 endpoints", async () => {
-      const env = createMockEnv();
-      const patchResponse = await ProviderController.byokPreferencesV3(
-        new Request("http://localhost/api/byok/preferences", {
-          method: "PATCH",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            fallbackMode: "allow_fallback",
-            fallbackChain: ["openrouter", "groq"],
-          }),
-        }),
-        env,
-      );
-      const patchData = await patchResponse.json();
-
-      expect(patchResponse.status).toBe(400);
-      expect(patchData.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("disconnects credential by credentialId", async () => {
-      const env = createMockEnv();
-      const connectResponse = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "groq",
-            secret: "gsk_test_provider_state_1234567890",
-          }),
-        }),
-        env,
-      );
-      const connectData = await connectResponse.json();
-
-      const disconnectHeaders = await withByokHeaders(env);
-      delete disconnectHeaders["Content-Type"];
-      const disconnectResponse =
-        await ProviderController.byokDisconnectCredential(
-          new Request(
-            `http://localhost/api/byok/credentials/${connectData.credentialId}`,
-            {
-              method: "DELETE",
-              headers: disconnectHeaders,
-            },
-          ),
-          env,
-        );
-
-      expect(disconnectResponse.status).toBe(204);
-    });
   });
 });
 
@@ -1400,6 +739,56 @@ describe("hosted App Server credentials", () => {
     expect(missing.body.error.message).toContain("was not found");
   });
 
+  it("connects a provider even when discovery has no selectable models", async () => {
+    const env = createMockEnv({ emptyCatalogProviders: ["openrouter"] });
+    const connected = await call(env, "connect", {
+      request: {
+        providerId: "openrouter",
+        secret: "sk-or-test-NOT-A-REAL-KEY-1234567890",
+        label: "OpenRouter",
+      },
+    });
+
+    expect(connected.status).toBe(200);
+    expect(connected.body.result).toMatchObject({
+      providerId: "openrouter",
+      label: "OpenRouter",
+    });
+  });
+
+  it("forwards Cloudflare AI account and gateway config to the runtime", async () => {
+    const connectRequests: Array<{
+      providerId: ProviderId;
+      apiKey?: string;
+      config?: ProviderConnectionConfig;
+    }> = [];
+    const env = createMockEnv({ connectRequests });
+    const config: ProviderConnectionConfig = {
+      providerId: "cloudflare-ai",
+      accountId: "account_123",
+      gatewayId: "gateway-123",
+      routeMode: "ai-gateway",
+    };
+    const connected = await call(env, "connect", {
+      request: {
+        providerId: "cloudflare-ai",
+        secret: "cf-test-token-1234567890",
+        label: "Cloudflare",
+        config,
+      },
+    });
+
+    expect(connected.status).toBe(200);
+    expect(connected.body.result.providerId).toBe("cloudflare-ai");
+    expect(connectRequests).toEqual([
+      {
+        providerId: "cloudflare-ai",
+        apiKey: "cf-test-token-1234567890",
+        config,
+      },
+    ]);
+  });
+
   it.each([
     ["connect", "/providers/connect", "POST"],
     ["connect", "/providers/preferences", "PATCH"],
@@ -1432,6 +821,13 @@ describe("hosted App Server credentials", () => {
     const result = await call(createMockEnv(), "list", {}, { "content-type": "application/json" });
     expect(result.status).toBe(401);
     expect(result.body.error.code).toBe("unauthorized");
+  });
+
+  it("returns unavailable when the authenticated session store cannot be read", async () => {
+    const result = await call(createMockEnv({ sessionsGetError: true }), "list", {});
+
+    expect(result.status).toBe(503);
+    expect(result.body.error.code).toBe("server_unavailable");
   });
 
   it("rejects missing authenticated workspace claims", async () => {
@@ -1534,6 +930,112 @@ describe("hosted App Server preferences and resolution", () => {
     const resolved = await call(env, "provider/resolve", { request: { providerId: "openai" } });
     expect(resolved.status).toBe(400);
     expect(resolved.body.error.code).toBe("PROVIDER_NOT_CONNECTED");
+  });
+
+  it("does not implicitly select Axis in production without a configured provider", async () => {
+    const result = await call(
+      createMockEnv({ environment: "production" }),
+      "provider/resolve",
+      { request: {} },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("PROVIDER_NOT_CONNECTED");
+  });
+
+  it("does not resolve a provider whose stored connection state failed", async () => {
+    const result = await call(
+      createMockEnv({
+        environment: "staging",
+        failedConnectionProviders: ["axis"],
+      }),
+      "provider/resolve",
+      { request: {} },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("AUTH_FAILED");
+    expect(result.body.error.message).toContain(
+      "Missing AXIS_OPENROUTER_API_KEY",
+    );
+  });
+
+  it("retains Axis recovery guidance when the staging credential is unavailable", async () => {
+    const result = await call(
+      createMockEnv({ axisConnected: false, environment: "staging" }),
+      "provider/resolve",
+      { request: {} },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("AUTH_FAILED");
+    expect(result.body.error.message).toContain(
+      "Missing AXIS_OPENROUTER_API_KEY",
+    );
+    expect(result.body.error.message).toContain(
+      "Connect a BYOK API-key provider",
+    );
+  });
+
+  it("does not reuse a different provider's workspace default model for an override", async () => {
+    const env = createMockEnv();
+    const connect = async (providerId: ProviderId, secret: string) =>
+      call(env, "provider/credentials/connect", {
+        request: { providerId, secret },
+      });
+    expect(await connect("openai", "sk-test-openai-1234567890")).toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+    expect(await connect("groq", "gsk-test-groq-1234567890")).toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+
+    const updated = await call(env, "provider/preferences/update", {
+      request: {
+        defaultProviderId: "groq",
+        defaultModelId: "llama-3.3-70b-versatile",
+      },
+    });
+    expect(updated.status).toBe(200);
+
+    const resolved = await call(env, "provider/resolve", {
+      request: { providerId: "openai" },
+    });
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.result).toMatchObject({
+      providerId: "openai",
+      modelId: "gpt-4o",
+      resolvedAt: "session_preference",
+    });
+  });
+
+  it("rejects legacy fallback fields in the canonical preference update", async () => {
+    const result = await call(createMockEnv(), "provider/preferences/update", {
+      request: {
+        fallbackMode: "allow_fallback",
+        fallbackChain: ["openrouter", "groq"],
+      },
+    });
+
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("invalid_request");
+  });
+
+  it("returns normalized provider errors when catalog lookup fails during resolution", async () => {
+    const result = await call(
+      createMockEnv({ catalogError: true }),
+      "provider/resolve",
+      { request: {} },
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body.error).toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      retryable: true,
+      statusCode: 500,
+    });
   });
 
   it("retains runtime errors and rejects malformed intent/caller tenancy", async () => {

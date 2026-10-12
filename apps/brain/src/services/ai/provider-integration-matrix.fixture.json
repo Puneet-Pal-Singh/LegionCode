@@ -151,7 +151,7 @@
   "tests": [
     {
       "flow": "byok-controller-api-surface",
-      "file": "apps/brain/src/controllers/ProviderController.test.ts"
+      "file": "apps/brain/src/integration/app-server/HostedProviderOperations.test.ts"
     },
     {
       "flow": "provider-state-contract-integration",
