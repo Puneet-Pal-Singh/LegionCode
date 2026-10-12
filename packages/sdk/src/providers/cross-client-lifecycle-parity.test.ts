@@ -1,9 +1,10 @@
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { createProviderClient } from "./client.js";
 import { createByokCloudTransport } from "./cloud-transport.js";
-import { createByokHttpTransport } from "./http-transport.js";
+import { createProviderAppServerTransport } from "./app-server-transport.js";
 
-const BASE_URL = "http://localhost:8788/api/byok";
+const BASE_URL = "http://localhost:8788";
 const PROVIDER_ID = "openai";
 const CREDENTIAL_ID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -13,15 +14,15 @@ describe("provider client cross-client lifecycle parity", () => {
     const cloudMock = createLifecycleFetchMock();
 
     const webClient = createProviderClient(
-      createByokHttpTransport({
-        baseUrl: BASE_URL,
+      createProviderAppServerTransport({
+        appServerBaseUrl: BASE_URL,
         getRunId: () => "run_web001",
         fetchImpl: webMock.fetchImpl,
       }),
     );
     const cloudClient = createProviderClient(
       createByokCloudTransport({
-        baseUrl: BASE_URL,
+        appServerBaseUrl: BASE_URL,
         getRunId: () => "run_desktop001",
         getAccessToken: () => "desktop-token",
         fetchImpl: cloudMock.fetchImpl,
@@ -88,10 +89,24 @@ function createLifecycleFetchMock(): { fetchImpl: typeof fetch; calls: string[] 
   const calls: string[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = toUrl(input);
-    const method = (init?.method ?? "GET").toUpperCase();
-    calls.push(`${method} ${url.pathname}${url.search}`);
+    expect(url.pathname).toBe("/app-server/request");
+    expect(init?.method).toBe("POST");
+    const envelope = JSON.parse(String(init?.body));
+    const { runId, ...params } = envelope.params;
+    expect(runId).toMatch(/^run_/);
+    const method = envelope.method;
+    calls.push(JSON.stringify({ method, params }));
+    const createJsonResponse = (status: number, payload: unknown) =>
+      Response.json({
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method,
+        ok: status < 400,
+        ...(status < 400
+          ? { result: method === "provider/catalog" ? { providers: payload } : payload }
+          : { error: payload }),
+      }, { status });
 
-    if (method === "GET" && url.pathname === "/api/byok/providers") {
+    if (method === "provider/catalog") {
       return createJsonResponse(200, [
         {
           providerId: "openai",
@@ -111,8 +126,7 @@ function createLifecycleFetchMock(): { fetchImpl: typeof fetch; calls: string[] 
     }
 
     if (
-      method === "GET" &&
-      url.pathname === `/api/byok/providers/${PROVIDER_ID}/models`
+      method === "provider/models"
     ) {
       return createJsonResponse(200, {
         providerId: PROVIDER_ID,
@@ -139,8 +153,7 @@ function createLifecycleFetchMock(): { fetchImpl: typeof fetch; calls: string[] 
     }
 
     if (
-      method === "POST" &&
-      url.pathname === `/api/byok/providers/${PROVIDER_ID}/models/refresh`
+      method === "provider/models/refresh"
     ) {
       return createJsonResponse(200, {
         providerId: PROVIDER_ID,
@@ -151,24 +164,22 @@ function createLifecycleFetchMock(): { fetchImpl: typeof fetch; calls: string[] 
       });
     }
 
-    if (method === "GET" && url.pathname === "/api/byok/credentials") {
+    if (method === "provider/credentials/list") {
       return createJsonResponse(200, [createCredentialFixture("Primary")]);
     }
 
-    if (method === "POST" && url.pathname === "/api/byok/credentials") {
+    if (method === "provider/credentials/connect") {
       return createJsonResponse(200, createCredentialFixture("Primary"));
     }
 
     if (
-      method === "PATCH" &&
-      url.pathname === `/api/byok/credentials/${CREDENTIAL_ID}`
+      method === "provider/credentials/update"
     ) {
       return createJsonResponse(200, createCredentialFixture("Updated"));
     }
 
     if (
-      method === "POST" &&
-      url.pathname === `/api/byok/credentials/${CREDENTIAL_ID}/validate`
+      method === "provider/credentials/validate"
     ) {
       return createJsonResponse(200, {
         credentialId: CREDENTIAL_ID,
@@ -177,15 +188,15 @@ function createLifecycleFetchMock(): { fetchImpl: typeof fetch; calls: string[] 
       });
     }
 
-    if (method === "GET" && url.pathname === "/api/byok/preferences") {
+    if (method === "provider/preferences/read") {
       return createJsonResponse(200, createPreferenceFixture());
     }
 
-    if (method === "PATCH" && url.pathname === "/api/byok/preferences") {
+    if (method === "provider/preferences/update") {
       return createJsonResponse(200, createPreferenceFixture());
     }
 
-    if (method === "POST" && url.pathname === "/api/byok/resolve") {
+    if (method === "provider/resolve") {
       return createJsonResponse(200, {
         providerId: PROVIDER_ID,
         credentialId: CREDENTIAL_ID,
@@ -196,10 +207,9 @@ function createLifecycleFetchMock(): { fetchImpl: typeof fetch; calls: string[] 
     }
 
     if (
-      method === "DELETE" &&
-      url.pathname === `/api/byok/credentials/${CREDENTIAL_ID}`
+      method === "provider/credentials/disconnect"
     ) {
-      return new Response(null, { status: 204 });
+      return createJsonResponse(200, { disconnected: true });
     }
 
     return createJsonResponse(500, {
@@ -224,13 +234,6 @@ function toUrl(input: RequestInfo | URL): URL {
     return input;
   }
   return new URL(input.url);
-}
-
-function createJsonResponse(status: number, payload: unknown): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }
 
 function createCredentialFixture(label: string): Record<string, unknown> {

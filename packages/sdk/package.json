@@ -19,8 +19,8 @@
     "./platform/types": "./src/platform/types.ts",
     "./navigation/thread-sidebar-projection": "./src/navigation/thread-sidebar-projection.ts",
     "./providers/client": "./src/providers/client.ts",
+    "./providers/app-server-transport": "./src/providers/app-server-transport.ts",
     "./providers/cloud-transport": "./src/providers/cloud-transport.ts",
-    "./providers/http-transport": "./src/providers/http-transport.ts",
     "./providers/types": "./src/providers/types.ts",
     "./providers/errors": "./src/providers/errors.ts",
     "./providers/state-machine": "./src/providers/state-machine.ts"

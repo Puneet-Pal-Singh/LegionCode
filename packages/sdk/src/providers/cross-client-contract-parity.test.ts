@@ -1,10 +1,11 @@
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { createProviderClient } from "./client.js";
 import { ProviderClientOperationError } from "./errors.js";
-import { createByokHttpTransport } from "./http-transport.js";
+import { createProviderAppServerTransport } from "./app-server-transport.js";
 import { createByokCloudTransport } from "./cloud-transport.js";
 
-const BASE_URL = "http://localhost:8788/api/byok";
+const BASE_URL = "http://localhost:8788";
 
 describe("provider client cross-client parity", () => {
   it("returns identical catalog contracts for web and desktop cloud transports", async () => {
@@ -27,15 +28,15 @@ describe("provider client cross-client parity", () => {
     ) as unknown as typeof fetch;
 
     const webClient = createProviderClient(
-      createByokHttpTransport({
-        baseUrl: BASE_URL,
+      createProviderAppServerTransport({
+        appServerBaseUrl: BASE_URL,
         getRunId: () => "run_web001",
         fetchImpl,
       }),
     );
     const desktopClient = createProviderClient(
       createByokCloudTransport({
-        baseUrl: BASE_URL,
+        appServerBaseUrl: BASE_URL,
         getRunId: () => "run_desktop001",
         getAccessToken: () => "desktop-token",
         fetchImpl,
@@ -62,15 +63,15 @@ describe("provider client cross-client parity", () => {
     ) as unknown as typeof fetch;
 
     const webClient = createProviderClient(
-      createByokHttpTransport({
-        baseUrl: BASE_URL,
+      createProviderAppServerTransport({
+        appServerBaseUrl: BASE_URL,
         getRunId: () => "run_web001",
         fetchImpl,
       }),
     );
     const desktopClient = createProviderClient(
       createByokCloudTransport({
-        baseUrl: BASE_URL,
+        appServerBaseUrl: BASE_URL,
         getRunId: () => "run_desktop001",
         getAccessToken: () => "desktop-token",
         fetchImpl,
@@ -104,7 +105,16 @@ async function getOperationError(
 }
 
 function createJsonResponse(status: number, payload: unknown): Response {
-  return new Response(JSON.stringify(payload), {
+  const error = payload as { error?: Record<string, unknown> };
+  const envelope = {
+    protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+    method: "provider/catalog",
+    ok: status < 400,
+    ...(status < 400
+      ? { result: { providers: payload } }
+      : { error: { ...error.error, statusCode: status } }),
+  };
+  return new Response(JSON.stringify(envelope), {
     status,
     headers: { "content-type": "application/json" },
   });

@@ -1,5 +1,5 @@
 export { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
-export { createProviderAppServerTransport } from "./providers/app-server-transport.js";
+export { createProviderAppServerTransport, type ProviderAppServerTransportOptions } from "./providers/app-server-transport.js";
 export {
   AppServerClientError,
   createAppServerClient,
@@ -137,10 +137,6 @@ export {
   createProviderClient,
   type ProviderClientTransport,
 } from "./providers/client.js";
-export {
-  createByokHttpTransport,
-  type ProviderHttpTransportOptions,
-} from "./providers/http-transport.js";
 export {
   createByokCloudTransport,
   type ProviderCloudTransportOptions,

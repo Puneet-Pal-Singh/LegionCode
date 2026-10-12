@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { createProviderClient } from "./client.js";
-import { createByokHttpTransport } from "./http-transport.js";
 import { createProviderAppServerTransport } from "./app-server-transport.js";
 
 const runId = "run_123456";
@@ -16,36 +15,20 @@ function response(method: string, result: unknown) {
 
 describe("hosted provider AppServer transport", () => {
   it.each([401, 429, 503])(
-    "preserves existing non-JSON HTTP %s error behavior",
+    "normalizes non-JSON HTTP %s failures with status and retry guidance",
     async (status) => {
-      const options = {
-        baseUrl: "https://brain.test/api/byok",
-        getRunId: () => runId,
-        fetchImpl: async () =>
-          new Response("Upstream temporarily unavailable", {
-            status,
-            headers: { "content-type": "text/plain" },
-          }),
-      };
-      const capture = async (operation: () => Promise<unknown>) => {
-        try {
-          await operation();
-          throw new Error("Expected error");
-        } catch (error) {
-          return error;
-        }
-      };
-      const previous = await capture(() =>
-        createByokHttpTransport(options).discoverProviders(),
-      );
-      const current = await capture(() =>
+      const client = createProviderClient(
         createProviderAppServerTransport({
-          ...options,
+          getRunId: () => runId,
           appServerBaseUrl: "https://brain.test",
-        }).discoverProviders(),
+          fetchImpl: async () =>
+            new Response("Upstream temporarily unavailable", {
+              status,
+              headers: { "content-type": "text/plain" },
+            }),
+        }),
       );
-      expect(current).toMatchObject(previous as object);
-      expect(current).toMatchObject({
+      await expect(client.discoverProviders()).rejects.toMatchObject({
         code: "INVALID_ERROR_RESPONSE",
         statusCode: status,
         retryable: status >= 500 || status === 429,
@@ -53,10 +36,64 @@ describe("hosted provider AppServer transport", () => {
     },
   );
 
+  it.each([
+    [null, "MISSING_RUN_ID"],
+    ["session_stale_scope", "INVALID_REQUEST_CONTRACT"],
+  ] as const)("rejects a non-canonical run id before fetch", async (invalidRunId, code) => {
+    const fetchImpl = vi.fn();
+    const client = createProviderClient(
+      createProviderAppServerTransport({
+        appServerBaseUrl: "https://brain.test",
+        getRunId: () => invalidRunId,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    );
+
+    await expect(client.discoverProviders()).rejects.toMatchObject({
+      code,
+      statusCode: 400,
+      retryable: false,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps caller headers and explicit authorization while protecting canonical headers", async () => {
+    const fetchImpl = vi.fn<
+      [RequestInfo | URL, RequestInit?],
+      Promise<Response>
+    >(async (...args) => {
+      expect(args[0]).toBe("https://brain.test/app-server/request");
+      expect(args[1]?.method).toBe("POST");
+      return response("provider/catalog", { providers: [] });
+    });
+    const client = createProviderClient(
+      createProviderAppServerTransport({
+        appServerBaseUrl: "https://brain.test",
+        getRunId: () => runId,
+        getHeaders: () => ({
+          Authorization: "Bearer explicit-token",
+          "X-Client-Id": "desktop",
+          "X-Run-Id": "caller-run",
+          "Content-Type": "text/plain",
+          Accept: "text/plain",
+        }),
+        fetchImpl,
+      }),
+    );
+
+    await client.discoverProviders();
+
+    const headers = new Headers(fetchImpl.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer explicit-token");
+    expect(headers.get("X-Client-Id")).toBe("desktop");
+    expect(headers.get("X-Run-Id")).toBe(runId);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(headers.get("Accept")).toBe("application/json");
+  });
+
   it("preserves malformed JSON error status and retry guidance", async () => {
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async () =>
@@ -105,7 +142,6 @@ describe("hosted provider AppServer transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -127,7 +163,6 @@ describe("hosted provider AppServer transport", () => {
   it("preserves normalized provider errors, retryability, correlation and HTTP status", async () => {
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async () =>
@@ -159,7 +194,6 @@ describe("hosted provider AppServer transport", () => {
   it("rejects mismatched method errors instead of accepting their provider payload", async () => {
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async () =>
@@ -216,7 +250,6 @@ describe("hosted provider AppServer transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -276,7 +309,6 @@ describe("hosted credential transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -326,8 +358,7 @@ describe("hosted credential transport", () => {
     ]) {
       const client = createProviderClient(
         createProviderAppServerTransport({
-          baseUrl: "https://brain.test/api/byok",
-          appServerBaseUrl: "https://brain.test",
+            appServerBaseUrl: "https://brain.test",
           getRunId: () => runId,
           fetchImpl: async () => wireResponse,
         }),
@@ -342,7 +373,6 @@ describe("hosted credential transport", () => {
     const controller = new AbortController();
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl: async (_input, init) => {
@@ -393,7 +423,6 @@ describe("hosted preference transport", () => {
     );
     const client = createProviderClient(
       createProviderAppServerTransport({
-        baseUrl: "https://brain.test/api/byok",
         appServerBaseUrl: "https://brain.test",
         getRunId: () => runId,
         fetchImpl,
@@ -441,8 +470,7 @@ describe("hosted preference transport", () => {
     ]) {
       const client = createProviderClient(
         createProviderAppServerTransport({
-          baseUrl: "https://brain.test/api/byok",
-          appServerBaseUrl: "https://brain.test",
+            appServerBaseUrl: "https://brain.test",
           getRunId: () => runId,
           fetchImpl: async () => wireResponse,
         }),
@@ -477,7 +505,6 @@ it("sets the large visibility-body routing hint only from the actual SDK method"
   );
   const client = createProviderClient(
     createProviderAppServerTransport({
-      baseUrl: "https://brain.test/api/byok",
       appServerBaseUrl: "https://brain.test",
       getRunId: () => runId,
       getHeaders: () => ({
