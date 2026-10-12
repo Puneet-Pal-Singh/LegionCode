@@ -15,6 +15,19 @@ describe("Brain auth route wiring", () => {
     );
   });
 
+  it("routes provider operations through App Server without legacy BYOK routes", () => {
+    const workerSource = readFileSync(
+      new URL("./index.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(workerSource).toContain(
+      'router.add(/^\\/app-server\\/request$/, AppServerController.request, "POST");',
+    );
+    expect(workerSource).not.toContain("/api/byok");
+    expect(workerSource).not.toContain("ProviderController");
+  });
+
   it("does not touch repository or R2 from scheduled retention during run freeze", async () => {
     const env = new Proxy(
       { LAUNCH_EMERGENCY_SHUTOFF_MODE: " BLOCK_RUNS " },
