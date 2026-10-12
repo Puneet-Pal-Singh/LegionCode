@@ -339,3 +339,7 @@ export {
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
 export type { AdmitTurnWithPromptInput, ReserveTurnAdmissionInput, TurnAdmissionRecord, TurnAdmissionRepository } from "./turn-admissions/types.js";
 export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
+export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-receipts.js";
+export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
+export { SessionReadReceiptError } from "./session-read-receipts/types.js";
+export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";

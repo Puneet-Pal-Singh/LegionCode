@@ -29,6 +29,7 @@ import { canonicalWorkspaceManifestMigration } from "./0021-canonical-workspace-
 import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
 import { threadTitleReadReceiptsMigration } from "./0023-thread-title-read-receipts.js";
 import { chatDurabilityMigration } from "./0032-chat-durability.js";
+import { sessionReadReceiptsMigration } from "./0033-session-read-receipts.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -102,4 +103,5 @@ export const persistenceMigrations = [
   hookDefinitionsMigration,
   sessionThreadIdentityMigration,
   chatDurabilityMigration,
+  sessionReadReceiptsMigration,
 ] as const;
