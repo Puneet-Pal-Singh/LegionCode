@@ -161,6 +161,53 @@ describe("buildChatEntries", () => {
     ).toBe(testCase.expected);
   });
 
+  it.each([
+    ["single item", "Checking the repository.", ["Checking the repository."], false, undefined, undefined],
+    ["combined items", "Checking the repository.", ["Checking the ", "repository."], false, undefined, undefined],
+    ["combined substring", "the repository", ["Checking the ", "repository."], true, undefined, undefined],
+    ["wrong turn", "Checking the repository.", ["Checking the repository."], true, "trn_othercommentary01", undefined],
+    ["failed turn", "Checking the repository.", ["Checking the repository."], true, undefined, "failed"],
+  ] as const)(
+    "historical commentary: %s",
+    (_name, storedText, commentary, expected, messageTurnId, terminalState) => {
+      const turnId = TurnIdSchema.parse("trn_historicalcommentary01");
+      const user = withTurnIdentity(
+        createMessage("user-commentary", "user", "Inspect the repo"),
+        turnId,
+      );
+      const assistant = withTurnIdentity(
+        createMessage("assistant-commentary", "assistant", storedText),
+        messageTurnId ?? turnId,
+      ) as Message & { data: { metadata: Record<string, unknown> } };
+      assistant.data.metadata.phase = "commentary";
+      const projection = {
+        ...createLifecycleProjection(turnId),
+        lastSequence: 1,
+        terminal: {
+          state: terminalState ?? ("completed" as const),
+          eventId: "evt_historicalcommentary01",
+          content: "Done",
+          occurredAt: "2026-06-25T00:00:01.000Z",
+        },
+        items: commentary.map((text, index) =>
+          commentaryItem(`itm_oldcommentary0${index + 1}`, text, index + 1),
+        ),
+      };
+
+      const entries = buildChatEntries(
+        buildConversationTurns([user, assistant]),
+        { [turnId]: projection },
+      );
+      expect(
+        entries.some(
+          (entry) =>
+            entry.kind === "message" &&
+            entry.message.id === "assistant-commentary",
+        ),
+      ).toBe(expected);
+    },
+  );
+
   it("keeps the active canonical workflow visible while transcript identity catches up", () => {
     const turnId = TurnIdSchema.parse("trn_activegap01");
     const user = createMessage("user-1", "user", "Inspect the repo");
@@ -237,6 +284,15 @@ function assistantItem(itemId: string) {
     compactionPhase: null,
     startedAt: "2026-06-25T00:00:00.000Z",
     completedAt: "2026-06-25T00:00:01.000Z",
+  };
+}
+
+function commentaryItem(itemId: string, text: string, sequence: number) {
+  return {
+    ...assistantItem(itemId),
+    sequence,
+    kind: "commentary" as const,
+    text,
   };
 }
 
