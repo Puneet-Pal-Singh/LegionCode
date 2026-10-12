@@ -45,6 +45,28 @@ describe("AppServerClient", () => {
     expect(response.environment).toBe("local");
   });
 
+  it("acknowledges a canonical terminal turn through the typed session operation", async () => {
+    let sent: AppServerRequest | undefined;
+    const sessionId = "550e8400-e29b-41d4-a716-446655440001";
+    const client = createAppServerClient({
+      clientId: "web",
+      clientVersion: "0.1.0",
+      transport: { request: async (envelope) => {
+        sent = envelope;
+        return {
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "session/readReceipt",
+          ok: true,
+          result: { sessionId, lastAcknowledgedTerminalTurnId: "trn_terminal123", acknowledgedAt: "2026-10-12T12:00:00.000Z" },
+        };
+      } },
+    });
+    await expect(client.acknowledgeSessionReadReceipt(sessionId, "trn_terminal123")).resolves.toEqual({
+      sessionId, lastAcknowledgedTerminalTurnId: "trn_terminal123", acknowledgedAt: "2026-10-12T12:00:00.000Z",
+    });
+    expect(sent).toMatchObject({ method: "session/readReceipt", params: { sessionId, terminalTurnId: "trn_terminal123" } });
+  });
+
   it("uses opaque workspace selection tokens and rejects invalid server results", async () => {
     let sent: AppServerRequest | undefined;
     const client = createAppServerClient({

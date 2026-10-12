@@ -23,6 +23,26 @@ describe("App Server protocol", () => {
       sessionId: envelope.params.sessionId, title: "x".repeat(81),
     } }).success).toBe(false);
   });
+
+  it("validates session receipt identity and typed conflict responses", () => {
+    const request = { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/readReceipt", params: {
+      sessionId: "550e8400-e29b-41d4-a716-446655440001", terminalTurnId: "trn_terminal123",
+    } };
+    expect(AppServerRequestSchema.safeParse(request).success).toBe(true);
+    expect(AppServerRequestSchema.safeParse({ ...request, params: { ...request.params, terminalTurnId: "550e8400-e29b-41d4-a716-446655440002" } }).success).toBe(false);
+    expect(AppServerResponseSchema.safeParse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "session/readReceipt",
+      ok: false,
+      error: { code: "conflict", message: "The terminal turn has changed" },
+    }).success).toBe(true);
+    expect(AppServerResponseSchema.safeParse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "session/readReceipt",
+      ok: true,
+      result: { sessionId: request.params.sessionId, lastAcknowledgedTerminalTurnId: "trn_terminal123", acknowledgedAt: "2026-10-12T12:00:00.000Z" },
+    }).success).toBe(true);
+  });
   it("accepts only strict, versioned requests with canonical IDs and params", () => {
     expect(
       AppServerRequestSchema.safeParse({

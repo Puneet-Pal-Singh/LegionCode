@@ -2,7 +2,7 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
-import type { HostedSession, HostedSessionCreateRequest, HostedSessionRenameRequest, HostedSessionsResponse } from "@repo/platform-protocol";
+import type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionsResponse, TurnId } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -53,6 +53,7 @@ export type AppServerComposition = {
   sessionMetadataService?: {
     list(): Promise<HostedSessionsResponse>;
     listArchived(): Promise<{ sessions: HostedSession[] }>;
+    readReceipt(params: { sessionId: string; terminalTurnId: TurnId }): Promise<HostedSessionReadReceipt>;
     create(params: HostedSessionCreateRequest): Promise<{ session: HostedSession }>;
     rename(params: HostedSessionRenameRequest): Promise<{ session: HostedSession }>;
     pin(sessionId: string): Promise<{ session: HostedSession }>;
@@ -209,6 +210,10 @@ async function dispatch(
     case "session/archived": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
       return composition.sessionMetadataService.listArchived();
+    }
+    case "session/readReceipt": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.readReceipt(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");

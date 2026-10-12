@@ -3,6 +3,7 @@ import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentia
 import {
   HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
+  HostedSessionReadReceiptRequestSchema, HostedSessionReadReceiptSchema,
   HostedSessionsResponseSchema, HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
   ConversationHistoryRequestSchema,
@@ -66,6 +67,7 @@ export const AppServerMethodSchema = z.enum([
   "session/unarchive",
   "session/delete",
   "session/archived",
+  "session/readReceipt",
 
   "workspace/list",
   "workspace/select",
@@ -112,6 +114,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/unarchive"), params: HostedSessionParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/delete"), params: HostedSessionParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/archived"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/readReceipt"), params: HostedSessionReadReceiptRequestSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -154,6 +157,7 @@ export const AppServerResultSchemas = {
   "session/unarchive": HostedSessionResponseSchema,
   "session/delete": z.object({ deleted: z.literal(true) }).strict(),
   "session/archived": HostedArchivedSessionsResponseSchema,
+  "session/readReceipt": HostedSessionReadReceiptSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -196,6 +200,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/unarchive", AppServerResultSchemas["session/unarchive"]),
   success("session/delete", AppServerResultSchemas["session/delete"]),
   success("session/archived", AppServerResultSchemas["session/archived"]),
+  success("session/readReceipt", AppServerResultSchemas["session/readReceipt"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
