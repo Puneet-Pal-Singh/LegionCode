@@ -2,7 +2,7 @@
   "version": "2026-04-01",
   "owners": {
     "schemas": "packages/shared-types/src/provider.ts",
-    "apiBoundary": "apps/brain/src/controllers/ProviderController.ts",
+    "apiBoundary": "apps/brain/src/controllers/AppServerController.ts",
     "runtime": "apps/brain/src/runtime/RunEngineRuntime.ts",
     "selectionPolicy": "apps/brain/src/services/ai/ModelSelectionPolicy.ts",
     "executionLanePolicy": "apps/brain/src/services/providers/ProviderRegistryService.ts"
@@ -150,7 +150,7 @@
   ],
   "tests": [
     {
-      "flow": "byok-controller-api-surface",
+      "flow": "hosted-app-server-provider-operations",
       "file": "apps/brain/src/integration/app-server/HostedProviderOperations.test.ts"
     },
     {

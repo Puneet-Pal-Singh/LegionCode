@@ -118,11 +118,12 @@ pnpm --filter @legioncode/web exec wrangler pages deploy --branch <branch-name>
 
 ## Provider API Contract
 
-The web app consumes provider routes through `ProviderApiClient` only:
+The web app consumes authenticated App Server provider methods through
+`ProviderApiClient` and the SDK `ProviderClient`:
 
-- `POST /api/byok/providers/connect` (provider API path)
-- `POST /api/byok/providers/disconnect`
-- `GET /api/byok/providers/connections`
-- `GET /api/byok/providers/catalog`
-- `POST /api/byok/providers/validate`
-- `PATCH /api/byok/preferences`
+- `provider/catalog`, `provider/models`, `provider/models/refresh`
+- `provider/credentials/list`, `connect`, `update`, `validate`, `disconnect`
+- `provider/preferences/read`, `provider/preferences/update`, `provider/resolve`
+
+Viewer and workspace scope come from the verified session cookie. Brain does
+not register standalone `/api/byok/*` provider routes.

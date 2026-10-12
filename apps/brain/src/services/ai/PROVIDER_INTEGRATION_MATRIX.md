@@ -5,19 +5,24 @@ This document defines provider behavior expectations, ownership, and test covera
 ## Contract Ownership
 
 - Transport schemas: `packages/shared-types/src/provider.ts`
-- Public BYOK API routes: `apps/brain/src/controllers/ProviderController.ts`
+- Authenticated provider boundary: `apps/brain/src/controllers/AppServerController.ts`
+- Hosted provider operations: `apps/brain/src/integration/app-server/`
 - Runtime provider behavior: `apps/brain/src/runtime/RunEngineRuntime.ts`
 - Runtime selection policy: `apps/brain/src/services/ai/ModelSelectionPolicy.ts`
 - Execution lane policy: `apps/brain/src/services/providers/ProviderRegistryService.ts`
 
-## Endpoint Contract Surface
+## App Server Method Contract Surface
 
-- `GET /api/byok/providers/catalog`
-- `GET /api/byok/providers/connections`
-- `POST /api/byok/providers/connect`
-- `POST /api/byok/providers/validate`
-- `POST /api/byok/providers/disconnect`
-- `PATCH /api/byok/preferences`
+Provider operations are authenticated App Server methods with a canonical run
+ID in the request envelope:
+
+- `provider/catalog`, `provider/models`, `provider/models/refresh`
+- `provider/credentials/list`, `connect`, `update`, `validate`, `disconnect`
+- `provider/preferences/read`, `provider/preferences/update`
+- `provider/resolve`
+
+The server derives viewer and workspace from the verified session cookie. No
+standalone `/api/byok/*` route is registered.
 
 ## Provider Capability Matrix
 
@@ -59,7 +64,7 @@ Lane admission is **capability-driven only**. No lane rejection is based on prov
 
 | Flow                                     | Primary Test File                                                     |
 | ---------------------------------------- | --------------------------------------------------------------------- |
-| BYOK controller API surface              | `apps/brain/src/controllers/ProviderController.test.ts`               |
+| Hosted provider App Server operations    | `apps/brain/src/integration/app-server/HostedProviderOperations.test.ts` |
 | Provider state contract integration      | `apps/brain/src/integration/provider-state.contract.test.ts`          |
 | Strict provider/model mismatch policy    | `apps/brain/src/services/ai/ModelSelectionPolicy.strict-mode.test.ts` |
 | Durable credential persistence semantics | `apps/brain/src/services/providers/DurableProviderStore.test.ts`      |
