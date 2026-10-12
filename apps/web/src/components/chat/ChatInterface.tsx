@@ -179,6 +179,7 @@ export function ChatInterface({
   const {
     selectedReviewComments,
     selectPromptArtifactReview,
+    selectCanonicalTurnReview,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
     markReviewCommentsDispatched,
@@ -454,6 +455,7 @@ export function ChatInterface({
       artifacts={artifactSourcesByAssistantMessageId}
       loadChangedFileDiff={loadChangedFileDiff}
       selectPromptArtifactReview={selectPromptArtifactReview}
+      selectCanonicalTurnReview={selectCanonicalTurnReview}
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalViewModel ? completedTurnReview.files : []}
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
