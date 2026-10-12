@@ -906,11 +906,15 @@ describe("hosted App Server preferences and resolution", () => {
     expect((await call(env, "provider/preferences/update", { request: { visibleModelIds } }, headers)).status).toBe(401);
   });
 
-  it("preserves platform Axis resolution and quota when policy permits", async () => {
-    const result = await call(createMockEnv(), "provider/resolve", { request: {} });
+  it("preserves platform Axis resolution and quota when policy permits in staging", async () => {
+    const result = await call(createMockEnv({ environment: "staging" }), "provider/resolve", { request: {} });
     expect(result.status).toBe(200);
     expect(result.body.result).toMatchObject({ providerId: "axis", resolvedAt: "platform_defaults" });
-    expect(result.body.result.quota).toMatchObject({ used: expect.any(Number), limit: expect.any(Number) });
+    expect(result.body.result.quota).toEqual({
+      used: 0,
+      limit: 5,
+      resetsAt: "2026-03-12T00:00:00.000Z",
+    });
   });
 
   it("rejects unauthenticated or foreign viewer/workspace preference access", async () => {
