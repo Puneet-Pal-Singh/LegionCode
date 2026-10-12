@@ -111,10 +111,26 @@ function isRepresentedByWorkflow(
     return false;
   const metadata = readMessageMetadata(message);
   const itemId = metadata?.itemId;
-  if (typeof itemId !== "string") return false;
   const phase = metadata?.phase;
   const messageContent = message.content.trim();
   if (!messageContent) return false;
+  if (itemId === undefined || itemId === null) {
+    const storedTerminalState = metadata?.terminalState;
+    if (
+      phase !== "final_answer" ||
+      projection.lastSequence <= 0 ||
+      projection.terminal?.state !== "completed" ||
+      (typeof storedTerminalState === "string" &&
+        storedTerminalState !== "completed" &&
+        storedTerminalState !== "completed_with_warnings")
+    ) {
+      return false;
+    }
+    const renderedFinalText =
+      projection.assistantText || projection.terminal.content;
+    return renderedFinalText.trim() === messageContent;
+  }
+  if (typeof itemId !== "string") return false;
   if (phase === "commentary") {
     return projection.items.some(
       (item) =>
