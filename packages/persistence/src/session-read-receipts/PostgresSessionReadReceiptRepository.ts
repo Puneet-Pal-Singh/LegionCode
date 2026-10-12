@@ -1,4 +1,5 @@
 import type { SqlClient, SqlRow } from "../sql.js";
+import { TurnIdSchema } from "@repo/platform-protocol";
 import type {
   AcknowledgeSessionReadReceiptInput,
   SessionReadReceipt,
@@ -29,8 +30,8 @@ export class PostgresSessionReadReceiptRepository implements SessionReadReceiptR
     const result = await this.client.query<ReadStateRow>(LIST_READ_STATES_SQL, [viewerId, [...sessionIds]]);
     return result.rows.map((row) => ({
       sessionId: row.session_id,
-      lastTerminalTurnId: row.last_terminal_turn_id,
-      lastAcknowledgedTerminalTurnId: row.last_acknowledged_terminal_turn_id,
+      lastTerminalTurnId: row.last_terminal_turn_id === null ? null : TurnIdSchema.parse(row.last_terminal_turn_id),
+      lastAcknowledgedTerminalTurnId: row.last_acknowledged_terminal_turn_id === null ? null : TurnIdSchema.parse(row.last_acknowledged_terminal_turn_id),
       acknowledgedAt: row.acknowledged_at === null ? null : toIsoString(row.acknowledged_at),
     }));
   }
@@ -56,7 +57,7 @@ export class PostgresSessionReadReceiptRepository implements SessionReadReceiptR
       return {
         sessionId: row.session_id,
         viewerId: row.viewer_id,
-        lastAcknowledgedTerminalTurnId: row.last_acknowledged_terminal_turn_id,
+        lastAcknowledgedTerminalTurnId: TurnIdSchema.parse(row.last_acknowledged_terminal_turn_id),
         acknowledgedAt: toIsoString(row.acknowledged_at),
       };
     });
@@ -121,37 +122,7 @@ const LOCK_OWNED_SESSION_SQL = `
 const UPSERT_SESSION_RECEIPT_SQL = `
   INSERT INTO thread_read_receipts
     (session_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at)
-  SELECT $1::uuid, $2::text, $3::text, $4::timestamptz
-  WHERE EXISTS (
-    SELECT 1 FROM sessions session
-    WHERE session.id = $1 AND session.user_id = $2::uuid AND session.thread_id IS NOT NULL
-      AND EXISTS (
-        SELECT 1 FROM canonical_turn_admissions admission
-        JOIN canonical_lifecycle_events event
-          ON event.thread_id = admission.thread_id
-         AND event.turn_id = admission.turn_id
-         AND event.run_attempt_id = admission.run_attempt_id
-         AND event.event_type IN (${TERMINAL_EVENT_TYPES})
-        WHERE admission.session_id = session.id
-          AND admission.thread_id = session.thread_id
-          AND admission.admission_state = 'admitted'
-          AND admission.admission_order IS NOT NULL
-          AND admission.turn_id = $3
-          AND NOT EXISTS (
-            SELECT 1 FROM canonical_turn_admissions later
-            JOIN canonical_lifecycle_events later_event
-              ON later_event.thread_id = later.thread_id
-             AND later_event.turn_id = later.turn_id
-             AND later_event.run_attempt_id = later.run_attempt_id
-             AND later_event.event_type IN (${TERMINAL_EVENT_TYPES})
-            WHERE later.session_id = admission.session_id
-              AND later.thread_id = session.thread_id
-              AND later.admission_state = 'admitted'
-              AND later.admission_order IS NOT NULL
-              AND later.admission_order > admission.admission_order
-          )
-      )
-  )
+  VALUES ($1::uuid, ($2::uuid)::text, $3::text, $4::timestamptz)
   ON CONFLICT (session_id, viewer_id) DO UPDATE SET
     last_acknowledged_terminal_turn_id = EXCLUDED.last_acknowledged_terminal_turn_id,
     acknowledged_at = CASE

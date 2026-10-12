@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
+import { TurnIdSchema } from "@repo/platform-protocol";
 import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
@@ -59,10 +60,10 @@ describe("durable admission and canonical append SQL", () => {
     expect(await receipts.listReadStates(fixture.userId, [fixture.sessionId])).toEqual([
       { sessionId: fixture.sessionId, lastTerminalTurnId: second.turnId, lastAcknowledgedTerminalTurnId: null, acknowledgedAt: null },
     ]);
-    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: first.turnId, acknowledgedAt: "2026-10-12T00:00:00.000Z" }))
+    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(first.turnId), acknowledgedAt: "2026-10-12T00:00:00.000Z" }))
       .rejects.toMatchObject({ code: "stale_terminal_turn" });
-    const acknowledged = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: second.turnId, acknowledgedAt: "2026-10-12T00:00:01.000Z" });
-    const repeated = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: second.turnId, acknowledgedAt: "2026-10-12T00:00:02.000Z" });
+    const acknowledged = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId.toUpperCase(), terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:01.000Z" });
+    const repeated = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:02.000Z" });
     expect(repeated.acknowledgedAt).toBe(acknowledged.acknowledgedAt);
     expect((await receipts.listReadStates(fixture.userId, [fixture.sessionId]))[0]).toMatchObject({
       lastTerminalTurnId: second.turnId,
@@ -70,7 +71,7 @@ describe("durable admission and canonical append SQL", () => {
       acknowledgedAt: acknowledged.acknowledgedAt,
     });
     expect(await receipts.listReadStates(randomUUID(), [fixture.sessionId])).toEqual([]);
-    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: randomUUID(), terminalTurnId: second.turnId, acknowledgedAt: "2026-10-12T00:00:03.000Z" }))
+    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: randomUUID(), terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:03.000Z" }))
       .rejects.toMatchObject({ code: "session_not_found" });
   });
 
