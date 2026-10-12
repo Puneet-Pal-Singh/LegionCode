@@ -117,7 +117,7 @@ function isRepresentedByWorkflow(
   if (itemId === undefined || itemId === null) {
     const storedTerminalState = metadata?.terminalState;
     if (
-      phase !== "final_answer" ||
+      (phase !== "final_answer" && phase !== "commentary") ||
       projection.lastSequence <= 0 ||
       projection.terminal?.state !== "completed" ||
       (typeof storedTerminalState === "string" &&
@@ -125,6 +125,14 @@ function isRepresentedByWorkflow(
         storedTerminalState !== "completed_with_warnings")
     ) {
       return false;
+    }
+    if (phase === "commentary") {
+      const renderedCommentary = projection.items
+        .filter((item) => item.kind === "commentary")
+        .map((item) => item.text)
+        .join("")
+        .trim();
+      return renderedCommentary === messageContent;
     }
     const renderedFinalText =
       projection.assistantText || projection.terminal.content;
