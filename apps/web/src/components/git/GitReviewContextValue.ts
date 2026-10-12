@@ -70,6 +70,7 @@ export interface GitReviewContextValue {
     identity?: EditArtifactIdentity,
   ) => void;
   openLiveGitReview: () => void;
+  selectCanonicalTurnReview: (source: CanonicalTurnReviewSource) => void;
   closeReview: () => void;
   selectFile: (file: FileStatus) => void;
   addReviewComment: (input: CreateReviewCommentInput) => void;

@@ -17,7 +17,10 @@ import {
   buildLifecycleTerminalViewModel,
   collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
-import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
+import {
+  useCompletedTurnReview,
+  type CompletedTurnReview,
+} from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
@@ -31,6 +34,7 @@ import type { ChatInterfaceEntry } from "./chatEntries";
 import type { HydrationStatus } from "../../../services/ChatHydrationService";
 import type { ComposerLayout } from "./ChatComposerControls";
 import type { ArtifactOpenHandler } from "../artifactOpen";
+import type { CanonicalTurnReviewSource } from "../../../services/review/ReviewSourceResolver.js";
 import { ChevronDown, Folder } from "lucide-react";
 
 interface ChatInterfaceViewProps {
@@ -65,6 +69,7 @@ interface ChatInterfaceViewProps {
     messageId?: string,
     identity?: EditArtifactIdentity,
   ) => void;
+  selectCanonicalTurnReview: (source: CanonicalTurnReviewSource) => void;
   terminalViewModel: LifecycleTerminalViewModel | null;
   terminalReviewFiles: FileStatus[];
   terminalTurnDiff: TurnDiffPayload | null;
@@ -317,6 +322,7 @@ function TerminalMessage(
   },
 ) {
   const terminal = props.terminalViewModel;
+  const completedTurnReview = useCompletedTurnReview(props.projection, null);
   if (!terminal) return null;
 
   if (terminal.state !== "completed") {
@@ -335,6 +341,17 @@ function TerminalMessage(
       </div>
     );
   }
+
+  const openCanonicalTurnReview = () => {
+    if (!completedTurnReview.turnId) return;
+    props.selectCanonicalTurnReview({
+      turnId: completedTurnReview.turnId,
+      files: completedTurnReview.files,
+      loadFileDiff: completedTurnReview.loadFileDiff,
+      error: completedTurnReview.error,
+    });
+    props.onReviewOpen?.();
+  };
 
   return (
     <ChatMessage
@@ -359,7 +376,7 @@ function TerminalMessage(
                 );
                 props.onReviewOpen?.();
               },
-              onReviewOpen: props.onReviewOpen,
+              onReviewOpen: openCanonicalTurnReview,
             })
           : resolveTerminalChangedFilesSummary({
               terminalViewModel: terminal,
@@ -375,7 +392,7 @@ function TerminalMessage(
                 );
                 props.onReviewOpen?.();
               },
-              onReviewOpen: props.onReviewOpen,
+              onReviewOpen: openCanonicalTurnReview,
             })
       }
       hookAudits={props.hookAudits}
