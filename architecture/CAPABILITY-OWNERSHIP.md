@@ -380,9 +380,22 @@ runtime workspace preferences and provider services remain authoritative;
 HostedProviderPreferences binds the verified viewer/run/workspace through the
 same hosted provider scope as discovery/credentials. SDK ProviderClient and
 Web ProviderApiClient/ProviderStore consume those validated hosted operations.
-Standalone SDK HTTP/cloud transports still require thin delegated route adapters
-until the final provider transport cutover. Remove them once every exported
-transport uses App Server and scope/error/default/visibility tests pass.
+All exported SDK provider transports now use the authenticated App Server.
+`createProviderAppServerTransport` is the canonical hosted transport, and
+`createByokCloudTransport` delegates to it while preserving omitted cookie
+credentials and explicit Authorization precedence. Web's ProviderApiClient and
+SDK ProviderClient use the hosted operations for discovery, credential,
+preference, and resolution requests. The standalone SDK `/api/byok` transport
+and its public root/subpath exports are retired; callers migrate from
+`baseUrl: "<brain-origin>/api/byok"` to `appServerBaseUrl: "<brain-origin>"`.
+
+Brain's older provider route/controller adapters remain temporarily without
+active SDK or Web consumers so their controller-specific auth, rate-limit, and
+response safeguards can be migrated in the next provider route retirement
+slice. Delete those adapters when equivalent App Server controller tests cover
+each retained safeguard and no route-specific behavior remains; the provider
+scope/error/default/visibility tests in the SDK/App Server path remain the
+acceptance gate for this transport cutover.
 Browser selection/readiness repair remains a separate pending authority slice;
 this extraction introduces no local vault, selection store or new policy.
 

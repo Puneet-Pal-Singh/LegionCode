@@ -138,10 +138,6 @@ export {
   type ProviderClientTransport,
 } from "./providers/client.js";
 export {
-  createByokHttpTransport,
-  type ProviderHttpTransportOptions,
-} from "./providers/http-transport.js";
-export {
   createByokCloudTransport,
   type ProviderCloudTransportOptions,
 } from "./providers/cloud-transport.js";

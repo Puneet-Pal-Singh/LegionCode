@@ -58,7 +58,14 @@ describe("hosted provider AppServer transport", () => {
   });
 
   it("keeps caller headers and explicit authorization while protecting canonical headers", async () => {
-    const fetchImpl = vi.fn(async () => response("provider/catalog", { providers: [] }));
+    const fetchImpl = vi.fn<
+      [RequestInfo | URL, RequestInit?],
+      Promise<Response>
+    >(async (...args) => {
+      expect(args[0]).toBe("https://brain.test/app-server/request");
+      expect(args[1]?.method).toBe("POST");
+      return response("provider/catalog", { providers: [] });
+    });
     const client = createProviderClient(
       createProviderAppServerTransport({
         appServerBaseUrl: "https://brain.test",

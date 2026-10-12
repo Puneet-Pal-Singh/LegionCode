@@ -23,13 +23,13 @@ This package covers `ModelProvider` flows only.
 ## Public Provider Surface
 
 - `createProviderClient`
-- `createByokHttpTransport`
+- `createProviderAppServerTransport`
 - `createByokCloudTransport`
 - `ProviderClient` and related transport/error/state-machine types
 
 Primary files:
 - `src/providers/client.ts`
-- `src/providers/http-transport.ts`
+- `src/providers/app-server-transport.ts`
 - `src/providers/cloud-transport.ts`
 - `src/providers/errors.ts`
 - `src/providers/state-machine.ts`
@@ -39,11 +39,11 @@ Primary files:
 Web client:
 
 ```ts
-import { createProviderClient, createByokHttpTransport } from "@legioncode/sdk";
+import { createProviderClient, createProviderAppServerTransport } from "@legioncode/sdk";
 
 const client = createProviderClient(
-  createByokHttpTransport({
-    baseUrl: `${brainBaseUrl}/api/byok`,
+  createProviderAppServerTransport({
+    appServerBaseUrl: brainBaseUrl,
     getRunId: () => runId,
   }),
 );
@@ -56,12 +56,22 @@ import { createProviderClient, createByokCloudTransport } from "@legioncode/sdk"
 
 const client = createProviderClient(
   createByokCloudTransport({
-    baseUrl: `${brainBaseUrl}/api/byok`,
+    appServerBaseUrl: brainBaseUrl,
     getRunId: () => runId,
     getAccessToken: () => token,
   }),
 );
 ```
+
+`appServerBaseUrl` is the origin/base URL for the authenticated App Server;
+the SDK sends provider operations to `/app-server/request`. Migrate older
+`createByokHttpTransport({ baseUrl: ".../api/byok" })` usage to
+`createProviderAppServerTransport({ appServerBaseUrl: "..." })`. Cloud callers
+can keep `createByokCloudTransport`; it uses the same App Server contract with
+`credentials: "omit"`, while a caller-supplied Authorization header takes
+precedence over the optional bearer token. The destination determines which
+authentication headers it accepts; the SDK transport does not define a server
+authentication policy.
 
 ## Ownership Boundaries
 
