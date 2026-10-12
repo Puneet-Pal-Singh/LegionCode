@@ -294,6 +294,25 @@ existing active workspace records. Local Thread semantics remain separate.
 Web metadata cutover follows; read-receipt producer/store wiring needs its scoped
 ownership decision before that missing baseline path can be completed.
 
+### Plan 058 hosted session read receipts
+
+The existing `thread_read_receipts` table remains the sole receipt store. Its
+schema adds nullable `session_id UUID REFERENCES sessions(id) ON DELETE CASCADE`,
+makes `thread_id` nullable, drops the `(thread_id, viewer_id)` primary key,
+retains the thread foreign key and all existing rows, and adds unique
+`(thread_id, viewer_id)` and `(session_id, viewer_id)` constraints plus a check
+requiring exactly one owner binding. Existing thread receipt upserts retain
+their conflict target; no rows are fabricated or backfilled.
+
+A narrow session receipt repository over that table owns only per-viewer
+acknowledgement and the derived hosted read state. It derives the latest
+terminal turn from admitted canonical turn admissions joined to committed
+terminal lifecycle events with matching thread, turn, and run-attempt identity;
+runtime lifecycle append remains the only terminal producer. AppServer composes
+the repository with the cookie-verified viewer, and SDK/Web consume its typed
+`session/readReceipt` operation and session list/archived read-state fields.
+TranscriptRepository and lifecycle persistence retain their existing owners.
+
 ### Plan 058 Web session metadata cutover
 
 Navigation, title refresh and archived-session callers use existing SDK
