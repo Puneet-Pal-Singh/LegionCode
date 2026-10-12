@@ -1,21 +1,23 @@
+import type { TurnId } from "@repo/platform-protocol";
+
 export interface SessionReadState {
   sessionId: string;
-  lastTerminalTurnId: string | null;
-  lastAcknowledgedTerminalTurnId: string | null;
+  lastTerminalTurnId: TurnId | null;
+  lastAcknowledgedTerminalTurnId: TurnId | null;
   acknowledgedAt: string | null;
 }
 
 export interface SessionReadReceipt {
   sessionId: string;
   viewerId: string;
-  lastAcknowledgedTerminalTurnId: string;
+  lastAcknowledgedTerminalTurnId: TurnId;
   acknowledgedAt: string;
 }
 
 export interface AcknowledgeSessionReadReceiptInput {
   sessionId: string;
   viewerId: string;
-  terminalTurnId: string;
+  terminalTurnId: TurnId;
   acknowledgedAt: string;
 }
 
