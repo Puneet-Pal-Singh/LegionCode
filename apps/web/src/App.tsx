@@ -1019,7 +1019,7 @@ function AppContent() {
   }
 
   return (
-    <ClientShell environment={environment}>
+    <ClientShell environment={environment.status === "ready" ? undefined : environment}>
       <WorkspaceFrame
         sidebar={
           <div className="flex h-full">
@@ -1039,7 +1039,7 @@ function AppContent() {
               onRemoveRepository={removeRepository}
               onRenameRepository={renameRepository}
               onClose={() => {
-                if (isCompact) setIsSidebarOpen(false);
+                setIsSidebarOpen(false);
               }}
               onAddRepository={handleOpenRepositoryPicker}
               onOpenSettings={() => openSettingsDialog("general")}
