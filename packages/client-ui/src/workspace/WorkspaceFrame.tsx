@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { PanelLeftOpen } from "lucide-react";
 
 const COMPACT_WORKSPACE_QUERY = "(max-width: 1023px)";
 const SIDEBAR_FOCUSABLE_SELECTOR =
@@ -126,16 +127,19 @@ export function WorkspaceFrame({
       ) : null}
       <div className="lc-workspace-main" inert={isModalOpen}>
         <div className="lc-workspace-topbar">
-          <button
-            ref={menuButtonRef}
-            className="lc-workspace-menu-button"
-            type="button"
-            aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
-            aria-expanded={isSidebarOpen}
-            onClick={() => setSidebarOpen(!isSidebarOpen)}
-          >
-            <span aria-hidden="true">☰</span>
-          </button>
+          {!isSidebarOpen ? (
+            <button
+              ref={menuButtonRef}
+              className="lc-workspace-menu-button rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+              type="button"
+              aria-label="Open sidebar"
+              aria-expanded={false}
+              title="Open sidebar"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <PanelLeftOpen size={16} aria-hidden="true" />
+            </button>
+          ) : null}
           {topBar}
         </div>
         <main className="lc-workspace-content">{children}</main>

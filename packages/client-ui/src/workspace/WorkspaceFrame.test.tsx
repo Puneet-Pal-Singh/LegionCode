@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { WorkspaceFrame } from "./WorkspaceFrame.js";
 
 afterEach(cleanup);
@@ -23,26 +24,28 @@ function mockViewport(width: number): void {
 beforeEach(() => mockViewport(800));
 
 function renderWorkspace(sidebarOpen?: boolean) {
-  return render(
-    <WorkspaceFrame
-      sidebar={
-        <aside>
-          <button type="button">First navigation link</button>
-          <button type="button">Last navigation link</button>
-          <button type="button" tabIndex={-1}>
-            Roving archive action
-          </button>
-          <button type="button" style={{ display: "none" }}>
-            Hidden archive action
-          </button>
-        </aside>
-      }
-      topBar={<span>Workspace</span>}
-      sidebarOpen={sidebarOpen}
-    >
-      <button type="button">Main content action</button>
-    </WorkspaceFrame>,
-  );
+  function Harness() {
+    const [open, setOpen] = useState(sidebarOpen ?? false);
+    return (
+      <WorkspaceFrame
+        sidebar={
+          <aside>
+            <button type="button" onClick={() => setOpen(false)}>Close sidebar</button>
+            <button type="button">First navigation link</button>
+            <button type="button">Last navigation link</button>
+            <button type="button" tabIndex={-1}>Roving archive action</button>
+            <button type="button" style={{ display: "none" }}>Hidden archive action</button>
+          </aside>
+        }
+        topBar={<span>Workspace</span>}
+        sidebarOpen={open}
+        onSidebarOpenChange={setOpen}
+      >
+        <button type="button">Main content action</button>
+      </WorkspaceFrame>
+    );
+  }
+  return render(<Harness />);
 }
 
 describe("WorkspaceFrame responsive navigation", () => {
@@ -53,7 +56,7 @@ describe("WorkspaceFrame responsive navigation", () => {
     fireEvent.click(menuButton);
 
     const dialog = screen.getByRole("dialog", { name: "Workspace navigation" });
-    const first = screen.getByRole("button", { name: "First navigation link" });
+    const first = screen.getByRole("button", { name: "Close sidebar" });
     const last = screen.getByRole("button", { name: "Last navigation link" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(screen.getByRole("button", { name: "Main content action", hidden: true }).closest(".lc-workspace-main"))
@@ -72,7 +75,7 @@ describe("WorkspaceFrame responsive navigation", () => {
     expect(screen.getByTestId("workspace-sidebar")).not.toHaveClass("lc-workspace-sidebar-open");
     expect(screen.getByRole("button", { name: "Main content action" }).closest(".lc-workspace-main"))
       .not.toHaveAttribute("inert");
-    expect(menuButton).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Open sidebar" })).toHaveFocus();
   });
 
   it("does not steal focus when mounted with an open compact drawer", () => {
@@ -92,17 +95,18 @@ describe("WorkspaceFrame responsive navigation", () => {
     expect(sidebar).not.toHaveClass("lc-workspace-sidebar-open");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
     expect(sidebar).toHaveClass("lc-workspace-sidebar-open");
     expect(sidebar).not.toHaveAttribute("aria-modal");
     expect(sidebar).not.toHaveAttribute("role", "dialog");
     expect(screen.getByRole("button", { name: "Main content action" }).closest(".lc-workspace-main"))
       .not.toHaveAttribute("inert");
 
-    fireEvent.click(menuButton);
+    expect(screen.queryByRole("button", { name: "Open sidebar" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
     expect(sidebar).not.toHaveClass("lc-workspace-sidebar-open");
-    expect(menuButton).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(menuButton);
+    expect(screen.getByRole("button", { name: "Open sidebar" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
     expect(sidebar).toHaveClass("lc-workspace-sidebar-open");
   });
 });
