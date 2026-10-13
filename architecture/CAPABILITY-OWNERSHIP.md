@@ -357,8 +357,12 @@ and existing-profile data preservation in the later authority slice.
 Results reuse ProviderRegistryEntry, BYOKDiscoveredProviderModelsResponse and
 BYOKDiscoveredProviderModelsRefreshResponse. Provider failures retain the existing
 NormalizedProviderError fields plus HTTP statusCode at the AppServer envelope.
-No credentials are included in discovery results. Server validates the cookie,
-user/workspace claims and canonical run before calling the existing runtime owner.
+No credentials are included in discovery results. Server validates the cookie
+principal and canonical run, then binds the workspace to that user's persisted
+run/session; an unbound run or setup request uses the user's persisted active
+workspace selection. Explicit workspace headers must match this server-derived
+scope, and the workspace must remain owned and active. Generic execution scope
+authorization is unchanged.
 Web switches to AppServer; the replaced controller operation bodies are deleted.
 All provider discovery, credential, preference, and resolution consumers use
 the canonical App Server methods. Brain no longer registers standalone
