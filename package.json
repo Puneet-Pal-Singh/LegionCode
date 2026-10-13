@@ -5,7 +5,7 @@
   "scripts": {
     "build": "turbo run build --continue",
     "dev": "turbo run dev",
-    "lint": "turbo run lint --continue",
+    "lint": "node packages/eslint-config/lint-no-new-tests.mjs && turbo run lint --continue",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types --continue",
     "check:boundaries": "bash scripts/check-import-boundaries.sh",
