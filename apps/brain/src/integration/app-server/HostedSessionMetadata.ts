@@ -12,9 +12,13 @@ export function composeHostedSessionMetadata(
   env: Env,
   userId: string,
 ): NonNullable<AppServerComposition["sessionMetadataService"]> {
+  const withReadState = async (session: SessionRecord | null): Promise<SessionRecord> => {
+    const required = requireSession(session);
+    return (await attachReadStates(env, userId, [required]))[0]!;
+  };
   const mutate = async (operation: "pinSession" | "unpinSession" | "archiveSession" | "unarchiveSession", sessionId: string) => {
     const session = await withTranscriptRepository(env, (repository) => repository[operation](userId, sessionId));
-    return { session: requireSession(session) };
+    return { session: await withReadState(session) };
   };
   return {
     list: () => unavailableOnFailure(async () => {
@@ -56,7 +60,7 @@ export function composeHostedSessionMetadata(
         );
         if (!authorized) throw new AppServerOperationError(404, "not_found", "Workspace not found");
       }
-      return { session: await createPersistedSession(params, userId, env) };
+      return { session: await withReadState(await createPersistedSession(params, userId, env)) };
     }),
     rename: (params) => unavailableOnFailure(async () => {
       const titleScope = await readPersistedThreadTitleScope(env, userId, params.sessionId);
@@ -64,7 +68,7 @@ export function composeHostedSessionMetadata(
       const session = await new ThreadTitleService(env).rename({
         sessionId: params.sessionId, ...titleScope, userId, title: params.title,
       });
-      return { session: requireSession(session) };
+      return { session: await withReadState(session) };
     }),
     pin: (sessionId) => unavailableOnFailure(() => mutate("pinSession", sessionId)),
     unpin: (sessionId) => unavailableOnFailure(() => mutate("unpinSession", sessionId)),

@@ -688,8 +688,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       setSessions((current) => {
         const next = current.map((candidate) =>
           candidate.id === id &&
-          candidate.lastTerminalTurnId === terminalTurnId &&
-          candidate.lastAcknowledgedTerminalTurnId === terminalTurnId
+          candidate.lastTerminalTurnId === terminalTurnId
             ? updateAcknowledgement(candidate, serverReceipt.lastAcknowledgedTerminalTurnId)
             : candidate,
         );
