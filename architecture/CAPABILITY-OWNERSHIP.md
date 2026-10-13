@@ -322,8 +322,11 @@ routes/controller and Web URL builders are removed with all consumers wired.
 The canonical owners remain TranscriptRepository and ThreadTitleService.
 Browser cache/selection/draft storage is preserved pending actual profile
 inventory. The hosted read-receipt operation and derived active/archived session
-read-state fields are wired through AppServer and SDK; authenticated Web
-read/unread proof remains pending.
+read-state fields are wired through AppServer and SDK. Authenticated Web
+read/unread proof passed on 2026-10-13 for session
+`17864ab0-2934-4c7d-a4ee-bff276c10554`: its completed turn appeared unread,
+selecting the session cleared the marker, and a full reload preserved its
+canonical history and read state.
 
 ### Plan 058 authenticated hosted workspace selection
 
