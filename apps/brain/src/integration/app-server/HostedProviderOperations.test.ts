@@ -1,6 +1,7 @@
 import { AppServerController } from "../../controllers/AppServerController";
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { describe, it, expect } from "vitest";
+import { MemoryRunRepository, type WorkspaceBootstrapRecord, type WorkspaceRepository } from "@repo/persistence";
 import type { Env } from "../../types/ai";
 import type {
   BYOKModelPricing,
@@ -23,7 +24,6 @@ function createMockEnv(options?: {
   emptyCatalogProviders?: ProviderId[];
   preferencesError?: boolean;
   sessionsGetError?: boolean;
-  omitWorkspaceClaims?: boolean;
   environment?: "production" | "staging" | "development";
   connectRequests?: Array<{
     providerId: ProviderId;
@@ -456,6 +456,8 @@ function createMockEnv(options?: {
 
   return {
     RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
+    AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_WORKSPACE_REPOSITORY: createWorkspaceRepository(),
     AUTH_IDENTITY_REPOSITORY: {
       createGitHubSession: async () => {
         throw new Error("not used");
@@ -464,17 +466,13 @@ function createMockEnv(options?: {
         if (options?.sessionsGetError) {
           throw new Error("database unavailable");
         }
-        return createIdentitySessionRecord({
-          omitWorkspaceClaims: options?.omitWorkspaceClaims,
-        });
+        return createIdentitySessionRecord();
       },
       findLatestGitHubSessionByUserId: async () => {
         if (options?.sessionsGetError) {
           throw new Error("database unavailable");
         }
-        return createIdentitySessionRecord({
-          omitWorkspaceClaims: options?.omitWorkspaceClaims,
-        });
+        return createIdentitySessionRecord();
       },
       revokeSession: async () => undefined,
     },
@@ -510,10 +508,8 @@ async function withByokHeaders(
   };
 }
 
-function createIdentitySessionRecord(
-  options: { omitWorkspaceClaims?: boolean } = {},
-) {
-  const record = {
+function createIdentitySessionRecord() {
+  return {
     authSessionId: "session-1",
     userId: TEST_USER_ID,
     login: "puneet",
@@ -532,15 +528,51 @@ function createIdentitySessionRecord(
     defaultWorkspaceId: TEST_WORKSPACE_ID,
     workspaceIds: [TEST_WORKSPACE_ID],
   };
-  if (options.omitWorkspaceClaims) {
-    return {
-      ...record,
-      workspaceId: undefined,
-      defaultWorkspaceId: undefined,
-      workspaceIds: undefined,
-    };
-  }
-  return record;
+}
+
+function createWorkspaceRepository(): WorkspaceRepository {
+  const repository = {
+    id: "repo-provider-scope",
+    provider: "github",
+    owner: "acme",
+    name: "legioncode",
+    fullName: "acme/legioncode",
+    repoUrl: "https://github.com/acme/legioncode",
+    defaultBranch: "main",
+    providerRepoId: "provider-scope",
+    createdAt: "2026-10-13T00:00:00.000Z",
+    updatedAt: "2026-10-13T00:00:00.000Z",
+  };
+  const workspace = {
+    id: TEST_WORKSPACE_ID,
+    userId: TEST_USER_ID,
+    repoId: repository.id,
+    name: "acme/legioncode",
+    defaultBranch: "main",
+    lastSelectedBranch: "main",
+    status: "active" as const,
+    createdAt: "2026-10-13T00:00:00.000Z",
+    updatedAt: "2026-10-13T00:00:00.000Z",
+    lastOpenedAt: "2026-10-13T00:00:00.000Z",
+  };
+  const selection = {
+    userId: TEST_USER_ID,
+    selectedWorkspaceId: TEST_WORKSPACE_ID,
+    selectedRepoId: repository.id,
+    selectedBranch: "main",
+    updatedAt: "2026-10-13T00:00:00.000Z",
+  };
+  const bootstrap: WorkspaceBootstrapRecord = { repository, workspace, selection };
+
+  return {
+    selectWorkspace: async () => bootstrap,
+    findWorkspaceSelection: async (userId) =>
+      userId === TEST_USER_ID ? bootstrap : null,
+    listWorkspaces: async (userId) =>
+      userId === TEST_USER_ID
+        ? [{ repository, workspace, selected: true }]
+        : [],
+  };
 }
 
 function jsonOk(data: unknown): Response {
@@ -828,12 +860,6 @@ describe("hosted App Server credentials", () => {
 
     expect(result.status).toBe(503);
     expect(result.body.error.code).toBe("server_unavailable");
-  });
-
-  it("rejects missing authenticated workspace claims", async () => {
-    const result = await call(createMockEnv({ omitWorkspaceClaims: true }), "list", {});
-    expect(result.status).toBe(400);
-    expect(result.body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("rejects another viewer or workspace scope", async () => {
