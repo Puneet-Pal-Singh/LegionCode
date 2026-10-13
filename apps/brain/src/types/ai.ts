@@ -19,6 +19,7 @@ import type {
   WorkspaceRepository,
   LifecycleEventStore,
   TaskWorkspaceRepository,
+  SessionReadReceiptRepository,
 } from "@repo/persistence";
 import type { HookDefinitionRepository } from "../services/hooks/HookDefinitionRepository";
 
@@ -37,6 +38,7 @@ export interface Env {
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
   AUTH_WORKSPACE_REPOSITORY?: WorkspaceRepository;
   AUTH_TRANSCRIPT_REPOSITORY?: TranscriptRepository;
+  AUTH_SESSION_READ_RECEIPT_REPOSITORY?: SessionReadReceiptRepository;
   AUTH_THREAD_TITLE_REPOSITORY?: ThreadTitleRepository;
   AUTH_RUN_REPOSITORY?: RunRepository;
   AUTH_TURN_ADMISSION_REPOSITORY?: TurnAdmissionRepository;

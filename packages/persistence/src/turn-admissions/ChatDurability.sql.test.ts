@@ -65,8 +65,22 @@ describe("durable admission and canonical append SQL", () => {
     const acknowledged = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId.toUpperCase(), terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:01.000Z" });
     const repeated = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:02.000Z" });
     expect(repeated.acknowledgedAt).toBe(acknowledged.acknowledgedAt);
+
+    const third = { ...first, clientMessageId: "receipt-third", turnId: `trn_${randomUUID().replaceAll("-", "")}`, runAttemptId: `attempt_${randomUUID().replaceAll("-", "")}` };
+    await admissions.reserve(third);
+    await admissions.admitWithPrompt(admissionInput(fixture, third, "receipt-third"));
+    const thirdFixture = { ...fixture, admission: third };
+    await lifecycle.appendBatch([lifecycleTurnStarted(thirdFixture, 1), lifecycleTurnCompleted(thirdFixture, 2)]);
+    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:03.000Z" }))
+      .rejects.toMatchObject({ code: "stale_terminal_turn" });
+    const reloaded = await new PostgresSessionReadReceiptRepository(client).listReadStates(fixture.userId, [fixture.sessionId]);
+    expect(reloaded[0]).toMatchObject({
+      lastTerminalTurnId: third.turnId,
+      lastAcknowledgedTerminalTurnId: second.turnId,
+      acknowledgedAt: acknowledged.acknowledgedAt,
+    });
     expect((await receipts.listReadStates(fixture.userId, [fixture.sessionId]))[0]).toMatchObject({
-      lastTerminalTurnId: second.turnId,
+      lastTerminalTurnId: third.turnId,
       lastAcknowledgedTerminalTurnId: second.turnId,
       acknowledgedAt: acknowledged.acknowledgedAt,
     });

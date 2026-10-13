@@ -23,13 +23,14 @@ describe("hosted session read receipt migration", () => {
       `);
       for (const statement of sessionReadReceiptsMigration.statements) await db.exec(statement);
       expect((await db.query("SELECT thread_id, session_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at::text FROM thread_read_receipts")).rows[0]).toMatchObject({
-        thread_id: "thr_legacy01", session_id: null, viewer_id: "viewer-legacy", last_acknowledged_terminal_turn_id: "trn_legacy01",
+        thread_id: "thr_legacy01", session_id: null, viewer_id: "viewer-legacy", last_acknowledged_terminal_turn_id: "trn_legacy01", acknowledged_at: "2026-10-11 12:00:00+00",
       });
       await db.exec("INSERT INTO thread_read_receipts (thread_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at) VALUES ('thr_legacy01', 'viewer-legacy', 'trn_legacy02', now()) ON CONFLICT (thread_id, viewer_id) DO UPDATE SET last_acknowledged_terminal_turn_id = EXCLUDED.last_acknowledged_terminal_turn_id");
       const sessionId = "00000000-0000-4000-8000-000000000001";
       await db.query("INSERT INTO sessions VALUES ($1)", [sessionId]);
       await db.query("INSERT INTO thread_read_receipts (session_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at) VALUES ($1, 'viewer-session', 'trn_session01', now())", [sessionId]);
       await expect(db.query("INSERT INTO thread_read_receipts (viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at) VALUES ('invalid', 'trn_invalid', now())")).rejects.toThrow();
+      await expect(db.query("INSERT INTO thread_read_receipts (thread_id, session_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at) VALUES ('thr_legacy01', $1, 'viewer-both', 'trn_invalid', now())", [sessionId])).rejects.toThrow();
       await db.query("DELETE FROM sessions WHERE id = $1", [sessionId]);
       expect((await db.query("SELECT * FROM thread_read_receipts WHERE viewer_id = 'viewer-session'")).rows).toEqual([]);
       expect((await db.query("SELECT last_acknowledged_terminal_turn_id FROM thread_read_receipts WHERE thread_id = 'thr_legacy01' AND viewer_id = 'viewer-legacy'")).rows[0]?.last_acknowledged_terminal_turn_id).toBe("trn_legacy02");

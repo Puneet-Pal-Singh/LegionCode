@@ -6,8 +6,10 @@ import {
   MemoryEventStore,
   MemoryThreadTitleRepository,
   MemoryRunRepository,
+  SessionReadReceiptError,
   MemoryTranscriptRepository,
   MemoryWorkspaceRepository,
+  type SessionReadReceiptRepository,
 } from "@repo/persistence";
 import type { Env } from "../types/ai";
 
@@ -481,6 +483,7 @@ function createEnv(
   return {
     AI: {} as Env["AI"],
     AUTH_TRANSCRIPT_REPOSITORY: repository,
+    AUTH_SESSION_READ_RECEIPT_REPOSITORY: emptyReadReceiptRepository(),
     AUTH_RUN_REPOSITORY: runRepository,
     AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
       repository,
@@ -507,6 +510,15 @@ function createEnv(
     SESSIONS: {} as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
   } as Env;
+}
+
+function emptyReadReceiptRepository(): SessionReadReceiptRepository {
+  return {
+    listReadStates: async () => [],
+    acknowledge: async () => {
+      throw new SessionReadReceiptError("session_not_found", "Session not found");
+    },
+  };
 }
 
 function createIdentitySessionRecord() {
