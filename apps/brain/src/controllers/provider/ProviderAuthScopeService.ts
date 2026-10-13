@@ -24,6 +24,12 @@ export interface AuthorizedProviderScope extends ProviderStoreScopeInput {
   workspaceId: string;
 }
 
+export interface ParsedProviderAuthScopeRequest {
+  runId: RunId;
+  requestedUserId?: string;
+  requestedWorkspaceId?: string;
+}
+
 interface SessionClaims {
   userId: string;
   workspaceIds: string[];
@@ -36,15 +42,10 @@ export async function resolveAuthorizedProviderScope(
   correlationId: string,
   validatedRunId?: RunId,
 ): Promise<AuthorizedProviderScope> {
-  rejectLegacyQueryScope(request, correlationId);
-  const runId = validatedRunId ?? parseRequiredRunId(request, correlationId);
+  const { runId } = parseProviderAuthScopeIdentity(request, correlationId, validatedRunId);
   const claims = await loadSessionClaims(request, env, correlationId);
+  const requestedUserId = parseRequestedProviderUserId(request, correlationId);
 
-  const requestedUserId = parseOptionalScopeHeader(
-    request.headers.get("X-User-Id"),
-    "X-User-Id",
-    correlationId,
-  );
   if (requestedUserId && requestedUserId !== claims.userId) {
     throw new DomainError(
       "AUTH_FAILED",
@@ -55,8 +56,58 @@ export async function resolveAuthorizedProviderScope(
     );
   }
 
-  const workspaceId = resolveWorkspaceScope(request, claims, correlationId);
+  const workspaceId = resolveWorkspaceScope(
+    parseRequestedProviderWorkspaceId(request, correlationId),
+    claims,
+    correlationId,
+  );
   return { runId, userId: claims.userId, workspaceId };
+}
+
+/** Parse hosted-provider request identity and header intent without authorizing resources. */
+export function parseProviderAuthScopeRequest(
+  request: Request,
+  correlationId: string,
+  validatedRunId?: RunId,
+): ParsedProviderAuthScopeRequest {
+  return {
+    ...parseProviderAuthScopeIdentity(request, correlationId, validatedRunId),
+    ...parseProviderAuthScopeHeaders(request, correlationId),
+  };
+}
+
+function parseProviderAuthScopeIdentity(
+  request: Request,
+  correlationId: string,
+  validatedRunId?: RunId,
+): Pick<ParsedProviderAuthScopeRequest, "runId"> {
+  rejectLegacyQueryScope(request, correlationId);
+  return { runId: validatedRunId ?? parseRequiredRunId(request, correlationId) };
+}
+
+function parseProviderAuthScopeHeaders(
+  request: Request,
+  correlationId: string,
+): Omit<ParsedProviderAuthScopeRequest, "runId"> {
+  return {
+    requestedUserId: parseRequestedProviderUserId(request, correlationId),
+    requestedWorkspaceId: parseRequestedProviderWorkspaceId(request, correlationId),
+  };
+}
+
+function parseRequestedProviderUserId(request: Request, correlationId: string): string | undefined {
+  return parseOptionalScopeHeader(request.headers.get("X-User-Id"), "X-User-Id", correlationId);
+}
+
+function parseRequestedProviderWorkspaceId(
+  request: Request,
+  correlationId: string,
+): string | undefined {
+  return parseOptionalScopeHeader(
+    request.headers.get("X-Workspace-Id"),
+    "X-Workspace-Id",
+    correlationId,
+  );
 }
 
 function rejectLegacyQueryScope(request: Request, correlationId: string): void {
@@ -74,7 +125,7 @@ function rejectLegacyQueryScope(request: Request, correlationId: string): void {
   }
 }
 
-function parseRequiredRunId(request: Request, correlationId: string): string {
+function parseRequiredRunId(request: Request, correlationId: string): RunId {
   const runIdHeader = request.headers.get("X-Run-Id");
   if (!runIdHeader || runIdHeader.trim().length === 0) {
     throw new ValidationError(
@@ -84,7 +135,7 @@ function parseRequiredRunId(request: Request, correlationId: string): string {
     );
   }
 
-  return validateWithSchema<string>(
+  return validateWithSchema<RunId>(
     runIdHeader.trim(),
     RunIdSchema,
     correlationId,
@@ -193,15 +244,10 @@ function collectWorkspaceIds(
 }
 
 function resolveWorkspaceScope(
-  request: Request,
+  requestedWorkspace: string | undefined,
   claims: SessionClaims,
   correlationId: string,
 ): string {
-  const requestedWorkspace = parseOptionalScopeHeader(
-    request.headers.get("X-Workspace-Id"),
-    "X-Workspace-Id",
-    correlationId,
-  );
   if (!requestedWorkspace) {
     return claims.defaultWorkspaceId;
   }
