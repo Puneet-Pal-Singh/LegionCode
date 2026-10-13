@@ -11,7 +11,7 @@ import * as SessionMetadata from "../../services/api/sessionMetadata";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import type { AgentSession } from "../../types/session";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@legioncode/sdk";
 import { useSessionManager } from "../useSessionManager";
 import { SessionStateService } from "../../services/SessionStateService";
 

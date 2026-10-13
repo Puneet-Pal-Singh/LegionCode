@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as SessionMetadata from "./sessionMetadata";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@legioncode/sdk";
 import { SessionStateService } from "../SessionStateService";
 import { _resetEndpointCache } from "../../lib/platform-endpoints";
 
