@@ -321,8 +321,9 @@ SessionStateService no longer owns their HTTP methods, and old Brain metadata
 routes/controller and Web URL builders are removed with all consumers wired.
 The canonical owners remain TranscriptRepository and ThreadTitleService.
 Browser cache/selection/draft storage is preserved pending actual profile
-inventory. The missing read-receipt path remains explicitly incomplete pending
-its scoped ownership decision; no success or server unread projection is claimed.
+inventory. The hosted read-receipt operation and derived active/archived session
+read-state fields are wired through AppServer and SDK; authenticated Web
+read/unread proof remains pending.
 
 ### Plan 058 authenticated hosted workspace selection
 
