@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
+import { TurnIdSchema } from "@repo/platform-protocol";
 import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
 import { PostgresLifecycleEventStore } from "../lifecycle-events/PostgresLifecycleEventStore.js";
 import { PostgresTurnAdmissionRepository } from "./PostgresTurnAdmissionRepository.js";
+import { PostgresSessionReadReceiptRepository } from "../session-read-receipts/PostgresSessionReadReceiptRepository.js";
 
 // Run the production migrations and repository SQL against an isolated PostgreSQL
 // engine. PGlite has gen_random_uuid built in, but does not ship pgcrypto.
@@ -39,6 +41,54 @@ beforeAll(async () => {
 afterAll(() => db.close());
 
 describe("durable admission and canonical append SQL", () => {
+  it("derives the newest terminal and keeps viewer receipts isolated, stale-safe, and idempotent", async () => {
+    const fixture = await createFixture(client);
+    const admissions = new PostgresTurnAdmissionRepository(client);
+    const lifecycle = new PostgresLifecycleEventStore(client);
+    const receipts = new PostgresSessionReadReceiptRepository(client);
+    const first = fixture.admission;
+    await admissions.reserve(first);
+    await admissions.admitWithPrompt(admissionInput(fixture, first, "receipt-first"));
+    const second = { ...first, clientMessageId: "receipt-second", turnId: `trn_${randomUUID().replaceAll("-", "")}`, runAttemptId: `attempt_${randomUUID().replaceAll("-", "")}` };
+    await admissions.reserve(second);
+    await admissions.admitWithPrompt(admissionInput(fixture, second, "receipt-second"));
+    const secondFixture = { ...fixture, admission: second };
+    await lifecycle.appendBatch([lifecycleTurnStarted(secondFixture, 1), lifecycleTurnCompleted(secondFixture, 2)]);
+    // A delayed older terminal must not replace the terminal with greater admission_order.
+    await lifecycle.appendBatch([lifecycleTurnStarted(fixture, 1), lifecycleTurnCompleted(fixture, 2)]);
+
+    expect(await receipts.listReadStates(fixture.userId, [fixture.sessionId])).toEqual([
+      { sessionId: fixture.sessionId, lastTerminalTurnId: second.turnId, lastAcknowledgedTerminalTurnId: null, acknowledgedAt: null },
+    ]);
+    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(first.turnId), acknowledgedAt: "2026-10-12T00:00:00.000Z" }))
+      .rejects.toMatchObject({ code: "stale_terminal_turn" });
+    const acknowledged = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId.toUpperCase(), terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:01.000Z" });
+    const repeated = await receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:02.000Z" });
+    expect(repeated.acknowledgedAt).toBe(acknowledged.acknowledgedAt);
+
+    const third = { ...first, clientMessageId: "receipt-third", turnId: `trn_${randomUUID().replaceAll("-", "")}`, runAttemptId: `attempt_${randomUUID().replaceAll("-", "")}` };
+    await admissions.reserve(third);
+    await admissions.admitWithPrompt(admissionInput(fixture, third, "receipt-third"));
+    const thirdFixture = { ...fixture, admission: third };
+    await lifecycle.appendBatch([lifecycleTurnStarted(thirdFixture, 1), lifecycleTurnCompleted(thirdFixture, 2)]);
+    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: fixture.userId, terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:03.000Z" }))
+      .rejects.toMatchObject({ code: "stale_terminal_turn" });
+    const reloaded = await new PostgresSessionReadReceiptRepository(client).listReadStates(fixture.userId, [fixture.sessionId]);
+    expect(reloaded[0]).toMatchObject({
+      lastTerminalTurnId: third.turnId,
+      lastAcknowledgedTerminalTurnId: second.turnId,
+      acknowledgedAt: acknowledged.acknowledgedAt,
+    });
+    expect((await receipts.listReadStates(fixture.userId, [fixture.sessionId]))[0]).toMatchObject({
+      lastTerminalTurnId: third.turnId,
+      lastAcknowledgedTerminalTurnId: second.turnId,
+      acknowledgedAt: acknowledged.acknowledgedAt,
+    });
+    expect(await receipts.listReadStates(randomUUID(), [fixture.sessionId])).toEqual([]);
+    await expect(receipts.acknowledge({ sessionId: fixture.sessionId, viewerId: randomUUID(), terminalTurnId: TurnIdSchema.parse(second.turnId), acknowledgedAt: "2026-10-12T00:00:03.000Z" }))
+      .rejects.toMatchObject({ code: "session_not_found" });
+  });
+
   it("rolls back prompt admission and permits the same request to retry", async () => {
     const fixture = await createFixture(client);
     const admissions = new PostgresTurnAdmissionRepository(client);

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as SessionMetadata from "./sessionMetadata";
+import { TurnIdSchema } from "@legioncode/sdk";
 import { SessionStateService } from "../SessionStateService";
 import { _resetEndpointCache } from "../../lib/platform-endpoints";
 
@@ -7,6 +8,17 @@ describe("hosted session metadata presentation", () => {
   beforeEach(() => { _resetEndpointCache(); localStorage.clear(); sessionStorage.clear(); });
   afterEach(() => { _resetEndpointCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear(); });
   describe("Server Session Hydration", () => {
+    it("clears stale cached terminal and receipt fields when server has no canonical state", () => {
+      expect(SessionMetadata.mapServerSession({
+        ...createServerSession("Server task"),
+        userId: "550e8400-e29b-41d4-a716-446655440099", workspaceId: null, threadId: null,
+        taskId: "550e8400-e29b-41d4-a716-446655440000",
+      })).toMatchObject({
+        lastTerminalTurnId: null,
+        lastAcknowledgedTerminalTurnId: null,
+      });
+    });
+
     it("hydrates canonical sessions from Brain", async () => {
       const warnSpy = silenceConsoleWarn();
       const fetchMock = vi.fn().mockResolvedValue(
@@ -35,6 +47,8 @@ describe("hosted session metadata presentation", () => {
       expect(session?.name).toBe("Server Task");
       expect(session?.status).toBe("failed");
       expect(session?.createdAt).toBe("2026-05-14T00:00:00.000Z");
+      expect(session?.lastTerminalTurnId).toBeNull();
+      expect(session?.lastAcknowledgedTerminalTurnId).toBeNull();
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/app-server/request"),
         expect.objectContaining({ credentials: "include", method: "POST" }),
@@ -170,6 +184,25 @@ describe("hosted session metadata presentation", () => {
       expect(saved.activeRunId).toBeNull();
       expect(saved.runIds).toEqual([]);
     });
+
+    it("acknowledges a terminal turn through App Server with a narrow receipt response", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(metadataResponse("session/readReceipt", JSON.stringify({
+        sessionId: "550e8400-e29b-41d4-a716-446655440000",
+        lastAcknowledgedTerminalTurnId: "trn_terminal001",
+        acknowledgedAt: "2026-10-12T00:00:00.000Z",
+      })));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(SessionMetadata.acknowledgeSessionReadReceipt("550e8400-e29b-41d4-a716-446655440000", "trn_terminal001")).resolves.toEqual({
+        sessionId: "550e8400-e29b-41d4-a716-446655440000",
+        lastAcknowledgedTerminalTurnId: TurnIdSchema.parse("trn_terminal001"),
+        acknowledgedAt: "2026-10-12T00:00:00.000Z",
+      });
+      const envelope = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(envelope).toMatchObject({ method: "session/readReceipt", params: {
+        sessionId: "550e8400-e29b-41d4-a716-446655440000", terminalTurnId: "trn_terminal001",
+      } });
+    });
   });
 
 });
@@ -178,11 +211,11 @@ function createServerSession(title: string) {
   return {
     id: "550e8400-e29b-41d4-a716-446655440000",
     title,
-    titleSource: "generated",
+    titleSource: "generated" as const,
     repository: "repo",
     activeRunId: "run_550e8400e29b41d4a716446655440001",
-    mode: "build",
-    status: "idle",
+    mode: "build" as const,
+    status: "idle" as const,
     pinnedAt: null,
     archivedAt: null,
     createdAt: "2026-05-14T00:00:00.000Z",

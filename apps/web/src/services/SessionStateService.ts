@@ -14,8 +14,6 @@
  */
 
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
-import { sessionReadReceiptPath } from "../lib/platform-endpoints";
-import { mapServerSession, type ServerSessionRecord } from "./api/sessionMetadata";
 import type {
   AgentSession,
   ChatTitleSource,
@@ -39,10 +37,6 @@ type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
   pinnedAt?: string | null;
   archivedAt?: string | null;
 };
-
-interface ServerSessionResponse {
-  session: ServerSessionRecord;
-}
 
 function getSessionContextKey(sessionId: string): string {
   return `legioncode:session-context:${sessionId}`;
@@ -116,19 +110,6 @@ export class SessionStateService {
     } catch (e) {
       console.error("[SessionStateService] Failed to save sessions:", e);
     }
-  }
-
-  static async acknowledgeSession(
-    sessionId: string,
-    terminalTurnId: string,
-  ): Promise<AgentSession> {
-    const response = await fetch(sessionReadReceiptPath(sessionId), {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ terminalTurnId }),
-    });
-    return readMetadataMutationResponse(response, "Session read receipt");
   }
 
   /**
@@ -511,25 +492,4 @@ function normalizeStoredSessionStatus(
 ): SessionStatus {
   if (status === "error") return "failed";
   return status ?? "idle";
-}
-
-async function readMetadataMutationResponse(
-  response: Response,
-  operation: string,
-): Promise<AgentSession> {
-  if (!response.ok) {
-    throw new Error(`${operation} failed: ${response.status}`);
-  }
-  return readServerSessionResponse(response);
-}
-
-async function readServerSessionResponse(
-  response: Response,
-): Promise<AgentSession> {
-  const payload = (await response.json()) as Partial<ServerSessionResponse>;
-  const session = payload.session ? mapServerSession(payload.session) : null;
-  if (!session) {
-    throw new Error("Invalid session response");
-  }
-  return session;
 }

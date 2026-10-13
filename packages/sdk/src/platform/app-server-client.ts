@@ -13,6 +13,7 @@ import {
   type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
   type HostedSession,
   type HostedSessionCreateRequest,
+  type HostedSessionReadReceipt,
   type ConversationHistoryRequest,
   type ConversationHistoryResponse,
   ThreadIdSchema,
@@ -75,6 +76,7 @@ export type AppServerClient = {
   ): Promise<AppServerInitializeResponse>;
   listSessions(): Promise<HostedSession[]>;
   listArchivedSessions(): Promise<HostedSession[]>;
+  acknowledgeSessionReadReceipt(sessionId: string, terminalTurnId: string): Promise<HostedSessionReadReceipt>;
   createSession(params: HostedSessionCreateRequest): Promise<HostedSession>;
   renameSession(sessionId: string, title: string): Promise<HostedSession>;
   pinSession(sessionId: string): Promise<HostedSession>;
@@ -126,6 +128,9 @@ export function createAppServerClient(
     },
     listSessions: async () => (await request(options, { method: "session/list", params: {} }, AppServerResultSchemas["session/list"])).sessions,
     listArchivedSessions: async () => (await request(options, { method: "session/archived", params: {} }, AppServerResultSchemas["session/archived"])).sessions,
+    acknowledgeSessionReadReceipt: async (sessionId, terminalTurnId) => request(options, {
+      method: "session/readReceipt", params: { sessionId, terminalTurnId },
+    }, AppServerResultSchemas["session/readReceipt"]),
     createSession: async (params) => (await request(options, { method: "session/create", params }, AppServerResultSchemas["session/create"])).session,
     renameSession: async (sessionId, title) => (await request(options, { method: "session/rename", params: { sessionId, title } }, AppServerResultSchemas["session/rename"])).session,
     pinSession: async (sessionId) => (await request(options, { method: "session/pin", params: { sessionId } }, AppServerResultSchemas["session/pin"])).session,

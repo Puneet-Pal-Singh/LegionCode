@@ -245,7 +245,7 @@ export { mergeLifecycleProjections } from "./workflow/merge-lifecycle-projection
 export { buildConversationTurns, readCanonicalTurnId, resolveMessageTimestamp, type ConversationMessage, type ConversationTurn } from "./platform/conversation-turns.js";
 export { collectLifecycleTurnDiffFiles } from "./platform/conversation-turn-diff.js";
 
-export type { HostedSession, HostedSessionCreateRequest } from "@repo/platform-protocol";
+export type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt } from "@repo/platform-protocol";
 
 export type {
   HostedWorkspaceSelectRequest, HostedWorkspaceRepository, HostedWorkspaceRecord,

@@ -447,9 +447,10 @@ export * from "./conversation-history.js";
 
 export {
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
+  HostedSessionReadReceiptRequestSchema, HostedSessionReadReceiptSchema,
   HostedSessionSchema, HostedTaskSchema, HostedSessionsResponseSchema,
   HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
-  type HostedSession, type HostedSessionCreateRequest, type HostedSessionRenameRequest, type HostedSessionsResponse,
+  type HostedSession, type HostedSessionCreateRequest, type HostedSessionRenameRequest, type HostedSessionReadReceipt, type HostedSessionsResponse,
 } from "./hosted-sessions.js";
 
 export {

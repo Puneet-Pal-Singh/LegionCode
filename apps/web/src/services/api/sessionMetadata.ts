@@ -1,5 +1,5 @@
 import { RunModeSchema } from "@repo/shared-types";
-import { AppServerClientError, type HostedSession } from "@legioncode/sdk";
+import { AppServerClientError, type HostedSession, type HostedSessionReadReceipt } from "@legioncode/sdk";
 import type { AgentSession, SessionStatus } from "../../types/session";
 import { isCanonicalRunId } from "../../lib/run-id";
 import { createHostedAppServerClient } from "./appServerClient";
@@ -54,6 +54,13 @@ export async function hydrateArchivedSessionsFromServer(): Promise<AgentSession[
     .filter((session): session is AgentSession => session !== null);
 }
 
+export async function acknowledgeSessionReadReceipt(
+  sessionId: string,
+  terminalTurnId: string,
+): Promise<HostedSessionReadReceipt> {
+  return await client().acknowledgeSessionReadReceipt(sessionId, terminalTurnId);
+}
+
 function mapped(session: ServerSessionRecord): AgentSession {
   const result = mapServerSession(session);
   if (!result) throw new Error("Invalid session response");
@@ -105,15 +112,9 @@ function mapServerThreadMetadata(
     ...(isTitleStatus(session.titleStatus)
       ? { titleStatus: session.titleStatus }
       : {}),
-    ...(typeof session.lastTerminalTurnId === "string"
-      ? { lastTerminalTurnId: session.lastTerminalTurnId }
-      : {}),
-    ...(typeof session.lastAcknowledgedTerminalTurnId === "string"
-      ? {
-          lastAcknowledgedTerminalTurnId:
-            session.lastAcknowledgedTerminalTurnId,
-        }
-      : {}),
+    lastTerminalTurnId: session.lastTerminalTurnId ?? null,
+    lastAcknowledgedTerminalTurnId:
+      session.lastAcknowledgedTerminalTurnId ?? null,
   };
 }
 
