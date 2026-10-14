@@ -22,6 +22,9 @@ import {
   TurnIdSchema,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,
+  type TurnId,
+  type ProtocolError,
+  workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
@@ -48,7 +51,10 @@ import {
 } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
-import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import {
+  sanitizeLogText,
+  sanitizeUnknownError,
+} from "../core/security/LogSanitizer";
 import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { parseTraceparent } from "@repo/observability";
@@ -68,6 +74,10 @@ import {
   InMemoryRunInterruptRegistry,
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
+import {
+  settleOwnedStartupFailure,
+  settleRecoveryRequiredOrphanStop,
+} from "./RuntimeLifecycleSettlement";
 import {
   InMemoryRunContextCompactionRegistry,
   type RunContextCompactionRegistry,
@@ -338,34 +348,29 @@ export class RunEngineRequestHandler {
       );
     }
 
-    await this.ensureTurnToRunMapLoaded();
-
-    const runtimeState = this.createRuntimeState();
-    const runRepo = new RunRepository(runtimeState);
-    const run = await runRepo.getById(payload.runId);
-    if (!run) {
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId,
-        accepted: false,
-        status: null,
-      });
-    }
-
-    const identity = this.turnRuntimeIdentities.get(payload.turnId);
+    const store = this.createLifecycleEventStore();
+    const admission = await withTurnAdmissionRepository(this.env, (repository) =>
+      repository.getByTurnId(payload.turnId),
+    );
     if (
-      !identity ||
-      run.sessionId !== payload.sessionId ||
-      !sameTurnRuntimeIdentity(identity, payload)
+      !admission ||
+      admission.state !== "admitted" ||
+      admission.runId !== payload.runId ||
+      admission.sessionId !== payload.sessionId ||
+      admission.workspaceId !== payload.workspaceId ||
+      admission.threadId !== payload.threadId ||
+      admission.turnId !== payload.turnId ||
+      admission.runAttemptId !== payload.runAttemptId
     ) {
       return runEngineErrorResponse(
         request,
         this.env,
-        "Interrupt identity does not match the active run",
+        "Interrupt identity does not match the durable admitted turn",
         409,
       );
     }
 
-    const replayEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), payload.turnId);
+    const replayEvents = await readAllLifecycleEvents(store, payload.turnId);
     const terminalEvent = replayEvents.find(isTerminalLifecycleEvent);
     if (terminalEvent) {
       return runEngineJsonResponse(request, this.env, {
@@ -373,6 +378,58 @@ export class RunEngineRequestHandler {
         accepted: false,
         status: "settled",
         terminalEvent,
+      });
+    }
+
+    const hasActiveOwner = this.interruptRegistry.hasActiveOwner(payload.turnId);
+    if (hasActiveOwner) {
+      const accepted = await this.interruptRegistry.request(
+        payload.turnId,
+        payload.reason,
+      );
+      if (!accepted) {
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          "Turn is no longer interruptible",
+          409,
+        );
+      }
+      return runEngineJsonResponse(request, this.env, {
+        runId: payload.runId,
+        accepted: true,
+        status: "interrupt_requested",
+      });
+    }
+
+    const settled = await settleRecoveryRequiredOrphanStop({
+      store,
+      admission,
+      identity: {
+        turnId: payload.turnId,
+        runAttemptId: payload.runAttemptId,
+        threadId: payload.threadId,
+        workspaceId: workspaceIdFromExternalId(payload.workspaceId),
+        ...(admission.revisionOfTurnId
+          ? {
+              revisionOfTurnId: TurnIdSchema.parse(
+                admission.revisionOfTurnId,
+              ),
+            }
+          : {}),
+      },
+      admittedWorkspaceId: payload.workspaceId,
+      reason: payload.reason,
+    });
+    if (
+      settled.status === "settled" ||
+      settled.status === "terminal_exists"
+    ) {
+      return runEngineJsonResponse(request, this.env, {
+        runId: payload.runId,
+        accepted: settled.status === "settled",
+        status: "settled",
+        terminalEvent: settled.terminalEvent,
       });
     }
 
@@ -629,7 +686,7 @@ export class RunEngineRequestHandler {
         !identity ||
         !isMatchingInChatGrantRequest(
           lifecycleApproval.requested,
-          identity.workspaceId,
+          workspaceIdFromExternalId(identity.workspaceId),
         )
       ) {
         return runEngineErrorResponse(
@@ -979,7 +1036,7 @@ export class RunEngineRequestHandler {
   async handleExecuteRequest(
     request: Request,
   ): Promise<Response> {
-    let executionClaim: { turnId: string; claimId: string } | null = null;
+    let executionClaim: { turnId: TurnId; claimId: string } | null = null;
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1109,6 +1166,7 @@ export class RunEngineRequestHandler {
           );
         }
         executionClaim = { turnId, claimId };
+        this.interruptRegistry.beginStartup(turnId);
         const runtimeState = this.createRuntimeState();
         const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
           this.env,
@@ -1370,19 +1428,64 @@ export class RunEngineRequestHandler {
         }
       });
     } catch (error: unknown) {
-      if (executionClaim) {
-        try {
-          await withTurnAdmissionRepository(this.env, (repository) =>
-            repository.markRecoveryRequired(executionClaim!),
-          );
-        } catch (recoveryError) {
-          console.error("Failed to record interrupted execution claim", recoveryError);
-        }
-      }
       const domainError = mapRunExecutionErrorToDomain(
         error,
         payload.correlationId,
       );
+      let startupInterruptReason: string | null = null;
+      const claimedExecution = executionClaim as {
+        turnId: TurnId;
+        claimId: string;
+      } | null;
+      if (claimedExecution) {
+        startupInterruptReason = this.interruptRegistry.takePendingRequest(
+          claimedExecution.turnId,
+        );
+        this.interruptRegistry.unregister(claimedExecution.turnId);
+        try {
+          const identity = payload.identity;
+          if (identity && payload.userId) {
+            await settleOwnedStartupFailure({
+              store: this.createLifecycleEventStore(),
+              claim: claimedExecution,
+              identity: {
+                turnId: identity.turnId,
+                runAttemptId: identity.runAttemptId,
+                threadId: identity.threadId,
+                workspaceId: workspaceIdFromExternalId(identity.workspaceId),
+                admittedWorkspaceId: identity.workspaceId,
+                ...(identity.revisionOfTurnId
+                  ? { revisionOfTurnId: identity.revisionOfTurnId }
+                  : {}),
+                userId: payload.userId,
+                sessionId: payload.sessionId,
+                runId: payload.runId,
+                correlationId: payload.correlationId,
+              },
+              markRecoveryRequired: (claim) =>
+                withTurnAdmissionRepository(this.env, (repository) =>
+                  repository.markRecoveryRequired(claim),
+                ),
+              readAdmission: () =>
+                withTurnAdmissionRepository(this.env, (repository) =>
+                  repository.getByTurnId(claimedExecution.turnId),
+                ),
+              interruptReason: startupInterruptReason,
+              failure: toStartupLifecycleFailure(
+                error,
+                domainError,
+                payload.correlationId,
+              ),
+            });
+          } else {
+            await withTurnAdmissionRepository(this.env, (repository) =>
+              repository.markRecoveryRequired(claimedExecution),
+            );
+          }
+        } catch (recoveryError) {
+          console.error("Failed to settle an owned execution claim", recoveryError);
+        }
+      }
       if (domainError) {
         const { status, code, message, metadata } =
           mapDomainErrorToHttp(domainError);
@@ -1530,6 +1633,28 @@ export class RunEngineRequestHandler {
       },
     });
   }
+}
+
+function toStartupLifecycleFailure(
+  error: unknown,
+  domainError: DomainError | null,
+  correlationId: string,
+): ProtocolError {
+  const message = sanitizeLogText(
+    domainError?.message ?? sanitizeUnknownError(error),
+  ).slice(0, 10_000);
+  return {
+    code: "workspace_prepare_failed",
+    message: message || "Runtime setup failed before execution began.",
+    retryable: domainError?.retryable ?? true,
+    correlationId: correlationId || null,
+    details: domainError
+      ? {
+          domainCode: sanitizeLogText(domainError.code),
+          httpStatus: domainError.status,
+        }
+      : null,
+  };
 }
 
 function sameTurnRuntimeIdentity(

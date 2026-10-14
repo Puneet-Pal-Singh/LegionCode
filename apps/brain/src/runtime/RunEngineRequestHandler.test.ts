@@ -20,7 +20,11 @@ import {
 } from "@legioncode/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
-import { TaskCheckoutSchema, TurnIdSchema } from "@repo/platform-protocol";
+import {
+  TaskCheckoutSchema,
+  TurnIdSchema,
+  workspaceIdFromExternalId,
+} from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
 import {
   RunEngineRequestHandler,
@@ -845,7 +849,9 @@ describe("RunEngineRequestHandler", () => {
 
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: { getByTurnId: async () => null },
+      } as unknown as Env,
       runImmediately,
       undefined,
       { canonicalEventSink: createNoopCanonicalEventSink() },
@@ -908,9 +914,27 @@ describe("RunEngineRequestHandler", () => {
         nextSequence: null,
       })),
     } as unknown as LifecycleEventStore;
+    const activeAdmission = {
+      userId: "user-1",
+      sessionId: identity.sessionId,
+      clientMessageId: "client-1",
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      runAttemptId: identity.runAttemptId,
+      runId: identity.runId,
+      workspaceId: identity.workspaceId,
+      revisionOfTurnId: null,
+      state: "admitted",
+      executionState: "running",
+    };
+    const runtimeEnv = {
+      AUTH_TURN_ADMISSION_REPOSITORY: {
+        getByTurnId: async () => activeAdmission,
+      },
+    } as unknown as Env;
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      runtimeEnv,
       runImmediately,
       undefined,
       { interruptRegistry, lifecycleEventStore },
@@ -942,7 +966,7 @@ describe("RunEngineRequestHandler", () => {
     settled = true;
     const replayHandler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      runtimeEnv,
       runImmediately,
       undefined,
       { interruptRegistry, lifecycleEventStore },
@@ -958,6 +982,51 @@ describe("RunEngineRequestHandler", () => {
       terminalEvent: { type: "turn.interrupted" },
     });
     expect(interrupt).toHaveBeenCalledTimes(1);
+
+    const recoveryAdmission = {
+      userId: "user-1",
+      sessionId: identity.sessionId,
+      clientMessageId: "client-1",
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      runAttemptId: identity.runAttemptId,
+      runId: identity.runId,
+      workspaceId: identity.workspaceId,
+      revisionOfTurnId: null,
+      state: "admitted",
+      executionState: "recovery_required",
+    };
+    const orphanEvents: unknown[] = [];
+    const orphanLifecycleStore = {
+      replay: vi.fn(async () => ({ events: orphanEvents, nextSequence: null })),
+      appendBatch: vi.fn(async (events: readonly unknown[]) => {
+        orphanEvents.push(...events);
+        return events;
+      }),
+    } as unknown as LifecycleEventStore;
+    const orphanHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: {
+          getByTurnId: async () => recoveryAdmission,
+        },
+      } as unknown as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore: orphanLifecycleStore },
+    );
+    const orphanStop = await orphanHandler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(orphanStop.status).toBe(200);
+    await expect(orphanStop.json()).resolves.toMatchObject({
+      accepted: true,
+      status: "settled",
+      terminalEvent: { type: "turn.interrupted" },
+    });
+    expect(orphanLifecycleStore.appendBatch).toHaveBeenCalledTimes(1);
+    expect(orphanEvents).toHaveLength(5);
   });
 
   it("does not queue interrupt behind the execution lock", async () => {
@@ -976,7 +1045,9 @@ describe("RunEngineRequestHandler", () => {
     const withExecutionLock = vi.fn(runImmediately);
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: { getByTurnId: async () => null },
+      } as unknown as Env,
       withExecutionLock,
       undefined,
       { canonicalEventSink: createNoopCanonicalEventSink() },
@@ -1351,7 +1422,7 @@ describe("RunEngineRequestHandler", () => {
         options: [{ id: "allow_matching_in_chat" }],
         metadata: {
           grantMatcherKey: "tool:git_commit",
-          grantWorkspaceId: workspaceId,
+          grantWorkspaceId: workspaceIdFromExternalId(workspaceId),
         },
       },
     };
@@ -1393,11 +1464,12 @@ describe("RunEngineRequestHandler", () => {
 
     requested.payload.options = [{ id: "allow_matching_in_chat" }];
     requested.payload.metadata.grantWorkspaceId =
-      "00000000-0000-4000-8000-000000000002";
+      workspaceIdFromExternalId("00000000-0000-4000-8000-000000000002");
     expect((await submit("matching_in_chat")).status).toBe(409);
     expect(resolve).not.toHaveBeenCalled();
 
-    requested.payload.metadata.grantWorkspaceId = workspaceId;
+    requested.payload.metadata.grantWorkspaceId =
+      workspaceIdFromExternalId(workspaceId);
     const first = await submit("matching_in_chat");
     expect(first.status).toBe(200);
     const retryWithDifferentScope = await submit("once");
