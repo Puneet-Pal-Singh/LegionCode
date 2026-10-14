@@ -43,9 +43,7 @@ export class ToolExecutionCoordinator {
       toolCall,
     });
     const canonicalToolCall =
-      authorization.status === "rejected"
-        ? toolCall
-        : authorization.toolCall;
+      authorization.status === "rejected" ? toolCall : authorization.toolCall;
     await this.lifecycle.startToolCall(
       itemId,
       canonicalToolCall.toolCallId,
@@ -133,6 +131,7 @@ export class ToolExecutionCoordinator {
           error: {
             code: result.failure.code,
             message: result.failure.message,
+            details: result.failure.details,
             retryable: result.failure.retryable,
           },
         },
@@ -166,9 +165,7 @@ export class ToolExecutionCoordinator {
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
     signal?: AbortSignal,
-  ): Promise<
-    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
-  > {
+  ): Promise<Extract<WorkerToolResult, { kind: "completed" | "failed" }>> {
     const initial = await this.callWorker(
       run,
       runAttemptId,
@@ -220,9 +217,7 @@ export class ToolExecutionCoordinator {
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution,
     signal?: AbortSignal,
-  ): Promise<
-    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
-  > {
+  ): Promise<Extract<WorkerToolResult, { kind: "completed" | "failed" }>> {
     const result = await this.callWorker(
       run,
       runAttemptId,

@@ -1,3 +1,4 @@
+import { readPreExecutionRejection } from "./PreExecutionRejection.js";
 import type { CoreTool } from "ai";
 import { isModelFacingCodingTool } from "./ModelFacingCodingTools.js";
 import { z } from "zod";
@@ -335,16 +336,30 @@ export const GIT_DIFF_TOOL_INPUT_SCHEMA = createToolInputSchema(
 );
 
 export const GITHUB_PR_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
-  owner: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
-  repo: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+  owner: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
+  repo: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
   number: z.number().int().positive(),
 });
 
+export const GITHUB_PR_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
+  repo: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
+  number: z.number().int().positive(),
+  fileOffset: z.number().int().min(0).max(299).optional(),
+  fileLimit: z.number().int().min(1).max(100).optional(),
+  fileName: z.string().min(1).max(1_000).optional(),
+  patchOffset: z.number().int().min(0).max(1_000_000).optional(),
+  patchLimit: z.number().int().min(1).max(4_000).optional(),
+});
+
 export const GITHUB_PR_LIST_TOOL_INPUT_SCHEMA = createToolInputSchema({
-  owner: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
-  repo: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+  owner: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
+  repo: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
   state: z.enum(["open", "closed", "all"]).optional(),
   head: z.string().min(1).max(MAX_TOOL_PATH_LENGTH).optional(),
+  mergedLimit: z.number().int().min(1).max(20).optional(),
+  page: z.number().int().min(1).max(20).optional(),
+  perPage: z.number().int().min(1).max(100).optional(),
 });
 
 export const GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -402,6 +417,7 @@ export const CODING_TOOL_IDS = [
   "git_diff",
   "github_pr_list",
   "github_pr_get",
+  "github_pr_files_get",
   "github_pr_checks_get",
   "github_review_threads_get",
   "github_issue_get",
@@ -439,6 +455,7 @@ export type CodingToolInputByName = {
   git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
   github_pr_list: z.infer<typeof GITHUB_PR_LIST_TOOL_INPUT_SCHEMA>;
   github_pr_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_pr_files_get: z.infer<typeof GITHUB_PR_FILES_TOOL_INPUT_SCHEMA>;
   github_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
   github_review_threads_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
   github_issue_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
@@ -728,6 +745,16 @@ function buildFailedToolResult(
   result: Record<string, unknown>,
 ): ToolResult {
   const failure = readPluginFailure(result);
+  const preExecutionFailure = readPreExecutionRejection(result.failure);
+  const runtimeFailure = preExecutionFailure
+    ? {
+        code: "validation_failed",
+        message: preExecutionFailure.reason,
+        details: preExecutionFailure,
+        retryable: false,
+        correlationId: null,
+      }
+    : undefined;
   return {
     title,
     output: failure.message,
@@ -735,6 +762,8 @@ function buildFailedToolResult(
       success: false,
       ...(failure.status ? { status: failure.status } : {}),
       ...(failure.code ? { code: failure.code } : {}),
+      ...(runtimeFailure ? { runtimeFailure } : {}),
+      ...(preExecutionFailure ? { preExecutionFailure } : {}),
     },
     diagnostics: [{ severity: "error", message: failure.message }],
     truncated: false,
@@ -1038,6 +1067,18 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     tokenPolicy: REMOTE_TOKEN_POLICY,
     outputRenderer: "github",
     route: { plugin: "github", action: "pr_get" },
+  }),
+  createRoutedToolDefinition({
+    id: "github_pr_files_get",
+    title: "Get Pull Request Files",
+    description:
+      "Read changed files and patch availability for a GitHub pull request.",
+    inputSchema: GITHUB_PR_FILES_TOOL_INPUT_SCHEMA,
+    permission: REMOTE_READ_PERMISSION,
+    sandboxClass: "network",
+    tokenPolicy: REMOTE_TOKEN_POLICY,
+    outputRenderer: "github",
+    route: { plugin: "github", action: "pr_files_get" },
   }),
   createRoutedToolDefinition({
     id: "github_pr_checks_get",

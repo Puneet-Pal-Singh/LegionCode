@@ -107,3 +107,17 @@ This ledger records the active wiring for image-bearing conversation context.
 - Compaction does not evict image inputs or active-turn tool pairs. Those retained
   inputs can exceed a small model's context budget; estimates must report that
   occupancy without claiming compaction freed it.
+
+## Approval delivery and PR-review reliability
+
+| Responsibility                           | Canonical owner                                         | Active wiring and invariant                                                                                                                                                                                                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lifecycle reconnection and cursor resume | SDK lifecycle continuation                              | Web uses typed transient retries for atomic initial replay and live following; stopped delivery exposes an explicit retry action. Approval truth remains the durable lifecycle log.                                                                                                                        |
+| Authenticated GitHub PR review reads     | Coding tool registry and GitHub connector               | PR list/get/files/check tools use the existing authenticated connector. Latest-merged selection proves order or reports partial results; bounded file/patch windows expose continuation and unknown patch availability explicitly.                                                                         |
+| Repository PR-read reuse                 | RegistryToolAuthorization and canonical approval grants | An explicitly offered grant binds the trusted authenticated user, chat, workspace and normalized repository. Existing lifecycle grant persistence is reused. Writes, shell, other repositories and old exact-input grants cannot consume the new matcher.                                                  |
+| Pre-execution rejection recovery         | BashPlugin validation and native kernel worker          | Structured rejection proves execution did not start. One same-rule correction may return through the existing recoverable tool-result path, with normal validation/approval on every call. Exhaustion settles one canonical failed outcome explaining incomplete work.                                     |
+| Composer provider/model preference       | ProviderStore and its session preference adapter        | ChatInputBar, AgentSetup, ProviderDialog and useChatCore share a stable session choice independently of the execution run. Cache is a browser preference only; submission uses the validated resolver and captures the admitted configuration. Inventory refresh cannot silently replace explicit choices. |
+
+No lifecycle, grant or chat database migration is required. The old run-keyed
+composer preference cache and direct unvalidated submission shortcut are removed
+from the active path. Active turns retain their admitted provider configuration.
