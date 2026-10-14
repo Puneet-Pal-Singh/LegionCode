@@ -198,60 +198,84 @@ describe("LifecycleController", () => {
 
   it("proxies lifecycle approval decisions to the owning runtime", async () => {
     const env = {} as Env;
+    const submit = (payload: Record<string, unknown>) =>
+      LifecycleController.submitApproval(
+        new Request(
+          `https://brain.local/turns/${TURN_ID}/approvals/appr_123456`,
+          { method: "POST", body: JSON.stringify(payload) },
+        ),
+        env,
+      );
+    const matchingScopePayload = {
+      turnId: TURN_ID,
+      approvalId: "appr_123456",
+      decision: "approved",
+      grantScope: "matching_in_chat",
+      decidedBy: null,
+      reason: null,
+    };
     runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      Response.json({
-        schemaVersion: 1,
-        eventId: "evt_approvaldecision",
-        idempotencyKey: "turn:approval:decision",
-        producer: { kind: "runtime", id: "test" },
-        occurredAt: "2026-07-03T00:00:00.000Z",
-        sequence: 8,
-        turnId: TURN_ID,
-        type: "approval.decided",
-        itemId: "itm_approvalitem",
-        approvalId: "appr_123456",
-        payload: { status: "approved" },
-      }),
+      Response.json({ type: "approval.decided", approvalId: "appr_123456" }),
     );
 
-    const response = await LifecycleController.submitApproval(
-      new Request(
-        `https://brain.local/turns/${TURN_ID}/approvals/appr_123456`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            turnId: TURN_ID,
-            approvalId: "appr_123456",
-            decision: "approved",
-            decidedBy: null,
-            reason: null,
-          }),
-        },
-      ),
-      env,
-    );
+    const response = await submit(matchingScopePayload);
 
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenNthCalledWith(
+      1,
       env,
       RUN_ID,
       "execution-engine-v1",
       {
         method: "POST",
         path: `/lifecycle-approval?turnId=${TURN_ID}&approvalId=appr_123456`,
-        body: JSON.stringify({
-          turnId: TURN_ID,
-          approvalId: "appr_123456",
-          decision: "approved",
-          decidedBy: null,
-          reason: null,
-        }),
+        body: JSON.stringify(matchingScopePayload),
         headers: { "Content-Type": "application/json" },
       },
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       type: "approval.decided",
-      approvalId: "appr_123456",
     });
+
+    const oncePayload = { ...matchingScopePayload, grantScope: "once" };
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      Response.json({}),
+    );
+    expect((await submit(oncePayload)).status).toBe(200);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenNthCalledWith(
+      2,
+      env,
+      RUN_ID,
+      "execution-engine-v1",
+      expect.objectContaining({ body: JSON.stringify(oncePayload) }),
+    );
+
+    const defaultPayload: Record<string, unknown> = {
+      ...matchingScopePayload,
+    };
+    delete defaultPayload.grantScope;
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      Response.json({}),
+    );
+    expect((await submit(defaultPayload)).status).toBe(200);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenNthCalledWith(
+      3,
+      env,
+      RUN_ID,
+      "execution-engine-v1",
+      expect.objectContaining({ body: JSON.stringify(defaultPayload) }),
+    );
+
+    const beforeInvalidScope =
+      runtimeHelpers.fetchRunRuntimeRoute.mock.calls.length;
+    expect(
+      (await submit({ ...matchingScopePayload, grantScope: "invalid" })).status,
+    ).toBe(400);
+    expect(
+      (await submit({ ...matchingScopePayload, decision: "denied" })).status,
+    ).toBe(400);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledTimes(
+      beforeInvalidScope,
+    );
   });
 });

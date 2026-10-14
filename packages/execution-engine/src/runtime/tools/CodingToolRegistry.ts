@@ -355,11 +355,41 @@ export const GITHUB_PR_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema({
 export const GITHUB_PR_LIST_TOOL_INPUT_SCHEMA = createToolInputSchema({
   owner: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
   repo: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/),
-  state: z.enum(["open", "closed", "all"]).optional(),
-  head: z.string().min(1).max(MAX_TOOL_PATH_LENGTH).optional(),
-  mergedLimit: z.number().int().min(1).max(20).optional(),
-  page: z.number().int().min(1).max(20).optional(),
-  perPage: z.number().int().min(1).max(100).optional(),
+  state: z
+    .enum(["open", "closed", "all"])
+    .optional()
+    .describe("For ordinary PR lists; omit when using mergedLimit."),
+  head: z
+    .string()
+    .min(1)
+    .max(MAX_TOOL_PATH_LENGTH)
+    .optional()
+    .describe(
+      "Optional branch filter; omit for merged PRs across all branches.",
+    ),
+  mergedLimit: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .describe(
+      "Set to return the latest merged PRs. Omit state, page, and perPage; set head only when the user requests a branch filter.",
+    ),
+  page: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .describe("Ordinary PR list pagination; omit when using mergedLimit."),
+  perPage: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Ordinary PR list page size; omit when using mergedLimit."),
 });
 
 export const GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({

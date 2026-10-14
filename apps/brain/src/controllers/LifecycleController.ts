@@ -1,5 +1,7 @@
+import { z } from "zod";
 import {
   ApprovalIdSchema,
+  ApprovalGrantScopeSchema,
   ApprovalDecisionSchema,
   runIdFromTurnId,
 } from "@repo/platform-protocol";
@@ -257,6 +259,7 @@ function parseLifecycleApprovalPayload(
         turnId: string;
         approvalId: string;
         decision: "approved" | "denied" | "cancelled";
+        grantScope?: "once" | "matching_in_chat";
         decidedBy: string | null;
         reason: string | null;
       };
@@ -278,12 +281,28 @@ function parseLifecycleApprovalPayload(
   if (!decision.success) {
     return { ok: false, message: "Invalid approval decision" };
   }
+  const grantScope =
+    record.grantScope === undefined
+      ? undefined
+      : z
+          .union([z.literal("once"), ApprovalGrantScopeSchema])
+          .safeParse(record.grantScope);
+  if (grantScope && !grantScope.success) {
+    return { ok: false, message: "Invalid approval grant scope" };
+  }
+  if (grantScope?.success && decision.data !== "approved") {
+    return {
+      ok: false,
+      message: "Approval grant scope requires an approved decision",
+    };
+  }
   return {
     ok: true,
     value: {
       turnId: parsedTurnId.value,
       approvalId: ApprovalIdSchema.parse(parsedApprovalId.value),
       decision: decision.data,
+      ...(grantScope?.success ? { grantScope: grantScope.data } : {}),
       decidedBy: typeof record.decidedBy === "string" ? record.decidedBy : null,
       reason: typeof record.reason === "string" ? record.reason : null,
     },
