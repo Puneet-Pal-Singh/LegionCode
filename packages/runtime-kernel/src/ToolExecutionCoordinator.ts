@@ -76,6 +76,19 @@ export class ToolExecutionCoordinator {
           toolCall.toolCallId,
           error.message,
         );
+        const failure = toProtocolError(error);
+        return {
+          toolCallId: toolCall.toolCallId,
+          output: {
+            error: {
+              code: failure.code,
+              message: failure.message,
+              details: failure.details,
+              retryable: false,
+            },
+          },
+          failure: { ...failure, retryable: false },
+        };
       } else {
         await this.lifecycle.failToolCall(
           toolCall.toolCallId,
