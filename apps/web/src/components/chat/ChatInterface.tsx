@@ -363,6 +363,16 @@ export function ChatInterface({
             }
           : null
       }
+      continuation={
+        activeTurn.continuationStatus === "reconnecting" ||
+        activeTurn.continuationStatus === "stopped"
+          ? {
+              status: activeTurn.continuationStatus,
+              error: activeTurn.continuationError,
+              onRetry: activeTurn.retryContinuation,
+            }
+          : null
+      }
       approval={{
         pending: pendingApproval,
         matchingInChatOption,

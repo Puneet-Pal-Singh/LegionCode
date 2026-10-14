@@ -140,6 +140,9 @@ export type SubmitApprovalRequest = z.infer<typeof SubmitApprovalRequestSchema>;
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
+  onLifecycleContinuationStatus?: (
+    status: "replaying" | "following" | "reconnecting",
+  ) => void;
 }
 
 export interface PlatformClientTransport {

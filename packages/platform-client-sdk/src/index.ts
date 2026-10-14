@@ -58,7 +58,11 @@ export {
   turnIdFromRunId,
   turnSeedFromLatestUserMessage,
 } from "@repo/platform-protocol/lifecycle-turn-routing";
-export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
+export {
+  followLifecycleEvents,
+  isRetryableLifecycleTransportError,
+  replayLifecycleEventsWithRetry,
+} from "./platform/lifecycle-continuation.js";
 export {
   ConversationHistoryReadError,
   parseConversationHistoryPage,

@@ -11,6 +11,14 @@ export interface ActiveTurnProjection {
   readonly isActive: boolean;
   readonly isTerminal: boolean;
   readonly isTransportPending: boolean;
+  readonly continuationStatus:
+    | "replaying"
+    | "following"
+    | "reconnecting"
+    | "stopped"
+    | null;
+  readonly continuationError: string | null;
+  readonly retryContinuation: () => void;
 }
 
 export function deriveCanonicalRunLoading(
@@ -43,10 +51,11 @@ export function useActiveTurnProjection(input: {
     ? TurnIdSchema.safeParse(normalizedTurnId)
     : null;
   const turnId = parsedTurnId?.success ? parsedTurnId.data : null;
-  const { projection } = useTurnLifecycleProjection(
-    turnId,
-    Boolean(turnId) && input.enabled !== false,
-  );
+  const { projection, error, continuationStatus, retry } =
+    useTurnLifecycleProjection(
+      turnId,
+      Boolean(turnId) && input.enabled !== false,
+    );
 
   return useMemo(() => {
     const hasReplay = (projection?.lastSequence ?? 0) > 0;
@@ -59,6 +68,16 @@ export function useActiveTurnProjection(input: {
       isActive: hasReplay && !isTerminal,
       isTerminal,
       isTransportPending: input.transportLoading && !turnId,
+      continuationStatus,
+      continuationError: error,
+      retryContinuation: retry,
     };
-  }, [input.transportLoading, projection, turnId]);
+  }, [
+    continuationStatus,
+    error,
+    input.transportLoading,
+    projection,
+    retry,
+    turnId,
+  ]);
 }
