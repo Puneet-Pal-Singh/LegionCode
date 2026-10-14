@@ -127,7 +127,7 @@ export function AgentSetup({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore();
+  } = useProviderStore(undefined, sessionId);
   const isModelPickerLoading = useMemo(
     () =>
       isProviderModelBootstrapLoading({

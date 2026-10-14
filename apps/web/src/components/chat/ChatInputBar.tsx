@@ -155,6 +155,7 @@ export function ChatInputBar({
     catalog,
     credentials,
     status,
+    error: providerStoreError,
     selectedProviderId,
     selectedModelId,
     axisQuota,
@@ -174,7 +175,7 @@ export function ChatInputBar({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore(runId);
+  } = useProviderStore(runId, sessionId);
   const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
@@ -946,6 +947,12 @@ export function ChatInputBar({
                 </span>
               ) : null}
             </div>
+
+            {providerStoreError?.startsWith("Your selected") ? (
+              <div role="alert" className="mt-2 text-xs text-amber-200">
+                {providerStoreError}
+              </div>
+            ) : null}
 
             {/* Attachment and voice actions stay hidden until they trigger real flows. */}
             <div className="flex shrink-0 items-center gap-1.5">

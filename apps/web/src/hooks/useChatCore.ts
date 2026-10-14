@@ -31,7 +31,6 @@ import {
 } from "../lib/chat-errors";
 import {
   requireResolvedProviderConfig,
-  resolveSelectedProviderConfig,
   type ResolvedProviderConfig,
 } from "../lib/chat-provider-config";
 import {
@@ -310,11 +309,10 @@ export function useChatCore(
     selectedProviderId,
     selectedCredentialId,
     selectedModelId,
-    lastResolvedConfig,
     providerModels,
     manageProviderModels,
     resolveForChat,
-  } = useProviderStore(runId);
+  } = useProviderStore(runId, sessionId);
   const selectedModel =
     selectedProviderId && selectedModelId
       ? (providerModels[selectedProviderId]?.find(
@@ -324,8 +322,6 @@ export function useChatCore(
           (model) => model.id === selectedModelId,
         ))
       : undefined;
-  const selectedModelContextWindow = selectedModel?.contextWindow;
-  const selectedModelPricing = selectedModel?.pricing;
   const selectedModelEfforts = selectedModel?.capabilities?.reasoningEfforts;
   const authenticatedChatFetch = useMemo(
     () => createSubmissionObservedFetch(fetchWithSessionAuth),
@@ -534,26 +530,6 @@ export function useChatCore(
       setInternalRunId(createRunId());
     }
   }, [externalRunId]);
-
-  const resolveSelectedProviderConfigForRequest = useCallback(
-    (): ResolvedProviderConfig | null =>
-      resolveSelectedProviderConfig({
-        selectedProviderId,
-        selectedModelId,
-        selectedCredentialId,
-        selectedModelContextWindow,
-        selectedModelPricing,
-        lastResolvedConfig,
-      }),
-    [
-      lastResolvedConfig,
-      selectedCredentialId,
-      selectedModelId,
-      selectedModelContextWindow,
-      selectedModelPricing,
-      selectedProviderId,
-    ],
-  );
 
   const resolveProviderConfigFromApi = useCallback(
     async (requestScopeKey: string): Promise<ResolvedProviderConfig | null> => {
@@ -797,8 +773,7 @@ export function useChatCore(
 
       try {
         const providerConfig =
-          resolveSelectedProviderConfigForRequest() ??
-          (await resolveProviderConfigFromApi(bootstrapScopeKey));
+          await resolveProviderConfigFromApi(bootstrapScopeKey);
         if (!providerConfig) {
           logClientWarning("chat/submit", "aborted", {
             runId,
@@ -1093,7 +1068,6 @@ export function useChatCore(
       productMode,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
-      resolveSelectedProviderConfigForRequest,
       runId,
       runScopeKey,
       sessionId,
