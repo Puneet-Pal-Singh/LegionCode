@@ -220,7 +220,17 @@ describe("OpenAIResponsesAdapter", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
         new Response(
-          JSON.stringify({ output_text: "Done", status: "completed" }),
+          JSON.stringify({
+            output: [
+              {
+                type: "function_call",
+                call_id: "call_prs",
+                name: "list_pull_requests",
+                arguments: JSON.stringify({ owner: "acme", repo: "legion" }),
+              },
+            ],
+            status: "completed",
+          }),
           { status: 200 },
         ),
       );
@@ -230,28 +240,53 @@ describe("OpenAIResponsesAdapter", () => {
       providerId: "openai",
     });
 
-    await adapter.generate({
+    const result = await adapter.generate({
       messages: [{ role: "user", content: "read the readme" }],
       tools: {
-        read_file: {
-          description: "Read a file",
-          parameters: z.object({ path: z.string() }),
+        list_pull_requests: {
+          description: "List pull requests",
+          parameters: z.object({
+            owner: z.string(),
+            repo: z.string(),
+            state: z.enum(["open", "closed", "all"]).optional(),
+            head: z.string().optional(),
+            mergedLimit: z.number().optional(),
+            page: z.number().optional(),
+            perPage: z.number().optional(),
+          }),
         },
       },
       model: "gpt-5.6-luna",
       reasoningEffort: "high",
     });
 
+    expect(result.toolCalls).toEqual([
+      {
+        toolCallId: "call_prs",
+        toolName: "list_pull_requests",
+        args: { owner: "acme", repo: "legion" },
+      },
+    ]);
+
     const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
     expect(body.tools).toEqual([
       {
         type: "function",
-        name: "read_file",
-        description: "Read a file",
+        name: "list_pull_requests",
+        description: "List pull requests",
+        strict: false,
         parameters: {
           type: "object",
-          properties: { path: { type: "string" } },
-          required: ["path"],
+          properties: {
+            owner: { type: "string" },
+            repo: { type: "string" },
+            state: { type: "string", enum: ["open", "closed", "all"] },
+            head: { type: "string" },
+            mergedLimit: { type: "number" },
+            page: { type: "number" },
+            perPage: { type: "number" },
+          },
+          required: ["owner", "repo"],
           additionalProperties: false,
         },
       },
