@@ -161,13 +161,25 @@ function validateBashCommand(command: string): void {
       );
     }
   }
-  if (/\$\(|`/.test(executableText)) {
+  if (
+    /\$\(|`/.test(executableText) ||
+    (hasNestedShellOrEval(normalized) && /\$\(|`/.test(normalized))
+  ) {
     throw new BashValidationError(
       "bash.command_substitution",
       "Shell command substitution is not allowed in this command.",
       "Use a direct command or an approved typed tool; do not embed shell substitutions or destructive operations.",
     );
   }
+}
+
+function hasNestedShellOrEval(command: string): boolean {
+  const flattened = flattenShellQuotes(command);
+  return (
+    /(?:^|[\s;&|()])(?:[^\s;&|()]+\/)?(?:bash|sh|dash|zsh|ksh|fish|eval|source)(?=$|[\s;&|()])/i.test(
+      flattened,
+    ) || /(?:^|\s)(?:-[a-z]*c|--command(?:=|\s|$))/i.test(flattened)
+  );
 }
 
 function maskSingleQuotedText(command: string): string {

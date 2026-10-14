@@ -95,16 +95,46 @@ describe("secure-agent-api plugin hardening", () => {
 
   it("rejects dangerous bash command patterns", async () => {
     const plugin = new BashPlugin();
-    const sandbox = createSandboxMock();
+    const rejectedCommands = [
+      "echo ok | bash",
+      "bash -c 'echo $(id)'",
+      "sh -c 'echo `id`'",
+      "eval 'echo $(id)'",
+      "/bin/sh -c 'echo $(id)'",
+      "env bash -c 'echo $(id)'",
+      "command bash -c 'echo $(id)'",
+      "exec /bin/bash -c 'echo $(id)'",
+      "b'a'sh -c 'echo $(id)'",
+      "bash -c 'echo \\$(id)'",
+      "$SHELL -lc 'echo $(id)'",
+      'echo "$(id)"',
+      "echo $(id)",
+    ];
 
-    const result = await plugin.execute(asSandbox(sandbox), {
+    for (const [index, command] of rejectedCommands.entries()) {
+      const sandbox = createSandboxMock();
+      const result = await plugin.execute(asSandbox(sandbox), {
+        action: "run",
+        runId: `run-safe-bash-${index}`,
+        command,
+      });
+
+      expect(result.success, command).toBe(false);
+      expect(result.failure, command).toMatchObject({
+        kind: "pre_execution_rejection",
+        executionStarted: false,
+      });
+      expect(sandbox.execCalls, command).toHaveLength(0);
+    }
+
+    const literalSandbox = createSandboxMock();
+    const literalResult = await plugin.execute(asSandbox(literalSandbox), {
       action: "run",
-      runId: "run-safe-bash",
-      command: "echo ok | bash",
+      runId: "run-safe-bash-js-literal",
+      command: "node -e 'const template = `literal`; console.log(template)'",
     });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/Dangerous bash command pattern detected/i);
+    expect(literalResult.success).toBe(true);
+    expect(literalSandbox.execCalls).toHaveLength(2);
   });
 
   it("allows concrete git shell commands", async () => {
@@ -332,9 +362,9 @@ describe("secure-agent-api plugin hardening", () => {
       totalLines: 4,
       nextOffset: 3,
     });
-    expect(sandbox.execCalls.some((command) => command.includes("'stat'"))).toBe(
-      false,
-    );
+    expect(
+      sandbox.execCalls.some((command) => command.includes("'stat'")),
+    ).toBe(false);
     expect(result.truncated).toBe(true);
   });
 
