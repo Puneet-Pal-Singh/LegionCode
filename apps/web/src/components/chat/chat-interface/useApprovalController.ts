@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
+import { RiskyActionCategorySchema } from "@repo/shared-types";
 import { ApprovalIdSchema } from "@repo/platform-client-sdk";
 import {
   createLifecycleClient,
@@ -58,9 +59,7 @@ export function useApprovalController(input: ApprovalControllerInput) {
     ? `${input.sessionId}:${projectedApproval.turnId}:${projectedApproval.requestId}`
     : null;
   const pendingApproval =
-    approvalIdentity === resolvedRequestId
-      ? null
-      : projectedApproval;
+    approvalIdentity === resolvedRequestId ? null : projectedApproval;
 
   useApprovalLifecycle(
     projectedApproval,
@@ -120,7 +119,12 @@ function buildLifecycleApprovalState(
       turnId: projection.turnId,
       itemId: approval.itemId,
       origin: "agent",
-      category: "shell_command",
+      // Older lifecycle events predate canonical category metadata. New
+      // approvals carry a registry-derived category validated by the shared
+      // schema; keep the legacy fallback for those historical events.
+      category: RiskyActionCategorySchema.catch("shell_command").parse(
+        approval.metadata?.category,
+      ),
       title: approval.question,
       reason: approval.question,
       actionFingerprint: `${projection.turnId}:${approval.approvalId}`,

@@ -138,39 +138,7 @@ export class GitHubPlugin implements IPlugin {
     );
 
     const items = pullRequests
-      .map((pr) => ({
-        number: readNumber(pr.number),
-        title: readString(pr.title),
-        state: readString(pr.state),
-        draft: readBoolean(pr.draft),
-        htmlUrl: readString(pr.html_url),
-        headRef: readString(
-          (pr.head as Record<string, unknown> | undefined)?.ref,
-        ),
-        headSha: readString(
-          (pr.head as Record<string, unknown> | undefined)?.sha,
-        ),
-        headRepository: readString(
-          (toRecord(toRecord(pr.head)?.repo) ?? {}).full_name,
-        ),
-        baseRef: readString(
-          (pr.base as Record<string, unknown> | undefined)?.ref,
-        ),
-        baseRepository: readString(
-          (toRecord(toRecord(pr.base)?.repo) ?? {}).full_name,
-        ),
-        author: readString(
-          (pr.user as Record<string, unknown> | undefined)?.login,
-        ),
-        body: readString(pr.body),
-        merged:
-          readBoolean(pr.merged) ??
-          (isValidGitHubTimestamp(pr.merged_at) ? true : null),
-        mergedAt: readString(pr.merged_at),
-        mergeCommitSha: readString(pr.merge_commit_sha),
-        createdAt: readString(pr.created_at),
-        updatedAt: readString(pr.updated_at),
-      }))
+      .map(mapPullRequestMetadata)
       .filter((item) => typeof item.number === "number");
 
     return {
@@ -290,38 +258,8 @@ export class GitHubPlugin implements IPlugin {
     return {
       success: true,
       output: JSON.stringify({
-        number: readNumber(pr.number),
-        title: readString(pr.title),
-        state: readString(pr.state),
-        draft: readBoolean(pr.draft),
+        ...mapPullRequestMetadata(pr),
         mergeable: readBoolean(pr.mergeable),
-        htmlUrl: readString(pr.html_url),
-        headRef: readString(
-          (pr.head as Record<string, unknown> | undefined)?.ref,
-        ),
-        headSha: readString(
-          (pr.head as Record<string, unknown> | undefined)?.sha,
-        ),
-        headRepository: readString(
-          (toRecord(toRecord(pr.head)?.repo) ?? {}).full_name,
-        ),
-        baseRef: readString(
-          (pr.base as Record<string, unknown> | undefined)?.ref,
-        ),
-        baseRepository: readString(
-          (toRecord(toRecord(pr.base)?.repo) ?? {}).full_name,
-        ),
-        author: readString(
-          (pr.user as Record<string, unknown> | undefined)?.login,
-        ),
-        body: readString(pr.body),
-        merged:
-          readBoolean(pr.merged) ??
-          (isValidGitHubTimestamp(pr.merged_at) ? true : null),
-        mergedAt: readString(pr.merged_at),
-        mergeCommitSha: readString(pr.merge_commit_sha),
-        createdAt: readString(pr.created_at),
-        updatedAt: readString(pr.updated_at),
       }),
     };
   }
@@ -352,7 +290,8 @@ export class GitHubPlugin implements IPlugin {
       ? files.filter((file) => readString(file.filename) === payload.fileName)
       : files.slice(fileOffset, fileOffset + fileLimit);
     const outputFiles = selectedFiles.map((file) => {
-      const originalPatch = readString(file.patch);
+      const originalPatch =
+        typeof file.patch === "string" ? file.patch : undefined;
       const patchBytes = originalPatch
         ? Buffer.from(originalPatch, "utf8")
         : null;
@@ -832,23 +771,6 @@ function timestampValue(value: unknown): number {
   return isValidGitHubTimestamp(value)
     ? Date.parse(value)
     : Number.NEGATIVE_INFINITY;
-}
-
-function truncateUtf8(
-  value: string,
-  maxBytes: number,
-): { text: string; truncated: boolean } {
-  let text = "";
-  let bytes = 0;
-  for (const character of value) {
-    const characterBytes = utf8ByteLength(character);
-    if (bytes + characterBytes > maxBytes) {
-      return { text, truncated: true };
-    }
-    text += character;
-    bytes += characterBytes;
-  }
-  return { text, truncated: false };
 }
 
 function utf8ByteLength(value: string): number {

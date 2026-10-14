@@ -47,6 +47,8 @@ export function requestApproval(
       approvalId,
       itemId,
       question,
+      metadata:
+        "metadata" in payload ? (readRecord(payload.metadata) ?? {}) : {},
       options: readApprovalOptions(payload),
       requestedAt: event.createdAt,
       decidedAt: null,

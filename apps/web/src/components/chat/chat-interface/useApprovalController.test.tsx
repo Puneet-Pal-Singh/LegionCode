@@ -20,6 +20,7 @@ describe("useApprovalController", () => {
     );
 
     expect(result.current.pendingApproval).not.toBeNull();
+    expect(result.current.pendingApproval?.category).toBe("network_external");
     await act(() => result.current.resolve("allow_once"));
 
     expect(submitApproval).toHaveBeenCalledWith(
@@ -148,6 +149,7 @@ function pendingApprovalProjection(
       approvalId: "appr_approval01" as ApprovalId,
       itemId: "item_approval01" as ItemId,
       question: "Allow git status?",
+      metadata: { category: "network_external" },
       options,
       requestedAt: "2026-08-09T12:00:00.000Z",
       decidedAt: null,

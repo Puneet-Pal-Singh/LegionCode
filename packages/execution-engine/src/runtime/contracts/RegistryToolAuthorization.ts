@@ -23,6 +23,7 @@ import {
   codingToolRegistry,
   type ToolDefinition,
 } from "../tools/CodingToolRegistry.js";
+import type { RiskyActionCategory } from "@repo/shared-types";
 
 const READ_ONLY_RUN_MODES = new Set<RunMode>(["ask", "review", "plan"]);
 
@@ -202,6 +203,7 @@ function mapAskDecision(
   canReuseGrant: boolean,
 ): ToolAuthorizationResult {
   const { definition, toolCall } = resolved;
+  const category = resolveApprovalCategory(definition);
   return {
     status: "approval_required",
     toolCall,
@@ -236,6 +238,7 @@ function mapAskDecision(
       metadata: {
         toolName: definition.id,
         action: definition.permissionMetadata.action ?? definition.id,
+        ...(category ? { category } : {}),
         riskLevel: decision.riskLevel,
         permissionProfileId: input.run.permissionProfileId,
         grantMatcherKey: matcherKey,
@@ -243,6 +246,28 @@ function mapAskDecision(
       },
     },
   };
+}
+
+function resolveApprovalCategory(
+  definition: ToolDefinition,
+): RiskyActionCategory | undefined {
+  switch (definition.permissionMetadata.domain) {
+    case "command":
+      return "shell_command";
+    case "git":
+      return "git_mutation";
+    case "network":
+    case "external_service":
+      return "network_external";
+    case "tool":
+      return definition.sandboxClass === "write"
+        ? "filesystem_write"
+        : undefined;
+    case "path":
+    case "package_manager":
+    case "secret":
+      return undefined;
+  }
 }
 
 async function createGrantMatcherKey(

@@ -4,6 +4,7 @@ import type { Env } from "../types/ai";
 const runtimeHelpers = vi.hoisted(() => ({
   fetchRunRuntimeRoute: vi.fn(),
   withRunRepository: vi.fn(),
+  withTurnAdmissionRepository: vi.fn(),
 }));
 
 const authHelpers = vi.hoisted(() => ({
@@ -19,6 +20,10 @@ vi.mock("../services/runs/RunPersistenceFactory", () => ({
   withRunRepository: runtimeHelpers.withRunRepository,
 }));
 
+vi.mock("../services/turn-admissions/TurnAdmissionPersistenceFactory", () => ({
+  withTurnAdmissionRepository: runtimeHelpers.withTurnAdmissionRepository,
+}));
+
 vi.mock("../services/AuthService", () => ({
   getAuthenticatedUserSession: authHelpers.getAuthenticatedUserSession,
   isSessionStoreUnavailableError: authHelpers.isSessionStoreUnavailableError,
@@ -27,8 +32,7 @@ vi.mock("../services/AuthService", () => ({
 import { LifecycleController } from "./LifecycleController";
 
 const RUN_ID = "run_123e4567e89b42d3a456426614174100";
-const TURN_ID =
-  "trn_123e4567e89b42d3a456426614174100__turn__client_msg_100";
+const TURN_ID = "trn_123e4567e89b42d3a456426614174100__turn__client_msg_100";
 
 describe("LifecycleController", () => {
   beforeEach(() => {
@@ -42,6 +46,10 @@ describe("LifecycleController", () => {
           id: RUN_ID,
         }),
       }),
+    );
+    runtimeHelpers.withTurnAdmissionRepository.mockImplementation(
+      (_env, callback) =>
+        callback({ getByTurnId: vi.fn().mockResolvedValue(null) }),
     );
     authHelpers.getAuthenticatedUserSession.mockResolvedValue({
       userId: "user-1",
@@ -76,6 +84,58 @@ describe("LifecycleController", () => {
       events: [],
       nextSequence: null,
     });
+
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getRun: vi.fn().mockResolvedValue(null) }),
+    );
+    runtimeHelpers.withTurnAdmissionRepository.mockImplementationOnce(
+      (_env, callback) =>
+        callback({
+          getByTurnId: vi.fn().mockResolvedValue({
+            userId: "user-1",
+            runId: RUN_ID,
+            state: "reserved",
+          }),
+        }),
+    );
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      Response.json({ events: [], nextSequence: null }),
+    );
+    const reservedReplay = await LifecycleController.getEvents(
+      new Request(`https://brain.local/turns/${TURN_ID}/lifecycle-events`),
+      env,
+    );
+    expect(reservedReplay.status).toBe(200);
+
+    const getRun = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: RUN_ID });
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getRun }),
+    );
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getRun }),
+    );
+    runtimeHelpers.withTurnAdmissionRepository.mockImplementationOnce(
+      (_env, callback) =>
+        callback({
+          getByTurnId: vi.fn().mockResolvedValue({
+            userId: "user-1",
+            runId: RUN_ID,
+            state: "admitted",
+          }),
+        }),
+    );
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      Response.json({ events: [], nextSequence: null }),
+    );
+    const admittedReplay = await LifecycleController.getEvents(
+      new Request(`https://brain.local/turns/${TURN_ID}/lifecycle-events`),
+      env,
+    );
+    expect(getRun).toHaveBeenCalledTimes(2);
+    expect(admittedReplay.status).toBe(200);
   });
 
   it("rejects lifecycle replay when the user does not own the run", async () => {
@@ -84,9 +144,7 @@ describe("LifecycleController", () => {
     );
 
     const response = await LifecycleController.getEvents(
-      new Request(
-        `https://brain.local/turns/${TURN_ID}/lifecycle-events`,
-      ),
+      new Request(`https://brain.local/turns/${TURN_ID}/lifecycle-events`),
       {} as Env,
     );
 
@@ -101,9 +159,7 @@ describe("LifecycleController", () => {
     );
 
     const response = await LifecycleController.getTurnDiff(
-      new Request(
-        `https://brain.local/turns/${TURN_ID}/diff`,
-      ),
+      new Request(`https://brain.local/turns/${TURN_ID}/diff`),
       env,
     );
 
@@ -118,6 +174,26 @@ describe("LifecycleController", () => {
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ diff: null });
+
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getRun: vi.fn().mockResolvedValue(null) }),
+    );
+    runtimeHelpers.withTurnAdmissionRepository.mockImplementationOnce(
+      (_env, callback) =>
+        callback({
+          getByTurnId: vi.fn().mockResolvedValue({
+            userId: "user-1",
+            runId: RUN_ID,
+            state: "reserved",
+          }),
+        }),
+    );
+    const deniedDiff = await LifecycleController.getTurnDiff(
+      new Request(`https://brain.local/turns/${TURN_ID}/diff`),
+      env,
+    );
+    expect(deniedDiff.status).toBe(404);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledTimes(1);
   });
 
   it("proxies lifecycle approval decisions to the owning runtime", async () => {
