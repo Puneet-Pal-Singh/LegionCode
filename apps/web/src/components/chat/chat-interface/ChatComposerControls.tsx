@@ -17,14 +17,17 @@ import type {
 
 export type ComposerLayout = "docked" | "hero";
 
+export interface ChatErrorNoticeProps {
+  message: string;
+  remediation: string;
+  actionLabel: string;
+  technicalDetails?: string;
+  onOpen?: () => void;
+}
+
 interface ChatComposerControlsProps {
   layout: ComposerLayout;
-  error?: {
-    message: string;
-    remediation: string;
-    actionLabel: string;
-    onOpen?: () => void;
-  } | null;
+  error?: ChatErrorNoticeProps | null;
   continuation?: {
     status: "reconnecting" | "stopped";
     error: string | null;
@@ -133,25 +136,37 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
   );
 }
 
-function ChatErrorNotice({
+export function ChatErrorNotice({
   message,
   remediation,
   actionLabel,
+  technicalDetails,
   onOpen,
-}: NonNullable<ChatComposerControlsProps["error"]>) {
+}: ChatErrorNoticeProps) {
   return (
-    <div className="space-y-2 rounded border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-      <p>{message}</p>
-      <p className="text-xs text-red-100/80">{remediation}</p>
+    <div
+      role="alert"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1 text-sm text-zinc-300"
+    >
+      <p className="min-w-0 flex-1">{message}</p>
       {onOpen ? (
         <button
           type="button"
           onClick={onOpen}
-          className="rounded border border-red-300/40 px-2 py-1 text-xs transition hover:bg-red-900/40"
+          className="rounded px-2.5 py-1 text-xs text-zinc-200 transition hover:bg-zinc-800"
         >
           {actionLabel}
         </button>
       ) : null}
+      <details className="basis-full text-xs text-zinc-500">
+        <summary className="w-fit cursor-pointer select-none hover:text-zinc-300">
+          Details
+        </summary>
+        <p className="mt-1 text-zinc-400">{remediation}</p>
+        {technicalDetails ? (
+          <p className="mt-1 font-mono text-zinc-500">{technicalDetails}</p>
+        ) : null}
+      </details>
     </div>
   );
 }

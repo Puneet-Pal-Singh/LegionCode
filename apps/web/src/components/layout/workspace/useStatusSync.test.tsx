@@ -14,8 +14,6 @@ describe("useStatusSync", () => {
         canonicalRunStatus: "CANCELLED",
         isApprovalWaitingRun: false,
         pendingApprovalRequestId: null,
-        isEffectiveCanonicalRunActive: false,
-        chatError: null,
         stop,
         refetchGitStatus,
         onSessionStatusChange,

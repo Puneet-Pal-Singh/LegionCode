@@ -98,7 +98,7 @@ describe("ConversationScope", () => {
     fetchSpy.mockRestore();
   });
 
-  it("classifies only turn-scope recovery failures for targeted clearing", () => {
+  it("classifies only turn-scope recovery failures for targeted clearing", async () => {
     expect(
       isTurnScopeRecoveryError(
         "Turn scope reconstruction failed with HTTP 400",
@@ -107,6 +107,25 @@ describe("ConversationScope", () => {
     expect(isTurnScopeRecoveryError("TURN_SCOPE_NOT_FOUND")).toBe(true);
     expect(isTurnScopeRecoveryError("Provider request failed")).toBe(false);
     expect(isTurnScopeRecoveryError(null)).toBe(false);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "The saved turn needs recovery.",
+          code: "TURN_EXECUTION_RECOVERY_REQUIRED",
+        }),
+        { status: 409 },
+      ),
+    );
+
+    await expect(
+      resumeConversationScope("session-1", "run_123456"),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "TURN_EXECUTION_RECOVERY_REQUIRED",
+      message: "The saved turn needs recovery.",
+      retryable: false,
+    });
+    fetchSpy.mockRestore();
   });
 
   it("recognizes when a newer server-issued scope supersedes recovery", () => {

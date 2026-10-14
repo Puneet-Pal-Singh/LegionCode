@@ -18,6 +18,7 @@ import {
 
 interface UseTurnLifecycleProjectionResult {
   readonly projection: LifecycleProjection | null;
+  readonly isReplayReady: boolean;
   readonly error: string | null;
   readonly continuationStatus:
     | "replaying"
@@ -92,6 +93,7 @@ export function useTurnLifecycleProjection(
       projectionState?.turnId === canonicalTurnId
         ? projectionState.projection
         : emptyProjection,
+    isReplayReady: projectionState?.turnId === canonicalTurnId,
     error: errorState?.turnId === canonicalTurnId ? errorState.message : null,
     continuationStatus:
       continuationStatus?.turnId === canonicalTurnId

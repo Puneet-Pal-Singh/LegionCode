@@ -130,8 +130,9 @@ export function Workspace({
   const { isCompact, isMobile } = useWorkspaceViewport();
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
-  const [dismissedCommitRequestId, setDismissedCommitRequestId] =
-    useState<number | null>(null);
+  const [dismissedCommitRequestId, setDismissedCommitRequestId] = useState<
+    number | null
+  >(null);
   const isGitCommitOpen =
     summaryActionRequest?.action === "commit" &&
     summaryActionRequest.id !== dismissedCommitRequestId;
@@ -202,6 +203,7 @@ export function Workspace({
 
   const {
     messages,
+    restoredUserMessageIds,
     optimisticUserMessageId,
     input,
     handleInputChange,
@@ -217,6 +219,8 @@ export function Workspace({
     retryHydration,
     runId: activeRunId,
     error: chatError,
+    scopeRecoveryError,
+    retryScopeRead,
     clearNonCanonicalError,
     debugEvents,
     isModelConfigReady,
@@ -224,6 +228,32 @@ export function Workspace({
     serverTurnId,
     activeTurnProjection: activeTurn,
   } = chat;
+  useEffect(() => {
+    if (
+      !initialPromptSubmission ||
+      initialPromptSubmission.status === "queued" ||
+      !hasHydrated ||
+      !conversationScope ||
+      conversationScope.sessionId !== sessionId ||
+      conversationScope.runId !== activeRunId ||
+      !restoredUserMessageIds.has(`client_msg_${initialPromptSubmission.id}`)
+    ) {
+      return;
+    }
+    // The exact queued client ID is in the durable transcript under the
+    // server-owned turn scope, so the prompt was admitted even if its response
+    // was lost. Retire the queue entry without submitting it again.
+    onInitialPromptHandled(initialPromptSubmission.id);
+  }, [
+    activeRunId,
+    conversationScope,
+    hasHydrated,
+    initialPromptSubmission,
+    onInitialPromptHandled,
+    restoredUserMessageIds,
+    sessionId,
+  ]);
+
   useEffect(() => {
     registerFileCreatedRefresh(() => explorerRef.current?.refresh());
     return () => registerFileCreatedRefresh(null);
@@ -294,7 +324,7 @@ export function Workspace({
   );
   const canonicalRunStatus = deriveCanonicalRunStatus({
     hasCanonicalTurn: activeTurn.hasCanonicalTurn,
-    hasReplay: activeTurn.hasReplay,
+    hasReplay: activeTurn.isReplayReady,
     terminalState: activeTurn.projection?.terminal?.state ?? null,
   });
   const hasPendingApproval = Boolean(activeTurn.projection?.pendingApproval);
@@ -321,6 +351,25 @@ export function Workspace({
       return;
     }
     if (initialPromptSubmission.status !== "queued") return;
+    if (!hasHydrated) return;
+    const exactPromptWasRestored = restoredUserMessageIds.has(
+      `client_msg_${initialPromptSubmission.id}`,
+    );
+    if (
+      exactPromptWasRestored &&
+      conversationScope?.sessionId === sessionId &&
+      conversationScope.runId === activeRunId
+    ) {
+      // A prior attempt already persisted this exact prompt under the
+      // server-owned turn identity. Retire the queued retry without dispatch.
+      onInitialPromptHandled(initialPromptSubmission.id);
+      return;
+    }
+    if (exactPromptWasRestored) {
+      // Wait for the server-owned scope read before deciding whether to retry.
+      void retryScopeRead();
+      return;
+    }
     if (!isSessionPersisted) {
       return;
     }
@@ -355,17 +404,25 @@ export function Workspace({
           onInitialPromptHandled(initialPromptSubmission.id);
           return;
         }
-        {
-          const message =
-            outcome.status === "unconfirmed"
-              ? outcome.message
-              : outcome.status === "cancelled"
-                ? "The stopped request may have been admitted. Check the saved conversation before retrying."
-                : "The queued prompt belongs to a conversation that is no longer active.";
-          console.warn("[Workspace] Setup prompt was not confirmed:", message);
-          onInitialPromptStatusChange(initialPromptSubmission.id, "failed");
-          return;
+        const message =
+          outcome.status === "unconfirmed"
+            ? outcome.message
+            : outcome.status === "cancelled"
+              ? "The stopped request may have been admitted. Check the saved conversation before retrying."
+              : "The queued prompt belongs to a conversation that is no longer active.";
+        const admissionIsUnconfirmed =
+          outcome.status === "unconfirmed" ||
+          (outcome.status === "cancelled" &&
+            outcome.admission === "unconfirmed");
+        if (admissionIsUnconfirmed && outcome.scope) {
+          // Resolve an ambiguous response with safe reads. A retry keeps the
+          // same client message ID and remains an explicit user action.
+          retryHydration();
+          void retryScopeRead();
         }
+        console.warn("[Workspace] Setup prompt was not confirmed:", message);
+        onInitialPromptStatusChange(initialPromptSubmission.id, "failed");
+        return;
       })
       .catch((error) => {
         console.error("[Workspace] Failed to submit setup prompt:", error);
@@ -374,11 +431,18 @@ export function Workspace({
   }, [
     appendWhenPersisted,
     initialPromptSubmission,
+    hasHydrated,
+    conversationScope,
+    sessionId,
+    activeRunId,
+    restoredUserMessageIds,
     isModelConfigReady,
     isSessionPersisted,
     onInitialPromptClaim,
     onInitialPromptStatusChange,
     onInitialPromptHandled,
+    retryHydration,
+    retryScopeRead,
   ]);
   const {
     isApprovalWaitingRun,
@@ -476,8 +540,6 @@ export function Workspace({
     canonicalRunStatus,
     isApprovalWaitingRun,
     pendingApprovalRequestId,
-    isEffectiveCanonicalRunActive,
-    chatError,
     stop,
     refetchGitStatus,
     onSessionStatusChange,
@@ -566,6 +628,8 @@ export function Workspace({
                 hydrationError,
                 retryHydration,
                 error: chatError,
+                scopeRecoveryError,
+                retryScopeRead,
                 debugEvents,
                 serverTurnId,
                 conversationScope,

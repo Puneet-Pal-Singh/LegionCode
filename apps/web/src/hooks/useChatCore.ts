@@ -53,6 +53,7 @@ import {
   isTurnScopeRecoveryError,
   publishConversationScopeReady,
   resumeConversationScope,
+  ConversationScopeHttpError,
   type ConversationScope,
 } from "./conversationScope";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
@@ -117,6 +118,8 @@ interface UseChatCoreResult {
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  scopeRecoveryError: ConversationScopeHttpError | null;
+  retryScopeRead: () => Promise<void>;
   clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
   reviseTurn: (turnId: string, content: string) => Promise<boolean>;
@@ -139,6 +142,12 @@ export function useChatCore(
     createRunId(),
   );
   const [error, setError] = useState<string | null>(null);
+  const [scopeRecoveryError, setScopeRecoveryError] =
+    useState<ConversationScopeHttpError | null>(null);
+  const scopeRecoveryErrorRef = useRef(scopeRecoveryError);
+  scopeRecoveryErrorRef.current = scopeRecoveryError;
+  const errorRef = useRef(error);
+  errorRef.current = error;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [serverTurnId, setServerTurnId] = useState<string | null>(null);
@@ -219,6 +228,7 @@ export function useChatCore(
     preAdmissionStopKeyRef.current = null;
     stopRequestedRef.current = false;
     setError(null);
+    setScopeRecoveryError(null);
     setIsSubmitting(false);
     setIsStopping(false);
     setOptimisticUserMessageId(null);
@@ -226,45 +236,68 @@ export function useChatCore(
     lastLoggedStreamErrorRef.current = null;
   }, [runScopeKey]);
 
-  useEffect(() => {
-    const normalizedSessionId = sessionId.trim();
-    const normalizedRunId = externalRunId?.trim() ?? "";
-    if (!normalizedSessionId || !normalizedRunId) {
-      setConversationScope(null);
-      return;
-    }
-    const controller = new AbortController();
-    const requestRunScopeKey = `${encodeURIComponent(normalizedSessionId)}:${encodeURIComponent(normalizedRunId)}`;
-    void resumeConversationScope(
-      normalizedSessionId,
-      normalizedRunId,
-      controller.signal,
-    )
-      .then((scope) => {
-        if (
-          controller.signal.aborted ||
-          !isActiveRunScope(requestRunScopeKey)
-        ) {
+  const refreshConversationScope = useCallback(
+    async (manual: boolean, signal?: AbortSignal): Promise<void> => {
+      const normalizedSessionId = sessionId.trim();
+      const normalizedRunId = runId.trim();
+      const requestedRunScopeKey = `${encodeURIComponent(normalizedSessionId)}:${encodeURIComponent(normalizedRunId)}`;
+      if (!normalizedSessionId || !normalizedRunId) return;
+      const originatingError = errorRef.current;
+      const originatingScopeError = scopeRecoveryErrorRef.current;
+      const requestGeneration = runScopeGenerationRef.current;
+      const requestScopeKey = activeScopeKeyRef.current;
+      const requestSubmissionToken =
+        activeSubmissionAttemptRef.current?.token ?? null;
+      const ownsScopeRead = () =>
+        !signal?.aborted &&
+        isActiveRunScope(requestedRunScopeKey) &&
+        runScopeGenerationRef.current === requestGeneration &&
+        activeScopeKeyRef.current === requestScopeKey &&
+        (activeSubmissionAttemptRef.current?.token ?? null) ===
+          requestSubmissionToken;
+      try {
+        const scope = await resumeConversationScope(
+          normalizedSessionId,
+          normalizedRunId,
+          signal,
+        );
+        if (!ownsScopeRead()) return;
+        if (!scope) {
+          if (!manual) return;
+          const missingScope = new ConversationScopeHttpError({
+            status: 404,
+            code: "TURN_SCOPE_NOT_FOUND",
+            message: "No saved turn was found for this conversation.",
+            retryable: false,
+          });
+          setScopeRecoveryError((current) =>
+            current === originatingScopeError || current === null
+              ? missingScope
+              : current,
+          );
+          setError((current) =>
+            current === originatingError || current === null
+              ? missingScope.message
+              : current,
+          );
           return;
         }
-        if (!scope) return;
-        const nextScopeKey = conversationScopeKey(scope);
-        activeScopeKeyRef.current = nextScopeKey;
+        activeScopeKeyRef.current = conversationScopeKey(scope);
         activeConversationScopeRef.current = scope;
         setConversationScope(scope);
         setError((current) =>
-          isTurnScopeRecoveryError(current) ? null : current,
+          current === originatingError
+            ? null
+            : current,
+        );
+        setScopeRecoveryError((current) =>
+          current === originatingScopeError ? null : current,
         );
         publishConversationScopeReady(scope);
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
+        if (!ownsScopeRead()) return;
         if (
-          controller.signal.aborted ||
-          !isActiveRunScope(requestRunScopeKey)
-        ) {
-          return;
-        }
-        if (
+          !manual &&
           isEstablishedRunScope(
             activeConversationScopeRef.current,
             normalizedSessionId,
@@ -273,16 +306,51 @@ export function useChatCore(
         ) {
           return;
         }
-        const message = error instanceof Error ? error.message : String(error);
-        setError(message);
+        const scopeError =
+          error instanceof ConversationScopeHttpError
+            ? error
+            : new ConversationScopeHttpError({
+                status: 0,
+                code: "TURN_SCOPE_READ_FAILED",
+                message: "Could not read the saved conversation status.",
+                retryable: true,
+              });
+        setScopeRecoveryError((current) =>
+          current === originatingScopeError || current === null
+            ? scopeError
+            : current,
+        );
+        setError((current) =>
+          current === originatingError || current === null
+            ? scopeError.message
+            : current,
+        );
         logClientWarning("chat/scope", "reconstruction-failed", {
           runId: normalizedRunId,
           sessionId: normalizedSessionId,
-          error: message,
+          code: scopeError.code,
+          status: scopeError.status,
+          retryable: scopeError.retryable,
         });
-      });
+      }
+    },
+    [isActiveRunScope, runId, sessionId],
+  );
+
+  useEffect(() => {
+    if (!sessionId.trim() || !externalRunId?.trim()) {
+      setConversationScope(null);
+      return;
+    }
+    const controller = new AbortController();
+    void refreshConversationScope(false, controller.signal);
     return () => controller.abort();
-  }, [externalRunId, isActiveRunScope, runId, runScopeKey, sessionId]);
+  }, [externalRunId, refreshConversationScope, runScopeKey, sessionId]);
+
+  const retryScopeRead = useCallback(
+    () => refreshConversationScope(true),
+    [refreshConversationScope],
+  );
 
   const pushDebugEvent = useCallback(
     (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
@@ -739,6 +807,7 @@ export function useChatCore(
         id: attempt.clientMessageId,
       });
       setError(null);
+      setScopeRecoveryError(null);
       setIsSubmitting(true);
       setIsStopping(false);
       // The previous scope may already be terminal. Clear it before admission
@@ -901,7 +970,7 @@ export function useChatCore(
           (await hasCanonicalLifecycleEvidence(lifecycleClient, requestScope));
         if (attempt.stopRequested && canonicalTurnAccepted) {
           try {
-            await interruptAndAbortTransport(
+            await interruptAndAwaitTerminal(
               lifecycleClient,
               requestScope,
               () => {
@@ -911,9 +980,8 @@ export function useChatCore(
           } catch (interruptError) {
             if (ownsSubmissionAttempt()) {
               stopRequestedRef.current = false;
-              setError(
-                "Stop could not be confirmed. Check the saved turn status or try Stop again.",
-              );
+              setIsStopping(false);
+              setError("Stop not confirmed yet. Check status or try Stop again.");
             }
             logClientWarning("chat/stop", "accepted-turn-interrupt-unsettled", {
               runId: requestScope.runId,
@@ -1026,6 +1094,9 @@ export function useChatCore(
           activeConversationScopeRef.current = null;
           activeScopeKeyRef.current = bootstrapScopeKey;
           setError(message);
+          setScopeRecoveryError(
+            error instanceof ConversationScopeHttpError ? error : null,
+          );
           setPendingUserMessage(null);
           setOptimisticUserMessageId(null);
         } else if (
@@ -1297,7 +1368,7 @@ export function useChatCore(
           // absent after transport cancellation.
           if (stopOwnsInvocation()) stopStream();
         } else if (requestScope) {
-          await interruptAndAbortTransport(
+          await interruptAndAwaitTerminal(
             lifecycleClient,
             requestScope,
             () => {
@@ -1314,11 +1385,7 @@ export function useChatCore(
       } catch (error) {
         if (stopOwnsInvocation()) {
           stopRequestedRef.current = false;
-          setError(
-            error instanceof Error
-              ? normalizeChatErrorMessage(error)
-              : "Failed to stop the turn.",
-          );
+          setError("Stop not confirmed yet. Check status or try Stop again.");
           logClientWarning("chat/stop", "interrupt-failed", {
             runId: requestRunId,
             scopeKey: scopeKey,
@@ -1373,6 +1440,8 @@ export function useChatCore(
     resetRun,
     isModelConfigReady,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     clearNonCanonicalError,
     debugEvents,
     reviseTurn,
@@ -1439,34 +1508,6 @@ export async function interruptAndAwaitTerminal(
   }
 }
 
-async function interruptAndAbortTransport(
-  lifecycleClient: ReturnType<typeof createLifecycleClient>,
-  scope: ConversationScope,
-  onInterruptAccepted: () => void,
-): Promise<void> {
-  const abort = new AbortController();
-  const timeout = window.setTimeout(
-    () => abort.abort("Timed out sending the interrupt command."),
-    15_000,
-  );
-  try {
-    const response = await requestExactInterrupt(
-      lifecycleClient,
-      scope,
-      abort.signal,
-    );
-    if (
-      response.accepted ||
-      isExactTerminalEvent(response.terminalEvent, scope)
-    ) {
-      onInterruptAccepted();
-    }
-  } finally {
-    window.clearTimeout(timeout);
-    abort.abort("Interrupt command completed.");
-  }
-}
-
 async function requestExactInterrupt(
   lifecycleClient: ReturnType<typeof createLifecycleClient>,
   scope: ConversationScope,
@@ -1490,7 +1531,10 @@ async function requestExactInterrupt(
   if (response.runId !== scope.runId) {
     throw new Error("The interrupt response did not match the requested run.");
   }
-  if (!response.accepted && !isExactTerminalEvent(response.terminalEvent, scope)) {
+  if (
+    !response.accepted &&
+    !isExactTerminalEvent(response.terminalEvent, scope)
+  ) {
     throw new Error("The runtime did not accept the interrupt request.");
   }
   return response;

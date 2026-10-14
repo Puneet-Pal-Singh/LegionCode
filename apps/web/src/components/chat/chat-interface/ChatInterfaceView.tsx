@@ -32,7 +32,11 @@ import {
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { HydrationStatus } from "../../../services/ChatHydrationService";
-import type { ComposerLayout } from "./ChatComposerControls";
+import {
+  ChatErrorNotice,
+  type ChatErrorNoticeProps,
+  type ComposerLayout,
+} from "./ChatComposerControls";
 import type { ArtifactOpenHandler } from "../artifactOpen";
 import type { CanonicalTurnReviewSource } from "../../../services/review/ReviewSourceResolver.js";
 import { ChevronDown, Folder } from "lucide-react";
@@ -46,6 +50,13 @@ interface ChatInterfaceViewProps {
   projectName?: string;
   onProjectClick?: () => void;
   showSessionPlaceholder: boolean;
+  placeholderError?: ChatErrorNoticeProps | null;
+  continuation?: {
+    status: "reconnecting" | "stopped";
+    onRetry: () => void;
+  } | null;
+  canStopPendingTurn?: boolean;
+  onStopPendingTurn?: () => void;
   renderComposer: (layout: ComposerLayout) => ReactNode;
   showDebugPanel: boolean;
   debugEvents: ChatDebugEvent[];
@@ -116,7 +127,33 @@ export const ChatInterfaceView = forwardRef<
             {props.renderComposer("hero")}
           </HeroComposer>
         ) : props.showSessionPlaceholder ? (
-          <ChatLoadingIndicator />
+          <div className="mx-auto max-w-4xl space-y-3">
+            {props.placeholderError ? (
+              <ChatErrorNotice {...props.placeholderError} />
+            ) : null}
+            <ChatLoadingIndicator />
+            {props.continuation?.status === "stopped" ? (
+              <div role="status" className="flex items-center gap-3 text-sm text-zinc-400">
+                <span>Live updates stopped.</span>
+                <button
+                  type="button"
+                  onClick={props.continuation.onRetry}
+                  className="text-zinc-200 underline underline-offset-2 hover:text-white"
+                >
+                  Retry updates
+                </button>
+                {props.canStopPendingTurn && props.onStopPendingTurn ? (
+                  <button
+                    type="button"
+                    onClick={props.onStopPendingTurn}
+                    className="text-zinc-200 underline underline-offset-2 hover:text-white"
+                  >
+                    Stop
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div className="mx-auto max-w-4xl space-y-5 sm:space-y-6">
             {props.hydrationStatus === "recovery-required" ||

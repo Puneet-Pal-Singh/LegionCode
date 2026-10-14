@@ -9,12 +9,16 @@ import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
-import type { ConversationScope } from "./conversationScope";
+import type {
+  ConversationScope,
+  ConversationScopeHttpError,
+} from "./conversationScope";
 import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 export interface UseChatResult {
   messages: Message[];
+  restoredUserMessageIds: ReadonlySet<string>;
   optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -39,6 +43,8 @@ export interface UseChatResult {
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  scopeRecoveryError: ConversationScopeHttpError | null;
+  retryScopeRead: () => Promise<void>;
   clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
 }
@@ -61,8 +67,11 @@ export function useChat(
     sessionId: string;
     messages: Message[];
   }>(() => ({ sessionId, messages: [] }));
-  const verifiedMessages =
-    transcriptState.sessionId === sessionId ? transcriptState.messages : [];
+  const verifiedMessages = useMemo(
+    () =>
+      transcriptState.sessionId === sessionId ? transcriptState.messages : [],
+    [sessionId, transcriptState.messages, transcriptState.sessionId],
+  );
   const setVerifiedMessages = useCallback(
     (messages: Message[]) => setTranscriptState({ sessionId, messages }),
     [sessionId],
@@ -84,6 +93,8 @@ export function useChat(
     resetRun,
     isModelConfigReady,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     clearNonCanonicalError,
     debugEvents,
   } = useChatCore(
@@ -103,6 +114,15 @@ export function useChat(
         : []),
     ];
   }, [optimisticUserMessage, verifiedMessages]);
+  const restoredUserMessageIds = useMemo(
+    () =>
+      new Set(
+        verifiedMessages
+          .filter((message) => message.role === "user")
+          .map((message) => message.id),
+      ),
+    [verifiedMessages],
+  );
 
   // Handle message hydration
   const {
@@ -145,6 +165,7 @@ export function useChat(
 
   return {
     messages,
+    restoredUserMessageIds,
     optimisticUserMessageId,
     input,
     handleInputChange,
@@ -166,6 +187,8 @@ export function useChat(
     resetRun,
     isModelConfigReady,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     clearNonCanonicalError,
     debugEvents,
   };

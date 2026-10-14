@@ -8,6 +8,7 @@ export interface ActiveTurnProjection {
   readonly projection: LifecycleProjection | null;
   readonly hasCanonicalTurn: boolean;
   readonly hasReplay: boolean;
+  readonly isReplayReady: boolean;
   readonly isActive: boolean;
   readonly isTerminal: boolean;
   readonly isTransportPending: boolean;
@@ -51,7 +52,7 @@ export function useActiveTurnProjection(input: {
     ? TurnIdSchema.safeParse(normalizedTurnId)
     : null;
   const turnId = parsedTurnId?.success ? parsedTurnId.data : null;
-  const { projection, error, continuationStatus, retry } =
+  const { projection, isReplayReady: initialReplayComplete, error, continuationStatus, retry } =
     useTurnLifecycleProjection(
       turnId,
       Boolean(turnId) && input.enabled !== false,
@@ -60,12 +61,17 @@ export function useActiveTurnProjection(input: {
   return useMemo(() => {
     const hasReplay = (projection?.lastSequence ?? 0) > 0;
     const isTerminal = Boolean(projection?.terminal);
+    // The projection is published after the initial replay completes, even
+    // when the replay contains no events. Keep this readiness across follow
+    // reconnects and stops for the same turn.
+    const isReplayReady = hasReplay || Boolean(initialReplayComplete);
     return {
       turnId,
       projection,
       hasCanonicalTurn: Boolean(turnId),
       hasReplay,
-      isActive: hasReplay && !isTerminal,
+      isReplayReady,
+      isActive: isReplayReady && !isTerminal,
       isTerminal,
       isTransportPending: input.transportLoading && !turnId,
       continuationStatus,
@@ -75,6 +81,7 @@ export function useActiveTurnProjection(input: {
   }, [
     continuationStatus,
     error,
+    initialReplayComplete,
     input.transportLoading,
     projection,
     retry,
