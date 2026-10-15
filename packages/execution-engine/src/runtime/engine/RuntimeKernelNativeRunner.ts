@@ -166,6 +166,7 @@ import {
   buildProviderRecoveryProgress,
 } from "./NativeProviderRecoveryProgress.js";
 import { resolveModelCommentary } from "./NativeProviderCommentary.js";
+import { projectTaskContext } from "./TaskContextProjection.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -423,6 +424,7 @@ export class RuntimeKernelNativeRunner {
       contextCompaction: createNativeContextCompaction(
         input.input,
         provider.readContextMessages.bind(provider),
+        provider.readTaskContextProjection.bind(provider),
       ),
       provider,
       worker,
@@ -915,6 +917,7 @@ function describeRuntimeErrorCause(error: unknown): string | null {
 
 class KernelAgenticProvider implements ProviderPort {
   private readonly messages: CoreMessage[];
+  private readonly activeTaskStartIndex: number;
   private readonly pendingToolCalls: AgenticLoopToolCall[] = [];
   private pendingUsage: UsageCostSnapshot | null = null;
   private cumulativeTokens = 0;
@@ -955,7 +958,9 @@ class KernelAgenticProvider implements ProviderPort {
       maxSteps: number;
     },
   ) {
-    this.messages = [...options.messages];
+    const taskContext = projectTaskContext({ messages: options.messages });
+    this.messages = [...taskContext.messages];
+    this.activeTaskStartIndex = taskContext.activeTaskStartIndex;
     this.requiresMutation = false;
   }
 
@@ -964,6 +969,20 @@ class KernelAgenticProvider implements ProviderPort {
   ): Promise<readonly CoreMessage[]> {
     if (toolResults) await this.collectNewToolResults(toolResults);
     return [...this.messages];
+  }
+
+  async readTaskContextProjection(): Promise<{
+    readonly messages: readonly CoreMessage[];
+    readonly activeTaskStartIndex: number;
+  }> {
+    const projection = projectTaskContext({
+      messages: this.messages,
+      activeTaskStartIndex: this.activeTaskStartIndex,
+    });
+    return {
+      messages: projection.messages,
+      activeTaskStartIndex: projection.activeTaskStartIndex,
+    };
   }
 
   async generateNext(input: ProviderCallInput): Promise<ProviderStep> {
@@ -1009,6 +1028,7 @@ class KernelAgenticProvider implements ProviderPort {
           input.context.metadata,
           "compactedContext",
         ),
+        activeTaskStartIndex: this.activeTaskStartIndex,
       });
       const messages = buildNativeProviderMessages(
         contextMessages,

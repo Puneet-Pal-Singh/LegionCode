@@ -8,6 +8,10 @@ import type {
   ReplayLifecycleEventsResult,
 } from "@repo/persistence";
 import type { Env } from "../../types/ai";
+import {
+  normalizeTaskToolSequence,
+  projectTaskContext,
+} from "@legioncode/execution-engine/runtime/engine";
 import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { projectActiveTranscriptBranch } from "./TranscriptBranchProjection";
@@ -90,6 +94,20 @@ export class DurableConversationContextAssembler {
         })),
       );
     }
+    const normalizedMessages = normalizeTaskToolSequence(messages);
+    const currentRootPrompt = [...transcript]
+      .reverse()
+      .find(
+        (record) =>
+          record.role === "user" &&
+          readCanonicalTurnIds(record).includes(input.currentTurnId),
+      );
+    const rootPromptId = currentRootPrompt
+      ? currentRootPrompt.clientMessageId ?? currentRootPrompt.id
+      : undefined;
+    if (!rootPromptId) {
+      throw new Error("The durable transcript is missing the current turn's root prompt.");
+    }
     const priorTurnIds = transcript
       .flatMap(readCanonicalTurnIds)
       .filter((turnId) => turnId !== input.currentTurnId)
@@ -99,9 +117,13 @@ export class DurableConversationContextAssembler {
         priorTurnIds.map((turnId) => this.readFailedTurnRecord(turnId)),
       )
     ).filter((record): record is string => record !== null);
-    if (records.length === 0) return messages;
+    if (records.length === 0) return normalizedMessages;
 
-    const currentUserIndex = findLastUserMessageIndex(messages);
+    const projection = projectTaskContext({
+      messages: normalizedMessages,
+      rootPromptId,
+    });
+    const currentUserIndex = projection.activeTaskStartIndex;
     const contextMessage: CoreMessage = {
       role: "system",
       content: [
@@ -110,11 +132,13 @@ export class DurableConversationContextAssembler {
         ...records,
       ].join("\n\n"),
     };
-    if (currentUserIndex < 0) return [...messages, contextMessage];
+    if (currentUserIndex >= projection.messages.length) {
+      return [...projection.messages, contextMessage];
+    }
     return [
-      ...messages.slice(0, currentUserIndex),
+      ...projection.background,
       contextMessage,
-      ...messages.slice(currentUserIndex),
+      ...projection.activeTask,
     ];
   }
 
@@ -250,9 +274,3 @@ function redactContextDetail(value: string): string {
     );
 }
 
-function findLastUserMessageIndex(messages: readonly CoreMessage[]): number {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === "user") return index;
-  }
-  return -1;
-}

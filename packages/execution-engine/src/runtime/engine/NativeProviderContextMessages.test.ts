@@ -7,6 +7,10 @@ import {
   estimateAttachmentTokens,
   summarizeConversationForCompaction,
 } from "./NativeProviderContextMessages.js";
+import {
+  normalizeTaskToolSequence,
+  restoreTaskToolMessage,
+} from "./TaskContextProjection.js";
 
 describe("NativeProviderContextMessages", () => {
   const messages = [
@@ -137,9 +141,87 @@ describe("NativeProviderContextMessages", () => {
       },
       ...active,
     ]);
-    expect(summarizeConversationForCompaction(active, "Continue")).toContain(
-      "newly completed work",
-    );
+    expect(
+      buildProviderContextMessages({
+        messages: active,
+        compactedContext: "summary",
+      }),
+    ).toContainEqual(active[2]);
+    const call = restoreTaskToolMessage({
+      role: "assistant",
+      id: "assistant-call",
+      parts: [
+        { type: "text", content: { text: "Inspect a.ts" } },
+        {
+          type: "tool_call",
+          content: { toolCallId: "call_1", toolName: "read_file", input: { path: "a.ts" } },
+        },
+      ],
+    });
+    const toolResult = restoreTaskToolMessage({
+      role: "tool",
+      id: "tool-result",
+      parts: [{
+        type: "tool_result",
+        content: { toolCallId: "call_1", result: { text: "contents" }, isError: false },
+      }],
+    });
+    const interruptedCall = restoreTaskToolMessage({
+      role: "assistant",
+      id: "assistant-interrupted",
+      parts: [{
+        type: "raw",
+        content: [{
+          type: "tool-call",
+          toolCallId: "call_2",
+          toolName: "write_file",
+          args: { path: "b.ts", content: "x" },
+        }],
+      }],
+    });
+    const orphanResult = restoreTaskToolMessage({
+      role: "tool",
+      id: "tool-orphan",
+      parts: [{
+        type: "raw",
+        content: [{
+          type: "tool-result",
+          toolCallId: "orphan",
+          toolName: "read_file",
+          result: { text: "unpaired" },
+          isError: false,
+        }],
+      }],
+    });
+
+    expect(call).not.toBeNull();
+    expect(call?.content).toMatchObject([
+      { type: "text", text: "Inspect a.ts" },
+      { type: "tool-call", toolCallId: "call_1", toolName: "read_file" },
+    ]);
+    expect(toolResult).not.toBeNull();
+    expect(interruptedCall).not.toBeNull();
+    expect(orphanResult).not.toBeNull();
+    const restored = normalizeTaskToolSequence([
+      call!,
+      toolResult!,
+      interruptedCall!,
+      orphanResult!,
+    ]);
+    expect(restored).toHaveLength(4);
+    expect(restored[1]?.content).toMatchObject([
+      { type: "tool-result", toolCallId: "call_1", toolName: "read_file" },
+    ]);
+    expect(restored[2]?.role).toBe("assistant");
+    expect(restored[3]?.content).toMatchObject([
+      {
+        type: "tool-result",
+        toolCallId: "call_2",
+        toolName: "write_file",
+        isError: true,
+        result: { status: "unknown" },
+      },
+    ]);
   });
 
   it("counts visual inputs separately without counting or summarizing base64", () => {
@@ -165,8 +247,12 @@ describe("NativeProviderContextMessages", () => {
       estimateAttachmentTokens(small),
     );
     const summary = summarizeConversationForCompaction(large, "Analyze");
-    expect(summary).toContain("Keep the original instructions");
-    expect(summary).toContain("[Image attached: image/png]");
+    const compacted = buildProviderContextMessages({
+      messages: large,
+      compactedContext: summary,
+    });
+    expect(compacted).toContainEqual(large[0]);
+    expect(JSON.stringify(compacted)).toContain("Keep the original instructions");
     expect(summary).not.toContain("base64");
     expect(summary).not.toContain("AAAA");
   });
@@ -178,6 +264,7 @@ describe("NativeProviderContextMessages", () => {
         { role: "assistant", content: "latest progress" },
       ],
       "long request ".repeat(2_000),
+      2,
     );
     expect(summary).toContain("original instruction");
     expect(summary).toContain("latest progress");

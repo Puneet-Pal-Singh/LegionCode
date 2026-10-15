@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
 import { CONTEXT_COMPACTION_SUMMARY_MAX_CHARS } from "@repo/platform-protocol";
+import { projectTaskContext } from "./TaskContextProjection.js";
 
 // A preflight allowance, not provider-measured usage. Encoding length is not
 // visual token cost; measured provider usage replaces this estimate later.
@@ -8,17 +9,16 @@ const IMAGE_TOKEN_ALLOWANCE = 4_096;
 export function buildProviderContextMessages(input: {
   messages: readonly CoreMessage[];
   compactedContext: string | null;
+  activeTaskStartIndex?: number;
 }): CoreMessage[] {
-  if (!input.compactedContext) return [...input.messages];
-  let latestUserIndex = -1;
-  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
-    if (input.messages[index]?.role === "user") {
-      latestUserIndex = index;
-      break;
-    }
-  }
-  const history =
-    latestUserIndex < 0 ? [] : input.messages.slice(0, latestUserIndex);
+  const projection = projectTaskContext({
+    messages: input.messages,
+    ...(input.activeTaskStartIndex !== undefined
+      ? { activeTaskStartIndex: input.activeTaskStartIndex }
+      : {}),
+  });
+  if (!input.compactedContext) return [...projection.messages];
+  const history = projection.background;
   return [
     ...history.filter((message) => message.role === "system"),
     {
@@ -28,7 +28,7 @@ export function buildProviderContextMessages(input: {
     // Text summaries cannot replace pixels. Preserve historical image inputs
     // and the entire active turn, including paired tool calls and results.
     ...history.filter(hasUserImages).map(retainHistoricalImages),
-    ...input.messages.slice(Math.max(0, latestUserIndex)),
+    ...projection.activeTask,
   ];
 }
 
@@ -63,9 +63,14 @@ export function estimateAttachmentTokens(
 export function summarizeConversationForCompaction(
   messages: readonly CoreMessage[],
   prompt: string,
+  activeTaskStartIndex?: number,
 ): string {
+  const projection = projectTaskContext({
+    messages,
+    ...(activeTaskStartIndex !== undefined ? { activeTaskStartIndex } : {}),
+  });
   const header = `Active user request: ${boundText(prompt, 1_000)}\nPreserved conversation excerpts:\n`;
-  const transcript = messages
+  const transcript = projection.background
     .map((message) => `${message.role}: ${readMessageText(message)}`)
     .join("\n");
   return (

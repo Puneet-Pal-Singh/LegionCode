@@ -5,6 +5,7 @@ import {
   type ChatImageAttachmentRef,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
+import { restoreTaskToolMessage } from "@legioncode/execution-engine/runtime/engine";
 import { DomainError } from "../../domain/errors";
 import { ChatMediaStore } from "./ChatMediaStore";
 import { resolveChatImageSettings } from "./ChatImageSettings";
@@ -30,6 +31,12 @@ export async function restoreTranscriptMessage(input: {
   sessionId: string;
 }): Promise<CoreMessage[]> {
   const { record } = input;
+  const restoredToolMessage = restoreTaskToolMessage({
+    role: record.role,
+    id: record.clientMessageId ?? record.id,
+    parts: record.parts,
+  });
+  if (restoredToolMessage) return [restoredToolMessage];
   if (record.role === "tool") return [];
   const canonicalAssistantText = readCanonicalAssistantText(record);
   if (canonicalAssistantText !== null) {

@@ -27,6 +27,12 @@ export {
   type RuntimeWorkspaceExecutionScope,
 } from "./RuntimeWorkspaceScope.js";
 export {
+  normalizeTaskToolSequence,
+  projectTaskContext,
+  restoreTaskToolMessage,
+  type TaskContextProjection,
+} from "./TaskContextProjection.js";
+export {
   getCodingCoreToolRegistry,
   getCodingToolRoute,
   isCodingToolId,
