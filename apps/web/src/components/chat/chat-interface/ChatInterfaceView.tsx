@@ -238,13 +238,14 @@ function resolveUserMessageEdit(
   if (
     !props.onUserMessageEdit ||
     entry.message.role !== "user" ||
+    (entry.editTargetTurnId !== undefined && !entry.editTargetTerminal) ||
     !entry.projection?.terminal ||
     (entry.projection.terminal.state !== "interrupted" &&
       entry.projection.terminal.state !== "failed")
   ) {
     return undefined;
   }
-  const turnId = entry.projection.turnId;
+  const turnId = entry.editTargetTurnId ?? entry.projection.turnId;
   return (content: string) => props.onUserMessageEdit!(turnId, content);
 }
 
