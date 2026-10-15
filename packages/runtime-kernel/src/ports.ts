@@ -15,6 +15,7 @@ import type { LifecycleEventStore } from "@repo/event-store";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import type {
   ApprovalResolution,
+  AcceptedThreadInput,
   ProviderCallInput,
   ProviderStep,
   RuntimeContext,
@@ -50,6 +51,9 @@ export interface ContextAssemblyPort {
 
 export interface ProviderPort {
   generateNext(input: ProviderCallInput): Promise<ProviderStep>;
+  enqueueThreadInput?(input: AcceptedThreadInput): void;
+  hasPendingThreadInputs?(): boolean;
+  flushThreadInputs?(): Promise<boolean>;
 }
 
 export interface ToolAuthorizationPort {
@@ -61,6 +65,11 @@ export interface ToolAuthorizationPort {
 }
 
 export interface WorkerProtocolPort {
+  /** Resolves only after every workspace-mutating tool operation has stopped. */
+  awaitQuiescence?(input: {
+    readonly turnId: Turn["id"];
+    readonly timeoutMs: number;
+  }): Promise<boolean>;
   executeTool(input: {
     runId: Run["id"];
     runAttemptId: RunAttemptId;

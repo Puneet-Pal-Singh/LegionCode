@@ -9,6 +9,7 @@ import {
   JsonRecordSchema,
   PermissionProfileIdSchema,
   RunAttemptIdSchema,
+  ToolCallBatchIdSchema,
   RunSchema,
   ThreadIdSchema,
   ToolCallItemContentSchema,
@@ -38,6 +39,7 @@ import type {
   RuntimeLifecycleEventStore,
   RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
+  AcceptedThreadInput,
   ToolResult,
   WorkerProtocolPort,
   WorkerToolResult,
@@ -167,6 +169,7 @@ import {
 } from "./NativeProviderRecoveryProgress.js";
 import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 import { projectTaskContext } from "./TaskContextProjection.js";
+import { NativeTurnInputBuffer } from "./NativeTurnInput.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -189,6 +192,8 @@ export interface RuntimeKernelNativeRunnerInput {
   workspaceId?: string;
   /** The latest terminal turn superseded by this edited/recovery turn. */
   revisionOfTurnId?: string;
+  continuationOfTurnId?: string;
+  originalPromptId?: string;
   workspace: {
     filesystemRoot: string;
     workingBranch: string;
@@ -370,6 +375,8 @@ export class RuntimeKernelNativeRunner {
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
       revisionOfTurnId: input.revisionOfTurnId,
+      continuationOfTurnId: input.continuationOfTurnId,
+      originalPromptId: input.originalPromptId,
       workspace: input.workspace,
     });
     const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
@@ -384,6 +391,7 @@ export class RuntimeKernelNativeRunner {
       runEventRecorder: this.runEventRecorder,
       isRunCancelled: this.isRunCancelled.bind(this),
       maxSteps,
+      rootPromptId: input.originalPromptId,
     });
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: protocol.run.id,
@@ -502,6 +510,31 @@ export class RuntimeKernelNativeRunner {
     } else if (activeTurn.kernel) {
       activeTurn.kernel.requestInterruptBeforeStart(turnId, reason);
     }
+  }
+
+  async acceptThreadInput(input: {
+    readonly turnId: Turn["id"];
+    readonly inputId: string;
+    readonly clientInputId: string;
+    readonly transcriptMessageId: string;
+    readonly message: CoreMessage;
+  }): Promise<number> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== input.turnId || !activeTurn.kernel) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${input.turnId} has no active runtime owner`,
+      );
+    }
+    return await activeTurn.kernel.acceptThreadInput({
+      turnId: input.turnId,
+      accepted: {
+        inputId: input.inputId,
+        message: { ...input.message, id: input.transcriptMessageId } as unknown as CoreMessage,
+      },
+      clientInputId: input.clientInputId,
+      transcriptMessageId: input.transcriptMessageId,
+    });
   }
 
   async compact(turnId: Turn["id"]): Promise<void> {
@@ -918,7 +951,9 @@ function describeRuntimeErrorCause(error: unknown): string | null {
 class KernelAgenticProvider implements ProviderPort {
   private readonly messages: CoreMessage[];
   private readonly activeTaskStartIndex: number;
+  private readonly threadInputBuffer = new NativeTurnInputBuffer();
   private readonly pendingToolCalls: AgenticLoopToolCall[] = [];
+  private pendingToolCallBatchId: import("@repo/platform-protocol").ToolCallBatchId | null = null;
   private pendingUsage: UsageCostSnapshot | null = null;
   private cumulativeTokens = 0;
   private cumulativeCost = 0;
@@ -956,9 +991,13 @@ class KernelAgenticProvider implements ProviderPort {
       runEventRecorder: RunEventRecorder;
       isRunCancelled: () => Promise<boolean>;
       maxSteps: number;
+      rootPromptId?: string;
     },
   ) {
-    const taskContext = projectTaskContext({ messages: options.messages });
+    const taskContext = projectTaskContext({
+      messages: options.messages,
+      ...(options.rootPromptId ? { rootPromptId: options.rootPromptId } : {}),
+    });
     this.messages = [...taskContext.messages];
     this.activeTaskStartIndex = taskContext.activeTaskStartIndex;
     this.requiresMutation = false;
@@ -985,12 +1024,38 @@ class KernelAgenticProvider implements ProviderPort {
     };
   }
 
+  enqueueThreadInput(input: AcceptedThreadInput): void {
+    this.threadInputBuffer.enqueue(input);
+  }
+
+  hasPendingThreadInputs(): boolean {
+    return this.threadInputBuffer.hasPending();
+  }
+
+  async flushThreadInputs(): Promise<boolean> {
+    if (this.pendingToolCalls.length > 0) return false;
+    return this.threadInputBuffer.flush((messages) => this.messages.push(...messages));
+  }
+
+  private async acknowledgeStagedThreadInputs(
+    input: ProviderCallInput,
+  ): Promise<void> {
+    await this.threadInputBuffer.acknowledge(
+      this.stepsExecuted + 1,
+      input.onThreadInputsApplied,
+    );
+  }
+
   async generateNext(input: ProviderCallInput): Promise<ProviderStep> {
     assertSignalNotAborted(input.signal);
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     await this.collectNewToolResults(input.toolResults);
     const queued = this.shiftQueuedToolCall();
     if (queued) return queued;
+    const stagedInputs = await this.flushThreadInputs();
+    const providerContext = stagedInputs
+      ? (await input.refreshContext?.()) ?? input.context
+      : input.context;
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (await this.options.budget.isOverBudget(this.options.run.id)) {
       this.stopReason = "budget_exceeded";
@@ -1025,7 +1090,7 @@ class KernelAgenticProvider implements ProviderPort {
       const contextMessages = buildProviderContextMessages({
         messages: this.messages,
         compactedContext: readContextString(
-          input.context.metadata,
+          providerContext.metadata,
           "compactedContext",
         ),
         activeTaskStartIndex: this.activeTaskStartIndex,
@@ -1039,8 +1104,8 @@ class KernelAgenticProvider implements ProviderPort {
         const recovered = await this.requestWithProviderRecovery(
           input,
           context,
-          (attemptContext) =>
-            generateNativeProviderFinalRecovery(this.options.llmGateway, {
+          async (attemptContext) => {
+            const request = generateNativeProviderFinalRecovery(this.options.llmGateway, {
               context: attemptContext,
               messages,
               system: buildAgenticLoopSystemPrompt({
@@ -1059,7 +1124,15 @@ class KernelAgenticProvider implements ProviderPort {
               providerEndpoint: this.options.input.providerEndpoint,
               temperature: 0,
               signal: input.signal,
-            }),
+            });
+            try {
+              await this.acknowledgeStagedThreadInputs(input);
+            } catch (error) {
+              await request.catch(() => undefined);
+              throw error;
+            }
+            return await request;
+          },
         );
         const response = recovered;
         responseUsage = response.usage;
@@ -1070,18 +1143,18 @@ class KernelAgenticProvider implements ProviderPort {
         const response = await this.requestWithProviderRecovery(
           input,
           context,
-          (attemptContext) =>
-            this.options.llmGateway.generateText({
+          async (attemptContext) => {
+            const request = this.options.llmGateway.generateText({
               context: attemptContext,
               messages,
               system: buildAgenticLoopSystemPrompt({
                 workspaceContext: buildAgenticLoopWorkspaceContext({
                   repositoryContext:
                     readContextRecord(
-                      input.context.metadata,
+                      providerContext.metadata,
                       "repositoryContext",
                     ) ?? this.options.input.repositoryContext,
-                  prompt: input.context.instructions,
+                  prompt: providerContext.instructions,
                   continuation: this.options.run.metadata.continuation,
                   workspaceBootstrap:
                     this.options.run.metadata.workspaceBootstrap,
@@ -1106,7 +1179,15 @@ class KernelAgenticProvider implements ProviderPort {
                 this.options.input.metadata?.reasoningEffort,
               ),
               signal: input.signal,
-            }),
+            });
+            try {
+              await this.acknowledgeStagedThreadInputs(input);
+            } catch (error) {
+              await request.catch(() => undefined);
+              throw error;
+            }
+            return await request;
+          },
         );
         responseUsage = response.usage;
         responseReasoningSummary = response.reasoningSummary;
@@ -1184,6 +1265,9 @@ class KernelAgenticProvider implements ProviderPort {
       });
     }
     this.pendingToolCalls.push(...toolCalls);
+    this.pendingToolCallBatchId = ToolCallBatchIdSchema.parse(
+      toProtocolId("batch", `${this.options.run.id}-${this.stepsExecuted}`),
+    );
     this.pendingCommentary = commentary;
     this.pendingReasoningSummary = responseReasoningSummary;
     this.pendingUsage = toUsageSnapshot(
@@ -1427,6 +1511,8 @@ class KernelAgenticProvider implements ProviderPort {
     if (!toolCall) {
       return null;
     }
+    const callBatchId = this.pendingToolCallBatchId;
+    if (this.pendingToolCalls.length === 0) this.pendingToolCallBatchId = null;
     const commentary = this.pendingCommentary;
     this.pendingCommentary = null;
     const reasoning = this.pendingReasoningSummary;
@@ -1442,6 +1528,7 @@ class KernelAgenticProvider implements ProviderPort {
         toolCallId: protocolToolCallId,
         toolName: toolCall.toolName,
         input: toolCall.args,
+        ...(callBatchId ? { callBatchId } : {}),
       }),
       ...(commentary ? { commentary } : {}),
       ...(reasoning ? { reasoning } : {}),
@@ -1618,6 +1705,8 @@ async function runWithNativeCancellationPolling<T>(
 
 class KernelToolWorker implements WorkerProtocolPort {
   private readonly preExecutionRejections = new Set<string>();
+  private readonly activeToolOperations = new Map<Turn["id"], Set<Promise<unknown>>>();
+  private readonly uncertainCancelledTurns = new Set<Turn["id"]>();
   constructor(
     private readonly options: {
       runEventRecorder: RunEventRecorder;
@@ -1626,6 +1715,29 @@ class KernelToolWorker implements WorkerProtocolPort {
       toolGateway: RuntimeToolGateway;
     },
   ) {}
+
+  async awaitQuiescence(input: {
+    readonly turnId: Turn["id"];
+    readonly timeoutMs: number;
+  }): Promise<boolean> {
+    if (this.uncertainCancelledTurns.has(input.turnId)) return false;
+    const pending = [...(this.activeToolOperations.get(input.turnId) ?? [])];
+    if (pending.length === 0) return true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled(pending),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("Tool quiescence timed out")), input.timeoutMs);
+        }),
+      ]);
+      return (this.activeToolOperations.get(input.turnId)?.size ?? 0) === 0;
+    } catch {
+      return false;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
 
   async executeTool(input: {
     runId: ProtocolRun["id"];
@@ -1660,8 +1772,7 @@ class KernelToolWorker implements WorkerProtocolPort {
     });
     let result: TaskResult;
     try {
-      const gatewayResult = await runWithNativeCancellationPolling(
-        this.options.toolGateway.execute({
+      const operation = this.options.toolGateway.execute({
           taskId: input.toolCall.toolCallId,
           toolName,
           toolInput: {
@@ -1682,7 +1793,10 @@ class KernelToolWorker implements WorkerProtocolPort {
           },
           isCancelled: this.options.isRunCancelled,
           signal: input.signal,
-        }),
+        });
+      this.trackToolOperation(input.turnId, operation, input.signal);
+      const gatewayResult = await runWithNativeCancellationPolling(
+        operation,
         this.options.isRunCancelled,
       );
       if (gatewayResult.kind === "cancelled") {
@@ -1842,6 +1956,37 @@ class KernelToolWorker implements WorkerProtocolPort {
     );
     return failed("command_failed", message, false, disposition);
   }
+
+  private trackToolOperation(
+    turnId: Turn["id"],
+    operation: Promise<unknown>,
+    signal?: AbortSignal,
+  ): void {
+    let pending = this.activeToolOperations.get(turnId);
+    if (!pending) {
+      pending = new Set();
+      this.activeToolOperations.set(turnId, pending);
+    }
+    pending.add(operation);
+    let settled = false;
+    const onAbort = () => {
+      if (!settled) this.uncertainCancelledTurns.add(turnId);
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+    const remove = () => {
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      this.removeToolOperation(turnId, operation);
+    };
+    void operation.then(remove, remove);
+  }
+
+  private removeToolOperation(turnId: Turn["id"], operation: Promise<unknown>): void {
+    const pending = this.activeToolOperations.get(turnId);
+    pending?.delete(operation);
+    if (pending?.size === 0) this.activeToolOperations.delete(turnId);
+  }
 }
 
 class NativeApprovalWaitPort implements ApprovalWaitPort {
@@ -1971,6 +2116,8 @@ function buildProtocolEnvelope(input: {
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
   revisionOfTurnId?: string;
+  continuationOfTurnId?: string;
+  originalPromptId?: string;
   workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
@@ -2050,6 +2197,12 @@ function buildProtocolEnvelope(input: {
       lastEventSequence: 0,
     }),
     runAttemptId,
+    ...(input.continuationOfTurnId
+      ? {
+          continuationOfTurnId: TurnIdSchema.parse(input.continuationOfTurnId),
+          originalPromptId: input.originalPromptId,
+        }
+      : {}),
     manifest,
   };
 }

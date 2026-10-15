@@ -415,6 +415,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(
       sink.events.find((event) => event.type === "tool_call.started")?.payload,
     ).toEqual({
+      toolName: "write_file",
       display: {
         title: "Edit file",
         family: "edit",

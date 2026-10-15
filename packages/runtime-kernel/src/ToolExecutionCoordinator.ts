@@ -47,7 +47,9 @@ export class ToolExecutionCoordinator {
     await this.lifecycle.startToolCall(
       itemId,
       canonicalToolCall.toolCallId,
+      canonicalToolCall.toolName,
       canonicalToolCall.input,
+      canonicalToolCall.callBatchId,
       canonicalToolCall.display,
     );
     try {
