@@ -20,9 +20,11 @@ import {
   type ThreadInputReceipt,
 } from "@repo/platform-protocol";
 import {
+  PlatformClientOperationError,
   PlatformClientContractError,
   normalizePlatformClientOperationError,
 } from "./errors.js";
+import { isThreadInputConflictResponse } from "./http-transport.js";
 import { followLifecycleEvents } from "./lifecycle-continuation.js";
 import {
   FollowLifecycleRequestSchema,
@@ -482,6 +484,19 @@ export class DefaultPlatformClient implements PlatformClient {
     const payload = await this.invoke(operation, () =>
       this.transport.threadInputCommand(normalizedRequest, options),
     );
+    if (isThreadInputConflictResponse(payload)) {
+      const conflict = responseSchema.safeParse(payload.payload);
+      if (conflict.success && conflict.data.status === "conflict") {
+        return conflict.data;
+      }
+      throw new PlatformClientOperationError(
+        "INVALID_ERROR_RESPONSE",
+        `Invalid conflict response for ${operation}`,
+        false,
+        undefined,
+        409,
+      );
+    }
     return parseResponse(payload, responseSchema, operation);
   }
 

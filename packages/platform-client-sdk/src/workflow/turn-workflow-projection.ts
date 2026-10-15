@@ -141,6 +141,10 @@ export interface TurnWorkflowProjection {
   readonly revisionOfTurnId?: TurnId | null;
   readonly continuationOfTurnId?: TurnId | null;
   readonly originalPromptId?: string | null;
+  readonly workspaceSnapshotState: "unknown" | "captured" | "unavailable";
+  readonly resumeSnapshotAvailable: boolean | null;
+  readonly workspaceSnapshotUnavailableReason: string | null;
+  readonly resumeUnavailableReason: string | null;
   readonly lastSequence: number;
   readonly items: readonly WorkflowItem[];
   readonly pendingApproval: WorkflowApproval | null;
@@ -163,6 +167,10 @@ export function createTurnWorkflowProjection(
     revisionOfTurnId: null,
     continuationOfTurnId: null,
     originalPromptId: null,
+    workspaceSnapshotState: "unknown",
+    resumeSnapshotAvailable: null,
+    workspaceSnapshotUnavailableReason: null,
+    resumeUnavailableReason: null,
     lastSequence: 0,
     items: [],
     pendingApproval: null,
@@ -220,6 +228,34 @@ function applyKnownEvent(
         phase: "starting",
         startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
       };
+    case "workspace.snapshot_captured": {
+      const payload = readPayload(event);
+      const snapshot = readRecord(payload.snapshot);
+      const resumeSnapshotRef = readString(snapshot ?? {}, "resumeSnapshotRef");
+      const resumeUnavailableReason = readString(
+        snapshot ?? {},
+        "resumeUnavailableReason",
+      );
+      return {
+        ...projection,
+        workspaceSnapshotState: "captured",
+        resumeSnapshotAvailable: Boolean(resumeSnapshotRef),
+        workspaceSnapshotUnavailableReason: null,
+        resumeUnavailableReason:
+          resumeUnavailableReason ??
+          (resumeSnapshotRef ? null : "resume_snapshot_missing"),
+      };
+    }
+    case "workspace.snapshot_unavailable": {
+      const reason = readString(readPayload(event), "reason");
+      return {
+        ...projection,
+        workspaceSnapshotState: "unavailable",
+        resumeSnapshotAvailable: false,
+        workspaceSnapshotUnavailableReason: reason ?? "snapshot_unavailable",
+        resumeUnavailableReason: reason ?? "snapshot_unavailable",
+      };
+    }
     case "run_attempt.started":
       return {
         ...projection,
