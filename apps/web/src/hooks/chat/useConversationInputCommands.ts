@@ -88,6 +88,7 @@ export function useConversationInputCommands(input: {
         runAttemptId: capturedScope.runAttemptId,
         delivery,
         capturedDraftVersion,
+        ...(delivery === "queue" ? { configuration } : {}),
         text: capturedText,
         images: (attachments?.imageAttachments ?? []).map((image) => ({
           id: image.id,
@@ -210,6 +211,7 @@ export function useConversationInputCommands(input: {
         turnId: capturedScope.turnId,
         runAttemptId: capturedScope.runAttemptId,
         expectedTerminalSequence,
+        configuration,
       });
       let pendingResume = pendingResumeRef.current;
       if (!pendingResume || pendingResume.fingerprint !== fingerprint) {
