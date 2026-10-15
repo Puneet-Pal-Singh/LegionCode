@@ -67,6 +67,31 @@ export {
   type InterruptTurnIdentity,
   type InterruptTurnRequest,
 } from "./turn-scope-bootstrap.js";
+export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
+export {
+  EnqueueThreadInputCommandSchema,
+  ListThreadInputsCommandSchema,
+  RemoveThreadInputCommandSchema,
+  ResumeTurnCommandSchema,
+  ResumeTurnReceiptSchema,
+  StartQueuedThreadInputCommandSchema,
+  SteerQueuedThreadInputCommandSchema,
+  SteerTurnCommandSchema,
+  ThreadInputCommandSchema,
+  ThreadInputConfigurationSchema,
+  ThreadInputContentSchema,
+  ThreadInputUpdateContentSchema,
+  ThreadInputImageSchema,
+  ThreadInputQueueItemSchema,
+  ThreadInputQueueSnapshotSchema,
+  ThreadInputReceiptSchema,
+  UpdateThreadInputCommandSchema,
+  type ResumeTurnReceipt,
+  type ThreadInputCommand,
+  type ThreadInputQueueItem,
+  type ThreadInputQueueSnapshot,
+  type ThreadInputReceipt,
+} from "./thread-input.js";
 export {
   ConversationHistoryRequestSchema,
   ConversationHistoryMessageSchema,
@@ -75,6 +100,10 @@ export {
   type ConversationHistoryMessage,
   type ConversationHistoryResponse,
 } from "./conversation-history.js";
+export {
+  TurnStartedPayloadSchema,
+  type TurnStartedPayload,
+} from "./lifecycle.js";
 export {
   GeneratedThreadTitleSchema,
   ThreadTitleUpdatedPayloadSchema,
@@ -237,6 +266,7 @@ export {
   TaskCheckoutIdSchema,
   ThreadIdSchema,
   ToolCallIdSchema,
+  ToolCallBatchIdSchema,
   TurnIdSchema,
   UserIdSchema,
   WorkerIdSchema,
@@ -262,6 +292,7 @@ export {
   type TaskCheckoutId,
   type ThreadId,
   type ToolCallId,
+  type ToolCallBatchId,
   type TurnId,
   type UserId,
   type WorkerId,

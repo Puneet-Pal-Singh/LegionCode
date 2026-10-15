@@ -12,6 +12,7 @@ import {
   RunAttemptIdSchema,
   RunIdSchema,
   ThreadIdSchema,
+  ToolCallBatchIdSchema,
   ToolCallIdSchema,
   TurnIdSchema,
   WorkspaceIdSchema,
@@ -363,6 +364,9 @@ export const LifecycleItemPayloadSchema = z
     detail: BoundedLifecycleDetailSchema.optional(),
     toolFamily: LifecycleToolFamilySchema.optional(),
     display: LifecycleToolDisplaySchema.optional(),
+    toolName: z.string().trim().min(1).max(160).optional(),
+    callBatchId: ToolCallBatchIdSchema.optional(),
+    providerMetadata: JsonRecordSchema.optional(),
     parentItemId: ItemIdSchema.optional(),
     input: JsonRecordSchema.optional(),
     output: BoundedLifecycleTextSchema.optional(),
@@ -373,6 +377,11 @@ export const LifecycleItemPayloadSchema = z
   })
   .strict();
 export type LifecycleItemPayload = z.infer<typeof LifecycleItemPayloadSchema>;
+
+export const LifecycleToolCallStartPayloadSchema = LifecycleItemPayloadSchema;
+export type LifecycleToolCallStartPayload = z.infer<
+  typeof LifecycleToolCallStartPayloadSchema
+>;
 
 export const TurnLifecycleSchema = z
   .object({
@@ -889,11 +898,20 @@ const ToolCallLifecycleEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.enum([
-      "tool_call.started",
       "tool_call.input_delta",
       "tool_call.output_delta",
     ]),
     payload: LifecycleItemPayloadSchema,
+  })
+  .strict();
+
+const ToolCallStartedLifecycleEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    toolCallId: ToolCallIdSchema,
+    type: z.literal("tool_call.started"),
+    payload: LifecycleToolCallStartPayloadSchema,
   })
   .strict();
 
@@ -1053,6 +1071,33 @@ const ContextCompactionLifecycleEventSchema = z
   })
   .strict();
 
+export const TurnStartedPayloadSchema = z
+  .object({
+    revisionOfTurnId: TurnIdSchema.optional(),
+    continuationOfTurnId: TurnIdSchema.optional(),
+    originalPromptId: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.continuationOfTurnId === undefined) !== (value.originalPromptId === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Continuation turn and original prompt identity must be supplied together.",
+        path: ["originalPromptId"],
+      });
+    }
+  });
+export type TurnStartedPayload = z.infer<typeof TurnStartedPayloadSchema>;
+
+const TurnStartedLifecycleEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema.optional(),
+    type: z.literal("turn.started"),
+    payload: TurnStartedPayloadSchema,
+  })
+  .strict();
+
 const TurnLifecycleEventSchema = z
   .object({
     ...LifecycleEventEnvelopeShape,
@@ -1078,6 +1123,7 @@ const TurnLifecycleEventSchema = z
       "turn.completed",
       "turn.interrupted",
       "turn.failed",
+      "turn.started",
       "context_budget.updated",
       "usage.updated",
       "context_compaction.requested",
@@ -1095,6 +1141,8 @@ export const LifecycleEventSchema = z.union([
   ItemFailedEventSchema,
   ItemDeclinedEventSchema,
   ItemInterruptedEventSchema,
+  TurnStartedLifecycleEventSchema,
+  ToolCallStartedLifecycleEventSchema,
   ToolCallLifecycleEventSchema,
   ToolCallCompletedEventSchema,
   ToolCallFailedEventSchema,
