@@ -58,6 +58,7 @@ import {
 } from "./conversationScope";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
+import { useConversationInputCommands } from "./chat/useConversationInputCommands";
 import {
   acquireSubmissionAttempt,
   finishSubmissionAttempt,
@@ -107,6 +108,11 @@ interface UseChatCoreResult {
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
+  submitFollowUp: (
+    text: string,
+    attachments: ChatSubmitAttachments | undefined,
+    delivery: "queue" | "steer",
+  ) => Promise<boolean>;
   append: (message: ChatAppendMessage) => Promise<SubmissionOutcome>;
   optimisticUserMessage: Message | null;
   isLoading: boolean;
@@ -117,6 +123,14 @@ interface UseChatCoreResult {
   activeTurnProjection: ActiveTurnProjection;
   resetRun: () => void;
   isModelConfigReady: boolean;
+  resumeInterruptedTurn: (expectedTerminalSequence: number) => Promise<boolean>;
+  applyStartedQueueReceipt: (
+    receipt: Extract<
+      import("@repo/platform-client-sdk").ThreadInputReceipt,
+      { status: "started" }
+    >,
+    expectedScope: ConversationScope,
+  ) => boolean;
   error: string | null;
   scopeRecoveryError: ConversationScopeHttpError | null;
   retryScopeRead: () => Promise<void>;
@@ -137,6 +151,7 @@ export function useChatCore(
   mode: RunMode = DEFAULT_RUN_MODE,
   productMode?: ProductMode,
   onServerProjectionAvailable?: () => void,
+  onRunIdChange?: (runId: string) => void,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
@@ -165,6 +180,7 @@ export function useChatCore(
   const retainedSubmissionScopeRef = useRef<ConversationScope | null>(null);
   const activeComposerSubmissionRef = useRef<string | null>(null);
   const latestComposerInputRef = useRef("");
+  const composerInputVersionRef = useRef(0);
   const lastLoggedStreamErrorRef = useRef<{
     message: string;
     timestamp: number;
@@ -285,11 +301,7 @@ export function useChatCore(
         activeScopeKeyRef.current = conversationScopeKey(scope);
         activeConversationScopeRef.current = scope;
         setConversationScope(scope);
-        setError((current) =>
-          current === originatingError
-            ? null
-            : current,
-        );
+        setError((current) => (current === originatingError ? null : current));
         setScopeRecoveryError((current) =>
           current === originatingScopeError ? null : current,
         );
@@ -401,7 +413,7 @@ export function useChatCore(
 
   const {
     input,
-    handleInputChange,
+    handleInputChange: updateInput,
     isLoading: isTransportLoading,
     stop: stopStream,
     append,
@@ -530,6 +542,14 @@ export function useChatCore(
     credentials: "include",
     fetch: authenticatedChatFetch,
   });
+
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      composerInputVersionRef.current += 1;
+      updateInput(event);
+    },
+    [updateInput],
+  );
 
   useEffect(() => {
     latestComposerInputRef.current = input;
@@ -981,7 +1001,9 @@ export function useChatCore(
             if (ownsSubmissionAttempt()) {
               stopRequestedRef.current = false;
               setIsStopping(false);
-              setError("Stop not confirmed yet. Check status or try Stop again.");
+              setError(
+                "Stop not confirmed yet. Check status or try Stop again.",
+              );
             }
             logClientWarning("chat/stop", "accepted-turn-interrupt-unsettled", {
               runId: requestScope.runId,
@@ -1161,6 +1183,27 @@ export function useChatCore(
   const clearChatInput = useCallback(() => {
     updateChatInput("", handleInputChange);
   }, [handleInputChange]);
+  const { submitFollowUp, resumeInterruptedTurn, applyStartedQueueReceipt } =
+    useConversationInputCommands({
+      sessionId,
+      runId,
+      onRunIdChange,
+      mode,
+      productMode,
+      selectedProviderId,
+      selectedModelId,
+      selectedModelEfforts,
+      lifecycleClient,
+      scopeRef: activeConversationScopeRef,
+      runScopeRef: activeRunScopeKeyRef,
+      generationRef: runScopeGenerationRef,
+      isActiveRunInvocation,
+      clearInput: clearChatInput,
+      latestInputRef: latestComposerInputRef,
+      inputVersionRef: composerInputVersionRef,
+      setError,
+      setScope: setConversationScope,
+    });
 
   const restoreChatInput = useCallback(
     (value: string) => {
@@ -1368,13 +1411,9 @@ export function useChatCore(
           // absent after transport cancellation.
           if (stopOwnsInvocation()) stopStream();
         } else if (requestScope) {
-          await interruptAndAwaitTerminal(
-            lifecycleClient,
-            requestScope,
-            () => {
-              if (stopOwnsInvocation()) stopStream();
-            },
-          );
+          await interruptAndAwaitTerminal(lifecycleClient, requestScope, () => {
+            if (stopOwnsInvocation()) stopStream();
+          });
         } else {
           preAdmissionStopKeyRef.current = runScopeKey;
           if (stopOwnsInvocation()) stopStream();
@@ -1430,6 +1469,7 @@ export function useChatCore(
     input,
     handleInputChange,
     handleSubmit,
+    submitFollowUp,
     append: appendWithResolution,
     isLoading: canonicalRunLoading,
     stop,
@@ -1445,6 +1485,8 @@ export function useChatCore(
     clearNonCanonicalError,
     debugEvents,
     reviseTurn,
+    resumeInterruptedTurn,
+    applyStartedQueueReceipt,
   };
 }
 

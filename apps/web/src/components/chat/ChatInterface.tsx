@@ -9,6 +9,7 @@ import {
   type UsageCostSnapshot,
 } from "@repo/platform-client-sdk";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
+import type { ComposerDelivery } from "./conversation/composer-keyboard.js";
 import type { Message } from "@ai-sdk/react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
@@ -49,6 +50,9 @@ import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjec
 import type { ArtifactOpenHandler } from "./artifactOpen";
 import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoadingIndicator.js";
 import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";
+import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
+import { ThreadInputQueuePanel } from "./conversation/ThreadInputQueuePanel";
+import { resumeUnavailableMessage } from "./chat-interface/workspace-snapshot-status.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -60,11 +64,27 @@ interface ChatInterfaceProps {
     handleSubmit: (
       event?: React.FormEvent,
       attachments?: ChatSubmitAttachments,
+      delivery?: ComposerDelivery,
     ) => Promise<boolean>;
-    append: (message: {
-      role: "user";
-      content: string;
-    }) => Promise<SubmissionOutcome>;
+    submitFollowUp: (
+      text: string,
+      attachments: ChatSubmitAttachments | undefined,
+      delivery: ComposerDelivery,
+    ) => Promise<boolean>;
+    resumeInterruptedTurn: (
+      expectedTerminalSequence: number,
+    ) => Promise<boolean>;
+    applyStartedQueueReceipt: (
+      receipt: Extract<
+        import("@repo/platform-client-sdk").ThreadInputReceipt,
+        { status: "started" }
+      >,
+      expectedScope: ConversationScope,
+    ) => boolean;
+    append: (
+      message: { role: "user"; content: string },
+      delivery?: ComposerDelivery,
+    ) => Promise<SubmissionOutcome>;
     reviseTurn?: (turnId: string, content: string) => Promise<boolean>;
     stop: () => void;
     isLoading: boolean;
@@ -172,6 +192,57 @@ export function ChatInterface({
     activeTurn.isActive ||
     activeTurn.isTransportPending ||
     awaitingCanonicalLifecycle;
+  const activeQueueTarget = useMemo(
+    () =>
+      activeRunLoading && conversationScope
+        ? {
+            turnId: conversationScope.turnId,
+            runAttemptId: conversationScope.runAttemptId,
+          }
+        : null,
+    [activeRunLoading, conversationScope],
+  );
+  const queue = useThreadInputQueue(
+    conversationScope ?? null,
+    activeQueueTarget,
+    `${activeTurn.projection?.turnId ?? ""}:${activeTurn.projection?.lastSequence ?? 0}:${activeTurn.continuationStatus}`,
+  );
+  const applyStartedQueueReceiptRef = useRef(
+    chatProps.applyStartedQueueReceipt,
+  );
+  applyStartedQueueReceiptRef.current = chatProps.applyStartedQueueReceipt;
+  const queueScopeKey = conversationScope
+    ? `${conversationScope.sessionId}:${conversationScope.runId}:${conversationScope.workspaceId}:${conversationScope.threadId}`
+    : null;
+  useEffect(() => {
+    const snapshot = queue.snapshot;
+    const started = snapshot?.latestStarted?.receipt;
+    if (
+      !snapshot ||
+      !started ||
+      !conversationScope ||
+      snapshot.activeRunId !== started.runId ||
+      conversationScope.runId === started.runId
+    ) {
+      return;
+    }
+    applyStartedQueueReceiptRef.current(started, conversationScope);
+  }, [conversationScope, queue.snapshot, queueScopeKey]);
+  const submitFollowUp = useCallback(
+    async (
+      attachments: ChatSubmitAttachments | undefined,
+      delivery: ComposerDelivery,
+    ) => {
+      const accepted = await chatProps.submitFollowUp(
+        input,
+        attachments,
+        delivery,
+      );
+      if (accepted) void queue.refresh();
+      return accepted;
+    },
+    [chatProps, input, queue.refresh],
+  );
   const continuationRecovery =
     activeTurn.continuationStatus === "reconnecting" ||
     activeTurn.continuationStatus === "stopped"
@@ -220,9 +291,12 @@ export function ChatInterface({
     markDispatchFailed: markReviewCommentsDispatchFailed,
   });
   const submitComposer = useCallback(
-    async (attachments?: ChatSubmitAttachments): Promise<boolean> => {
+    async (
+      attachments?: ChatSubmitAttachments,
+      delivery?: ComposerDelivery,
+    ): Promise<boolean> => {
       if (input.trim() !== "/compact") {
-        return handleSubmit(undefined, attachments);
+        return handleSubmit(undefined, attachments, delivery);
       }
       const budget = lifecycleProjection?.contextBudget;
       if (
@@ -397,11 +471,57 @@ export function ChatInterface({
       }}
       input={input}
       onInputChange={handleInputChangeWrapper}
-      onSubmit={
+      onSubmit={(attachments, delivery) =>
         selectedReviewComments.length > 0
-          ? () => handleSubmitWithReviewComments()
-          : submitComposer
+          ? handleSubmitWithReviewComments(delivery)
+          : submitComposer(attachments, delivery)
       }
+      onFollowUpSubmit={
+        conversationScope
+          ? (attachments, delivery) => submitFollowUp(attachments, delivery)
+          : undefined
+      }
+      queuePanel={
+        <ThreadInputQueuePanel
+          snapshot={queue.snapshot}
+          error={queue.error}
+          active={activeRunLoading}
+          onUpdate={queue.update}
+          onRemove={queue.remove}
+          onSteer={queue.steer}
+          onStart={async (itemId, version, revision) => {
+            const expectedScope = conversationScope;
+            if (!expectedScope) return null;
+            const receipt = await queue.start(itemId, version, revision);
+            if (receipt?.status === "started") {
+              chatProps.applyStartedQueueReceipt(receipt, expectedScope);
+            }
+            return receipt;
+          }}
+        />
+      }
+      resumeUnavailableMessage={
+        resumeUnavailableMessage(
+          activeTurn.projection,
+          Boolean(conversationScope),
+        ) ?? null
+      }
+      canResume={Boolean(
+        conversationScope &&
+        activeTurn.projection?.terminal?.state === "interrupted" &&
+        activeTurn.projection.workspaceSnapshotState === "captured" &&
+        activeTurn.projection.resumeSnapshotAvailable === true,
+      )}
+      onResume={() => {
+        const projection = activeTurn.projection;
+        if (
+          projection?.terminal?.state === "interrupted" &&
+          projection.workspaceSnapshotState === "captured" &&
+          projection.resumeSnapshotAvailable === true
+        ) {
+          void chatProps.resumeInterruptedTurn(projection.lastSequence);
+        }
+      }}
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}
       reviewCommentError={reviewCommentError}

@@ -284,6 +284,24 @@ export function Workspace({
     },
     [handleSubmit, input, isSessionPersisted, onPromptSubmitted],
   );
+  const submitFollowUpWhenPersisted = useCallback(
+    async (
+      text: string,
+      attachments: Parameters<typeof chat.submitFollowUp>[1],
+      delivery: Parameters<typeof chat.submitFollowUp>[2],
+    ) => {
+      if (!isSessionPersisted) return false;
+      return chat.submitFollowUp(text, attachments, delivery);
+    },
+    [chat.submitFollowUp, isSessionPersisted],
+  );
+  const resumeInterruptedTurnWhenPersisted = useCallback(
+    async (expectedTerminalSequence: number) => {
+      if (!isSessionPersisted) return false;
+      return chat.resumeInterruptedTurn(expectedTerminalSequence);
+    },
+    [chat.resumeInterruptedTurn, isSessionPersisted],
+  );
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {
       clearNonCanonicalError();
@@ -619,6 +637,9 @@ export function Workspace({
                 input,
                 handleInputChange,
                 handleSubmit: handleSubmitWhenPersisted,
+                submitFollowUp: submitFollowUpWhenPersisted,
+                resumeInterruptedTurn: resumeInterruptedTurnWhenPersisted,
+                applyStartedQueueReceipt: chat.applyStartedQueueReceipt,
                 append: appendWhenPersisted,
                 reviseTurn: reviseTurnWhenPersisted,
                 stop: handleStopRun,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReviewCommentDraft } from "../../git/reviewComments";
 import type { SubmissionOutcome } from "../../../hooks/chat/submissionAttemptRegistry";
+import type { ComposerDelivery } from "../conversation/composer-keyboard.js";
 import {
   buildReviewCommentPrompt,
   validateReviewPromptBudget,
@@ -11,7 +12,10 @@ interface ReviewCommentSubmissionInput {
   input: string;
   isLoading: boolean;
   error?: string | null;
-  append: (message: { role: "user"; content: string }) => Promise<SubmissionOutcome>;
+  append: (
+    message: { role: "user"; content: string },
+    delivery?: ComposerDelivery,
+  ) => Promise<SubmissionOutcome>;
   handleInputChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   toggleSelected: (commentId: string, selected: boolean) => void;
   markDispatching: (commentIds: string[]) => void;
@@ -65,53 +69,58 @@ export function useReviewCommentSubmission(
     [reviewCommentError, toggleSelected],
   );
 
-  const submitWithComments = useCallback(async (): Promise<boolean> => {
-    const budget = validateReviewPromptBudget(comments, textInput);
-    if (!budget.ok) {
-      setReviewCommentError(budget.reason);
-      return false;
-    }
-    const { prompt } = buildReviewCommentPrompt(comments, textInput);
-    const ids = comments.map((comment) => comment.id);
-    lastDispatchIdsRef.current = ids;
-    setReviewCommentError(null);
-    markDispatching(ids);
-    const previousInput = textInput;
-    changeInput("");
-    try {
-      const outcome = await append({ role: "user", content: prompt });
-      if (
-        outcome.status === "accepted" ||
-        (outcome.status === "cancelled" && outcome.admission === "accepted")
-      ) {
-        markDispatched(ids);
-        return true;
+  const submitWithComments = useCallback(
+    async (delivery?: ComposerDelivery): Promise<boolean> => {
+      const budget = validateReviewPromptBudget(comments, textInput);
+      if (!budget.ok) {
+        setReviewCommentError(budget.reason);
+        return false;
       }
-      throw new Error(outcome.status === "unconfirmed"
-        ? outcome.message
-        : outcome.status === "cancelled"
-          ? "The request may have been admitted. Check the saved conversation before retrying."
-          : "The chat request belongs to a conversation that is no longer active.");
-    } catch (error) {
-      markDispatchFailed(ids, { reselect: true });
-      lastDispatchIdsRef.current = [];
-      if (latestInputRef.current === "") changeInput(previousInput);
-      setReviewCommentError(
-        error instanceof Error
-          ? error.message
-          : "Failed to send review comments.",
-      );
-      return false;
-    }
-  }, [
-    append,
-    changeInput,
-    comments,
-    markDispatchFailed,
-    markDispatched,
-    markDispatching,
-    textInput,
-  ]);
+      const { prompt } = buildReviewCommentPrompt(comments, textInput);
+      const ids = comments.map((comment) => comment.id);
+      lastDispatchIdsRef.current = ids;
+      setReviewCommentError(null);
+      markDispatching(ids);
+      const previousInput = textInput;
+      changeInput("");
+      try {
+        const outcome = await append({ role: "user", content: prompt }, delivery);
+        if (
+          outcome.status === "accepted" ||
+          (outcome.status === "cancelled" && outcome.admission === "accepted")
+        ) {
+          markDispatched(ids);
+          return true;
+        }
+        throw new Error(
+          outcome.status === "unconfirmed"
+            ? outcome.message
+            : outcome.status === "cancelled"
+              ? "The request may have been admitted. Check the saved conversation before retrying."
+              : "The chat request belongs to a conversation that is no longer active.",
+        );
+      } catch (error) {
+        markDispatchFailed(ids, { reselect: true });
+        lastDispatchIdsRef.current = [];
+        if (latestInputRef.current === "") changeInput(previousInput);
+        setReviewCommentError(
+          error instanceof Error
+            ? error.message
+            : "Failed to send review comments.",
+        );
+        return false;
+      }
+    },
+    [
+      append,
+      changeInput,
+      comments,
+      markDispatchFailed,
+      markDispatched,
+      markDispatching,
+      textInput,
+    ],
+  );
 
   useEffect(() => {
     if (!error || lastDispatchIdsRef.current.length === 0) return;

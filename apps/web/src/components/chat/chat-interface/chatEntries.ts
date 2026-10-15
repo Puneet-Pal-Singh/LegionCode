@@ -12,6 +12,7 @@ export type ChatInterfaceEntry =
       projection?: LifecycleProjection;
       editTargetTurnId?: string;
       editTargetTerminal?: boolean;
+      historyStatus?: "revised" | "edited";
     }
   | {
       kind: "workflow";
@@ -19,6 +20,7 @@ export type ChatInterfaceEntry =
       turnId: string;
       projection: LifecycleProjection;
       assistantMessage?: Message;
+      historyStatus?: "revised" | "edited";
     };
 
 export function buildChatEntries(
@@ -41,6 +43,7 @@ export function buildChatEntries(
         kind: "message",
         message: conversationTurn.userMessage,
         ...(projection ? { projection } : {}),
+        ...(projection?.revisionOfTurnId ? { historyStatus: "edited" } : {}),
       });
     }
     if (
@@ -77,6 +80,10 @@ export function buildChatEntries(
   }
   const continuationEntriesByPromptId = new Map<string, ChatInterfaceEntry[]>();
   const latestContinuationByPromptId = new Map<string, LifecycleProjection>();
+  const revisedPromptIds = findRevisedPromptIds(
+    conversationTurns,
+    projectionsByTurnId,
+  );
   for (const conversationTurn of conversationTurns) {
     const projection = conversationTurn.turnId
       ? projectionsByTurnId[conversationTurn.turnId]
@@ -130,8 +137,17 @@ export function buildChatEntries(
     const projection = conversationTurn.turnId
       ? projectionsByTurnId[conversationTurn.turnId]
       : undefined;
-    if (projection?.continuationOfTurnId) continue;
-    const turnEntries = entriesByTurn.get(conversationTurn) ?? [];
+    const isContinuation = Boolean(projection?.continuationOfTurnId);
+    const turnEntries = (entriesByTurn.get(conversationTurn) ?? []).map(
+      (entry) =>
+        isTurnInRevisedBranch(
+          projection?.originalPromptId ?? conversationTurn.userMessage?.id,
+          revisedPromptIds,
+        )
+          ? { ...entry, historyStatus: "revised" as const }
+          : entry,
+    );
+    if (isContinuation) continue;
     const latestContinuation = conversationTurn.userMessage
       ? latestContinuationByPromptId.get(conversationTurn.userMessage.id)
       : undefined;
@@ -142,11 +158,7 @@ export function buildChatEntries(
             ? {
                 ...entry,
                 editTargetTurnId: latestContinuation.turnId,
-                editTargetTerminal: Boolean(
-                  latestContinuation.terminal &&
-                  (latestContinuation.terminal.state === "interrupted" ||
-                    latestContinuation.terminal.state === "failed"),
-                ),
+                editTargetTerminal: Boolean(latestContinuation.terminal),
               }
             : entry,
         ),
@@ -158,7 +170,13 @@ export function buildChatEntries(
     if (!promptId) continue;
     const continuationEntries = continuationEntriesByPromptId.get(promptId);
     if (continuationEntries) {
-      entries.push(...continuationEntries);
+      entries.push(
+        ...continuationEntries.map((entry) =>
+          isTurnInRevisedBranch(promptId, revisedPromptIds)
+            ? { ...entry, historyStatus: "revised" as const }
+            : entry,
+        ),
+      );
       continuationEntriesByPromptId.delete(promptId);
     }
   }
@@ -176,6 +194,59 @@ export function buildChatEntries(
     entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
   return entries;
+}
+
+function findRevisedPromptIds(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+  projectionsByTurnId: Readonly<Record<string, LifecycleProjection>>,
+): Set<string> {
+  const revisedPromptIds = new Set<string>();
+  for (const projection of Object.values(projectionsByTurnId)) {
+    if (!projection.revisionOfTurnId) continue;
+    const promptId = findLogicalPromptId(
+      projection.revisionOfTurnId,
+      conversationTurns,
+      projectionsByTurnId,
+    );
+    if (promptId) revisedPromptIds.add(promptId);
+  }
+  return revisedPromptIds;
+}
+
+function findLogicalPromptId(
+  initialTurnId: string,
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+  projectionsByTurnId: Readonly<Record<string, LifecycleProjection>>,
+): string | null {
+  const visited = new Set<string>();
+  let currentTurnId: string | null = initialTurnId;
+  while (currentTurnId && !visited.has(currentTurnId)) {
+    visited.add(currentTurnId);
+    const targetProjection: LifecycleProjection | undefined =
+      projectionsByTurnId[currentTurnId];
+    if (
+      targetProjection?.originalPromptId &&
+      targetProjection.continuationOfTurnId
+    ) {
+      return targetProjection.originalPromptId;
+    }
+    if (targetProjection?.revisionOfTurnId) {
+      currentTurnId = targetProjection.revisionOfTurnId;
+      continue;
+    }
+    const turn = conversationTurns.find(
+      (candidate) => candidate.turnId === currentTurnId,
+    );
+    return turn?.userMessage?.id ?? null;
+  }
+  return null;
+}
+
+function isTurnInRevisedBranch(
+  rootPromptId: string | undefined,
+  revisedPromptIds: ReadonlySet<string>,
+): boolean {
+  return Boolean(rootPromptId && revisedPromptIds.has(rootPromptId));
 }
 
 function createWorkflowEntry(

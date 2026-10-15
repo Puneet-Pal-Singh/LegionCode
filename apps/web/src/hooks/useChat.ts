@@ -26,6 +26,19 @@ export interface UseChatResult {
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
+  submitFollowUp: (
+    text: string,
+    attachments: ChatSubmitAttachments | undefined,
+    delivery: "queue" | "steer",
+  ) => Promise<boolean>;
+  resumeInterruptedTurn: (expectedTerminalSequence: number) => Promise<boolean>;
+  applyStartedQueueReceipt: (
+    receipt: Extract<
+      import("@repo/platform-client-sdk").ThreadInputReceipt,
+      { status: "started" }
+    >,
+    expectedScope: ConversationScope,
+  ) => boolean;
   append: (message: ChatAppendMessage) => Promise<SubmissionOutcome>;
   reviseTurn: (turnId: string, content: string) => Promise<boolean>;
   isLoading: boolean;
@@ -62,6 +75,7 @@ export function useChat(
   productMode?: ProductMode,
   onServerProjectionAvailable?: () => void,
   isSessionPersistenceReady = true,
+  onRunIdChange?: (runId: string) => void,
 ): UseChatResult {
   const [transcriptState, setTranscriptState] = useState<{
     sessionId: string;
@@ -82,6 +96,9 @@ export function useChat(
     input,
     handleInputChange,
     handleSubmit,
+    submitFollowUp,
+    resumeInterruptedTurn,
+    applyStartedQueueReceipt,
     append,
     reviseTurn,
     isLoading,
@@ -103,6 +120,7 @@ export function useChat(
     mode,
     productMode,
     onServerProjectionAvailable,
+    onRunIdChange,
   );
 
   const messages = useMemo(() => {
@@ -170,6 +188,9 @@ export function useChat(
     input,
     handleInputChange,
     handleSubmit,
+    submitFollowUp,
+    resumeInterruptedTurn,
+    applyStartedQueueReceipt,
     append,
     reviseTurn: reviseTurnAfterAcceptance,
     isLoading,
