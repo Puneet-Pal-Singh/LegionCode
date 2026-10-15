@@ -833,6 +833,9 @@ importers:
 
   packages/platform-protocol:
     dependencies:
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
       zod:
         specifier: ^3.25.0
         version: 3.25.1
