@@ -65,7 +65,17 @@ export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepositor
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export { InvalidTranscriptSnapshotError } from "./sessions/types.js";
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
-export type { AdmitTurnWithPromptInput, ReserveTurnAdmissionInput, TurnAdmissionRecord, TurnAdmissionRepository } from "./turn-admissions/types.js";
+export type {
+  AdmitContinuationInput,
+  AdmitTurnWithPromptInput,
+  InterruptedTurnTarget,
+  InterruptedTurnTargetInput,
+  ReserveQueuedStartInput,
+  ReserveQueuedStartResult,
+  ReserveTurnAdmissionInput,
+  TurnAdmissionRecord,
+  TurnAdmissionRepository,
+} from "./turn-admissions/types.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
