@@ -5,6 +5,7 @@ import {
   TurnIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
+import type { ThreadInputCommand } from "@repo/platform-protocol";
 import {
   PlatformClientOperationError,
   parsePlatformOperationErrorCode,
@@ -102,12 +103,14 @@ export function createPlatformHttpTransport(
         undefined,
         options,
       ),
+    threadInputCommand: (command, options) =>
+      sendThreadInputCommand(request, command, options),
   };
 }
 
 interface TransportRequest {
   json(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     payload?: unknown,
     options?: PlatformClientOperationOptions,
@@ -139,12 +142,64 @@ function createTransportRequest(
   };
 }
 
+function sendThreadInputCommand(
+  request: TransportRequest,
+  command: ThreadInputCommand,
+  options?: PlatformClientOperationOptions,
+): Promise<unknown> {
+  switch (command.operation) {
+    case "turn.resume":
+      return request.json("POST", "/turn/resume", command, options);
+    case "turn.steer":
+      return request.json("POST", "/turn/steer", command, options);
+    case "thread.input.enqueue":
+      return request.json("POST", "/thread/inputs", command, options);
+    case "thread.input.list":
+      return request.json(
+        "GET",
+        buildListThreadInputsPath(command),
+        undefined,
+        options,
+      );
+    case "thread.input.update":
+      return request.json(
+        "PATCH",
+        buildThreadInputPath(command.itemId),
+        command,
+        options,
+      );
+    case "thread.input.remove":
+      return request.json(
+        "DELETE",
+        buildThreadInputPath(command.itemId),
+        command,
+        options,
+      );
+    case "thread.input.steer":
+      return request.json(
+        "POST",
+        `${buildThreadInputPath(command.itemId)}/steer`,
+        command,
+        options,
+      );
+    case "thread.input.start":
+      return request.json(
+        "POST",
+        `${buildThreadInputPath(command.itemId)}/start`,
+        command,
+        options,
+      );
+  }
+  const exhaustive: never = command;
+  return exhaustive;
+}
+
 interface JsonRequestInput {
   fetchImpl: typeof fetch;
   credentials: RequestCredentials;
   previewLimit: number;
   baseUrl: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   payload: unknown;
   requestOptions?: PlatformClientOperationOptions;
@@ -170,7 +225,7 @@ interface RequestInput {
   credentials: RequestCredentials;
   previewLimit: number;
   baseUrl: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   payload: unknown;
   requestOptions?: PlatformClientOperationOptions;
@@ -240,7 +295,7 @@ function filterProtectedHeaders(
 
 async function parseJsonResponse(
   response: Response,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   previewLimit: number,
 ): Promise<unknown> {
@@ -409,6 +464,23 @@ function buildLifecycleEventsPath(turnId: string): string {
 
 function buildThreadPath(threadId: string): string {
   return `/threads/${encodeURIComponent(ThreadIdSchema.parse(threadId))}`;
+}
+
+function buildThreadInputPath(itemId: string): string {
+  return `/thread/inputs/${encodeURIComponent(itemId)}`;
+}
+
+function buildListThreadInputsPath(
+  request: Extract<ThreadInputCommand, { operation: "thread.input.list" }>,
+): string {
+  const params = new URLSearchParams({
+    threadId: request.threadId,
+    workspaceId: request.workspaceId,
+  });
+  if (request.knownRevision !== undefined) {
+    params.set("knownRevision", String(request.knownRevision));
+  }
+  return `/thread/inputs?${params.toString()}`;
 }
 
 function buildRunPath(runId: string): string {

@@ -38,6 +38,7 @@ function createTransport(
     getArtifact: unsupported,
     listArtifacts: unsupported,
     getWorkspaceManifest: unsupported,
+    threadInputCommand: unsupported,
     replayLifecycleEvents: async (request) => {
       const after = request.afterSequence ?? 0;
       const next = allEvents.filter((e) => e.sequence > after);

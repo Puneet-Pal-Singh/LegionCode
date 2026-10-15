@@ -9,7 +9,15 @@ import {
   ThreadSchema,
   ThreadIdSchema,
   WorkspaceManifestSchema,
+  ResumeTurnReceiptSchema,
+  ThreadInputCommandSchema,
+  ThreadInputQueueSnapshotSchema,
+  ThreadInputReceiptSchema,
   type ArtifactId,
+  type ResumeTurnReceipt,
+  type ThreadInputCommand,
+  type ThreadInputQueueSnapshot,
+  type ThreadInputReceipt,
 } from "@repo/platform-protocol";
 import {
   PlatformClientContractError,
@@ -40,6 +48,16 @@ import {
   type SubmitUserInputResponseRequest,
   type CompactTurnRequest,
 } from "./lifecycle-types.js";
+import type {
+  EnqueueThreadInputCommand,
+  ListThreadInputsCommand,
+  RemoveThreadInputCommand,
+  ResumeTurnCommand,
+  StartQueuedThreadInputCommand,
+  SteerQueuedThreadInputCommand,
+  SteerTurnCommand,
+  UpdateThreadInputCommand,
+} from "./conversation-input-types.js";
 import {
   CreateRunRequestSchema,
   CreateThreadRequestSchema,
@@ -352,6 +370,119 @@ export class DefaultPlatformClient implements PlatformClient {
       WorkspaceManifestSchema,
       "getWorkspaceManifest",
     );
+  }
+
+  resumeTurn(
+    request: ResumeTurnCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ResumeTurnReceipt> {
+    return this.executeThreadInput(
+      request,
+      ResumeTurnReceiptSchema,
+      "resumeTurn",
+      options,
+    );
+  }
+
+  steerTurn(
+    request: SteerTurnCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputReceiptSchema,
+      "steerTurn",
+      options,
+    );
+  }
+
+  enqueueThreadInput(
+    request: EnqueueThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputReceiptSchema,
+      "enqueueThreadInput",
+      options,
+    );
+  }
+
+  listThreadInputs(
+    request: ListThreadInputsCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputQueueSnapshot> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputQueueSnapshotSchema,
+      "listThreadInputs",
+      options,
+    );
+  }
+
+  updateThreadInput(
+    request: UpdateThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputReceiptSchema,
+      "updateThreadInput",
+      options,
+    );
+  }
+
+  removeThreadInput(
+    request: RemoveThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputReceiptSchema,
+      "removeThreadInput",
+      options,
+    );
+  }
+
+  steerQueuedThreadInput(
+    request: SteerQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputReceiptSchema,
+      "steerQueuedThreadInput",
+      options,
+    );
+  }
+
+  startQueuedThreadInput(
+    request: StartQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt> {
+    return this.executeThreadInput(
+      request,
+      ThreadInputReceiptSchema,
+      "startQueuedThreadInput",
+      options,
+    );
+  }
+
+  private async executeThreadInput<TSchema extends z.ZodTypeAny>(
+    request: ThreadInputCommand,
+    responseSchema: TSchema,
+    operation: string,
+    options?: PlatformClientOperationOptions,
+  ): Promise<z.output<TSchema>> {
+    const normalizedRequest = parseRequest(
+      request,
+      ThreadInputCommandSchema,
+      operation,
+    );
+    const payload = await this.invoke(operation, () =>
+      this.transport.threadInputCommand(normalizedRequest, options),
+    );
+    return parseResponse(payload, responseSchema, operation);
   }
 
   private async invoke<T>(

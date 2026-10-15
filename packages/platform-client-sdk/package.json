@@ -14,6 +14,7 @@
     "./platform/lifecycle-continuation": "./src/platform/lifecycle-continuation.ts",
     "./platform/lifecycle-ordering": "./src/platform/lifecycle-ordering.ts",
     "./platform/lifecycle-types": "./src/platform/lifecycle-types.ts",
+    "./platform/conversation-input-types": "./src/platform/conversation-input-types.ts",
     "./platform/types": "./src/platform/types.ts",
     "./providers/client": "./src/providers/client.ts",
     "./providers/cloud-transport": "./src/providers/cloud-transport.ts",

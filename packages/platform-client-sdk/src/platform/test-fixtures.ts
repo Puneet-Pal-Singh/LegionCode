@@ -163,7 +163,7 @@ export function createLifecycleEvent(
     sequence,
     idempotencyKey: `turn.started.${sequence}` as EventIdempotencyKey,
     type: "turn.started",
-    payload: { turnId: TEST_IDS.turnId },
+    payload: {},
     producer: { kind: "runtime_kernel", id: "platform-client-sdk-test" },
     schemaVersion: 1,
     createdAt: TEST_TIMESTAMP,

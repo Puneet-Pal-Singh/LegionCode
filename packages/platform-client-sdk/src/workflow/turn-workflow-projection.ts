@@ -138,6 +138,9 @@ export interface WorkflowTerminal {
 
 export interface TurnWorkflowProjection {
   readonly turnId: TurnId;
+  readonly revisionOfTurnId?: TurnId | null;
+  readonly continuationOfTurnId?: TurnId | null;
+  readonly originalPromptId?: string | null;
   readonly lastSequence: number;
   readonly items: readonly WorkflowItem[];
   readonly pendingApproval: WorkflowApproval | null;
@@ -157,6 +160,9 @@ export function createTurnWorkflowProjection(
 ): TurnWorkflowProjection {
   return {
     turnId,
+    revisionOfTurnId: null,
+    continuationOfTurnId: null,
+    originalPromptId: null,
     lastSequence: 0,
     items: [],
     pendingApproval: null,
@@ -208,6 +214,9 @@ function applyKnownEvent(
     case "turn.started":
       return {
         ...projection,
+        revisionOfTurnId: event.payload.revisionOfTurnId ?? null,
+        continuationOfTurnId: event.payload.continuationOfTurnId ?? null,
+        originalPromptId: event.payload.originalPromptId ?? null,
         phase: "starting",
         startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
       };
