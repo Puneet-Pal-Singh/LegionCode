@@ -804,6 +804,7 @@ export const LifecycleEventTypeSchema = z.enum([
   "user_input.responded",
   "request.resolved",
   "workspace.snapshot_captured",
+  "workspace.snapshot_unavailable",
   "workspace.state_changed",
   "artifact.created",
   "artifact.finalized",

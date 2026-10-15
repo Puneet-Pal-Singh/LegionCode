@@ -20,6 +20,7 @@ const PatchCapturePayloadSchema = z.object({
 });
 const WorktreeSnapshotPayloadSchema = z.object({
   treeSha: z.string().regex(/^[a-f0-9]{40,64}$/iu),
+  headSha: z.string().regex(/^[a-f0-9]{40,64}$/iu),
 });
 const SnapshotDiffPayloadSchema = z.object({
   files: z.array(
@@ -40,6 +41,11 @@ const SnapshotDiffPayloadSchema = z.object({
       deletions: z.number().int().nonnegative(),
     }),
   ),
+  patch: z.string(),
+});
+const SnapshotPatchPayloadSchema = z.object({
+  baseCommitSha: z.string().regex(/^[a-f0-9]{40,64}$/u),
+  terminalTreeSha: z.string().regex(/^[a-f0-9]{40,64}$/u),
   patch: z.string(),
 });
 const CanonicalExecutionResponseSchema = z.object({
@@ -103,11 +109,13 @@ export class SecureGitArtifactClient {
     return parsed.patch.trim().length > 0 ? parsed : null;
   }
 
-  async captureWorktreeSnapshot(): Promise<string> {
+  async captureWorktreeSnapshot(): Promise<{
+    readonly treeSha: string;
+    readonly headSha: string;
+  }> {
     const payload = await this.executeGitAction("git_worktree_snapshot", {});
     assertPluginSuccess(payload, "git_worktree_snapshot");
-    return WorktreeSnapshotPayloadSchema.parse(parseJsonOutput(payload.output))
-      .treeSha;
+    return WorktreeSnapshotPayloadSchema.parse(parseJsonOutput(payload.output));
   }
 
   async diffWorktreeSnapshots(input: {
@@ -126,6 +134,45 @@ export class SecureGitArtifactClient {
       throw new Error(`Git snapshot diff contract mismatch: ${issues}`);
     }
     return parsed.data;
+  }
+
+  async exportWorktreeSnapshotPatch(input: {
+    baseCommitSha: string;
+    terminalTreeSha: string;
+  }): Promise<z.infer<typeof SnapshotPatchPayloadSchema>> {
+    const payload = await this.executeGitAction("git_snapshot_export", {
+      baseCommitSha: input.baseCommitSha,
+      terminalTree: input.terminalTreeSha,
+    });
+    assertPluginSuccess(payload, "git_snapshot_export");
+    const parsed = SnapshotPatchPayloadSchema.safeParse(
+      parseJsonOutput(payload.output),
+    );
+    if (!parsed.success) {
+      throw new Error("Git snapshot export contract mismatch");
+    }
+    if (
+      parsed.data.baseCommitSha !== input.baseCommitSha ||
+      parsed.data.terminalTreeSha !== input.terminalTreeSha
+    ) {
+      throw new Error("Git snapshot export returned mismatched provenance");
+    }
+    return parsed.data;
+  }
+
+  async capturePortableWorktreeSnapshot(input: {
+    baseCommitSha: string;
+  }): Promise<z.infer<typeof SnapshotPatchPayloadSchema>> {
+    const { treeSha: terminalTreeSha } = await this.captureWorktreeSnapshot();
+    return await this.exportWorktreeSnapshotPatch({
+      baseCommitSha: input.baseCommitSha,
+      terminalTreeSha,
+    });
+  }
+
+  async restoreWorktreeSnapshot(patch: string): Promise<string> {
+    if (patch.length > 0) await this.applyPatch(patch);
+    return (await this.captureWorktreeSnapshot()).treeSha;
   }
 
   async getStatus(): Promise<CapturedGitStatus | null> {

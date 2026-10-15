@@ -404,6 +404,8 @@ export {
 export {
   ContentDigestSchema,
   GitObjectIdSchema,
+  ResumeWorkspaceSnapshotRefSchema,
+  ResumeWorkspaceUnavailableReasonSchema,
   RepositoryIdentitySchema,
   RepositoryProviderSchema,
   TaskCheckoutSchema,
@@ -412,6 +414,8 @@ export {
   WorkspaceSnapshotSchema,
   type ContentDigest,
   type GitObjectId,
+  type ResumeWorkspaceSnapshotRef,
+  type ResumeWorkspaceUnavailableReason,
   type RepositoryIdentity,
   type RepositoryProvider,
   type TaskCheckout,

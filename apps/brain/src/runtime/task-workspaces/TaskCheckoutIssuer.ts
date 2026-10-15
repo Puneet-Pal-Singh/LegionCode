@@ -6,6 +6,7 @@ import {
   TaskCheckoutSchema,
   RunAttemptIdSchema,
   createTaskCheckoutId,
+  userIdFromExternalId,
   workspaceIdFromExternalId,
   type TaskCheckout,
   type WorkspaceSnapshot,
@@ -22,6 +23,7 @@ import {
   type SecureExecutionSessionHandle,
   type SecureExecutionSessionPort,
 } from "../../services/secure-execution/SecureExecutionSessionClient";
+import { SecureGitArtifactClient } from "../../services/edit-artifacts/SecureGitArtifactClient";
 import { DomainError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
 import { withBrainPersistenceRepository } from "../../services/persistence/BrainPersistenceRepositoryFactory";
@@ -33,12 +35,19 @@ import {
   TaskCheckoutBoundExecutionSession,
   TaskCheckoutLeaseCoordinator,
 } from "./TaskCheckoutLeaseCoordinator";
+import {
+  ResumeWorkspaceSnapshotRefSchema,
+  ResumeWorkspaceSnapshotStore,
+  type ResumeWorkspaceSnapshotRef,
+} from "./ResumeWorkspaceSnapshotStore";
 
 export interface IssuedTaskCheckout {
   readonly checkout: TaskCheckout;
   readonly authorizedCommitId: string;
   readonly workspaceScope: SecureExecutionWorkspaceScope;
   readonly executionSession: SecureExecutionSessionPort;
+  /** Called after the canonical pinned repository bootstrap and before model work. */
+  readonly restoreWorkspaceProgress?: () => Promise<void>;
 }
 
 export type SecureExecutionSessionFactory = (input: {
@@ -65,7 +74,10 @@ export class TaskCheckoutIssuer {
       ),
   ) {}
 
-  async issue(payload: ExecuteRunPayload): Promise<IssuedTaskCheckout> {
+  async issue(
+    payload: ExecuteRunPayload,
+    options?: { readonly resumeSnapshot?: ResumeWorkspaceSnapshotRef },
+  ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity;
     const repository = payload.input.repositoryContext;
     if (!identity || !payload.userId || !payload.workspaceId || !repository) {
@@ -87,25 +99,50 @@ export class TaskCheckoutIssuer {
       );
     }
 
+    const resumeSnapshot = options?.resumeSnapshot
+      ? ResumeWorkspaceSnapshotRefSchema.parse(options.resumeSnapshot)
+      : undefined;
+    if (resumeSnapshot) this.assertResumeSnapshotScope(payload, resumeSnapshot);
+
     const existing = await this.findExistingCheckout(
       identity.runAttemptId,
       payload.correlationId,
     );
     if (existing) {
-      return await this.resumeExisting(payload, existing.checkout, existing.snapshot);
+      if (
+        resumeSnapshot &&
+        (existing.checkout.snapshotId !== resumeSnapshot.baseSnapshotId ||
+          existing.snapshot.authorizedCommitId !== resumeSnapshot.baseCommitSha)
+      ) {
+        throw new DomainError(
+          "RESUME_WORKSPACE_BASE_MISMATCH",
+          "The persisted checkout does not match the saved workspace progress base.",
+          409,
+          false,
+          payload.correlationId,
+        );
+      }
+      return await this.resumeExisting(
+        payload,
+        existing.checkout,
+        existing.snapshot,
+        resumeSnapshot,
+      );
     }
 
-    const snapshot = await this.capture.capture({
-      userId: payload.userId,
-      workspaceId: payload.workspaceId,
-      repository: {
-        owner: repository.owner,
-        repo: repository.repo,
-        branch: repository.branch,
-        baseUrl: repository.baseUrl,
-      },
-      correlationId: payload.correlationId,
-    });
+    const snapshot = resumeSnapshot
+      ? await this.findResumeBaseSnapshot(payload, resumeSnapshot)
+      : await this.capture.capture({
+          userId: payload.userId,
+          workspaceId: payload.workspaceId,
+          repository: {
+            owner: repository.owner,
+            repo: repository.repo,
+            branch: repository.branch,
+            baseUrl: repository.baseUrl,
+          },
+          correlationId: payload.correlationId,
+        });
     const checkoutId = createTaskCheckoutId();
     const filesystemRoot = canonicalTaskCheckoutRoot(checkoutId);
     const workspaceScope = toSecureExecutionWorkspaceScope({
@@ -153,7 +190,7 @@ export class TaskCheckoutIssuer {
         async (taskWorkspaces) =>
           await taskWorkspaces.issueSnapshotCheckout(snapshot, checkout),
       );
-      return {
+      const issuedCheckout: IssuedTaskCheckout = {
         checkout: issued.checkout,
         authorizedCommitId: snapshot.authorizedCommitId,
         workspaceScope,
@@ -165,7 +202,22 @@ export class TaskCheckoutIssuer {
             this.repositoryOverride,
           ),
         ),
-      };
+      } satisfies IssuedTaskCheckout;
+      if (resumeSnapshot) {
+        return {
+          ...issuedCheckout,
+          restoreWorkspaceProgress: () =>
+            this.restoreResumeSnapshotSafely(
+              payload,
+              resumeSnapshot,
+              snapshot,
+              issued.checkout,
+              workspaceScope,
+              issuedCheckout.executionSession,
+            ),
+        };
+      }
+      return issuedCheckout;
     } catch (error) {
       try {
         await executionSession.release();
@@ -180,6 +232,187 @@ export class TaskCheckoutIssuer {
             checkoutId,
             runAttemptId: identity.runAttemptId,
           },
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async findResumeBaseSnapshot(
+    payload: ExecuteRunPayload,
+    ref: ResumeWorkspaceSnapshotRef,
+  ): Promise<WorkspaceSnapshot> {
+    this.assertResumeSnapshotScope(payload, ref);
+    return await withBrainPersistenceRepository(
+      this.env,
+      this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+      (client) => new PostgresTaskWorkspaceRepository(client),
+      async (taskWorkspaces) => {
+        const snapshot = await taskWorkspaces.getBySnapshotId(
+          ref.baseSnapshotId,
+        );
+        if (
+          !snapshot ||
+          snapshot.workspaceId !== ref.workspaceId ||
+          snapshot.authorizedCommitId !== ref.baseCommitSha ||
+          snapshot.provenance.kind !== "authorized_repository" ||
+          snapshot.provenance.authorizedByUserId !==
+            userIdFromExternalId(payload.userId!)
+        ) {
+          throw new DomainError(
+            "RESUME_WORKSPACE_BASE_UNAVAILABLE",
+            "The authorized base for this saved workspace progress is unavailable.",
+            409,
+            false,
+            payload.correlationId,
+          );
+        }
+        const selection = payload.input.repositoryContext;
+        if (
+          !selection ||
+          !selection.owner ||
+          !selection.repo ||
+          snapshot.repository.owner?.toLowerCase() !==
+            selection.owner.toLowerCase() ||
+          snapshot.repository.name.toLowerCase() !==
+            selection.repo.toLowerCase()
+        ) {
+          throw new DomainError(
+            "RESUME_WORKSPACE_REPOSITORY_MISMATCH",
+            "The saved workspace progress does not match the selected repository.",
+            409,
+            false,
+            payload.correlationId,
+          );
+        }
+        return snapshot;
+      },
+    );
+  }
+
+  private assertResumeSnapshotScope(
+    payload: ExecuteRunPayload,
+    ref: ResumeWorkspaceSnapshotRef,
+  ): void {
+    const identity = payload.identity!;
+    if (
+      ref.userId !== userIdFromExternalId(payload.userId!) ||
+      ref.workspaceId !== workspaceIdFromExternalId(identity.workspaceId) ||
+      ref.threadId !== identity.threadId
+    ) {
+      throw new DomainError(
+        "RESUME_WORKSPACE_SNAPSHOT_SCOPE_MISMATCH",
+        "The saved workspace progress belongs to another user, thread, or workspace.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+  }
+
+  private async restoreResumeSnapshot(
+    payload: ExecuteRunPayload,
+    ref: ResumeWorkspaceSnapshotRef,
+    baseSnapshot: WorkspaceSnapshot,
+    checkout: TaskCheckout,
+    workspaceScope: SecureExecutionWorkspaceScope,
+    executionSession: SecureExecutionSessionPort,
+  ): Promise<void> {
+    if (!this.env.EDIT_ARTIFACTS) {
+      throw new DomainError(
+        "RESUME_WORKSPACE_ARTIFACT_UNAVAILABLE",
+        "Saved workspace progress cannot be restored because its artifact store is unavailable.",
+        503,
+        false,
+        payload.correlationId,
+      );
+    }
+    try {
+      const patch = await new ResumeWorkspaceSnapshotStore(
+        this.env.EDIT_ARTIFACTS,
+      ).read(ref, {
+        userId: userIdFromExternalId(payload.userId!),
+        workspaceId: workspaceIdFromExternalId(payload.identity!.workspaceId),
+        threadId: payload.identity!.threadId,
+      });
+      if (
+        ref.workspaceId !== checkout.workspaceId ||
+        ref.threadId !== checkout.threadId
+      ) {
+        throw new Error("Workspace snapshot scope does not match the checkout");
+      }
+      const git = new SecureGitArtifactClient(
+        this.env,
+        payload.sessionId,
+        payload.runId,
+        workspaceScope,
+        executionSession,
+      );
+      const currentTree = await git.captureWorktreeSnapshot();
+      const restoredTree =
+        currentTree.treeSha === ref.terminalTreeSha
+          ? currentTree.treeSha
+          : currentTree.treeSha === baseSnapshot.authorizedTreeId
+            ? await git.restoreWorktreeSnapshot(patch)
+            : "";
+      if (
+        restoredTree !== ref.terminalTreeSha ||
+        checkout.startTreeId !== baseSnapshot.authorizedTreeId
+      ) {
+        throw new Error("Restored workspace tree did not match its provenance");
+      }
+    } catch {
+      throw new DomainError(
+        "RESUME_WORKSPACE_RESTORE_FAILED",
+        "Saved workspace progress could not be verified in the fresh checkout. No model request was started.",
+        503,
+        false,
+        payload.correlationId,
+        { runAttemptId: checkout.runAttemptId },
+      );
+    }
+  }
+
+  private async restoreResumeSnapshotSafely(
+    payload: ExecuteRunPayload,
+    ref: ResumeWorkspaceSnapshotRef,
+    baseSnapshot: WorkspaceSnapshot,
+    checkout: TaskCheckout,
+    workspaceScope: SecureExecutionWorkspaceScope,
+    executionSession: SecureExecutionSessionPort,
+  ): Promise<void> {
+    try {
+      await this.restoreResumeSnapshot(
+        payload,
+        ref,
+        baseSnapshot,
+        checkout,
+        workspaceScope,
+        executionSession,
+      );
+    } catch (error) {
+      await withBrainPersistenceRepository(
+        this.env,
+        this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+        (client) => new PostgresTaskWorkspaceRepository(client),
+        async (taskWorkspaces) =>
+          await taskWorkspaces.settle({
+            checkoutId: checkout.checkoutId,
+            status: "failed",
+            settledAt: new Date().toISOString(),
+            failureCode: "RESUME_WORKSPACE_RESTORE_FAILED",
+          }),
+      );
+      try {
+        await executionSession.release();
+      } catch {
+        throw new DomainError(
+          "TASK_CHECKOUT_COMPENSATION_FAILED",
+          "Workspace restoration failed and the secure checkout could not be safely released.",
+          503,
+          true,
+          payload.correlationId,
+          { checkoutId: checkout.checkoutId },
         );
       }
       throw error;
@@ -226,6 +459,7 @@ export class TaskCheckoutIssuer {
     payload: ExecuteRunPayload,
     checkout: TaskCheckout,
     snapshot: WorkspaceSnapshot,
+    resumeSnapshot?: ResumeWorkspaceSnapshotRef,
   ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity!;
     if (
@@ -296,7 +530,7 @@ export class TaskCheckoutIssuer {
             this.env,
             this.repositoryOverride,
           ).adopt(checkout, handle);
-    return {
+    const issued: IssuedTaskCheckout = {
       checkout: resumedCheckout,
       authorizedCommitId: snapshot.authorizedCommitId,
       workspaceScope,
@@ -309,5 +543,20 @@ export class TaskCheckoutIssuer {
         ),
       ),
     };
+    if (resumeSnapshot) {
+      return {
+        ...issued,
+        restoreWorkspaceProgress: () =>
+          this.restoreResumeSnapshotSafely(
+            payload,
+            resumeSnapshot,
+            snapshot,
+            resumedCheckout,
+            workspaceScope,
+            issued.executionSession,
+          ),
+      };
+    }
+    return issued;
   }
 }

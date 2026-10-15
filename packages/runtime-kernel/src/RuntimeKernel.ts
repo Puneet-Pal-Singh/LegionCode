@@ -7,6 +7,7 @@ import {
   type LifecycleEvent,
   type Run,
   type Turn,
+  type ResumeWorkspaceUnavailableReason,
 } from "@repo/platform-protocol";
 import type { WorkspaceManifestRepository } from "@repo/workspace-core";
 import type { WorkspaceManifest } from "@repo/workspace-core";
@@ -128,7 +129,7 @@ export class RuntimeKernel {
     const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
     if (pendingReason) {
       this.pendingInterrupts.delete(prepared.turn.id);
-      await this.interruptPreparedTurn(prepared, pendingReason);
+      await this.interruptPreparedTurn(prepared, pendingReason, true);
       this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
       return {
@@ -253,7 +254,24 @@ export class RuntimeKernel {
     } catch (error) {
       if (!lifecycle.isTerminal) {
         if (!isArtifactSettlementError(error)) {
-          await this.settleArtifacts(turn.id, lifecycle, artifacts);
+          const interrupted =
+            isTurnCancelled(error) || prepared.executionSignal.aborted;
+          const resumeQuiescent =
+            interrupted &&
+            (await this.dependencies.worker.awaitQuiescence?.({
+              turnId: turn.id,
+              timeoutMs: 500,
+            })) === true;
+          await this.settleArtifacts(
+            turn.id,
+            lifecycle,
+            artifacts,
+            true,
+            resumeQuiescent,
+            interrupted && !resumeQuiescent
+              ? "worker_not_quiescent"
+              : undefined,
+          );
         }
         if (isTurnCancelled(error) || prepared.executionSignal.aborted) {
           await lifecycle.interrupt(
@@ -330,7 +348,13 @@ export class RuntimeKernel {
         );
       }
       this.pendingInterrupts.delete(turnId);
-      await this.interruptPreparedTurn(prepared, reason);
+      const quiescent =
+        executionSettled &&
+        (await this.dependencies.worker.awaitQuiescence?.({
+          turnId,
+          timeoutMs: 500,
+        })) === true;
+      await this.interruptPreparedTurn(prepared, reason, quiescent);
     }
   }
 
@@ -668,12 +692,16 @@ export class RuntimeKernel {
   private async interruptPreparedTurn(
     prepared: PreparedTurn,
     reason: string,
+    resumeWorkspaceQuiescent: boolean,
   ): Promise<void> {
     try {
       await this.settleArtifacts(
         prepared.turn.id,
         prepared.lifecycle,
         prepared.artifacts,
+        true,
+        resumeWorkspaceQuiescent,
+        resumeWorkspaceQuiescent ? undefined : "worker_not_quiescent",
       );
       await prepared.lifecycle.interrupt(reason);
     } finally {
@@ -750,10 +778,19 @@ export class RuntimeKernel {
     turnId: Turn["id"],
     lifecycle: RuntimeLifecycleCoordinator,
     coordinator: TurnArtifactSettlementCoordinator,
+    interruptedSettlement = false,
+    preserveWorkspaceProgress = false,
+    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     const existing = this.artifactSettlementEmissions.get(turnId);
     if (existing) return await existing;
-    const settlement = this.settleArtifactsNow(lifecycle, coordinator);
+    const settlement = this.settleArtifactsNow(
+      lifecycle,
+      coordinator,
+      interruptedSettlement,
+      preserveWorkspaceProgress,
+      resumeUnavailableReason,
+    );
     this.artifactSettlementEmissions.set(turnId, settlement);
     return await settlement;
   }
@@ -761,15 +798,37 @@ export class RuntimeKernel {
   private async settleArtifactsNow(
     lifecycle: RuntimeLifecycleCoordinator,
     coordinator: TurnArtifactSettlementCoordinator,
+    interruptedSettlement: boolean,
+    preserveWorkspaceProgress: boolean,
+    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     try {
-      const settlement = await coordinator.settle();
+      const settlement = await coordinator.settle({
+        interrupted: interruptedSettlement,
+        preserveWorkspaceProgress,
+        resumeUnavailableReason,
+      });
+      if (!settlement.terminalSnapshot) {
+        await lifecycle.markWorkspaceSnapshotUnavailable(
+          settlement.resumeUnavailableReason ?? "snapshot_unavailable",
+        );
+        return settlement;
+      }
+      if (settlement.resumeWorkspaceArtifact) {
+        await lifecycle.createTurnArtifact(settlement.resumeWorkspaceArtifact);
+      }
       await lifecycle.captureWorkspaceSnapshot({
         snapshot: settlement.terminalSnapshot,
-        artifact: settlement.terminalSnapshotArtifact,
+        ...(settlement.terminalSnapshotArtifact !== undefined
+          ? { artifact: settlement.terminalSnapshotArtifact }
+          : {}),
       });
-      await lifecycle.updateTurnDiff(settlement.turnDiff);
-      await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
+      if (settlement.turnDiff) {
+        await lifecycle.updateTurnDiff(settlement.turnDiff);
+      }
+      if (settlement.turnDiffArtifact) {
+        await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
+      }
       return settlement;
     } catch (error) {
       throw new RuntimeKernelError(

@@ -192,6 +192,35 @@ describe("DefaultGitService", () => {
       ["rev-parse", "HEAD"],
       ["branch", "--show-current"],
     ]);
+
+    const portablePatchExecutor = new FakeGitExecutor({
+      exitCode: 0,
+      stdout: "diff --git a/image.bin b/image.bin\nGIT binary patch\n",
+      stderr: "",
+    });
+    const portablePatchService = new DefaultGitService(portablePatchExecutor);
+    const baseCommitSha = "a".repeat(40);
+    const terminalTreeSha = "b".repeat(40);
+    await expect(
+      portablePatchService.exportSnapshotPatch({
+        workspace: WORKSPACE,
+        baseCommitSha,
+        terminalTreeSha,
+      }),
+    ).resolves.toEqual({
+      baseCommitSha,
+      terminalTreeSha,
+      patch: "diff --git a/image.bin b/image.bin\nGIT binary patch\n",
+    });
+    expect(portablePatchExecutor.calls[0]?.args).toEqual([
+      "diff",
+      "--no-ext-diff",
+      "--binary",
+      "--full-index",
+      "--no-renames",
+      baseCommitSha,
+      terminalTreeSha,
+    ]);
   });
 
   it("returns a patch for an untracked file through git-service", async () => {

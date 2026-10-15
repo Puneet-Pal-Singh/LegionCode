@@ -5,6 +5,7 @@ import {
   type ItemId,
   type JsonRecord,
   type ProtocolError,
+  type ResumeWorkspaceUnavailableReason,
   type RunAttemptId,
   type ThreadId,
   type ToolCallId,
@@ -635,6 +636,17 @@ export class RuntimeLifecycleCoordinator {
       this.emit({
         type: "workspace.snapshot_captured",
         payload: { snapshot: JsonRecordSchema.parse(snapshot) },
+      }),
+    );
+  }
+
+  async markWorkspaceSnapshotUnavailable(
+    reason: ResumeWorkspaceUnavailableReason,
+  ): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "workspace.snapshot_unavailable",
+        payload: { reason },
       }),
     );
   }

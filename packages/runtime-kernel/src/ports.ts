@@ -9,6 +9,7 @@ import type {
   Turn,
   TurnDiffPayload,
   TurnWorkspaceSnapshot,
+  ResumeWorkspaceSnapshotRef,
 } from "@repo/platform-protocol";
 import type { LifecycleEventStore } from "@repo/event-store";
 import type { WorkspaceManifest } from "@repo/workspace-core";
@@ -140,6 +141,13 @@ export interface RuntimeGitSnapshotPort {
     };
     readonly snapshotKey: string;
   }): Promise<RuntimeGitWorkspaceSnapshot>;
+  captureResumeSnapshot?(input: {
+    readonly workspace: {
+      readonly runId: Run["id"];
+      readonly filesystemRoot: string;
+    };
+    readonly terminal: RuntimeGitWorkspaceSnapshot;
+  }): Promise<ResumeWorkspaceSnapshotRef>;
   getSnapshotDiff(input: {
     readonly workspace: {
       readonly runId: Run["id"];

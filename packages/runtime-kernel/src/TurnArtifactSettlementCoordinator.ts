@@ -4,6 +4,7 @@ import type {
   Turn,
   TurnDiffPayload,
   TurnWorkspaceSnapshot,
+  ResumeWorkspaceUnavailableReason,
 } from "@repo/platform-protocol";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import { RuntimeKernelError } from "./errors.js";
@@ -25,10 +26,12 @@ interface TurnArtifactSettlementOptions {
 }
 
 export interface TurnArtifactSettlementResult {
-  readonly terminalSnapshot: TurnWorkspaceSnapshot;
-  readonly terminalSnapshotArtifact: unknown;
-  readonly turnDiff: TurnDiffPayload;
-  readonly turnDiffArtifact: unknown;
+  readonly terminalSnapshot?: TurnWorkspaceSnapshot;
+  readonly terminalSnapshotArtifact?: unknown;
+  readonly resumeWorkspaceArtifact?: unknown;
+  readonly turnDiff?: TurnDiffPayload;
+  readonly turnDiffArtifact?: unknown;
+  readonly resumeUnavailableReason?: ResumeWorkspaceUnavailableReason;
 }
 
 export class TurnArtifactSettlementCoordinator {
@@ -59,7 +62,13 @@ export class TurnArtifactSettlementCoordinator {
     return { snapshot, artifact };
   }
 
-  async settle(): Promise<TurnArtifactSettlementResult> {
+  async settle(
+    input: {
+      interrupted?: boolean;
+      preserveWorkspaceProgress?: boolean;
+      resumeUnavailableReason?: ResumeWorkspaceUnavailableReason;
+    } = {},
+  ): Promise<TurnArtifactSettlementResult> {
     if (!this.startSnapshot) {
       throw new RuntimeKernelError(
         "turn_artifact_settlement_failed",
@@ -67,7 +76,7 @@ export class TurnArtifactSettlementCoordinator {
       );
     }
     if (!this.settlement) {
-      this.settlement = this.settleNow().catch((error: unknown) => {
+      this.settlement = this.settleNow(input).catch((error: unknown) => {
         this.settlement = null;
         throw error;
       });
@@ -75,19 +84,98 @@ export class TurnArtifactSettlementCoordinator {
     return await this.settlement;
   }
 
-  private async settleNow(): Promise<TurnArtifactSettlementResult> {
+  private async settleNow(input: {
+    interrupted?: boolean;
+    preserveWorkspaceProgress?: boolean;
+    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason;
+  }): Promise<TurnArtifactSettlementResult> {
     const startSnapshot = this.requireStartSnapshot();
-    const terminalSnapshot = await this.capture("terminal");
-    const diff = await this.options.git.getSnapshotDiff({
+    if (input.resumeUnavailableReason === "worker_not_quiescent") {
+      return { resumeUnavailableReason: input.resumeUnavailableReason };
+    }
+    let terminalSnapshot: TurnWorkspaceSnapshot;
+    try {
+      terminalSnapshot = await this.capture(
+        "terminal",
+        input.preserveWorkspaceProgress === true,
+        input.resumeUnavailableReason,
+      );
+    } catch {
+      if (!input.interrupted) throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Terminal workspace snapshot is unavailable.",
+      );
+      return { resumeUnavailableReason: "snapshot_unavailable" };
+    }
+    let diff: Awaited<ReturnType<RuntimeGitSnapshotPort["getSnapshotDiff"]>>;
+    try {
+      diff = await this.options.git.getSnapshotDiff({
       workspace: this.gitWorkspace(),
       start: toGitSnapshot(startSnapshot, this.options),
       terminal: toGitSnapshot(terminalSnapshot, this.options),
-    });
-    const terminalSnapshotArtifact = await this.options.artifacts.putSnapshot({
-      snapshot: terminalSnapshot,
-      ownership: this.ownership(),
-      access: this.access(),
-    });
+      });
+    } catch {
+      if (!input.interrupted) throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Terminal workspace diff is unavailable.",
+      );
+      return {
+        terminalSnapshot,
+        resumeUnavailableReason: "snapshot_unavailable",
+      };
+    }
+    let terminalSnapshotArtifact: unknown;
+    try {
+      terminalSnapshotArtifact = await this.options.artifacts.putSnapshot({
+        snapshot: terminalSnapshot,
+        ownership: this.ownership(),
+        access: this.access(),
+      });
+    } catch {
+      if (!input.interrupted) throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Terminal workspace snapshot artifact could not be persisted.",
+      );
+      return {
+        terminalSnapshot,
+        resumeUnavailableReason: "snapshot_unavailable",
+      };
+    }
+    const resumeWorkspaceArtifact = terminalSnapshot.resumeSnapshotRef
+      ? {
+          artifactId: terminalSnapshot.resumeSnapshotRef.artifactId,
+          kind: "workspace_snapshot",
+          threadId: this.options.run.threadId,
+          runId: this.options.run.id,
+          workspaceId: this.options.run.workspaceId,
+          itemId: null,
+          label: "Interrupted workspace progress",
+          payloadRef: {
+            backend: "r2",
+            objectKey: terminalSnapshot.resumeSnapshotRef.payloadObjectKey,
+            uri: null,
+            contentType: "application/vnd.git.patch",
+            sizeBytes: terminalSnapshot.resumeSnapshotRef.byteLength,
+            sha256: terminalSnapshot.resumeSnapshotRef.patchSha256,
+          },
+          changedFiles: [],
+          metadata: {
+            role: "resume_workspace_progress",
+            sourceUserId: terminalSnapshot.resumeSnapshotRef.userId,
+            sourceRunId: terminalSnapshot.resumeSnapshotRef.sourceRunId,
+            sourceTurnId: terminalSnapshot.resumeSnapshotRef.sourceTurnId,
+            sourceRunAttemptId:
+              terminalSnapshot.resumeSnapshotRef.sourceRunAttemptId,
+            baseSnapshotId: terminalSnapshot.resumeSnapshotRef.baseSnapshotId,
+            baseCommitSha: terminalSnapshot.resumeSnapshotRef.baseCommitSha,
+            terminalTreeSha:
+              terminalSnapshot.resumeSnapshotRef.terminalTreeSha,
+            patchSha256: terminalSnapshot.resumeSnapshotRef.patchSha256,
+            byteLength: terminalSnapshot.resumeSnapshotRef.byteLength,
+          },
+          createdAt: terminalSnapshot.capturedAt,
+        }
+      : undefined;
     const turnDiff = {
       turnId: this.options.turn.id,
       startSnapshot,
@@ -95,26 +183,74 @@ export class TurnArtifactSettlementCoordinator {
       files: diff.files.map(toArtifactChangedFile),
       patch: diff.patch,
     } satisfies TurnDiffPayload;
-    const turnDiffArtifact = await this.options.artifacts.putTurnDiff({
-      diff: turnDiff,
-      ownership: this.ownership(),
-      access: this.access(),
-    });
+    let turnDiffArtifact: unknown;
+    try {
+      turnDiffArtifact = await this.options.artifacts.putTurnDiff({
+        diff: turnDiff,
+        ownership: this.ownership(),
+        access: this.access(),
+      });
+    } catch {
+      if (!input.interrupted) throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Terminal workspace diff artifact could not be persisted.",
+      );
+      return {
+        terminalSnapshot,
+        terminalSnapshotArtifact,
+        resumeUnavailableReason: "snapshot_unavailable",
+      };
+    }
     return {
       terminalSnapshot,
       terminalSnapshotArtifact,
+      ...(resumeWorkspaceArtifact ? { resumeWorkspaceArtifact } : {}),
       turnDiff,
       turnDiffArtifact,
+      ...(terminalSnapshot.resumeUnavailableReason
+        ? { resumeUnavailableReason: terminalSnapshot.resumeUnavailableReason }
+        : {}),
     };
   }
 
   private async capture(
     phase: TurnWorkspaceSnapshot["phase"],
+    preserveWorkspaceProgress = false,
+    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnWorkspaceSnapshot> {
-    const snapshot = await this.options.git.captureSnapshot({
-      workspace: this.gitWorkspace(),
-      snapshotKey: this.options.turn.id,
-    });
+    let snapshot: RuntimeGitWorkspaceSnapshot;
+    try {
+      snapshot = await this.options.git.captureSnapshot({
+        workspace: this.gitWorkspace(),
+        snapshotKey: this.options.turn.id,
+      });
+    } catch {
+      if (phase === "terminal") {
+        throw new RuntimeKernelError(
+          "turn_artifact_settlement_failed",
+          "Terminal workspace snapshot is unavailable.",
+        );
+      }
+      throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Start workspace snapshot is unavailable.",
+      );
+    }
+    let resumeSnapshotRef:
+      | Awaited<ReturnType<typeof this.captureResumeSnapshot>>
+      | undefined;
+    let unavailableReason = resumeUnavailableReason;
+    if (phase === "terminal" && preserveWorkspaceProgress && !unavailableReason) {
+      try {
+        resumeSnapshotRef = await this.captureResumeSnapshot(snapshot);
+      } catch (error) {
+        unavailableReason = /size limit|too large/iu.test(
+          error instanceof Error ? error.message : "",
+        )
+          ? "snapshot_too_large"
+          : "snapshot_unavailable";
+      }
+    }
     return {
       turnId: this.options.turn.id,
       snapshotKey: this.options.turn.id,
@@ -122,7 +258,22 @@ export class TurnArtifactSettlementCoordinator {
       headSha: snapshot.headSha,
       phase,
       capturedAt: this.options.clock.now(),
+      ...(resumeSnapshotRef ? { resumeSnapshotRef } : {}),
+      ...(phase === "terminal" && unavailableReason
+        ? { resumeUnavailableReason: unavailableReason }
+        : {}),
     };
+  }
+
+  private async captureResumeSnapshot(terminal: RuntimeGitWorkspaceSnapshot) {
+    const capture = this.options.git.captureResumeSnapshot;
+    if (!capture) {
+      throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Interrupted turn workspace progress cannot be stored for resume.",
+      );
+    }
+    return await capture({ workspace: this.gitWorkspace(), terminal });
   }
 
   private gitWorkspace() {

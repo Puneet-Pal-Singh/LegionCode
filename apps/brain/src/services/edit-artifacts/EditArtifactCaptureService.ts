@@ -130,7 +130,9 @@ export class EditArtifactCaptureService {
       input.runId,
       input.workspaceScope,
       input.executionSession,
-    ).captureWorktreeSnapshot();
+    )
+      .captureWorktreeSnapshot()
+      .then(({ treeSha }) => treeSha);
   }
 
   private async persistCapturedArtifact(
