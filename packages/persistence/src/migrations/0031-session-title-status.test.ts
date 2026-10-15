@@ -6,8 +6,9 @@ import { readFileSync } from "node:fs";
 
 describe("session title status migration", () => {
   it("registers the same additive migration as the SQL deployment path", () => {
-    expect(persistenceMigrations.at(-2)).toBe(sessionTitleStatusMigration);
-    expect(persistenceMigrations.at(-1)).toBe(chatDurabilityMigration);
+    expect(persistenceMigrations.indexOf(sessionTitleStatusMigration)).toBeLessThan(
+      persistenceMigrations.indexOf(chatDurabilityMigration),
+    );
     const sql = readFileSync(
       new URL("../../drizzle/0031_session_title_status.sql", import.meta.url),
       "utf8",

@@ -9,6 +9,7 @@ import { EventSequenceSchema } from "./common.js";
 import {
   ModelIdSchema,
   ProviderIdSchema,
+  RunIdSchema,
   RunAttemptIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
@@ -18,7 +19,7 @@ import { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
 
 const ClientCommandIdSchema = z.string().trim().min(1).max(200);
 const ClientInputIdSchema = z.string().trim().min(1).max(200);
-const ThreadInputIdSchema = z.string().trim().min(1).max(200);
+const ThreadInputIdSchema = z.string().uuid();
 const QueueVersionSchema = z.number().int().positive().safe();
 const QueueOrderSchema = z.number().int().positive().safe();
 
@@ -66,6 +67,18 @@ export const ThreadInputConfigurationSchema = z
       });
     }
   });
+export type ThreadInputConfiguration = z.infer<
+  typeof ThreadInputConfigurationSchema
+>;
+
+export const StartedThreadInputReceiptSchema = z.object({
+  status: z.literal("started"),
+  itemId: ThreadInputIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+  runId: RunIdSchema,
+}).strict();
+export type StartedThreadInputReceipt = z.infer<typeof StartedThreadInputReceiptSchema>;
 
 const ThreadWorkspaceScopeSchema = z
   .object({
@@ -178,11 +191,14 @@ export const ThreadInputReceiptSchema = z.discriminatedUnion("status", [
     contextRevision: z.number().int().nonnegative().safe(),
   }).strict(),
   z.object({
-    status: z.literal("started"),
-    itemId: ThreadInputIdSchema,
-    turnId: TurnIdSchema,
-    runAttemptId: RunAttemptIdSchema,
+    status: z.literal("unconfirmed"),
+    inputId: ThreadInputIdSchema,
+    targetTurnId: TurnIdSchema,
+    targetRunAttemptId: RunAttemptIdSchema,
+    acceptedSequence: EventSequenceSchema,
+    terminalSequence: EventSequenceSchema,
   }).strict(),
+  StartedThreadInputReceiptSchema,
   z.object({
     status: z.literal("conflict"),
     code: z.enum([
@@ -191,6 +207,8 @@ export const ThreadInputReceiptSchema = z.discriminatedUnion("status", [
       "turn_not_interrupted",
       "queue_item_changed",
       "queue_item_consumed",
+      "queue_revision_conflict",
+      "queue_paused",
       "thread_not_idle",
       "history_incomplete",
       "workspace_snapshot_unavailable",
@@ -208,6 +226,7 @@ export const ResumeTurnReceiptSchema = z.discriminatedUnion("status", [
     originalPromptId: z.string().trim().min(1).max(200),
     turnId: TurnIdSchema,
     runAttemptId: RunAttemptIdSchema,
+    runId: RunIdSchema,
   }).strict(),
   z.object({
     status: z.literal("conflict"),
@@ -229,6 +248,9 @@ export const ThreadInputQueueItemSchema = z
     order: QueueOrderSchema,
     version: QueueVersionSchema,
     state: z.enum(["pending", "consuming", "consumed", "cancelled"]),
+    delivery: z.enum(["queue", "steer"]),
+    targetTurnId: TurnIdSchema.nullable(),
+    targetRunAttemptId: RunAttemptIdSchema.nullable(),
     text: z.string().max(100_000),
     mediaRefs: z.array(ChatImageAttachmentRefSchema).max(8),
     configuration: ThreadInputConfigurationSchema,
@@ -244,6 +266,11 @@ export const ThreadInputQueueSnapshotSchema = z
     revision: z.number().int().nonnegative().safe(),
     paused: z.boolean(),
     pauseReason: z.string().max(2_000).nullable(),
+    activeRunId: RunIdSchema.nullable().default(null),
+    latestStarted: z.object({
+      order: QueueOrderSchema,
+      receipt: StartedThreadInputReceiptSchema,
+    }).strict().nullable().default(null),
     items: z.array(ThreadInputQueueItemSchema).max(500),
   })
   .strict();

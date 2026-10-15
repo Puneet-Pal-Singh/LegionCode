@@ -284,6 +284,12 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
       if (session.active_run_id) {
         return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item: null, code: "turn_not_idle" };
       }
+      if (input.explicitStart !== true) {
+        const completed = await tx.query<AdmissionRow>(READ_CURRENT_COMPLETED_TURN_SQL, [input.sessionId]);
+        if (!completed.rows[0]) {
+          return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item: null, code: "turn_not_idle" };
+        }
+      }
       if (state.paused === true && input.explicitStart !== true) {
         const currentItemResult = await tx.query<AdmissionRow>(READ_QUEUED_START_SQL, [
           input.sessionId, input.userId, input.threadId, input.workspaceId, input.itemId,
@@ -300,7 +306,19 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         const item = queued ? mapQueuedStart(queued) : null;
         return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item, code };
       }
-      const claimed = await tx.query<AdmissionRow>(CLAIM_QUEUED_START_SQL, [input.sessionId, input.itemId, input.expectedVersion]);
+      const startedReceipt = {
+        status: "started",
+        itemId: input.itemId,
+        turnId: input.turnId,
+        runAttemptId: input.runAttemptId,
+        runId: input.runId,
+      };
+      const claimed = await tx.query<AdmissionRow>(CLAIM_QUEUED_START_SQL, [
+        input.sessionId,
+        input.itemId,
+        input.expectedVersion,
+        JSON.stringify(startedReceipt),
+      ]);
       if (!claimed.rows[0]) {
         return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item: null, code: "queue_item_changed" };
       }
@@ -754,9 +772,10 @@ const READ_CONTINUATION_TARGET_SQL = `SELECT a.turn_id FROM canonical_turn_admis
 const READ_CONTINUATION_TARGET_FOR_COMMAND_SQL = `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT m.id::text AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND ((s.current_turn_id = a.turn_id AND s.active_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $5 AND child.original_prompt_id = $4 AND child.continuation_terminal_sequence = $3 AND child.admission_state = 'admitted'))`;
 const LOCK_THREAD_INPUT_STATE_SQL = `SELECT revision, paused FROM thread_input_state WHERE session_id = $1 AND thread_id = $2 AND workspace_id = $3 FOR UPDATE`;
 const READ_THREAD_INPUT_REVISION_SQL = `SELECT revision FROM thread_input_state WHERE session_id = $1`;
+const READ_CURRENT_COMPLETED_TURN_SQL = `SELECT 1 FROM sessions s JOIN LATERAL (SELECT event_type FROM canonical_lifecycle_events WHERE turn_id = s.current_turn_id ORDER BY sequence DESC LIMIT 1) terminal ON terminal.event_type = 'turn.completed' WHERE s.id = $1`;
 const READ_QUEUED_START_SQL = `SELECT * FROM thread_inputs WHERE session_id = $1 AND user_id = $2 AND thread_id = $3 AND workspace_id = $4 AND id = $5`;
 const READ_QUEUED_START_FOR_UPDATE_SQL = `${READ_QUEUED_START_SQL} FOR UPDATE`;
-const CLAIM_QUEUED_START_SQL = `UPDATE thread_inputs SET state = 'consuming', version = version + 1, updated_at = now() WHERE session_id = $1 AND id = $2 AND state = 'pending' AND delivery = 'queue' AND version = $3 RETURNING *`;
+const CLAIM_QUEUED_START_SQL = `UPDATE thread_inputs SET state = 'consumed', receipt_json = $4::jsonb, version = version + 1, consumed_at = now(), updated_at = now() WHERE session_id = $1 AND id = $2 AND state = 'pending' AND delivery = 'queue' AND version = $3 RETURNING *`;
 const CLEAR_THREAD_INPUT_PAUSE_SQL = `UPDATE thread_input_state SET paused = FALSE, pause_reason = NULL, revision = revision + 1, updated_at = now() WHERE session_id = $1 AND paused = TRUE`;
 const READ_INTERRUPTED_TARGET_SQL = `SELECT a.*, s.user_id AS owner_user_id, root.prompt_id AS canonical_prompt_id, root.prompt_text, root.prompt_parts, root.source_run_id, terminal.event_json AS terminal_event_json, snapshot.event_json AS snapshot_event_json, artifact.event_json AS resume_artifact_event_json FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $7 JOIN LATERAL (SELECT COALESCE(a.original_prompt_id, prompt.id::text) AS prompt_id, COALESCE(string_agg(part.content_json->>'text', '' ORDER BY part.session_sequence), '') AS prompt_text, COALESCE(json_agg(json_build_object('type', part.part_type, 'content', part.content_json) ORDER BY part.session_sequence) FILTER (WHERE part.id IS NOT NULL), '[]'::json) AS prompt_parts, root_admission.run_id AS source_run_id FROM messages prompt JOIN message_parts part ON part.message_id = prompt.id LEFT JOIN canonical_turn_admissions root_admission ON root_admission.turn_id = prompt.canonical_turn_id AND root_admission.session_id = prompt.session_id WHERE prompt.session_id = a.session_id AND prompt.role = 'user' AND ((a.original_prompt_id IS NOT NULL AND (prompt.id::text = a.original_prompt_id OR prompt.client_message_id = a.original_prompt_id)) OR (a.original_prompt_id IS NULL AND prompt.canonical_turn_id = a.turn_id)) GROUP BY prompt.id, root_admission.run_id ORDER BY prompt.created_at, prompt.id LIMIT 1) root ON TRUE JOIN LATERAL (SELECT e.event_json FROM canonical_lifecycle_events e WHERE e.turn_id = a.turn_id AND e.run_attempt_id = a.run_attempt_id AND e.event_type = 'workspace.snapshot_captured' AND e.sequence < terminal.sequence AND e.event_json->'payload'->'snapshot'->>'phase' = 'terminal' AND e.event_json->'payload'->'snapshot'->>'turnId' = a.turn_id AND e.event_json->'payload'->'snapshot'->'resumeSnapshotRef'->>'artifactId' IS NOT NULL ORDER BY e.sequence DESC LIMIT 1) snapshot ON TRUE JOIN LATERAL (SELECT e.event_json FROM canonical_lifecycle_events e WHERE e.turn_id = a.turn_id AND e.run_attempt_id = a.run_attempt_id AND e.event_type = 'artifact.created' AND e.sequence < terminal.sequence AND e.event_json->'payload'->'artifact'->>'artifactId' = snapshot.event_json->'payload'->'snapshot'->'resumeSnapshotRef'->>'artifactId' AND e.event_json->'payload'->'artifact'->'metadata'->>'role' = 'resume_workspace_progress' AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceUserId' = $2 AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceRunId' = a.run_id AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceTurnId' = a.turn_id AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceRunAttemptId' = a.run_attempt_id ORDER BY e.sequence DESC LIMIT 1) artifact ON TRUE WHERE a.session_id = $1 AND s.user_id = $2 AND s.workspace_id = $3 AND s.thread_id = $4 AND a.turn_id = $5 AND a.run_attempt_id = $6 AND a.admission_state = 'admitted' AND ((s.current_turn_id = a.turn_id AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $8 AND child.original_prompt_id = root.prompt_id AND child.continuation_terminal_sequence = $7 AND child.admission_state = 'admitted'))`;
 const LOCK_ADMISSION_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id WHERE a.session_id = $1 AND a.client_message_id = $2 FOR UPDATE OF a`;

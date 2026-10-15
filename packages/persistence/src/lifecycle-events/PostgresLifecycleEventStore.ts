@@ -9,7 +9,10 @@ import {
   LifecycleEventSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
+import { ThreadInputReceiptSchema } from "@repo/platform-protocol";
+import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
+import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
 
 interface LifecycleEventRow extends SqlRow {
   event_json?: unknown;
@@ -36,6 +39,21 @@ interface TranscriptProjectionRow extends SqlRow {
   message_id?: string;
 }
 
+interface ThreadInputProjectionRow extends SqlRow {
+  id?: string;
+  session_id?: string;
+  user_id?: string;
+  thread_id?: string;
+  workspace_id?: string;
+  client_input_id?: string;
+  delivery?: "queue" | "steer";
+  target_turn_id?: string | null;
+  target_run_attempt_id?: string | null;
+  content_json?: unknown;
+  state?: string;
+  accepted_sequence?: number | string | null;
+}
+
 export class PostgresLifecycleEventStore implements LifecycleEventStore {
   constructor(
     private readonly client: SqlClient,
@@ -58,11 +76,18 @@ export class PostgresLifecycleEventStore implements LifecycleEventStore {
         }
         const appended = await appendOne(tx, event);
         if (this.options.validateAdmission !== false) {
+          if (appended.type === "turn.input.accepted") {
+            await projectAcceptedThreadInput(tx, appended);
+          }
+          if (appended.type === "turn.input.applied") {
+            await projectAppliedThreadInput(tx, appended);
+          }
           if (appended.type === "assistant_message.delta") {
             await projectAssistantMessageDelta(tx, appended);
           }
           if (isTerminalLifecycleEventType(appended.type)) {
             await projectTerminalStatus(tx, appended);
+            await projectUndeliveredThreadInputs(tx, appended);
           }
         }
         result.push(appended);
@@ -177,6 +202,165 @@ async function projectAssistantMessageDelta(
   ]);
 }
 
+async function projectAcceptedThreadInput(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<void> {
+  if (event.type !== "turn.input.accepted") return;
+  const admissionResult = await client.query<AdmissionRow>(READ_ADMISSION_FOR_EVENT_SQL, [event.turnId]);
+  const admission = admissionResult.rows[0];
+  if (!admission?.session_id || !admission.run_id) {
+    throw new EventStoreError("corrupt_event_stream", "Accepted input has no admitted transcript scope");
+  }
+  const inputResult = await client.query<ThreadInputProjectionRow>(READ_ACCEPTED_THREAD_INPUT_SQL, [
+    event.payload.inputId,
+    admission.session_id,
+    event.threadId,
+    event.turnId,
+    event.runAttemptId,
+    event.payload.clientInputId,
+    event.sequence,
+  ]);
+  const input = inputResult.rows[0];
+  if (!input?.id || !input.user_id || !input.workspace_id || !input.content_json) {
+    throw new EventStoreError("corrupt_event_stream", "Accepted input does not match a durable inbox row");
+  }
+  const storedContent = parseStoredThreadInputContent(input.content_json);
+  const images = storedContent.mediaRefs.map((ref) => ChatImageAttachmentRefSchema.parse(ref));
+  const transcript = new PostgresTranscriptRepository(client, undefined, true);
+  await transcript.appendMessageToExistingSession({
+    sessionId: admission.session_id,
+    runId: admission.run_id,
+    role: "user",
+    clientMessageId: event.payload.transcriptMessageId,
+    dedupeKey: `thread-input:${input.id}`,
+    parts: [{
+      type: "text",
+      content: {
+        text: storedContent.text,
+        metadata: {
+          canonicalIdentity: {
+            threadId: event.threadId,
+            turnId: event.turnId,
+            runAttemptId: event.runAttemptId,
+            inputId: event.payload.inputId,
+            acceptedSequence: event.sequence,
+          },
+          ...(images.length > 0 ? { imageAttachments: images } : {}),
+        },
+      },
+    }],
+  });
+
+  const receipt = ThreadInputReceiptSchema.parse({
+    status: "accepted",
+    clientInputId: event.payload.clientInputId,
+    inputId: event.payload.inputId,
+    targetTurnId: event.turnId,
+    targetRunAttemptId: event.runAttemptId,
+    acceptedSequence: event.sequence,
+  });
+  const updated = await client.query<ThreadInputProjectionRow>(PROJECT_ACCEPTED_THREAD_INPUT_SQL, [
+    requiredString(input.session_id, "input.session_id"),
+    requiredString(input.id, "input.id"),
+    event.sequence,
+    JSON.stringify(receipt),
+  ]);
+  if (!updated.rows[0]) {
+    const existing = await client.query<ThreadInputProjectionRow>(READ_ACCEPTED_THREAD_INPUT_SEQUENCE_SQL, [requiredString(input.session_id, "input.session_id"), requiredString(input.id, "input.id")]);
+    if (Number(existing.rows[0]?.accepted_sequence) !== event.sequence) {
+      throw new EventStoreError("corrupt_event_stream", "Accepted inbox receipt could not be projected");
+    }
+  } else {
+    await client.query(INCREMENT_THREAD_INPUT_REVISION_SQL, [requiredString(input.session_id, "input.session_id"), event.threadId]);
+  }
+}
+
+async function projectAppliedThreadInput(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<void> {
+  if (event.type !== "turn.input.applied") return;
+  const admissionResult = await client.query<AdmissionRow>(READ_ADMISSION_FOR_EVENT_SQL, [event.turnId]);
+  const admission = admissionResult.rows[0];
+  if (!admission?.session_id) {
+    throw new EventStoreError("corrupt_event_stream", "Applied input has no admitted inbox scope");
+  }
+  const receipt = ThreadInputReceiptSchema.parse({
+    status: "applied",
+    inputId: event.payload.inputId,
+    targetTurnId: event.turnId,
+    targetRunAttemptId: event.runAttemptId,
+    acceptedSequence: event.payload.acceptedSequence,
+    appliedSequence: event.sequence,
+    modelStep: event.payload.modelStep,
+    contextRevision: event.payload.contextRevision,
+  });
+  const updated = await client.query<ThreadInputProjectionRow>(PROJECT_APPLIED_THREAD_INPUT_SQL, [
+    admission.session_id,
+    event.payload.inputId,
+    event.payload.acceptedSequence,
+    event.sequence,
+    event.payload.modelStep,
+    event.payload.contextRevision,
+    JSON.stringify(receipt),
+  ]);
+  if (!updated.rows[0]) {
+    const existing = await client.query<ThreadInputProjectionRow>(READ_APPLIED_THREAD_INPUT_SEQUENCE_SQL, [admission.session_id, event.payload.inputId]);
+    if (Number(existing.rows[0]?.accepted_sequence) !== event.payload.acceptedSequence || Number(existing.rows[0]?.applied_sequence) !== event.sequence) {
+      throw new EventStoreError("corrupt_event_stream", "Applied inbox receipt has no matching accepted input");
+    }
+  } else {
+    await client.query(INCREMENT_THREAD_INPUT_REVISION_SQL, [admission.session_id, event.threadId]);
+  }
+}
+
+async function projectUndeliveredThreadInputs(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<void> {
+  if (!isTerminalLifecycleEventType(event.type)) return;
+  const admissionResult = await client.query<AdmissionRow>(READ_ADMISSION_FOR_EVENT_SQL, [event.turnId]);
+  const admission = admissionResult.rows[0];
+  if (!admission?.session_id) return;
+  const pending = await client.query<ThreadInputProjectionRow>(READ_UNDELIVERED_THREAD_INPUTS_SQL, [
+    admission.session_id,
+    event.turnId,
+    event.runAttemptId,
+  ]);
+  for (const row of pending.rows) {
+    if (!row.id || row.accepted_sequence == null) continue;
+    const receipt = ThreadInputReceiptSchema.parse({
+      status: "unconfirmed",
+      inputId: row.id,
+      targetTurnId: event.turnId,
+      targetRunAttemptId: event.runAttemptId,
+      acceptedSequence: Number(row.accepted_sequence),
+      terminalSequence: event.sequence,
+    });
+    const updated = await client.query<ThreadInputProjectionRow>(MARK_THREAD_INPUT_UNDELIVERED_SQL, [
+      admission.session_id,
+      row.id,
+      JSON.stringify(receipt),
+    ]);
+    if (updated.rows[0]) {
+      await client.query(INCREMENT_THREAD_INPUT_REVISION_SQL, [admission.session_id, event.threadId]);
+    }
+  }
+}
+
+function parseStoredThreadInputContent(value: unknown): { text: string; mediaRefs: unknown[] } {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new EventStoreError("corrupt_event_stream", "Stored inbox content is invalid");
+  }
+  const content = parsed as Record<string, unknown>;
+  if (typeof content.text !== "string" || !Array.isArray(content.mediaRefs)) {
+    throw new EventStoreError("corrupt_event_stream", "Stored inbox content is invalid");
+  }
+  return { text: content.text, mediaRefs: content.mediaRefs };
+}
+
 async function projectTerminalStatus(
   client: SqlClient,
   event: LifecycleEvent,
@@ -192,6 +376,9 @@ async function projectTerminalStatus(
   await client.query(SETTLE_RUN_STATUS_SQL, [admission.run_id, admission.session_id, runState, event.createdAt, event.turnId]);
   if (active?.active_run_id === admission.run_id && active.latest_turn_id === event.turnId) {
     await client.query(SETTLE_ACTIVE_SESSION_SQL, [admission.session_id, admission.run_id, state, event.createdAt, event.turnId]);
+  }
+  if (event.type === "turn.failed" || event.type === "turn.interrupted") {
+    await client.query(PAUSE_THREAD_INPUT_QUEUE_SQL, [admission.session_id, event.threadId, event.type]);
   }
 }
 
@@ -378,6 +565,14 @@ function isTerminalLifecycleEventType(type: LifecycleEvent["type"]): boolean {
 const REPLAY_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND sequence > $2 ORDER BY sequence ASC LIMIT $3`;
 
 const READ_ADMISSION_FOR_EVENT_SQL = `SELECT session_id, thread_id, turn_id, run_attempt_id, run_id, revision_of_turn_id, admission_state FROM canonical_turn_admissions WHERE turn_id = $1`;
+const READ_ACCEPTED_THREAD_INPUT_SQL = `SELECT input.id, input.session_id, input.user_id, input.workspace_id, input.content_json FROM thread_inputs input JOIN sessions session ON session.id = input.session_id JOIN canonical_turn_admissions admission ON admission.session_id = input.session_id WHERE input.id = $1 AND input.session_id = $2 AND input.thread_id = $3 AND input.client_input_id = $6 AND session.thread_id = $3 AND session.workspace_id = input.workspace_id AND session.user_id = input.user_id AND admission.turn_id = $4 AND admission.run_attempt_id = $5 AND admission.admission_state = 'admitted' AND (input.delivery = 'queue' OR (input.delivery = 'steer' AND input.target_turn_id = $4 AND input.target_run_attempt_id = $5)) AND input.state IN ('pending','consuming','consumed') AND (input.accepted_sequence IS NULL OR input.accepted_sequence = $7) FOR UPDATE OF input`;
+const PROJECT_ACCEPTED_THREAD_INPUT_SQL = `UPDATE thread_inputs SET state = 'consuming', accepted_sequence = $3, receipt_json = $4::jsonb, version = version + 1, updated_at = now() WHERE session_id = $1 AND id = $2 AND accepted_sequence IS NULL RETURNING id`;
+const READ_ACCEPTED_THREAD_INPUT_SEQUENCE_SQL = `SELECT accepted_sequence FROM thread_inputs WHERE session_id = $1 AND id = $2`;
+const READ_APPLIED_THREAD_INPUT_SEQUENCE_SQL = `SELECT accepted_sequence, applied_sequence FROM thread_inputs WHERE session_id = $1 AND id = $2`;
+const INCREMENT_THREAD_INPUT_REVISION_SQL = `UPDATE thread_input_state SET revision = revision + 1, updated_at = now() WHERE session_id = $1 AND thread_id = $2`;
+const READ_UNDELIVERED_THREAD_INPUTS_SQL = `SELECT id, accepted_sequence FROM thread_inputs WHERE session_id = $1 AND delivery = 'steer' AND target_turn_id = $2 AND target_run_attempt_id = $3 AND state = 'consuming' AND accepted_sequence IS NOT NULL AND applied_sequence IS NULL FOR UPDATE`;
+const MARK_THREAD_INPUT_UNDELIVERED_SQL = `UPDATE thread_inputs SET receipt_json = $3::jsonb, version = version + 1, updated_at = now() WHERE session_id = $1 AND id = $2 AND state = 'consuming' AND accepted_sequence IS NOT NULL AND applied_sequence IS NULL RETURNING id`;
+const PROJECT_APPLIED_THREAD_INPUT_SQL = `UPDATE thread_inputs SET state = 'consumed', applied_sequence = $4, model_step = $5, context_revision = $6, receipt_json = $7::jsonb, version = version + 1, consumed_at = now(), updated_at = now() WHERE session_id = $1 AND id = $2 AND accepted_sequence = $3 AND applied_sequence IS NULL AND state = 'consuming' RETURNING id`;
 const READ_SESSION_BY_THREAD_SQL = `SELECT id AS session_id, last_sequence FROM sessions WHERE id = $1 AND thread_id = $2`;
 const INSERT_ASSISTANT_ITEM_SQL = `INSERT INTO messages (session_id, run_id, canonical_turn_id, canonical_run_attempt_id, canonical_item_id, canonical_phase, role, dedupe_key, created_at) VALUES ($1,$2,$3,$4,$5,$6,'assistant',$7,now()) ON CONFLICT (session_id, canonical_turn_id, canonical_run_attempt_id, canonical_item_id, canonical_phase) WHERE canonical_turn_id IS NOT NULL AND canonical_run_attempt_id IS NOT NULL AND canonical_item_id IS NOT NULL AND canonical_phase IS NOT NULL DO NOTHING RETURNING id AS message_id`;
 const READ_ASSISTANT_ITEM_SQL = `SELECT id AS message_id FROM messages WHERE session_id = $1 AND canonical_turn_id = $2 AND canonical_run_attempt_id = $3 AND canonical_item_id = $4 AND canonical_phase = $5`;
@@ -388,3 +583,4 @@ const READ_ACTIVE_TURN_SQL = `SELECT s.active_run_id, s.current_turn_id AS lates
 const SETTLE_RUN_STATUS_SQL = `UPDATE runs SET status = $3, completed_at = $4, updated_at = now() WHERE id = $1 AND session_id = $2 AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions later JOIN canonical_turn_admissions settled ON settled.turn_id = $5 WHERE later.session_id = settled.session_id AND later.run_id = $1 AND later.admission_order > settled.admission_order)`;
 const SETTLE_ACTIVE_SESSION_SQL = `UPDATE sessions SET status = $3, active_run_id = NULL, updated_at = $4 WHERE id = $1 AND active_run_id = $2 AND current_turn_id = $5`;
 const SETTLE_ADMISSION_EXECUTION_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'settled' WHERE turn_id = $1 AND admission_state = 'admitted'`;
+const PAUSE_THREAD_INPUT_QUEUE_SQL = `UPDATE thread_input_state SET paused = TRUE, pause_reason = $3, revision = revision + 1, updated_at = now() WHERE session_id = $1 AND thread_id = $2`;

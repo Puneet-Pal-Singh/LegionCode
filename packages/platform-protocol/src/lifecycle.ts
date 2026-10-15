@@ -765,6 +765,8 @@ export const LifecycleEventTypeSchema = z.enum([
   "thread.archived",
   "turn.queued",
   "turn.started",
+  "turn.input.accepted",
+  "turn.input.applied",
   "turn.blocking_changed",
   "turn.completed",
   "turn.interrupted",
@@ -922,7 +924,11 @@ const ToolCallCompletedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.completed"),
-    payload: z.object({ result: JsonRecordSchema }).strict(),
+    payload: z.object({
+      result: JsonRecordSchema,
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -932,7 +938,11 @@ const ToolCallFailedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.failed"),
-    payload: z.object({ failure: ProtocolErrorSchema }).strict(),
+    payload: z.object({
+      failure: ProtocolErrorSchema,
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -942,7 +952,11 @@ const ToolCallDeclinedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.declined"),
-    payload: z.object({ reason: z.string().min(1).max(2_000) }).strict(),
+    payload: z.object({
+      reason: z.string().min(1).max(2_000),
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -952,7 +966,11 @@ const ToolCallInterruptedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.interrupted"),
-    payload: z.object({ reason: z.string().min(1).max(2_000) }).strict(),
+    payload: z.object({
+      reason: z.string().min(1).max(2_000),
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -1099,6 +1117,34 @@ const TurnStartedLifecycleEventSchema = z
   })
   .strict();
 
+export const TurnInputAcceptedPayloadSchema = z.object({
+  inputId: z.string().trim().min(1).max(200),
+  clientInputId: z.string().trim().min(1).max(200),
+  transcriptMessageId: z.string().trim().min(1).max(200),
+}).strict();
+export type TurnInputAcceptedPayload = z.infer<typeof TurnInputAcceptedPayloadSchema>;
+
+export const TurnInputAppliedPayloadSchema = z.object({
+  inputId: z.string().trim().min(1).max(200),
+  acceptedSequence: EventSequenceSchema,
+  modelStep: z.number().int().positive().safe(),
+  contextRevision: z.number().int().nonnegative().safe(),
+}).strict();
+export type TurnInputAppliedPayload = z.infer<typeof TurnInputAppliedPayloadSchema>;
+
+const TurnInputLifecycleEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    ...LifecycleEventEnvelopeShape,
+    type: z.literal("turn.input.accepted"),
+    payload: TurnInputAcceptedPayloadSchema,
+  }).strict(),
+  z.object({
+    ...LifecycleEventEnvelopeShape,
+    type: z.literal("turn.input.applied"),
+    payload: TurnInputAppliedPayloadSchema,
+  }).strict(),
+]);
+
 const TurnLifecycleEventSchema = z
   .object({
     ...LifecycleEventEnvelopeShape,
@@ -1125,6 +1171,8 @@ const TurnLifecycleEventSchema = z
       "turn.interrupted",
       "turn.failed",
       "turn.started",
+      "turn.input.accepted",
+      "turn.input.applied",
       "context_budget.updated",
       "usage.updated",
       "context_compaction.requested",
@@ -1143,6 +1191,7 @@ export const LifecycleEventSchema = z.union([
   ItemDeclinedEventSchema,
   ItemInterruptedEventSchema,
   TurnStartedLifecycleEventSchema,
+  TurnInputLifecycleEventSchema,
   ToolCallStartedLifecycleEventSchema,
   ToolCallLifecycleEventSchema,
   ToolCallCompletedEventSchema,

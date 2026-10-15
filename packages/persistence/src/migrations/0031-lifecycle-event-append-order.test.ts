@@ -5,8 +5,9 @@ import { chatDurabilityMigration } from "./0032-chat-durability.js";
 
 describe("lifecycleEventAppendOrderMigration", () => {
   it("adds a durable global append order and a turn-start lookup index", () => {
-    expect(persistenceMigrations.at(-3)).toBe(lifecycleEventAppendOrderMigration);
-    expect(persistenceMigrations.at(-1)).toBe(chatDurabilityMigration);
+    expect(persistenceMigrations.indexOf(lifecycleEventAppendOrderMigration)).toBeLessThan(
+      persistenceMigrations.indexOf(chatDurabilityMigration),
+    );
     expect(lifecycleEventAppendOrderMigration.statements).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
