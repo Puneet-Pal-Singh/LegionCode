@@ -29,6 +29,7 @@ import {
   type AuthenticatedChatRequest,
 } from "./ChatRequestBoundary";
 import type { BackgroundTaskOwner } from "../services/thread-titles";
+import { ThreadInputCommandService } from "../services/thread-inputs/ThreadInputCommandService";
 
 /**
  * ChatController
@@ -39,6 +40,7 @@ export class ChatController {
     req: Request,
     env: Env,
     backgroundTaskOwner?: BackgroundTaskOwner,
+    executionContext?: ExecutionContext,
   ): Promise<Response> {
     const correlationId =
       req.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
@@ -77,6 +79,7 @@ export class ChatController {
         chatRequest,
         env,
         backgroundTaskOwner,
+        executionContext,
       );
       console.log(
         `[chat/timing] ${correlationId} totalMs=${Date.now() - requestStartedAt} status=${response.status}`,
@@ -161,6 +164,7 @@ export class ChatController {
     chatRequest: AuthenticatedChatRequest,
     env: Env,
     backgroundTaskOwner?: BackgroundTaskOwner,
+    executionContext?: ExecutionContext,
   ): Promise<Response> {
     const {
       body,
@@ -290,6 +294,29 @@ export class ChatController {
         runId,
         useCaseResult.executionPayload,
       );
+      if (executionContext) {
+        executionContext.waitUntil(
+          doResponse.clone().arrayBuffer().then(async () =>
+            await new ThreadInputCommandService(env).reconcileTerminal({
+              request: req,
+              executionContext,
+              runId,
+              turnId: identity.turnId,
+              userId,
+              sessionId,
+              threadId: identity.threadId,
+              workspaceId,
+              correlationId,
+            }),
+          ).catch((error: unknown) => {
+            console.error("[thread-input/terminal] queue reconciliation failed", {
+              correlationId,
+              turnId: identity.turnId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }),
+        );
+      }
       const runtimeTarget = resolveRuntimeTarget(
         env,
         useCaseResult.executionPayload.input.orchestratorBackend,

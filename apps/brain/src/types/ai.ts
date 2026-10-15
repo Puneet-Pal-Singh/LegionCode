@@ -19,6 +19,7 @@ import type {
   WorkspaceRepository,
   LifecycleEventStore,
   TaskWorkspaceRepository,
+  ThreadInputRepository,
 } from "@repo/persistence";
 import type { HookDefinitionRepository } from "../services/hooks/HookDefinitionRepository";
 
@@ -45,6 +46,7 @@ export interface Env {
   AUTH_THREAD_TITLE_REPOSITORY?: ThreadTitleRepository;
   AUTH_RUN_REPOSITORY?: RunRepository;
   AUTH_TURN_ADMISSION_REPOSITORY?: TurnAdmissionRepository;
+  AUTH_THREAD_INPUT_REPOSITORY?: ThreadInputRepository;
   AUTH_MEMORY_EVENT_REPOSITORY?: MemoryEventRepository;
   AUTH_CONTEXT_REPOSITORY?: ContextRepository;
   AUTH_PERMISSION_REPOSITORY?: PermissionRepository;

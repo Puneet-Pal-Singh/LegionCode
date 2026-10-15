@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { RunIdSchema, TurnScopeBootstrapSchema } from "@repo/platform-protocol";
+import { ResumeWorkspaceSnapshotRefSchema, RunIdSchema, TurnScopeBootstrapSchema } from "@repo/platform-protocol";
 import {
   ApprovalDecisionKindSchema,
   BYOKModelPricingSchema,
@@ -80,6 +80,7 @@ export const SerializableToolDefinitionSchema = z.object({
 export const ExecuteRunPayloadSchema = z.object({
   runId: RunIdSchema,
   identity: TurnScopeBootstrapSchema.optional(),
+  resumeSnapshotRef: ResumeWorkspaceSnapshotRefSchema.optional(),
   userId: z.string().trim().min(1).optional(),
   workspaceId: z.string().trim().min(1).optional(),
   sessionId: z.string().trim().min(1),
