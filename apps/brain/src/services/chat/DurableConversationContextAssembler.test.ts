@@ -41,7 +41,7 @@ describe("DurableConversationContextAssembler", () => {
       "system",
       "user",
     ]);
-    expect(context[2]?.content).toContain("Read package.json");
+    expect(context[2]?.content).toContain("- completed tool call: package legioncode");
     expect(context[2]?.content).toContain("package legioncode");
     expect(context.at(-1)?.content).toBe("Continue the work");
     expect(context.at(-1)).toMatchObject({ id: "new-user" });
@@ -79,7 +79,12 @@ describe("DurableConversationContextAssembler", () => {
     });
 
     expect(context.map((entry) => entry.content)).toEqual(["Edited prompt"]);
-    expect(replayLifecyclePage).not.toHaveBeenCalled();
+    expect(replayLifecyclePage).toHaveBeenCalledWith(
+      expect.objectContaining({ turnId: "trn_prior001" }),
+    );
+    expect(replayLifecyclePage).toHaveBeenCalledWith(
+      expect.objectContaining({ turnId: "trn_current01" }),
+    );
   });
 
 

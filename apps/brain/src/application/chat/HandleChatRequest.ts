@@ -254,6 +254,8 @@ export class HandleChatRequest {
             userId,
             currentTurnId: identity.turnId,
             revisionOfTurnId: identity.revisionOfTurnId,
+            continuationOfTurnId: identity.continuationOfTurnId,
+            originalPromptId: identity.originalPromptId,
             imageModelMetadata,
           })
         : messages;

@@ -28,8 +28,10 @@ export {
 } from "./RuntimeWorkspaceScope.js";
 export {
   normalizeTaskToolSequence,
+  projectLifecycleToolMessages,
   projectTaskContext,
   restoreTaskToolMessage,
+  type LifecycleToolMessageGroup,
   type TaskContextProjection,
 } from "./TaskContextProjection.js";
 export {

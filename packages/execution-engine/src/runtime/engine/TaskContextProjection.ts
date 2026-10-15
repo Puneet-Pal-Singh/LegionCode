@@ -1,10 +1,163 @@
 import type { CoreMessage } from "ai";
+import type { LifecycleEvent } from "@repo/platform-protocol";
 
 export interface TaskContextProjection {
   readonly messages: readonly CoreMessage[];
   readonly background: readonly CoreMessage[];
   readonly activeTask: readonly CoreMessage[];
   readonly activeTaskStartIndex: number;
+}
+
+export interface LifecycleToolMessageGroup {
+  readonly createdAt: string;
+  readonly messages: readonly CoreMessage[];
+  readonly mergeIntoMessageId?: string;
+}
+
+/** Rebuild canonical tool history without inferring names from display text. */
+export function projectLifecycleToolMessages(
+  events: readonly LifecycleEvent[],
+  transcriptMessages: readonly CoreMessage[] = [],
+): LifecycleToolMessageGroup[] {
+  const transcriptCalls = new Map<string, string>();
+  for (const message of transcriptMessages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      const record = asRecord(part);
+      if (record?.type === "tool-call" && nonEmptyString(record.toolCallId)) {
+        transcriptCalls.set(record.toolCallId, readMessageId(message) ?? "");
+      }
+    }
+  }
+  const transcriptResults = readCompleteTaskToolCallIds(transcriptMessages);
+  const calls = new Map<string, LifecycleToolCall>();
+  for (const event of events) {
+    if (
+      !("toolCallId" in event) ||
+      !event.toolCallId
+    ) continue;
+    const payload = asRecord(event.payload) ?? {};
+    if (event.type === "tool_call.started") {
+      const toolName = nonEmptyString(payload.toolName) ? payload.toolName : null;
+      if (!toolName) continue;
+      const prior = calls.get(event.toolCallId);
+      calls.set(event.toolCallId, {
+        toolCallId: event.toolCallId,
+        toolName,
+        callBatchId: nonEmptyString(payload.callBatchId) ? payload.callBatchId : null,
+        input: prior?.input ?? (isRecord(payload.input) ? payload.input : null),
+        startedAt: event.createdAt,
+        sequence: event.sequence,
+        terminal: prior?.terminal ?? null,
+      });
+      continue;
+    }
+    const call = calls.get(event.toolCallId);
+    if (!call) continue;
+    if (event.type === "tool_call.input_delta" && isRecord(payload.input)) {
+      call.input = payload.input;
+    } else if (event.type === "tool_call.completed") {
+      call.terminal = { result: payload.result, isError: false };
+      if (!call.callBatchId && nonEmptyString(payload.callBatchId)) call.callBatchId = payload.callBatchId;
+      if (nonEmptyString(payload.toolName)) call.toolName = payload.toolName;
+    } else if (event.type === "tool_call.failed") {
+      call.terminal = { result: { status: "failed", failure: payload.failure }, isError: true };
+      if (!call.callBatchId && nonEmptyString(payload.callBatchId)) call.callBatchId = payload.callBatchId;
+      if (nonEmptyString(payload.toolName)) call.toolName = payload.toolName;
+    } else if (event.type === "tool_call.declined") {
+      call.terminal = { result: { status: "denied", reason: payload.reason }, isError: true };
+      if (!call.callBatchId && nonEmptyString(payload.callBatchId)) call.callBatchId = payload.callBatchId;
+      if (nonEmptyString(payload.toolName)) call.toolName = payload.toolName;
+    } else if (event.type === "tool_call.interrupted") {
+      call.terminal = { result: { status: "interrupted", reason: payload.reason }, isError: true };
+      if (!call.callBatchId && nonEmptyString(payload.callBatchId)) call.callBatchId = payload.callBatchId;
+      if (nonEmptyString(payload.toolName)) call.toolName = payload.toolName;
+    }
+  }
+
+  const batches = new Map<string, LifecycleToolCall[]>();
+  for (const call of calls.values()) {
+    if (!call.input && !transcriptCalls.has(call.toolCallId)) continue;
+    const batchKey = call.callBatchId ?? call.toolCallId;
+    const batch = batches.get(batchKey) ?? [];
+    batch.push(call);
+    batches.set(batchKey, batch);
+  }
+  return [...batches.entries()]
+    .map<LifecycleToolMessageGroup | null>(([batchId, batch]) => {
+      batch.sort((left, right) => left.sequence - right.sequence);
+      const included = batch.filter((call) =>
+        transcriptCalls.has(call.toolCallId)
+          ? !transcriptResults.has(call.toolCallId)
+          : !!call.input,
+      );
+      if (included.length === 0) return null;
+      const mergeIntoMessageId = batch
+        .map((call) => transcriptCalls.get(call.toolCallId))
+        .find((messageId): messageId is string => !!messageId);
+      const newCalls = included.filter(
+        (call) => !transcriptCalls.has(call.toolCallId),
+      );
+      const newAssistant = newCalls.length > 0
+        ? {
+            id: `lifecycle-tool-calls:${batchId}`,
+            role: "assistant",
+            content: newCalls.map((call) => ({
+              type: "tool-call",
+              toolCallId: call.toolCallId,
+              toolName: call.toolName,
+              args: call.input,
+            })),
+          } as CoreMessage
+        : null;
+      const tool: CoreMessage = {
+        id: `lifecycle-tool-results:${batchId}`,
+        role: "tool",
+        content: included.map((call) => ({
+          type: "tool-result",
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          result: call.terminal ? call.terminal.result : {
+            status: "unknown",
+            message: "No terminal tool result was recorded. Inspect workspace state before repeating this action.",
+          },
+          ...(call.terminal?.isError ?? !call.terminal ? { isError: true } : {}),
+        })),
+      } as CoreMessage;
+      if (mergeIntoMessageId) {
+        return {
+          createdAt: batch[0]!.startedAt,
+          mergeIntoMessageId,
+          messages: [...(newAssistant ? [newAssistant] : []), tool],
+        };
+      }
+      const assistant: CoreMessage = {
+        id: `lifecycle-tool-calls:${batchId}`,
+        role: "assistant",
+        content: included.map((call) => ({
+          type: "tool-call",
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          args: call.input,
+        })),
+      } as CoreMessage;
+      return {
+        createdAt: batch[0]!.startedAt,
+        messages: [assistant, tool],
+      };
+    })
+    .filter((group): group is LifecycleToolMessageGroup => group !== null)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+interface LifecycleToolCall {
+  toolCallId: string;
+  toolName: string;
+  callBatchId: string | null;
+  input: Record<string, unknown> | null;
+  startedAt: string;
+  sequence: number;
+  terminal: { result: unknown; isError: boolean } | null;
 }
 
 /**
@@ -106,12 +259,17 @@ export function restoreTaskToolMessage(input: {
 /** Drops orphaned results and closes unrecorded calls before restored history is sent to a provider. */
 export function normalizeTaskToolSequence(
   messages: readonly CoreMessage[],
+  options: {
+    readonly synthesizeMissingResults?: boolean;
+    readonly requireToolNameMatch?: boolean;
+  } = {},
 ): CoreMessage[] {
   const normalized: CoreMessage[] = [];
   let pending = new Map<string, { toolName: string; resultSeen: boolean }>();
   const closePending = () => {
     for (const [toolCallId, call] of pending) {
       if (call.resultSeen) continue;
+      if (options.synthesizeMissingResults === false) continue;
       normalized.push({
         role: "tool",
         content: [{
@@ -169,7 +327,10 @@ export function normalizeTaskToolSequence(
         ) continue;
         const call = pending.get(part.toolCallId);
         if (!call || call.resultSeen) continue;
-        if (nonEmptyString(part.toolName) && part.toolName !== call.toolName) continue;
+        if (
+          (options.requireToolNameMatch && part.toolName !== call.toolName) ||
+          (nonEmptyString(part.toolName) && part.toolName !== call.toolName)
+        ) continue;
         call.resultSeen = true;
         results.push({
           type: "tool-result",
@@ -187,6 +348,31 @@ export function normalizeTaskToolSequence(
   }
   closePending();
   return normalized;
+}
+
+/** Return only transcript calls paired with a typed result in normal order. */
+function readCompleteTaskToolCallIds(
+  messages: readonly CoreMessage[],
+): Set<string> {
+  const normalized = normalizeTaskToolSequence(messages, {
+    synthesizeMissingResults: false,
+    requireToolNameMatch: true,
+  });
+  const results = new Set<string>();
+  for (const message of normalized) {
+    if (message.role !== "tool" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      const record = asRecord(part);
+      if (
+        record?.type === "tool-result" &&
+        nonEmptyString(record.toolCallId) &&
+        "result" in record
+      ) {
+        results.add(record.toolCallId);
+      }
+    }
+  }
+  return results;
 }
 
 function restoreRawPart(value: unknown, role: string, output: unknown[]): boolean {
@@ -264,4 +450,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function readMessageId(message: CoreMessage): string | null {
+  const id = (message as CoreMessage & { id?: unknown }).id;
+  return typeof id === "string" ? id : null;
 }
