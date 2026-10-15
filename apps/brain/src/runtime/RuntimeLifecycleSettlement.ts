@@ -18,8 +18,7 @@ export interface RuntimeLifecycleSettlementIdentity {
   readonly revisionOfTurnId?: TurnId;
 }
 
-export interface OwnedStartupFailureIdentity
-  extends RuntimeLifecycleSettlementIdentity {
+export interface OwnedStartupFailureIdentity extends RuntimeLifecycleSettlementIdentity {
   readonly admittedWorkspaceId: string;
   readonly userId: string;
   readonly sessionId: string;
@@ -30,7 +29,10 @@ export interface OwnedStartupFailureIdentity
 export type RuntimeLifecycleSettlementResult =
   | { readonly status: "settled"; readonly terminalEvent: LifecycleEvent }
   | { readonly status: "history_exists" }
-  | { readonly status: "terminal_exists"; readonly terminalEvent: LifecycleEvent }
+  | {
+      readonly status: "terminal_exists";
+      readonly terminalEvent: LifecycleEvent;
+    }
   | { readonly status: "append_conflict" };
 
 export async function settleOwnedStartupFailure(input: {
@@ -44,7 +46,9 @@ export async function settleOwnedStartupFailure(input: {
   readonly readAdmission: () => Promise<TurnAdmissionRecord | null>;
   readonly interruptReason: string | null;
   readonly failure: ProtocolError;
-}): Promise<RuntimeLifecycleSettlementResult | { readonly status: "not_owned" }> {
+}): Promise<
+  RuntimeLifecycleSettlementResult | { readonly status: "not_owned" }
+> {
   if (
     input.claim.turnId !== input.identity.turnId ||
     !(await input.markRecoveryRequired(input.claim))
@@ -87,7 +91,7 @@ export async function settleOwnedStartupFailure(input: {
   });
 }
 
-export async function settleRecoveryRequiredOrphanStop(input: {
+export async function settleOrphanStop(input: {
   readonly store: LifecycleEventStore;
   readonly admission: TurnAdmissionRecord;
   readonly identity: RuntimeLifecycleSettlementIdentity;
@@ -96,10 +100,12 @@ export async function settleRecoveryRequiredOrphanStop(input: {
 }): Promise<
   | RuntimeLifecycleSettlementResult
   | { readonly status: "not_recovery_orphan" }
+  | { readonly status: "not_recoverable" }
 > {
   if (
     input.admission.state !== "admitted" ||
-    input.admission.executionState !== "recovery_required" ||
+    (input.admission.executionState !== "running" &&
+      input.admission.executionState !== "recovery_required") ||
     input.admission.turnId !== input.identity.turnId ||
     input.admission.runAttemptId !== input.identity.runAttemptId ||
     input.admission.threadId !== input.identity.threadId ||
@@ -109,11 +115,67 @@ export async function settleRecoveryRequiredOrphanStop(input: {
   ) {
     return { status: "not_recovery_orphan" };
   }
-  return await settleEmptyRuntimeLifecycle({
-    store: input.store,
-    identity: input.identity,
-    outcome: { type: "interrupted", reason: input.reason },
-  });
+  const history = await readLifecycleHistory(
+    input.store,
+    input.identity.turnId,
+  );
+  const terminalEvent = history.find(isTerminalEvent);
+  if (terminalEvent) {
+    return { status: "terminal_exists", terminalEvent };
+  }
+  if (history.length === 0) {
+    if (input.admission.executionState !== "recovery_required") {
+      return { status: "not_recovery_orphan" };
+    }
+    return await settleEmptyRuntimeLifecycle({
+      store: input.store,
+      identity: input.identity,
+      outcome: { type: "interrupted", reason: input.reason },
+    });
+  }
+
+  const constructedEvents: LifecycleEvent[] = [];
+  try {
+    const coordinator = RuntimeLifecycleCoordinator.restoreForInterruption(
+      {
+        ...input.identity,
+        sink: {
+          appendBatch: async (events) => {
+            constructedEvents.push(...events);
+            return events;
+          },
+        },
+        producerId: "brain-runtime-recovery",
+        clock: { now: () => new Date().toISOString() },
+      },
+      history,
+    );
+    await coordinator.interrupt(input.reason);
+  } catch {
+    return { status: "not_recoverable" };
+  }
+
+  try {
+    await input.store.appendBatch(constructedEvents);
+  } catch {
+    const afterConflict = await readLifecycleHistory(
+      input.store,
+      input.identity.turnId,
+    );
+    const terminalAfterConflict = afterConflict.find(isTerminalEvent);
+    return terminalAfterConflict
+      ? { status: "terminal_exists", terminalEvent: terminalAfterConflict }
+      : { status: "history_exists" };
+  }
+
+  const settledHistory = await readLifecycleHistory(
+    input.store,
+    input.identity.turnId,
+  );
+  const settledTerminal = settledHistory.find(isTerminalEvent);
+  return settledTerminal
+    ? { status: "settled", terminalEvent: settledTerminal }
+    : { status: "append_conflict" };
 }
 
 /**
@@ -127,7 +189,10 @@ export async function settleEmptyRuntimeLifecycle(input: {
     | { readonly type: "failed"; readonly failure: ProtocolError }
     | { readonly type: "interrupted"; readonly reason: string };
 }): Promise<RuntimeLifecycleSettlementResult> {
-  const existingHistory = await readLifecycleHistory(input.store, input.identity.turnId);
+  const existingHistory = await readLifecycleHistory(
+    input.store,
+    input.identity.turnId,
+  );
   if (existingHistory.length > 0) {
     const terminalEvent = existingHistory.find(isTerminalEvent);
     return terminalEvent
@@ -159,7 +224,10 @@ export async function settleEmptyRuntimeLifecycle(input: {
     }
     await input.store.appendBatch(constructedEvents);
   } catch {
-    const afterConflict = await readLifecycleHistory(input.store, input.identity.turnId);
+    const afterConflict = await readLifecycleHistory(
+      input.store,
+      input.identity.turnId,
+    );
     const terminalEvent = afterConflict.find(isTerminalEvent);
     if (terminalEvent) {
       return { status: "terminal_exists", terminalEvent };
@@ -170,7 +238,10 @@ export async function settleEmptyRuntimeLifecycle(input: {
     return { status: "append_conflict" };
   }
 
-  const terminalHistory = await readLifecycleHistory(input.store, input.identity.turnId);
+  const terminalHistory = await readLifecycleHistory(
+    input.store,
+    input.identity.turnId,
+  );
   const terminalEvent = terminalHistory.find(isTerminalEvent);
   return terminalEvent
     ? { status: "settled", terminalEvent }
@@ -190,7 +261,9 @@ async function readLifecycleHistory(
       return events;
     }
     if (replay.nextSequence === afterSequence) {
-      throw new Error(`Lifecycle replay cursor did not advance for turn ${turnId}`);
+      throw new Error(
+        `Lifecycle replay cursor did not advance for turn ${turnId}`,
+      );
     }
     afterSequence = replay.nextSequence;
   }

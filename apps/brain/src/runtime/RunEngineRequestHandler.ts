@@ -76,7 +76,7 @@ import {
 } from "./RunInterruptRegistry";
 import {
   settleOwnedStartupFailure,
-  settleRecoveryRequiredOrphanStop,
+  settleOrphanStop,
 } from "./RuntimeLifecycleSettlement";
 import {
   InMemoryRunContextCompactionRegistry,
@@ -381,7 +381,9 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const hasActiveOwner = this.interruptRegistry.hasActiveOwner(payload.turnId);
+    const hasActiveOwner =
+      this.interruptRegistry.hasActiveOwner(payload.turnId) ||
+      this.approvalResolutionRegistry.has(payload.turnId);
     if (hasActiveOwner) {
       const accepted = await this.interruptRegistry.request(
         payload.turnId,
@@ -402,7 +404,7 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const settled = await settleRecoveryRequiredOrphanStop({
+    const settled = await settleOrphanStop({
       store,
       admission,
       identity: {
@@ -433,24 +435,12 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const accepted = await this.interruptRegistry.request(
-      payload.turnId,
-      payload.reason,
+    return runEngineErrorResponse(
+      request,
+      this.env,
+      "Turn is no longer interruptible",
+      409,
     );
-    if (!accepted) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Turn is no longer interruptible",
-        409,
-      );
-    }
-
-    return runEngineJsonResponse(request, this.env, {
-      runId: payload.runId,
-      accepted: true,
-      status: "interrupt_requested",
-    });
   }
 
   async handleContextCompactionRequest(request: Request): Promise<Response> {

@@ -103,6 +103,8 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           busyDecision={props.approval.busyDecision}
           error={props.approval.error}
           onResolve={props.approval.onResolve}
+          onStop={props.onStop}
+          canStop={props.canStop}
         />
       ) : (
         <ChatInputBar
