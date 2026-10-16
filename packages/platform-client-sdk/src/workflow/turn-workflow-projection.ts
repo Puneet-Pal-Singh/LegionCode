@@ -1,5 +1,6 @@
 import {
   ContextBudgetSnapshotSchema,
+  ResumeWorkspaceSnapshotRefSchema,
   TurnDiffPayloadSchema,
   UsageCostSnapshotSchema,
 } from "@repo/platform-protocol";
@@ -230,20 +231,26 @@ function applyKnownEvent(
       };
     case "workspace.snapshot_captured": {
       const payload = readPayload(event);
-      const snapshot = readRecord(payload.snapshot);
-      const resumeSnapshotRef = readString(snapshot ?? {}, "resumeSnapshotRef");
+      const bundle = readRecord(payload.snapshot);
+      const snapshot = readRecord(bundle?.snapshot);
+      if (!snapshot || readString(snapshot, "phase") !== "terminal") {
+        return projection;
+      }
+      const resumeSnapshotRef = ResumeWorkspaceSnapshotRefSchema.safeParse(
+        snapshot.resumeSnapshotRef,
+      );
       const resumeUnavailableReason = readString(
-        snapshot ?? {},
+        snapshot,
         "resumeUnavailableReason",
       );
       return {
         ...projection,
         workspaceSnapshotState: "captured",
-        resumeSnapshotAvailable: Boolean(resumeSnapshotRef),
+        resumeSnapshotAvailable: resumeSnapshotRef.success,
         workspaceSnapshotUnavailableReason: null,
-        resumeUnavailableReason:
-          resumeUnavailableReason ??
-          (resumeSnapshotRef ? null : "resume_snapshot_missing"),
+        resumeUnavailableReason: resumeSnapshotRef.success
+          ? null
+          : (resumeUnavailableReason ?? "snapshot_unavailable"),
       };
     }
     case "workspace.snapshot_unavailable": {
