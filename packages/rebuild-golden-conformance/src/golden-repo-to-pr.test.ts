@@ -29,6 +29,7 @@ import {
   type Run,
   type RunAttemptId,
   type Thread,
+  type ThreadInputCommand,
   type Turn,
   type TurnDiffPayload,
   type ToolCallItemContent,
@@ -435,6 +436,10 @@ class GoldenPlatformTransport implements PlatformClientTransport {
       itemId: null,
       error: "Golden fixture does not exercise manual compaction.",
     };
+  }
+
+  async threadInputCommand(_request: ThreadInputCommand): Promise<unknown> {
+    throw new Error("Golden fixture does not exercise thread input commands.");
   }
 
   async *attachRunStream(): AsyncIterable<never> {}
