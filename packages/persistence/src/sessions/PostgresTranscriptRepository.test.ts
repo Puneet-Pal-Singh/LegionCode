@@ -207,6 +207,12 @@ describe("PostgresTranscriptRepository", () => {
     );
     expect(client.queries[0]?.statement).toContain("s.title_version");
     expect(client.queries[0]?.statement).toContain("s.title_status");
+    expect(client.queries[0]?.statement).toContain(
+      "admission.turn_id = s.current_turn_id",
+    );
+    expect(client.queries[0]?.statement).toContain(
+      "admission.admission_state = 'admitted'",
+    );
     expect(client.queries[1]?.statement).toContain(
       "s.thread_id AS session_thread_id",
     );
@@ -251,12 +257,17 @@ describe("PostgresTranscriptRepository", () => {
         );
         CREATE TABLE sessions (
           id UUID PRIMARY KEY, user_id UUID NOT NULL, workspace_id UUID,
-          thread_id TEXT, task_id UUID NOT NULL, title TEXT NOT NULL,
+          thread_id TEXT, current_turn_id TEXT, task_id UUID NOT NULL, title TEXT NOT NULL,
           title_source TEXT NOT NULL, title_version INTEGER NOT NULL,
           title_status TEXT NOT NULL DEFAULT 'ready',
           repository TEXT, active_run_id TEXT, mode TEXT NOT NULL,
           status TEXT NOT NULL, pinned_at TIMESTAMPTZ, archived_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE TABLE canonical_turn_admissions (
+          session_id UUID NOT NULL, thread_id TEXT NOT NULL,
+          workspace_id TEXT, turn_id TEXT NOT NULL, run_id TEXT NOT NULL,
+          admission_state TEXT NOT NULL
         );
         CREATE TABLE canonical_lifecycle_events (
           event_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
@@ -275,11 +286,12 @@ describe("PostgresTranscriptRepository", () => {
         ],
       );
       await db.query(
-        `INSERT INTO sessions VALUES ($1, $2, NULL, $3, $4, 'Approval task', 'generated', 1, 'ready', 'acme/repo', $5, 'build', 'running', NULL, NULL, $6, $6)`,
+        `INSERT INTO sessions (id, user_id, workspace_id, thread_id, current_turn_id, task_id, title, title_source, title_version, title_status, repository, active_run_id, mode, status, pinned_at, archived_at, created_at, updated_at) VALUES ($1, $2, NULL, $3, $4, $5, 'Approval task', 'generated', 1, 'ready', 'acme/repo', $6, 'build', 'running', NULL, NULL, $7, $7)`,
         [
           "123e4567-e89b-42d3-a456-426614174002",
           "123e4567-e89b-42d3-a456-426614174001",
           "thread_1",
+          "trn_abc123__turn__newer0001",
           "123e4567-e89b-42d3-a456-426614174000",
           "run_abc123",
           NOW,
@@ -289,6 +301,12 @@ describe("PostgresTranscriptRepository", () => {
       const sharedTimestamp = new Date("2026-05-23T00:00:00.000Z");
       const olderTurnId = "trn_abc123__turn__older0001";
       const newerTurnId = "trn_abc123__turn__newer0001";
+      await db.query(
+        `INSERT INTO canonical_turn_admissions
+          (session_id, thread_id, workspace_id, turn_id, run_id, admission_state)
+         VALUES ($1, 'thread_1', NULL, $2, 'run_latest_current_turn', 'admitted')`,
+        ["123e4567-e89b-42d3-a456-426614174002", newerTurnId],
+      );
       await db.query(
         `INSERT INTO canonical_lifecycle_events
           (event_id, thread_id, turn_id, run_attempt_id, sequence, idempotency_key, event_type, event_json, schema_version, created_at)
@@ -308,6 +326,8 @@ describe("PostgresTranscriptRepository", () => {
       );
 
       expect(result.sessions[0]?.status).toBe("waiting_for_approval");
+      expect(result.sessions[0]?.activeRunId).toBe("run_abc123");
+      expect(result.sessions[0]?.latestRunId).toBe("run_latest_current_turn");
 
       await db.query(
         `INSERT INTO canonical_lifecycle_events
