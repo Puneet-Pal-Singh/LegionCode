@@ -294,7 +294,9 @@ function AppContent() {
   }, [isAuthenticated, sessions.length]);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
-    providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
+    providerScopeSession?.activeRunId ??
+    providerScopeSession?.latestRunId ??
+    setupSession?.activeRunId;
   const {
     bootstrap: bootstrapProviderStore,
     credentials,
