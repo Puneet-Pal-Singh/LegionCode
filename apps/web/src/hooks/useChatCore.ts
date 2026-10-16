@@ -7,6 +7,7 @@ import {
 } from "@repo/platform-client-sdk";
 import {
   DEFAULT_RUN_MODE,
+  RunModeSchema,
   type ProductMode,
   type RunMode,
 } from "@repo/shared-types";
@@ -760,6 +761,13 @@ export function useChatCore(
           status: "unconfirmed",
           message:
             "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
+        };
+      }
+      if (!RunModeSchema.safeParse(mode).success) {
+        return {
+          status: "unconfirmed",
+          message:
+            "This chat has an unsupported run mode. Choose Build or Plan before submitting.",
         };
       }
       const intentKey = message.id
