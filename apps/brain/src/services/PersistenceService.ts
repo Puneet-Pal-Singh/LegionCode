@@ -571,7 +571,11 @@ function coreMessageToTranscriptParts(
     ];
   }
 
-  if (messageHasImageParts(message) || imageRefs.length > 0) {
+  if (
+    (message.role === "user" && Array.isArray(message.content)) ||
+    messageHasImageParts(message) ||
+    imageRefs.length > 0
+  ) {
     return [
       {
         type: "text",
