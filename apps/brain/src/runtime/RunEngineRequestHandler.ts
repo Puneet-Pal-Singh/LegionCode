@@ -1407,7 +1407,7 @@ export class RunEngineRequestHandler {
             {
               bucket: this.env.EDIT_ARTIFACTS!,
               userId: userIdFromExternalId(payload.userId!),
-              workspaceId: workspaceId.data,
+              workspaceId: workspaceIdFromExternalId(workspaceId.data),
               threadId,
               sourceRunId: payload.runId,
               sourceTurnId: turnId,
