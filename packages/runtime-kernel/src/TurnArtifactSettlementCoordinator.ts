@@ -266,14 +266,16 @@ export class TurnArtifactSettlementCoordinator {
   }
 
   private async captureResumeSnapshot(terminal: RuntimeGitWorkspaceSnapshot) {
-    const capture = this.options.git.captureResumeSnapshot;
-    if (!capture) {
+    if (!this.options.git.captureResumeSnapshot) {
       throw new RuntimeKernelError(
         "turn_artifact_settlement_failed",
         "Interrupted turn workspace progress cannot be stored for resume.",
       );
     }
-    return await capture({ workspace: this.gitWorkspace(), terminal });
+    return await this.options.git.captureResumeSnapshot({
+      workspace: this.gitWorkspace(),
+      terminal,
+    });
   }
 
   private gitWorkspace() {

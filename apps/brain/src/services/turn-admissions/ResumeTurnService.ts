@@ -174,7 +174,8 @@ function parseResumeSnapshotArtifact(
   rawArtifactEvent: import("@repo/shared-types").JsonValue,
 ): ResumeWorkspaceSnapshotRef {
   const snapshotEvent = asRecord(rawSnapshotEvent);
-  const snapshotPayload = asRecord(asRecord(snapshotEvent.payload).snapshot);
+  const snapshotBundle = asRecord(asRecord(snapshotEvent.payload).snapshot);
+  const snapshotPayload = asRecord(snapshotBundle.snapshot);
   const rawRef = snapshotPayload.resumeSnapshotRef;
   const artifactEvent = asRecord(rawArtifactEvent);
   const artifact = asRecord(asRecord(artifactEvent.payload).artifact);
