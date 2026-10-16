@@ -1106,6 +1106,7 @@ describe("RunEngineRequestHandler", () => {
     await historyCoordinator.startToolCall(
       completedToolItemId,
       completedToolCallId,
+      "git.status",
       {},
     );
     await historyCoordinator.requestApproval(
@@ -1130,6 +1131,7 @@ describe("RunEngineRequestHandler", () => {
     await historyCoordinator.startToolCall(
       pendingToolItemId,
       pendingToolCallId,
+      "fs.write",
       {},
     );
     await historyCoordinator.requestApproval(
