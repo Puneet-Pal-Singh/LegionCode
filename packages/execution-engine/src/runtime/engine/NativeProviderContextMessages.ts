@@ -73,10 +73,38 @@ export function summarizeConversationForCompaction(
   const transcript = projection.background
     .map((message) => `${message.role}: ${readMessageText(message)}`)
     .join("\n");
+  const activeToolProgress = projection.activeTask
+    .flatMap(readToolProgress)
+    .join("\n");
+  const content = [
+    transcript,
+    activeToolProgress
+      ? `Active task tool progress:\n${activeToolProgress}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   return (
     header +
-    boundText(transcript, CONTEXT_COMPACTION_SUMMARY_MAX_CHARS - header.length)
+    boundText(content, CONTEXT_COMPACTION_SUMMARY_MAX_CHARS - header.length)
   );
+}
+
+function readToolProgress(message: CoreMessage): string[] {
+  if (!Array.isArray(message.content)) return [];
+  return message.content.flatMap((part) => {
+    if (part.type === "tool-call") {
+      return [
+        `Call ${part.toolName} (${part.toolCallId}), input: ${JSON.stringify(part.args)}`,
+      ];
+    }
+    if (part.type === "tool-result") {
+      return [
+        `Result ${part.toolName} (${part.toolCallId}), ${part.isError ? "error" : "outcome"}: ${JSON.stringify(part.result)}`,
+      ];
+    }
+    return [];
+  });
 }
 
 function hasUserImages(message: CoreMessage): boolean {

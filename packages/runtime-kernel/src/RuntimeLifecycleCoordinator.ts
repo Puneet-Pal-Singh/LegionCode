@@ -914,7 +914,6 @@ export class RuntimeLifecycleCoordinator {
           "the turn is already settling",
         );
       }
-      const nextSequence = this.sequence + 1;
       await this.emit({ type: "turn.input.accepted", payload: input });
       acceptedSequence = this.sequence;
       this.acceptedInputSequences.set(input.inputId, this.sequence);
