@@ -207,13 +207,8 @@ export function ChatInterface({
     activeQueueTarget,
     `${activeTurn.projection?.turnId ?? ""}:${activeTurn.projection?.lastSequence ?? 0}:${activeTurn.continuationStatus}`,
   );
-  const applyStartedQueueReceiptRef = useRef(
-    chatProps.applyStartedQueueReceipt,
-  );
-  applyStartedQueueReceiptRef.current = chatProps.applyStartedQueueReceipt;
-  const queueScopeKey = conversationScope
-    ? `${conversationScope.sessionId}:${conversationScope.runId}:${conversationScope.workspaceId}:${conversationScope.threadId}`
-    : null;
+  const { applyStartedQueueReceipt } = chatProps;
+  const refreshQueue = queue.refresh;
   useEffect(() => {
     const snapshot = queue.snapshot;
     const started = snapshot?.latestStarted?.receipt;
@@ -226,8 +221,8 @@ export function ChatInterface({
     ) {
       return;
     }
-    applyStartedQueueReceiptRef.current(started, conversationScope);
-  }, [conversationScope, queue.snapshot, queueScopeKey]);
+    applyStartedQueueReceipt(started, conversationScope);
+  }, [applyStartedQueueReceipt, conversationScope, queue.snapshot]);
   const submitFollowUp = useCallback(
     async (
       attachments: ChatSubmitAttachments | undefined,
@@ -238,10 +233,10 @@ export function ChatInterface({
         attachments,
         delivery,
       );
-      if (accepted) void queue.refresh();
+      if (accepted) void refreshQueue();
       return accepted;
     },
-    [chatProps, input, queue.refresh],
+    [chatProps, input, refreshQueue],
   );
   const continuationRecovery =
     activeTurn.continuationStatus === "reconnecting" ||

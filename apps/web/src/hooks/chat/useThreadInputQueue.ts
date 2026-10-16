@@ -27,7 +27,10 @@ export function useThreadInputQueue(
     scopeKey: string;
     value: ThreadInputQueueSnapshot;
   } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{
+    scopeKey: string;
+    value: string;
+  } | null>(null);
   const scopeKey = scope
     ? `${scope.sessionId}:${scope.runId}:${scope.workspaceId}:${scope.threadId}`
     : null;
@@ -40,6 +43,7 @@ export function useThreadInputQueue(
 
   const snapshot =
     snapshotState?.scopeKey === scopeKey ? snapshotState.value : null;
+  const error = errorState?.scopeKey === scopeKey ? errorState.value : null;
   const hasPendingItems = Boolean(
     snapshot &&
     snapshot.items.some(
@@ -55,8 +59,6 @@ export function useThreadInputQueue(
     scopeKeyRef.current = scopeKey;
     requestVersionRef.current += 1;
     snapshotRef.current = null;
-    setSnapshotState(null);
-    setError(null);
   }, [scopeKey]);
 
   const refresh = useCallback(async () => {
@@ -81,22 +83,26 @@ export function useThreadInputQueue(
       const nextState = { scopeKey: capturedKey!, value: next };
       setSnapshotState(nextState);
       snapshotRef.current = nextState;
-      setError(null);
+      setErrorState(null);
       return next;
     } catch (requestError) {
       if (scopeKeyRef.current === capturedKey) {
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Queued inputs could not be loaded.",
-        );
+        setErrorState({
+          scopeKey: capturedKey!,
+          value:
+            requestError instanceof Error
+              ? requestError.message
+              : "Queued inputs could not be loaded.",
+        });
       }
       return null;
     }
   }, [client, scope, scopeKey]);
 
   useEffect(() => {
-    if (scope) void refresh();
+    if (!scope) return;
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
   }, [refresh, scope, invalidationKey]);
 
   useEffect(() => {
@@ -125,19 +131,21 @@ export function useThreadInputQueue(
         const receipt = await action();
         if (scopeKeyRef.current !== capturedKey) return null;
         if (receipt.status === "conflict") {
-          setError(receipt.message);
+          setErrorState({ scopeKey: capturedKey!, value: receipt.message });
         } else {
-          setError(null);
+          setErrorState(null);
         }
         await refresh();
         return receipt;
       } catch (requestError) {
         if (scopeKeyRef.current === capturedKey) {
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : "Queued input could not be updated.",
-          );
+          setErrorState({
+            scopeKey: capturedKey!,
+            value:
+              requestError instanceof Error
+                ? requestError.message
+                : "Queued input could not be updated.",
+          });
         }
         return null;
       }
