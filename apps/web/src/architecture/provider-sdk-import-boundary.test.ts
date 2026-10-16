@@ -11,6 +11,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "services/lifecycle/LifecycleProjection.ts",
   "services/ChatHydrationService.ts",
   "components/chat/ChatInputBar.tsx",
+  "components/chat/conversation/ThreadInputQueuePanel.tsx",
   "components/chat/ChatInterface.tsx",
   "components/chat/ContextWindowIndicator.tsx",
   "components/chat/chat-interface/ChatComposerControls.tsx",
@@ -22,6 +23,9 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/chat/messageMetadata.ts",
   "components/layout/workspace/useWorkspaceState.ts",
   "hooks/useChatCore.ts",
+  "hooks/chat/useConversationInputCommands.ts",
+  "hooks/chat/useThreadInputQueue.ts",
+  "hooks/useChat.ts",
   "hooks/useConversationLifecycleProjections.ts",
   "hooks/useTurnLifecycleProjection.ts",
 ]);
