@@ -55,6 +55,7 @@ interface ServerSessionRecord {
   titleSource?: ChatTitleSource;
   repository: string | null;
   activeRunId: string | null;
+  latestRunId?: string | null;
   mode: RunMode;
   status:
     | "idle"
@@ -665,6 +666,12 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
   const activeRunId = isCanonicalRunId(session.activeRunId)
     ? session.activeRunId
     : null;
+  const latestRunId = isCanonicalRunId(session.latestRunId)
+    ? session.latestRunId
+    : null;
+  const runIds = [...new Set([activeRunId, latestRunId].filter(
+    (runId): runId is string => runId !== null,
+  ))];
 
   return {
     id: session.id,
@@ -674,7 +681,8 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
     persistenceStatus: "saved",
     repository: session.repository,
     activeRunId,
-    runIds: activeRunId ? [activeRunId] : [],
+    latestRunId,
+    runIds,
     status: mapServerStatus(session.status),
     mode: session.mode ?? DEFAULT_RUN_MODE,
     pinnedAt: session.pinnedAt ?? null,

@@ -1118,7 +1118,7 @@ function AppContent() {
               <SessionConversationSurface
                 key={activeSessionId}
                 sessionId={activeSessionId}
-                runId={activeSession.activeRunId || ""}
+                runId={activeSession.activeRunId ?? activeSession.latestRunId ?? ""}
                 mode={activeSession.mode}
                 isSessionPersistenceReady={isSessionPersistenceReady(
                   activeSession.persistenceStatus,
