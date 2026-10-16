@@ -1183,6 +1183,11 @@ export function useChatCore(
   const clearChatInput = useCallback(() => {
     updateChatInput("", handleInputChange);
   }, [handleInputChange]);
+  const commitConversationScope = useCallback((scope: ConversationScope) => {
+    activeScopeKeyRef.current = conversationScopeKey(scope);
+    activeConversationScopeRef.current = scope;
+    setConversationScope(scope);
+  }, []);
   const { submitFollowUp, resumeInterruptedTurn, applyStartedQueueReceipt } =
     useConversationInputCommands({
       sessionId,
@@ -1202,7 +1207,7 @@ export function useChatCore(
       latestInputRef: latestComposerInputRef,
       inputVersionRef: composerInputVersionRef,
       setError,
-      setScope: setConversationScope,
+      commitScope: commitConversationScope,
     });
 
   const restoreChatInput = useCallback(

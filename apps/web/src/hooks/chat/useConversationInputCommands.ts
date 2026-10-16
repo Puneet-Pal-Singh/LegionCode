@@ -4,9 +4,9 @@ import {
   ThreadIdSchema,
   ThreadInputConfigurationSchema,
   TurnIdSchema,
+  WorkspaceScopeIdSchema,
 } from "@repo/platform-client-sdk";
 import type { ProductMode, RunMode, ReasoningEffort } from "@repo/shared-types";
-import { WorkspaceScopeIdSchema } from "@repo/platform-protocol";
 import type { ThreadInputReceipt } from "@repo/platform-client-sdk";
 import type { LifecycleClient } from "../../services/api/lifecycleClient";
 import type { ChatImageAttachment } from "../../components/chat/chatImageAttachments";
@@ -35,7 +35,7 @@ export function useConversationInputCommands(input: {
   isActiveRunInvocation: (runScopeKey: string, generation: number) => boolean;
   clearInput: () => void;
   setError: (error: string | null) => void;
-  setScope: (scope: ConversationScope) => void;
+  commitScope: (scope: ConversationScope) => void;
 }) {
   const pendingDeliveryRef = useRef(
     new Map<
@@ -80,7 +80,15 @@ export function useConversationInputCommands(input: {
         return false;
       }
 
-      const configuration = buildInputConfiguration(input);
+      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      try {
+        configuration = buildInputConfiguration(input);
+      } catch {
+        input.setError(
+          "Conversation settings are invalid. Check the selected provider, model, and reasoning effort.",
+        );
+        return false;
+      }
       const fingerprint = JSON.stringify({
         workspaceId: capturedScope.workspaceId,
         threadId: capturedScope.threadId,
@@ -174,8 +182,7 @@ export function useConversationInputCommands(input: {
             runId: receipt.runId,
           });
           input.onRunIdChange?.(receipt.runId);
-          input.scopeRef.current = nextScope;
-          input.setScope(nextScope);
+          input.commitScope(nextScope);
         }
         if (
           input.inputVersionRef.current === capturedDraftVersion &&
@@ -204,7 +211,15 @@ export function useConversationInputCommands(input: {
       const capturedRunScope = input.runScopeRef.current;
       const capturedGeneration = input.generationRef.current;
       if (!capturedScope) return false;
-      const configuration = buildInputConfiguration(input);
+      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      try {
+        configuration = buildInputConfiguration(input);
+      } catch {
+        input.setError(
+          "Conversation settings are invalid. Check the selected provider, model, and reasoning effort.",
+        );
+        return false;
+      }
       const fingerprint = JSON.stringify({
         workspaceId: capturedScope.workspaceId,
         threadId: capturedScope.threadId,
@@ -262,8 +277,7 @@ export function useConversationInputCommands(input: {
           runId: receipt.runId,
         });
         input.onRunIdChange?.(receipt.runId);
-        input.scopeRef.current = nextScope;
-        input.setScope(nextScope);
+        input.commitScope(nextScope);
         return true;
       } catch (resumeError) {
         if (input.isActiveRunInvocation(capturedRunScope, capturedGeneration)) {
@@ -305,8 +319,7 @@ export function useConversationInputCommands(input: {
         runId: receipt.runId,
       });
       input.onRunIdChange?.(receipt.runId);
-      input.scopeRef.current = nextScope;
-      input.setScope(nextScope);
+      input.commitScope(nextScope);
       return true;
     },
     [input],
@@ -324,7 +337,7 @@ function buildInputConfiguration(input: {
   selectedModelEfforts?: readonly ReasoningEffort[];
 }) {
   return ThreadInputConfigurationSchema.parse({
-    mode: input.mode,
+    mode: input.mode === "build" ? "auto_edit" : input.mode,
     ...(input.productMode ? { productMode: input.productMode } : {}),
     harnessId: resolveRuntimeHarnessId(input.sessionId),
     ...(input.selectedProviderId && input.selectedModelId

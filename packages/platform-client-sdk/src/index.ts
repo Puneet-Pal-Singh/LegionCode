@@ -76,6 +76,7 @@ export {
   ThreadInputReceiptSchema,
   ThreadInputUpdateContentSchema,
   UpdateThreadInputCommandSchema,
+  WorkspaceScopeIdSchema,
   type ResumeTurnReceipt,
   type ThreadInputCommand,
   type ThreadInputQueueItem,

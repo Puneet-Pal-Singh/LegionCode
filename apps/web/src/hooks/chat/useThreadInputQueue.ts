@@ -1,12 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   RunAttemptIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
+  WorkspaceScopeIdSchema,
   type ThreadInputQueueSnapshot,
   type ThreadInputReceipt,
 } from "@repo/platform-client-sdk";
-import { WorkspaceScopeIdSchema } from "@repo/platform-protocol";
 import type { ConversationScope } from "../conversationScope";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 
@@ -31,11 +38,6 @@ export function useThreadInputQueue(
     value: ThreadInputQueueSnapshot;
   } | null>(null);
 
-  if (scopeKeyRef.current !== scopeKey) {
-    scopeKeyRef.current = scopeKey;
-    requestVersionRef.current += 1;
-    snapshotRef.current = null;
-  }
   const snapshot =
     snapshotState?.scopeKey === scopeKey ? snapshotState.value : null;
   const hasPendingItems = Boolean(
@@ -49,7 +51,10 @@ export function useThreadInputQueue(
     ),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    scopeKeyRef.current = scopeKey;
+    requestVersionRef.current += 1;
+    snapshotRef.current = null;
     setSnapshotState(null);
     setError(null);
   }, [scopeKey]);
