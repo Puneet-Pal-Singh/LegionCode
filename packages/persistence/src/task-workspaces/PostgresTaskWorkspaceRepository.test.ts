@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresTaskWorkspaceRepository } from "./PostgresTaskWorkspaceRepository.js";
 import type { TaskCheckout, WorkspaceSnapshot } from "@repo/platform-protocol";
@@ -21,6 +22,9 @@ class TaskWorkspaceSqlClient implements SqlClient {
     if (statement.startsWith("INSERT INTO workspace_snapshots")) {
       const row = snapshotRow(params);
       if (this.snapshots.has(String(params[0]))) {
+        if (statement.includes("ON CONFLICT (snapshot_id) DO NOTHING")) {
+          return rows<Row>([]);
+        }
         throw { code: "23505", constraint: "workspace_snapshots_pkey" };
       }
       this.snapshots.set(row.snapshot_id as string, row);
@@ -141,13 +145,46 @@ describe("PostgresTaskWorkspaceRepository", () => {
   });
 
   it("idempotently persists an immutable snapshot and rejects replacement", async () => {
-    const repository = createRepository();
-    const first = await repository.createSnapshot(snapshot());
+    const database = new PGlite();
+    try {
+      await database.exec(`
+        CREATE TABLE workspace_snapshots (
+          snapshot_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          repository_provider TEXT NOT NULL,
+          repository_owner TEXT,
+          repository_name TEXT NOT NULL,
+          repository_url TEXT NOT NULL,
+          authorized_commit_id TEXT NOT NULL,
+          authorized_tree_id TEXT NOT NULL,
+          manifest_digest TEXT NOT NULL,
+          config_digest TEXT NOT NULL,
+          captured_at TIMESTAMPTZ NOT NULL,
+          provenance_json JSONB NOT NULL,
+          UNIQUE (snapshot_id, workspace_id)
+        )
+      `);
+      const repository = new PostgresTaskWorkspaceRepository(
+        new PGliteSqlClient(database),
+      );
+      const first = await repository.createSnapshot(snapshot());
 
-    await expect(repository.createSnapshot(snapshot())).resolves.toEqual(first);
-    await expect(
-      repository.createSnapshot(snapshot({ configDigest: "e".repeat(64) })),
-    ).rejects.toMatchObject({ code: "workspace_snapshot_conflict" });
+      const replayed = await database.transaction(async (transaction) => {
+        const transactionRepository = new PostgresTaskWorkspaceRepository(
+          new PGliteSqlClient(transaction as unknown as PGlite),
+        );
+        const duplicate =
+          await transactionRepository.createSnapshot(snapshot());
+        await transaction.query("SELECT 1");
+        return duplicate;
+      });
+      expect(replayed).toEqual(first);
+      await expect(
+        repository.createSnapshot(snapshot({ configDigest: "e".repeat(64) })),
+      ).rejects.toMatchObject({ code: "workspace_snapshot_conflict" });
+    } finally {
+      await database.close();
+    }
   });
 
   it("persists exactly one checkout for a run attempt and lease", async () => {
@@ -265,6 +302,30 @@ describe("PostgresTaskWorkspaceRepository", () => {
 
 function createRepository(): PostgresTaskWorkspaceRepository {
   return new PostgresTaskWorkspaceRepository(new TaskWorkspaceSqlClient());
+}
+
+class PGliteSqlClient implements SqlClient {
+  constructor(private readonly database: PGlite) {}
+
+  async query<Row extends SqlRow = SqlRow>(
+    statement: string,
+    params: readonly SqlValue[] = [],
+  ): Promise<SqlQueryResult<Row>> {
+    const result = await this.database.query(statement, [...params]);
+    return {
+      rows: result.rows as Row[],
+      rowCount: result.affectedRows ?? result.rows.length,
+    };
+  }
+
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
+    return await this.database.transaction(
+      async (transaction) =>
+        await callback(new PGliteSqlClient(transaction as unknown as PGlite)),
+    );
+  }
 }
 
 function snapshot(
