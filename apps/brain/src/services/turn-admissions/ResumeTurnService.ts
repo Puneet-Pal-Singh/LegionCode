@@ -1,6 +1,8 @@
 import {
   ResumeWorkspaceSnapshotRefSchema,
   ThreadInputConfigurationSchema,
+  userIdFromExternalId,
+  workspaceIdFromExternalId,
   type ResumeWorkspaceSnapshotRef,
   type ThreadInputConfiguration,
 } from "@repo/platform-protocol";
@@ -86,9 +88,11 @@ export class ResumeTurnService {
     }
 
     const resumeSnapshot = parseResumeSnapshotArtifact(target.snapshotEvent, target.resumeArtifactEvent);
+    const artifactUserId = userIdFromExternalId(input.userId);
+    const artifactWorkspaceId = workspaceIdFromExternalId(input.workspaceId);
     if (
-      resumeSnapshot.userId !== input.userId ||
-      resumeSnapshot.workspaceId !== input.workspaceId ||
+      resumeSnapshot.userId !== artifactUserId ||
+      resumeSnapshot.workspaceId !== artifactWorkspaceId ||
       resumeSnapshot.threadId !== input.threadId ||
       resumeSnapshot.sourceRunId !== target.admission.runId ||
       resumeSnapshot.sourceTurnId !== target.admission.turnId ||
@@ -100,7 +104,7 @@ export class ResumeTurnService {
     try {
       workspacePatch = await new ResumeWorkspaceSnapshotStore(this.env.EDIT_ARTIFACTS).read(
         resumeSnapshot,
-        { userId: input.userId, workspaceId: input.workspaceId, threadId: input.threadId },
+        { userId: artifactUserId, workspaceId: artifactWorkspaceId, threadId: input.threadId },
       );
     } catch {
       throw new ResumeTurnError("The captured workspace snapshot failed ownership or integrity validation", "resume_snapshot_unavailable");

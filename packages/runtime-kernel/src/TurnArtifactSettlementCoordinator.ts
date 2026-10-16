@@ -244,6 +244,7 @@ export class TurnArtifactSettlementCoordinator {
       try {
         resumeSnapshotRef = await this.captureResumeSnapshot(snapshot);
       } catch (error) {
+        logResumeCaptureFailure(error, this.options.run.id, this.options.turn.id);
         unavailableReason = /size limit|too large/iu.test(
           error instanceof Error ? error.message : "",
         )
@@ -312,6 +313,40 @@ export class TurnArtifactSettlementCoordinator {
     }
     return this.startSnapshot;
   }
+}
+
+function logResumeCaptureFailure(
+  error: unknown,
+  runId: string,
+  turnId: string,
+): void {
+  const candidate =
+    typeof error === "object" && error !== null
+      ? (error as { name?: unknown; issues?: unknown })
+      : undefined;
+  const issues = Array.isArray(candidate?.issues)
+    ? candidate.issues.map((issue: unknown) => {
+        const entry =
+          typeof issue === "object" && issue !== null
+            ? (issue as { code?: unknown; path?: unknown })
+            : undefined;
+        return {
+          code: typeof entry?.code === "string" ? entry.code : "unknown",
+          path: Array.isArray(entry?.path)
+            ? entry.path.filter((part): part is string | number =>
+                typeof part === "string" || typeof part === "number",
+              )
+            : [],
+        };
+      })
+    : undefined;
+  console.warn("Interrupted workspace snapshot capture failed", {
+    runId,
+    turnId,
+    errorName:
+      typeof candidate?.name === "string" ? candidate.name : "unknown",
+    ...(issues ? { validationIssues: issues } : {}),
+  });
 }
 
 function toGitSnapshot(
