@@ -12,7 +12,7 @@ export function writeSessionScopedSelection(
   selection: ProviderSelectionSnapshot,
 ): void {
   try {
-    sessionStorage.setItem(
+    localStorage.setItem(
       buildSessionScopedSelectionStorageKey(sessionId),
       JSON.stringify(selection),
     );
@@ -27,23 +27,30 @@ export function writeSessionScopedSelection(
 export function readSessionScopedSelection(
   sessionId: string,
 ): ProviderSelectionSnapshot | null {
+  const key = buildSessionScopedSelectionStorageKey(sessionId);
   try {
-    const serialized = sessionStorage.getItem(
-      buildSessionScopedSelectionStorageKey(sessionId),
-    );
-    if (!serialized) {
-      return null;
+    const serialized = localStorage.getItem(key);
+    if (serialized) {
+      const parsed: unknown = JSON.parse(serialized);
+      if (isProviderSelectionSnapshot(parsed)) return parsed;
     }
-
-    const parsed: unknown = JSON.parse(serialized);
-    if (!isProviderSelectionSnapshot(parsed)) {
-      return null;
-    }
-
-    return parsed;
   } catch (error) {
     console.warn(
       "[provider/store] failed to restore session-scoped selection",
+      error,
+    );
+  }
+
+  try {
+    const serialized = sessionStorage.getItem(key);
+    if (!serialized) return null;
+    const parsed: unknown = JSON.parse(serialized);
+    if (!isProviderSelectionSnapshot(parsed)) return null;
+    writeSessionScopedSelection(sessionId, parsed);
+    return parsed;
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to restore legacy session-scoped selection",
       error,
     );
     return null;
@@ -55,17 +62,23 @@ function buildSessionScopedSelectionStorageKey(sessionId: string): string {
 }
 
 export function clearPersistedSessionScopedSelections(): void {
+  clearSessionScopedSelections(() => localStorage);
+  clearSessionScopedSelections(() => sessionStorage);
+}
+
+function clearSessionScopedSelections(getStorage: () => Storage): void {
   try {
+    const storage = getStorage();
     const keysToRemove: string[] = [];
-    for (let index = 0; index < sessionStorage.length; index += 1) {
-      const key = sessionStorage.key(index);
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
       if (key && key.startsWith(SESSION_SCOPED_SELECTION_STORAGE_KEY_PREFIX)) {
         keysToRemove.push(key);
       }
     }
 
     for (const key of keysToRemove) {
-      sessionStorage.removeItem(key);
+      storage.removeItem(key);
     }
   } catch (error) {
     console.warn(
