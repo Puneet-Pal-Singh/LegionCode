@@ -2,9 +2,9 @@ import { z } from "zod";
 import {
   ChatImageAttachmentRefSchema,
   ChatMediaImageTypeSchema,
-  ProductModeSchema,
-  ReasoningEffortSchema,
-} from "@repo/shared-types";
+} from "./chat-media.js";
+import { ReasoningEffortSchema } from "./capabilities.js";
+import { ProductModeSchema } from "./permissions.js";
 import { EventSequenceSchema } from "./common.js";
 import {
   ModelIdSchema,

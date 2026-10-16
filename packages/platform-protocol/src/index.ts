@@ -18,6 +18,13 @@ export {
   type ArtifactPayloadRef,
 } from "./artifacts.js";
 export {
+  CHAT_MEDIA_IMAGE_TYPES,
+  ChatMediaImageTypeSchema,
+  ChatImageAttachmentRefSchema,
+  type ChatMediaImageType,
+  type ChatImageAttachmentRef,
+} from "./chat-media.js";
+export {
   CapabilityConfidenceSchema,
   CapabilityEntrySchema,
   CapabilityEvidenceSourceSchema,
@@ -27,6 +34,7 @@ export {
   WorkerCapabilitySnapshotSchema,
   WorkerExecutionLocationSchema,
   WorkerIsolationStrengthSchema,
+  ReasoningEffortSchema,
   type CapabilityConfidence,
   type CapabilityEntry,
   type CapabilityEvidenceSource,
@@ -36,6 +44,7 @@ export {
   type WorkerCapabilitySnapshot,
   type WorkerExecutionLocation,
   type WorkerIsolationStrength,
+  type ReasoningEffort,
 } from "./capabilities.js";
 export {
   BranchIdSchema,
@@ -440,6 +449,9 @@ export {
   type WorkspaceManifestState,
 } from "./workspaces.js";
 export {
+  PRODUCT_MODES,
+  ProductModeSchema,
+  type ProductMode,
   PermissionDecisionSourceSchema,
   PermissionEffectSchema,
   PermissionPolicyDecisionSchema,
