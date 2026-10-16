@@ -22,6 +22,9 @@ import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPer
 import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
 import { settleOwnedStartupFailure } from "../../runtime/RuntimeLifecycleSettlement";
 import { sanitizeUnknownError } from "../../core/security/LogSanitizer";
+import { ExecuteRunPayloadSchema } from "../../runtime/parsing/ExecuteRunPayloadSchema";
+import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
+import type { AuthorizedWorkspaceRepositoryContext } from "../workspaces/AuthorizedWorkspaceRepositoryContext";
 
 export interface AdmittedTurnExecution {
   readonly request: Request;
@@ -45,6 +48,7 @@ export interface AdmittedTurnExecution {
   };
   readonly modelMetadata?: ChatModelMetadata;
   readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
+  readonly repository: AuthorizedWorkspaceRepositoryContext;
   readonly onStartupFailure: (error: unknown) => Promise<boolean>;
   readonly onDispatchSettled: () => Promise<void>;
   readonly onTerminal?: (
@@ -86,7 +90,9 @@ export async function dispatchAdmittedTurn(
   input: AdmittedTurnExecution,
 ): Promise<void> {
   const dispatch = async () => {
-    let result;
+    let executionPayload: Awaited<
+      ReturnType<HandleChatRequest["execute"]>
+    >["executionPayload"];
     try {
       const modelMetadata =
         input.modelMetadata ?? (await prepareAdmittedTurnModel(input));
@@ -95,7 +101,7 @@ export async function dispatchAdmittedTurn(
         role: "user" as const,
         content: input.prompt,
       };
-      result = await new HandleChatRequest(input.env).execute(
+      const result = await new HandleChatRequest(input.env).execute(
         {
           sessionId: input.sessionId,
           runId: input.run.id,
@@ -103,8 +109,7 @@ export async function dispatchAdmittedTurn(
           workspaceId: input.workspaceId,
           correlationId: input.correlationId,
           agentType: mapAgentIdToType("coding", input.correlationId),
-          mode: (input.configuration.mode ??
-            input.run.mode) as import("@repo/shared-types").RunMode,
+          mode: toRuntimeRunMode(input.configuration.mode ?? input.run.mode),
           prompt: input.prompt,
           messages: [promptMessage],
           providerId:
@@ -119,7 +124,11 @@ export async function dispatchAdmittedTurn(
           providerRuntimeRoute: modelMetadata.runtimeRoute,
           modelCapabilities: modelMetadata.capabilities,
           modelInputModalities: modelMetadata.inputModalities,
-          repositoryBranch: input.run.branch ?? undefined,
+          repositoryBranch:
+            input.run.branch ?? input.repository.repositoryBranch,
+          repositoryOwner: input.repository.repositoryOwner,
+          repositoryName: input.repository.repositoryName,
+          repositoryBaseUrl: input.repository.repositoryBaseUrl,
           identity: input.identity,
           preAdmitted: {
             run: input.run,
@@ -131,6 +140,8 @@ export async function dispatchAdmittedTurn(
         },
         input.request.headers.get("Origin") ?? undefined,
       );
+      ExecuteRunPayloadSchema.parse(result.executionPayload);
+      executionPayload = result.executionPayload;
     } catch (error) {
       try {
         const settled = await input.onStartupFailure(error);
@@ -150,7 +161,7 @@ export async function dispatchAdmittedTurn(
     const response = await executeViaRunEngineDurableObject(
       input.env,
       input.run.id,
-      result.executionPayload,
+      executionPayload,
     );
     await response.arrayBuffer();
     const terminal = await readRunTerminal(
@@ -160,10 +171,16 @@ export async function dispatchAdmittedTurn(
     );
     if (terminal) await input.onDispatchSettled();
     if (terminal) await input.onTerminal?.(terminal);
-    if (!response.ok)
-      throw new Error(
+    if (!response.ok) {
+      const error = new Error(
         `RunEngine rejected admitted turn with HTTP ${response.status}`,
       );
+      if (response.status === 400) {
+        const settled = await input.onStartupFailure(error);
+        if (settled) await input.onDispatchSettled();
+      }
+      throw error;
+    }
   };
 
   const task = dispatch().catch((error: unknown) => {

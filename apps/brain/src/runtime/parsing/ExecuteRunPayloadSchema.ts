@@ -42,7 +42,7 @@ const CoreMessageSchema = z.union([
     id: z.string().trim().min(1).optional(),
     role: z.literal("tool"),
     content: z.unknown(),
-    tool_call_id: z.string(),
+    tool_call_id: z.string().optional(),
   }),
 ]);
 
@@ -90,7 +90,7 @@ export const ExecuteRunPayloadSchema = z.object({
     .object({
       mode: RunModeSchema,
       agentType: z.enum(["coding", "review", "ci"]),
-      prompt: z.string().trim().min(1),
+      prompt: z.string().trim(),
       sessionId: z.string().trim().min(1),
       providerId: z.string().trim().min(1).optional(),
       modelId: z.string().trim().min(1).optional(),
@@ -174,7 +174,31 @@ export const ExecuteRunPayloadSchema = z.object({
     }),
   messages: z.array(CoreMessageSchema).min(1),
   tools: z.record(SerializableToolDefinitionSchema).optional(),
+}).superRefine((payload, context) => {
+  if (payload.input.prompt.length > 0 || hasUserImageMessage(payload.messages)) {
+    return;
+  }
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ["input", "prompt"],
+    message: "A text prompt or user image is required.",
+  });
 });
+
+function hasUserImageMessage(messages: readonly unknown[]): boolean {
+  return messages.some((message) => {
+    if (typeof message !== "object" || message === null) return false;
+    const candidate = message as { role?: unknown; content?: unknown };
+    return (
+      candidate.role === "user" &&
+      Array.isArray(candidate.content) &&
+      candidate.content.some((part: unknown) => {
+        if (typeof part !== "object" || part === null) return false;
+        return (part as { type?: unknown }).type === "image";
+      })
+    );
+  });
+}
 
 /**
  * Typed version of the payload.

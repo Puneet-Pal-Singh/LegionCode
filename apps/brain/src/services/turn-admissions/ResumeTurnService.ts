@@ -7,6 +7,11 @@ import {
   type ThreadInputConfiguration,
 } from "@repo/platform-protocol";
 import { ResumeWorkspaceSnapshotStore } from "../../runtime/task-workspaces/ResumeWorkspaceSnapshotStore";
+import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
+import {
+  resolveAuthorizedWorkspaceRepositoryContext,
+  type AuthorizedWorkspaceRepositoryContext,
+} from "../workspaces/AuthorizedWorkspaceRepositoryContext";
 import type { Env } from "../../types/ai";
 import { withTurnAdmissionRepository } from "./TurnAdmissionPersistenceFactory";
 
@@ -41,6 +46,7 @@ export interface ResumedTurn {
   };
   readonly resumeSnapshot: ResumeWorkspaceSnapshotRef;
   readonly workspacePatch: string;
+  readonly repository: AuthorizedWorkspaceRepositoryContext;
 }
 
 export class ResumeTurnError extends Error {
@@ -85,6 +91,27 @@ export class ResumeTurnService {
     );
     if (!target) {
       throw new ResumeTurnError("The interrupted turn is no longer the current resumable turn", "resume_target_conflict");
+    }
+    const repository = await resolveAuthorizedWorkspaceRepositoryContext({
+      env: this.env,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+      preferredBranch: target.run.branch,
+    });
+    if (!repository) {
+      throw new ResumeTurnError(
+        "The interrupted workspace is no longer available for this account.",
+        "resume_workspace_unavailable",
+      );
+    }
+    try {
+      toRuntimeRunMode(explicitConfiguration.mode ?? target.run.mode);
+    } catch {
+      throw new ResumeTurnError(
+        "The interrupted turn uses a run mode that cannot be resumed.",
+        "resume_configuration_invalid",
+        400,
+      );
     }
 
     const resumeSnapshot = parseResumeSnapshotArtifact(target.snapshotEvent, target.resumeArtifactEvent);
@@ -169,6 +196,7 @@ export class ResumeTurnService {
       configuration,
       resumeSnapshot,
       workspacePatch,
+      repository,
     };
   }
 }

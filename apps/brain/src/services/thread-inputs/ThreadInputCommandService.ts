@@ -23,6 +23,8 @@ import { assertChatImageModelSupport } from "../chat/ChatImageModelPolicy";
 import { ThreadInputConflictError } from "@repo/persistence";
 import { readRunTerminal } from "./AdmittedTurnExecutionService";
 import { RunAdmissionService } from "../../runtime/RunAdmissionService";
+import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
+import { resolveAuthorizedWorkspaceRepositoryContext } from "../workspaces/AuthorizedWorkspaceRepositoryContext";
 
 type ResumeTurnCommand = Extract<
   ThreadInputCommand,
@@ -168,6 +170,7 @@ export class ThreadInputCommandService {
           promptMessageId: resumed.originalPromptId,
           configuration: resumed.configuration,
           resumeSnapshotRef: resumed.resumeSnapshot,
+          repository: resumed.repository,
           onStartupFailure: async (error) => {
             const settled = await settleUnclaimedStartupFailure({
               env: this.env,
@@ -259,6 +262,17 @@ export class ThreadInputCommandService {
         "Queue item not found.",
         "queue_item_changed",
       );
+    const repositoryContext = await resolveAuthorizedWorkspaceRepositoryContext({
+      env: this.env,
+      userId: input.userId,
+      workspaceId: command.workspaceId,
+    });
+    if (!repositoryContext) {
+      throw new ThreadInputConflictError(
+        "The selected workspace is no longer available for this account.",
+        "workspace_unavailable",
+      );
+    }
     if (
       item.delivery !== "queue" ||
       (item.state === "pending" && item.version !== command.expectedVersion)
@@ -361,7 +375,7 @@ export class ThreadInputCommandService {
           mode: item.configuration.mode ?? "auto_edit",
           providerId: item.configuration.providerId ?? null,
           modelId: item.configuration.modelId ?? null,
-          branch: null,
+          branch: repositoryContext.repositoryBranch,
           explicitStart: input.explicitStart ?? true,
           promptMessage: {
             parts: [
@@ -453,6 +467,7 @@ export class ThreadInputCommandService {
           prompt: item.text,
           promptMessageId: result.promptMessageId,
           configuration: item.configuration,
+          repository: repositoryContext,
           modelMetadata,
           onStartupFailure: async (error) => {
             const settled = await settleUnclaimedStartupFailure({
@@ -568,7 +583,7 @@ async function fingerprint(value: unknown): Promise<string> {
 }
 
 function admissionMode(mode: string | undefined): "build" | "plan" {
-  return mode === "plan" ? "plan" : "build";
+  return toRuntimeRunMode(mode);
 }
 
 async function admissionMayOwnLease(
