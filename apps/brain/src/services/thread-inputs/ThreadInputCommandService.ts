@@ -58,6 +58,35 @@ export class ThreadInputCommandService {
     await this.onTurnTerminal({ ...input, type });
   }
 
+  scheduleTerminalReconciliation(input: {
+    readonly response: Response;
+    readonly request: Request;
+    readonly executionContext?: ExecutionContext;
+    readonly runId: string;
+    readonly turnId: string;
+    readonly userId: string;
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly workspaceId: string;
+    readonly correlationId: string;
+  }): void {
+    if (!input.executionContext) return;
+    const { response, ...reconciliation } = input;
+    input.executionContext.waitUntil(
+      response
+        .clone()
+        .arrayBuffer()
+        .then(() => this.reconcileTerminal(reconciliation))
+        .catch((error: unknown) => {
+          console.error("[thread-input/terminal] queue reconciliation failed", {
+            correlationId: input.correlationId,
+            turnId: input.turnId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }),
+    );
+  }
+
   async resume(input: {
     readonly request: Request;
     readonly executionContext?: ExecutionContext;

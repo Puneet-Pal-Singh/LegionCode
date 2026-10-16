@@ -294,29 +294,11 @@ export class ChatController {
         runId,
         useCaseResult.executionPayload,
       );
-      if (executionContext) {
-        executionContext.waitUntil(
-          doResponse.clone().arrayBuffer().then(async () =>
-            await new ThreadInputCommandService(env).reconcileTerminal({
-              request: req,
-              executionContext,
-              runId,
-              turnId: identity.turnId,
-              userId,
-              sessionId,
-              threadId: identity.threadId,
-              workspaceId,
-              correlationId,
-            }),
-          ).catch((error: unknown) => {
-            console.error("[thread-input/terminal] queue reconciliation failed", {
-              correlationId,
-              turnId: identity.turnId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }),
-        );
-      }
+      new ThreadInputCommandService(env).scheduleTerminalReconciliation({
+        response: doResponse, request: req, executionContext, runId,
+        turnId: identity.turnId, userId, sessionId,
+        threadId: identity.threadId, workspaceId, correlationId,
+      });
       const runtimeTarget = resolveRuntimeTarget(
         env,
         useCaseResult.executionPayload.input.orchestratorBackend,

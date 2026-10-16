@@ -29,7 +29,6 @@ import {
   type Run,
   type RunAttemptId,
   type Thread,
-  type ThreadInputCommand,
   type Turn,
   type TurnDiffPayload,
   type ToolCallItemContent,
@@ -438,7 +437,7 @@ class GoldenPlatformTransport implements PlatformClientTransport {
     };
   }
 
-  async threadInputCommand(_request: ThreadInputCommand): Promise<unknown> {
+  async threadInputCommand(): Promise<unknown> {
     throw new Error("Golden fixture does not exercise thread input commands.");
   }
 
