@@ -28,7 +28,7 @@ import {
   type ProviderModelTransport,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
-import type { TurnScopeBootstrap } from "@repo/platform-protocol";
+import type { ResumeWorkspaceSnapshotRef, TurnScopeBootstrap } from "@repo/platform-protocol";
 import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
@@ -89,6 +89,12 @@ export interface HandleChatRequestInput {
   modelCapabilities?: BYOKModelCapability;
   modelInputModalities?: BYOKModelInputModality;
   identity: TurnScopeBootstrap;
+  /** A command path already reserved and admitted this turn under its canonical lock. */
+  preAdmitted?: {
+    readonly run: RunRecord;
+    readonly promptMessageId: string;
+    readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
+  };
   backgroundTaskOwner?: BackgroundTaskOwner;
 }
 
@@ -125,6 +131,7 @@ export interface HandleChatRequestOutput {
     messages: CoreMessage[];
     tools?: Record<string, SerializableToolDefinition>;
     identity: TurnScopeBootstrap;
+    resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
   };
 }
 
@@ -211,20 +218,27 @@ export class HandleChatRequest {
           messageCount: messages.length,
         }),
       );
-      const admittedTurn = await this.persistenceService.admitUserTurn({
-        sessionId,
-        runId,
-        userId,
-        workspaceId: identity.workspaceId,
-        taskId,
-        identity,
-        message: lastUserMessage,
-        mode,
-        providerId: input.providerId ?? null,
-        modelId: input.modelId ?? null,
-        branch: repositoryBranch ?? null,
-      });
-      persistedRun = admittedTurn.run;
+      let persistedUserMessageId: string;
+      if (input.preAdmitted) {
+        persistedRun = input.preAdmitted.run;
+        persistedUserMessageId = input.preAdmitted.promptMessageId;
+      } else {
+        const admittedTurn = await this.persistenceService.admitUserTurn({
+          sessionId,
+          runId,
+          userId,
+          workspaceId: identity.workspaceId,
+          taskId,
+          identity,
+          message: lastUserMessage,
+          mode,
+          providerId: input.providerId ?? null,
+          modelId: input.modelId ?? null,
+          branch: repositoryBranch ?? null,
+        });
+        persistedRun = admittedTurn.run;
+        persistedUserMessageId = admittedTurn.id;
+      }
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
           correlationId,
@@ -234,13 +248,13 @@ export class HandleChatRequest {
         }),
       );
 
-      if (userId) {
+      if (userId && !input.preAdmitted) {
         await scheduleInitialThreadTitle(this.env, this.persistenceService, {
           sessionId,
           userId,
           identity,
           prompt,
-          persistedUserMessageId: admittedTurn.id,
+          persistedUserMessageId,
           persistedRun,
           providerRuntimeRoute: input.providerRuntimeRoute,
           modelCapabilities: input.modelCapabilities,
@@ -254,6 +268,8 @@ export class HandleChatRequest {
             userId,
             currentTurnId: identity.turnId,
             revisionOfTurnId: identity.revisionOfTurnId,
+            continuationOfTurnId: identity.continuationOfTurnId,
+            originalPromptId: identity.originalPromptId,
             imageModelMetadata,
           })
         : messages;
@@ -267,6 +283,9 @@ export class HandleChatRequest {
         sessionId,
         correlationId,
         requestOrigin,
+        ...(input.preAdmitted?.resumeSnapshotRef
+          ? { resumeSnapshotRef: input.preAdmitted.resumeSnapshotRef }
+          : {}),
         input: {
           mode,
           agentType,

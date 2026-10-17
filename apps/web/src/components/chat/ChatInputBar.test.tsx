@@ -193,6 +193,7 @@ describe("ChatInputBar", () => {
 
   it("submits /compact during an active run once the canonical warning threshold is reached", async () => {
     const onSubmit = vi.fn(async () => true);
+    const onCompact = vi.fn();
 
     render(
       <ChatInputBar
@@ -204,7 +205,7 @@ describe("ChatInputBar", () => {
         isLoading
         sessionId="session-compact"
         contextBudget={HIGH_CONTEXT_BUDGET}
-        onCompact={vi.fn()}
+        onCompact={onCompact}
       />,
     );
 
@@ -216,8 +217,9 @@ describe("ChatInputBar", () => {
     );
 
     await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(onCompact).toHaveBeenCalledTimes(1);
     });
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("scopes provider selection to the active run", () => {

@@ -10,6 +10,9 @@ export type ChatInterfaceEntry =
       kind: "message";
       message: Message;
       projection?: LifecycleProjection;
+      editTargetTurnId?: string;
+      editTargetTerminal?: boolean;
+      historyStatus?: "revised" | "edited";
     }
   | {
       kind: "workflow";
@@ -17,6 +20,7 @@ export type ChatInterfaceEntry =
       turnId: string;
       projection: LifecycleProjection;
       assistantMessage?: Message;
+      historyStatus?: "revised" | "edited";
     };
 
 export function buildChatEntries(
@@ -26,14 +30,20 @@ export function buildChatEntries(
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
   const emittedWorkflowTurnIds = new Set<string>();
+  const entriesByTurn = new Map<
+    (typeof conversationTurns)[number],
+    ChatInterfaceEntry[]
+  >();
   for (const conversationTurn of conversationTurns) {
     const turnId = conversationTurn.turnId;
     const projection = turnId ? projectionsByTurnId[turnId] : undefined;
+    const turnEntries: ChatInterfaceEntry[] = [];
     if (conversationTurn.userMessage) {
-      entries.push({
+      turnEntries.push({
         kind: "message",
         message: conversationTurn.userMessage,
         ...(projection ? { projection } : {}),
+        ...(projection?.revisionOfTurnId ? { historyStatus: "edited" } : {}),
       });
     }
     if (
@@ -42,7 +52,7 @@ export function buildChatEntries(
       projection.lastSequence > 0 &&
       !emittedWorkflowTurnIds.has(turnId)
     ) {
-      entries.push({
+      turnEntries.push({
         kind: "workflow",
         key: `workflow:${turnId}`,
         turnId,
@@ -59,13 +69,119 @@ export function buildChatEntries(
     }
     for (const assistantMessage of conversationTurn.assistantMessages ?? []) {
       if (shouldIncludeAssistantMessage(assistantMessage, projection)) {
-        entries.push({
+        turnEntries.push({
           kind: "message",
           message: assistantMessage,
           ...(projection ? { projection } : {}),
         });
       }
     }
+    entriesByTurn.set(conversationTurn, turnEntries);
+  }
+  const continuationEntriesByPromptId = new Map<string, ChatInterfaceEntry[]>();
+  const latestContinuationByPromptId = new Map<string, LifecycleProjection>();
+  const revisedPromptIds = findRevisedPromptIds(
+    conversationTurns,
+    projectionsByTurnId,
+  );
+  for (const conversationTurn of conversationTurns) {
+    const projection = conversationTurn.turnId
+      ? projectionsByTurnId[conversationTurn.turnId]
+      : undefined;
+    if (!projection?.continuationOfTurnId || !projection.originalPromptId) {
+      continue;
+    }
+    continuationEntriesByPromptId.set(projection.originalPromptId, [
+      ...(continuationEntriesByPromptId.get(projection.originalPromptId) ?? []),
+      ...(entriesByTurn.get(conversationTurn) ?? []),
+    ]);
+    latestContinuationByPromptId.set(projection.originalPromptId, projection);
+  }
+  const activeProjection = activeTurnId
+    ? projectionsByTurnId[activeTurnId]
+    : undefined;
+  const activeTurnHasTranscript = conversationTurns.some(
+    (turn) => turn.turnId === activeTurnId,
+  );
+  if (
+    activeProjection?.continuationOfTurnId &&
+    activeProjection.originalPromptId &&
+    !activeTurnHasTranscript
+  ) {
+    continuationEntriesByPromptId.set(activeProjection.originalPromptId, [
+      ...(continuationEntriesByPromptId.get(
+        activeProjection.originalPromptId,
+      ) ?? []),
+      ...(activeProjection.lastSequence > 0
+        ? [createWorkflowEntry(activeProjection)]
+        : []),
+    ]);
+    latestContinuationByPromptId.set(
+      activeProjection.originalPromptId,
+      activeProjection,
+    );
+    if (activeProjection.lastSequence > 0) {
+      emittedWorkflowTurnIds.add(activeProjection.turnId);
+    }
+  }
+  if (
+    activeProjection?.continuationOfTurnId &&
+    activeProjection.originalPromptId
+  ) {
+    latestContinuationByPromptId.set(
+      activeProjection.originalPromptId,
+      activeProjection,
+    );
+  }
+  for (const conversationTurn of conversationTurns) {
+    const projection = conversationTurn.turnId
+      ? projectionsByTurnId[conversationTurn.turnId]
+      : undefined;
+    const isContinuation = Boolean(projection?.continuationOfTurnId);
+    const turnEntries = (entriesByTurn.get(conversationTurn) ?? []).map(
+      (entry) =>
+        isTurnInRevisedBranch(
+          projection?.originalPromptId ?? conversationTurn.userMessage?.id,
+          revisedPromptIds,
+        )
+          ? { ...entry, historyStatus: "revised" as const }
+          : entry,
+    );
+    if (isContinuation) continue;
+    const latestContinuation = conversationTurn.userMessage
+      ? latestContinuationByPromptId.get(conversationTurn.userMessage.id)
+      : undefined;
+    if (latestContinuation) {
+      entries.push(
+        ...turnEntries.map((entry) =>
+          entry.kind === "message" && entry.message.role === "user"
+            ? {
+                ...entry,
+                editTargetTurnId: latestContinuation.turnId,
+                editTargetTerminal: Boolean(latestContinuation.terminal),
+              }
+            : entry,
+        ),
+      );
+    } else {
+      entries.push(...turnEntries);
+    }
+    const promptId = conversationTurn.userMessage?.id;
+    if (!promptId) continue;
+    const continuationEntries = continuationEntriesByPromptId.get(promptId);
+    if (continuationEntries) {
+      entries.push(
+        ...continuationEntries.map((entry) =>
+          isTurnInRevisedBranch(promptId, revisedPromptIds)
+            ? { ...entry, historyStatus: "revised" as const }
+            : entry,
+        ),
+      );
+      continuationEntriesByPromptId.delete(promptId);
+    }
+  }
+  for (const remaining of continuationEntriesByPromptId.values()) {
+    entries.push(...remaining);
   }
   const orphanedActiveProjection = activeTurnId
     ? projectionsByTurnId[activeTurnId]
@@ -75,14 +191,73 @@ export function buildChatEntries(
     orphanedActiveProjection.lastSequence > 0 &&
     !emittedWorkflowTurnIds.has(orphanedActiveProjection.turnId)
   ) {
-    entries.push({
-      kind: "workflow",
-      key: `workflow:${orphanedActiveProjection.turnId}`,
-      turnId: orphanedActiveProjection.turnId,
-      projection: orphanedActiveProjection,
-    });
+    entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
   return entries;
+}
+
+function findRevisedPromptIds(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+  projectionsByTurnId: Readonly<Record<string, LifecycleProjection>>,
+): Set<string> {
+  const revisedPromptIds = new Set<string>();
+  for (const projection of Object.values(projectionsByTurnId)) {
+    if (!projection.revisionOfTurnId) continue;
+    const promptId = findLogicalPromptId(
+      projection.revisionOfTurnId,
+      conversationTurns,
+      projectionsByTurnId,
+    );
+    if (promptId) revisedPromptIds.add(promptId);
+  }
+  return revisedPromptIds;
+}
+
+function findLogicalPromptId(
+  initialTurnId: string,
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+  projectionsByTurnId: Readonly<Record<string, LifecycleProjection>>,
+): string | null {
+  const visited = new Set<string>();
+  let currentTurnId: string | null = initialTurnId;
+  while (currentTurnId && !visited.has(currentTurnId)) {
+    visited.add(currentTurnId);
+    const targetProjection: LifecycleProjection | undefined =
+      projectionsByTurnId[currentTurnId];
+    if (
+      targetProjection?.originalPromptId &&
+      targetProjection.continuationOfTurnId
+    ) {
+      return targetProjection.originalPromptId;
+    }
+    if (targetProjection?.revisionOfTurnId) {
+      currentTurnId = targetProjection.revisionOfTurnId;
+      continue;
+    }
+    const turn = conversationTurns.find(
+      (candidate) => candidate.turnId === currentTurnId,
+    );
+    return turn?.userMessage?.id ?? null;
+  }
+  return null;
+}
+
+function isTurnInRevisedBranch(
+  rootPromptId: string | undefined,
+  revisedPromptIds: ReadonlySet<string>,
+): boolean {
+  return Boolean(rootPromptId && revisedPromptIds.has(rootPromptId));
+}
+
+function createWorkflowEntry(
+  projection: LifecycleProjection,
+): ChatInterfaceEntry {
+  return {
+    kind: "workflow",
+    key: `workflow:${projection.turnId}`,
+    turnId: projection.turnId,
+    projection,
+  };
 }
 
 function representativeAssistant(messages: Message[]): Message | undefined {

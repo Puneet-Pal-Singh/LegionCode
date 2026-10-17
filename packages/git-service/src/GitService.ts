@@ -15,6 +15,7 @@ import {
 import {
   captureGitWorkspaceSnapshot,
   diffGitWorkspaceSnapshots,
+  exportGitWorkspaceSnapshotPatch,
 } from "./snapshot.js";
 import type {
   GitBranchValidationInput,
@@ -39,6 +40,8 @@ import type {
   GitRepoIdentityInput,
   GitSnapshotDiffInput,
   GitSnapshotInput,
+  GitSnapshotPatchInput,
+  GitSnapshotPatchResult,
   GitWorkspaceSnapshot,
   GitStageInput,
   GitStatusInput,
@@ -221,6 +224,12 @@ export class DefaultGitService {
     input: GitSnapshotInput,
   ): Promise<GitWorkspaceSnapshot> {
     return await captureGitWorkspaceSnapshot(this.executor, input);
+  }
+
+  async exportSnapshotPatch(
+    input: GitSnapshotPatchInput,
+  ): Promise<GitSnapshotPatchResult> {
+    return await exportGitWorkspaceSnapshotPatch(this.executor, input);
   }
 
   async getSnapshotDiff(input: GitSnapshotDiffInput): Promise<GitDiffResult> {

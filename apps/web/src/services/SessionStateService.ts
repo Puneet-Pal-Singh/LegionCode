@@ -13,7 +13,11 @@
  * @module services/SessionStateService
  */
 
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import {
+  DEFAULT_RUN_MODE,
+  RunModeSchema,
+  type RunMode,
+} from "@repo/shared-types";
 import {
   archivedSessionsPath,
   sessionArchivePath,
@@ -42,7 +46,7 @@ const SETUP_SESSION_KEY = "legioncode:setup-session:v1";
 type StoredSessionStatus = AgentSession["status"] | "error";
 
 type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
-  mode?: RunMode;
+  mode?: string;
   status?: StoredSessionStatus;
   titleSource?: ChatTitleSource;
   pinnedAt?: string | null;
@@ -55,7 +59,8 @@ interface ServerSessionRecord {
   titleSource?: ChatTitleSource;
   repository: string | null;
   activeRunId: string | null;
-  mode: RunMode;
+  latestRunId?: string | null;
+  mode: string;
   status:
     | "idle"
     | "running"
@@ -645,7 +650,7 @@ export class SessionStateService {
 function normalizeSession(session: StoredAgentSession): AgentSession {
   return {
     ...session,
-    mode: session.mode ?? DEFAULT_RUN_MODE,
+    mode: normalizeSessionRunMode(session.mode),
     status: normalizeStoredSessionStatus(session.status),
     titleSource: session.titleSource ?? "preview",
     pinnedAt: session.pinnedAt ?? null,
@@ -665,6 +670,12 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
   const activeRunId = isCanonicalRunId(session.activeRunId)
     ? session.activeRunId
     : null;
+  const latestRunId = isCanonicalRunId(session.latestRunId)
+    ? session.latestRunId
+    : null;
+  const runIds = [...new Set([activeRunId, latestRunId].filter(
+    (runId): runId is string => runId !== null,
+  ))];
 
   return {
     id: session.id,
@@ -674,14 +685,22 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
     persistenceStatus: "saved",
     repository: session.repository,
     activeRunId,
-    runIds: activeRunId ? [activeRunId] : [],
+    latestRunId,
+    runIds,
     status: mapServerStatus(session.status),
-    mode: session.mode ?? DEFAULT_RUN_MODE,
+    mode: normalizeSessionRunMode(session.mode),
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
   };
+}
+
+function normalizeSessionRunMode(mode: string | undefined): RunMode {
+  if (mode === "auto_edit") {
+    return "build";
+  }
+  return RunModeSchema.parse(mode ?? DEFAULT_RUN_MODE);
 }
 
 function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {

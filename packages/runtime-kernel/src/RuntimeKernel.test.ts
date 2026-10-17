@@ -415,6 +415,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(
       sink.events.find((event) => event.type === "tool_call.started")?.payload,
     ).toEqual({
+      toolName: "write_file",
       display: {
         title: "Edit file",
         family: "edit",
@@ -960,11 +961,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "run_attempt.interrupted",
       "turn.interrupted",
     ]);
-    expect(artifacts.turnArtifacts.putTurnDiff).toHaveBeenCalledWith(
-      expect.objectContaining({
-        diff: expect.objectContaining({ files: partialDiff().files }),
-      }),
-    );
+    expect(eventTypes(sink)).toContain("workspace.snapshot_unavailable");
+    expect(artifacts.gitSnapshots.captureSnapshot).toHaveBeenCalledTimes(1);
+    expect(artifacts.turnArtifacts.putTurnDiff).not.toHaveBeenCalled();
   });
 
   it("scopes cancellation to the requested turn while another turn continues", async () => {

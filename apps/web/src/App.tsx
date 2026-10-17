@@ -294,7 +294,9 @@ function AppContent() {
   }, [isAuthenticated, sessions.length]);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
-    providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
+    providerScopeSession?.activeRunId ??
+    providerScopeSession?.latestRunId ??
+    setupSession?.activeRunId;
   const {
     bootstrap: bootstrapProviderStore,
     credentials,
@@ -350,16 +352,12 @@ function AppContent() {
 
     const storeState = uiShellStore.getState();
 
-    // Only sync if the active session actually changed
-    if (storeState.activeSessionId === activeSessionId) {
-      return;
+    if (storeState.activeSessionId !== activeSessionId) {
+      uiShellStore.setActiveSessionId(activeSessionId);
     }
 
-    uiShellStore.setActiveSessionId(activeSessionId);
-
-    // Find active session's runId and sync it
-    // Note: This lookup is safe because we've already validated activeSessionId exists
-    if (activeSession) {
+    // Keep the selected run in sync when resume or queue admission creates a new run.
+    if (activeSession && storeState.activeRunId !== activeSession.activeRunId) {
       uiShellStore.setActiveRunId(activeSession.activeRunId);
     }
   }, [activeSessionId, activeSession]);
@@ -655,10 +653,7 @@ function AppContent() {
   const claimInitialPrompt = useCallback(
     (sessionId: string, id: InitialPromptSubmissionId): boolean => {
       const current = initialPromptSubmissionsRef.current[sessionId];
-      if (
-        current?.id !== id ||
-        current.status !== "queued"
-      ) {
+      if (current?.id !== id || current.status !== "queued") {
         return false;
       }
       updateInitialPromptSubmissions((submissions) => ({
@@ -744,11 +739,11 @@ function AppContent() {
     sessions.some((session) => (session.repository?.trim() ?? "").length > 0);
   const hasMatchingActiveWorkspaceContext = Boolean(
     repo?.full_name &&
-      activeSession &&
-      doesSessionContextMatchRepository(activeSession.repository, {
-        fullName: repo.full_name,
-        repoName: repo.name,
-      }),
+    activeSession &&
+    doesSessionContextMatchRepository(activeSession.repository, {
+      fullName: repo.full_name,
+      repoName: repo.name,
+    }),
   );
   const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(
@@ -1013,9 +1008,7 @@ function AppContent() {
               onRemoveRepository={(repository) => {
                 sessions
                   .filter((session) => session.repository === repository)
-                  .forEach((session) =>
-                    retireSessionInitialPrompt(session.id),
-                  );
+                  .forEach((session) => retireSessionInitialPrompt(session.id));
                 removeRepository(repository);
               }}
               onRenameRepository={renameRepository}
@@ -1127,7 +1120,7 @@ function AppContent() {
               <SessionConversationSurface
                 key={activeSessionId}
                 sessionId={activeSessionId}
-                runId={activeSession.activeRunId || ""}
+                runId={activeSession.activeRunId ?? activeSession.latestRunId ?? ""}
                 mode={activeSession.mode}
                 isSessionPersistenceReady={isSessionPersistenceReady(
                   activeSession.persistenceStatus,
@@ -1138,6 +1131,15 @@ function AppContent() {
                 onServerProjectionAvailable={() =>
                   void refreshSessionProjection(activeSessionId)
                 }
+                onRunIdChange={(runId) => {
+                  if (!activeSession) return;
+                  updateSession(activeSessionId, {
+                    activeRunId: runId,
+                    runIds: Array.from(
+                      new Set([...activeSession.runIds, runId]),
+                    ),
+                  });
+                }}
               >
                 {({
                   chat,
@@ -1267,7 +1269,9 @@ function AppContent() {
                               status: "queued",
                             };
                             const previous =
-                              initialPromptSubmissionsRef.current[activeSessionId];
+                              initialPromptSubmissionsRef.current[
+                                activeSessionId
+                              ];
                             if (previous) {
                               retireSubmissionIntent(
                                 activeSessionId,

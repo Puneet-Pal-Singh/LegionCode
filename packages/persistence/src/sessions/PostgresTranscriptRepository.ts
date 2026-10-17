@@ -47,6 +47,7 @@ interface TranscriptRow extends SqlRow {
   title_status?: "pending" | "ready" | "failed";
   repository?: string | null;
   active_run_id?: string | null;
+  latest_run_id?: string | null;
   mode?: string;
   session_status?: string;
   pinned_at?: string | Date | null;
@@ -622,6 +623,9 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     ),
     repository: row.repository ?? null,
     activeRunId: row.active_run_id ?? null,
+    ...(row.latest_run_id !== undefined
+      ? { latestRunId: row.latest_run_id }
+      : {}),
     titleVersion: toNumber(row.title_version ?? 1),
     titleStatus: row.title_status ?? "ready",
     mode: requireString(row.mode, "mode"),
@@ -1202,6 +1206,7 @@ const LIST_SESSIONS_SQL = `
     s.title_status,
     s.repository,
     s.active_run_id,
+    latest_admission.run_id AS latest_run_id,
     s.mode,
     CASE
       WHEN s.status = 'running'
@@ -1216,6 +1221,16 @@ const LIST_SESSIONS_SQL = `
     s.updated_at AS session_updated_at
   FROM tasks
   LEFT JOIN sessions s ON s.task_id = tasks.id AND s.archived_at IS NULL
+  LEFT JOIN LATERAL (
+    SELECT admission.run_id
+    FROM canonical_turn_admissions admission
+    WHERE admission.session_id = s.id
+      AND admission.turn_id = s.current_turn_id
+      AND admission.thread_id = s.thread_id
+      AND admission.workspace_id IS NOT DISTINCT FROM s.workspace_id::text
+      AND admission.admission_state = 'admitted'
+    LIMIT 1
+  ) latest_admission ON TRUE
   LEFT JOIN LATERAL (
     SELECT started.turn_id
     FROM canonical_lifecycle_events started

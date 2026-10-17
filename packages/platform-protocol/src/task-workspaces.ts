@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProtocolTimestampSchema } from "./common.js";
 import {
   LeaseIdSchema,
+  RunIdSchema,
   RunAttemptIdSchema,
   TaskCheckoutIdSchema,
   ThreadIdSchema,
@@ -9,6 +10,7 @@ import {
   UserIdSchema,
   WorkspaceIdSchema,
   WorkspaceSnapshotIdSchema,
+  ArtifactIdSchema,
 } from "./ids.js";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
@@ -91,6 +93,42 @@ export const WorkspaceSnapshotSchema = z
   .strict()
   .readonly();
 export type WorkspaceSnapshot = z.infer<typeof WorkspaceSnapshotSchema>;
+
+export const ResumeWorkspaceSnapshotRefSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    artifactId: ArtifactIdSchema,
+    payloadObjectKey: z.string().min(1).max(1_024),
+    userId: UserIdSchema,
+    workspaceId: WorkspaceIdSchema,
+    threadId: ThreadIdSchema,
+    sourceRunId: RunIdSchema,
+    sourceTurnId: TurnIdSchema,
+    sourceRunAttemptId: RunAttemptIdSchema,
+    baseSnapshotId: WorkspaceSnapshotIdSchema,
+    baseCommitSha: GitObjectIdSchema,
+    terminalTreeSha: GitObjectIdSchema,
+    patchSha256: ContentDigestSchema,
+    byteLength: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(5_000_000),
+  })
+  .strict()
+  .readonly();
+export type ResumeWorkspaceSnapshotRef = z.infer<
+  typeof ResumeWorkspaceSnapshotRefSchema
+>;
+
+export const ResumeWorkspaceUnavailableReasonSchema = z.enum([
+  "worker_not_quiescent",
+  "snapshot_unavailable",
+  "snapshot_too_large",
+]);
+export type ResumeWorkspaceUnavailableReason = z.infer<
+  typeof ResumeWorkspaceUnavailableReasonSchema
+>;
 
 export const TaskCheckoutStatusSchema = z.enum([
   "ready",

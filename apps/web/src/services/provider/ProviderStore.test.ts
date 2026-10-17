@@ -38,6 +38,7 @@ describe("ProviderStore", () => {
   const credential2Id = "550e8400-e29b-41d4-a716-446655440001";
 
   beforeEach(() => {
+    localStorage.clear();
     sessionStorage.clear();
 
     // Reset singleton between tests
@@ -970,6 +971,7 @@ describe("ProviderStore", () => {
         credentialId: credential1Id,
         modelId: "gpt-4-turbo",
       });
+      sessionStorage.clear();
 
       (ProviderStore as unknown as { instance?: ProviderStore }).instance =
         undefined;

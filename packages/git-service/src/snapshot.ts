@@ -10,6 +10,8 @@ import type {
   GitDiffResult,
   GitSnapshotDiffInput,
   GitSnapshotInput,
+  GitSnapshotPatchInput,
+  GitSnapshotPatchResult,
   GitWorkspaceSnapshot,
 } from "./types.js";
 import { validateWorkspaceRoot } from "./validation.js";
@@ -87,6 +89,38 @@ export async function diffGitWorkspaceSnapshots(
     false,
   );
   return { files: mergeDiffFiles(names, stats), patch };
+}
+
+/**
+ * Exports the complete content delta between an authorized base commit and a
+ * captured terminal tree. The binary/full-index patch is portable to a fresh
+ * checkout that contains the same base commit.
+ */
+export async function exportGitWorkspaceSnapshotPatch(
+  executor: GitCommandExecutor,
+  input: GitSnapshotPatchInput,
+): Promise<GitSnapshotPatchResult> {
+  const runId = RunIdSchema.parse(input.workspace.runId);
+  const filesystemRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
+  const baseCommitSha = validateObjectId(input.baseCommitSha);
+  const terminalTreeSha = validateObjectId(input.terminalTreeSha);
+  const patch = await readGitValue(
+    executor,
+    runId,
+    filesystemRoot,
+    [
+      "diff",
+      "--no-ext-diff",
+      "--binary",
+      "--full-index",
+      "--no-renames",
+      baseCommitSha,
+      terminalTreeSha,
+    ],
+    undefined,
+    false,
+  );
+  return { baseCommitSha, terminalTreeSha, patch };
 }
 
 async function executeGit(

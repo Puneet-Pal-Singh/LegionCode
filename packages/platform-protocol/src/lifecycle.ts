@@ -12,6 +12,7 @@ import {
   RunAttemptIdSchema,
   RunIdSchema,
   ThreadIdSchema,
+  ToolCallBatchIdSchema,
   ToolCallIdSchema,
   TurnIdSchema,
   WorkspaceIdSchema,
@@ -363,6 +364,9 @@ export const LifecycleItemPayloadSchema = z
     detail: BoundedLifecycleDetailSchema.optional(),
     toolFamily: LifecycleToolFamilySchema.optional(),
     display: LifecycleToolDisplaySchema.optional(),
+    toolName: z.string().trim().min(1).max(160).optional(),
+    callBatchId: ToolCallBatchIdSchema.optional(),
+    providerMetadata: JsonRecordSchema.optional(),
     parentItemId: ItemIdSchema.optional(),
     input: JsonRecordSchema.optional(),
     output: BoundedLifecycleTextSchema.optional(),
@@ -373,6 +377,11 @@ export const LifecycleItemPayloadSchema = z
   })
   .strict();
 export type LifecycleItemPayload = z.infer<typeof LifecycleItemPayloadSchema>;
+
+export const LifecycleToolCallStartPayloadSchema = LifecycleItemPayloadSchema;
+export type LifecycleToolCallStartPayload = z.infer<
+  typeof LifecycleToolCallStartPayloadSchema
+>;
 
 export const TurnLifecycleSchema = z
   .object({
@@ -756,6 +765,8 @@ export const LifecycleEventTypeSchema = z.enum([
   "thread.archived",
   "turn.queued",
   "turn.started",
+  "turn.input.accepted",
+  "turn.input.applied",
   "turn.blocking_changed",
   "turn.completed",
   "turn.interrupted",
@@ -795,6 +806,7 @@ export const LifecycleEventTypeSchema = z.enum([
   "user_input.responded",
   "request.resolved",
   "workspace.snapshot_captured",
+  "workspace.snapshot_unavailable",
   "workspace.state_changed",
   "artifact.created",
   "artifact.finalized",
@@ -889,11 +901,20 @@ const ToolCallLifecycleEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.enum([
-      "tool_call.started",
       "tool_call.input_delta",
       "tool_call.output_delta",
     ]),
     payload: LifecycleItemPayloadSchema,
+  })
+  .strict();
+
+const ToolCallStartedLifecycleEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    toolCallId: ToolCallIdSchema,
+    type: z.literal("tool_call.started"),
+    payload: LifecycleToolCallStartPayloadSchema,
   })
   .strict();
 
@@ -903,7 +924,11 @@ const ToolCallCompletedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.completed"),
-    payload: z.object({ result: JsonRecordSchema }).strict(),
+    payload: z.object({
+      result: JsonRecordSchema,
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -913,7 +938,11 @@ const ToolCallFailedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.failed"),
-    payload: z.object({ failure: ProtocolErrorSchema }).strict(),
+    payload: z.object({
+      failure: ProtocolErrorSchema,
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -923,7 +952,11 @@ const ToolCallDeclinedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.declined"),
-    payload: z.object({ reason: z.string().min(1).max(2_000) }).strict(),
+    payload: z.object({
+      reason: z.string().min(1).max(2_000),
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -933,7 +966,11 @@ const ToolCallInterruptedEventSchema = z
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
     type: z.literal("tool_call.interrupted"),
-    payload: z.object({ reason: z.string().min(1).max(2_000) }).strict(),
+    payload: z.object({
+      reason: z.string().min(1).max(2_000),
+      toolName: z.string().trim().min(1).max(160).optional(),
+      callBatchId: ToolCallBatchIdSchema.optional(),
+    }).strict(),
   })
   .strict();
 
@@ -1053,6 +1090,61 @@ const ContextCompactionLifecycleEventSchema = z
   })
   .strict();
 
+export const TurnStartedPayloadSchema = z
+  .object({
+    revisionOfTurnId: TurnIdSchema.optional(),
+    continuationOfTurnId: TurnIdSchema.optional(),
+    originalPromptId: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.continuationOfTurnId === undefined) !== (value.originalPromptId === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Continuation turn and original prompt identity must be supplied together.",
+        path: ["originalPromptId"],
+      });
+    }
+  });
+export type TurnStartedPayload = z.infer<typeof TurnStartedPayloadSchema>;
+
+const TurnStartedLifecycleEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema.optional(),
+    type: z.literal("turn.started"),
+    payload: TurnStartedPayloadSchema,
+  })
+  .strict();
+
+export const TurnInputAcceptedPayloadSchema = z.object({
+  inputId: z.string().trim().min(1).max(200),
+  clientInputId: z.string().trim().min(1).max(200),
+  transcriptMessageId: z.string().trim().min(1).max(200),
+}).strict();
+export type TurnInputAcceptedPayload = z.infer<typeof TurnInputAcceptedPayloadSchema>;
+
+export const TurnInputAppliedPayloadSchema = z.object({
+  inputId: z.string().trim().min(1).max(200),
+  acceptedSequence: EventSequenceSchema,
+  modelStep: z.number().int().positive().safe(),
+  contextRevision: z.number().int().nonnegative().safe(),
+}).strict();
+export type TurnInputAppliedPayload = z.infer<typeof TurnInputAppliedPayloadSchema>;
+
+const TurnInputLifecycleEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    ...LifecycleEventEnvelopeShape,
+    type: z.literal("turn.input.accepted"),
+    payload: TurnInputAcceptedPayloadSchema,
+  }).strict(),
+  z.object({
+    ...LifecycleEventEnvelopeShape,
+    type: z.literal("turn.input.applied"),
+    payload: TurnInputAppliedPayloadSchema,
+  }).strict(),
+]);
+
 const TurnLifecycleEventSchema = z
   .object({
     ...LifecycleEventEnvelopeShape,
@@ -1078,6 +1170,9 @@ const TurnLifecycleEventSchema = z
       "turn.completed",
       "turn.interrupted",
       "turn.failed",
+      "turn.started",
+      "turn.input.accepted",
+      "turn.input.applied",
       "context_budget.updated",
       "usage.updated",
       "context_compaction.requested",
@@ -1095,6 +1190,9 @@ export const LifecycleEventSchema = z.union([
   ItemFailedEventSchema,
   ItemDeclinedEventSchema,
   ItemInterruptedEventSchema,
+  TurnStartedLifecycleEventSchema,
+  TurnInputLifecycleEventSchema,
+  ToolCallStartedLifecycleEventSchema,
   ToolCallLifecycleEventSchema,
   ToolCallCompletedEventSchema,
   ToolCallFailedEventSchema,

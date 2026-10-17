@@ -952,6 +952,9 @@ importers:
 
   packages/shared-types:
     dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
       zod:
         specifier: ^3.25.0
         version: 3.25.1

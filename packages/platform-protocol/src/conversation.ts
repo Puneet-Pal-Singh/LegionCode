@@ -20,6 +20,7 @@ import {
   ProviderIdSchema,
   RunIdSchema,
   ThreadIdSchema,
+  ToolCallBatchIdSchema,
   ToolCallIdSchema,
   TurnIdSchema,
   UserIdSchema,
@@ -181,6 +182,7 @@ export const ToolCallItemContentSchema = z
     toolCallId: ToolCallIdSchema,
     toolName: z.string().min(1).max(160),
     input: JsonRecordSchema,
+    callBatchId: ToolCallBatchIdSchema.optional(),
     display: LifecycleToolDisplaySchema.optional(),
   })
   .strict();

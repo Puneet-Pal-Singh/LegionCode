@@ -95,20 +95,21 @@ export class PostgresTaskWorkspaceRepository implements TaskWorkspaceRepository 
     snapshot: WorkspaceSnapshot,
   ): Promise<WorkspaceSnapshot> {
     const parsed = WorkspaceSnapshotSchema.parse(snapshot);
-    try {
-      return await writeSnapshot(this.client, INSERT_SNAPSHOT_SQL, parsed);
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
+    const inserted = await tryWriteSnapshot(
+      this.client,
+      INSERT_SNAPSHOT_IF_ABSENT_SQL,
+      parsed,
+    );
+    if (inserted) return inserted;
 
-      const existing = await this.getBySnapshotId(parsed.snapshotId);
-      if (existing && canonicalEqual(existing, parsed)) return existing;
+    const existing = await this.getBySnapshotId(parsed.snapshotId);
+    if (existing && canonicalEqual(existing, parsed)) return existing;
 
-      throw new TaskWorkspacePersistenceError(
-        "workspace_snapshot_conflict",
-        "Workspace snapshot identity is already bound to different immutable data",
-        { snapshotId: parsed.snapshotId },
-      );
-    }
+    throw new TaskWorkspacePersistenceError(
+      "workspace_snapshot_conflict",
+      "Workspace snapshot identity is already bound to different immutable data",
+      { snapshotId: parsed.snapshotId },
+    );
   }
 
   async getBySnapshotId(
@@ -388,22 +389,16 @@ function checkoutParams(checkout: TaskCheckout): readonly SqlValue[] {
   ];
 }
 
-async function writeSnapshot(
+async function tryWriteSnapshot(
   client: SqlClient,
   statement: string,
   snapshot: WorkspaceSnapshot,
-): Promise<WorkspaceSnapshot> {
+): Promise<WorkspaceSnapshot | null> {
   const result = await client.query<WorkspaceSnapshotRow>(
     statement,
     snapshotParams(snapshot),
   );
-  const persisted = mapOptionalSnapshot(result.rows[0]);
-  if (!persisted) {
-    throw new Error(
-      `Workspace snapshot write returned no row: ${snapshot.snapshotId}`,
-    );
-  }
-  return persisted;
+  return mapOptionalSnapshot(result.rows[0]);
 }
 
 async function writeCheckout(
@@ -541,8 +536,9 @@ const CHECKOUT_COLUMNS = `checkout_id, snapshot_id, workspace_id, thread_id,
   filesystem_root, git_dir, index_file, working_branch, start_tree_id,
   generation, status, settled_at, failure_code, created_at`;
 
-const INSERT_SNAPSHOT_SQL = `INSERT INTO workspace_snapshots (${SNAPSHOT_COLUMNS})
+const INSERT_SNAPSHOT_IF_ABSENT_SQL = `INSERT INTO workspace_snapshots (${SNAPSHOT_COLUMNS})
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+  ON CONFLICT (snapshot_id) DO NOTHING
   RETURNING ${SNAPSHOT_COLUMNS}`;
 const SELECT_SNAPSHOT_BY_ID_SQL = `SELECT ${SNAPSHOT_COLUMNS}
   FROM workspace_snapshots WHERE snapshot_id=$1`;

@@ -77,6 +77,7 @@ function createTransport(
       nextCursor: TEST_IDS.nextCursor,
     })),
     getWorkspaceManifest: vi.fn(async () => createWorkspaceManifest()),
+    threadInputCommand: vi.fn(async () => ({})),
   };
   return { ...baseTransport, ...overrides };
 }

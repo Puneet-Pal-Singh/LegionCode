@@ -76,6 +76,8 @@ export interface SessionRecord {
   titleStatus?: "pending" | "ready" | "failed";
   repository: string | null;
   activeRunId: string | null;
+  /** Run admitted for the session's canonical current turn, including terminal turns. */
+  latestRunId?: string | null;
   mode: string;
   /** List/read projection may derive approval waiting from lifecycle events. */
   status: SessionStatus | "waiting_for_approval";

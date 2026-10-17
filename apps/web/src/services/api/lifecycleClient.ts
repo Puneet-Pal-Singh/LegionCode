@@ -15,6 +15,17 @@ import {
   type InterruptTurnResponse,
   type CompactTurnRequest,
   type CompactTurnResponse,
+  type ResumeTurnCommand,
+  type ResumeTurnReceipt,
+  type SteerTurnCommand,
+  type EnqueueThreadInputCommand,
+  type ListThreadInputsCommand,
+  type UpdateThreadInputCommand,
+  type RemoveThreadInputCommand,
+  type SteerQueuedThreadInputCommand,
+  type StartQueuedThreadInputCommand,
+  type ThreadInputReceipt,
+  type ThreadInputQueueSnapshot,
   type HookInvocationAuditEvent,
   type HookAuditProjectionState,
   type HookSettingsAuditReadModel,
@@ -89,6 +100,38 @@ export interface LifecycleClient {
     request: CompactTurnRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<CompactTurnResponse>;
+  resumeTurn(
+    request: ResumeTurnCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ResumeTurnReceipt>;
+  steerTurn(
+    request: SteerTurnCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt>;
+  enqueueThreadInput(
+    request: EnqueueThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt>;
+  listThreadInputs(
+    request: ListThreadInputsCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputQueueSnapshot>;
+  updateThreadInput(
+    request: UpdateThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt>;
+  removeThreadInput(
+    request: RemoveThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt>;
+  steerQueuedThreadInput(
+    request: SteerQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt>;
+  startQueuedThreadInput(
+    request: StartQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ThreadInputReceipt>;
 }
 
 export function createLifecycleClient(
@@ -154,6 +197,56 @@ class PlatformLifecycleClient implements LifecycleClient {
     options?: PlatformClientOperationOptions,
   ): Promise<CompactTurnResponse> {
     return this.platformClient.compactTurn(request, options);
+  }
+
+  resumeTurn(request: ResumeTurnCommand, options?: PlatformClientOperationOptions) {
+    return this.platformClient.resumeTurn(request, options);
+  }
+
+  steerTurn(request: SteerTurnCommand, options?: PlatformClientOperationOptions) {
+    return this.platformClient.steerTurn(request, options);
+  }
+
+  enqueueThreadInput(
+    request: EnqueueThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ) {
+    return this.platformClient.enqueueThreadInput(request, options);
+  }
+
+  listThreadInputs(
+    request: ListThreadInputsCommand,
+    options?: PlatformClientOperationOptions,
+  ) {
+    return this.platformClient.listThreadInputs(request, options);
+  }
+
+  updateThreadInput(
+    request: UpdateThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ) {
+    return this.platformClient.updateThreadInput(request, options);
+  }
+
+  removeThreadInput(
+    request: RemoveThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ) {
+    return this.platformClient.removeThreadInput(request, options);
+  }
+
+  steerQueuedThreadInput(
+    request: SteerQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ) {
+    return this.platformClient.steerQueuedThreadInput(request, options);
+  }
+
+  startQueuedThreadInput(
+    request: StartQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ) {
+    return this.platformClient.startQueuedThreadInput(request, options);
   }
 }
 

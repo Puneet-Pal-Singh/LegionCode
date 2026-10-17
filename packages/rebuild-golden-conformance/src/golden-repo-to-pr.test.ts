@@ -437,6 +437,10 @@ class GoldenPlatformTransport implements PlatformClientTransport {
     };
   }
 
+  async threadInputCommand(): Promise<unknown> {
+    throw new Error("Golden fixture does not exercise thread input commands.");
+  }
+
   async *attachRunStream(): AsyncIterable<never> {}
 
   attachLifecycleStream(request: {

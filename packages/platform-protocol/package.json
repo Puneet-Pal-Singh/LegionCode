@@ -18,6 +18,7 @@
     "./lifecycle": "./src/lifecycle.ts",
     "./permissions": "./src/permissions.ts",
     "./task-workspaces": "./src/task-workspaces.ts",
+    "./thread-input": "./src/thread-input.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {

@@ -5,11 +5,13 @@ import {
   type ItemId,
   type JsonRecord,
   type ProtocolError,
+  type ResumeWorkspaceUnavailableReason,
   type RunAttemptId,
   type ThreadId,
   type ToolCallId,
   type TurnId,
   type WorkspaceId,
+  type ToolCallBatchId,
 } from "@repo/platform-protocol";
 import {
   LifecycleEventSchema,
@@ -60,6 +62,8 @@ export interface RuntimeLifecycleCoordinatorOptions extends LifecycleIdentity {
   readonly initialSequence?: number;
   /** The latest terminal turn superseded by this edited/recovery turn. */
   readonly revisionOfTurnId?: TurnId;
+  readonly continuationOfTurnId?: TurnId;
+  readonly originalPromptId?: string;
 }
 
 interface EventFields {
@@ -96,11 +100,15 @@ export class RuntimeLifecycleCoordinator {
   private readonly itemStatuses: Record<string, ItemStatus> = {};
   private readonly itemKinds: Record<string, ItemKind> = {};
   private readonly toolCallStatuses: Record<string, ToolCallStatus> = {};
+  private readonly toolCallNames: Record<string, string> = {};
+  private readonly toolCallBatches: Record<string, ToolCallBatchId> = {};
   private readonly toolCallItems: Record<string, ItemId> = {};
   private readonly approvalStatuses: Record<string, ApprovalStatus> = {};
   private readonly approvalItems: Record<string, ItemId> = {};
   private readonly approvalParents: Record<string, ItemId> = {};
   private accepted = false;
+  private completionReserved = false;
+  private readonly acceptedInputSequences = new Map<string, number>();
   private sequence: number;
   private operationQueue: Promise<void> = Promise.resolve();
 
@@ -198,6 +206,17 @@ export class RuntimeLifecycleCoordinator {
               : "missing_revision",
             this.options.revisionOfTurnId ?? "no_revision",
             "turn revision identity changed during lifecycle restoration",
+          );
+        }
+        if (
+          event.payload.continuationOfTurnId !== this.options.continuationOfTurnId ||
+          event.payload.originalPromptId !== this.options.originalPromptId
+        ) {
+          throw new LifecycleTransitionError(
+            "turn",
+            event.payload.continuationOfTurnId ?? "no_continuation",
+            this.options.continuationOfTurnId ?? "no_continuation",
+            "turn continuation identity changed during lifecycle restoration",
           );
         }
         previousStatus = transitionTurnStatus(previousStatus, "in_progress");
@@ -516,9 +535,17 @@ export class RuntimeLifecycleCoordinator {
       this.createEvent(
         {
           type: "turn.started",
-          payload: this.options.revisionOfTurnId
-            ? { revisionOfTurnId: this.options.revisionOfTurnId }
-            : {},
+          payload: {
+            ...(this.options.revisionOfTurnId
+              ? { revisionOfTurnId: this.options.revisionOfTurnId }
+              : {}),
+            ...(this.options.continuationOfTurnId
+              ? { continuationOfTurnId: this.options.continuationOfTurnId }
+              : {}),
+            ...(this.options.originalPromptId
+              ? { originalPromptId: this.options.originalPromptId }
+              : {}),
+          },
         },
         2,
       ),
@@ -538,11 +565,13 @@ export class RuntimeLifecycleCoordinator {
   async startToolCall(
     itemId: ItemId,
     toolCallId: ToolCallId,
+    toolName: string,
     input: JsonRecord,
+    callBatchId?: import("@repo/platform-protocol").ToolCallBatchId,
     display?: LifecycleToolDisplay,
   ): Promise<void> {
     await this.enqueue(async () =>
-      this.startToolCallNow(itemId, toolCallId, input, display),
+      this.startToolCallNow(itemId, toolCallId, toolName, input, callBatchId, display),
     );
   }
 
@@ -583,7 +612,9 @@ export class RuntimeLifecycleCoordinator {
   private async startToolCallNow(
     itemId: ItemId,
     toolCallId: ToolCallId,
+    toolName: string,
     input: JsonRecord,
+    callBatchId?: import("@repo/platform-protocol").ToolCallBatchId,
     display?: LifecycleToolDisplay,
   ): Promise<void> {
     await this.startItem(itemId, "tool_call", display ? { display } : {});
@@ -592,9 +623,11 @@ export class RuntimeLifecycleCoordinator {
       type: "tool_call.started",
       itemId,
       toolCallId,
-      payload: display ? { display } : {},
+      payload: { toolName, ...(callBatchId ? { callBatchId } : {}), ...(display ? { display } : {}) },
     });
     this.toolCallStatuses[toolCallId] = next;
+    this.toolCallNames[toolCallId] = toolName;
+    if (callBatchId) this.toolCallBatches[toolCallId] = callBatchId;
     this.toolCallItems[toolCallId] = itemId;
     await this.emit({
       type: "tool_call.input_delta",
@@ -635,6 +668,17 @@ export class RuntimeLifecycleCoordinator {
       this.emit({
         type: "workspace.snapshot_captured",
         payload: { snapshot: JsonRecordSchema.parse(snapshot) },
+      }),
+    );
+  }
+
+  async markWorkspaceSnapshotUnavailable(
+    reason: ResumeWorkspaceUnavailableReason,
+  ): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "workspace.snapshot_unavailable",
+        payload: { reason },
       }),
     );
   }
@@ -850,6 +894,64 @@ export class RuntimeLifecycleCoordinator {
     await this.enqueue(async () => this.completeNow(output, itemId));
   }
 
+  async acceptThreadInput(input: {
+    readonly inputId: string;
+    readonly clientInputId: string;
+    readonly transcriptMessageId: string;
+  }, afterAppend: (acceptedSequence: number) => void): Promise<number> {
+    let acceptedSequence: number | undefined;
+    await this.enqueue(async () => {
+      const existingSequence = this.acceptedInputSequences.get(input.inputId);
+      if (existingSequence !== undefined) {
+        acceptedSequence = existingSequence;
+        return;
+      }
+      if (this.completionReserved || this.isTerminal) {
+        throw new LifecycleTransitionError(
+          "turn",
+          this.status,
+          "turn.input.accepted",
+          "the turn is already settling",
+        );
+      }
+      await this.emit({ type: "turn.input.accepted", payload: input });
+      acceptedSequence = this.sequence;
+      this.acceptedInputSequences.set(input.inputId, this.sequence);
+      afterAppend(this.sequence);
+    });
+    if (acceptedSequence === undefined) {
+      throw new Error("Accepted thread input did not append a lifecycle event.");
+    }
+    return acceptedSequence;
+  }
+
+  async reserveCompletion(hasPendingInputs: () => boolean): Promise<boolean> {
+    let reserved = false;
+    await this.enqueue(async () => {
+      if (this.isTerminal || this.completionReserved || hasPendingInputs()) return;
+      this.completionReserved = true;
+      reserved = true;
+    });
+    return reserved;
+  }
+
+  async applyThreadInput(input: {
+    readonly inputId: string;
+    readonly acceptedSequence: number;
+    readonly modelStep: number;
+    readonly contextRevision: number;
+  }): Promise<number> {
+    let appliedSequence: number | undefined;
+    await this.enqueue(async () => {
+      await this.emit({ type: "turn.input.applied", payload: input });
+      appliedSequence = this.sequence;
+    });
+    if (appliedSequence === undefined) {
+      throw new Error("Applied thread input did not append a lifecycle event.");
+    }
+    return appliedSequence;
+  }
+
   private async completeNow(output: string, itemId: ItemId): Promise<void> {
     await this.startItem(itemId, "assistant_message", {});
     for (const delta of splitLifecycleOutput(output)) {
@@ -905,13 +1007,19 @@ export class RuntimeLifecycleCoordinator {
     const current = this.requireActiveToolCall(toolCallId);
     const next = transitionToolCallStatus(current, status);
     const itemId = this.requireToolCallItem(toolCallId);
+    const metadata = {
+      ...(this.toolCallNames[toolCallId] ? { toolName: this.toolCallNames[toolCallId] } : {}),
+      ...(this.toolCallBatches[toolCallId] ? { callBatchId: this.toolCallBatches[toolCallId] } : {}),
+    };
     await this.emit({
       type: `tool_call.${status}`,
       itemId,
       toolCallId,
-      payload,
+      payload: { ...payload, ...metadata },
     });
     this.toolCallStatuses[toolCallId] = next;
+    // Tool identity belongs to the tool_call event. item.* payloads retain
+    // their established result/failure shape and remain strict at the protocol boundary.
     await this.settleItem(itemId, status, payload);
   }
 

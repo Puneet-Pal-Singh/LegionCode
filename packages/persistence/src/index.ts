@@ -65,7 +65,17 @@ export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepositor
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export { InvalidTranscriptSnapshotError } from "./sessions/types.js";
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
-export type { AdmitTurnWithPromptInput, ReserveTurnAdmissionInput, TurnAdmissionRecord, TurnAdmissionRepository } from "./turn-admissions/types.js";
+export type {
+  AdmitContinuationInput,
+  AdmitTurnWithPromptInput,
+  InterruptedTurnTarget,
+  InterruptedTurnTargetInput,
+  ReserveQueuedStartInput,
+  ReserveQueuedStartResult,
+  ReserveTurnAdmissionInput,
+  TurnAdmissionRecord,
+  TurnAdmissionRepository,
+} from "./turn-admissions/types.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
@@ -93,6 +103,16 @@ export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle
 export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
 export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title-read-receipts.js";
 export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
+export { threadInputsAndContinuationsMigration } from "./migrations/0033-thread-inputs-and-continuations.js";
+export { PostgresThreadInputRepository, ThreadInputConflictError } from "./thread-inputs/PostgresThreadInputRepository.js";
+export type {
+  CreateThreadInput,
+  StoredThreadInput,
+  ThreadInputMutation,
+  ThreadInputRepository,
+  ThreadInputScope,
+  UpdateThreadInput,
+} from "./thread-inputs/types.js";
 export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";

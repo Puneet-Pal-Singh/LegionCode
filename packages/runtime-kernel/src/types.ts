@@ -10,10 +10,13 @@ import type {
   Run,
   RunAttemptId,
   ToolCallItemContent,
+  ToolCallBatchId,
   Turn,
+  TurnId,
   UserId,
   UsageCostSnapshot,
 } from "@repo/platform-protocol";
+import type { CoreMessage } from "ai";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 
 export interface RuntimeContext {
@@ -66,6 +69,7 @@ export type ProviderStep =
       readonly kind: "tool_call";
       readonly itemId: ItemId;
       readonly content: ToolCallItemContent;
+      readonly callBatchId?: ToolCallBatchId;
       readonly commentary?: string;
       /** Provider-designated safe summary only; private reasoning must not be set here. */
       readonly reasoning?: {
@@ -118,6 +122,8 @@ export interface StartTurnInput {
   readonly run: Run;
   readonly turn: Turn;
   readonly runAttemptId: RunAttemptId;
+  readonly continuationOfTurnId?: TurnId;
+  readonly originalPromptId?: string;
 }
 
 export interface StartTurnResult {
@@ -134,5 +140,23 @@ export interface ProviderCallInput {
   readonly workspace: WorkspaceManifest;
   readonly context: RuntimeContext;
   readonly toolResults: readonly ToolResult[];
+  readonly onThreadInputsApplied?: (
+    inputs: readonly AppliedThreadInput[],
+  ) => Promise<void>;
+  /** Rebuilds shared context after accepted inputs are staged at a model boundary. */
+  readonly refreshContext?: () => Promise<RuntimeContext>;
   readonly signal?: AbortSignal;
+}
+
+export interface AcceptedThreadInput {
+  readonly inputId: string;
+  readonly acceptedSequence: number;
+  readonly message: CoreMessage;
+}
+
+export interface AppliedThreadInput {
+  readonly inputId: string;
+  readonly acceptedSequence: number;
+  readonly modelStep: number;
+  readonly contextRevision: number;
 }

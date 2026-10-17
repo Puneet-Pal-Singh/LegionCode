@@ -12,6 +12,7 @@ export const PLATFORM_ID_PREFIXES = {
   turn: "trn",
   item: "itm",
   toolCall: "toolcall",
+  toolCallBatch: "batch",
   approval: "appr",
   artifact: "art",
   workspaceManifest: "wsm",
@@ -113,6 +114,12 @@ export const ToolCallIdSchema = createPrefixedIdSchema(
 );
 export type ToolCallId = z.infer<typeof ToolCallIdSchema>;
 
+export const ToolCallBatchIdSchema = createPrefixedIdSchema(
+  "ToolCallBatchId",
+  PLATFORM_ID_PREFIXES.toolCallBatch,
+);
+export type ToolCallBatchId = z.infer<typeof ToolCallBatchIdSchema>;
+
 export const ApprovalIdSchema = createPrefixedIdSchema(
   "ApprovalId",
   PLATFORM_ID_PREFIXES.approval,
@@ -197,6 +204,7 @@ export const PlatformIdSchemas = {
   TurnId: TurnIdSchema,
   ItemId: ItemIdSchema,
   ToolCallId: ToolCallIdSchema,
+  ToolCallBatchId: ToolCallBatchIdSchema,
   ApprovalId: ApprovalIdSchema,
   ArtifactId: ArtifactIdSchema,
   WorkspaceManifestId: WorkspaceManifestIdSchema,

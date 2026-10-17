@@ -34,6 +34,7 @@ describe("platform protocol IDs", () => {
         "RunId",
         "TaskCheckoutId",
         "ThreadId",
+        "ToolCallBatchId",
         "ToolCallId",
         "TurnId",
         "UserId",

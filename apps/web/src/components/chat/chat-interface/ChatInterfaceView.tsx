@@ -40,6 +40,7 @@ import {
 import type { ArtifactOpenHandler } from "../artifactOpen";
 import type { CanonicalTurnReviewSource } from "../../../services/review/ReviewSourceResolver.js";
 import { ChevronDown, Folder } from "lucide-react";
+import { workspaceSnapshotNotice } from "./workspace-snapshot-status.js";
 
 interface ChatInterfaceViewProps {
   workspaceId: string | null;
@@ -133,7 +134,10 @@ export const ChatInterfaceView = forwardRef<
             ) : null}
             <ChatLoadingIndicator />
             {props.continuation?.status === "stopped" ? (
-              <div role="status" className="flex items-center gap-3 text-sm text-zinc-400">
+              <div
+                role="status"
+                className="flex items-center gap-3 text-sm text-zinc-400"
+              >
                 <span>Live updates stopped.</span>
                 <button
                   type="button"
@@ -223,6 +227,7 @@ function Transcript(props: ChatInterfaceViewProps) {
             )}
             hookAudits={entry.projection?.hookAudits}
             onEdit={resolveUserMessageEdit(props, entry)}
+            historyStatus={entry.historyStatus}
           />
         );
       })}
@@ -235,16 +240,21 @@ function resolveUserMessageEdit(
   props: ChatInterfaceViewProps,
   entry: Extract<ChatInterfaceEntry, { kind: "message" }>,
 ) {
+  const hasContinuationTarget = entry.editTargetTurnId !== undefined;
   if (
     !props.onUserMessageEdit ||
     entry.message.role !== "user" ||
-    !entry.projection?.terminal ||
-    (entry.projection.terminal.state !== "interrupted" &&
-      entry.projection.terminal.state !== "failed")
+    entry.historyStatus === "revised" ||
+    (hasContinuationTarget
+      ? !entry.editTargetTerminal
+      : !entry.projection?.terminal ||
+        (entry.projection.terminal.state !== "interrupted" &&
+          entry.projection.terminal.state !== "failed"))
   ) {
     return undefined;
   }
-  const turnId = entry.projection.turnId;
+  const turnId = entry.editTargetTurnId ?? entry.projection?.turnId;
+  if (!turnId) return undefined;
   return (content: string) => props.onUserMessageEdit!(turnId, content);
 }
 
@@ -273,11 +283,25 @@ function TurnWorkflowEntry({
       }
       className="space-y-3"
     >
+      {entry.historyStatus === "revised" ? (
+        <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+          Earlier workflow · revised
+        </span>
+      ) : null}
+      {workspaceSnapshotNotice(entry.projection) ? (
+        <p
+          role="alert"
+          className="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100/90"
+        >
+          {workspaceSnapshotNotice(entry.projection)}
+        </p>
+      ) : null}
       <CanonicalWorkflowSurface
         projection={entry.projection}
         onArtifactOpen={props.onArtifactOpen}
       />
-      {terminal?.state !== "completed" && entry.projection.assistantText.trim() ? (
+      {terminal?.state !== "completed" &&
+      entry.projection.assistantText.trim() ? (
         <ChatMessage
           message={{
             id: `canonical-assistant:${turnId}`,
@@ -398,39 +422,41 @@ function TerminalMessage(
         content: terminal.content,
       }}
       changedFilesSummary={
-        props.includeCurrentTurnReview
-          ? resolveTerminalChangedFilesSummary({
-              terminalViewModel: terminal,
-              files: props.terminalReviewFiles,
-              turnDiff: props.terminalTurnDiff,
-              loadArtifactFileDiff: (_artifactId, file) =>
-                props.loadCompletedTurnFileDiff(file),
-              onPromptArtifactReview: (artifactId) => {
-                props.selectPromptArtifactReview(
-                  artifactId,
-                  undefined,
-                  props.artifactIdentity ?? undefined,
-                );
-                props.onReviewOpen?.();
-              },
-              onReviewOpen: openCanonicalTurnReview,
-            })
-          : resolveTerminalChangedFilesSummary({
-              terminalViewModel: terminal,
-              files: collectLifecycleTurnDiffFiles(props.projection),
-              turnDiff: props.projection.turnDiff,
-              loadArtifactFileDiff: (artifactId, file) =>
-                props.loadArtifactChangedFileDiff(artifactId, file),
-              onPromptArtifactReview: (artifactId) => {
-                props.selectPromptArtifactReview(
-                  artifactId,
-                  undefined,
-                  props.artifactIdentity ?? undefined,
-                );
-                props.onReviewOpen?.();
-              },
-              onReviewOpen: openCanonicalTurnReview,
-            })
+        props.projection.workspaceSnapshotState === "unavailable"
+          ? undefined
+          : props.includeCurrentTurnReview
+            ? resolveTerminalChangedFilesSummary({
+                terminalViewModel: terminal,
+                files: props.terminalReviewFiles,
+                turnDiff: props.terminalTurnDiff,
+                loadArtifactFileDiff: (_artifactId, file) =>
+                  props.loadCompletedTurnFileDiff(file),
+                onPromptArtifactReview: (artifactId) => {
+                  props.selectPromptArtifactReview(
+                    artifactId,
+                    undefined,
+                    props.artifactIdentity ?? undefined,
+                  );
+                  props.onReviewOpen?.();
+                },
+                onReviewOpen: openCanonicalTurnReview,
+              })
+            : resolveTerminalChangedFilesSummary({
+                terminalViewModel: terminal,
+                files: collectLifecycleTurnDiffFiles(props.projection),
+                turnDiff: props.projection.turnDiff,
+                loadArtifactFileDiff: (artifactId, file) =>
+                  props.loadArtifactChangedFileDiff(artifactId, file),
+                onPromptArtifactReview: (artifactId) => {
+                  props.selectPromptArtifactReview(
+                    artifactId,
+                    undefined,
+                    props.artifactIdentity ?? undefined,
+                  );
+                  props.onReviewOpen?.();
+                },
+                onReviewOpen: openCanonicalTurnReview,
+              })
       }
       hookAudits={props.hookAudits}
       metadata={props.metadata}

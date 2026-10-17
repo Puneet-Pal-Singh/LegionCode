@@ -110,18 +110,25 @@ export function createNativeContextCompaction(
   readMessages: (
     toolResults?: readonly ToolResult[],
   ) => Promise<readonly CoreMessage[]>,
+  readTaskContext: () => Promise<{
+    readonly messages: readonly CoreMessage[];
+    readonly activeTaskStartIndex: number;
+  }>,
 ): ContextCompactionPort {
   return {
     compact: async ({ context, turn }) => {
-      const messages = await readMessages();
+      await readMessages();
+      const taskContext = await readTaskContext();
       const summary = summarizeConversationForCompaction(
-        messages,
+        taskContext.messages,
         input.prompt,
+        taskContext.activeTaskStartIndex,
       );
       const budget = context.budgetSnapshot;
       const compactedMessages = buildProviderContextMessages({
-        messages,
+        messages: taskContext.messages,
         compactedContext: summary,
+        activeTaskStartIndex: taskContext.activeTaskStartIndex,
       });
       const conversationTokens = estimateConversationTokens(compactedMessages);
       const attachmentTokens = estimateAttachmentTokens(compactedMessages);

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MemoryEventStore,
+  MemoryLifecycleEventStore,
   MemoryRunRepository,
   MemoryThreadTitleRepository,
   MemoryTranscriptRepository,
@@ -281,6 +282,7 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
     },
     AUTH_TRANSCRIPT_REPOSITORY: transcripts,
     AUTH_RUN_REPOSITORY: runs,
+    AUTH_LIFECYCLE_EVENT_STORE: new MemoryLifecycleEventStore(),
     AUTH_TURN_ADMISSION_REPOSITORY: createAdmissionFixture(transcripts, runs),
     AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
       transcripts,

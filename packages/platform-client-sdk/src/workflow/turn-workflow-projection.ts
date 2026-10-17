@@ -1,5 +1,6 @@
 import {
   ContextBudgetSnapshotSchema,
+  ResumeWorkspaceSnapshotRefSchema,
   TurnDiffPayloadSchema,
   UsageCostSnapshotSchema,
 } from "@repo/platform-protocol";
@@ -138,6 +139,13 @@ export interface WorkflowTerminal {
 
 export interface TurnWorkflowProjection {
   readonly turnId: TurnId;
+  readonly revisionOfTurnId?: TurnId | null;
+  readonly continuationOfTurnId?: TurnId | null;
+  readonly originalPromptId?: string | null;
+  readonly workspaceSnapshotState: "unknown" | "captured" | "unavailable";
+  readonly resumeSnapshotAvailable: boolean | null;
+  readonly workspaceSnapshotUnavailableReason: string | null;
+  readonly resumeUnavailableReason: string | null;
   readonly lastSequence: number;
   readonly items: readonly WorkflowItem[];
   readonly pendingApproval: WorkflowApproval | null;
@@ -157,6 +165,13 @@ export function createTurnWorkflowProjection(
 ): TurnWorkflowProjection {
   return {
     turnId,
+    revisionOfTurnId: null,
+    continuationOfTurnId: null,
+    originalPromptId: null,
+    workspaceSnapshotState: "unknown",
+    resumeSnapshotAvailable: null,
+    workspaceSnapshotUnavailableReason: null,
+    resumeUnavailableReason: null,
     lastSequence: 0,
     items: [],
     pendingApproval: null,
@@ -208,9 +223,46 @@ function applyKnownEvent(
     case "turn.started":
       return {
         ...projection,
+        revisionOfTurnId: event.payload.revisionOfTurnId ?? null,
+        continuationOfTurnId: event.payload.continuationOfTurnId ?? null,
+        originalPromptId: event.payload.originalPromptId ?? null,
         phase: "starting",
         startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
       };
+    case "workspace.snapshot_captured": {
+      const payload = readPayload(event);
+      const bundle = readRecord(payload.snapshot);
+      const snapshot = readRecord(bundle?.snapshot);
+      if (!snapshot || readString(snapshot, "phase") !== "terminal") {
+        return projection;
+      }
+      const resumeSnapshotRef = ResumeWorkspaceSnapshotRefSchema.safeParse(
+        snapshot.resumeSnapshotRef,
+      );
+      const resumeUnavailableReason = readString(
+        snapshot,
+        "resumeUnavailableReason",
+      );
+      return {
+        ...projection,
+        workspaceSnapshotState: "captured",
+        resumeSnapshotAvailable: resumeSnapshotRef.success,
+        workspaceSnapshotUnavailableReason: null,
+        resumeUnavailableReason: resumeSnapshotRef.success
+          ? null
+          : (resumeUnavailableReason ?? "snapshot_unavailable"),
+      };
+    }
+    case "workspace.snapshot_unavailable": {
+      const reason = readString(readPayload(event), "reason");
+      return {
+        ...projection,
+        workspaceSnapshotState: "unavailable",
+        resumeSnapshotAvailable: false,
+        workspaceSnapshotUnavailableReason: reason ?? "snapshot_unavailable",
+        resumeUnavailableReason: reason ?? "snapshot_unavailable",
+      };
+    }
     case "run_attempt.started":
       return {
         ...projection,

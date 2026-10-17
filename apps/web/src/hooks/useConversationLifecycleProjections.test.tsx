@@ -113,6 +113,30 @@ function createClient(
     compactTurn: vi.fn(async () => {
       throw new Error("Unsupported test operation");
     }),
+    resumeTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    steerTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    enqueueThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    listThreadInputs: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    updateThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    removeThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    steerQueuedThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    startQueuedThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
   };
 }
 
