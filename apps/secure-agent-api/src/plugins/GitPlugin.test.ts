@@ -631,7 +631,7 @@ describe("GitPlugin", () => {
 
     expect(result).toEqual({
       success: true,
-      output: JSON.stringify({ treeSha: "a".repeat(40) }),
+      output: JSON.stringify({ treeSha: "a".repeat(40), headSha: "b".repeat(40) }),
     });
     const gitCalls = runSafeCommandMock.mock.calls.filter(
       ([, spec]) => spec.command === "git",
