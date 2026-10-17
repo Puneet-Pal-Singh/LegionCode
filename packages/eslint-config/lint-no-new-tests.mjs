@@ -300,7 +300,15 @@ function inheritedIntegrationRefs(base) {
     catch { return false; }
   });
   const parents = git("rev-list", "--merges", "--parents", `${base}..HEAD`)
-    .split("\n").filter(Boolean).flatMap((line) => line.split(" ").slice(2));
+    .split("\n").filter(Boolean).flatMap((line) => {
+      const [, firstParent, ...incomingParents] = line.split(" ");
+      // A protected source's own historical merges are not extra baselines:
+      // only merges made on the target's descendant line inherit source tests.
+      try {
+        git("merge-base", "--is-ancestor", base, firstParent);
+        return incomingParents;
+      } catch { return []; }
+    });
   try { parents.push(git("rev-parse", "--verify", "MERGE_HEAD")); } catch { /* No merge in progress. */ }
   return [...new Set(parents)].filter((parent) => protectedRefs.some((ref) => {
     try { git("merge-base", "--is-ancestor", parent, ref); return true; }
