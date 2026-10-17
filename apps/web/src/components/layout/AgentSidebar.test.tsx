@@ -49,8 +49,10 @@ describe("AgentSidebar adapter", () => {
     fireEvent.click(screen.getByRole("option", { name: "Draft task" }));
     expect(onSelect).toHaveBeenCalledWith("session-1");
     expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
+    expect(onClose).toHaveBeenCalledOnce();
     fireEvent.click(
-      screen.getByRole("button", { name: "New thread in legioncode" }),
+      screen.getByRole("button", { name: "New task in legioncode" }),
     );
     expect(onCreate).toHaveBeenCalledWith("legioncode/legioncode");
   });
@@ -78,6 +80,7 @@ describe("AgentSidebar adapter", () => {
       onArchive,
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
     fireEvent.change(screen.getByRole("searchbox"), {
       target: { value: "other" },
     });
@@ -96,18 +99,18 @@ describe("AgentSidebar adapter", () => {
     const onClose = vi.fn();
     renderSidebar({ onClose, onOpenSettings });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  it("closes the sidebar before opening workspace selection", () => {
+  it("routes workspace selection without closing the parent sidebar", () => {
     const onAddRepository = vi.fn();
     const onClose = vi.fn();
     renderSidebar({ onClose, onAddRepository });
 
-    fireEvent.click(screen.getByRole("button", { name: /Add workspace/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add project" }));
 
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
     expect(onAddRepository).toHaveBeenCalledOnce();
   });
 
@@ -142,11 +145,10 @@ describe("AgentSidebar adapter", () => {
     expect(
       screen.getByRole("option", { name: "Second repository task" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "New thread in bar" }));
+    fireEvent.click(screen.getByRole("button", { name: "New task in bar" }));
     expect(onCreate).toHaveBeenCalledWith(secondRepository);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Rename workspace bar" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Workspace actions for bar" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Rename bar" }), {
       target: { value: "renamed" },
     });
@@ -155,9 +157,8 @@ describe("AgentSidebar adapter", () => {
       secondRepository,
       "renamed",
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove workspace bar" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Workspace actions for bar" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(onRemoveRepository).toHaveBeenCalledWith(secondRepository);
   });
@@ -193,7 +194,7 @@ describe("AgentSidebar adapter", () => {
       screen.queryByRole("button", { name: "Remove workspace No repository" }),
     ).not.toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: "New thread in No repository" }),
+      screen.getByRole("button", { name: "New task in No repository" }),
     );
     expect(onCreate).toHaveBeenCalledWith(undefined);
     fireEvent.click(screen.getByRole("option", { name: "Unscoped task" }));

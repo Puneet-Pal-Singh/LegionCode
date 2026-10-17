@@ -134,6 +134,7 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
 
   return (
     <section role="group" className="space-y-0.5" aria-label={props.label}>
+      {workspaceSelectionId && props.onToggle ? (
       <div className="group/project grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg transition hover:bg-zinc-800/35">
         <button
           type="button"
@@ -209,6 +210,7 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
           ) : null}
         </div>
       </div>
+      ) : null}
 
       <AnimatePresence initial={false}>
         {props.expanded || !props.onToggle ? (

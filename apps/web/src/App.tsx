@@ -1041,8 +1041,14 @@ function AppContent() {
               onClose={() => {
                 setIsSidebarOpen(false);
               }}
-              onAddRepository={handleOpenRepositoryPicker}
-              onOpenSettings={() => openSettingsDialog("general")}
+              onAddRepository={() => {
+                if (isCompact) setIsSidebarOpen(false);
+                handleOpenRepositoryPicker();
+              }}
+              onOpenSettings={() => {
+                if (isCompact) setIsSidebarOpen(false);
+                openSettingsDialog("general");
+              }}
               accountUser={user}
               onLogout={logout}
               width={isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth}
