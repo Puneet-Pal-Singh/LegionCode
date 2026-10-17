@@ -7,7 +7,15 @@ describe("InMemoryRunInterruptRegistry", () => {
     const registry = new InMemoryRunInterruptRegistry();
     const interrupt = vi.fn().mockResolvedValue(undefined);
     const turnId = TurnIdSchema.parse("trn_123456");
-    registry.register(turnId, interrupt);
+    expect(await registry.request(turnId, "No owner yet.")).toBe(false);
+    registry.beginStartup(turnId);
+    expect(registry.hasActiveOwner(turnId)).toBe(true);
+    expect(await registry.request(turnId, "User interrupted the turn.")).toBe(
+      true,
+    );
+    expect(registry.register(turnId, interrupt)).toBe(
+      "User interrupted the turn.",
+    );
 
     await Promise.all([
       registry.request(turnId, "User interrupted the turn."),
@@ -16,5 +24,7 @@ describe("InMemoryRunInterruptRegistry", () => {
 
     expect(interrupt).toHaveBeenCalledTimes(1);
     expect(interrupt).toHaveBeenCalledWith("User interrupted the turn.");
+    registry.unregister(turnId);
+    expect(registry.hasActiveOwner(turnId)).toBe(false);
   });
 });

@@ -2,6 +2,22 @@ import { z } from "zod";
 import { ProtocolTimestampSchema } from "./common.js";
 import { PermissionProfileIdSchema } from "./ids.js";
 
+export const PRODUCT_MODES = {
+  ASK_ALWAYS: "ask_always",
+  AUTO_FOR_SAFE: "auto_for_safe",
+  AUTO_FOR_SAME_REPO: "auto_for_same_repo",
+  FULL_AGENT: "full_agent",
+} as const;
+
+export const ProductModeSchema = z.enum([
+  PRODUCT_MODES.ASK_ALWAYS,
+  PRODUCT_MODES.AUTO_FOR_SAFE,
+  PRODUCT_MODES.AUTO_FOR_SAME_REPO,
+  PRODUCT_MODES.FULL_AGENT,
+]);
+
+export type ProductMode = z.infer<typeof ProductModeSchema>;
+
 const PermissionActionSchema = z
   .string()
   .min(1)

@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { TurnIdSchema } from "@legioncode/sdk";
+import {
+  TurnIdSchema,
+  replayLifecycleEventsWithRetry,
+  type LifecycleEvent,
+} from "@legioncode/sdk";
 import {
   createLifecycleClient,
   type LifecycleClient,
@@ -14,7 +18,15 @@ import {
 
 interface UseTurnLifecycleProjectionResult {
   readonly projection: LifecycleProjection | null;
+  readonly isReplayReady: boolean;
   readonly error: string | null;
+  readonly continuationStatus:
+    | "replaying"
+    | "following"
+    | "reconnecting"
+    | "stopped"
+    | null;
+  readonly retry: () => void;
 }
 
 interface ProjectionState {
@@ -25,6 +37,11 @@ interface ProjectionState {
 interface ErrorState {
   readonly turnId: TurnId;
   readonly message: string;
+}
+
+interface ContinuationStatusState {
+  readonly turnId: TurnId;
+  readonly status: "replaying" | "following" | "reconnecting" | "stopped";
 }
 
 export function useTurnLifecycleProjection(
@@ -44,6 +61,13 @@ export function useTurnLifecycleProjection(
   const [projectionState, setProjectionState] =
     useState<ProjectionState | null>(null);
   const [errorState, setErrorState] = useState<ErrorState | null>(null);
+  const [continuationStatus, setContinuationStatus] =
+    useState<ContinuationStatusState | null>(null);
+  const [retryRevision, setRetryRevision] = useState(0);
+  const retry = useCallback(
+    () => setRetryRevision((revision) => revision + 1),
+    [],
+  );
 
   useEffect(() => {
     if (!canonicalTurnId || !shouldFollow) {
@@ -57,19 +81,25 @@ export function useTurnLifecycleProjection(
       abortController,
       setProjectionState,
       setErrorState,
+      setContinuationStatus,
     });
     return () => {
       abortController.abort();
     };
-  }, [canonicalTurnId, lifecycleClient, shouldFollow]);
+  }, [canonicalTurnId, lifecycleClient, retryRevision, shouldFollow]);
 
   return {
     projection:
       projectionState?.turnId === canonicalTurnId
         ? projectionState.projection
         : emptyProjection,
-    error:
-      errorState?.turnId === canonicalTurnId ? errorState.message : null,
+    isReplayReady: projectionState?.turnId === canonicalTurnId,
+    error: errorState?.turnId === canonicalTurnId ? errorState.message : null,
+    continuationStatus:
+      continuationStatus?.turnId === canonicalTurnId
+        ? continuationStatus.status
+        : null,
+    retry,
   };
 }
 
@@ -87,25 +117,55 @@ interface FollowLifecycleInput {
   readonly abortController: AbortController;
   readonly setProjectionState: Dispatch<SetStateAction<ProjectionState | null>>;
   readonly setErrorState: Dispatch<SetStateAction<ErrorState | null>>;
+  readonly setContinuationStatus: Dispatch<
+    SetStateAction<ContinuationStatusState | null>
+  >;
 }
 
 async function followLifecycle(input: FollowLifecycleInput): Promise<void> {
   try {
     let projection = createLifecycleProjection(input.turnId);
     let afterSequence: number | null = null;
+    let resumed = false;
+    const resumedEvents: LifecycleEvent[] = [];
+    const operationOptions = {
+      signal: input.abortController.signal,
+      onLifecycleContinuationStatus: (
+        status: "replaying" | "following" | "reconnecting",
+      ) => {
+        if (input.abortController.signal.aborted) return;
+        if (status === "following" && !resumed) {
+          resumed = true;
+          for (const event of resumedEvents) {
+            projection = applyLifecycleEvent(projection, event);
+          }
+          if (resumedEvents.length > 0) {
+            input.setProjectionState({ turnId: input.turnId, projection });
+            resumedEvents.length = 0;
+          }
+        }
+        input.setContinuationStatus({ turnId: input.turnId, status });
+      },
+    };
+    input.setErrorState(null);
+    input.setContinuationStatus({ turnId: input.turnId, status: "replaying" });
 
     // A historical replay is one read-model snapshot. Publishing each replayed
     // event separately exposes obsolete intermediate states (for example an
     // approval request that was resolved later in the same replay). Build the
     // complete snapshot off-screen, then publish it once.
     while (!input.abortController.signal.aborted) {
-      const replay = await input.lifecycleClient.replayLifecycleEvents(
+      const replay = await replayLifecycleEventsWithRetry(
+        {
+          options: operationOptions,
+          replay: (request, options) =>
+            input.lifecycleClient.replayLifecycleEvents(request, options),
+        },
         {
           turnId: input.turnId,
           afterSequence,
           limit: 1_000,
         },
-        { signal: input.abortController.signal },
       );
       for (const event of replay.events) {
         projection = applyLifecycleEvent(projection, event);
@@ -113,23 +173,31 @@ async function followLifecycle(input: FollowLifecycleInput): Promise<void> {
       if (replay.events.length < 1_000 || replay.nextSequence === null) {
         break;
       }
-      afterSequence = replay.nextSequence;
+      afterSequence = projection.lastSequence || null;
     }
 
     if (input.abortController.signal.aborted) return;
     input.setProjectionState({ turnId: input.turnId, projection });
-    if (projection.terminal) return;
+    if (projection.terminal) {
+      input.setContinuationStatus(null);
+      return;
+    }
 
     for await (const event of input.lifecycleClient.followTurnLifecycle(
       {
         turnId: input.turnId,
         afterSequence: projection.lastSequence || null,
       },
-      { signal: input.abortController.signal },
+      operationOptions,
     )) {
       if (input.abortController.signal.aborted) {
         return;
       }
+      if (!resumed) {
+        resumedEvents.push(event);
+        continue;
+      }
+      projection = applyLifecycleEvent(projection, event);
       input.setProjectionState((current) => ({
         turnId: input.turnId,
         projection: applyLifecycleEvent(
@@ -140,6 +208,9 @@ async function followLifecycle(input: FollowLifecycleInput): Promise<void> {
         ),
       }));
     }
+    if (projection.terminal) {
+      input.setContinuationStatus(null);
+    }
   } catch (error) {
     if (input.abortController.signal.aborted) {
       return;
@@ -148,5 +219,6 @@ async function followLifecycle(input: FollowLifecycleInput): Promise<void> {
       turnId: input.turnId,
       message: error instanceof Error ? error.message : String(error),
     });
+    input.setContinuationStatus({ turnId: input.turnId, status: "stopped" });
   }
 }

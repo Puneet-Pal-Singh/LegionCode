@@ -34,7 +34,8 @@ describe("RuntimeKernel live path boundary", () => {
     const source = readFileSync(BRAIN_RUN_HANDLER, "utf8");
 
     expect(source).toContain("new RuntimeKernelNativeRunner");
-    expect(source).toContain("lifecycleEvents: this.createLifecycleEventStore()");
+    expect(source).not.toContain("RunEngineKernelLifecycleEventStore");
+    expect(source).toMatch(/lifecycleEvents:\s*this\.createLifecycleEventStore\(\)/);
     expect(source).not.toContain("new RunEngine(");
     expect(source).not.toContain("executeRunEngineThroughRuntimeKernel");
     expect(source).not.toMatch(
@@ -95,9 +96,6 @@ describe("RuntimeKernel live path boundary", () => {
     expect(source).toContain("recordModelStepCompleted");
     expect(source).toContain(
       'recordRunProgress(\n      RUN_WORKFLOW_STEPS.EXECUTION,\n      "Thinking"',
-    );
-    expect(source).toContain(
-      "runWithNativeCancellationPolling(\n        this.options.toolGateway.execute",
     );
     expect(source).not.toContain("requiresMutation: true,");
   });

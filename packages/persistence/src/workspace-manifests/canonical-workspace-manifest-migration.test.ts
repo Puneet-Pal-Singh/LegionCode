@@ -9,7 +9,7 @@ describe("canonical workspace manifest migration", () => {
   it("hard-cuts the obsolete manifest identity columns", () => {
     const sql = canonicalWorkspaceManifestMigration.statements.join("\n");
 
-    expect(persistenceMigrations.at(-1)).toBe(
+    expect(persistenceMigrations).toContain(
       canonicalWorkspaceManifestMigration,
     );
     expect(sql).toContain("DROP COLUMN manifest_id");

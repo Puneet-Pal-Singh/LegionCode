@@ -20,6 +20,7 @@ import type {
   LifecycleEventStore,
   TaskWorkspaceRepository,
   SessionReadReceiptRepository,
+  ThreadInputRepository,
 } from "@repo/persistence";
 import type { HookDefinitionRepository } from "../services/hooks/HookDefinitionRepository";
 
@@ -33,6 +34,11 @@ export interface Env {
   SECURE_API: Fetcher;
 
   EDIT_ARTIFACTS?: R2Bucket;
+  CHAT_IMAGE_AUTO_RESIZE?: "true" | "false";
+  CHAT_IMAGE_MAX_WIDTH?: string;
+  CHAT_IMAGE_MAX_HEIGHT?: string;
+  CHAT_IMAGE_MAX_BASE64_BYTES?: string;
+  CHAT_IMAGE_MAX_DECODE_PIXELS?: string;
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
@@ -42,6 +48,7 @@ export interface Env {
   AUTH_THREAD_TITLE_REPOSITORY?: ThreadTitleRepository;
   AUTH_RUN_REPOSITORY?: RunRepository;
   AUTH_TURN_ADMISSION_REPOSITORY?: TurnAdmissionRepository;
+  AUTH_THREAD_INPUT_REPOSITORY?: ThreadInputRepository;
   AUTH_MEMORY_EVENT_REPOSITORY?: MemoryEventRepository;
   AUTH_CONTEXT_REPOSITORY?: ContextRepository;
   AUTH_PERMISSION_REPOSITORY?: PermissionRepository;

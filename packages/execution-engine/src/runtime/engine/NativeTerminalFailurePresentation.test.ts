@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RUN_TERMINAL_STATES } from "@repo/shared-types";
+import { RuntimeKernelError } from "@repo/runtime-kernel";
 import {
   buildNativeKernelTerminalMessage,
   resolveNativeKernelTerminalState,
@@ -52,5 +53,24 @@ describe("NativeTerminalFailurePresentation", () => {
 
     expect(message).toContain("temporarily rate limited");
     expect(message).not.toContain("adapter boundary");
+  });
+
+  it("presents an approval timeout separately from an explicit denial", () => {
+    const error = new RuntimeKernelError(
+      "approval_timed_out",
+      "Approval request expired.",
+    );
+
+    expect(resolveNativeKernelTerminalState(error)).toBe(
+      RUN_TERMINAL_STATES.APPROVAL_TIMED_OUT,
+    );
+    expect(
+      buildNativeKernelTerminalMessage(error, RUN_TERMINAL_STATES.APPROVAL_TIMED_OUT),
+    ).toContain("expired before a decision was recorded");
+    expect(
+      resolveNativeKernelTerminalState(
+        new RuntimeKernelError("approval_denied", "Approval was denied"),
+      ),
+    ).toBe(RUN_TERMINAL_STATES.APPROVAL_DENIED);
   });
 });

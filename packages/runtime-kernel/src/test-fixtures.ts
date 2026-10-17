@@ -88,6 +88,11 @@ export const approvalRequest: ApprovalRequestedPayload =
     question: "Allow the worker to write the requested file?",
     options: [
       {
+        id: "allow_matching_in_chat",
+        label: "Allow matching actions in this chat",
+        description: "Allow matching actions in this chat and workspace",
+      },
+      {
         id: "approve",
         label: "Approve",
         description: "Allow this exact action",

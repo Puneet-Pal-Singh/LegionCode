@@ -14,14 +14,20 @@ import {
   ApprovalIdSchema,
   createRunAttemptId,
   EventSequenceSchema,
+  RunAttemptIdSchema,
+  ThreadIdSchema,
   type LifecycleEvent,
   RunIdSchema,
   TurnScopeBootstrapRequestSchema,
   TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
+  userIdFromExternalId,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,
+  type TurnId,
+  type ProtocolError,
+  workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
@@ -48,7 +54,10 @@ import {
 } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
-import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import {
+  sanitizeLogText,
+  sanitizeUnknownError,
+} from "../core/security/LogSanitizer";
 import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { parseTraceparent } from "@repo/observability";
@@ -69,9 +78,17 @@ import {
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
 import {
+  settleOwnedStartupFailure,
+  settleOrphanStop,
+} from "./RuntimeLifecycleSettlement";
+import {
   InMemoryRunContextCompactionRegistry,
   type RunContextCompactionRegistry,
 } from "./RunContextCompactionRegistry";
+import {
+  InMemoryRunThreadInputRegistry,
+  type RunThreadInputRegistry,
+} from "./RunThreadInputRegistry";
 import {
   InMemoryRunApprovalResolutionRegistry,
   type RunApprovalResolutionRegistry,
@@ -82,7 +99,11 @@ import {
   type RunInterruptRequest,
   type RunInterruptIdentity,
 } from "./RunInterruptContract";
+import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
+import { ChatMediaStore } from "../services/chat/ChatMediaStore";
+import { resolveChatImageSettings } from "../services/chat/ChatImageSettings";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
+import { BrainApprovalGrantReader } from "../services/lifecycle/BrainApprovalGrantReader";
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
@@ -101,19 +122,46 @@ const ApprovalDecisionRequestSchema = z.object({
   requestId: z.string().min(1),
   decision: ApprovalDecisionKindSchema,
 });
-const LifecycleApprovalDecisionRequestSchema = z.object({
-  turnId: TurnIdSchema,
-  approvalId: ApprovalIdSchema,
-  decision: ApprovalDecisionSchema,
-  decidedBy: z.string().nullable().optional(),
-  reason: z.string().nullable().optional(),
-});
+const LifecycleApprovalDecisionRequestSchema = z
+  .object({
+    turnId: TurnIdSchema,
+    approvalId: ApprovalIdSchema,
+    decision: ApprovalDecisionSchema,
+    grantScope: z.enum(["once", "matching_in_chat"]).optional(),
+    decidedBy: z.string().nullable().optional(),
+    reason: z.string().nullable().optional(),
+  })
+  .superRefine((payload, context) => {
+    if (payload.grantScope && payload.decision !== "approved") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Approval grants require an approved decision",
+        path: ["grantScope"],
+      });
+    }
+  });
 const LifecycleEventsQuerySchema = z.object({
   turnId: TurnIdSchema,
   afterSequence: EventSequenceSchema.nullable(),
   limit: z.number().int().min(1).max(1_000),
 });
 const TurnDiffQuerySchema = z.object({ turnId: TurnIdSchema });
+const RuntimeThreadInputRequestSchema = z.object({
+  sessionId: z.string().uuid(),
+  userId: z.string().trim().min(1).max(200),
+  runId: RunIdSchema,
+  workspaceId: BrainWorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+  inputId: z.string().uuid(),
+  clientInputId: z.string().trim().min(1).max(200),
+  transcriptMessageId: z.string().trim().min(1).max(200),
+  text: z.string().max(100_000),
+  mediaRefs: z.array(ChatImageAttachmentRefSchema).max(8),
+}).strict().refine((value) => value.text.trim().length > 0 || value.mediaRefs.length > 0, {
+  message: "Provide text or at least one image.",
+});
 export interface RunEngineRequestLock {
   <T>(runId: string, operation: () => Promise<T>): Promise<T>;
 }
@@ -128,6 +176,7 @@ export interface RunEngineRequestHandlerDependencies {
   interruptRegistry?: RunInterruptRegistry;
   approvalResolutionRegistry?: RunApprovalResolutionRegistry;
   contextCompactionRegistry?: RunContextCompactionRegistry;
+  threadInputRegistry?: RunThreadInputRegistry;
   taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
 }
 
@@ -146,6 +195,7 @@ export class RunEngineRequestHandler {
   private readonly interruptRegistry: RunInterruptRegistry;
   private readonly approvalResolutionRegistry: RunApprovalResolutionRegistry;
   private readonly contextCompactionRegistry: RunContextCompactionRegistry;
+  private readonly threadInputRegistry: RunThreadInputRegistry;
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
@@ -166,6 +216,8 @@ export class RunEngineRequestHandler {
     this.contextCompactionRegistry =
       dependencies.contextCompactionRegistry ??
       new InMemoryRunContextCompactionRegistry();
+    this.threadInputRegistry =
+      dependencies.threadInputRegistry ?? new InMemoryRunThreadInputRegistry();
   }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
@@ -274,7 +326,6 @@ export class RunEngineRequestHandler {
     );
   }
 
-
   async handleActivityRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const runIdRaw = url.searchParams.get("runId");
@@ -328,34 +379,30 @@ export class RunEngineRequestHandler {
       );
     }
 
-    await this.ensureTurnToRunMapLoaded();
-
-    const runtimeState = this.createRuntimeState();
-    const runRepo = new RunRepository(runtimeState);
-    const run = await runRepo.getById(payload.runId);
-    if (!run) {
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId,
-        accepted: false,
-        status: null,
-      });
-    }
-
-    const identity = this.turnRuntimeIdentities.get(payload.turnId);
+    const store = this.createLifecycleEventStore();
+    const admission = await withTurnAdmissionRepository(
+      this.env,
+      (repository) => repository.getByTurnId(payload.turnId),
+    );
     if (
-      !identity ||
-      run.sessionId !== payload.sessionId ||
-      !sameTurnRuntimeIdentity(identity, payload)
+      !admission ||
+      admission.state !== "admitted" ||
+      admission.runId !== payload.runId ||
+      admission.sessionId !== payload.sessionId ||
+      admission.workspaceId !== payload.workspaceId ||
+      admission.threadId !== payload.threadId ||
+      admission.turnId !== payload.turnId ||
+      admission.runAttemptId !== payload.runAttemptId
     ) {
       return runEngineErrorResponse(
         request,
         this.env,
-        "Interrupt identity does not match the active run",
+        "Interrupt identity does not match the durable admitted turn",
         409,
       );
     }
 
-    const replayEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), payload.turnId);
+    const replayEvents = await readAllLifecycleEvents(store, payload.turnId);
     const terminalEvent = replayEvents.find(isTerminalLifecycleEvent);
     if (terminalEvent) {
       return runEngineJsonResponse(request, this.env, {
@@ -366,23 +413,149 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const accepted = await this.interruptRegistry.request(
-      payload.turnId,
-      payload.reason,
-    );
-    if (!accepted) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Turn is no longer interruptible",
-        409,
+    const hasActiveOwner =
+      this.interruptRegistry.hasActiveOwner(payload.turnId) ||
+      this.approvalResolutionRegistry.has(payload.turnId);
+    if (hasActiveOwner) {
+      const accepted = await this.interruptRegistry.request(
+        payload.turnId,
+        payload.reason,
       );
+      if (!accepted) {
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          "Turn is no longer interruptible",
+          409,
+        );
+      }
+      return runEngineJsonResponse(request, this.env, {
+        runId: payload.runId,
+        accepted: true,
+        status: "interrupt_requested",
+      });
     }
 
+    const settled = await settleOrphanStop({
+      store,
+      admission,
+      identity: {
+        turnId: payload.turnId,
+        runAttemptId: payload.runAttemptId,
+        threadId: payload.threadId,
+        workspaceId: workspaceIdFromExternalId(payload.workspaceId),
+        ...(admission.revisionOfTurnId
+          ? {
+              revisionOfTurnId: TurnIdSchema.parse(admission.revisionOfTurnId),
+            }
+          : {}),
+      },
+      admittedWorkspaceId: payload.workspaceId,
+      reason: payload.reason,
+    });
+    if (settled.status === "settled" || settled.status === "terminal_exists") {
+      return runEngineJsonResponse(request, this.env, {
+        runId: payload.runId,
+        accepted: settled.status === "settled",
+        status: "settled",
+        terminalEvent: settled.terminalEvent,
+      });
+    }
+
+    return runEngineErrorResponse(
+      request,
+      this.env,
+      "Turn is no longer interruptible",
+      409,
+    );
+  }
+
+  async handleThreadInputSteerRequest(request: Request): Promise<Response> {
+    let payload: z.infer<typeof RuntimeThreadInputRequestSchema>;
+    try {
+      payload = RuntimeThreadInputRequestSchema.parse(
+        await parseRequestBody(request, "thread-input-steer"),
+      );
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid thread input", 400);
+    }
+
+    const admission = await withTurnAdmissionRepository(this.env, (repository) =>
+      repository.getByTurnId(payload.turnId),
+    );
+    if (
+      !admission || admission.state !== "admitted" ||
+      admission.sessionId !== payload.sessionId || admission.userId !== payload.userId ||
+      admission.runId !== payload.runId || admission.workspaceId !== payload.workspaceId ||
+      admission.threadId !== payload.threadId || admission.runAttemptId !== payload.runAttemptId
+    ) {
+      return runEngineErrorResponse(request, this.env, "Steering identity does not match the admitted turn", 409, "target_superseded");
+    }
+
+    const history = await readAllLifecycleEvents(this.createLifecycleEventStore(), payload.turnId);
+    const priorAcceptance = history.find((event) =>
+      event.type === "turn.input.accepted" && event.payload.inputId === payload.inputId,
+    );
+    if (priorAcceptance?.type === "turn.input.accepted") {
+      return runEngineJsonResponse(request, this.env, {
+        status: "accepted",
+        inputId: payload.inputId,
+        clientInputId: payload.clientInputId,
+        transcriptMessageId: payload.transcriptMessageId,
+        targetTurnId: payload.turnId,
+        targetRunAttemptId: payload.runAttemptId,
+        acceptedSequence: priorAcceptance.sequence,
+      });
+    }
+
+    if (!this.threadInputRegistry.has(payload.turnId)) {
+      return runEngineErrorResponse(request, this.env, "Turn has no live input owner", 409, "turn_not_active");
+    }
+    const images = payload.mediaRefs.map((ref) => ref);
+    const providerImages = [];
+    if (images.length > 0) {
+      if (!this.env.EDIT_ARTIFACTS) {
+        return runEngineErrorResponse(request, this.env, "Chat image storage is unavailable", 503);
+      }
+      const mediaStore = new ChatMediaStore(this.env.EDIT_ARTIFACTS, resolveChatImageSettings(this.env));
+      for (const ref of images) {
+        providerImages.push(await mediaStore.getProviderImage({
+          userId: payload.userId,
+          sessionId: payload.sessionId,
+          ref,
+        }));
+      }
+    }
+    const message = {
+      role: "user",
+      content: [
+        ...(payload.text.trim() ? [{ type: "text", text: payload.text }] : []),
+        ...providerImages,
+      ],
+    } as CoreMessage;
+    let acceptedSequence: number;
+    try {
+      acceptedSequence = await this.threadInputRegistry.accept({
+        turnId: payload.turnId,
+        inputId: payload.inputId,
+        clientInputId: payload.clientInputId,
+        transcriptMessageId: payload.transcriptMessageId,
+        message,
+      });
+    } catch {
+      // Only the explicit owner check above proves a terminal/owner conflict.
+      // Append and storage errors can happen after durable inbox admission, so
+      // callers must retain the row and reconcile it by input ID.
+      return runEngineErrorResponse(request, this.env, "Steering outcome is being reconciled", 503, "THREAD_INPUT_OUTCOME_UNKNOWN");
+    }
     return runEngineJsonResponse(request, this.env, {
-      runId: payload.runId,
-      accepted: true,
-      status: "interrupt_requested",
+      status: "accepted",
+      inputId: payload.inputId,
+      clientInputId: payload.clientInputId,
+      transcriptMessageId: payload.transcriptMessageId,
+      targetTurnId: payload.turnId,
+      targetRunAttemptId: payload.runAttemptId,
+      acceptedSequence,
     });
   }
 
@@ -395,11 +568,18 @@ export class RunEngineRequestHandler {
         "context-compaction",
       );
     } catch {
-      return runEngineErrorResponse(request, this.env, "Invalid compact payload", 400);
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Invalid compact payload",
+        400,
+      );
     }
 
     await this.ensureTurnToRunMapLoaded();
-    const run = await new RunRepository(this.createRuntimeState()).getById(payload.runId);
+    const run = await new RunRepository(this.createRuntimeState()).getById(
+      payload.runId,
+    );
     const identity = this.turnRuntimeIdentities.get(payload.turnId);
     if (!run || !identity || !sameTurnRuntimeIdentity(identity, payload)) {
       return runEngineErrorResponse(
@@ -409,43 +589,68 @@ export class RunEngineRequestHandler {
         409,
       );
     }
-    const replayEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), payload.turnId);
+    const replayEvents = await readAllLifecycleEvents(
+      this.createLifecycleEventStore(),
+      payload.turnId,
+    );
     const terminalEvent = replayEvents.find(isTerminalLifecycleEvent);
     if (terminalEvent) {
-      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
-        turnId: payload.turnId,
-        accepted: false,
-        status: "failed",
-        itemId: null,
-        error: "Turn is already settled",
-      }), 409);
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        CompactTurnResponseSchema.parse({
+          turnId: payload.turnId,
+          accepted: false,
+          status: "failed",
+          itemId: null,
+          error: "Turn is already settled",
+        }),
+        409,
+      );
     }
     if (!this.contextCompactionRegistry.has(payload.turnId)) {
-      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
-        turnId: payload.turnId,
-        accepted: false,
-        status: "unsupported",
-        itemId: null,
-        error: "The active runtime is not ready for context compaction",
-      }), 409);
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        CompactTurnResponseSchema.parse({
+          turnId: payload.turnId,
+          accepted: false,
+          status: "unsupported",
+          itemId: null,
+          error: "The active runtime is not ready for context compaction",
+        }),
+        409,
+      );
     }
     try {
       await this.contextCompactionRegistry.request(payload.turnId);
-      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
-        turnId: payload.turnId,
-        accepted: true,
-        status: "completed",
-        itemId: null,
-        error: null,
-      }));
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        CompactTurnResponseSchema.parse({
+          turnId: payload.turnId,
+          accepted: true,
+          status: "completed",
+          itemId: null,
+          error: null,
+        }),
+      );
     } catch (error) {
-      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
-        turnId: payload.turnId,
-        accepted: false,
-        status: "failed",
-        itemId: null,
-        error: error instanceof Error ? error.message : "Context compaction failed",
-      }), 409);
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        CompactTurnResponseSchema.parse({
+          turnId: payload.turnId,
+          accepted: false,
+          status: "failed",
+          itemId: null,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Context compaction failed",
+        }),
+        409,
+      );
     }
   }
 
@@ -587,17 +792,20 @@ export class RunEngineRequestHandler {
     }
 
     const lifecycleStore = this.createLifecycleEventStore();
-    const existing = await findLifecycleApprovalDecisionEvent(
-      {
-        store: lifecycleStore,
-        turnId: payload.turnId,
-        approvalId: payload.approvalId,
-      },
-      null,
+    const lifecycleApproval = await findLifecycleApprovalEvents(
+      lifecycleStore,
+      payload.turnId,
+      payload.approvalId,
     );
-    if (existing.event) {
+    if (lifecycleApproval.decided) {
       if (
-        !isMatchingLifecycleApprovalDecision(existing.event, payload.decision)
+        !isMatchingLifecycleApprovalDecision(
+          lifecycleApproval.decided,
+          payload.decision,
+          payload.grantScope === "matching_in_chat"
+            ? "matching_in_chat"
+            : undefined,
+        )
       ) {
         return runEngineErrorResponse(
           request,
@@ -606,7 +814,30 @@ export class RunEngineRequestHandler {
           409,
         );
       }
-      return runEngineJsonResponse(request, this.env, existing.event);
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        lifecycleApproval.decided,
+      );
+    }
+
+    if (payload.grantScope === "matching_in_chat") {
+      const identity = this.turnRuntimeIdentities.get(payload.turnId);
+      if (
+        !lifecycleApproval.requested ||
+        !identity ||
+        !isMatchingInChatGrantRequest(
+          lifecycleApproval.requested,
+          workspaceIdFromExternalId(identity.workspaceId),
+        )
+      ) {
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          "This approval request does not allow a matching-in-chat grant.",
+          409,
+        );
+      }
     }
 
     if (!this.approvalResolutionRegistry.has(payload.turnId)) {
@@ -636,6 +867,10 @@ export class RunEngineRequestHandler {
         payload.approvalId,
         {
           decision: payload.decision,
+          grantScope:
+            payload.grantScope === "matching_in_chat"
+              ? "matching_in_chat"
+              : undefined,
           decidedBy: null,
           reason: payload.reason ?? null,
         },
@@ -682,15 +917,14 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const decided = await findLifecycleApprovalDecisionEvent(
-      {
-        store: lifecycleStore,
-        turnId: payload.turnId,
-        approvalId: payload.approvalId,
-      },
-      null,
-    );
-    if (!decided.event) {
+    const decided = (
+      await findLifecycleApprovalEvents(
+        lifecycleStore,
+        payload.turnId,
+        payload.approvalId,
+      )
+    ).decided;
+    if (!decided) {
       return runEngineErrorResponse(
         request,
         this.env,
@@ -698,7 +932,7 @@ export class RunEngineRequestHandler {
         500,
       );
     }
-    return runEngineJsonResponse(request, this.env, decided.event);
+    return runEngineJsonResponse(request, this.env, decided);
   }
 
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
@@ -727,14 +961,15 @@ export class RunEngineRequestHandler {
             candidate.workspaceId === workspaceId,
         );
         const requestedTurnId = input.clientMessageId
-          ? input.admittedIdentity?.turnId ?? null
+          ? (input.admittedIdentity?.turnId ?? null)
           : null;
         const admittedIdentity = input.admittedIdentity;
         if (
           !input.clientMessageId ||
           !admittedIdentity ||
           admittedIdentity.workspaceId !== workspaceId ||
-          (input.revisionOfTurnId ?? undefined) !== admittedIdentity.revisionOfTurnId
+          (input.revisionOfTurnId ?? undefined) !==
+            admittedIdentity.revisionOfTurnId
         ) {
           return runEngineErrorResponse(
             request,
@@ -802,7 +1037,12 @@ export class RunEngineRequestHandler {
           sessionId: input.sessionId,
           ownerUserId: input.userId,
         });
-        return runEngineJsonResponse(request, this.env, identity, existing ? 200 : 201);
+        return runEngineJsonResponse(
+          request,
+          this.env,
+          identity,
+          existing ? 200 : 201,
+        );
       });
     } catch (error: unknown) {
       if (isDomainError(error)) {
@@ -907,7 +1147,11 @@ export class RunEngineRequestHandler {
 
     let runId: string;
     try {
-      runId = validateWithSchema<string>(runIdRaw.trim(), RunIdSchema, "turn-scope");
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "turn-scope",
+      );
     } catch {
       return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
     }
@@ -941,10 +1185,8 @@ export class RunEngineRequestHandler {
     );
   }
 
-  async handleExecuteRequest(
-    request: Request,
-  ): Promise<Response> {
-    let executionClaim: { turnId: string; claimId: string } | null = null;
+  async handleExecuteRequest(request: Request): Promise<Response> {
+    let executionClaim: { turnId: TurnId; claimId: string } | null = null;
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1006,8 +1248,9 @@ export class RunEngineRequestHandler {
         let storedIdentity = this.turnRuntimeIdentities.get(identity.turnId);
         let storedRunId = this.turnToRunMap.get(identity.turnId);
         if (!storedIdentity || !storedRunId) {
-          const durableAdmission = await withTurnAdmissionRepository(this.env, (repository) =>
-            repository.getByTurnId(identity.turnId),
+          const durableAdmission = await withTurnAdmissionRepository(
+            this.env,
+            (repository) => repository.getByTurnId(identity.turnId),
           );
           if (
             durableAdmission?.state === "admitted" &&
@@ -1017,7 +1260,8 @@ export class RunEngineRequestHandler {
             durableAdmission.workspaceId === workspaceId.data &&
             durableAdmission.threadId === identity.threadId &&
             durableAdmission.runAttemptId === identity.runAttemptId &&
-            durableAdmission.revisionOfTurnId === (identity.revisionOfTurnId ?? null)
+            durableAdmission.revisionOfTurnId ===
+              (identity.revisionOfTurnId ?? null)
           ) {
             await this.mapTurnToRun(identity.turnId, payload.runId, {
               ...identity,
@@ -1048,38 +1292,54 @@ export class RunEngineRequestHandler {
         }
         const { turnId, runAttemptId, threadId } = identity;
         if (!payload.userId) {
-          return runEngineErrorResponse(request, this.env, "Authenticated user scope is required for execution claim", 409, "RUN_SCOPE_MISMATCH");
-        }
-        const claimId = crypto.randomUUID();
-        const claimResult = await withTurnAdmissionRepository(this.env, (repository) =>
-          repository.claimExecution({
-            turnId,
-            runAttemptId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            userId: payload.userId!,
-            workspaceId: workspaceId.data,
-            threadId,
-            claimId,
-          }),
-        );
-        if (claimResult.status !== "claimed") {
-          const recovery = claimResult.status === "already_claimed" || claimResult.status === "recovery_required";
           return runEngineErrorResponse(
             request,
             this.env,
-            recovery ? "This admitted turn already has an execution claim and requires recovery review." : "This turn is already settled or does not match its durable admission.",
+            "Authenticated user scope is required for execution claim",
             409,
-            recovery ? "TURN_EXECUTION_ALREADY_CLAIMED" : "TURN_EXECUTION_NOT_CLAIMABLE",
+            "RUN_SCOPE_MISMATCH",
+          );
+        }
+        const claimId = crypto.randomUUID();
+        const claimResult = await withTurnAdmissionRepository(
+          this.env,
+          (repository) =>
+            repository.claimExecution({
+              turnId,
+              runAttemptId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              userId: payload.userId!,
+              workspaceId: workspaceId.data,
+              threadId,
+              claimId,
+            }),
+        );
+        if (claimResult.status !== "claimed") {
+          const recovery =
+            claimResult.status === "already_claimed" ||
+            claimResult.status === "recovery_required";
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            recovery
+              ? "This admitted turn already has an execution claim and requires recovery review."
+              : "This turn is already settled or does not match its durable admission.",
+            409,
+            recovery
+              ? "TURN_EXECUTION_ALREADY_CLAIMED"
+              : "TURN_EXECUTION_NOT_CLAIMABLE",
           );
         }
         executionClaim = { turnId, claimId };
+        this.interruptRegistry.beginStartup(turnId);
         const runtimeState = this.createRuntimeState();
         const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
           this.env,
         );
         const issuedTaskCheckout = await new TaskCheckoutIssuer(this.env).issue(
           payload,
+          { resumeSnapshot: payload.resumeSnapshotRef },
         );
         let claimedTaskCheckout;
         try {
@@ -1144,6 +1404,17 @@ export class RunEngineRequestHandler {
               issuedTaskCheckout.workspaceScope,
               issuedTaskCheckout.executionSession,
             ),
+            {
+              bucket: this.env.EDIT_ARTIFACTS!,
+              userId: userIdFromExternalId(payload.userId!),
+              workspaceId: workspaceIdFromExternalId(workspaceId.data),
+              threadId,
+              sourceRunId: payload.runId,
+              sourceTurnId: turnId,
+              sourceRunAttemptId: runAttemptId,
+              baseSnapshotId: issuedTaskCheckout.checkout.snapshotId,
+              baseCommitSha: issuedTaskCheckout.authorizedCommitId,
+            },
           );
           const userMessageId = readLatestUserMessageId(payload.messages);
           editArtifactCoordinator.setMessageContext({
@@ -1162,8 +1433,10 @@ export class RunEngineRequestHandler {
             agent,
             {
               ...runEngineDeps,
+              approvalGrants: new BrainApprovalGrantReader(this.env),
               gitSnapshots,
               prepareMutationCapture: async () => {
+                await issuedTaskCheckout.restoreWorkspaceProgress?.();
                 await editArtifactCoordinator.prepare();
               },
               runEventListener: async (event) => {
@@ -1194,14 +1467,16 @@ export class RunEngineRequestHandler {
             runAttemptId,
             workspaceRoot: claimedTaskCheckout.filesystemRoot,
             prompt: payload.input.prompt,
-            selectedMode:
-              payload.input.mode === "plan" ? "plan" : "auto_edit",
+            selectedMode: payload.input.mode === "plan" ? "plan" : "auto_edit",
             backendId: payload.input.executionBackend,
           });
+          this.threadInputRegistry.register(turnId, async (threadInput) =>
+            await runtimeRunner.acceptThreadInput(threadInput),
+          );
           const pendingInterruptReason = this.interruptRegistry.register(
             turnId,
             async (reason) => {
-            await runtimeRunner.interrupt(turnId, reason);
+              await runtimeRunner.interrupt(turnId, reason);
             },
           );
           if (pendingInterruptReason) {
@@ -1231,6 +1506,8 @@ export class RunEngineRequestHandler {
             threadId,
             workspaceId: workspaceId.data,
             revisionOfTurnId: identity.revisionOfTurnId,
+            continuationOfTurnId: identity.continuationOfTurnId,
+            originalPromptId: identity.originalPromptId,
             workspace: {
               filesystemRoot: claimedTaskCheckout.filesystemRoot,
               workingBranch: claimedTaskCheckout.workingBranch,
@@ -1247,13 +1524,15 @@ export class RunEngineRequestHandler {
             }),
           );
 
-          const persistedAssistantMessageId = await withTranscriptRepository(this.env, (repository) =>
-            repository.getCanonicalAssistantMessageId?.({
-              sessionId: payload.sessionId,
-              userId: payload.userId!,
-              turnId,
-              phase: "final_answer",
-            }) ?? Promise.resolve(null),
+          const persistedAssistantMessageId = await withTranscriptRepository(
+            this.env,
+            (repository) =>
+              repository.getCanonicalAssistantMessageId?.({
+                sessionId: payload.sessionId,
+                userId: payload.userId!,
+                turnId,
+                phase: "final_answer",
+              }) ?? Promise.resolve(null),
           );
           console.log(
             formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
@@ -1269,8 +1548,13 @@ export class RunEngineRequestHandler {
             });
           }
           await editArtifactCoordinator.waitForPendingCapture();
-          const lifecycleEvents = await readAllLifecycleEvents(this.createLifecycleEventStore(), turnId);
-          const terminalLifecycleEvent = lifecycleEvents.find(isTerminalLifecycleEvent);
+          const lifecycleEvents = await readAllLifecycleEvents(
+            this.createLifecycleEventStore(),
+            turnId,
+          );
+          const terminalLifecycleEvent = lifecycleEvents.find(
+            isTerminalLifecycleEvent,
+          );
           if (!terminalLifecycleEvent) {
             throw new DomainError(
               "RUNTIME_TERMINAL_SETTLEMENT_MISSING",
@@ -1330,6 +1614,7 @@ export class RunEngineRequestHandler {
           this.interruptRegistry.unregister(turnId);
           this.approvalResolutionRegistry.unregister(turnId);
           this.contextCompactionRegistry.unregister(turnId);
+          this.threadInputRegistry.unregister(turnId);
           await taskCheckoutLifecycle.release();
         }
       });
@@ -1347,6 +1632,63 @@ export class RunEngineRequestHandler {
         error,
         payload.correlationId,
       );
+      let startupInterruptReason: string | null = null;
+      const claimedExecution = executionClaim as {
+        turnId: TurnId;
+        claimId: string;
+      } | null;
+      if (claimedExecution) {
+        startupInterruptReason = this.interruptRegistry.takePendingRequest(
+          claimedExecution.turnId,
+        );
+        this.interruptRegistry.unregister(claimedExecution.turnId);
+        try {
+          const identity = payload.identity;
+          if (identity && payload.userId) {
+            await settleOwnedStartupFailure({
+              store: this.createLifecycleEventStore(),
+              claim: claimedExecution,
+              identity: {
+                turnId: identity.turnId,
+                runAttemptId: identity.runAttemptId,
+                threadId: identity.threadId,
+                workspaceId: workspaceIdFromExternalId(identity.workspaceId),
+                admittedWorkspaceId: identity.workspaceId,
+                ...(identity.revisionOfTurnId
+                  ? { revisionOfTurnId: identity.revisionOfTurnId }
+                  : {}),
+                userId: payload.userId,
+                sessionId: payload.sessionId,
+                runId: payload.runId,
+                correlationId: payload.correlationId,
+              },
+              markRecoveryRequired: (claim) =>
+                withTurnAdmissionRepository(this.env, (repository) =>
+                  repository.markRecoveryRequired(claim),
+                ),
+              readAdmission: () =>
+                withTurnAdmissionRepository(this.env, (repository) =>
+                  repository.getByTurnId(claimedExecution.turnId),
+                ),
+              interruptReason: startupInterruptReason,
+              failure: toStartupLifecycleFailure(
+                error,
+                domainError,
+                payload.correlationId,
+              ),
+            });
+          } else {
+            await withTurnAdmissionRepository(this.env, (repository) =>
+              repository.markRecoveryRequired(claimedExecution),
+            );
+          }
+        } catch (recoveryError) {
+          console.error(
+            "Failed to settle an owned execution claim",
+            recoveryError,
+          );
+        }
+      }
       if (domainError) {
         const { status, code, message, metadata } =
           mapDomainErrorToHttp(domainError);
@@ -1385,7 +1727,6 @@ export class RunEngineRequestHandler {
       "do",
     );
   }
-
 
   private async persistCanonicalRunEvent(
     event: RunEvent,
@@ -1494,6 +1835,28 @@ export class RunEngineRequestHandler {
       },
     });
   }
+}
+
+function toStartupLifecycleFailure(
+  error: unknown,
+  domainError: DomainError | null,
+  correlationId: string,
+): ProtocolError {
+  const message = sanitizeLogText(
+    domainError?.message ?? sanitizeUnknownError(error),
+  ).slice(0, 10_000);
+  return {
+    code: "workspace_prepare_failed",
+    message: message || "Runtime setup failed before execution began.",
+    retryable: domainError?.retryable ?? true,
+    correlationId: correlationId || null,
+    details: domainError
+      ? {
+          domainCode: sanitizeLogText(domainError.code),
+          httpStatus: domainError.status,
+        }
+      : null,
+  };
 }
 
 function sameTurnRuntimeIdentity(
@@ -1607,9 +1970,7 @@ function readTurnId(url: URL): string | null {
 }
 
 function readTurnIdFromPath(pathname: string): string | null {
-  const match = pathname.match(
-    /^\/turns\/([^/]+)\/lifecycle-events$/,
-  );
+  const match = pathname.match(/^\/turns\/([^/]+)\/lifecycle-events$/);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -1660,9 +2021,12 @@ async function readAllLifecycleEvents(
       limit: 1_000,
     });
     events.push(...replay.events);
-    if (replay.events.length < 1_000 || replay.nextSequence === null) return events;
+    if (replay.events.length < 1_000 || replay.nextSequence === null)
+      return events;
     if (replay.nextSequence === afterSequence) {
-      throw new Error(`Lifecycle replay cursor did not advance for turn ${turnId}`);
+      throw new Error(
+        `Lifecycle replay cursor did not advance for turn ${turnId}`,
+      );
     }
     afterSequence = replay.nextSequence;
   }
@@ -1700,38 +2064,91 @@ function mapApprovalResolutionErrorStatus(error: unknown): number {
   return 500;
 }
 
-async function findLifecycleApprovalDecisionEvent(
-  input: {
-    store: LifecycleEventStore;
-    turnId: string;
-    approvalId: string;
-  },
-  afterSequence: number | null,
-): Promise<{ event: LifecycleEvent | null; nextSequence: number | null }> {
-  const replay = await input.store.replay({
-    turnId: TurnIdSchema.parse(input.turnId),
-    afterSequence,
-    limit: 1_000,
-  });
-  const event =
-    replay.events.find(
-      (candidate) =>
-        candidate.type === "approval.decided" &&
-        candidate.approvalId === input.approvalId,
-    ) ?? null;
-  return {
-    event,
-    nextSequence: replay.nextSequence,
-  };
+async function findLifecycleApprovalEvents(
+  store: LifecycleEventStore,
+  turnId: string,
+  approvalId: string,
+): Promise<{
+  requested: Extract<LifecycleEvent, { type: "approval.requested" }> | null;
+  decided: Extract<LifecycleEvent, { type: "approval.decided" }> | null;
+}> {
+  let afterSequence: number | null = null;
+  let requested: Extract<
+    LifecycleEvent,
+    { type: "approval.requested" }
+  > | null = null;
+  let decided: Extract<LifecycleEvent, { type: "approval.decided" }> | null =
+    null;
+  for (;;) {
+    const replay = await store.replay({
+      turnId: TurnIdSchema.parse(turnId),
+      afterSequence,
+      limit: 1_000,
+    });
+    for (const event of replay.events) {
+      if (
+        event.type !== "approval.requested" &&
+        event.type !== "approval.decided"
+      ) {
+        continue;
+      }
+      if (event.approvalId !== approvalId) continue;
+      if (event.type === "approval.requested") requested = event;
+      if (event.type === "approval.decided") decided = event;
+    }
+    if (
+      replay.events.length < 1_000 ||
+      replay.nextSequence === null ||
+      replay.nextSequence === afterSequence
+    ) {
+      break;
+    }
+    afterSequence = replay.nextSequence;
+  }
+  return { requested, decided };
+}
+
+function isMatchingInChatGrantRequest(
+  event: Extract<LifecycleEvent, { type: "approval.requested" }>,
+  workspaceId: string,
+): boolean {
+  const payload = event.payload;
+  if (
+    !Array.isArray(payload.options) ||
+    !payload.options.some(
+      (option) =>
+        typeof option === "object" &&
+        option !== null &&
+        "id" in option &&
+        option.id === "allow_matching_in_chat",
+    )
+  ) {
+    return false;
+  }
+  const metadata = payload.metadata;
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata)
+  ) {
+    return false;
+  }
+  return (
+    typeof metadata.grantMatcherKey === "string" &&
+    metadata.grantMatcherKey.length > 0 &&
+    metadata.grantWorkspaceId === workspaceId
+  );
 }
 
 function isMatchingLifecycleApprovalDecision(
   event: LifecycleEvent,
   decision: z.infer<typeof ApprovalDecisionSchema>,
+  grantScope?: "matching_in_chat",
 ): boolean {
   return (
     event.type === "approval.decided" &&
     "status" in event.payload &&
-    event.payload.status === decision
+    event.payload.status === decision &&
+    (event.payload.grantScope ?? "once") === (grantScope ?? "once")
   );
 }

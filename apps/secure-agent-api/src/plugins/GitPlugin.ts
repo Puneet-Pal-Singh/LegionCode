@@ -46,6 +46,7 @@ const GIT_ACTIONS = [
   "git_status",
   "git_worktree_snapshot",
   "git_snapshot_diff",
+  "git_snapshot_export",
   "git_patch_capture",
   "git_patch_apply",
 ] as const;
@@ -73,6 +74,10 @@ const GitPayloadSchema = z.object({
   baselineTree: z.string().optional(),
   startTree: z.string().optional(),
   terminalTree: z.string().optional(),
+  baseCommitSha: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/u)
+    .optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -82,6 +87,7 @@ const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
 const PATCH_WORK_DIR = ".legioncode";
+const MAX_PORTABLE_SNAPSHOT_PATCH_BYTES = 5_000_000;
 
 type CommitIdentityResolutionResult =
   | { success: true; identity: GitCommitIdentity }
@@ -131,6 +137,15 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
             parsed.startTree,
+            parsed.terminalTree,
+          );
+        case "git_snapshot_export":
+          return await this.exportWorktreeSnapshotPatch(
+            sandbox,
+            worktree,
+            toolboxContext,
+            runId,
+            parsed.baseCommitSha,
             parsed.terminalTree,
           );
         case "git_patch_apply":
@@ -602,7 +617,10 @@ export class GitPlugin implements IPlugin {
     });
     return {
       success: true,
-      output: JSON.stringify({ treeSha: snapshot.treeId }),
+      output: JSON.stringify({
+        treeSha: snapshot.treeId,
+        headSha: snapshot.headSha,
+      }),
     };
   }
 
@@ -641,6 +659,44 @@ export class GitPlugin implements IPlugin {
       },
     });
     return { success: true, output: JSON.stringify(diff) };
+  }
+
+  private async exportWorktreeSnapshotPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    baseCommitSha: string | undefined,
+    terminalTreeSha: string | undefined,
+  ): Promise<PluginResult> {
+    if (!baseCommitSha || !terminalTreeSha) {
+      return {
+        success: false,
+        error: "baseCommitSha and terminalTree are required",
+      };
+    }
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.snapshot_export",
+    );
+    const exported = await gitService.exportSnapshotPatch({
+      workspace: { runId, filesystemRoot: worktree },
+      baseCommitSha,
+      terminalTreeSha,
+    });
+    const byteLength = new TextEncoder().encode(exported.patch).byteLength;
+    if (
+      byteLength > MAX_PORTABLE_SNAPSHOT_PATCH_BYTES ||
+      exported.patch.length > MAX_PORTABLE_SNAPSHOT_PATCH_BYTES
+    ) {
+      return {
+        success: false,
+        error:
+          "Workspace snapshot exceeds the portable artifact size limit; no patch was truncated.",
+      };
+    }
+    return { success: true, output: JSON.stringify(exported) };
   }
 
   private async applyPatch(

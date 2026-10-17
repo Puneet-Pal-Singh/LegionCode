@@ -64,3 +64,10 @@ export { useCompletedTurnReview, type CompletedTurnReview } from "./conversation
 export { useChatAutoScroll, isChatNearBottom } from "./conversation/chat-interface/useChatAutoScroll.js";
 export { useStableChatLoadingIndicator } from "./conversation/chat-interface/useStableChatLoadingIndicator.js";
 export { ChatInterfaceView, type ChatInterfaceViewProps } from "./conversation/chat-interface/ChatInterfaceView.js";
+
+export { ChatErrorNotice, type ChatErrorNoticeProps } from "./conversation/ChatErrorNotice.js";
+export { ThreadInputQueuePanel } from "./conversation/conversation/ThreadInputQueuePanel.js";
+export { type ComposerDelivery } from "./conversation/conversation/composer-keyboard.js";
+export { resumeUnavailableMessage } from "./conversation/chat-interface/workspace-snapshot-status.js";
+
+export { resolveComposerKeyboardAction } from "./conversation/conversation/composer-keyboard.js";

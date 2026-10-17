@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter";
+import { PNG_DATA_URL } from "../../chat/__tests__/ImageFixtures";
 
 describe("OpenAIResponsesAdapter", () => {
   afterEach(() => {
@@ -123,9 +124,50 @@ describe("OpenAIResponsesAdapter", () => {
     expect(body).toMatchObject({
       model: "gpt-5.6-luna",
       max_output_tokens: 4096,
-      reasoning: { effort: "high" },
+      reasoning: { effort: "high", summary: "auto" },
     });
     expect(body).not.toHaveProperty("temperature");
+  });
+
+  it("preserves only provider-designated display-safe reasoning summaries", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              type: "reasoning",
+              content: [{ type: "reasoning_text", text: "Private reasoning" }],
+              summary: [
+                { type: "summary_text", text: "Comparing the two routes." },
+                { type: "other", text: "Do not display this." },
+              ],
+            },
+            { type: "message", content: [{ type: "output_text", text: "Done" }] },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/responses",
+      providerId: "openai",
+    });
+
+    const result = await adapter.generate({
+      messages: [{ role: "user", content: "hello" }],
+      model: "gpt-5.6",
+      reasoningEffort: "medium",
+    });
+
+    expect(result.transcriptParts).toEqual([
+      {
+        type: "reasoning",
+        text: "Comparing the two routes.",
+        displaySafe: true,
+      },
+    ]);
   });
 
   it("forwards attached images as native Responses input_image parts", async () => {
@@ -148,7 +190,7 @@ describe("OpenAIResponsesAdapter", () => {
             { type: "text", text: "What is shown?" },
             {
               type: "image",
-              image: "data:image/png;base64,aGVsbG8=",
+              image: PNG_DATA_URL,
               mimeType: "image/png",
             },
           ],
@@ -165,7 +207,7 @@ describe("OpenAIResponsesAdapter", () => {
           { type: "input_text", text: "What is shown?" },
           {
             type: "input_image",
-            image_url: "data:image/png;base64,aGVsbG8=",
+            image_url: PNG_DATA_URL,
             detail: "auto",
           },
         ],
@@ -178,7 +220,17 @@ describe("OpenAIResponsesAdapter", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
         new Response(
-          JSON.stringify({ output_text: "Done", status: "completed" }),
+          JSON.stringify({
+            output: [
+              {
+                type: "function_call",
+                call_id: "call_prs",
+                name: "list_pull_requests",
+                arguments: JSON.stringify({ owner: "acme", repo: "legion" }),
+              },
+            ],
+            status: "completed",
+          }),
           { status: 200 },
         ),
       );
@@ -188,33 +240,58 @@ describe("OpenAIResponsesAdapter", () => {
       providerId: "openai",
     });
 
-    await adapter.generate({
+    const result = await adapter.generate({
       messages: [{ role: "user", content: "read the readme" }],
       tools: {
-        read_file: {
-          description: "Read a file",
-          parameters: z.object({ path: z.string() }),
+        list_pull_requests: {
+          description: "List pull requests",
+          parameters: z.object({
+            owner: z.string(),
+            repo: z.string(),
+            state: z.enum(["open", "closed", "all"]).optional(),
+            head: z.string().optional(),
+            mergedLimit: z.number().optional(),
+            page: z.number().optional(),
+            perPage: z.number().optional(),
+          }),
         },
       },
       model: "gpt-5.6-luna",
       reasoningEffort: "high",
     });
 
+    expect(result.toolCalls).toEqual([
+      {
+        toolCallId: "call_prs",
+        toolName: "list_pull_requests",
+        args: { owner: "acme", repo: "legion" },
+      },
+    ]);
+
     const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
     expect(body.tools).toEqual([
       {
         type: "function",
-        name: "read_file",
-        description: "Read a file",
+        name: "list_pull_requests",
+        description: "List pull requests",
+        strict: false,
         parameters: {
           type: "object",
-          properties: { path: { type: "string" } },
-          required: ["path"],
+          properties: {
+            owner: { type: "string" },
+            repo: { type: "string" },
+            state: { type: "string", enum: ["open", "closed", "all"] },
+            head: { type: "string" },
+            mergedLimit: { type: "number" },
+            page: { type: "number" },
+            perPage: { type: "number" },
+          },
+          required: ["owner", "repo"],
           additionalProperties: false,
         },
       },
     ]);
-    expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.reasoning).toEqual({ effort: "high", summary: "auto" });
   });
 
   it("preserves structured assistant/tool history when building responses input", async () => {

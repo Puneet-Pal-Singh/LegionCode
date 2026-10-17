@@ -1,8 +1,6 @@
 import { useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
-  ArrowUp,
-  Square,
   X,
   FileText,
   Folder,
@@ -31,19 +29,22 @@ import { ChatImageDropOverlay } from "./ChatImageDropOverlay.js";
 import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft.js";
 import type { ReviewCommentDraft } from "../review/reviewComments.js";
 import { getReviewCommentDisplayLabel } from "../review/reviewComments.js";
-import type {
-  ContextBudgetSnapshot,
-  UsageCostSnapshot,
-} from "@legioncode/sdk";
+import type { ContextBudgetSnapshot, UsageCostSnapshot } from "@legioncode/sdk";
 import {
   ChatComposerContextControl,
   ChatComposerPermissionControl,
 } from "./ChatComposerStatusControls.js";
+import { MarkdownMessageContent } from "./chat-message/MessageContent.js";
+import {
+  resolveComposerKeyboardAction,
+  type ComposerDelivery,
+  type ComposerPreferences,
+} from "./conversation/composer-keyboard.js";
+import { ComposerSubmitControls } from "./conversation/ComposerSubmitControls.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
-const ACTIVE_RUN_SWITCH_WARNING =
-  "Stop the current run before changing mode.";
+const ACTIVE_RUN_SWITCH_WARNING = "Stop the current run before changing mode.";
 const WARNING_AUTO_DISMISS_MS = 4000;
 const BUILD_PLACEHOLDER =
   "Ask LegionCode anything, @ to add files, / for commands";
@@ -51,6 +52,7 @@ const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
 
 export interface ChatInputBarProps {
+  composerPreferences?: ComposerPreferences;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
   providerNotice?: ReactNode;
   providerQuota?: ReactNode;
@@ -60,6 +62,11 @@ export interface ChatInputBarProps {
   onChange: (value: string) => void;
   onSubmit: (
     attachments?: ChatSubmitAttachments,
+    delivery?: ComposerDelivery,
+  ) => boolean | void | Promise<boolean | void>;
+  onFollowUpSubmit?: (
+    attachments: ChatSubmitAttachments | undefined,
+    delivery: ComposerDelivery,
   ) => boolean | void | Promise<boolean | void>;
   reviewComments?: ReviewCommentDraft[];
   onRemoveReviewComment?: (commentId: string) => void;
@@ -83,6 +90,11 @@ export interface ChatInputBarProps {
 }
 
 export function ChatInputBar({
+  composerPreferences = {
+    plainTextComposer: true,
+    sendShortcut: "enter",
+    followUpBehavior: "queue",
+  },
   renderModelPicker,
   providerNotice,
   providerQuota,
@@ -91,6 +103,7 @@ export function ChatInputBar({
   input,
   onChange,
   onSubmit,
+  onFollowUpSubmit,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -137,6 +150,11 @@ export function ChatInputBar({
   const shouldShowStop = canStop && onStop !== undefined;
   const isComposerActiveRun = isLoading || canStop || shouldShowStop;
   const canSendMessage = canSubmit && !isComposerActiveRun;
+  const modifierShortcutLabel =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "⌘+Enter"
+      : "Ctrl+Enter";
   const effectivePlaceholder =
     placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
   const suggestionEntries = useMemo(
@@ -225,6 +243,10 @@ export function ChatInputBar({
   }, [input, cursorPosition]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) {
+      return;
+    }
+
     if (shouldShowFilePicker) {
       if (e.key === "ArrowDown" && suggestedFiles.length > 0) {
         e.preventDefault();
@@ -247,7 +269,8 @@ export function ChatInputBar({
       if (
         (e.key === "Enter" || e.key === "Tab") &&
         suggestedFiles.length > 0 &&
-        !e.shiftKey
+        !e.shiftKey &&
+        !(e.key === "Enter" && (e.metaKey || e.ctrlKey))
       ) {
         e.preventDefault();
         const selectedPath =
@@ -265,22 +288,44 @@ export function ChatInputBar({
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    const keyboardAction = resolveComposerKeyboardAction({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+      isComposing: e.nativeEvent.isComposing,
+      isActive: isComposerActiveRun,
+      preferences: composerPreferences,
+    });
+    if (keyboardAction.type === "submit") {
+      if (
+        isComposerActiveRun &&
+        input.trim() === "/compact" &&
+        canCompactContext
+      ) {
+        e.preventDefault();
+        onCompact?.();
+        return;
+      }
+      if (isComposerActiveRun && (!onFollowUpSubmit || hasReviewComments))
+        return;
       e.preventDefault();
-      if (input.trim() === "/compact" && canCompactContext) {
+      if (
+        !isComposerActiveRun &&
+        input.trim() === "/compact" &&
+        canCompactContext
+      ) {
         void submitComposer();
         return;
       }
-      if (isComposerActiveRun) {
-        return;
-      }
-      if (canSendMessage) {
-        void submitComposer();
+      if (isComposerActiveRun ? canSubmit : canSendMessage) {
+        void submitComposer(keyboardAction.delivery);
       }
     }
   };
 
-  const submitComposer = async () => {
+  const submitComposer = async (delivery?: ComposerDelivery) => {
+    if (delivery && !onFollowUpSubmit) return;
     if (hasImageAttachments && hasReviewComments) {
       imageDraft.reportError(
         "Remove image attachments before sending selected review comments.",
@@ -291,11 +336,13 @@ export function ChatInputBar({
       ? imageDraft.detachForSubmit()
       : [];
     try {
-      const submitted = await onSubmit(
+      const attachments =
         detachedImages.length > 0
           ? { imageAttachments: detachedImages }
-          : undefined,
-      );
+          : undefined;
+      const submitted = delivery
+        ? await onFollowUpSubmit?.(attachments, delivery)
+        : await onSubmit(attachments);
       if (detachedImages.length > 0) {
         imageDraft.settleDetached(detachedImages, submitted !== false);
       }
@@ -434,8 +481,22 @@ export function ChatInputBar({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (canSendMessage) {
-            void submitComposer();
+          if (
+            isComposerActiveRun &&
+            input.trim() === "/compact" &&
+            canCompactContext
+          ) {
+            onCompact?.();
+            return;
+          }
+          if (isComposerActiveRun && (!onFollowUpSubmit || hasReviewComments))
+            return;
+          if (isComposerActiveRun ? canSubmit : canSendMessage) {
+            void submitComposer(
+              isComposerActiveRun
+                ? composerPreferences.followUpBehavior
+                : undefined,
+            );
           }
         }}
         className={
@@ -661,6 +722,16 @@ export function ChatInputBar({
             className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
             style={{ lineHeight: "1.5" }}
           />
+          {!composerPreferences.plainTextComposer && input.trim() ? (
+            <details open className="mt-2 border-t border-zinc-800/70 pt-2">
+              <summary className="w-fit cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-300">
+                Formatted Markdown preview
+              </summary>
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-md bg-black/20 px-2 py-1.5">
+                <MarkdownMessageContent content={input} isUser />
+              </div>
+            </details>
+          ) : null}
 
           {mode === "plan" ? (
             <div className="mt-3 rounded-xl border border-cyan-900/60 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-100">
@@ -712,7 +783,9 @@ export function ChatInputBar({
 
               <div className="h-3.5 w-px bg-zinc-700/80" />
 
-              {renderModelPicker?.(() => showSwitchWarning(IDLE_SWITCH_WARNING))}
+              {renderModelPicker?.(() =>
+                showSwitchWarning(IDLE_SWITCH_WARNING),
+              )}
               <ChatComposerPermissionControl
                 value={permissionMode}
                 onChange={onPermissionModeChange}
@@ -732,26 +805,20 @@ export function ChatInputBar({
                   onOpenDetails={onContextOpen}
                 />
               ) : null}
-              <motion.button
-                type="button"
-                onClick={shouldShowStop ? onStop : () => void submitComposer()}
-                disabled={shouldShowStop ? false : !canSendMessage}
-                aria-label={shouldShowStop ? "Stop generation" : "Send message"}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className={`
-                  p-1.5 rounded-full transition-all
-                  ${
-                    shouldShowStop
-                      ? "bg-white text-black hover:bg-zinc-200"
-                      : canSubmit
-                        ? "bg-white text-black hover:bg-zinc-200"
-                        : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-                  }
-                `}
-              >
-                {shouldShowStop ? <Square size={14} /> : <ArrowUp size={16} />}
-              </motion.button>
+              <ComposerSubmitControls
+                isActive={isComposerActiveRun}
+                canSubmit={canSubmit}
+                canSendMessage={canSendMessage}
+                canStop={shouldShowStop}
+                followUpAvailable={
+                  onFollowUpSubmit !== undefined && !hasReviewComments
+                }
+                preferences={composerPreferences}
+                modifierShortcutLabel={modifierShortcutLabel}
+                onSend={() => void submitComposer()}
+                onFollowUp={(delivery) => void submitComposer(delivery)}
+                onStop={onStop}
+              />
             </div>
           </div>
         </div>

@@ -110,7 +110,7 @@ describe("WorkflowTimeline", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps verbose grouped commentary collapsed until requested", () => {
+  it("shows full commentary as a standalone paragraph before grouped tools", () => {
     const item = {
       itemId: ItemIdSchema.parse("itm_commentary001"),
       sequence: 1,
@@ -135,16 +135,22 @@ describe("WorkflowTimeline", () => {
       startedAt: "2026-08-09T10:00:00.000Z",
       completedAt: "2026-08-09T10:00:01.000Z",
     };
-    render(
+    const { container } = render(
       <WorkflowTimeline
         segments={[
           {
             key: "commentary-group",
             reasoning: null,
-            familyLabels: ["ran commands"],
+            familyLabels: ["tool calls"],
+            isActive: false,
+            children: [item],
+          },
+          {
+            key: "tool-group",
+            reasoning: null,
+            familyLabels: ["shell"],
             isActive: false,
             children: [
-              item,
               {
                 ...item,
                 itemId: ItemIdSchema.parse("itm_commentary002"),
@@ -163,18 +169,11 @@ describe("WorkflowTimeline", () => {
       />,
     );
 
-    const disclosure = screen.getByTestId("activity-disclosure-row");
-    expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    expect(
-      screen.queryByText("I am checking the repository first."),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(disclosure);
-
-    expect(disclosure).toHaveAttribute("aria-expanded", "true");
     expect(
       screen.getByText("I am checking the repository first."),
     ).toBeInTheDocument();
+    expect(container.querySelector(".max-h-24")).toBeNull();
+    expect(screen.getByText("Ran command")).toBeInTheDocument();
   });
 
   it("shimmers active grouped work and aligns its children with the parent", () => {
@@ -245,8 +244,8 @@ describe("WorkflowTimeline", () => {
     expect(childRow).toHaveClass("min-h-6", "py-0.5", "text-sm", "leading-5");
     expect(disclosure.parentElement?.querySelector(".border-l")).toBeNull();
     expect(screen.getByTestId("activity-disclosure-row")).toHaveClass(
-      "min-h-8",
-      "py-1.5",
+      "min-h-6",
+      "py-0.5",
       "leading-5",
     );
     expect(screen.getByTestId("workflow-tool-viewport")).toHaveClass(
@@ -390,7 +389,7 @@ describe("WorkflowTimeline", () => {
     );
     const activeTitle = screen.getByTestId("active-workflow-title");
     const activeDisclosure = screen.getByTestId("activity-disclosure-row");
-    expect(activeTitle).toHaveTextContent("Thinking through the next step");
+    expect(activeTitle).toHaveTextContent("Thinking");
     expect(activeTitle).toHaveClass("turn-lifecycle-shimmer");
 
     rerender(
@@ -438,8 +437,6 @@ describe("WorkflowTimeline", () => {
     expect(screen.getByTestId("activity-disclosure-row")).toBe(
       activeDisclosure,
     );
-    fireEvent.click(screen.getByTestId("activity-disclosure-row"));
-    expect(activeTitle).toHaveTextContent("Thinking through the next step");
     expect(
       screen.getAllByText("I’m checking the test suite now."),
     ).toHaveLength(1);

@@ -1,5 +1,8 @@
 export { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
-export { createProviderAppServerTransport, type ProviderAppServerTransportOptions } from "./providers/app-server-transport.js";
+export {
+  createProviderAppServerTransport,
+  type ProviderAppServerTransportOptions,
+} from "./providers/app-server-transport.js";
 export {
   AppServerClientError,
   createAppServerClient,
@@ -74,7 +77,54 @@ export {
   turnSeedFromLatestUserMessage,
 } from "@repo/platform-protocol/lifecycle-turn-routing";
 export { buildDiffContentFromTurnDiff } from "./platform/turn-diff-patch.js";
-export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
+export {
+  EnqueueThreadInputCommandSchema,
+  ListThreadInputsCommandSchema,
+  RemoveThreadInputCommandSchema,
+  ResumeTurnCommandSchema,
+  ResumeTurnReceiptSchema,
+  StartQueuedThreadInputCommandSchema,
+  SteerQueuedThreadInputCommandSchema,
+  SteerTurnCommandSchema,
+  ThreadInputCommandSchema,
+  ThreadInputConfigurationSchema,
+  ThreadInputContentSchema,
+  ThreadInputImageSchema,
+  ThreadInputQueueItemSchema,
+  ThreadInputQueueSnapshotSchema,
+  ThreadInputReceiptSchema,
+  ThreadInputUpdateContentSchema,
+  UpdateThreadInputCommandSchema,
+  WorkspaceScopeIdSchema,
+  type ResumeTurnReceipt,
+  type ThreadInputCommand,
+  type ThreadInputQueueItem,
+  type ThreadInputQueueSnapshot,
+  type ThreadInputReceipt,
+} from "@repo/platform-protocol";
+export type {
+  EnqueueThreadInputCommand,
+  ListThreadInputsCommand,
+  RemoveThreadInputCommand,
+  ResumeTurnCommand,
+  StartQueuedThreadInputCommand,
+  SteerQueuedThreadInputCommand,
+  SteerTurnCommand,
+  UpdateThreadInputCommand,
+} from "./platform/conversation-input-types.js";
+export {
+  followLifecycleEvents,
+  isRetryableLifecycleTransportError,
+  replayLifecycleEventsWithRetry,
+} from "./platform/lifecycle-continuation.js";
+export {
+  ConversationHistoryReadError,
+  parseConversationHistoryPage,
+  readConversationHistory,
+  type ConversationHistoryPage,
+  type ConversationHistoryReadOptions,
+  type ConversationHistoryReadResult,
+} from "./platform/conversation-history.js";
 export {
   LifecycleContinuationError,
   createLifecycleOrderingState,
@@ -209,6 +259,10 @@ export {
   type WorkflowItemKind,
   type WorkflowItemStatus,
   type WorkflowApproval,
+  type WorkflowApprovalOption,
+  type WorkflowRequest,
+  type WorkflowRequestQuestion,
+  type WorkflowRequestAnswer,
 } from "./workflow/turn-workflow-projection.js";
 export {
   groupToolActivity,
@@ -230,24 +284,49 @@ export {
   type ThreadSidebarWorkspaceInput,
 } from "./navigation/thread-sidebar-projection.js";
 export { workspaceIdFromExternalId } from "@repo/platform-protocol";
-export { parseReadFileOutput, normalizeReadFileContent, type ReadFileOutput } from "./platform/read-file-output.js";
+export {
+  parseReadFileOutput,
+  normalizeReadFileContent,
+  type ReadFileOutput,
+} from "./platform/read-file-output.js";
 
 export * from "./platform/conversation-history.js";
 
 export {
-  createLifecycleProjection, applyConversationLifecycleEvent, replayLifecycleProjection,
-  lifecyclePhaseLabel, type LifecycleProjection, type LifecycleProjectionTerminalState,
-  type LifecycleProjectionPhase, type LifecycleProjectionItemStatus,
-  type LifecycleProjectionItem, type LifecycleProjectionApproval, type LifecycleProjectionTerminal,
+  createLifecycleProjection,
+  applyConversationLifecycleEvent,
+  replayLifecycleProjection,
+  lifecyclePhaseLabel,
+  type LifecycleProjection,
+  type LifecycleProjectionTerminalState,
+  type LifecycleProjectionPhase,
+  type LifecycleProjectionItemStatus,
+  type LifecycleProjectionItem,
+  type LifecycleProjectionApproval,
+  type LifecycleProjectionTerminal,
 } from "./workflow/conversation-lifecycle-projection.js";
 export { mergeLifecycleProjections } from "./workflow/merge-lifecycle-projections.js";
 
-export { buildConversationTurns, readCanonicalTurnId, resolveMessageTimestamp, type ConversationMessage, type ConversationTurn } from "./platform/conversation-turns.js";
+export {
+  buildConversationTurns,
+  readCanonicalTurnId,
+  resolveMessageTimestamp,
+  type ConversationMessage,
+  type ConversationTurn,
+} from "./platform/conversation-turns.js";
 export { collectLifecycleTurnDiffFiles } from "./platform/conversation-turn-diff.js";
 
-export type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt } from "@repo/platform-protocol";
+export type {
+  HostedSession,
+  HostedSessionCreateRequest,
+  HostedSessionReadReceipt,
+} from "@repo/platform-protocol";
 
 export type {
-  HostedWorkspaceSelectRequest, HostedWorkspaceRepository, HostedWorkspaceRecord,
-  HostedWorkspaceSelection, HostedWorkspaceListItem, HostedWorkspaceListResponse,
+  HostedWorkspaceSelectRequest,
+  HostedWorkspaceRepository,
+  HostedWorkspaceRecord,
+  HostedWorkspaceSelection,
+  HostedWorkspaceListItem,
+  HostedWorkspaceListResponse,
 } from "@repo/platform-protocol";

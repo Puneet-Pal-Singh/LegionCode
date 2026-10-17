@@ -21,6 +21,7 @@ const mockUseGitStatusInputs = vi.hoisted(
 );
 const mockChatState = vi.hoisted(() => ({
   messages: [] as Array<{ role: "user" | "assistant"; content: string }>,
+  restoredUserMessageIds: new Set<string>(),
   input: "",
   handleInputChange: vi.fn(),
   handleSubmit: vi.fn(),
@@ -37,12 +38,15 @@ const mockChatState = vi.hoisted(() => ({
     projection: null,
     hasCanonicalTurn: false,
     hasReplay: false,
+    isReplayReady: false,
     isActive: false,
     isTerminal: false,
     isTransportPending: false,
   },
   isModelConfigReady: true,
   error: null as string | null,
+  scopeRecoveryError: null,
+  retryScopeRead: vi.fn(async () => {}),
   debugEvents: [],
 }));
 const mockGitHubTreeState = vi.hoisted(() => ({

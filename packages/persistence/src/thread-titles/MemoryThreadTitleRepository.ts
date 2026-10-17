@@ -29,6 +29,7 @@ export class MemoryThreadTitleRepository implements ThreadTitleRepository {
               sessionId: input.sessionId,
               title: input.title,
               titleSource: input.titleSource,
+              titleStatus: input.titleStatus,
               expectedTitleVersion: input.expectedTitleVersion,
               initialOnly: input.initialOnly,
             });

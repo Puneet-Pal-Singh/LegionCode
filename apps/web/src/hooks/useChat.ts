@@ -9,12 +9,14 @@ import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
+import type { ConversationScopeHttpError } from "./conversationScope";
 import type { ConversationScope } from "./conversationScope";
 import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 export interface UseChatResult {
   messages: Message[];
+  restoredUserMessageIds: ReadonlySet<string>;
   optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -22,6 +24,19 @@ export interface UseChatResult {
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
+  submitFollowUp: (
+    text: string,
+    attachments: ChatSubmitAttachments | undefined,
+    delivery: "queue" | "steer",
+  ) => Promise<boolean>;
+  resumeInterruptedTurn: (expectedTerminalSequence: number) => Promise<boolean>;
+  applyStartedQueueReceipt: (
+    receipt: Extract<
+      import("@legioncode/sdk").ThreadInputReceipt,
+      { status: "started" }
+    >,
+    expectedScope: ConversationScope,
+  ) => boolean;
   append: (message: ChatAppendMessage) => Promise<SubmissionOutcome>;
   reviseTurn: (turnId: string, content: string) => Promise<boolean>;
   isLoading: boolean;
@@ -39,6 +54,8 @@ export interface UseChatResult {
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  scopeRecoveryError: ConversationScopeHttpError | null;
+  retryScopeRead: () => Promise<void>;
   clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
 }
@@ -56,6 +73,7 @@ export function useChat(
   productMode?: ProductMode,
   onServerProjectionAvailable?: () => void,
   isSessionPersistenceReady = true,
+  onRunIdChange?: (runId: string) => void,
 ): UseChatResult {
   const [transcriptState, setTranscriptState] = useState<{
     sessionId: string;
@@ -64,7 +82,7 @@ export function useChat(
   const verifiedMessages = useMemo(
     () =>
       transcriptState.sessionId === sessionId ? transcriptState.messages : [],
-    [transcriptState, sessionId],
+    [sessionId, transcriptState.messages, transcriptState.sessionId],
   );
   const setVerifiedMessages = useCallback(
     (messages: Message[]) => setTranscriptState({ sessionId, messages }),
@@ -76,6 +94,9 @@ export function useChat(
     input,
     handleInputChange,
     handleSubmit,
+    submitFollowUp,
+    resumeInterruptedTurn,
+    applyStartedQueueReceipt,
     append,
     reviseTurn,
     isLoading,
@@ -87,6 +108,8 @@ export function useChat(
     resetRun,
     isModelConfigReady,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     clearNonCanonicalError,
     debugEvents,
   } = useChatCore(
@@ -95,6 +118,7 @@ export function useChat(
     mode,
     productMode,
     onServerProjectionAvailable,
+    onRunIdChange,
   );
 
   const messages = useMemo(() => {
@@ -106,6 +130,16 @@ export function useChat(
         : []),
     ];
   }, [optimisticUserMessage, verifiedMessages]);
+  const restoredUserMessageIds = useMemo(
+    () =>
+      new Set(
+        verifiedMessages
+          .filter((message) => message.role === "user")
+          .map((message) => message.id),
+      ),
+    [verifiedMessages],
+  );
+
 
   // Handle message hydration
   const {
@@ -148,10 +182,14 @@ export function useChat(
 
   return {
     messages,
+    restoredUserMessageIds,
     optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
+    submitFollowUp,
+    resumeInterruptedTurn,
+    applyStartedQueueReceipt,
     append,
     reviseTurn: reviseTurnAfterAcceptance,
     isLoading,
@@ -169,6 +207,8 @@ export function useChat(
     resetRun,
     isModelConfigReady,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     clearNonCanonicalError,
     debugEvents,
   };

@@ -20,6 +20,13 @@ export interface PluginResult {
   isBinary?: boolean;
   metadata?: Record<string, unknown>;
   truncated?: boolean;
+  failure?: {
+    kind: "pre_execution_rejection";
+    ruleId: string;
+    reason: string;
+    correctionGuidance: string;
+    executionStarted: false;
+  };
 }
 
 /**

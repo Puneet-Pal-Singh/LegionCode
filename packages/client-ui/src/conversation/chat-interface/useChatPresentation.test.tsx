@@ -208,6 +208,10 @@ describe("useChatPresentation", () => {
 function failedProjection(): LifecycleProjection {
   return {
     turnId: "trn_terminal_failure" as LifecycleProjection["turnId"],
+    workspaceSnapshotState: "unknown",
+    resumeSnapshotAvailable: null,
+    workspaceSnapshotUnavailableReason: null,
+    resumeUnavailableReason: null,
     phase: "failed",
     lastSequence: 3,
     items: [],

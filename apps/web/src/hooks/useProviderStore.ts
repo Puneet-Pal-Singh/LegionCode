@@ -81,11 +81,15 @@ type UseProviderStoreResult = ProviderStoreState & {
 
 export function useProviderStore(
   runIdOverride?: string,
+  sessionIdOverride?: string,
 ): UseProviderStoreResult {
   const store = ProviderStore.getInstance();
-  const { runId: contextRunId } = useOptionalRunContext();
+  const { runId: contextRunId, sessionId: contextSessionId } =
+    useOptionalRunContext();
   const runId = runIdOverride ?? contextRunId;
+  const sessionId = sessionIdOverride ?? contextSessionId;
   const [state, setState] = useState<ProviderStoreState>(store.getState());
+  const scopedState = sessionId ? store.getStateForSession(sessionId) : state;
 
   useEffect(() => {
     // Subscribe to store changes
@@ -95,6 +99,10 @@ export function useProviderStore(
 
     return unsubscribe;
   }, [store]);
+
+  useEffect(() => {
+    if (sessionId) store.setActiveSessionId(sessionId);
+  }, [sessionId, store]);
 
   useEffect(() => {
     if (!isCanonicalRunId(runId)) {
@@ -178,7 +186,7 @@ export function useProviderStore(
   const reset = useCallback(() => store.reset(), [store]);
 
   return {
-    ...state,
+    ...scopedState,
     bootstrap,
     connectCredential,
     disconnectCredential,

@@ -3,8 +3,8 @@ import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 
 describe("native provider commentary", () => {
   it("preserves model-written commentary", () => {
-    expect(resolveModelCommentary(" I’ll inspect the route first. ")).toBe(
-      "I’ll inspect the route first.",
+    expect(resolveModelCommentary(" The provider route differs. ")).toBe(
+      "The provider route differs.",
     );
   });
 
@@ -12,21 +12,7 @@ describe("native provider commentary", () => {
     expect(resolveModelCommentary("")).toBeNull();
   });
 
-  it("adds a concise harness fallback when a model omits tool commentary", () => {
-    expect(
-      resolveModelCommentary("", [
-        { toolName: "glob" },
-        { toolName: "read_file" },
-      ]),
-    ).toBe("I’ll inspect the relevant project files next.");
-  });
-
-  it("prefers mutation intent for a mixed tool batch", () => {
-    expect(
-      resolveModelCommentary("", [
-        { toolName: "read_file" },
-        { toolName: "apply_patch" },
-      ]),
-    ).toBe("I’ll update the relevant files next.");
+  it("does not invent progress text when a model emits only tool calls", () => {
+    expect(resolveModelCommentary("")).toBeNull();
   });
 });

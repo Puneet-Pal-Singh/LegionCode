@@ -16,7 +16,10 @@ import type {
   MemoryCoordinator,
   MemoryCoordinatorDependencies,
 } from "../memory/index.js";
-import type { RuntimeGitSnapshotPort } from "@repo/runtime-kernel";
+import type {
+  RuntimeGitSnapshotPort,
+} from "@repo/runtime-kernel";
+import type { ApprovalGrantReader } from "../contracts/RegistryToolAuthorization.js";
 
 export interface IRunEngine {
   execute(
@@ -76,6 +79,7 @@ export interface RunEngineDependencies {
   workspaceBootstrapper?: WorkspaceBootstrapper;
   hasGitHubAuth?: GitHubAuthAvailabilityChecker;
   gitSnapshots?: RuntimeGitSnapshotPort;
+  approvalGrants?: ApprovalGrantReader;
   prepareMutationCapture?: () => Promise<void>;
   runEventListener?: (event: RunEvent) => Promise<void> | void;
 }

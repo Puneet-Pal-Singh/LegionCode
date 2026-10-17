@@ -59,7 +59,7 @@ function createTransport(
         type: "approval.decided",
         itemId: TEST_IDS.approvalItemId,
         approvalId: TEST_IDS.approvalId,
-        payload: { decision: "approved" },
+        payload: { status: "approved", decision: "approved" },
       }),
     ),
     submitUserInputResponse: vi.fn(async () =>
@@ -77,6 +77,7 @@ function createTransport(
       nextCursor: TEST_IDS.nextCursor,
     })),
     getWorkspaceManifest: vi.fn(async () => createWorkspaceManifest()),
+    threadInputCommand: vi.fn(async () => ({})),
   };
   return { ...baseTransport, ...overrides };
 }

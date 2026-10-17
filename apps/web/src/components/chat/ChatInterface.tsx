@@ -23,6 +23,7 @@ import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "../../hooks/conversationScope";
+import type { ConversationScopeHttpError } from "../../hooks/conversationScope";
 import type { SubmissionOutcome } from "../../hooks/chat/submissionAttemptRegistry";
 import type { HydrationStatus } from "../../services/ChatHydrationService";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
@@ -52,6 +53,9 @@ import { useChatPresentation } from "@legioncode/client-ui";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import { mergeLifecycleProjections } from "@legioncode/sdk";
+import { updateComposerPreferences } from "../../lib/composer-preferences";
+import { type ChatErrorNoticeProps, ThreadInputQueuePanel, type ComposerDelivery, resumeUnavailableMessage } from "@legioncode/client-ui";
+import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { useStableChatLoadingIndicator } from "@legioncode/client-ui";
 import { useChatAutoScroll } from "@legioncode/client-ui";
@@ -66,8 +70,27 @@ interface ChatInterfaceProps {
     handleSubmit: (
       event?: React.FormEvent,
       attachments?: ChatSubmitAttachments,
+      delivery?: ComposerDelivery,
     ) => Promise<boolean>;
-    append: (message: { role: "user"; content: string }) => Promise<SubmissionOutcome>;
+    submitFollowUp: (
+      text: string,
+      attachments: ChatSubmitAttachments | undefined,
+      delivery: ComposerDelivery,
+    ) => Promise<boolean>;
+    resumeInterruptedTurn: (
+      expectedTerminalSequence: number,
+    ) => Promise<boolean>;
+    applyStartedQueueReceipt: (
+      receipt: Extract<
+        import("@legioncode/sdk").ThreadInputReceipt,
+        { status: "started" }
+      >,
+      expectedScope: ConversationScope,
+    ) => boolean;
+    append: (
+      message: { role: "user"; content: string },
+      delivery?: ComposerDelivery,
+    ) => Promise<SubmissionOutcome>;
     reviseTurn?: (turnId: string, content: string) => Promise<boolean>;
     stop: () => void;
     isLoading: boolean;
@@ -76,6 +99,8 @@ interface ChatInterfaceProps {
     hydrationError?: string | null;
     retryHydration?: () => void;
     error?: string | null;
+    scopeRecoveryError: ConversationScopeHttpError | null;
+    retryScopeRead: () => Promise<void>;
     debugEvents?: ChatDebugEvent[];
     conversationScope?: ConversationScope | null;
     serverTurnId?: string | null;
@@ -136,6 +161,8 @@ export function ChatInterface({
     hydrationError,
     retryHydration,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     debugEvents = [],
     conversationScope,
     serverTurnId,
@@ -165,12 +192,67 @@ export function ChatInterface({
   // RunEvent and persisted activity backfills are deliberately not rendered.
   const awaitingCanonicalLifecycle =
     activeTurn.isTransportPending ||
-    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.isReplayReady) ||
     (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
     activeTurn.isTransportPending ||
     awaitingCanonicalLifecycle;
+  const activeQueueTarget = useMemo(
+    () =>
+      activeRunLoading && conversationScope
+        ? {
+            turnId: conversationScope.turnId,
+            runAttemptId: conversationScope.runAttemptId,
+          }
+        : null,
+    [activeRunLoading, conversationScope],
+  );
+  const queue = useThreadInputQueue(
+    conversationScope ?? null,
+    activeQueueTarget,
+    `${activeTurn.projection?.turnId ?? ""}:${activeTurn.projection?.lastSequence ?? 0}:${activeTurn.continuationStatus}`,
+  );
+  const { applyStartedQueueReceipt } = chatProps;
+  const refreshQueue = queue.refresh;
+  useEffect(() => {
+    const snapshot = queue.snapshot;
+    const started = snapshot?.latestStarted?.receipt;
+    if (
+      !snapshot ||
+      !started ||
+      !conversationScope ||
+      snapshot.activeRunId !== started.runId ||
+      conversationScope.runId === started.runId
+    ) {
+      return;
+    }
+    applyStartedQueueReceipt(started, conversationScope);
+  }, [applyStartedQueueReceipt, conversationScope, queue.snapshot]);
+  const submitFollowUp = useCallback(
+    async (
+      attachments: ChatSubmitAttachments | undefined,
+      delivery: ComposerDelivery,
+    ) => {
+      const accepted = await chatProps.submitFollowUp(
+        input,
+        attachments,
+        delivery,
+      );
+      if (accepted) void refreshQueue();
+      return accepted;
+    },
+    [chatProps, input, refreshQueue],
+  );
+  const continuationRecovery =
+    activeTurn.continuationStatus === "reconnecting" ||
+    activeTurn.continuationStatus === "stopped"
+      ? {
+          status: activeTurn.continuationStatus,
+          error: activeTurn.continuationError,
+          onRetry: activeTurn.retryContinuation,
+        }
+      : null;
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {
@@ -182,6 +264,7 @@ export function ChatInterface({
   const {
     selectedReviewComments,
     selectPromptArtifactReview,
+    selectCanonicalTurnReview,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
     markReviewCommentsDispatched,
@@ -209,9 +292,12 @@ export function ChatInterface({
     markDispatchFailed: markReviewCommentsDispatchFailed,
   });
   const submitComposer = useCallback(
-    async (attachments?: ChatSubmitAttachments): Promise<boolean> => {
+    async (
+      attachments?: ChatSubmitAttachments,
+      delivery?: ComposerDelivery,
+    ): Promise<boolean> => {
       if (input.trim() !== "/compact") {
-        return handleSubmit(undefined, attachments);
+        return handleSubmit(undefined, attachments, delivery);
       }
       const budget = lifecycleProjection?.contextBudget;
       if (
@@ -245,6 +331,7 @@ export function ChatInterface({
   }, [messages, debugEvents, mode, providerModels]);
   const {
     pendingApproval,
+    matchingInChatOption,
     decisions: displayedApprovalDecisions,
     busyDecision: approvalBusyDecision,
     error: approvalError,
@@ -306,14 +393,34 @@ export function ChatInterface({
     turnDiff: lifecycleProjection?.turnDiff ?? null,
     artifactIdentity: conversationScope,
   });
-  const recoveryAdvice = getProviderRecoveryAdvice(error);
+  const recoveryAdvice = getProviderRecoveryAdvice(error, scopeRecoveryError);
   const openProviderRecoverySurface = useCallback(() => {
     if (recoveryAdvice.recoveryTarget === "auth") {
       login(true);
       return;
     }
+    if (
+      recoveryAdvice.recoveryTarget === "scope" ||
+      recoveryAdvice.recoveryTarget === "general"
+    ) {
+      return;
+    }
     dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);
   }, [login, recoveryAdvice.recoveryTarget]);
+  const chatErrorNotice: ChatErrorNoticeProps | null = error
+    ? {
+        ...recoveryAdvice,
+        message: error.startsWith("Stop not confirmed yet.")
+          ? error
+          : recoveryAdvice.message,
+        onOpen:
+          recoveryAdvice.recoveryTarget === "scope"
+            ? retryScopeRead
+            : recoveryAdvice.recoveryTarget === "general"
+              ? undefined
+              : openProviderRecoverySurface,
+      }
+    : null;
 
   useEffect(() => {
     if (recoveryAdvice.recoveryTarget !== "auth") {
@@ -333,7 +440,7 @@ export function ChatInterface({
     hasHydrated:
       hasHydrated &&
       !areHistoricalLifecyclesLoading &&
-      (!activeTurn.hasCanonicalTurn || activeTurn.hasReplay),
+      (!activeTurn.hasCanonicalTurn || activeTurn.isReplayReady),
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
@@ -353,19 +460,11 @@ export function ChatInterface({
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
-      error={
-        error
-          ? {
-              ...recoveryAdvice,
-              onOpen:
-                recoveryAdvice.recoveryTarget === "general"
-                  ? undefined
-                  : openProviderRecoverySurface,
-            }
-          : null
-      }
+      error={chatErrorNotice}
+      continuation={continuationRecovery}
       approval={{
         pending: pendingApproval,
+        matchingInChatOption,
         decisions: displayedApprovalDecisions,
         busyDecision: approvalBusyDecision,
         error: approvalError,
@@ -373,11 +472,58 @@ export function ChatInterface({
       }}
       input={input}
       onInputChange={handleInputChangeWrapper}
-      onSubmit={
+      onSubmit={(attachments, delivery) =>
         selectedReviewComments.length > 0
-          ? () => handleSubmitWithReviewComments()
-          : submitComposer
+          ? handleSubmitWithReviewComments(delivery)
+          : submitComposer(attachments, delivery)
       }
+      onFollowUpSubmit={
+        conversationScope
+          ? (attachments, delivery) => submitFollowUp(attachments, delivery)
+          : undefined
+      }
+      queuePanel={
+        <ThreadInputQueuePanel
+          onDisableQueuing={() => updateComposerPreferences({ followUpBehavior: "steer" })}
+          snapshot={queue.snapshot}
+          error={queue.error}
+          active={activeRunLoading}
+          onUpdate={queue.update}
+          onRemove={queue.remove}
+          onSteer={queue.steer}
+          onStart={async (itemId, version, revision) => {
+            const expectedScope = conversationScope;
+            if (!expectedScope) return null;
+            const receipt = await queue.start(itemId, version, revision);
+            if (receipt?.status === "started") {
+              chatProps.applyStartedQueueReceipt(receipt, expectedScope);
+            }
+            return receipt;
+          }}
+        />
+      }
+      resumeUnavailableMessage={
+        resumeUnavailableMessage(
+          activeTurn.projection,
+          Boolean(conversationScope),
+        ) ?? null
+      }
+      canResume={Boolean(
+        conversationScope &&
+        activeTurn.projection?.terminal?.state === "interrupted" &&
+        activeTurn.projection.workspaceSnapshotState === "captured" &&
+        activeTurn.projection.resumeSnapshotAvailable === true,
+      )}
+      onResume={() => {
+        const projection = activeTurn.projection;
+        if (
+          projection?.terminal?.state === "interrupted" &&
+          projection.workspaceSnapshotState === "captured" &&
+          projection.resumeSnapshotAvailable === true
+        ) {
+          void chatProps.resumeInterruptedTurn(projection.lastSequence);
+        }
+      }}
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}
       reviewCommentError={reviewCommentError}
@@ -433,6 +579,12 @@ export function ChatInterface({
       projectName={projectName}
       onProjectClick={onProjectClick}
       showSessionPlaceholder={showStableSessionPlaceholder}
+      placeholderError={chatErrorNotice}
+      continuation={continuationRecovery}
+      canStopPendingTurn={
+        Boolean(conversationScope) && activeRunLoading && !activeTurn.isTerminal
+      }
+      onStopPendingTurn={stop}
       renderComposer={renderComposerControls}
       debugPanel={showDebugPanel ? <ChatDebugPanel events={debugEvents} /> : null}
       resolveHydratedImageSource={resolveHydratedChatImageSource}
@@ -456,6 +608,7 @@ export function ChatInterface({
       artifacts={artifactSourcesByAssistantMessageId}
       loadChangedFileDiff={loadChangedFileDiff}
       selectPromptArtifactReview={selectPromptArtifactReview}
+      selectCanonicalTurnReview={selectCanonicalTurnReview}
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalViewModel ? completedTurnReview.files : []}
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}

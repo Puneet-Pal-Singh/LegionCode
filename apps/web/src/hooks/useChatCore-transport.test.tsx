@@ -27,7 +27,7 @@ vi.mock("./useProviderStore.js", () => ({
     lastResolvedConfig: null,
     providerModels: {},
     manageProviderModels: {},
-    resolveForChat: vi.fn(),
+    resolveForChat: vi.fn(async () => ({ providerId: "openai", modelId: selectedModel.value, credentialId: "credential_fixture" })),
   }),
 }));
 

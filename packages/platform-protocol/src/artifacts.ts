@@ -12,6 +12,10 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from "./ids.js";
+import {
+  ResumeWorkspaceSnapshotRefSchema,
+  ResumeWorkspaceUnavailableReasonSchema,
+} from "./task-workspaces.js";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 
@@ -78,8 +82,19 @@ export const TurnWorkspaceSnapshotSchema = z
     headSha: GitObjectIdSchema,
     phase: z.enum(["start", "terminal"]),
     capturedAt: ProtocolTimestampSchema,
+    resumeSnapshotRef: ResumeWorkspaceSnapshotRefSchema.optional(),
+    resumeUnavailableReason: ResumeWorkspaceUnavailableReasonSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.resumeSnapshotRef && value.resumeUnavailableReason) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A workspace snapshot cannot be both resumable and unavailable.",
+        path: ["resumeUnavailableReason"],
+      });
+    }
+  });
 export type TurnWorkspaceSnapshot = z.infer<typeof TurnWorkspaceSnapshotSchema>;
 
 export const TurnDiffPayloadSchema = z

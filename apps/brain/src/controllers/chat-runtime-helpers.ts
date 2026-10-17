@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
 import {
+  type ResumeWorkspaceSnapshotRef,
   TurnScopeBootstrapSchema,
   type TurnScopeBootstrap,
   type TurnId,
@@ -65,6 +66,7 @@ export interface RunEngineExecutionPayload {
   messages: CoreMessage[];
   tools?: Record<string, SerializableToolDefinition>;
   identity: TurnScopeBootstrap;
+  resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
 }
 
 export function extractPromptFromMessages(

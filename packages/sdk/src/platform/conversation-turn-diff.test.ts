@@ -52,6 +52,10 @@ describe("canonical turn diff files", () => {
 function emptyProjection(): LifecycleProjection {
   return {
     turnId: TURN_ID,
+    workspaceSnapshotState: "unknown",
+    resumeSnapshotAvailable: null,
+    workspaceSnapshotUnavailableReason: null,
+    resumeUnavailableReason: null,
     phase: "starting",
     lastSequence: 0,
     items: [],

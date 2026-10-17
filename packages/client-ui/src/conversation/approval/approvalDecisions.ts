@@ -3,7 +3,9 @@ import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
 export const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_once",
   "allow_for_run",
+  "allow_persistent_rule",
   "deny",
+  "abort",
 ];
 
 export function getDisplayedApprovalDecisions(
@@ -31,7 +33,7 @@ export function formatApprovalDecisionLabel(
     case "allow_for_run":
       return "Allow for this run";
     case "allow_persistent_rule":
-      return "Allow in future";
+      return "Always allow in this chat";
     case "deny":
       return "Deny";
     case "abort":

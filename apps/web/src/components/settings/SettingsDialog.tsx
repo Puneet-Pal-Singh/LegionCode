@@ -546,9 +546,55 @@ function SettingsGeneralPanel(): React.ReactElement {
         <div className="mb-4">
           <p className="text-sm font-medium text-zinc-100">Composer</p>
           <p className="mt-1 text-sm text-zinc-400">
-            Choose which runtime-reported information appears beside the model.
+            Set how the composer displays text and handles follow-up prompts.
           </p>
         </div>
+        <label className="flex cursor-pointer items-center justify-between gap-4 border-t border-zinc-800 py-4">
+          <span>
+            <span className="block text-sm font-medium text-zinc-100">
+              Plain-text composer
+            </span>
+            <span className="mt-1 block text-xs text-zinc-500">
+              Keep Markdown and links literal while composing. Turn this off to
+              show a formatted preview below the editor.
+            </span>
+          </span>
+          <Switch
+            label="Plain-text composer"
+            checked={composerPreferences.plainTextComposer}
+            onCheckedChange={(checked) =>
+              updateComposerPreferences({ plainTextComposer: checked })
+            }
+          />
+        </label>
+        <PreferenceSelect
+          label="Send shortcut"
+          description="Choose whether Enter sends or inserts a newline. Shift+Enter always inserts a newline."
+          value={composerPreferences.sendShortcut}
+          onChange={(value) =>
+            updateComposerPreferences({
+              sendShortcut: value as "enter" | "modifier_enter",
+            })
+          }
+          options={[
+            { value: "enter", label: "Enter sends" },
+            { value: "modifier_enter", label: "Enter inserts a newline" },
+          ]}
+        />
+        <PreferenceSelect
+          label="Follow-up behavior"
+          description="While a task runs, send the next prompt to the queue or steer the active task."
+          value={composerPreferences.followUpBehavior}
+          onChange={(value) =>
+            updateComposerPreferences({
+              followUpBehavior: value as "queue" | "steer",
+            })
+          }
+          options={[
+            { value: "queue", label: "Queue" },
+            { value: "steer", label: "Steer" },
+          ]}
+        />
         <label className="flex cursor-pointer items-center justify-between gap-4 border-t border-zinc-800 pt-4">
           <span>
             <span className="block text-sm font-medium text-zinc-100">
@@ -571,6 +617,41 @@ function SettingsGeneralPanel(): React.ReactElement {
         </label>
       </div>
     </div>
+  );
+}
+
+function PreferenceSelect({
+  label,
+  description,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  description: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: readonly { value: string; label: string }[];
+}): React.ReactElement {
+  return (
+    <label className="flex items-center justify-between gap-4 border-t border-zinc-800 py-4">
+      <span>
+        <span className="block text-sm font-medium text-zinc-100">{label}</span>
+        <span className="mt-1 block text-xs text-zinc-500">{description}</span>
+      </span>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

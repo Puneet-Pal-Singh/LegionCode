@@ -17,6 +17,8 @@ import type { CoreMessage } from "ai";
 import {
   DEFAULT_RUN_MODE,
   type BYOKModelPricing,
+  type BYOKModelCapability,
+  type BYOKModelInputModality,
   type ProductMode,
   type RunMode,
   type WorkflowEntrypoint,
@@ -26,26 +28,26 @@ import {
   type ProviderModelTransport,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
-import type { TurnScopeBootstrap } from "@repo/platform-protocol";
+import type { ResumeWorkspaceSnapshotRef, TurnScopeBootstrap } from "@repo/platform-protocol";
 import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
-import {
-  ThreadTitleGenerationCoordinator,
-  ThreadTitleService,
-  type BackgroundTaskOwner,
-} from "../../services/thread-titles";
+import { type BackgroundTaskOwner } from "../../services/thread-titles";
 import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
   RepositoryContext,
 } from "@legioncode/execution-engine/runtime";
 import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
+import { assertSubmittedImageModelSupport } from "../../services/chat/ChatImageModelPolicy";
 import {
   builtinProviderRegistry,
   resolveProviderRuntimeRoute,
   type ResolvedProviderRuntimeRoute,
 } from "@repo/provider-core";
+
+import type { RunRecord } from "@repo/persistence";
+import { scheduleInitialThreadTitle } from "../../services/thread-titles/InitialThreadTitleScheduler";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -84,7 +86,15 @@ export interface HandleChatRequestInput {
   reasoningEffort?: ReasoningEffort;
   tools?: Record<string, SerializableToolDefinition>;
   providerRuntimeRoute?: ProviderModelRuntimeRoute;
+  modelCapabilities?: BYOKModelCapability;
+  modelInputModalities?: BYOKModelInputModality;
   identity: TurnScopeBootstrap;
+  /** A command path already reserved and admitted this turn under its canonical lock. */
+  preAdmitted?: {
+    readonly run: RunRecord;
+    readonly promptMessageId: string;
+    readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
+  };
   backgroundTaskOwner?: BackgroundTaskOwner;
 }
 
@@ -121,6 +131,7 @@ export interface HandleChatRequestOutput {
     messages: CoreMessage[];
     tools?: Record<string, SerializableToolDefinition>;
     identity: TurnScopeBootstrap;
+    resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
   };
 }
 
@@ -171,6 +182,11 @@ export class HandleChatRequest {
         prompt,
         correlationId,
       );
+      const imageModelMetadata = {
+        capabilities: input.modelCapabilities,
+        inputModalities: input.modelInputModalities,
+      };
+      assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
 
       const repositorySlug =
         repositoryOwner && repositoryName
@@ -184,8 +200,13 @@ export class HandleChatRequest {
       const normalizedProviderRuntimeRoute =
         normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
+      let persistedRun: RunRecord | undefined;
       if (!userId) {
-        throw new ValidationError("Authenticated ownership is required before turn admission.", "TURN_OWNER_REQUIRED", correlationId);
+        throw new ValidationError(
+          "Authenticated ownership is required before turn admission.",
+          "TURN_OWNER_REQUIRED",
+          correlationId,
+        );
       }
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-started", {
@@ -197,13 +218,27 @@ export class HandleChatRequest {
           messageCount: messages.length,
         }),
       );
-      const persistedUserMessage = await this.persistenceService.admitUserTurn({
-        sessionId, runId, userId, workspaceId: identity.workspaceId, taskId,
-        identity, message: lastUserMessage, mode,
-        providerId: input.providerId ?? null,
-        modelId: input.modelId ?? null,
-        branch: repositoryBranch ?? null,
-      });
+      let persistedUserMessageId: string;
+      if (input.preAdmitted) {
+        persistedRun = input.preAdmitted.run;
+        persistedUserMessageId = input.preAdmitted.promptMessageId;
+      } else {
+        const admittedTurn = await this.persistenceService.admitUserTurn({
+          sessionId,
+          runId,
+          userId,
+          workspaceId: identity.workspaceId,
+          taskId,
+          identity,
+          message: lastUserMessage,
+          mode,
+          providerId: input.providerId ?? null,
+          modelId: input.modelId ?? null,
+          branch: repositoryBranch ?? null,
+        });
+        persistedRun = admittedTurn.run;
+        persistedUserMessageId = admittedTurn.id;
+      }
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
           correlationId,
@@ -213,42 +248,18 @@ export class HandleChatRequest {
         }),
       );
 
-      if (userId) {
-        const firstPersistedUserMessage =
-          await this.persistenceService.findFirstPersistedUserMessage({
-            sessionId,
-            userId,
-          });
-        if (firstPersistedUserMessage?.id === persistedUserMessage.id) {
-          const titleService = new ThreadTitleService(this.env);
-          const preview = await titleService.persistPreview({
-            sessionId,
-            threadId: identity.threadId,
-            runId,
-            workspaceId: identity.workspaceId,
-            userId,
-            firstMessageId: firstPersistedUserMessage.id,
-            prompt,
-          });
-          if (preview && input.backgroundTaskOwner) {
-            new ThreadTitleGenerationCoordinator(this.env).schedule(
-              input.backgroundTaskOwner,
-              {
-                sessionId,
-                threadId: identity.threadId,
-                runId,
-                workspaceId: identity.workspaceId,
-                userId,
-                firstMessageId: firstPersistedUserMessage.id,
-                prompt,
-                previewVersion: preview.titleVersion ?? 1,
-                providerId: input.providerId,
-                modelId: input.modelId,
-                ...normalizedProviderRuntimeRoute,
-              },
-            );
-          }
-        }
+      if (userId && !input.preAdmitted) {
+        await scheduleInitialThreadTitle(this.env, this.persistenceService, {
+          sessionId,
+          userId,
+          identity,
+          prompt,
+          persistedUserMessageId,
+          persistedRun,
+          providerRuntimeRoute: input.providerRuntimeRoute,
+          modelCapabilities: input.modelCapabilities,
+          backgroundTaskOwner: input.backgroundTaskOwner,
+        });
       }
 
       const executionMessages = userId
@@ -257,6 +268,9 @@ export class HandleChatRequest {
             userId,
             currentTurnId: identity.turnId,
             revisionOfTurnId: identity.revisionOfTurnId,
+            continuationOfTurnId: identity.continuationOfTurnId,
+            originalPromptId: identity.originalPromptId,
+            imageModelMetadata,
           })
         : messages;
 
@@ -269,6 +283,9 @@ export class HandleChatRequest {
         sessionId,
         correlationId,
         requestOrigin,
+        ...(input.preAdmitted?.resumeSnapshotRef
+          ? { resumeSnapshotRef: input.preAdmitted.resumeSnapshotRef }
+          : {}),
         input: {
           mode,
           agentType,

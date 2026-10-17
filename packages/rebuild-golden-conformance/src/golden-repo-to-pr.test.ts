@@ -437,6 +437,10 @@ class GoldenPlatformTransport implements PlatformClientTransport {
     };
   }
 
+  async threadInputCommand(): Promise<unknown> {
+    throw new Error("Golden fixture does not exercise thread input commands.");
+  }
+
   async *attachRunStream(): AsyncIterable<never> {}
 
   attachLifecycleStream(request: {
@@ -613,9 +617,7 @@ class GoldenApprovalWaitPort implements ApprovalWaitPort {
       createdAt: NOW,
       idempotencyKey: "golden-approval-echo",
       payload: {
-        decision: decision.decision,
-        decidedBy: decision.decidedBy,
-        reason: decision.reason,
+        status: decision.decision,
       },
     });
   }

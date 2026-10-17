@@ -25,6 +25,36 @@ const baseRequest = {
 };
 
 describe("LLMGateway provider capabilities", () => {
+  it("preserves the complete provider-designated visible reasoning summary", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const summary = "s".repeat(16_001);
+    deps.aiService.generateText.mockResolvedValueOnce({
+      text: "Done.",
+      usage: {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      transcriptParts: [
+        { type: "reasoning", text: summary, displaySafe: true },
+      ],
+    });
+
+    const response = await new LLMGateway(deps).generateText(baseRequest);
+
+    expect(response.reasoningSummary?.text).toBe(summary);
+  });
+
   it("forwards only an explicitly display-safe provider reasoning summary", async () => {
     const deps = createDependencies({
       getCapabilities: () => ({
