@@ -119,6 +119,7 @@ describe("RegistryToolAuthorization", () => {
         itemId: "itm_approval_runtime001",
         metadata: {
           toolName: "write_file",
+          category: "filesystem_write",
           permissionProfileId: run.permissionProfileId,
           grantMatcherKey: expect.stringMatching(/^input:write_file:sha256:/),
           grantWorkspaceId: run.workspaceId,
@@ -143,7 +144,10 @@ describe("RegistryToolAuthorization", () => {
       {
         hasMatchingInChatGrant: async (input) => {
           requests.push(input);
-          return input.threadId === run.threadId && input.workspaceId === run.workspaceId;
+          return (
+            input.threadId === run.threadId &&
+            input.workspaceId === run.workspaceId
+          );
         },
       },
     );
@@ -206,7 +210,10 @@ describe("RegistryToolAuthorization", () => {
           input: { command: "pnpm test" },
         },
       }),
-    ).resolves.toMatchObject({ status: "rejected", code: "tool_policy_denied" });
+    ).resolves.toMatchObject({
+      status: "rejected",
+      code: "tool_policy_denied",
+    });
   });
 
   it("matches git commits by tool while requiring exact bash input matches", async () => {

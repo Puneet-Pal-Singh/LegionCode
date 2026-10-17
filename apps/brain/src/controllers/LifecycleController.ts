@@ -1,5 +1,7 @@
+import { z } from "zod";
 import {
   ApprovalIdSchema,
+  ApprovalGrantScopeSchema,
   ApprovalDecisionSchema,
   runIdFromTurnId,
 } from "@repo/platform-protocol";
@@ -7,6 +9,7 @@ import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
 import type { Env } from "../types/ai";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
+import { withTurnAdmissionRepository } from "../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import {
   getAuthenticatedUserSession,
   isSessionStoreUnavailableError,
@@ -92,7 +95,22 @@ async function proxyLifecycleRequest(
 
     const runId = runIdFromTurnId(turnId);
     const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
-    if (!ownsRun) {
+    const ownsReservedReplay =
+      !ownsRun &&
+      mode === "replay" &&
+      (await withTurnAdmissionRepository(env, async (repository) => {
+        const admission = await repository.getByTurnId(turnId);
+        if (
+          !admission ||
+          admission.userId !== auth.userId ||
+          admission.runId !== runId
+        ) {
+          return false;
+        }
+        if (admission.state === "reserved") return true;
+        return await verifyRunOwnership(env, runId, auth.userId);
+      }));
+    if (!ownsRun && !ownsReservedReplay) {
       return errorResponse(request, env, "Run not found", 404);
     }
 
@@ -122,7 +140,12 @@ async function proxyLifecycleApprovalRequest(
     const url = new URL(request.url);
     const route = readApprovalRouteFromPublicPath(url.pathname);
     if (!route) {
-      return errorResponse(request, env, "turnId and approvalId are required", 400);
+      return errorResponse(
+        request,
+        env,
+        "turnId and approvalId are required",
+        400,
+      );
     }
 
     const auth = await getAuthenticatedUserSession(request, env);
@@ -209,9 +232,7 @@ function readBackend(url: URL): RuntimeOrchestratorBackend {
 }
 
 function readTurnIdFromPublicPath(pathname: string): string | null {
-  const match = pathname.match(
-    /^\/turns\/([^/]+)\/(?:lifecycle-events|diff)$/,
-  );
+  const match = pathname.match(/^\/turns\/([^/]+)\/(?:lifecycle-events|diff)$/);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -238,6 +259,7 @@ function parseLifecycleApprovalPayload(
         turnId: string;
         approvalId: string;
         decision: "approved" | "denied" | "cancelled";
+        grantScope?: "once" | "matching_in_chat";
         decidedBy: string | null;
         reason: string | null;
       };
@@ -259,14 +281,29 @@ function parseLifecycleApprovalPayload(
   if (!decision.success) {
     return { ok: false, message: "Invalid approval decision" };
   }
+  const grantScope =
+    record.grantScope === undefined
+      ? undefined
+      : z
+          .union([z.literal("once"), ApprovalGrantScopeSchema])
+          .safeParse(record.grantScope);
+  if (grantScope && !grantScope.success) {
+    return { ok: false, message: "Invalid approval grant scope" };
+  }
+  if (grantScope?.success && decision.data !== "approved") {
+    return {
+      ok: false,
+      message: "Approval grant scope requires an approved decision",
+    };
+  }
   return {
     ok: true,
     value: {
       turnId: parsedTurnId.value,
       approvalId: ApprovalIdSchema.parse(parsedApprovalId.value),
       decision: decision.data,
-      decidedBy:
-        typeof record.decidedBy === "string" ? record.decidedBy : null,
+      ...(grantScope?.success ? { grantScope: grantScope.data } : {}),
+      decidedBy: typeof record.decidedBy === "string" ? record.decidedBy : null,
       reason: typeof record.reason === "string" ? record.reason : null,
     },
   };

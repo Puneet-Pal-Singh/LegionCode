@@ -1,3 +1,4 @@
+import { readPreExecutionRejection } from "../tools/PreExecutionRejection.js";
 import type { CoreMessage, CoreTool } from "ai";
 import {
   createNativeContextAssembly,
@@ -101,9 +102,7 @@ import {
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
-import {
-  getNativeToolCallSafetyLimit,
-} from "./NativeProviderStepBudget.js";
+import { getNativeToolCallSafetyLimit } from "./NativeProviderStepBudget.js";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildNativeProviderMessages } from "./NativeProviderFinalRecoveryMessages.js";
 import {
@@ -432,6 +431,9 @@ export class RuntimeKernelNativeRunner {
           requirePersistedPermissionContext(run).state.productMode,
         ),
         this.dependencies.approvalGrants,
+        this.options.userId
+          ? toProtocolId("usr", this.options.userId)
+          : undefined,
       ),
       approvals: new NativeApprovalWaitPort({
         env: this.options.env,
@@ -1595,6 +1597,7 @@ async function runWithNativeCancellationPolling<T>(
 }
 
 class KernelToolWorker implements WorkerProtocolPort {
+  private readonly preExecutionRejections = new Set<string>();
   constructor(
     private readonly options: {
       runEventRecorder: RunEventRecorder;
@@ -1667,8 +1670,37 @@ class KernelToolWorker implements WorkerProtocolPort {
       }
       assertSignalNotAborted(input.signal);
       if (gatewayResult.kind === "failed") {
+        const preExecutionRejection = readPreExecutionRejection(
+          gatewayResult.failure?.details,
+        );
+        const rejectionKey = preExecutionRejection
+          ? `${input.turnId}:${toolName}:${preExecutionRejection.ruleId}`
+          : null;
+        const correctionAlreadyUsed =
+          rejectionKey !== null &&
+          this.preExecutionRejections.has(rejectionKey);
+        if (rejectionKey && !correctionAlreadyUsed) {
+          this.preExecutionRejections.add(rejectionKey);
+        }
+        const failure =
+          correctionAlreadyUsed &&
+          preExecutionRejection &&
+          gatewayResult.failure
+            ? {
+                ...gatewayResult.failure,
+                message: `The command was rejected before execution, so this request is incomplete. ${gatewayResult.failure.message} One corrected retry for this validation rule was already rejected; use an approved typed tool or request user guidance.`,
+                details: {
+                  ...preExecutionRejection,
+                  correctionLimitReached: true,
+                  nextStep:
+                    "Use an approved typed tool or request user guidance.",
+                },
+              }
+            : gatewayResult.failure;
         const message =
-          gatewayResult.result.error?.message ?? "Tool execution failed";
+          failure?.message ??
+          gatewayResult.result.error?.message ??
+          "Tool execution failed";
         const gatewayFailureCode =
           gatewayResult.code === "executor_failed"
             ? "command_failed"
@@ -1677,13 +1709,15 @@ class KernelToolWorker implements WorkerProtocolPort {
               : gatewayResult.code === "workspace_escape_denied"
                 ? "policy_denied"
                 : "validation_failed";
-        const failureCode = gatewayResult.failure?.code ?? gatewayFailureCode;
-        const disposition = toolFailureDisposition(
-          toolName,
-          message,
-          undefined,
-          failureCode,
-        );
+        const failureCode = failure?.code ?? gatewayFailureCode;
+        const disposition = correctionAlreadyUsed
+          ? "terminal"
+          : toolFailureDisposition(
+              toolName,
+              message,
+              failure?.details,
+              failureCode,
+            );
         this.options.tracker.recordToolFailed(
           input.toolCall,
           message,
@@ -1694,14 +1728,12 @@ class KernelToolWorker implements WorkerProtocolPort {
           message,
           0,
         );
-        if (gatewayResult.failure) {
+        if (failure) {
           return {
             kind: "failed",
-            failure: gatewayResult.failure,
+            failure,
             disposition:
-              gatewayResult.failure.code === "worker_unavailable"
-                ? "terminal"
-                : disposition,
+              failure.code === "worker_unavailable" ? "terminal" : disposition,
           };
         }
         return failed(

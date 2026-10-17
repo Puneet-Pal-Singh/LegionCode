@@ -233,6 +233,7 @@ describe("ChatInputBar", () => {
 
     expect(useProviderStoreModule.useProviderStore).toHaveBeenCalledWith(
       "run_model_choice",
+      "session-1",
     );
   });
 

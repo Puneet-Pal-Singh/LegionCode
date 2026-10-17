@@ -69,6 +69,7 @@ type ResponsesToolDefinition = {
   type: string;
   name: string;
   description: string | undefined;
+  strict: false;
   parameters: Record<string, unknown>;
 };
 
@@ -392,6 +393,7 @@ function buildResponsesTools(
         type: "function",
         name,
         description: readToolDescription(tool),
+        strict: false,
         parameters,
       };
     })

@@ -115,6 +115,7 @@ export interface WorkflowApproval {
   readonly approvalId: ApprovalId;
   readonly itemId: ItemId;
   readonly question: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
   readonly options: readonly WorkflowApprovalOption[];
   readonly requestedAt: string;
   readonly decidedAt: string | null;

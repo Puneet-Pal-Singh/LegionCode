@@ -121,17 +121,20 @@ function resolveActivityFeedStatus(
   events: RunEvent[],
   fallbackStatus: string | null,
 ): ActivityFeedSnapshot["status"] {
-  const latestLifecycleEvent = [...events]
+  const latestLifecycleEvent = [...events].reverse().find(isRunLifecycleEvent);
+  const latestOpenActivityEvent = [...events]
     .reverse()
-    .find(isRunLifecycleEvent);
-  const latestOpenActivityEvent = [...events].reverse().find(isOpenActivityEvent);
+    .find(isOpenActivityEvent);
   const fallbackActivityStatus = mapCanonicalRunStatus(fallbackStatus);
   if (
     latestOpenActivityEvent &&
     (!latestLifecycleEvent ||
       latestOpenActivityEvent.timestamp > latestLifecycleEvent.timestamp)
   ) {
-    if (!latestLifecycleEvent && isSettledActivityStatus(fallbackActivityStatus)) {
+    if (
+      !latestLifecycleEvent &&
+      isSettledActivityStatus(fallbackActivityStatus)
+    ) {
       return fallbackActivityStatus;
     }
     return "RUNNING";
@@ -704,6 +707,7 @@ const GIT_TOOL_NAMES = new Set([
   "git_diff",
   "github_pr_list",
   "github_pr_get",
+  "github_pr_files_get",
   "github_pr_checks_get",
   "github_review_threads_get",
   "github_issue_get",

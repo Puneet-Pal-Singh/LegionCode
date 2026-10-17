@@ -164,6 +164,10 @@ const TOOL_PRESENTERS: Record<
     presentGitHubPullRequestGet(
       validateToolPresentationInput("github_pr_get", input),
     ),
+  github_pr_files_get: (input) =>
+    presentGitHubPullRequestGet(
+      validateToolPresentationInput("github_pr_files_get", input),
+    ),
   github_pr_checks_get: (input) =>
     presentGitHubPullRequestChecksGet(
       validateToolPresentationInput("github_pr_checks_get", input),

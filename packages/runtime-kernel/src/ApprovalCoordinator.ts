@@ -11,10 +11,7 @@ import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type { ApprovalResolution } from "./types.js";
 
 export class ApprovalCoordinator {
-  private readonly pending = new Map<
-    string,
-    PendingApprovalResolution
-  >();
+  private readonly pending = new Map<string, PendingApprovalResolution>();
 
   constructor(
     private readonly approvals: ApprovalWaitPort,
@@ -47,16 +44,19 @@ export class ApprovalCoordinator {
           metadata: request.metadata,
         },
       );
-      const resolution = await raceApprovalResolution([
-        this.approvals.waitForDecision({
-          runId: run.id,
-          runAttemptId,
-          turnId: turn.id,
-          request,
-          signal,
-        }),
-        pending.resolution,
-      ], signal);
+      const resolution = await raceApprovalResolution(
+        [
+          this.approvals.waitForDecision({
+            runId: run.id,
+            runAttemptId,
+            turnId: turn.id,
+            request,
+            signal,
+          }),
+          pending.resolution,
+        ],
+        signal,
+      );
       await this.settle(request.approvalId, pending, resolution);
       if (resolution.timedOut) {
         throw new RuntimeKernelError(
@@ -64,10 +64,16 @@ export class ApprovalCoordinator {
           `Approval ${request.approvalId} timed out before a decision was recorded.`,
         );
       }
-      if (resolution.decision !== "approved") {
+      if (resolution.decision === "cancelled") {
+        throw new RuntimeKernelError(
+          "turn_cancelled",
+          `Approval ${request.approvalId} was cancelled by the user.`,
+        );
+      }
+      if (resolution.decision === "denied") {
         throw new RuntimeKernelError(
           "approval_denied",
-          `Approval ${request.approvalId} was ${resolution.decision}`,
+          "The user denied this action, so it was not executed. Do not repeat it or bypass the permission policy. Continue with permitted work, or explain what is blocked.",
         );
       }
       return resolution;
@@ -181,10 +187,12 @@ function raceApprovalResolution(
   }
   return new Promise<ApprovalResolution>((resolve, reject) => {
     const abort = () =>
-      reject(new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."));
+      reject(
+        new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
+      );
     signal.addEventListener("abort", abort, { once: true });
-    Promise.race(resolutions).then(resolve, reject).finally(() =>
-      signal.removeEventListener("abort", abort),
-    );
+    Promise.race(resolutions)
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
   });
 }

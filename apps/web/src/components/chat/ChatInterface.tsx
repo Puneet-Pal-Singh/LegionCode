@@ -1,9 +1,4 @@
-import {
-  useRef,
-  useEffect,
-  useMemo,
-  useCallback,
-} from "react";
+import { useRef, useEffect, useMemo, useCallback } from "react";
 import {
   RunIdSchema,
   RunAttemptIdSchema,
@@ -19,6 +14,7 @@ import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "../../hooks/conversationScope";
+import type { ConversationScopeHttpError } from "../../hooks/conversationScope";
 import type { SubmissionOutcome } from "../../hooks/chat/submissionAttemptRegistry";
 import type { HydrationStatus } from "../../services/ChatHydrationService";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
@@ -41,6 +37,7 @@ import { useCompletedTurnReview } from "./chat-interface/useCompletedTurnReview.
 import { useReviewCommentSubmission } from "./chat-interface/useReviewCommentSubmission";
 import {
   ChatComposerControls,
+  type ChatErrorNoticeProps,
   type ComposerLayout,
 } from "./chat-interface/ChatComposerControls";
 import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
@@ -64,7 +61,10 @@ interface ChatInterfaceProps {
       event?: React.FormEvent,
       attachments?: ChatSubmitAttachments,
     ) => Promise<boolean>;
-    append: (message: { role: "user"; content: string }) => Promise<SubmissionOutcome>;
+    append: (message: {
+      role: "user";
+      content: string;
+    }) => Promise<SubmissionOutcome>;
     reviseTurn?: (turnId: string, content: string) => Promise<boolean>;
     stop: () => void;
     isLoading: boolean;
@@ -73,6 +73,8 @@ interface ChatInterfaceProps {
     hydrationError?: string | null;
     retryHydration?: () => void;
     error?: string | null;
+    scopeRecoveryError: ConversationScopeHttpError | null;
+    retryScopeRead: () => Promise<void>;
     debugEvents?: ChatDebugEvent[];
     conversationScope?: ConversationScope | null;
     serverTurnId?: string | null;
@@ -133,6 +135,8 @@ export function ChatInterface({
     hydrationError,
     retryHydration,
     error,
+    scopeRecoveryError,
+    retryScopeRead,
     debugEvents = [],
     conversationScope,
     serverTurnId,
@@ -162,12 +166,21 @@ export function ChatInterface({
   // RunEvent and persisted activity backfills are deliberately not rendered.
   const awaitingCanonicalLifecycle =
     activeTurn.isTransportPending ||
-    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.isReplayReady) ||
     (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
     activeTurn.isTransportPending ||
     awaitingCanonicalLifecycle;
+  const continuationRecovery =
+    activeTurn.continuationStatus === "reconnecting" ||
+    activeTurn.continuationStatus === "stopped"
+      ? {
+          status: activeTurn.continuationStatus,
+          error: activeTurn.continuationError,
+          onRetry: activeTurn.retryContinuation,
+        }
+      : null;
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {
@@ -305,14 +318,34 @@ export function ChatInterface({
     turnDiff: lifecycleProjection?.turnDiff ?? null,
     artifactIdentity: conversationScope,
   });
-  const recoveryAdvice = getProviderRecoveryAdvice(error);
+  const recoveryAdvice = getProviderRecoveryAdvice(error, scopeRecoveryError);
   const openProviderRecoverySurface = useCallback(() => {
     if (recoveryAdvice.recoveryTarget === "auth") {
       login(true);
       return;
     }
+    if (
+      recoveryAdvice.recoveryTarget === "scope" ||
+      recoveryAdvice.recoveryTarget === "general"
+    ) {
+      return;
+    }
     dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);
   }, [login, recoveryAdvice.recoveryTarget]);
+  const chatErrorNotice: ChatErrorNoticeProps | null = error
+    ? {
+        ...recoveryAdvice,
+        message: error.startsWith("Stop not confirmed yet.")
+          ? error
+          : recoveryAdvice.message,
+        onOpen:
+          recoveryAdvice.recoveryTarget === "scope"
+            ? retryScopeRead
+            : recoveryAdvice.recoveryTarget === "general"
+              ? undefined
+              : openProviderRecoverySurface,
+      }
+    : null;
 
   useEffect(() => {
     if (recoveryAdvice.recoveryTarget !== "auth") {
@@ -332,7 +365,7 @@ export function ChatInterface({
     hasHydrated:
       hasHydrated &&
       !areHistoricalLifecyclesLoading &&
-      (!activeTurn.hasCanonicalTurn || activeTurn.hasReplay),
+      (!activeTurn.hasCanonicalTurn || activeTurn.isReplayReady),
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
@@ -352,17 +385,8 @@ export function ChatInterface({
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
-      error={
-        error
-          ? {
-              ...recoveryAdvice,
-              onOpen:
-                recoveryAdvice.recoveryTarget === "general"
-                  ? undefined
-                  : openProviderRecoverySurface,
-            }
-          : null
-      }
+      error={chatErrorNotice}
+      continuation={continuationRecovery}
       approval={{
         pending: pendingApproval,
         matchingInChatOption,
@@ -433,6 +457,12 @@ export function ChatInterface({
       projectName={projectName}
       onProjectClick={onProjectClick}
       showSessionPlaceholder={showStableSessionPlaceholder}
+      placeholderError={chatErrorNotice}
+      continuation={continuationRecovery}
+      canStopPendingTurn={
+        Boolean(conversationScope) && activeRunLoading && !activeTurn.isTerminal
+      }
+      onStopPendingTurn={stop}
       renderComposer={renderComposerControls}
       showDebugPanel={showDebugPanel}
       debugEvents={debugEvents}

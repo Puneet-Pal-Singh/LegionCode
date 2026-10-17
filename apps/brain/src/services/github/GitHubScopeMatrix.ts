@@ -1,5 +1,8 @@
 interface GitHubScopeRequirement {
-  capability: "baseline_repo_access" | "actions_read_access" | "pr_comment_write";
+  capability:
+    | "baseline_repo_access"
+    | "actions_read_access"
+    | "pr_comment_write";
   requiredAnyOf: string[];
   rationale: string;
 }
@@ -103,6 +106,7 @@ function getGitHubScopeRequirement(
     (plugin === "github" || plugin === "github_cli") &&
     (action === "pr_get" ||
       action === "pr_list" ||
+      action === "pr_files_get" ||
       action === "pr_checks_get" ||
       action === "review_threads_get" ||
       action === "issue_get")
@@ -124,7 +128,10 @@ function getGitHubScopeRequirement(
   return null;
 }
 
-function hasAnyScope(grantedScopes: string[], requiredAnyOf: string[]): boolean {
+function hasAnyScope(
+  grantedScopes: string[],
+  requiredAnyOf: string[],
+): boolean {
   const granted = new Set(grantedScopes.map((scope) => scope.toLowerCase()));
   for (const requiredScope of requiredAnyOf) {
     if (granted.has(requiredScope.toLowerCase())) {

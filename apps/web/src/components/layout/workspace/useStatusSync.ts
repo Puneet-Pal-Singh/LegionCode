@@ -6,8 +6,6 @@ interface UseStatusSyncProps {
   canonicalRunStatus: string | null;
   isApprovalWaitingRun: boolean;
   pendingApprovalRequestId: string | null;
-  isEffectiveCanonicalRunActive: boolean;
-  chatError: string | null;
   stop: () => void;
   refetchGitStatus: (force?: boolean) => Promise<unknown>;
   onSessionStatusChange?: (status: SessionStatus) => void;
@@ -21,11 +19,6 @@ type AppliedRunStatusRef = MutableRefObject<{
   runId: string;
   status: string;
   requestId?: string | null;
-} | null>;
-
-type AppliedRunErrorRef = MutableRefObject<{
-  runId: string;
-  error: string;
 } | null>;
 
 function applyCanonicalStatus(
@@ -48,25 +41,11 @@ function applyCanonicalStatus(
   apply();
 }
 
-function applyChatError(
-  ref: AppliedRunErrorRef,
-  runId: string,
-  error: string,
-  apply: () => void,
-): void {
-  const last = ref.current;
-  if (last && last.runId === runId && last.error === error) return;
-  ref.current = { runId, error };
-  apply();
-}
-
 export function useStatusSync({
   activeRunId,
   canonicalRunStatus,
   isApprovalWaitingRun,
   pendingApprovalRequestId,
-  isEffectiveCanonicalRunActive,
-  chatError,
   stop,
   refetchGitStatus,
   onSessionStatusChange,
@@ -76,11 +55,6 @@ export function useStatusSync({
     status: string;
     requestId?: string | null;
   } | null>(null);
-  const lastAppliedChatErrorRef = useRef<{
-    runId: string;
-    error: string;
-  } | null>(null);
-
   const handleStopRun = useCallback(() => {
     stop();
   }, [stop]);
@@ -118,25 +92,6 @@ export function useStatusSync({
     onSessionStatusChange,
     pendingApprovalRequestId,
     refetchGitStatus,
-  ]);
-
-  useEffect(() => {
-    if (
-      !chatError ||
-      isEffectiveCanonicalRunActive ||
-      isApprovalWaitingRun
-    ) {
-      return;
-    }
-    applyChatError(lastAppliedChatErrorRef, activeRunId, chatError, () => {
-      onSessionStatusChange?.("failed");
-    });
-  }, [
-    activeRunId,
-    chatError,
-    isEffectiveCanonicalRunActive,
-    isApprovalWaitingRun,
-    onSessionStatusChange,
   ]);
 
   return { handleStopRun };

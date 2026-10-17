@@ -23,6 +23,7 @@ import {
   codingToolRegistry,
   type ToolDefinition,
 } from "../tools/CodingToolRegistry.js";
+import type { RiskyActionCategory } from "@repo/shared-types";
 
 const READ_ONLY_RUN_MODES = new Set<RunMode>(["ask", "review", "plan"]);
 
@@ -42,6 +43,7 @@ export class RegistryToolAuthorization implements ToolAuthorizationPort {
   constructor(
     private readonly policies: PermissionPolicyResolver,
     private readonly grants?: ApprovalGrantReader,
+    private readonly authenticatedOwnerUserId?: string,
   ) {}
 
   async authorize(
@@ -72,10 +74,18 @@ export class RegistryToolAuthorization implements ToolAuthorizationPort {
     const matcherKey = await createGrantMatcherKey(
       resolved.definition.id,
       resolved.toolCall.input,
+      input.run,
+      this.authenticatedOwnerUserId,
     );
     if (
       decision.effect === "ask" &&
       this.grants &&
+      (isGitHubPrReadTool(resolved.definition.id)
+        ? hasAuthenticatedGrantIdentity(
+            input.run,
+            this.authenticatedOwnerUserId,
+          )
+        : true) &&
       (await this.grants.hasMatchingInChatGrant({
         threadId: input.run.threadId,
         workspaceId: input.run.workspaceId,
@@ -89,7 +99,12 @@ export class RegistryToolAuthorization implements ToolAuthorizationPort {
       resolved,
       input,
       matcherKey,
-      this.grants !== undefined,
+      this.grants !== undefined &&
+        (!isGitHubPrReadTool(resolved.definition.id) ||
+          hasAuthenticatedGrantIdentity(
+            input.run,
+            this.authenticatedOwnerUserId,
+          )),
     );
   }
 }
@@ -136,14 +151,19 @@ function resolveRegisteredToolCall(
   };
 }
 
-function resolveWorkflowFamily(definition: ToolDefinition): LifecycleToolFamily {
+function resolveWorkflowFamily(
+  definition: ToolDefinition,
+): LifecycleToolFamily {
   if (definition.evidenceKinds.includes("file_edit")) return "edit";
   if (definition.evidenceKinds.includes("file_search")) return "search";
   if (definition.evidenceKinds.includes("file_read")) return "read";
   if (definition.evidenceKinds.includes("git_diff")) return "git";
   if (definition.evidenceKinds.includes("git_status")) return "git";
   if (definition.evidenceKinds.includes("command_run")) return "shell";
-  if (definition.route.plugin === "github" || definition.route.plugin === "github_cli") {
+  if (
+    definition.route.plugin === "github" ||
+    definition.route.plugin === "github_cli"
+  ) {
     return "web";
   }
   return "generic";
@@ -168,11 +188,7 @@ function buildSafeInputSummary(
           : [];
   for (const key of candidateKeys) {
     const value = record[key];
-    if (
-      typeof value === "string" &&
-      value.trim() &&
-      !value.includes("\n")
-    ) {
+    if (typeof value === "string" && value.trim() && !value.includes("\n")) {
       return { inputSummary: value.trim().slice(0, 280) };
     }
   }
@@ -187,6 +203,7 @@ function mapAskDecision(
   canReuseGrant: boolean,
 ): ToolAuthorizationResult {
   const { definition, toolCall } = resolved;
+  const category = resolveApprovalCategory(definition);
   return {
     status: "approval_required",
     toolCall,
@@ -204,11 +221,15 @@ function mapAskDecision(
           ? [
               {
                 id: "allow_matching_in_chat",
-                label: "Allow matching actions in this chat",
+                label: isGitHubPrReadTool(definition.id)
+                  ? "Allow PR reads in this repository in this chat"
+                  : "Allow matching actions in this chat",
                 description:
                   definition.id === "git_commit"
                     ? "Allow future commits in this chat and workspace"
-                    : "Reuse for calls with identical input in this chat and workspace",
+                    : isGitHubPrReadTool(definition.id)
+                      ? `Read PRs in ${readString(toolCall.input.owner) ?? "repository"}/${readString(toolCall.input.repo) ?? "repository"} in this chat`
+                      : "Reuse for calls with identical input in this chat and workspace",
               },
             ]
           : []),
@@ -217,6 +238,7 @@ function mapAskDecision(
       metadata: {
         toolName: definition.id,
         action: definition.permissionMetadata.action ?? definition.id,
+        ...(category ? { category } : {}),
         riskLevel: decision.riskLevel,
         permissionProfileId: input.run.permissionProfileId,
         grantMatcherKey: matcherKey,
@@ -226,12 +248,47 @@ function mapAskDecision(
   };
 }
 
+function resolveApprovalCategory(
+  definition: ToolDefinition,
+): RiskyActionCategory | undefined {
+  switch (definition.permissionMetadata.domain) {
+    case "command":
+      return "shell_command";
+    case "git":
+      return "git_mutation";
+    case "network":
+    case "external_service":
+      return "network_external";
+    case "tool":
+      return definition.sandboxClass === "write"
+        ? "filesystem_write"
+        : undefined;
+    case "path":
+    case "package_manager":
+    case "secret":
+      return undefined;
+  }
+}
+
 async function createGrantMatcherKey(
   toolId: string,
   input: Record<string, unknown>,
+  run?: AuthorizationInput["run"],
+  authenticatedOwnerUserId?: string,
 ): Promise<string> {
   if (toolId === "git_commit") {
     return `tool:${toolId}`;
+  }
+  if (
+    isGitHubPrReadTool(toolId) &&
+    run &&
+    hasAuthenticatedGrantIdentity(run, authenticatedOwnerUserId)
+  ) {
+    const owner = readString(input.owner)?.toLocaleLowerCase("en-US");
+    const repo = readString(input.repo)?.toLocaleLowerCase("en-US");
+    if (owner && repo) {
+      return `grant:v2:github_pr_read:user=${run.userId}:thread=${run.threadId}:workspace=${run.workspaceId}:repo=${owner}/${repo}`;
+    }
   }
   const normalized = stableJson(input);
   const bytes = new TextEncoder().encode(normalized);
@@ -240,6 +297,32 @@ async function createGrantMatcherKey(
     byte.toString(16).padStart(2, "0"),
   ).join("");
   return `input:${toolId}:sha256:${hex}`;
+}
+
+const GITHUB_PR_READ_TOOL_IDS = new Set([
+  "github_pr_list",
+  "github_pr_get",
+  "github_pr_files_get",
+  "github_pr_checks_get",
+]);
+
+function isGitHubPrReadTool(toolId: string): boolean {
+  return GITHUB_PR_READ_TOOL_IDS.has(toolId);
+}
+
+function hasAuthenticatedGrantIdentity(
+  run: AuthorizationInput["run"],
+  authenticatedOwnerUserId: string | undefined,
+): boolean {
+  return (
+    typeof run.userId === "string" &&
+    run.userId.trim().length > 0 &&
+    authenticatedOwnerUserId === run.userId &&
+    typeof run.threadId === "string" &&
+    run.threadId.trim().length > 0 &&
+    typeof run.workspaceId === "string" &&
+    run.workspaceId.trim().length > 0
+  );
 }
 
 function stableJson(value: unknown): string {

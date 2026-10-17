@@ -41,7 +41,10 @@ export function ApprovalActions({
           className={approvalDecisionButtonClassName(decision)}
         >
           <ApprovalDecisionIcon decision={decision} />
-          {formatApprovalDecisionLabel(decision)}
+          {decision === "allow_persistent_rule"
+            ? (matchingInChatOption?.label ??
+              formatApprovalDecisionLabel(decision))
+            : formatApprovalDecisionLabel(decision)}
         </button>
       ))}
     </div>
