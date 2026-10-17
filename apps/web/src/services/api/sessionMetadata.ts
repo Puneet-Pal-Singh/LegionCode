@@ -74,6 +74,8 @@ export function mapServerSession(session: ServerSessionRecord): AgentSession | n
     ? session.activeRunId
     : null;
 
+  const latestRunId = isCanonicalRunId(session.latestRunId) ? session.latestRunId : activeRunId;
+
   return {
     id: session.id,
     name: session.title,
@@ -82,7 +84,8 @@ export function mapServerSession(session: ServerSessionRecord): AgentSession | n
     persistenceStatus: "saved",
     repository: session.repository,
     activeRunId,
-    runIds: activeRunId ? [activeRunId] : [],
+    latestRunId,
+    runIds: Array.from(new Set([activeRunId, latestRunId].filter((id): id is string => id !== null))),
     status: mapServerStatus(session.status),
     mode: RunModeSchema.parse(session.mode),
     pinnedAt: session.pinnedAt ?? null,

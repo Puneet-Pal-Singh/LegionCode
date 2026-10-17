@@ -1,10 +1,15 @@
+import { readPreExecutionRejection } from "../tools/PreExecutionRejection.js";
 import type { CoreMessage, CoreTool } from "ai";
 import {
-  ContextBudgetSnapshotSchema,
+  createNativeContextAssembly,
+  createNativeContextCompaction,
+} from "./NativeRuntimeContext.js";
+import {
   ItemIdSchema,
   JsonRecordSchema,
   PermissionProfileIdSchema,
   RunAttemptIdSchema,
+  ToolCallBatchIdSchema,
   RunSchema,
   ThreadIdSchema,
   ToolCallItemContentSchema,
@@ -26,8 +31,6 @@ import {
 import type {
   ApprovalResolution,
   ApprovalWaitPort,
-  ContextAssemblyPort,
-  ContextCompactionPort,
   ProviderCallInput,
   ProviderPort,
   ProviderStep,
@@ -36,6 +39,7 @@ import type {
   RuntimeLifecycleEventStore,
   RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
+  AcceptedThreadInput,
   ToolResult,
   WorkerProtocolPort,
   WorkerToolResult,
@@ -100,16 +104,13 @@ import {
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
-import {
-  getNativeToolCallSafetyLimit,
-  shouldForceNativeFinalSynthesis,
-} from "./NativeProviderStepBudget.js";
+import { getNativeToolCallSafetyLimit } from "./NativeProviderStepBudget.js";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildNativeProviderMessages } from "./NativeProviderFinalRecoveryMessages.js";
 import {
-  buildNativeProviderStructuredFinal,
-  NativeProviderFinalAnswerSchema,
-} from "./NativeProviderStructuredFinal.js";
+  generateNativeProviderFinalRecovery,
+  initialNativeFinalRecoveryAttempts,
+} from "./NativeProviderFinalRecovery.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import {
@@ -160,17 +161,15 @@ import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 import { RuntimeKernelProviderTranscript } from "./RuntimeKernelProviderTranscript.js";
 import { ProviderToolCallIdentityMap } from "./ProviderToolCallIdentityMap.js";
-import {
-  buildProviderContextMessages,
-  estimateConversationTokens,
-  summarizeConversationForCompaction,
-} from "./NativeProviderContextMessages.js";
+import { buildProviderContextMessages } from "./NativeProviderContextMessages.js";
 import { runWithProviderRequestRecovery } from "./NativeProviderRequestRecovery.js";
 import {
   buildProviderRecoveryIdempotencyKey,
   buildProviderRecoveryProgress,
 } from "./NativeProviderRecoveryProgress.js";
 import { resolveModelCommentary } from "./NativeProviderCommentary.js";
+import { projectTaskContext } from "./TaskContextProjection.js";
+import { NativeTurnInputBuffer } from "./NativeTurnInput.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -193,6 +192,8 @@ export interface RuntimeKernelNativeRunnerInput {
   workspaceId?: string;
   /** The latest terminal turn superseded by this edited/recovery turn. */
   revisionOfTurnId?: string;
+  continuationOfTurnId?: string;
+  originalPromptId?: string;
   workspace: {
     filesystemRoot: string;
     workingBranch: string;
@@ -240,7 +241,7 @@ export class RuntimeKernelNativeRunner {
     ctx: RuntimeDurableObjectState,
     private readonly options: RunEngineOptions,
     private readonly agent: IAgent | undefined,
-    dependencies: RunEngineDependencies = {},
+    private readonly dependencies: RunEngineDependencies = {},
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
@@ -374,6 +375,8 @@ export class RuntimeKernelNativeRunner {
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
       revisionOfTurnId: input.revisionOfTurnId,
+      continuationOfTurnId: input.continuationOfTurnId,
+      originalPromptId: input.originalPromptId,
       workspace: input.workspace,
     });
     const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
@@ -388,6 +391,7 @@ export class RuntimeKernelNativeRunner {
       runEventRecorder: this.runEventRecorder,
       isRunCancelled: this.isRunCancelled.bind(this),
       maxSteps,
+      rootPromptId: input.originalPromptId,
     });
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: protocol.run.id,
@@ -420,18 +424,26 @@ export class RuntimeKernelNativeRunner {
       gitSnapshots:
         this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest),
       turnArtifacts: createTurnArtifactPort(),
-      contextAssembly: createContextAssembly(
+      contextAssembly: createNativeContextAssembly(
         input.input,
-        input.messages,
+        provider.readContextMessages.bind(provider),
         runtimeTools,
       ),
-      contextCompaction: createContextCompaction(input.input, input.messages),
+      contextCompaction: createNativeContextCompaction(
+        input.input,
+        provider.readContextMessages.bind(provider),
+        provider.readTaskContextProjection.bind(provider),
+      ),
       provider,
       worker,
       toolAuthorization: new RegistryToolAuthorization(
         new NativePermissionPolicyResolver(
           requirePersistedPermissionContext(run).state.productMode,
         ),
+        this.dependencies.approvalGrants,
+        this.options.userId
+          ? toProtocolId("usr", this.options.userId)
+          : undefined,
       ),
       approvals: new NativeApprovalWaitPort({
         env: this.options.env,
@@ -498,6 +510,31 @@ export class RuntimeKernelNativeRunner {
     } else if (activeTurn.kernel) {
       activeTurn.kernel.requestInterruptBeforeStart(turnId, reason);
     }
+  }
+
+  async acceptThreadInput(input: {
+    readonly turnId: Turn["id"];
+    readonly inputId: string;
+    readonly clientInputId: string;
+    readonly transcriptMessageId: string;
+    readonly message: CoreMessage;
+  }): Promise<number> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== input.turnId || !activeTurn.kernel) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${input.turnId} has no active runtime owner`,
+      );
+    }
+    return await activeTurn.kernel.acceptThreadInput({
+      turnId: input.turnId,
+      accepted: {
+        inputId: input.inputId,
+        message: { ...input.message, id: input.transcriptMessageId } as unknown as CoreMessage,
+      },
+      clientInputId: input.clientInputId,
+      transcriptMessageId: input.transcriptMessageId,
+    });
   }
 
   async compact(turnId: Turn["id"]): Promise<void> {
@@ -913,7 +950,10 @@ function describeRuntimeErrorCause(error: unknown): string | null {
 
 class KernelAgenticProvider implements ProviderPort {
   private readonly messages: CoreMessage[];
+  private readonly activeTaskStartIndex: number;
+  private readonly threadInputBuffer = new NativeTurnInputBuffer();
   private readonly pendingToolCalls: AgenticLoopToolCall[] = [];
+  private pendingToolCallBatchId: import("@repo/platform-protocol").ToolCallBatchId | null = null;
   private pendingUsage: UsageCostSnapshot | null = null;
   private cumulativeTokens = 0;
   private cumulativeCost = 0;
@@ -951,10 +991,59 @@ class KernelAgenticProvider implements ProviderPort {
       runEventRecorder: RunEventRecorder;
       isRunCancelled: () => Promise<boolean>;
       maxSteps: number;
+      rootPromptId?: string;
     },
   ) {
-    this.messages = [...options.messages];
+    const taskContext = projectTaskContext({
+      messages: options.messages,
+      ...(options.rootPromptId ? { rootPromptId: options.rootPromptId } : {}),
+    });
+    this.messages = [...taskContext.messages];
+    this.activeTaskStartIndex = taskContext.activeTaskStartIndex;
     this.requiresMutation = false;
+  }
+
+  async readContextMessages(
+    toolResults?: readonly ToolResult[],
+  ): Promise<readonly CoreMessage[]> {
+    if (toolResults) await this.collectNewToolResults(toolResults);
+    return [...this.messages];
+  }
+
+  async readTaskContextProjection(): Promise<{
+    readonly messages: readonly CoreMessage[];
+    readonly activeTaskStartIndex: number;
+  }> {
+    const projection = projectTaskContext({
+      messages: this.messages,
+      activeTaskStartIndex: this.activeTaskStartIndex,
+    });
+    return {
+      messages: projection.messages,
+      activeTaskStartIndex: projection.activeTaskStartIndex,
+    };
+  }
+
+  enqueueThreadInput(input: AcceptedThreadInput): void {
+    this.threadInputBuffer.enqueue(input);
+  }
+
+  hasPendingThreadInputs(): boolean {
+    return this.threadInputBuffer.hasPending();
+  }
+
+  async flushThreadInputs(): Promise<boolean> {
+    if (this.pendingToolCalls.length > 0) return false;
+    return this.threadInputBuffer.flush((messages) => this.messages.push(...messages));
+  }
+
+  private async acknowledgeStagedThreadInputs(
+    input: ProviderCallInput,
+  ): Promise<void> {
+    await this.threadInputBuffer.acknowledge(
+      this.stepsExecuted + 1,
+      input.onThreadInputsApplied,
+    );
   }
 
   async generateNext(input: ProviderCallInput): Promise<ProviderStep> {
@@ -963,6 +1052,10 @@ class KernelAgenticProvider implements ProviderPort {
     await this.collectNewToolResults(input.toolResults);
     const queued = this.shiftQueuedToolCall();
     if (queued) return queued;
+    const stagedInputs = await this.flushThreadInputs();
+    const providerContext = stagedInputs
+      ? (await input.refreshContext?.()) ?? input.context
+      : input.context;
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (await this.options.budget.isOverBudget(this.options.run.id)) {
       this.stopReason = "budget_exceeded";
@@ -974,12 +1067,10 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    let finalOnlyRecoveryAttempts = shouldForceNativeFinalSynthesis(
+    let finalOnlyRecoveryAttempts = initialNativeFinalRecoveryAttempts(
       this.stepsExecuted,
       this.options.maxSteps,
-    )
-      ? 1
-      : 0;
+    );
     let responseParts: LLMTextResponse["parts"];
     let responseUsage: LLMTextResponse["usage"] | null = null;
     let responseReasoningSummary: LLMTextResponse["reasoningSummary"];
@@ -999,9 +1090,10 @@ class KernelAgenticProvider implements ProviderPort {
       const contextMessages = buildProviderContextMessages({
         messages: this.messages,
         compactedContext: readContextString(
-          input.context.metadata,
+          providerContext.metadata,
           "compactedContext",
         ),
+        activeTaskStartIndex: this.activeTaskStartIndex,
       });
       const messages = buildNativeProviderMessages(
         contextMessages,
@@ -1012,55 +1104,57 @@ class KernelAgenticProvider implements ProviderPort {
         const recovered = await this.requestWithProviderRecovery(
           input,
           context,
-          (attemptContext) =>
-            this.options.llmGateway.generateStructured({
+          async (attemptContext) => {
+            const request = generateNativeProviderFinalRecovery(this.options.llmGateway, {
               context: attemptContext,
               messages,
-              schema: NativeProviderFinalAnswerSchema,
+              system: buildAgenticLoopSystemPrompt({
+                finalSynthesisOnly: true,
+                requiresMutation: this.requiresMutation,
+                completedMutatingToolCount: this.completedMutatingToolCount,
+                completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+                explicitCiLogRequest: false,
+                encounteredCiLogsAuthorizationBoundary: false,
+                attemptedCiLogsCliFallback: false,
+              }),
               model: this.options.input.modelId,
               providerId: this.options.input.providerId,
               runtimeModelId: this.options.input.runtimeModelId,
               providerTransport: this.options.input.providerTransport,
               providerEndpoint: this.options.input.providerEndpoint,
               temperature: 0,
-            }),
+              signal: input.signal,
+            });
+            try {
+              await this.acknowledgeStagedThreadInputs(input);
+            } catch (error) {
+              await request.catch(() => undefined);
+              throw error;
+            }
+            return await request;
+          },
         );
         const response = recovered;
         responseUsage = response.usage;
-        responseReasoningSummary = undefined;
-        responseParts = [
-          buildNativeProviderStructuredFinal({
-            runId: this.options.run.id,
-            turnId: input.turn.id,
-            finalAnswer: response.object.finalAnswer,
-            sequence: 0,
-          }),
-        ];
+        responseReasoningSummary = response.reasoningSummary;
+        responseParts = response.parts ?? [];
         toolCalls = [];
       } else {
         const response = await this.requestWithProviderRecovery(
           input,
           context,
-          (attemptContext) =>
-            this.options.llmGateway.generateText({
+          async (attemptContext) => {
+            const request = this.options.llmGateway.generateText({
               context: attemptContext,
               messages,
               system: buildAgenticLoopSystemPrompt({
                 workspaceContext: buildAgenticLoopWorkspaceContext({
                   repositoryContext:
                     readContextRecord(
-                      input.context.metadata,
+                      providerContext.metadata,
                       "repositoryContext",
                     ) ?? this.options.input.repositoryContext,
-                  prompt: [
-                    input.context.instructions,
-                    readContextString(
-                      input.context.metadata,
-                      "compactedContext",
-                    ),
-                  ]
-                    .filter(Boolean)
-                    .join("\n\n"),
+                  prompt: providerContext.instructions,
                   continuation: this.options.run.metadata.continuation,
                   workspaceBootstrap:
                     this.options.run.metadata.workspaceBootstrap,
@@ -1085,7 +1179,15 @@ class KernelAgenticProvider implements ProviderPort {
                 this.options.input.metadata?.reasoningEffort,
               ),
               signal: input.signal,
-            }),
+            });
+            try {
+              await this.acknowledgeStagedThreadInputs(input);
+            } catch (error) {
+              await request.catch(() => undefined);
+              throw error;
+            }
+            return await request;
+          },
         );
         responseUsage = response.usage;
         responseReasoningSummary = response.reasoningSummary;
@@ -1107,6 +1209,12 @@ class KernelAgenticProvider implements ProviderPort {
       ) {
         finalOnlyRecoveryAttempts += 1;
         continue;
+      }
+
+      if (finalRecovery && !visibleText.trim()) {
+        throw new Error(
+          "[runtime-kernel/native] Provider returned an empty final answer during synthesis recovery",
+        );
       }
 
       break;
@@ -1137,7 +1245,7 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    const commentary = resolveModelCommentary(visibleText, toolCalls);
+    const commentary = resolveModelCommentary(visibleText);
     if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
@@ -1157,6 +1265,9 @@ class KernelAgenticProvider implements ProviderPort {
       });
     }
     this.pendingToolCalls.push(...toolCalls);
+    this.pendingToolCallBatchId = ToolCallBatchIdSchema.parse(
+      toProtocolId("batch", `${this.options.run.id}-${this.stepsExecuted}`),
+    );
     this.pendingCommentary = commentary;
     this.pendingReasoningSummary = responseReasoningSummary;
     this.pendingUsage = toUsageSnapshot(
@@ -1400,6 +1511,8 @@ class KernelAgenticProvider implements ProviderPort {
     if (!toolCall) {
       return null;
     }
+    const callBatchId = this.pendingToolCallBatchId;
+    if (this.pendingToolCalls.length === 0) this.pendingToolCallBatchId = null;
     const commentary = this.pendingCommentary;
     this.pendingCommentary = null;
     const reasoning = this.pendingReasoningSummary;
@@ -1415,6 +1528,7 @@ class KernelAgenticProvider implements ProviderPort {
         toolCallId: protocolToolCallId,
         toolName: toolCall.toolName,
         input: toolCall.args,
+        ...(callBatchId ? { callBatchId } : {}),
       }),
       ...(commentary ? { commentary } : {}),
       ...(reasoning ? { reasoning } : {}),
@@ -1590,6 +1704,9 @@ async function runWithNativeCancellationPolling<T>(
 }
 
 class KernelToolWorker implements WorkerProtocolPort {
+  private readonly preExecutionRejections = new Set<string>();
+  private readonly activeToolOperations = new Map<Turn["id"], Set<Promise<unknown>>>();
+  private readonly uncertainCancelledTurns = new Set<Turn["id"]>();
   constructor(
     private readonly options: {
       runEventRecorder: RunEventRecorder;
@@ -1598,6 +1715,29 @@ class KernelToolWorker implements WorkerProtocolPort {
       toolGateway: RuntimeToolGateway;
     },
   ) {}
+
+  async awaitQuiescence(input: {
+    readonly turnId: Turn["id"];
+    readonly timeoutMs: number;
+  }): Promise<boolean> {
+    if (this.uncertainCancelledTurns.has(input.turnId)) return false;
+    const pending = [...(this.activeToolOperations.get(input.turnId) ?? [])];
+    if (pending.length === 0) return true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled(pending),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("Tool quiescence timed out")), input.timeoutMs);
+        }),
+      ]);
+      return (this.activeToolOperations.get(input.turnId)?.size ?? 0) === 0;
+    } catch {
+      return false;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
 
   async executeTool(input: {
     runId: ProtocolRun["id"];
@@ -1632,8 +1772,7 @@ class KernelToolWorker implements WorkerProtocolPort {
     });
     let result: TaskResult;
     try {
-      const gatewayResult = await runWithNativeCancellationPolling(
-        this.options.toolGateway.execute({
+      const operation = this.options.toolGateway.execute({
           taskId: input.toolCall.toolCallId,
           toolName,
           toolInput: {
@@ -1654,7 +1793,10 @@ class KernelToolWorker implements WorkerProtocolPort {
           },
           isCancelled: this.options.isRunCancelled,
           signal: input.signal,
-        }),
+        });
+      this.trackToolOperation(input.turnId, operation, input.signal);
+      const gatewayResult = await runWithNativeCancellationPolling(
+        operation,
         this.options.isRunCancelled,
       );
       if (gatewayResult.kind === "cancelled") {
@@ -1662,8 +1804,37 @@ class KernelToolWorker implements WorkerProtocolPort {
       }
       assertSignalNotAborted(input.signal);
       if (gatewayResult.kind === "failed") {
+        const preExecutionRejection = readPreExecutionRejection(
+          gatewayResult.failure?.details,
+        );
+        const rejectionKey = preExecutionRejection
+          ? `${input.turnId}:${toolName}:${preExecutionRejection.ruleId}`
+          : null;
+        const correctionAlreadyUsed =
+          rejectionKey !== null &&
+          this.preExecutionRejections.has(rejectionKey);
+        if (rejectionKey && !correctionAlreadyUsed) {
+          this.preExecutionRejections.add(rejectionKey);
+        }
+        const failure =
+          correctionAlreadyUsed &&
+          preExecutionRejection &&
+          gatewayResult.failure
+            ? {
+                ...gatewayResult.failure,
+                message: `The command was rejected before execution, so this request is incomplete. ${gatewayResult.failure.message} One corrected retry for this validation rule was already rejected; use an approved typed tool or request user guidance.`,
+                details: {
+                  ...preExecutionRejection,
+                  correctionLimitReached: true,
+                  nextStep:
+                    "Use an approved typed tool or request user guidance.",
+                },
+              }
+            : gatewayResult.failure;
         const message =
-          gatewayResult.result.error?.message ?? "Tool execution failed";
+          failure?.message ??
+          gatewayResult.result.error?.message ??
+          "Tool execution failed";
         const gatewayFailureCode =
           gatewayResult.code === "executor_failed"
             ? "command_failed"
@@ -1672,13 +1843,15 @@ class KernelToolWorker implements WorkerProtocolPort {
               : gatewayResult.code === "workspace_escape_denied"
                 ? "policy_denied"
                 : "validation_failed";
-        const failureCode = gatewayResult.failure?.code ?? gatewayFailureCode;
-        const disposition = toolFailureDisposition(
-          toolName,
-          message,
-          undefined,
-          failureCode,
-        );
+        const failureCode = failure?.code ?? gatewayFailureCode;
+        const disposition = correctionAlreadyUsed
+          ? "terminal"
+          : toolFailureDisposition(
+              toolName,
+              message,
+              failure?.details,
+              failureCode,
+            );
         this.options.tracker.recordToolFailed(
           input.toolCall,
           message,
@@ -1689,14 +1862,12 @@ class KernelToolWorker implements WorkerProtocolPort {
           message,
           0,
         );
-        if (gatewayResult.failure) {
+        if (failure) {
           return {
             kind: "failed",
-            failure: gatewayResult.failure,
+            failure,
             disposition:
-              gatewayResult.failure.code === "worker_unavailable"
-                ? "terminal"
-                : disposition,
+              failure.code === "worker_unavailable" ? "terminal" : disposition,
           };
         }
         return failed(
@@ -1784,6 +1955,37 @@ class KernelToolWorker implements WorkerProtocolPort {
       }),
     );
     return failed("command_failed", message, false, disposition);
+  }
+
+  private trackToolOperation(
+    turnId: Turn["id"],
+    operation: Promise<unknown>,
+    signal?: AbortSignal,
+  ): void {
+    let pending = this.activeToolOperations.get(turnId);
+    if (!pending) {
+      pending = new Set();
+      this.activeToolOperations.set(turnId, pending);
+    }
+    pending.add(operation);
+    let settled = false;
+    const onAbort = () => {
+      if (!settled) this.uncertainCancelledTurns.add(turnId);
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+    const remove = () => {
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      this.removeToolOperation(turnId, operation);
+    };
+    void operation.then(remove, remove);
+  }
+
+  private removeToolOperation(turnId: Turn["id"], operation: Promise<unknown>): void {
+    const pending = this.activeToolOperations.get(turnId);
+    pending?.delete(operation);
+    if (pending?.size === 0) this.activeToolOperations.delete(turnId);
   }
 }
 
@@ -1879,6 +2081,7 @@ class NativeApprovalWaitPort implements ApprovalWaitPort {
         outcome.outcome === "timed_out"
           ? "Approval timed out before a decision was recorded."
           : "Approval request was denied.",
+      ...(outcome.outcome === "timed_out" ? { timedOut: true } : {}),
     };
   }
 }
@@ -1913,6 +2116,8 @@ function buildProtocolEnvelope(input: {
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
   revisionOfTurnId?: string;
+  continuationOfTurnId?: string;
+  originalPromptId?: string;
   workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
@@ -1992,6 +2197,12 @@ function buildProtocolEnvelope(input: {
       lastEventSequence: 0,
     }),
     runAttemptId,
+    ...(input.continuationOfTurnId
+      ? {
+          continuationOfTurnId: TurnIdSchema.parse(input.continuationOfTurnId),
+          originalPromptId: input.originalPromptId,
+        }
+      : {}),
     manifest,
   };
 }
@@ -2037,141 +2248,6 @@ function createTurnArtifactPort(): RuntimeTurnArtifactPort {
   };
 }
 
-function createContextAssembly(
-  input: RunInput,
-  messages: readonly CoreMessage[],
-  tools: Readonly<Record<string, CoreTool>>,
-): ContextAssemblyPort {
-  return {
-    assemble: async () => {
-      const repositoryText = JSON.stringify(input.repositoryContext ?? {});
-      const conversationTokens = estimateConversationTokens(messages);
-      const repositoryContextTokens = Math.ceil(repositoryText.length / 4);
-      const systemTokens = Math.ceil(
-        buildAgenticLoopSystemPrompt({
-          finalSynthesisOnly: false,
-          requiresMutation: false,
-          completedMutatingToolCount: 0,
-          completedReadOnlyToolCount: 0,
-          explicitCiLogRequest: false,
-          encounteredCiLogsAuthorizationBoundary: false,
-          attemptedCiLogsCliFallback: false,
-        }).length / 4,
-      );
-      const toolDefinitionTokens = Math.ceil(JSON.stringify(tools).length / 4);
-      const attachmentTokens = null;
-      const contextWindowLimit = readPositiveInteger(
-        input.metadata?.contextWindowTokens,
-      );
-      if (!contextWindowLimit) {
-        return {
-          instructions: input.prompt,
-          metadata: JsonRecordSchema.parse({
-            repositoryContext: input.repositoryContext ?? {},
-          }),
-        };
-      }
-      const reservedOutputTokens = Math.min(
-        8_192,
-        Math.floor(contextWindowLimit * 0.1),
-      );
-      const safetyReserveTokens = Math.min(
-        4_096,
-        Math.floor(contextWindowLimit * 0.05),
-      );
-      const effectiveInputBudget = Math.max(
-        1,
-        contextWindowLimit - reservedOutputTokens - safetyReserveTokens,
-      );
-      const tokensUsed =
-        systemTokens +
-        conversationTokens +
-        toolDefinitionTokens +
-        repositoryContextTokens;
-      const snapshot = ContextBudgetSnapshotSchema.parse({
-        providerId: input.providerId ?? "unknown",
-        modelId: input.runtimeModelId ?? input.modelId ?? "unknown",
-        contextWindowLimit,
-        systemTokens,
-        conversationTokens,
-        toolDefinitionTokens,
-        attachmentTokens,
-        repositoryContextTokens,
-        reservedOutputTokens,
-        safetyReserveTokens,
-        effectiveInputBudget,
-        tokensUsed,
-        tokensRemaining: Math.max(0, effectiveInputBudget - tokensUsed),
-        utilizationPercent: Math.min(
-          100,
-          (tokensUsed / effectiveInputBudget) * 100,
-        ),
-        warningThresholdPercent: 70,
-        automaticCompactionThresholdPercent: 90,
-        measurementSource: "estimate",
-      });
-      return {
-        instructions: input.prompt,
-        metadata: JsonRecordSchema.parse({
-          repositoryContext: input.repositoryContext ?? {},
-        }),
-        budgetSnapshot: snapshot,
-      };
-    },
-  };
-}
-
-function createContextCompaction(
-  input: RunInput,
-  messages: readonly CoreMessage[],
-): ContextCompactionPort {
-  return {
-    compact: async ({ context, turn }) => {
-      const summary = summarizeConversationForCompaction(
-        messages,
-        input.prompt,
-      );
-      const budget = context.budgetSnapshot;
-      const compactedTokens = Math.max(
-        1,
-        Math.ceil(
-          (summary.length + JSON.stringify(context.metadata).length) / 4,
-        ),
-      );
-      const compactedBudget = budget
-        ? ContextBudgetSnapshotSchema.parse({
-            ...budget,
-            conversationTokens: compactedTokens,
-            repositoryContextTokens: null,
-            tokensUsed: Math.min(budget.effectiveInputBudget, compactedTokens),
-            tokensRemaining: Math.max(
-              0,
-              budget.effectiveInputBudget - compactedTokens,
-            ),
-            utilizationPercent: Math.min(
-              100,
-              (compactedTokens / budget.effectiveInputBudget) * 100,
-            ),
-          })
-        : undefined;
-      return {
-        context: {
-          instructions: context.instructions,
-          metadata: JsonRecordSchema.parse({
-            ...context.metadata,
-            compactedContext: summary,
-            compactedTurnId: turn.id,
-          }),
-          ...(compactedBudget ? { budgetSnapshot: compactedBudget } : {}),
-          ...(context.usage ? { usage: context.usage } : {}),
-        },
-        preservedContextReference: `context:${turn.id}:compacted`,
-        summary,
-      };
-    },
-  };
-}
-
 function readContextString(
   metadata: Record<string, unknown>,
   key: string,
@@ -2209,12 +2285,6 @@ function toUsageSnapshot(
     currency: "USD",
     measurementSource: "provider",
   });
-}
-
-function readPositiveInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-    ? value
-    : null;
 }
 
 function requireAiService(dependencies: RunEngineDependencies) {

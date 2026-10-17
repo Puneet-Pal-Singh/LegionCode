@@ -4,10 +4,12 @@ import { GitReviewProvider } from "./GitReviewContext";
 import { useGitReview } from "./useGitReview";
 import type { ReviewCommentAnchor } from "@legioncode/client-ui";
 import type {
+  DiffContent,
   FileStatus,
   GitStatusResponse,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
+import type { CanonicalTurnReviewSource } from "../../services/review/ReviewSourceResolver";
 
 const mockRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFetchLiveDiff = vi.hoisted(() => vi.fn(async () => undefined));
@@ -41,7 +43,6 @@ const mockArtifactHookInputs = vi.hoisted(
       enabled: boolean;
     }>,
 );
-
 vi.mock("../../hooks/useRunContext", () => ({
   useRunContext: () => ({
     runId: "run-1",
@@ -454,6 +455,74 @@ describe("GitReviewProvider", () => {
     );
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
   });
+
+  it("switches same-path historical review to its selected canonical turn diff", async () => {
+    mockGitStatusState.status = buildGitStatus([]);
+    const currentLoad = vi.fn(async (file: FileStatus) => buildDiff(file.path));
+    const historicalLoad = vi.fn(async (file: FileStatus) =>
+      buildDiff(file.path),
+    );
+    const currentReview = buildTurnReview("trn_current001", currentLoad);
+    const historicalReview = buildTurnReview("trn_historic001", historicalLoad);
+    const { rerender } = render(
+      <GitReviewProvider
+        isReviewOpen={false}
+        isReviewDataEnabled={false}
+        canonicalTurnReview={currentReview}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe historicalReview={historicalReview} />
+      </GitReviewProvider>,
+    );
+
+    await waitFor(() =>
+      expect(currentLoad).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "src/shared.ts" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "select live git" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "select historical turn" }),
+    );
+    await waitFor(() =>
+      expect(historicalLoad).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "src/shared.ts" }),
+      ),
+    );
+    expect(screen.getByTestId("review-turn-id")).toHaveTextContent(
+      "trn_historic001",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "select second file" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("review-diff")).toHaveTextContent(
+        "src/other.ts",
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "select historical turn" }),
+    );
+    expect(screen.getByTestId("selected-file")).toHaveTextContent(
+      "src/other.ts",
+    );
+    expect(screen.getByTestId("review-diff")).toHaveTextContent("src/other.ts");
+    expect(historicalLoad).toHaveBeenCalledTimes(2);
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+
+    rerender(
+      <GitReviewProvider
+        key="session-2:run-1"
+        isReviewOpen={false}
+        isReviewDataEnabled={false}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe historicalReview={historicalReview} />
+      </GitReviewProvider>,
+    );
+    expect(screen.getByTestId("review-turn-id")).toHaveTextContent("none");
+  });
 });
 
 function ReviewCommentSelectionProbe() {
@@ -496,7 +565,11 @@ function ReviewCommentSelectionProbe() {
   );
 }
 
-function ReviewSourceProbe() {
+function ReviewSourceProbe({
+  historicalReview,
+}: {
+  historicalReview?: CanonicalTurnReviewSource;
+}) {
   const review = useGitReview();
   const firstFile = review.reviewFiles[0];
 
@@ -512,6 +585,15 @@ function ReviewSourceProbe() {
       <span data-testid="review-files">
         {review.reviewFiles.map((file) => file.path).join(",") || "none"}
       </span>
+      <span data-testid="review-turn-id">
+        {review.reviewSource.kind === "turn_diff"
+          ? review.reviewSource.turnId
+          : "none"}
+      </span>
+      <span data-testid="review-diff">{review.diff?.newPath ?? "none"}</span>
+      <span data-testid="selected-file">
+        {review.selectedFile?.path ?? "none"}
+      </span>
       <button
         type="button"
         onClick={() => {
@@ -521,6 +603,17 @@ function ReviewSourceProbe() {
         }}
       >
         select first file
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const file = review.reviewFiles.find(
+            (candidate) => candidate.path === "src/other.ts",
+          );
+          if (file) review.selectFile(file);
+        }}
+      >
+        select second file
       </button>
       <button
         type="button"
@@ -534,6 +627,14 @@ function ReviewSourceProbe() {
       >
         select saved edit
       </button>
+      {historicalReview ? (
+        <button
+          type="button"
+          onClick={() => review.selectCanonicalTurnReview(historicalReview)}
+        >
+          select historical turn
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() =>
@@ -552,6 +653,29 @@ function ReviewSourceProbe() {
       </button>
     </div>
   );
+}
+
+function buildTurnReview(
+  turnId: string,
+  loadFileDiff: (file: FileStatus) => Promise<DiffContent>,
+) {
+  return {
+    turnId,
+    files: ["src/shared.ts", "src/other.ts"].map(buildFileStatus),
+    loadFileDiff,
+    error: null,
+  };
+}
+
+function buildDiff(path: string): DiffContent {
+  return {
+    oldPath: path,
+    newPath: path,
+    hunks: [],
+    isBinary: false,
+    isNewFile: false,
+    isDeleted: false,
+  };
 }
 
 function buildInput() {

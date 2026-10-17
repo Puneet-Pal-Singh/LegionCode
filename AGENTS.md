@@ -87,7 +87,7 @@ Git, provider routing, runtime state, or SDK boundaries:
 2. Identify every owner/source of truth.
 3. Delete competing owners.
 4. Make the canonical owner explicit.
-5. Add the smallest high-signal gate that proves the complete lifecycle.
+5. Reuse existing checks to prove the affected lifecycle; do not add tests.
 6. Research Codex, OpenCode, and T3 Code when architecture is unclear.
 7. Adapt the good pattern to LegionCode boundaries; do not blindly copy.
 
@@ -285,7 +285,7 @@ When touching a god file:
 
 1. Extract the touched responsibility into a focused helper/module.
 2. Preserve behavior unless intentionally deleting bad behavior.
-3. Add or keep tests around the extracted boundary.
+3. Reuse existing checks around the extracted boundary; do not add tests.
 4. Do not perform unrelated broad rewrites.
 
 ---
@@ -372,6 +372,19 @@ Test where the risk lives.
   review diff -> reload/replay.
 
 Do not add low-value tests for trivial pass-through code.
+
+### Test Restraint And Pruning
+
+- Do not add test files or test registrations. The root lint command enforces
+  this against the PR base; test titles are the registration identities.
+- Existing tests may be edited to fix failures or improve assertions, and
+  redundant tests may be removed. Do not rename a test title as a workaround.
+- Prefer the existing lint rules, type checks, and existing tests for
+  verification. Keep production changes simple and avoid implementation-coupled
+  assertions, mock-only coverage, and duplicate suites.
+- Preserve unique protection for persistence, data integrity, authorization,
+  isolation, and recovery. Never delete tests just to hit a line-count target
+  or make a failing check green without understanding the failure.
 
 Important commands:
 

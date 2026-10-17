@@ -92,6 +92,18 @@ export interface GitSnapshotInput {
   readonly snapshotKey: string;
 }
 
+export interface GitSnapshotPatchInput {
+  readonly workspace: GitFilesystemContext;
+  readonly baseCommitSha: string;
+  readonly terminalTreeSha: string;
+}
+
+export interface GitSnapshotPatchResult {
+  readonly baseCommitSha: string;
+  readonly terminalTreeSha: string;
+  readonly patch: string;
+}
+
 export interface GitWorkspaceSnapshot {
   readonly runId: string;
   readonly filesystemRoot: string;
@@ -207,6 +219,9 @@ export interface GitService {
   readConfigValue(input: GitConfigValueInput): Promise<string | null>;
   capturePatch(input: GitCapturePatchInput): Promise<GitPatchCaptureResult>;
   captureSnapshot(input: GitSnapshotInput): Promise<GitWorkspaceSnapshot>;
+  exportSnapshotPatch(
+    input: GitSnapshotPatchInput,
+  ): Promise<GitSnapshotPatchResult>;
   getSnapshotDiff(input: GitSnapshotDiffInput): Promise<GitDiffResult>;
   stageFiles(input: GitStageInput): Promise<GitStatusResult>;
   unstageFiles(input: GitStageInput): Promise<GitStatusResult>;

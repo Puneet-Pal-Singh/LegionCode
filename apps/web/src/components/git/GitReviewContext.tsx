@@ -22,6 +22,7 @@ import { useReviewCommentsState } from "./useReviewCommentsState";
 import { useReviewDiffLoader } from "./useReviewDiffLoader";
 import { useReviewFileSelection } from "./useReviewFileSelection";
 import { useReviewStageActions } from "./useReviewStageActions";
+import type { CanonicalTurnReviewSource } from "../../services/review/ReviewSourceResolver";
 
 export function GitReviewProvider({
   children,
@@ -30,10 +31,20 @@ export function GitReviewProvider({
   isReviewActive = false,
   isReviewDataEnabled = true,
   isGitWorkspaceRecovering = false,
-  canonicalTurnReview = null,
+  canonicalTurnReview: providerCanonicalTurnReview = null,
   artifactIdentity = null,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
+  const reviewTargetKey = `${runId ?? ""}:${sessionId ?? ""}`;
+  const [selectedCanonicalTurnReview, setSelectedCanonicalTurnReview] =
+    useState<{
+      key: string;
+      source: CanonicalTurnReviewSource;
+    } | null>(null);
+  const canonicalTurnReview =
+    selectedCanonicalTurnReview?.key === reviewTargetKey
+      ? selectedCanonicalTurnReview.source
+      : providerCanonicalTurnReview;
   const shouldLoadReviewData =
     canonicalTurnReview !== null ||
     (isReviewDataEnabled && (isReviewOpen || isReviewActive));
@@ -237,6 +248,21 @@ export function GitReviewProvider({
     },
     [fileSelection, selectReviewScope],
   );
+  const selectCanonicalTurnReview = useCallback(
+    (source: CanonicalTurnReviewSource) => {
+      setSelectedCanonicalTurnReview({ key: reviewTargetKey, source });
+      selectReviewScope("turn-diff");
+      if (
+        reviewSource.kind === "turn_diff" &&
+        reviewSource.turnId === source.turnId
+      ) {
+        return;
+      }
+      fileSelection.setSelectedFilePath(null);
+      setTurnDiffState({ turnId: null, diff: null });
+    },
+    [fileSelection, reviewSource, reviewTargetKey, selectReviewScope],
+  );
   const openReview = useCallback(
     (path?: string): void => {
       onReviewOpenChange(true);
@@ -330,6 +356,7 @@ export function GitReviewProvider({
     openPromptArtifactReview,
     selectPromptArtifactReview,
     openLiveGitReview,
+    selectCanonicalTurnReview,
     closeReview,
     selectFile: fileSelection.selectFile,
     toggleFileStaged: stageActions.toggleFileStaged,

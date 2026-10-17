@@ -38,6 +38,7 @@ describe("ProviderStore", () => {
   const credential2Id = "550e8400-e29b-41d4-a716-446655440001";
 
   beforeEach(() => {
+    localStorage.clear();
     sessionStorage.clear();
 
     // Reset singleton between tests
@@ -262,6 +263,7 @@ describe("ProviderStore", () => {
     });
 
     it("does not carry a previous chat selection into a new chat", async () => {
+      store.setActiveSessionId("session-1");
       store.setActiveRunId("run-1");
       await store.bootstrap();
 
@@ -272,7 +274,10 @@ describe("ProviderStore", () => {
       const state = store.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
-      expect(state.selectedModelId).toBe("gpt-4");
+      expect(state.selectedModelId).toBe("gpt-4-turbo");
+
+      store.setActiveSessionId("session-2");
+      expect(store.getState().selectedModelId).toBe("gpt-4");
     });
 
     it("allows workspace-global model loads to complete after a run switch", async () => {
@@ -957,6 +962,7 @@ describe("ProviderStore", () => {
     });
 
     it("restores persisted run-scoped selection for the same run", async () => {
+      store.setActiveSessionId("session-restore");
       store.setActiveRunId("run-1");
       await store.bootstrap();
 
@@ -965,6 +971,7 @@ describe("ProviderStore", () => {
         credentialId: credential1Id,
         modelId: "gpt-4-turbo",
       });
+      sessionStorage.clear();
 
       (ProviderStore as unknown as { instance?: ProviderStore }).instance =
         undefined;
@@ -972,6 +979,7 @@ describe("ProviderStore", () => {
         apiClient: mockApiClient,
       });
 
+      restoredStore.setActiveSessionId("session-restore");
       restoredStore.setActiveRunId("run-1");
       await restoredStore.bootstrap();
 
@@ -982,6 +990,7 @@ describe("ProviderStore", () => {
     });
 
     it("starts a new chat from the workspace default", async () => {
+      store.setActiveSessionId("session-first");
       store.setActiveRunId("run-1");
       await store.bootstrap();
 
@@ -997,6 +1006,7 @@ describe("ProviderStore", () => {
         apiClient: mockApiClient,
       });
 
+      nextRunStore.setActiveSessionId("session-second");
       nextRunStore.setActiveRunId("run-2");
       await nextRunStore.bootstrap();
 
@@ -1054,49 +1064,11 @@ describe("ProviderStore", () => {
         credentialId: credential1Id,
       });
       expect(store.getState().selectedModelId).toBeNull();
-    });
-
-    it("reselects to a visible model when toggling visibility hides the selected model", async () => {
-      vi.mocked(mockApiClient.getProviderModels).mockImplementation(
-        async (providerId: string) => ({
-          providerId,
-          view: "popular",
-          models:
-            providerId === "openai"
-              ? [
-                  { id: "gpt-4", name: "GPT-4", provider: "openai" },
-                  {
-                    id: "gpt-4-turbo",
-                    name: "GPT-4 Turbo",
-                    provider: "openai",
-                  },
-                ]
-              : [
-                  {
-                    id: "openrouter/auto",
-                    name: "Auto",
-                    provider: "openrouter",
-                  },
-                ],
-          page: {
-            limit: 50,
-            hasMore: false,
-          },
-          metadata: {
-            fetchedAt: new Date().toISOString(),
-            stale: false,
-            source: "provider_api",
-          },
-        }),
-      );
-
-      await store.bootstrap();
-      await store.loadProviderModels("openai");
       store.setSelection("openai", credential1Id, "gpt-4-turbo");
-
-      store.toggleModelVisibility("openai", "gpt-4-turbo");
-
-      expect(store.getState().selectedModelId).toBe("gpt-4");
+      expect(store.getState().selectedModelId).toBe("gpt-4-turbo");
+      await expect(store.resolveForChat()).rejects.toThrow(
+        /Your selected model is hidden|No visible model is selected/,
+      );
     });
 
     it("hydrates picker models from manage catalog when curated visible models are outside the picker page", async () => {

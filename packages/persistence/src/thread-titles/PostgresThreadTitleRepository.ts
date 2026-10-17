@@ -28,6 +28,7 @@ export class PostgresThreadTitleRepository implements ThreadTitleRepository {
               sessionId: input.sessionId,
               title: input.title,
               titleSource: input.titleSource,
+              titleStatus: input.titleStatus,
               expectedTitleVersion: input.expectedTitleVersion,
               initialOnly: input.initialOnly,
             });
@@ -35,7 +36,9 @@ export class PostgresThreadTitleRepository implements ThreadTitleRepository {
         return null;
       }
 
-      await new PostgresEventStore(transaction).append(input.buildEvent(session));
+      await new PostgresEventStore(transaction).append(
+        input.buildEvent(session),
+      );
       return session;
     });
   }

@@ -38,6 +38,8 @@ export {
 } from "./RuntimeKernel.js";
 export { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
 export {
+  type AcceptedThreadInput,
+  type AppliedThreadInput,
   type ApprovalResolution,
   type ProviderCallInput,
   type ProviderStep,

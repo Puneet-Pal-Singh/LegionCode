@@ -73,10 +73,14 @@ export interface SessionRecord {
   title: string;
   titleSource: ChatTitleSource;
   titleVersion?: number;
+  titleStatus?: "pending" | "ready" | "failed";
   repository: string | null;
   activeRunId: string | null;
+  /** Run admitted for the session's canonical current turn, including terminal turns. */
+  latestRunId?: string | null;
   mode: string;
-  status: SessionStatus;
+  /** List/read projection may derive approval waiting from lifecycle events. */
+  status: SessionStatus | "waiting_for_approval";
   pinnedAt: string | null;
   archivedAt: string | null;
   createdAt: string;
@@ -175,6 +179,7 @@ export interface TranscriptRepository {
     sessionId: string;
     title: string;
     titleSource: "preview" | "generated";
+    titleStatus?: "pending" | "ready" | "failed";
     expectedTitleVersion?: number;
     initialOnly?: boolean;
   }): Promise<SessionRecord | null>;

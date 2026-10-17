@@ -54,13 +54,16 @@ const LIFECYCLE_EVENTS = [
     payload: {
       kind: "approval_request",
       question: "Approve deterministic edit",
-      options: [{ label: "Approve" }, { label: "Deny" }],
+      options: [
+        { id: "approve", label: "Approve", description: null },
+        { id: "deny", label: "Deny", description: null },
+      ],
     },
   }),
   event(6, "approval.decided", {
     itemId: "itm_browserapproval1",
     approvalId: "appr_browsergolden1",
-    payload: { decision: "approved" },
+    payload: { status: "approved" },
   }),
   event(7, "item.completed", {
     itemId: "itm_browsertool1",
@@ -130,9 +133,7 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
   );
 
   releaseLiveReplay();
-  await expect(page.getByTestId("terminal")).toHaveText(
-    "completed:completed",
-  );
+  await expect(page.getByTestId("terminal")).toHaveText("completed:completed");
   await assertDiffParity(page);
   const firstTerminal = await page.getByTestId("terminal").textContent();
   const firstWorkflow = await page.getByTestId("workflow").textContent();

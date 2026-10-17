@@ -25,7 +25,7 @@ export function WorkflowDisclosure({
         segments={segments}
         turnDiff={turnDiff}
         onArtifactOpen={onArtifactOpen}
-        showThinkingState={!projection.pendingApproval && !projection.terminal}
+        showThinkingState={!projection.terminal}
       />
     </div>
   );

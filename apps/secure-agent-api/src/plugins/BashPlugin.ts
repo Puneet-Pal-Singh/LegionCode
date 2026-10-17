@@ -1,7 +1,12 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { z } from "zod";
 import { BashTool } from "../schemas/bash";
-import { IPlugin, LogCallback, PluginExecutionContext, PluginResult } from "../interfaces/types";
+import {
+  IPlugin,
+  LogCallback,
+  PluginExecutionContext,
+  PluginResult,
+} from "../interfaces/types";
 import {
   normalizeRunId,
   resolveWorkspacePath,
@@ -56,7 +61,7 @@ export class BashPlugin implements IPlugin {
       );
 
       onLog?.({
-        message: `$ ${parsed.command}`,
+        message: "Bash command accepted for execution.",
         source: "stdout",
       });
 
@@ -88,6 +93,19 @@ export class BashPlugin implements IPlugin {
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Bash plugin execution failed";
+      if (error instanceof BashValidationError) {
+        return {
+          success: false,
+          error: error.reason,
+          failure: {
+            kind: "pre_execution_rejection",
+            ruleId: error.ruleId,
+            reason: error.reason,
+            correctionGuidance: error.correctionGuidance,
+            executionStarted: false,
+          },
+        };
+      }
       return {
         success: false,
         error: message,
@@ -111,22 +129,142 @@ function resolveBashCwd(
 function validateBashCommand(command: string): void {
   const normalized = command.trim();
   if (!normalized) {
-    throw new Error("Bash command cannot be empty");
+    throw new BashValidationError(
+      "bash.empty_command",
+      "Bash command cannot be empty.",
+      "Provide a non-empty command within the approved workspace.",
+    );
+  }
+  if (/[\0\r\n]/.test(command)) {
+    throw new BashValidationError(
+      "bash.multiline_or_control_character",
+      "Multiline and control-character command arguments are not allowed.",
+      "Use a single-line command or an approved typed tool.",
+    );
   }
 
+  const executableText = maskSingleQuotedText(normalized);
+  const dequotedText = flattenShellQuotes(normalized);
   const dangerousPatterns = [
     /(^|[;&|]\s*)rm\s+/i,
     /;\s*killall/i,
-    /\$\(/i,
-    /`/i,
     /\|\s*bash/i,
     /sudo\s/i,
   ];
 
   for (const pattern of dangerousPatterns) {
-    if (pattern.test(normalized)) {
-      throw new Error("Dangerous bash command pattern detected");
+    if (pattern.test(dequotedText)) {
+      throw new BashValidationError(
+        "bash.restricted_command_pattern",
+        "This command matches a restricted shell pattern.",
+        "Use a direct command or an approved typed tool; do not embed shell substitutions or destructive operations.",
+      );
     }
+  }
+  if (
+    /\$\(|`/.test(executableText) ||
+    (hasNestedShellOrEval(normalized) && /\$\(|`/.test(normalized))
+  ) {
+    throw new BashValidationError(
+      "bash.command_substitution",
+      "Shell command substitution is not allowed in this command.",
+      "Use a direct command or an approved typed tool; do not embed shell substitutions or destructive operations.",
+    );
+  }
+}
+
+function hasNestedShellOrEval(command: string): boolean {
+  const flattened = flattenShellQuotes(command);
+  return (
+    /(?:^|[\s;&|()])(?:[^\s;&|()]+\/)?(?:bash|sh|dash|zsh|ksh|fish|eval|source)(?=$|[\s;&|()])/i.test(
+      flattened,
+    ) || /(?:^|\s)(?:-[a-z]*c|--command(?:=|\s|$))/i.test(flattened)
+  );
+}
+
+function maskSingleQuotedText(command: string): string {
+  let quote: "single" | "double" | null = null;
+  let escaped = false;
+  let masked = "";
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]!;
+    if (
+      quote === null &&
+      char === "#" &&
+      (index === 0 || /[\s;&|()]/.test(command[index - 1]!))
+    ) {
+      masked += " ".repeat(command.length - index);
+      break;
+    }
+    if (quote === "single") {
+      masked += " ";
+      if (char === "'") quote = null;
+      continue;
+    }
+    if (escaped) {
+      masked += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      masked += char;
+      escaped = true;
+      continue;
+    }
+    if (quote === "double") {
+      masked += char;
+      if (char === '"') quote = null;
+      continue;
+    }
+    if (char === "'") {
+      masked += " ";
+      quote = "single";
+    } else {
+      masked += char;
+      if (char === '"') quote = "double";
+    }
+  }
+  return masked;
+}
+
+function flattenShellQuotes(command: string): string {
+  let quote: "single" | "double" | null = null;
+  let escaped = false;
+  let flattened = "";
+  for (const char of command) {
+    if (escaped) {
+      flattened += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "single") {
+      escaped = true;
+      continue;
+    }
+    if (quote === "single") {
+      if (char === "'") quote = null;
+      else flattened += char;
+      continue;
+    }
+    if (quote === "double") {
+      if (char === '"') quote = null;
+      else flattened += char;
+      continue;
+    }
+    if (char === "'") quote = "single";
+    else if (char === '"') quote = "double";
+    else flattened += char;
+  }
+  return flattened;
+}
+
+class BashValidationError extends Error {
+  constructor(
+    readonly ruleId: string,
+    readonly reason: string,
+    readonly correctionGuidance: string,
+  ) {
+    super(reason);
   }
 }
 

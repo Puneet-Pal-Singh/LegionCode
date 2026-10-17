@@ -249,16 +249,22 @@ describe("HandleChatRequest", () => {
       PersistenceService.prototype,
       "ensureTranscriptSession",
     ).mockResolvedValue();
-    vi.spyOn(PersistenceService.prototype, "ensureRun").mockResolvedValue(
-      {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
-    );
+    vi.spyOn(PersistenceService.prototype, "ensureRun").mockResolvedValue({
+      id: "123e4567-e89b-42d3-a456-426614174000",
+      providerId: "openrouter",
+      modelId: "poolside/laguna-s-2.1:free",
+    } as Awaited<ReturnType<PersistenceService["ensureRun"]>>);
     vi.spyOn(
       PersistenceService.prototype,
       "admitUserTurn",
-    ).mockResolvedValue({
+    ).mockImplementation(async (input) => ({
       id: "message-first",
-      run: {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
-    });
+      run: {
+        id: input.runId,
+        providerId: input.providerId ?? null,
+        modelId: input.modelId ?? null,
+      } as never,
+    }));
     vi.spyOn(
       PersistenceService.prototype,
       "findFirstPersistedUserMessage",

@@ -6,7 +6,7 @@ describe("provider recovery advice", () => {
     const advice = getProviderRecoveryAdvice("No BYOK provider connected");
     expect(advice.actionLabel).toBe("Open Provider Setup");
     expect(advice.recoveryTarget).toBe("connect");
-    expect(advice.message).toContain("missing");
+    expect(advice.message).toContain("not connected");
   });
 
   it("maps selection mismatch to session remediation", () => {
@@ -18,13 +18,13 @@ describe("provider recovery advice", () => {
   it("maps active-run immutable selection conflicts to wait/stop guidance", () => {
     const advice = getProviderRecoveryAdvice("RUN_MANIFEST_IMMUTABLE");
     expect(advice.actionLabel).toBe("Wait or Stop Current Run");
-    expect(advice.remediation).toContain("Wait for the current run to finish");
+    expect(advice.remediation).toContain("run ends");
   });
 
   it("maps rate limit errors to provider switch guidance", () => {
     const advice = getProviderRecoveryAdvice("RATE_LIMIT exceeded for key");
     expect(advice.actionLabel).toBe("Switch Provider");
-    expect(advice.remediation).toContain("Switch to another connected provider");
+    expect(advice.remediation).toContain("another provider");
   });
 
   it("maps axis quota limit errors to provider switch guidance", () => {
@@ -34,15 +34,15 @@ describe("provider recovery advice", () => {
 
   it("maps planning schema failures to prompt-specific remediation", () => {
     const advice = getProviderRecoveryAdvice("PLAN_SCHEMA_MISMATCH");
-    expect(advice.actionLabel).toBe("Retry with Specific Task");
-    expect(advice.remediation).toContain("concrete file path or command");
+    expect(advice.actionLabel).toBe("Review provider");
+    expect(advice.remediation).toContain("more specific request");
   });
 
   it("does not route runtime failures to provider setup", () => {
     const advice = getProviderRecoveryAdvice("SANDBOX_UNAVAILABLE");
-    expect(advice.actionLabel).toBe("Retry Request");
+    expect(advice.actionLabel).toBe("View details");
     expect(advice.recoveryTarget).toBe("general");
-    expect(advice.remediation).toContain("changing provider settings");
+    expect(advice.remediation).toContain("SANDBOX_UNAVAILABLE");
   });
 
   it("maps auth scope persistence issues to re-auth guidance", () => {
@@ -64,17 +64,18 @@ describe("provider recovery advice", () => {
 
   it("returns default advice for unknown errors", () => {
     const advice = getProviderRecoveryAdvice("Unexpected backend error");
-    expect(advice.actionLabel).toBe("Retry Request");
+    expect(advice.actionLabel).toBe("View details");
     expect(advice.recoveryTarget).toBe("general");
-    expect(advice.message).toContain("Unexpected backend error");
+    expect(advice.message).toBe("The request could not be completed.");
+    expect(advice.remediation).toContain("Unexpected backend error");
   });
 
   it("does not misroute turn-scope reconstruction to provider setup", () => {
     const advice = getProviderRecoveryAdvice(
       "Turn scope reconstruction failed with HTTP 400",
     );
-    expect(advice.recoveryTarget).toBe("general");
-    expect(advice.message).toContain("runtime scope");
-    expect(advice.remediation).toContain("not evidence of a provider");
+    expect(advice.recoveryTarget).toBe("scope");
+    expect(advice.message).toBe("Could not restore this chat.");
+    expect(advice.remediation).toContain("Turn scope reconstruction failed");
   });
 });

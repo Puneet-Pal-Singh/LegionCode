@@ -19,6 +19,9 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/layout/workspace/useWorkspaceState.ts",
   "components/layout/workspace/useFileLoader.ts",
   "hooks/useChatCore.ts",
+  "hooks/chat/useConversationInputCommands.ts",
+  "hooks/chat/useThreadInputQueue.ts",
+  "hooks/useChat.ts",
   "hooks/useConversationLifecycleProjections.ts",
   "hooks/useTurnLifecycleProjection.ts",
   "lib/session-sidebar-selectors.ts",
@@ -27,7 +30,7 @@ const ALLOWED_IMPORT_FILES = new Set([
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {
-  it("allows the provider API and canonical workflow projection boundaries", () => {
+  it("allows API, transcript, and canonical workflow SDK boundaries", () => {
     const violations = collectSourceFiles(SOURCE_ROOT)
       .filter((filePath) => !isAllowedImportFile(filePath))
       .filter((filePath) => containsSdkImport(filePath))

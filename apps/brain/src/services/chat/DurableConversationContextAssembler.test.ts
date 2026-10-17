@@ -22,6 +22,9 @@ describe("DurableConversationContextAssembler", () => {
       readTranscriptPage: async () => ({
         messages: transcript,
         nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
       }),
       replayLifecyclePage,
     });
@@ -38,7 +41,7 @@ describe("DurableConversationContextAssembler", () => {
       "system",
       "user",
     ]);
-    expect(context[2]?.content).toContain("Read package.json");
+    expect(context[2]?.content).toContain("- completed tool call: package legioncode");
     expect(context[2]?.content).toContain("package legioncode");
     expect(context.at(-1)?.content).toBe("Continue the work");
     expect(context.at(-1)).toMatchObject({ id: "new-user" });
@@ -58,7 +61,13 @@ describe("DurableConversationContextAssembler", () => {
       nextSequence: null,
     }));
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: transcript, nextCursor: null }),
+      readTranscriptPage: async () => ({
+        messages: transcript,
+        nextCursor: null,
+        snapshot: 3,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
       replayLifecyclePage,
     });
 
@@ -70,20 +79,25 @@ describe("DurableConversationContextAssembler", () => {
     });
 
     expect(context.map((entry) => entry.content)).toEqual(["Edited prompt"]);
-    expect(replayLifecyclePage).not.toHaveBeenCalled();
+    expect(replayLifecyclePage).toHaveBeenCalledWith(
+      expect.objectContaining({ turnId: "trn_prior001" }),
+    );
+    expect(replayLifecyclePage).toHaveBeenCalledWith(
+      expect.objectContaining({ turnId: "trn_current01" }),
+    );
   });
 
   it("concatenates canonical assistant deltas including whitespace without changing legacy multipart text", async () => {
     const assistant = message("assistant", "assistant", "hel", "trn_prior001", 1);
     assistant.parts = ["hel", " ", "lo"].map((text, index) => ({
       ...assistant.parts[0]!, id: `delta-${index}`, sessionSequence: index + 1,
-      content: { text, metadata: { canonicalIdentity: { turnId: "trn_prior001" }, itemId: "itm_prior001", phase: "final_answer" } },
+      content: { text, metadata: { canonicalIdentity: { turnId: "trn_prior001", runAttemptId: "attempt_prior001" }, itemId: "itm_prior001", phase: "final_answer" } },
     }));
     const legacy = message("legacy", "assistant", "first", undefined, 4);
     legacy.parts.push({ ...legacy.parts[0]!, id: "legacy-2", sessionSequence: 5, content: { text: "second" } });
     const current = message("current", "user", "continue", "trn_current01", 6);
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: [assistant, legacy, current], nextCursor: null }),
+      readTranscriptPage: async () => ({ messages: [assistant, legacy, current], nextCursor: null, snapshot: 6, supersededTurnIds: [], sessionFound: true }),
       replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
     });
     const context = await assembler.assemble({ sessionId: "session-1", userId: "user-1", currentTurnId: "trn_current01" });
@@ -100,7 +114,13 @@ describe("DurableConversationContextAssembler", () => {
     );
     current.clientMessageId = "client_msg_current";
     const assembler = new DurableConversationContextAssembler({} as Env, {
-      readTranscriptPage: async () => ({ messages: [current], nextCursor: null }),
+      readTranscriptPage: async () => ({
+        messages: [current],
+        nextCursor: null,
+        snapshot: 1,
+        supersededTurnIds: [],
+        sessionFound: true,
+      }),
       replayLifecyclePage: async () => ({ events: [], nextSequence: null }),
     });
 

@@ -26,6 +26,7 @@ export {
 export {
   captureGitWorkspaceSnapshot,
   diffGitWorkspaceSnapshots,
+  exportGitWorkspaceSnapshotPatch,
 } from "./snapshot.js";
 export { validateWorkspaceRoot } from "./validation.js";
 export type {
@@ -59,6 +60,8 @@ export type {
   GitRepositoryProbeResult,
   GitSnapshotDiffInput,
   GitSnapshotInput,
+  GitSnapshotPatchInput,
+  GitSnapshotPatchResult,
   GitService,
   GitStageInput,
   GitStatusCode,

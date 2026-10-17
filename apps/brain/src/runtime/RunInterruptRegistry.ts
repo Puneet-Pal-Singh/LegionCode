@@ -3,6 +3,9 @@ import type { TurnId } from "@repo/platform-protocol";
 export type ActiveTurnInterrupt = (reason: string) => Promise<void>;
 
 export interface RunInterruptRegistry {
+  beginStartup(turnId: TurnId): void;
+  hasActiveOwner(turnId: TurnId): boolean;
+  takePendingRequest(turnId: TurnId): string | null;
   register(turnId: TurnId, interrupt: ActiveTurnInterrupt): string | null;
   request(turnId: TurnId, reason: string): Promise<boolean>;
   unregister(turnId: TurnId): void;
@@ -16,8 +19,24 @@ interface RegisteredInterrupt {
 export class InMemoryRunInterruptRegistry implements RunInterruptRegistry {
   private readonly interrupts = new Map<TurnId, RegisteredInterrupt>();
   private readonly pending = new Map<TurnId, string>();
+  private readonly starting = new Set<TurnId>();
+
+  beginStartup(turnId: TurnId): void {
+    this.starting.add(turnId);
+  }
+
+  hasActiveOwner(turnId: TurnId): boolean {
+    return this.starting.has(turnId) || this.interrupts.has(turnId);
+  }
+
+  takePendingRequest(turnId: TurnId): string | null {
+    const reason = this.pending.get(turnId) ?? null;
+    this.pending.delete(turnId);
+    return reason;
+  }
 
   register(turnId: TurnId, interrupt: ActiveTurnInterrupt): string | null {
+    this.starting.delete(turnId);
     this.interrupts.set(turnId, { interrupt, request: null });
     const reason = this.pending.get(turnId) ?? null;
     if (reason) this.pending.delete(turnId);
@@ -27,6 +46,7 @@ export class InMemoryRunInterruptRegistry implements RunInterruptRegistry {
   async request(turnId: TurnId, reason: string): Promise<boolean> {
     const registered = this.interrupts.get(turnId);
     if (!registered) {
+      if (!this.starting.has(turnId)) return false;
       this.pending.set(turnId, reason);
       return true;
     }
@@ -38,6 +58,7 @@ export class InMemoryRunInterruptRegistry implements RunInterruptRegistry {
 
   unregister(turnId: TurnId): void {
     this.interrupts.delete(turnId);
+    this.starting.delete(turnId);
     this.pending.delete(turnId);
   }
 }

@@ -25,6 +25,7 @@ export function WebChatInputBar({
   const preferences = useComposerPreferences();
   const providerControls = useWebComposerProviderControls({
     runId,
+    sessionId: props.sessionId,
     hasMessages,
     onModelSelect,
     isComposerActiveRun: Boolean(props.isLoading || props.canStop),
@@ -33,6 +34,7 @@ export function WebChatInputBar({
     <ChatInputBar
       {...props}
       {...providerControls}
+      composerPreferences={preferences}
       showContextWindowUsage={preferences.showContextWindowUsage}
     />
   );

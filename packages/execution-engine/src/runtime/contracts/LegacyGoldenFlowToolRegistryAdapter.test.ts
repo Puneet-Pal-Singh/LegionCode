@@ -35,6 +35,7 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
       "git_diff",
       "github_pr_list",
       "github_pr_get",
+      "github_pr_files_get",
       "github_pr_checks_get",
       "github_review_threads_get",
       "github_issue_get",

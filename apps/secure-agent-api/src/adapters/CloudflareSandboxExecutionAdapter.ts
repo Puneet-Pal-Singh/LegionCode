@@ -28,6 +28,11 @@ interface ActiveTaskExecution {
   taskId: string;
   abortController: AbortController;
   terminationReason?: TerminationReason;
+  readonly quiescence: Promise<void>;
+  readonly resolveQuiescence: () => void;
+  pluginSettled: boolean;
+  executionSettled: boolean;
+  pluginOperation?: Promise<unknown>;
 }
 
 interface ToolboxPayloadContext {
@@ -104,10 +109,10 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
 
   async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
     const active = this.activeExecutions.get(this.executionKey(leaseId, taskId));
-    if (!active) return false;
+    if (!active || active.terminationReason === "timeout") return false;
     active.terminationReason = "cancelled";
     active.abortController.abort();
-    return true;
+    return await waitForQuiescence(active, 2_000);
   }
 
   async getHealth(_leaseId: string): Promise<{ healthy: boolean }> {
@@ -141,10 +146,18 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   ): Promise<TaskExecutionResult> {
     const { lease } = input;
     const startedAt = Date.now();
+    let resolveQuiescence!: () => void;
+    const quiescence = new Promise<void>((resolve) => {
+      resolveQuiescence = resolve;
+    });
     const active: ActiveTaskExecution = {
       leaseId: lease.leaseId,
       taskId: input.taskId,
       abortController: new AbortController(),
+      quiescence,
+      resolveQuiescence,
+      pluginSettled: false,
+      executionSettled: false,
     };
     const key = this.executionKey(lease.leaseId, input.taskId);
     this.activeExecutions.set(key, active);
@@ -162,8 +175,20 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       if (!mapping) return this.failure(input, "UNKNOWN_ACTION", `Unknown task action: ${input.action}`);
       const plugin = this.plugins.get(mapping.pluginName);
       if (!plugin) return this.failure(input, "PLUGIN_NOT_FOUND", `Plugin not found: ${mapping.pluginName}`);
+      const pluginOperation = this.invokePlugin(
+        plugin,
+        mapping,
+        input,
+        active.abortController.signal,
+        hooks,
+      );
+      active.pluginOperation = pluginOperation;
+      void pluginOperation.then(
+        () => this.markPluginSettled(key, active),
+        () => this.markPluginSettled(key, active),
+      );
       const output = await raceWithAbort(
-        this.invokePlugin(plugin, mapping, input, active.abortController.signal, hooks),
+        pluginOperation,
         active.abortController.signal,
         () => new TaskInterruptedError(active.terminationReason ?? "cancelled"),
       );
@@ -219,11 +244,20 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         metrics: { duration },
       };
     } finally {
-      this.activeExecutions.delete(key);
+      active.executionSettled = true;
+      if (!active.pluginOperation) this.markPluginSettled(key, active);
+      if (active.pluginSettled) this.activeExecutions.delete(key);
       const timeout = this.taskTimeouts.get(key);
       if (timeout) clearTimeout(timeout);
       this.taskTimeouts.delete(key);
     }
+  }
+
+  private markPluginSettled(key: string, active: ActiveTaskExecution): void {
+    if (active.pluginSettled) return;
+    active.pluginSettled = true;
+    active.resolveQuiescence();
+    if (active.executionSettled) this.activeExecutions.delete(key);
   }
 
   private isActiveLease(lease: SandboxExecutionLease): boolean {
@@ -357,6 +391,27 @@ function raceWithAbort<T>(
     signal.addEventListener("abort", abort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
   });
+}
+
+async function waitForQuiescence(
+  active: ActiveTaskExecution,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (active.pluginSettled) return true;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      active.quiescence,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Plugin did not quiesce")), timeoutMs);
+      }),
+    ]);
+    return active.pluginSettled;
+  } catch {
+    return false;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function destroySandbox(sandbox: Sandbox): Promise<void> {

@@ -13,7 +13,7 @@
  * @module services/SessionStateService
  */
 
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import { DEFAULT_RUN_MODE, RunModeSchema, type RunMode } from "@repo/shared-types";
 import type {
   AgentSession,
   ChatTitleSource,
@@ -31,7 +31,7 @@ const SETUP_SESSION_KEY = "legioncode:setup-session:v1";
 type StoredSessionStatus = AgentSession["status"] | "error";
 
 type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
-  mode?: RunMode;
+  mode?: string;
   status?: StoredSessionStatus;
   titleSource?: ChatTitleSource;
   pinnedAt?: string | null;
@@ -478,7 +478,7 @@ export class SessionStateService {
 function normalizeSession(session: StoredAgentSession): AgentSession {
   return {
     ...session,
-    mode: session.mode ?? DEFAULT_RUN_MODE,
+    mode: normalizeSessionRunMode(session.mode),
     status: normalizeStoredSessionStatus(session.status),
     titleSource: session.titleSource ?? "preview",
     pinnedAt: session.pinnedAt ?? null,
@@ -492,4 +492,11 @@ function normalizeStoredSessionStatus(
 ): SessionStatus {
   if (status === "error") return "failed";
   return status ?? "idle";
+}
+
+function normalizeSessionRunMode(mode: string | undefined): RunMode {
+  if (mode === "auto_edit") {
+    return "build";
+  }
+  return RunModeSchema.parse(mode ?? DEFAULT_RUN_MODE);
 }

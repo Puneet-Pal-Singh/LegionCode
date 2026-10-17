@@ -5,6 +5,7 @@ import {
   TurnIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
+import type { ThreadInputCommand } from "@repo/platform-protocol";
 import {
   PlatformClientOperationError,
   parsePlatformOperationErrorCode,
@@ -102,16 +103,35 @@ export function createPlatformHttpTransport(
         undefined,
         options,
       ),
+    threadInputCommand: (command, options) =>
+      sendThreadInputCommand(request, command, options),
   };
 }
 
 interface TransportRequest {
   json(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     payload?: unknown,
     options?: PlatformClientOperationOptions,
+    allowConflictResponse?: boolean,
   ): Promise<unknown>;
+}
+
+export interface ThreadInputConflictResponse {
+  readonly kind: "thread-input-conflict";
+  readonly payload: unknown;
+}
+
+export function isThreadInputConflictResponse(
+  value: unknown,
+): value is ThreadInputConflictResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { kind?: unknown }).kind === "thread-input-conflict" &&
+    "payload" in value
+  );
 }
 
 function createTransportRequest(
@@ -124,7 +144,7 @@ function createTransportRequest(
   const baseUrl = normalizeBaseUrl(options.baseUrl);
 
   return {
-    json: (method, path, payload, requestOptions) =>
+    json: (method, path, payload, requestOptions, allowConflictResponse) =>
       sendJsonRequest({
         fetchImpl,
         credentials,
@@ -135,8 +155,65 @@ function createTransportRequest(
         payload,
         requestOptions,
         headers: options.getHeaders?.(),
+        allowConflictResponse,
       }),
   };
+}
+
+function sendThreadInputCommand(
+  request: TransportRequest,
+  command: ThreadInputCommand,
+  options?: PlatformClientOperationOptions,
+): Promise<unknown> {
+  switch (command.operation) {
+    case "turn.resume":
+      return request.json("POST", "/turn/resume", command, options, true);
+    case "turn.steer":
+      return request.json("POST", "/turn/steer", command, options, true);
+    case "thread.input.enqueue":
+      return request.json("POST", "/thread/inputs", command, options, true);
+    case "thread.input.list":
+      return request.json(
+        "GET",
+        buildListThreadInputsPath(command),
+        undefined,
+        options,
+      );
+    case "thread.input.update":
+      return request.json(
+        "PATCH",
+        buildThreadInputPath(command.itemId),
+        command,
+        options,
+        true,
+      );
+    case "thread.input.remove":
+      return request.json(
+        "DELETE",
+        buildThreadInputPath(command.itemId),
+        command,
+        options,
+        true,
+      );
+    case "thread.input.steer":
+      return request.json(
+        "POST",
+        `${buildThreadInputPath(command.itemId)}/steer`,
+        command,
+        options,
+        true,
+      );
+    case "thread.input.start":
+      return request.json(
+        "POST",
+        `${buildThreadInputPath(command.itemId)}/start`,
+        command,
+        options,
+        true,
+      );
+  }
+  const exhaustive: never = command;
+  return exhaustive;
 }
 
 interface JsonRequestInput {
@@ -144,11 +221,12 @@ interface JsonRequestInput {
   credentials: RequestCredentials;
   previewLimit: number;
   baseUrl: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   payload: unknown;
   requestOptions?: PlatformClientOperationOptions;
   headers?: Record<string, string>;
+  allowConflictResponse?: boolean;
 }
 
 async function sendJsonRequest(input: JsonRequestInput): Promise<unknown> {
@@ -157,6 +235,17 @@ async function sendJsonRequest(input: JsonRequestInput): Promise<unknown> {
     accept: "application/json",
     contentType: "application/json",
   });
+  if (input.allowConflictResponse && response.status === 409) {
+    return {
+      kind: "thread-input-conflict",
+      payload: await parseJsonResponse(
+        response,
+        input.method,
+        input.path,
+        input.previewLimit,
+      ),
+    } satisfies ThreadInputConflictResponse;
+  }
   return parseJsonResponse(
     response,
     input.method,
@@ -170,13 +259,14 @@ interface RequestInput {
   credentials: RequestCredentials;
   previewLimit: number;
   baseUrl: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   payload: unknown;
   requestOptions?: PlatformClientOperationOptions;
   accept: string;
   contentType?: string;
   headers?: Record<string, string>;
+  allowConflictResponse?: boolean;
 }
 
 async function sendRequest(input: RequestInput): Promise<Response> {
@@ -196,7 +286,10 @@ async function sendRequest(input: RequestInput): Promise<Response> {
       `${input.baseUrl}${input.path}`,
       init,
     );
-    if (!response.ok) {
+    if (
+      !response.ok &&
+      !(input.allowConflictResponse && response.status === 409)
+    ) {
       throw await createOperationErrorFromResponse(
         response,
         input.previewLimit,
@@ -240,7 +333,7 @@ function filterProtectedHeaders(
 
 async function parseJsonResponse(
   response: Response,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   previewLimit: number,
 ): Promise<unknown> {
@@ -409,6 +502,23 @@ function buildLifecycleEventsPath(turnId: string): string {
 
 function buildThreadPath(threadId: string): string {
   return `/threads/${encodeURIComponent(ThreadIdSchema.parse(threadId))}`;
+}
+
+function buildThreadInputPath(itemId: string): string {
+  return `/thread/inputs/${encodeURIComponent(itemId)}`;
+}
+
+function buildListThreadInputsPath(
+  request: Extract<ThreadInputCommand, { operation: "thread.input.list" }>,
+): string {
+  const params = new URLSearchParams({
+    threadId: request.threadId,
+    workspaceId: request.workspaceId,
+  });
+  if (request.knownRevision !== undefined) {
+    params.set("knownRevision", String(request.knownRevision));
+  }
+  return `/thread/inputs?${params.toString()}`;
 }
 
 function buildRunPath(runId: string): string {

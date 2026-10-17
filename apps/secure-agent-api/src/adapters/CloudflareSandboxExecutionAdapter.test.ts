@@ -612,12 +612,17 @@ describe("CloudflareSandboxExecutionAdapter", () => {
     });
 
     it("cancels only the matching lease when sibling leases share a task id", async () => {
+      let pluginSettled = false;
       const slowPlugin: IPlugin = {
         name: "slow",
         tools: [],
         async execute(): Promise<{ success: boolean; output: string }> {
-          await new Promise((resolve) => setTimeout(resolve, 25));
-          return { success: true, output: "complete" };
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            return { success: true, output: "complete" };
+          } finally {
+            pluginSettled = true;
+          }
         },
       };
       const firstLease: SandboxExecutionLease = {
@@ -650,6 +655,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       });
 
       expect(await localAdapter.cancelTask(firstLease.leaseId, "shared-task")).toBe(true);
+      expect(pluginSettled).toBe(true);
       const [firstResult, secondResult] = await Promise.all([first, second]);
       expect(firstResult.status).toBe("cancelled");
       expect(secondResult.status).toBe("success");

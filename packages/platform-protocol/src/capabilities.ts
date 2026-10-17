@@ -18,6 +18,11 @@ const StableImplementationIdSchema = z
   .max(128)
   .regex(/^[a-z][a-z0-9_.-]{0,127}$/);
 
+// Effort names are provider-owned. Providers may expose values such as
+// "light", "high", or "max".
+export const ReasoningEffortSchema = z.string().trim().min(1).max(64);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+
 function hasUniqueCapabilityKeys(
   capabilities: readonly { key: string }[],
 ): boolean {

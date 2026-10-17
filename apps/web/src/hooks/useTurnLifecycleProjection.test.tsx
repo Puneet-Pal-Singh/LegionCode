@@ -60,13 +60,16 @@ describe("useTurnLifecycleProjection", () => {
         approvalId: APPROVAL_ID,
         payload: {
           question: "Run command?",
-          options: [{ id: "approved", label: "Approve" }, "Deny"],
+          options: [
+            { id: "approved", label: "Approve", description: null },
+            { id: "denied", label: "Deny", description: null },
+          ],
         },
       }),
       lifecycleEvent(2, "approval.decided", {
         itemId: ITEM_ID,
         approvalId: APPROVAL_ID,
-        payload: { decision: "approved" },
+        payload: { status: "approved" },
       }),
       lifecycleEvent(3, "request.resolved", {
         itemId: ITEM_ID,
@@ -120,6 +123,30 @@ function createClient(events: readonly LifecycleEvent[]): LifecycleClient {
       throw new Error("Unsupported test operation");
     }),
     compactTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    resumeTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    steerTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    enqueueThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    listThreadInputs: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    updateThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    removeThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    steerQueuedThreadInput: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    startQueuedThreadInput: vi.fn(async () => {
       throw new Error("Unsupported test operation");
     }),
   };

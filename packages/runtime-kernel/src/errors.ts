@@ -16,6 +16,8 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "invalid_tool_input",
   "tool_policy_denied",
   "approval_denied",
+  "approval_timed_out",
+  "invalid_approval_grant_scope",
   "approval_retry_required",
   "invalid_approval_item",
   "approval_not_active",
@@ -166,10 +168,12 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
       return "validation_failed";
     case "tool_policy_denied":
     case "approval_denied":
+    case "approval_timed_out":
       return "policy_denied";
     case "approval_retry_required":
       return "approval_required";
     case "invalid_approval_item":
+    case "invalid_approval_grant_scope":
     case "approval_not_active":
     case "approval_already_active":
     case "turn_not_active":

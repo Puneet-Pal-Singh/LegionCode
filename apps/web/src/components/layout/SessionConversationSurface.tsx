@@ -19,6 +19,7 @@ interface SessionConversationSurfaceProps {
   runId?: string;
   mode?: RunMode;
   onServerProjectionAvailable?: () => void;
+  onRunIdChange?: (runId: string) => void;
   isSessionPersistenceReady: boolean;
   hasQueuedIntent: boolean;
   children: (context: SessionConversationSurfaceContext) => ReactNode;
@@ -30,6 +31,7 @@ export function SessionConversationSurface({
   runId,
   mode,
   onServerProjectionAvailable,
+  onRunIdChange,
   isSessionPersistenceReady,
   hasQueuedIntent,
   children,
@@ -63,6 +65,7 @@ export function SessionConversationSurface({
     productMode,
     onServerProjectionAvailable,
     isSessionPersistenceReady,
+    onRunIdChange,
   );
   const showWorkspace =
     isSessionPersistenceReady &&

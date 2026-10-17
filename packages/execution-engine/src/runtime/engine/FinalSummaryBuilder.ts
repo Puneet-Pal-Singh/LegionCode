@@ -102,6 +102,8 @@ function resolveOutcomeLine(terminalState: RunTerminalState): string {
       return "Your approval decision was recorded.";
     case RUN_TERMINAL_STATES.APPROVAL_DENIED:
       return "I could not continue because approval was denied.";
+    case RUN_TERMINAL_STATES.APPROVAL_TIMED_OUT:
+      return "I could not continue because the approval request expired.";
     case RUN_TERMINAL_STATES.FAILED_TOOL:
       return "I could not finish because a required tool step failed.";
     case RUN_TERMINAL_STATES.FAILED_VALIDATION:
@@ -129,6 +131,8 @@ function resolveDefaultNextStep(terminalState: RunTerminalState): string {
       return "Send your next instruction and I will continue with that decision applied.";
     case RUN_TERMINAL_STATES.APPROVAL_DENIED:
       return "If you want to proceed, allow the action in a new approval decision.";
+    case RUN_TERMINAL_STATES.APPROVAL_TIMED_OUT:
+      return "Retry the action and respond before the approval window closes.";
     case RUN_TERMINAL_STATES.FAILED_TOOL:
       return "Retry the failed step. If it keeps failing, I can pivot to an alternative approach.";
     case RUN_TERMINAL_STATES.FAILED_VALIDATION:
