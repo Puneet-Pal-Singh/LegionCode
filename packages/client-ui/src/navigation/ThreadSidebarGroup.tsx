@@ -97,6 +97,8 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
   const [isConfirmingWorkspaceRemoval, setIsConfirmingWorkspaceRemoval] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cancelRenameBlurRef = useRef(false);
+  const renameFinalizedRef = useRef(false);
   const workspaceSelectionId = props.workspaceSelectionId;
 
   useEffect(() => setDraftLabel(props.label), [props.label]);
@@ -119,6 +121,8 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
   }, [isConfirmingWorkspaceRemoval]);
 
   function confirmRename(): void {
+    if (renameFinalizedRef.current) return;
+    renameFinalizedRef.current = true;
     const trimmedLabel = draftLabel.trim();
     if (!trimmedLabel || trimmedLabel === props.label || !workspaceSelectionId) {
       setDraftLabel(props.label);
@@ -136,40 +140,44 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
     <section role="group" className="space-y-0.5" aria-label={props.label}>
       {workspaceSelectionId && props.onToggle ? (
       <div className="group/project grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg transition hover:bg-zinc-800/35">
-        <button
-          type="button"
-          onClick={props.onToggle}
-          className="grid h-9 min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-zinc-500 transition hover:text-zinc-200"
-          aria-expanded={props.expanded}
-          aria-label={`Toggle ${props.label}`}
-        >
-          <span className="flex size-8 items-center justify-center"><FolderIcon size={16} aria-hidden="true" /></span>
-          {!isRenaming ? <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">{props.label}</span> : null}
-        </button>
         {isRenaming && workspaceSelectionId && props.onRenameWorkspace ? (
-          <form
-            className="flex min-w-0 items-center gap-1"
-            onSubmit={(event) => { event.preventDefault(); confirmRename(); }}
+          <input
+            autoFocus
+            aria-label={`Rename ${props.label}`}
+            value={draftLabel}
+            onBlur={() => {
+              if (cancelRenameBlurRef.current) {
+                cancelRenameBlurRef.current = false;
+                return;
+              }
+              confirmRename();
+            }}
+            onChange={(event) => setDraftLabel(event.currentTarget.value)}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") confirmRename();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelRenameBlurRef.current = true;
+                renameFinalizedRef.current = true;
+                setDraftLabel(props.label);
+                setIsRenaming(false);
+              }
+            }}
+            className="h-7 min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={props.onToggle}
+            className="grid h-9 min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-zinc-500 transition hover:text-zinc-200"
+            aria-expanded={props.expanded}
+            aria-label={`Toggle ${props.label}`}
           >
-            <input
-              autoFocus
-              aria-label={`Rename ${props.label}`}
-              value={draftLabel}
-              onChange={(event) => setDraftLabel(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setDraftLabel(props.label);
-                  setIsRenaming(false);
-                }
-              }}
-              className="h-7 min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none"
-            />
-            <button type="submit" disabled={!draftLabel.trim()} className="rounded px-1.5 py-1 text-[10px] font-medium text-zinc-300 hover:bg-zinc-800">Save</button>
-            <button type="button" onClick={() => { setDraftLabel(props.label); setIsRenaming(false); }} className="rounded px-1.5 py-1 text-[10px] font-medium text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200">Cancel</button>
-          </form>
-        ) : null}
+            <span className="flex size-8 items-center justify-center"><FolderIcon size={16} aria-hidden="true" /></span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">{props.label}</span>
+          </button>
+        )}
 
         <div className="relative flex items-center" ref={menuRef}>
           {props.onCreate ? (
@@ -186,7 +194,7 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
                 {isMenuOpen ? (
                   <motion.div initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} role="menu" className="ui-surface-popover absolute right-0 top-7 z-30 w-36 py-1">
                     {props.onRenameWorkspace ? (
-                      <button type="button" role="menuitem" onClick={() => { setDraftLabel(props.label); setIsRenaming(true); setIsConfirmingWorkspaceRemoval(false); setIsMenuOpen(false); }} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-800">
+                      <button type="button" role="menuitem" onClick={() => { cancelRenameBlurRef.current = false; renameFinalizedRef.current = false; setDraftLabel(props.label); setIsRenaming(true); setIsConfirmingWorkspaceRemoval(false); setIsMenuOpen(false); }} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-800">
                         <Edit2 size={12} className="text-zinc-500" aria-hidden="true" />Rename
                       </button>
                     ) : null}

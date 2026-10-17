@@ -152,7 +152,9 @@ describe("AgentSidebar adapter", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Rename bar" }), {
       target: { value: "renamed" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Rename bar" }), {
+      key: "Enter",
+    });
     expect(onRenameRepository).toHaveBeenCalledWith(
       secondRepository,
       "renamed",

@@ -390,7 +390,9 @@ describe("ThreadSidebar interactions", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Rename bar" }), {
       target: { value: "renamed" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Rename bar" }), {
+      key: "Enter",
+    });
     expect(onRenameWorkspace).toHaveBeenCalledWith(secondIdentity, "renamed");
     fireEvent.click(screen.getByRole("button", { name: "Workspace actions for bar" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
