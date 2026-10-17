@@ -157,7 +157,7 @@ export function ThreadSidebar({
   }
 
   return (
-    <aside className="ui-sidebar-surface flex h-full flex-col overflow-hidden border-r" style={{ width }} aria-label="Workspace navigation">
+    <aside className="lc-thread-sidebar ui-sidebar-surface !text-zinc-100 flex h-full flex-col overflow-hidden border-r" style={{ width }} aria-label="Workspace navigation">
       <div className="flex h-14 shrink-0 items-center px-4">
         <div className="min-w-0 flex-1">{brand}</div>
         {onClose ? (
