@@ -1,4 +1,5 @@
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
+import type { WorkflowApprovalOption } from "@legioncode/sdk";
 import { ApprovalActions } from "./ApprovalActions.js";
 import {
   buildApprovalCategoryLabel,
@@ -7,18 +8,24 @@ import {
 
 interface ApprovalDockProps {
   pendingApproval: ApprovalRequest;
+  matchingInChatOption: WorkflowApprovalOption | null;
   decisions: ApprovalDecisionKind[];
   busyDecision: ApprovalDecisionKind | null;
   error: string | null;
   onResolve: (decision: ApprovalDecisionKind) => Promise<void>;
+  onStop: () => void;
+  canStop: boolean;
 }
 
 export function ApprovalDock({
   pendingApproval,
+  matchingInChatOption,
   decisions,
   busyDecision,
   error,
   onResolve,
+  onStop,
+  canStop,
 }: ApprovalDockProps) {
   return (
     <div className="mx-auto mb-3 w-full max-w-3xl">
@@ -52,12 +59,29 @@ export function ApprovalDock({
             decisions={decisions}
             busyDecision={busyDecision}
             onResolve={onResolve}
+            matchingInChatOption={matchingInChatOption}
           />
+          {matchingInChatOption?.description ? (
+            <p className="mt-2 text-xs text-zinc-400">
+              {matchingInChatOption.description}
+            </p>
+          ) : null}
           {error ? (
             <div role="alert">
               <p className="mt-3 text-xs text-red-300">{error}</p>
             </div>
           ) : null}
+          <div className="mt-3 flex justify-end border-t border-zinc-800 pt-3">
+            <button
+              type="button"
+              aria-label="Stop generation"
+              disabled={!canStop}
+              onClick={onStop}
+              className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Stop generation
+            </button>
+          </div>
         </div>
       </div>
     </div>

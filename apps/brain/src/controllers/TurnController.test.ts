@@ -112,8 +112,9 @@ describe("TurnController public bootstrap contract", () => {
       env,
     );
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ code: "TURN_EXECUTION_RECOVERY_REQUIRED" });
+    // Recovery reads expose the owned tuple so Stop can settle orphaned work.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(runtime.identity);
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
 });

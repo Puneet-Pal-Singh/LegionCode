@@ -3,6 +3,16 @@ import type {
   InterruptTurnRequest,
   InterruptTurnResponse,
 } from "./lifecycle-types.js";
+import type {
+  EnqueueThreadInputCommand,
+  ListThreadInputsCommand,
+  RemoveThreadInputCommand,
+  ResumeTurnCommand,
+  StartQueuedThreadInputCommand,
+  SteerQueuedThreadInputCommand,
+  SteerTurnCommand,
+  UpdateThreadInputCommand,
+} from "./conversation-input-types.js";
 import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
@@ -26,6 +36,7 @@ import {
   type Run,
   type RunEvent,
   type Thread,
+  type ThreadInputCommand,
   type UserId,
   type TurnDiffPayload,
   type WorkspaceManifest,
@@ -140,6 +151,9 @@ export type SubmitApprovalRequest = z.infer<typeof SubmitApprovalRequestSchema>;
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
+  onLifecycleContinuationStatus?: (
+    status: "replaying" | "following" | "reconnecting",
+  ) => void;
 }
 
 export interface PlatformClientTransport {
@@ -209,6 +223,10 @@ export interface PlatformClientTransport {
   ): Promise<unknown>;
   getWorkspaceManifest(
     runId: Run["id"],
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  threadInputCommand(
+    request: ThreadInputCommand,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
 }
@@ -286,6 +304,38 @@ export interface PlatformClient {
     runId: Run["id"],
     options?: PlatformClientOperationOptions,
   ): Promise<WorkspaceManifest>;
+  resumeTurn(
+    request: ResumeTurnCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ResumeTurnReceipt>;
+  steerTurn(
+    request: SteerTurnCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputReceipt>;
+  enqueueThreadInput(
+    request: EnqueueThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputReceipt>;
+  listThreadInputs(
+    request: ListThreadInputsCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputQueueSnapshot>;
+  updateThreadInput(
+    request: UpdateThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputReceipt>;
+  removeThreadInput(
+    request: RemoveThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputReceipt>;
+  steerQueuedThreadInput(
+    request: SteerQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputReceipt>;
+  startQueuedThreadInput(
+    request: StartQueuedThreadInputCommand,
+    options?: PlatformClientOperationOptions,
+  ): Promise<import("@repo/platform-protocol").ThreadInputReceipt>;
 }
 
 export type PlatformClientUserId = UserId;

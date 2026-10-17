@@ -46,6 +46,79 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Creation", () => {
+    it("refreshes an inactive chat into and out of approval while preserving selection", async () => {
+      const inactive = createTitleSession({
+        id: "session-inactive-approval",
+        activeRunId: "run_inactive123",
+        runIds: ["run_inactive123"],
+        status: "running",
+      });
+      const selected = createTitleSession({
+        id: "session-selected",
+        name: "Selected chat",
+        activeRunId: "run_selected123",
+        runIds: ["run_selected123"],
+        status: "running",
+      });
+      SessionStateService.saveSessions(
+        { [inactive.id]: inactive, [selected.id]: selected },
+        selected.id,
+      );
+      SessionStateService.saveActiveSessionId(selected.id, {
+        [inactive.id]: inactive,
+        [selected.id]: selected,
+      });
+      const hydrate = vi.mocked(SessionMetadata.hydrateSessionsFromServer);
+      hydrate
+        .mockResolvedValueOnce({
+          [inactive.id]: inactive,
+          [selected.id]: selected,
+        })
+        .mockResolvedValueOnce({
+          [inactive.id]: { ...inactive, status: "waiting_for_approval" },
+          [selected.id]: selected,
+        })
+        .mockResolvedValue({
+          [inactive.id]: inactive,
+          [selected.id]: selected,
+        });
+
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() =>
+        expect(result.current.sessionHydrationStatus).toBe("ready"),
+      );
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.sessions.find((session) => session.id === inactive.id)
+            ?.status,
+        ).toBe("waiting_for_approval");
+      });
+      expect(result.current.activeSessionId).toBe(selected.id);
+
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await waitFor(() => {
+        expect(
+          result.current.sessions.find((session) => session.id === inactive.id)
+            ?.status,
+        ).toBe("running");
+      });
+      expect(result.current.activeSessionId).toBe(selected.id);
+
+      const unchangedSessions = result.current.sessions;
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await waitFor(() => expect(hydrate).toHaveBeenCalledTimes(4));
+      });
+      expect(result.current.sessions).toBe(unchangedSessions);
+    });
+
     it("defers server hydration until explicitly enabled", async () => {
       const hydrateSpy = vi.mocked(
         SessionMetadata.hydrateSessionsFromServer,
@@ -678,15 +751,55 @@ describe("useSessionManager", () => {
       expect(SessionStateService.loadActiveSessionId()).toBeNull();
     });
 
+    it("starts title refresh from the projection read after chat acceptance", async () => {
+      const initial = createTitleSession({
+        titleSource: "preview",
+        titleStatus: "ready",
+        titleVersion: 1,
+      });
+      const pending = createTitleSession({
+        titleSource: "preview",
+        titleStatus: "pending",
+        titleVersion: 2,
+      });
+      const generated = createTitleSession({
+        name: "Create dark mode toggle",
+        titleSource: "generated",
+        titleStatus: "ready",
+        titleVersion: 3,
+      });
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer)
+        .mockResolvedValueOnce({ [initial.id]: initial })
+        .mockResolvedValueOnce({ [pending.id]: pending })
+        .mockResolvedValue({ [generated.id]: generated });
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() =>
+        expect(result.current.sessionHydrationStatus).toBe("ready"),
+      );
+      // useChatCore calls this existing refresh on the accepted chat response.
+      await act(() => result.current.refreshSessionProjection(initial.id));
+      expect(result.current.sessions[0]?.titleStatus).toBe("pending");
+      await waitFor(
+        () =>
+          expect(result.current.sessions[0]?.name).toBe(
+            "Create dark mode toggle",
+          ),
+        { timeout: 2000 },
+      );
+      expect(result.current.sessions[0]?.titleStatus).toBe("ready");
+    });
+
     it("refreshes a pending preview until the canonical generated title arrives", async () => {
       const pending = createTitleSession({
         name: "Check my…",
         titleSource: "preview",
+        titleStatus: "pending",
         titleVersion: 2,
       });
       const ready = createTitleSession({
         name: "Refine Landing Page Hero",
         titleSource: "generated",
+        titleStatus: "ready",
         titleVersion: 3,
       });
       vi.mocked(SessionMetadata.hydrateSessionsFromServer)

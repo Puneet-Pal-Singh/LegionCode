@@ -7,8 +7,8 @@ describe("SecureRuntimeGitSnapshotPort", () => {
     const client = {
       captureWorktreeSnapshot: vi
         .fn()
-        .mockResolvedValueOnce("a".repeat(40))
-        .mockResolvedValueOnce("b".repeat(40)),
+        .mockResolvedValueOnce({ treeSha: "a".repeat(40), headSha: "c".repeat(40) })
+        .mockResolvedValueOnce({ treeSha: "b".repeat(40), headSha: "c".repeat(40) }),
       diffWorktreeSnapshots: vi.fn().mockResolvedValue({
         files: [
           {

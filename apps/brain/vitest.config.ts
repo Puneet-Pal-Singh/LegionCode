@@ -15,25 +15,25 @@ export default defineConfig({
         __dirname,
         "../../packages/shared-types/src/index.ts",
       ),
-      "@legioncode/execution-engine/runtime": path.resolve(
+      "@legioncode/execution-engine/runtime/engine": path.resolve(
         __dirname,
-        "../../packages/execution-engine/src/runtime/index.ts",
-      ),
-      "@legioncode/execution-engine/runtime/": path.resolve(
-        __dirname,
-        "../../packages/execution-engine/src/runtime/",
+        "../../packages/execution-engine/src/runtime/engine/index.ts",
       ),
       "@legioncode/execution-engine/runtime/agents": path.resolve(
         __dirname,
         "../../packages/execution-engine/src/runtime/agents/index.ts",
       ),
-      "@legioncode/execution-engine/runtime/engine": path.resolve(
+      "@legioncode/execution-engine/runtime/": path.resolve(
         __dirname,
-        "../../packages/execution-engine/src/runtime/engine/index.ts",
+        "../../packages/execution-engine/src/runtime/",
       ),
       "@legioncode/execution-engine/runtime/run": path.resolve(
         __dirname,
         "../../packages/execution-engine/src/runtime/run/index.ts",
+      ),
+      "@legioncode/execution-engine/runtime": path.resolve(
+        __dirname,
+        "../../packages/execution-engine/src/runtime/index.ts",
       ),
     },
   },

@@ -6,6 +6,11 @@ import {
   type ChatMediaImageType,
 } from "@repo/shared-types";
 import { DomainError } from "../../domain/errors";
+import { normalizeChatImage } from "./ChatImageNormalizer";
+import {
+  DEFAULT_CHAT_IMAGE_SETTINGS,
+  type ChatImageSettings,
+} from "./ChatImageSettings";
 
 export const CHAT_MEDIA_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -30,7 +35,10 @@ export interface ChatMediaObject {
  * server id; filenames never become object paths.
  */
 export class ChatMediaStore {
-  constructor(private readonly bucket: R2Bucket) {}
+  constructor(
+    private readonly bucket: R2Bucket,
+    private readonly settings: ChatImageSettings = DEFAULT_CHAT_IMAGE_SETTINGS,
+  ) {}
 
   static key(userId: string, sessionId: string, attachmentId: string): string {
     return `chat-media/${encodeKeySegment(userId)}/${encodeKeySegment(sessionId)}/${encodeKeySegment(attachmentId)}`;
@@ -43,6 +51,7 @@ export class ChatMediaStore {
     image: IncomingChatImage;
   }): Promise<ChatImageAttachmentRef> {
     const decoded = decodeAndValidateImage(input.image);
+    normalizeChatImage(decoded.bytes, decoded.mediaType, this.settings);
     if (!isValidChatMediaAttachmentId(input.attachmentId)) {
       throw invalidImage("Image attachment identity is invalid.");
     }
@@ -95,6 +104,60 @@ export class ChatMediaStore {
       body: object.body,
       mediaType,
       byteSize: object.size,
+    };
+  }
+
+  async getProviderImage(input: {
+    userId: string;
+    sessionId: string;
+    ref: ChatImageAttachmentRef;
+  }): Promise<{ type: "image"; image: string; mimeType: ChatMediaImageType }> {
+    const ref = ChatImageAttachmentRefSchema.parse(input.ref);
+    const object = await this.bucket.get(
+      ChatMediaStore.key(input.userId, input.sessionId, ref.attachmentId),
+    );
+    if (!object) {
+      throw new DomainError(
+        "CHAT_MEDIA_NOT_FOUND",
+        "A conversation image is unavailable.",
+        404,
+        false,
+      );
+    }
+    if (
+      object.size !== ref.byteSize ||
+      object.httpMetadata?.contentType !== ref.mediaType
+    ) {
+      throw new DomainError(
+        "CHAT_MEDIA_METADATA_INVALID",
+        "Stored image metadata does not match its reference.",
+        500,
+        false,
+      );
+    }
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    if (
+      bytes.byteLength !== ref.byteSize ||
+      sniffImageMediaType(bytes) !== ref.mediaType
+    ) {
+      throw new DomainError(
+        "CHAT_MEDIA_CONTENT_INVALID",
+        "Stored image content is invalid.",
+        500,
+        false,
+      );
+    }
+    const normalized = normalizeChatImage(bytes, ref.mediaType, this.settings);
+    let binary = "";
+    for (let offset = 0; offset < normalized.bytes.length; offset += 8192) {
+      binary += String.fromCharCode(
+        ...normalized.bytes.subarray(offset, offset + 8192),
+      );
+    }
+    return {
+      type: "image",
+      image: `data:${normalized.mediaType};base64,${btoa(binary)}`,
+      mimeType: normalized.mediaType,
     };
   }
 }
@@ -158,7 +221,12 @@ function sniffImageMediaType(bytes: Uint8Array): ChatMediaImageType | null {
   ) {
     return "image/png";
   }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
     return "image/jpeg";
   }
   if (
@@ -167,7 +235,11 @@ function sniffImageMediaType(bytes: Uint8Array): ChatMediaImageType | null {
   ) {
     return "image/gif";
   }
-  if (bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WEBP") {
+  if (
+    bytes.length >= 12 &&
+    ascii(bytes, 0, 4) === "RIFF" &&
+    ascii(bytes, 8, 4) === "WEBP"
+  ) {
     return "image/webp";
   }
   return null;
@@ -181,9 +253,12 @@ function ascii(bytes: Uint8Array, offset: number, length: number): string {
   return value;
 }
 
-function normalizeSupportedMediaType(value: string | undefined): ChatMediaImageType | null {
+function normalizeSupportedMediaType(
+  value: string | undefined,
+): ChatMediaImageType | null {
   const normalized = value?.toLowerCase();
-  return normalized && (CHAT_MEDIA_IMAGE_TYPES as readonly string[]).includes(normalized)
+  return normalized &&
+    (CHAT_MEDIA_IMAGE_TYPES as readonly string[]).includes(normalized)
     ? (normalized as ChatMediaImageType)
     : null;
 }

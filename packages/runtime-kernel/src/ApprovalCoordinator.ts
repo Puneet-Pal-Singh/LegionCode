@@ -11,10 +11,7 @@ import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type { ApprovalResolution } from "./types.js";
 
 export class ApprovalCoordinator {
-  private readonly pending = new Map<
-    string,
-    PendingApprovalResolution
-  >();
+  private readonly pending = new Map<string, PendingApprovalResolution>();
 
   constructor(
     private readonly approvals: ApprovalWaitPort,
@@ -35,7 +32,7 @@ export class ApprovalCoordinator {
         `Approval ${request.approvalId} requires a distinct approval item`,
       );
     }
-    const pending = this.createPending(request.approvalId);
+    const pending = this.createPending(request);
     try {
       await this.lifecycle.requestApproval(
         parentItemId,
@@ -47,21 +44,36 @@ export class ApprovalCoordinator {
           metadata: request.metadata,
         },
       );
-      const resolution = await raceApprovalResolution([
-        this.approvals.waitForDecision({
-          runId: run.id,
-          runAttemptId,
-          turnId: turn.id,
-          request,
-          signal,
-        }),
-        pending.resolution,
-      ], signal);
+      const resolution = await raceApprovalResolution(
+        [
+          this.approvals.waitForDecision({
+            runId: run.id,
+            runAttemptId,
+            turnId: turn.id,
+            request,
+            signal,
+          }),
+          pending.resolution,
+        ],
+        signal,
+      );
       await this.settle(request.approvalId, pending, resolution);
-      if (resolution.decision !== "approved") {
+      if (resolution.timedOut) {
+        throw new RuntimeKernelError(
+          "approval_timed_out",
+          `Approval ${request.approvalId} timed out before a decision was recorded.`,
+        );
+      }
+      if (resolution.decision === "cancelled") {
+        throw new RuntimeKernelError(
+          "turn_cancelled",
+          `Approval ${request.approvalId} was cancelled by the user.`,
+        );
+      }
+      if (resolution.decision === "denied") {
         throw new RuntimeKernelError(
           "approval_denied",
-          `Approval ${request.approvalId} was ${resolution.decision}`,
+          "The user denied this action, so it was not executed. Do not repeat it or bypass the permission policy. Continue with permitted work, or explain what is blocked.",
         );
       }
       return resolution;
@@ -92,8 +104,9 @@ export class ApprovalCoordinator {
   }
 
   private createPending(
-    approvalId: ApprovalRequestedPayload["approvalId"],
+    request: ApprovalRequestedPayload,
   ): PendingApprovalResolution {
+    const approvalId = request.approvalId;
     const existing = this.pending.get(approvalId);
     if (existing) {
       throw new RuntimeKernelError(
@@ -108,6 +121,7 @@ export class ApprovalCoordinator {
     const pending: PendingApprovalResolution = {
       resolution,
       resolve,
+      request,
       settlement: null,
     };
     this.pending.set(approvalId, pending);
@@ -119,12 +133,35 @@ export class ApprovalCoordinator {
     pending: PendingApprovalResolution,
     resolution: ApprovalResolution,
   ): Promise<void> {
+    if (resolution.grantScope) {
+      if (resolution.decision !== "approved" || resolution.timedOut) {
+        throw new RuntimeKernelError(
+          "invalid_approval_grant_scope",
+          "A reusable approval scope requires an approved decision.",
+        );
+      }
+      if (
+        !pending.request.options.some(
+          (option) => option.id === "allow_matching_in_chat",
+        )
+      ) {
+        throw new RuntimeKernelError(
+          "invalid_approval_grant_scope",
+          "The approval request did not offer matching-in-chat permission.",
+        );
+      }
+    }
     pending.settlement ??= this.lifecycle.decideApproval(
       approvalId,
-      resolution.decision,
+      resolution.timedOut ? "timed_out" : resolution.decision,
       {
         decidedBy: resolution.decidedBy,
         reason: resolution.reason,
+        ...(resolution.decision === "approved" &&
+        !resolution.timedOut &&
+        resolution.grantScope
+          ? { grantScope: resolution.grantScope }
+          : {}),
       },
     );
     await pending.settlement;
@@ -134,6 +171,7 @@ export class ApprovalCoordinator {
 interface PendingApprovalResolution {
   readonly resolution: Promise<ApprovalResolution>;
   readonly resolve: (resolution: ApprovalResolution) => void;
+  readonly request: ApprovalRequestedPayload;
   settlement: Promise<void> | null;
 }
 
@@ -149,10 +187,12 @@ function raceApprovalResolution(
   }
   return new Promise<ApprovalResolution>((resolve, reject) => {
     const abort = () =>
-      reject(new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."));
+      reject(
+        new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
+      );
     signal.addEventListener("abort", abort, { once: true });
-    Promise.race(resolutions).then(resolve, reject).finally(() =>
-      signal.removeEventListener("abort", abort),
-    );
+    Promise.race(resolutions)
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
   });
 }

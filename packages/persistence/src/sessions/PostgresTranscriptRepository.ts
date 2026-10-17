@@ -44,8 +44,10 @@ interface TranscriptRow extends SqlRow {
   session_title?: string;
   title_source?: string;
   title_version?: number | string;
+  title_status?: "pending" | "ready" | "failed";
   repository?: string | null;
   active_run_id?: string | null;
+  latest_run_id?: string | null;
   mode?: string;
   session_status?: string;
   pinned_at?: string | Date | null;
@@ -121,6 +123,7 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     sessionId: string;
     title: string;
     titleSource: "preview" | "generated";
+    titleStatus?: "pending" | "ready" | "failed";
     expectedTitleVersion?: number;
     initialOnly?: boolean;
   }): Promise<SessionRecord | null> {
@@ -135,6 +138,7 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
         this.clock.now(),
         input.expectedTitleVersion ?? null,
         input.initialOnly ?? false,
+        input.titleStatus ?? "ready",
       ],
     );
   }
@@ -619,7 +623,11 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     ),
     repository: row.repository ?? null,
     activeRunId: row.active_run_id ?? null,
+    ...(row.latest_run_id !== undefined
+      ? { latestRunId: row.latest_run_id }
+      : {}),
     titleVersion: toNumber(row.title_version ?? 1),
+    titleStatus: row.title_status ?? "ready",
     mode: requireString(row.mode, "mode"),
     status: mapSessionStatus(
       requireString(row.session_status, "session_status"),
@@ -729,6 +737,7 @@ function mapSessionStatus(status: string): SessionRecord["status"] {
   if (
     status === "idle" ||
     status === "running" ||
+    status === "waiting_for_approval" ||
     status === "completed" ||
     status === "paused" ||
     status === "failed"
@@ -857,6 +866,7 @@ const SESSION_COLUMNS = `
   title AS session_title,
   title_source,
   title_version,
+  title_status,
   repository,
   active_run_id,
   mode,
@@ -959,6 +969,7 @@ const UPDATE_GENERATED_SESSION_TITLE_SQL = `
   UPDATE sessions
   SET title = $3,
       title_source = $4,
+      title_status = $8,
       title_version = title_version + 1,
       updated_at = $5
   WHERE user_id = $1
@@ -984,6 +995,7 @@ const RENAME_SESSION_TITLE_SQL = `
   UPDATE sessions
   SET title = $3,
       title_source = 'user',
+      title_status = 'ready',
       title_version = title_version + 1,
       updated_at = $4
   WHERE user_id = $1
@@ -1191,16 +1203,61 @@ const LIST_SESSIONS_SQL = `
     s.title AS session_title,
     s.title_source,
     s.title_version,
+    s.title_status,
     s.repository,
     s.active_run_id,
+    latest_admission.run_id AS latest_run_id,
     s.mode,
-    s.status AS session_status,
+    CASE
+      WHEN s.status = 'running'
+        AND current_turn_event.event_type = 'turn.blocking_changed'
+        AND current_turn_event.event_json #>> '{payload,blockingState,kind}' = 'waiting_for_approval'
+      THEN 'waiting_for_approval'
+      ELSE s.status
+    END AS session_status,
     s.pinned_at,
     s.archived_at,
     s.created_at AS session_created_at,
     s.updated_at AS session_updated_at
   FROM tasks
   LEFT JOIN sessions s ON s.task_id = tasks.id AND s.archived_at IS NULL
+  LEFT JOIN LATERAL (
+    SELECT admission.run_id
+    FROM canonical_turn_admissions admission
+    WHERE admission.session_id = s.id
+      AND admission.turn_id = s.current_turn_id
+      AND admission.thread_id = s.thread_id
+      AND admission.workspace_id IS NOT DISTINCT FROM s.workspace_id::text
+      AND admission.admission_state = 'admitted'
+    LIMIT 1
+  ) latest_admission ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT started.turn_id
+    FROM canonical_lifecycle_events started
+    WHERE started.thread_id = s.thread_id
+      AND started.event_type = 'turn.started'
+      AND s.active_run_id IS NOT NULL
+      AND left(
+        started.turn_id,
+        char_length('trn_' || substring(s.active_run_id from 5) || '__turn__')
+      ) = 'trn_' || substring(s.active_run_id from 5) || '__turn__'
+    ORDER BY started.append_order DESC
+    LIMIT 1
+  ) current_turn ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT event.event_type, event.event_json
+    FROM canonical_lifecycle_events event
+    WHERE event.thread_id = s.thread_id
+      AND event.turn_id = current_turn.turn_id
+      AND event.event_type IN (
+        'turn.blocking_changed',
+        'turn.completed',
+        'turn.failed',
+        'turn.interrupted'
+      )
+    ORDER BY event.sequence DESC
+    LIMIT 1
+  ) current_turn_event ON TRUE
   WHERE tasks.user_id = $1
     AND tasks.archived_at IS NULL
   ORDER BY tasks.updated_at DESC, s.updated_at DESC
@@ -1217,6 +1274,7 @@ const LIST_ARCHIVED_SESSIONS_SQL = `
     s.title AS session_title,
     s.title_source,
     s.title_version,
+    s.title_status,
     s.repository,
     s.active_run_id,
     s.mode,

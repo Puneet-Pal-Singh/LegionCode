@@ -20,7 +20,17 @@ import {
 } from "@legioncode/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
-import { TaskCheckoutSchema, TurnIdSchema } from "@repo/platform-protocol";
+import {
+  ApprovalIdSchema,
+  ItemIdSchema,
+  RunAttemptIdSchema,
+  TaskCheckoutSchema,
+  ThreadIdSchema,
+  ToolCallIdSchema,
+  TurnIdSchema,
+  workspaceIdFromExternalId,
+} from "@repo/platform-protocol";
+import { RuntimeLifecycleCoordinator } from "@repo/runtime-kernel";
 import type { Env } from "../types/ai";
 import {
   RunEngineRequestHandler,
@@ -50,7 +60,11 @@ describe("RunEngineRequestHandler", () => {
           workspaceId: "00000000-0000-4000-8000-000000000001",
           userId: "user-1",
           correlationId: "corr-1",
-          admittedIdentity: admittedIdentity("session-1", "client-1", "00000000-0000-4000-8000-000000000001"),
+          admittedIdentity: admittedIdentity(
+            "session-1",
+            "client-1",
+            "00000000-0000-4000-8000-000000000001",
+          ),
         }),
       }),
     );
@@ -93,7 +107,11 @@ describe("RunEngineRequestHandler", () => {
           workspaceId: "00000000-0000-4000-8000-000000000001",
           userId: "user-1",
           correlationId: "corr-1",
-          admittedIdentity: admittedIdentity("session-1", "client-1", "00000000-0000-4000-8000-000000000001"),
+          admittedIdentity: admittedIdentity(
+            "session-1",
+            "client-1",
+            "00000000-0000-4000-8000-000000000001",
+          ),
         }),
       }),
     );
@@ -124,14 +142,18 @@ describe("RunEngineRequestHandler", () => {
       handler.handleTurnStartRequest(
         new Request("https://run-engine/turn/start", {
           method: "POST",
-        body: JSON.stringify({
-          runId: "run_123456",
-          sessionId: "session-1",
-          clientMessageId,
-          workspaceId: "00000000-0000-4000-8000-000000000001",
-          userId: "user-1",
-          correlationId: "corr-1",
-          admittedIdentity: admittedIdentity("session-1", clientMessageId, "00000000-0000-4000-8000-000000000001"),
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            userId: "user-1",
+            correlationId: "corr-1",
+            admittedIdentity: admittedIdentity(
+              "session-1",
+              clientMessageId,
+              "00000000-0000-4000-8000-000000000001",
+            ),
           }),
         }),
       );
@@ -162,14 +184,18 @@ describe("RunEngineRequestHandler", () => {
       handler.handleTurnStartRequest(
         new Request("https://run-engine/turn/start", {
           method: "POST",
-        body: JSON.stringify({
-          runId: "run_123456",
-          sessionId,
-          clientMessageId,
-          workspaceId: "00000000-0000-4000-8000-000000000001",
-          userId: "user-1",
-          correlationId: "corr-1",
-          admittedIdentity: admittedIdentity(sessionId, clientMessageId, "00000000-0000-4000-8000-000000000001"),
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId,
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            userId: "user-1",
+            correlationId: "corr-1",
+            admittedIdentity: admittedIdentity(
+              sessionId,
+              clientMessageId,
+              "00000000-0000-4000-8000-000000000001",
+            ),
           }),
         }),
       );
@@ -207,7 +233,11 @@ describe("RunEngineRequestHandler", () => {
           workspaceId: "00000000-0000-4000-8000-000000000001",
           userId: "user-1",
           correlationId: "corr-a",
-          admittedIdentity: admittedIdentity("session-a", "msg-1-a", "00000000-0000-4000-8000-000000000001"),
+          admittedIdentity: admittedIdentity(
+            "session-a",
+            "msg-1-a",
+            "00000000-0000-4000-8000-000000000001",
+          ),
         }),
       }),
     );
@@ -221,7 +251,11 @@ describe("RunEngineRequestHandler", () => {
           workspaceId: "00000000-0000-4000-8000-000000000001",
           userId: "user-1",
           correlationId: "corr-b",
-          admittedIdentity: admittedIdentity("session-b", "msg-1-b", "00000000-0000-4000-8000-000000000001"),
+          admittedIdentity: admittedIdentity(
+            "session-b",
+            "msg-1-b",
+            "00000000-0000-4000-8000-000000000001",
+          ),
         }),
       }),
     );
@@ -246,14 +280,18 @@ describe("RunEngineRequestHandler", () => {
       handler.handleTurnStartRequest(
         new Request("https://run-engine/turn/start", {
           method: "POST",
-        body: JSON.stringify({
-          runId: "run_123456",
-          sessionId: "session-1",
-          clientMessageId,
-          workspaceId: "00000000-0000-4000-8000-000000000001",
-          userId: "user-1",
-          correlationId: "corr-1",
-          admittedIdentity: admittedIdentity("session-1", clientMessageId, "00000000-0000-4000-8000-000000000001"),
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            userId: "user-1",
+            correlationId: "corr-1",
+            admittedIdentity: admittedIdentity(
+              "session-1",
+              clientMessageId,
+              "00000000-0000-4000-8000-000000000001",
+            ),
           }),
         }),
       );
@@ -289,7 +327,14 @@ describe("RunEngineRequestHandler", () => {
             userId: "user-1",
             correlationId: "corr-1",
             ...body,
-            admittedIdentity: admittedIdentity("session-1", String(body.clientMessageId), "00000000-0000-4000-8000-000000000001", typeof body.revisionOfTurnId === "string" ? body.revisionOfTurnId : undefined),
+            admittedIdentity: admittedIdentity(
+              "session-1",
+              String(body.clientMessageId),
+              "00000000-0000-4000-8000-000000000001",
+              typeof body.revisionOfTurnId === "string"
+                ? body.revisionOfTurnId
+                : undefined,
+            ),
           }),
         }),
       );
@@ -343,7 +388,14 @@ describe("RunEngineRequestHandler", () => {
             correlationId: "corr-1",
             userId: "user-1",
             ...body,
-            admittedIdentity: admittedIdentity("session-1", String(body.clientMessageId), "00000000-0000-4000-8000-000000000001", typeof body.revisionOfTurnId === "string" ? body.revisionOfTurnId : undefined),
+            admittedIdentity: admittedIdentity(
+              "session-1",
+              String(body.clientMessageId),
+              "00000000-0000-4000-8000-000000000001",
+              typeof body.revisionOfTurnId === "string"
+                ? body.revisionOfTurnId
+                : undefined,
+            ),
           }),
         }),
       );
@@ -409,7 +461,11 @@ describe("RunEngineRequestHandler", () => {
           workspaceId: "00000000-0000-4000-8000-000000000001",
           userId: "user-1",
           correlationId: "corr-1",
-          admittedIdentity: admittedIdentity("session-1", "client-workspace-scope", "00000000-0000-4000-8000-000000000001"),
+          admittedIdentity: admittedIdentity(
+            "session-1",
+            "client-workspace-scope",
+            "00000000-0000-4000-8000-000000000001",
+          ),
         }),
       }),
     );
@@ -845,7 +901,9 @@ describe("RunEngineRequestHandler", () => {
 
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: { getByTurnId: async () => null },
+      } as unknown as Env,
       runImmediately,
       undefined,
       { canonicalEventSink: createNoopCanonicalEventSink() },
@@ -908,9 +966,27 @@ describe("RunEngineRequestHandler", () => {
         nextSequence: null,
       })),
     } as unknown as LifecycleEventStore;
+    const activeAdmission = {
+      userId: "user-1",
+      sessionId: identity.sessionId,
+      clientMessageId: "client-1",
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      runAttemptId: identity.runAttemptId,
+      runId: identity.runId,
+      workspaceId: identity.workspaceId,
+      revisionOfTurnId: null,
+      state: "admitted",
+      executionState: "running",
+    };
+    const runtimeEnv = {
+      AUTH_TURN_ADMISSION_REPOSITORY: {
+        getByTurnId: async () => activeAdmission,
+      },
+    } as unknown as Env;
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      runtimeEnv,
       runImmediately,
       undefined,
       { interruptRegistry, lifecycleEventStore },
@@ -942,7 +1018,7 @@ describe("RunEngineRequestHandler", () => {
     settled = true;
     const replayHandler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      runtimeEnv,
       runImmediately,
       undefined,
       { interruptRegistry, lifecycleEventStore },
@@ -958,6 +1034,187 @@ describe("RunEngineRequestHandler", () => {
       terminalEvent: { type: "turn.interrupted" },
     });
     expect(interrupt).toHaveBeenCalledTimes(1);
+
+    const recoveryAdmission = {
+      userId: "user-1",
+      sessionId: identity.sessionId,
+      clientMessageId: "client-1",
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      runAttemptId: identity.runAttemptId,
+      runId: identity.runId,
+      workspaceId: identity.workspaceId,
+      revisionOfTurnId: null,
+      state: "admitted",
+      executionState: "recovery_required",
+    };
+    const orphanEvents: unknown[] = [];
+    const orphanLifecycleStore = {
+      replay: vi.fn(async () => ({ events: orphanEvents, nextSequence: null })),
+      appendBatch: vi.fn(async (events: readonly unknown[]) => {
+        orphanEvents.push(...events);
+        return events;
+      }),
+    } as unknown as LifecycleEventStore;
+    const orphanHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: {
+          getByTurnId: async () => recoveryAdmission,
+        },
+      } as unknown as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore: orphanLifecycleStore },
+    );
+    const orphanStop = await orphanHandler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(orphanStop.status).toBe(200);
+    await expect(orphanStop.json()).resolves.toMatchObject({
+      accepted: true,
+      status: "settled",
+      terminalEvent: { type: "turn.interrupted" },
+    });
+    expect(orphanLifecycleStore.appendBatch).toHaveBeenCalledTimes(1);
+    expect(orphanEvents).toHaveLength(5);
+
+    const approvalHistory: unknown[] = [];
+    const historySink = {
+      appendBatch: vi.fn(async (events: readonly unknown[]) => {
+        approvalHistory.push(...events);
+        return events;
+      }),
+    };
+    const historyCoordinator = new RuntimeLifecycleCoordinator({
+      threadId: ThreadIdSchema.parse(identity.threadId),
+      workspaceId: workspaceIdFromExternalId(identity.workspaceId),
+      turnId: TurnIdSchema.parse(identity.turnId),
+      runAttemptId: RunAttemptIdSchema.parse(identity.runAttemptId),
+      sink: historySink,
+      producerId: "runtime-approval-stop-test",
+      clock: { now: () => "2026-01-01T00:00:00.000Z" },
+    });
+    await historyCoordinator.start();
+    const completedToolItemId = ItemIdSchema.parse("itm_completedtool01");
+    const completedToolCallId = ToolCallIdSchema.parse("toolcall_completed01");
+    const completedApprovalId = ApprovalIdSchema.parse("appr_completed01");
+    const completedApprovalItemId = ItemIdSchema.parse(
+      "itm_completedapproval01",
+    );
+    await historyCoordinator.startToolCall(
+      completedToolItemId,
+      completedToolCallId,
+      "git.status",
+      {},
+    );
+    await historyCoordinator.requestApproval(
+      completedToolItemId,
+      completedApprovalId,
+      completedApprovalItemId,
+      {},
+    );
+    await historyCoordinator.decideApproval(
+      completedApprovalId,
+      "approved",
+      {},
+    );
+    await historyCoordinator.completeToolCall(completedToolCallId, {
+      ok: true,
+    });
+
+    const pendingToolItemId = ItemIdSchema.parse("itm_pendingtool001");
+    const pendingToolCallId = ToolCallIdSchema.parse("toolcall_pending001");
+    const pendingApprovalId = ApprovalIdSchema.parse("appr_pending001");
+    const pendingApprovalItemId = ItemIdSchema.parse("itm_pendingapproval01");
+    await historyCoordinator.startToolCall(
+      pendingToolItemId,
+      pendingToolCallId,
+      "fs.write",
+      {},
+    );
+    await historyCoordinator.requestApproval(
+      pendingToolItemId,
+      pendingApprovalId,
+      pendingApprovalItemId,
+      { options: [{ id: "allow_once" }] },
+    );
+
+    const approvalAdmission = { ...activeAdmission, executionState: "running" };
+    const approvalLifecycleStore = {
+      replay: vi.fn(
+        async ({
+          afterSequence,
+          limit,
+        }: {
+          afterSequence: number | null;
+          limit: number;
+        }) => {
+          const after = afterSequence ?? 0;
+          const events = approvalHistory
+            .filter((event) => (event as { sequence: number }).sequence > after)
+            .slice(0, limit);
+          return {
+            events,
+            nextSequence: events.length
+              ? (events.at(-1) as { sequence: number }).sequence
+              : null,
+          };
+        },
+      ),
+      appendBatch: vi.fn(async (events: readonly unknown[]) => {
+        approvalHistory.push(...events);
+        return events;
+      }),
+    } as unknown as LifecycleEventStore;
+    const approvalStopHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: {
+          getByTurnId: async () => approvalAdmission,
+        },
+      } as unknown as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore: approvalLifecycleStore },
+    );
+    const approvalStop = await approvalStopHandler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(approvalStop.status).toBe(200);
+    await expect(approvalStop.json()).resolves.toMatchObject({
+      accepted: true,
+      status: "settled",
+      terminalEvent: { type: "turn.interrupted" },
+    });
+    expect(approvalLifecycleStore.appendBatch).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        approvalLifecycleStore.appendBatch as ReturnType<typeof vi.fn>
+      ).mock.calls[0]?.[0].map((event: { type: string }) => event.type),
+    ).toEqual([
+      "approval.decided",
+      "turn.blocking_changed",
+      "item.declined",
+      "tool_call.interrupted",
+      "item.interrupted",
+      "run_attempt.interrupted",
+      "turn.interrupted",
+    ]);
+    expect(
+      approvalHistory.some(
+        (event) => (event as { type: string }).type === "tool_call.completed",
+      ),
+    ).toBe(true);
+    expect(
+      (
+        approvalLifecycleStore.appendBatch as ReturnType<typeof vi.fn>
+      ).mock.calls[0]?.[0].some(
+        (event: { type: string }) => event.type === "tool_call.completed",
+      ),
+    ).toBe(false);
   });
 
   it("does not queue interrupt behind the execution lock", async () => {
@@ -976,7 +1233,9 @@ describe("RunEngineRequestHandler", () => {
     const withExecutionLock = vi.fn(runImmediately);
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      {
+        AUTH_TURN_ADMISSION_REPOSITORY: { getByTurnId: async () => null },
+      } as unknown as Env,
       withExecutionLock,
       undefined,
       { canonicalEventSink: createNoopCanonicalEventSink() },
@@ -1262,7 +1521,9 @@ describe("RunEngineRequestHandler", () => {
     } as unknown as LifecycleEventStore;
     const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
     const resolve = vi.fn(async () => {
-      await expect(approvals.getResolvedDecision(approvalId)).resolves.toBeNull();
+      await expect(
+        approvals.getResolvedDecision(approvalId),
+      ).resolves.toBeNull();
       await expect(approvals.getPendingRequest()).resolves.toMatchObject({
         requestId: approvalId,
       });
@@ -1304,6 +1565,117 @@ describe("RunEngineRequestHandler", () => {
     const conflict = await submit("denied");
     expect(conflict.status).toBe(409);
     expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a matching-in-chat grant only for the canonical option and current workspace", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "run_123e4567e89b42d3a456426614174338";
+    const turnId = "trn_123458";
+    const approvalId = "appr_123458";
+    const workspaceId = "00000000-0000-4000-8000-000000000001";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "commit changes",
+        sessionId: "session-1",
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    await ctx.storage.put("turnRuntimeIdentities", {
+      [turnId]: {
+        runId,
+        workspaceId,
+        sessionId: "session-1",
+        threadId: "thr_123456",
+        turnId,
+        runAttemptId: "attempt_123456",
+      },
+    });
+    const approvals = new PermissionApprovalStore(runtimeState, runId);
+    await approvals.setPendingRequest({
+      requestId: approvalId,
+      runId,
+      origin: "agent",
+      category: "shell_command",
+      title: "Commit changes",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:git commit",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const requested = {
+      type: "approval.requested",
+      approvalId,
+      payload: {
+        options: [{ id: "allow_matching_in_chat" }],
+        metadata: {
+          grantMatcherKey: "tool:git_commit",
+          grantWorkspaceId: workspaceIdFromExternalId(workspaceId),
+        },
+      },
+    };
+    const events: Array<Record<string, unknown>> = [requested];
+    const lifecycleEventStore = {
+      replay: vi.fn(
+        async ({ afterSequence }: { afterSequence: number | null }) => ({
+          events: events.slice(afterSequence ?? 0),
+          nextSequence: events.length || null,
+        }),
+      ),
+    } as unknown as LifecycleEventStore;
+    const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
+    const resolve = vi.fn(async (_id, resolution) => {
+      events.push({
+        type: "approval.decided",
+        approvalId,
+        payload: {
+          status: resolution.decision,
+          grantScope: resolution.grantScope,
+        },
+      });
+    });
+    approvalRegistry.register(TurnIdSchema.parse(turnId), resolve);
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore, approvalResolutionRegistry: approvalRegistry },
+    );
+    const submit = (grantScope: "matching_in_chat" | "once") =>
+      handler.handleLifecycleApprovalRequest(
+        new Request("https://brain.local/lifecycle-approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            turnId,
+            approvalId,
+            decision: "approved",
+            grantScope,
+          }),
+        }),
+      );
+
+    requested.payload.options = [];
+    expect((await submit("matching_in_chat")).status).toBe(409);
+    expect(resolve).not.toHaveBeenCalled();
+
+    requested.payload.options = [{ id: "allow_matching_in_chat" }];
+    requested.payload.metadata.grantWorkspaceId = workspaceIdFromExternalId(
+      "00000000-0000-4000-8000-000000000002",
+    );
+    expect((await submit("matching_in_chat")).status).toBe(409);
+    expect(resolve).not.toHaveBeenCalled();
+
+    requested.payload.metadata.grantWorkspaceId =
+      workspaceIdFromExternalId(workspaceId);
+    const first = await submit("matching_in_chat");
+    expect(first.status).toBe(200);
+    const retryWithDifferentScope = await submit("once");
+    expect(retryWithDifferentScope.status).toBe(409);
+    expect(approvalRegistry.has(TurnIdSchema.parse(turnId))).toBe(true);
   });
 
   it("fails closed without retaining a permission decision when the active approval resolver disappears", async () => {
@@ -1443,7 +1815,11 @@ function admittedIdentity(
   revisionOfTurnId?: string,
 ) {
   const suffix = (value: string) =>
-    value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().padEnd(10, "x").slice(0, 24);
+    value
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLowerCase()
+      .padEnd(10, "x")
+      .slice(0, 24);
   let threadId = durableThreadsBySession.get(sessionId);
   if (!threadId) {
     threadId = `thr_${suffix(sessionId)}`;

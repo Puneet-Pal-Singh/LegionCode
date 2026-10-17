@@ -62,6 +62,9 @@ export interface AgentSession {
   /** Active run ID within this session (execution context) */
   activeRunId: string | null;
 
+  /** Latest server-admitted run retained for historical workflow recovery. */
+  latestRunId?: string | null;
+
   /** All run IDs associated with this session (for multi-run support) */
   runIds: string[];
 

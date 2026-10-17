@@ -18,11 +18,13 @@ const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 export function useWebComposerProviderControls({
   runId,
+  sessionId,
   onModelSelect,
   hasMessages = false,
   isComposerActiveRun,
 }: {
   runId?: string;
+  sessionId: string;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   hasMessages?: boolean;
   isComposerActiveRun: boolean;
@@ -41,6 +43,7 @@ export function useWebComposerProviderControls({
     catalog,
     credentials,
     status,
+    error: providerStoreError,
     selectedProviderId,
     selectedModelId,
     axisQuota,
@@ -60,7 +63,7 @@ export function useWebComposerProviderControls({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore(runId);
+  } = useProviderStore(runId, sessionId);
   const isModelPickerLoading = useMemo(
     () =>
       isProviderModelBootstrapLoading({
@@ -213,25 +216,34 @@ export function useWebComposerProviderControls({
         ) : null}
       </>
     ),
-    providerNotice:
-      WEB_PROVIDER_POLICY.isByokFirstProduction && credentials.length === 0 ? (
-        <div className="ui-control-surface mt-3 px-3 py-2 text-xs text-zinc-300">
-          Connect a BYOK provider to pick a model before sending prompts.
-          <button
-            type="button"
-            onClick={() => {
-              setProviderDialogInitialTab("available");
-              setProviderDialogInitialView("default");
-              setProviderDialogVariant("connect-only");
-              setShowProviderDialog(true);
-            }}
-            className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
-          >
-            Open provider setup
-          </button>
-          .
-        </div>
-      ) : null,
+    providerNotice: (
+      <>
+        {providerStoreError?.startsWith("Your selected") ? (
+          <div role="alert" className="mt-2 text-xs text-amber-200">
+            {providerStoreError}
+          </div>
+        ) : null}
+        {WEB_PROVIDER_POLICY.isByokFirstProduction &&
+        credentials.length === 0 ? (
+          <div className="ui-control-surface mt-3 px-3 py-2 text-xs text-zinc-300">
+            Connect a BYOK provider to pick a model before sending prompts.
+            <button
+              type="button"
+              onClick={() => {
+                setProviderDialogInitialTab("available");
+                setProviderDialogInitialView("default");
+                setProviderDialogVariant("connect-only");
+                setShowProviderDialog(true);
+              }}
+              className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
+            >
+              Open provider setup
+            </button>
+            .
+          </div>
+        ) : null}
+      </>
+    ),
     providerQuota:
       selectedProviderId === AXIS_PROVIDER_ID &&
       axisQuota &&

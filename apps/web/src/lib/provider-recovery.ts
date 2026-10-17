@@ -1,77 +1,111 @@
+import type { ConversationScopeHttpError } from "../hooks/conversationScope";
+
 export interface ProviderRecoveryAdvice {
   message: string;
   actionLabel: string;
   remediation: string;
+  technicalDetails?: string;
   recoveryTarget: ProviderRecoveryTarget;
 }
 
-export type ProviderRecoveryTarget = "auth" | "connect" | "models" | "general";
+export type ProviderRecoveryTarget =
+  | "auth"
+  | "connect"
+  | "models"
+  | "scope"
+  | "general";
 
 export function getProviderRecoveryAdvice(
   rawMessage: string | null | undefined,
+  scopeError?: ConversationScopeHttpError | null,
 ): ProviderRecoveryAdvice {
   const message = (rawMessage ?? "").trim();
 
+  if (scopeError) {
+    const technicalDetails = `${scopeError.code} · HTTP ${scopeError.status} · ${scopeError.retryable ? "temporary" : "not retryable"}`;
+    if (scopeError.status === 401 || scopeError.code === "UNAUTHORIZED") {
+      return {
+        message: "Your sign-in expired.",
+        actionLabel: "Sign in again",
+        remediation: scopeError.message,
+        technicalDetails,
+        recoveryTarget: "auth",
+      };
+    }
+    if (
+      scopeError.status === 409 &&
+      (scopeError.code === "TURN_EXECUTION_RECOVERY_REQUIRED" ||
+        scopeError.code === "TURN_ADMISSION_RECOVERY_REQUIRED")
+    ) {
+      return {
+        message: "This saved turn needs recovery.",
+        actionLabel: "Check status",
+        remediation: scopeError.message,
+        technicalDetails,
+        recoveryTarget: "scope",
+      };
+    }
+    return {
+      message: scopeError.retryable
+        ? "Could not read this conversation."
+        : "This conversation could not be restored.",
+      actionLabel: "Check status",
+      remediation: scopeError.message,
+      technicalDetails,
+      recoveryTarget: "scope",
+    };
+  }
+
   if (containsRuntimeFailure(message)) {
     return {
-      message,
-      actionLabel: "Retry Request",
-      remediation:
-        "This is a runtime or workspace failure. Retry the request or narrow the task; changing provider settings will not repair it.",
+      message: "The turn could not finish.",
+      actionLabel: "View details",
+      remediation: message,
       recoveryTarget: "general",
     };
   }
 
   if (containsTurnScopeFailure(message)) {
     return {
-      message: "LegionCode could not restore this task's runtime scope.",
-      actionLabel: "Retry Request",
-      remediation:
-        "This is a task identity or runtime restoration failure, not evidence of a provider credential problem. Reload the task after the runtime is available.",
-      recoveryTarget: "general",
+      message: "Could not restore this chat.",
+      actionLabel: "Check status",
+      remediation: message,
+      recoveryTarget: "scope",
     };
   }
 
   if (containsActiveRunSelectionConflict(message)) {
     return {
-      message:
-        "This run is still active, so model/provider selection cannot change yet.",
+      message: "This run is still active.",
       actionLabel: "Wait or Stop Current Run",
-      remediation:
-        "Wait for the current run to finish (or stop it), then retry with your new model selection.",
+      remediation: "Model selection is locked until the run ends.",
       recoveryTarget: "models",
     };
   }
 
   if (containsMissingProviderConfiguration(message)) {
     return {
-      message:
-        "Provider configuration is missing. Connect a provider key or configure a platform default key.",
+      message: "A provider is not connected.",
       actionLabel: "Open Provider Setup",
-      remediation:
-        "Connect or validate a provider key, then retry your chat request. In private/incognito mode, cookies and storage can reset provider persistence.",
+      remediation: "Connect a provider, then submit your message again.",
       recoveryTarget: "connect",
     };
   }
 
   if (containsPersistenceScopeMismatch(message)) {
     return {
-      message:
-        "Your login session is missing or expired.",
+      message: "Your login session is missing or expired.",
       actionLabel: "Log in again",
-      remediation:
-        "Sign in again to refresh your app session. New chats and provider calls cannot run until authentication is restored.",
+      remediation: "Sign in again to continue.",
       recoveryTarget: "auth",
     };
   }
 
   if (containsProviderSelectionMismatch(message)) {
     return {
-      message:
-        "Selected provider configuration is invalid for the current session.",
+      message: "The selected provider is unavailable.",
       actionLabel: "Review Session Selection",
-      remediation:
-        "Choose a connected provider + credential in Provider Settings and retry.",
+      remediation: "Choose a connected provider and submit again.",
       recoveryTarget: "models",
     };
   }
@@ -80,28 +114,24 @@ export function getProviderRecoveryAdvice(
     return {
       message: "Provider rate limit was reached.",
       actionLabel: "Switch Provider",
-      remediation:
-        "Switch to another connected provider or retry after rate limits reset.",
+      remediation: "Try again later or choose another provider.",
       recoveryTarget: "models",
     };
   }
 
   if (containsPlanningError(message)) {
     return {
-      message:
-        "The model failed to produce a valid executable plan for this request.",
-      actionLabel: "Retry with Specific Task",
-      remediation:
-        "Use a concrete file path or command (for example `read README.md` or `run pnpm test`). If this repeats, switch to a model with stronger structured-output support.",
+      message: "The model could not create a plan for this request.",
+      actionLabel: "Review provider",
+      remediation: "Try a more specific request or another model.",
       recoveryTarget: "models",
     };
   }
 
   return {
-    message: message || "The request could not be completed.",
-    actionLabel: "Retry Request",
-    remediation:
-      "Retry once. If the failure repeats, inspect the runtime diagnostics before changing provider settings.",
+    message: "The request could not be completed.",
+    actionLabel: "View details",
+    remediation: message || "No additional details are available.",
     recoveryTarget: "general",
   };
 }
@@ -160,7 +190,9 @@ function containsPlanningError(message: string): boolean {
     message.includes("PLAN_GENERATION_TIMEOUT") ||
     message.includes("did not match schema") ||
     message.includes("failed to produce a valid structured execution plan") ||
-    message.includes("Planning timed out before executable tasks could be generated")
+    message.includes(
+      "Planning timed out before executable tasks could be generated",
+    )
   );
 }
 

@@ -68,6 +68,14 @@
       "gate": "corepack pnpm --filter @legioncode/brain test"
     },
     {
+      "path": "apps/brain/src/services/chat/ChatImageModelPolicy.ts",
+      "owner": "brain-chat-ingress",
+      "category": "provider",
+      "disposition": "keep-pure-policy",
+      "purpose": "Reject image-bearing context unless trusted model discovery declares image input support.",
+      "gate": "corepack pnpm --filter @legioncode/brain test -- src/services/chat/ChatImageModelPolicy.test.ts src/application/chat/ChatImageDelivery.integration.test.ts"
+    },
+    {
       "path": "apps/brain/src/services/chat/ChatReasoningEffortPolicy.ts",
       "owner": "brain-chat-ingress",
       "category": "provider",

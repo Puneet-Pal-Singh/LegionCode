@@ -1,4 +1,5 @@
 import type { TranscriptMessageRecord } from "@repo/persistence";
+import type { LifecycleEvent } from "@repo/platform-protocol";
 
 /**
  * Projects the active transcript branch while retaining superseded records in
@@ -7,22 +8,40 @@ import type { TranscriptMessageRecord } from "@repo/persistence";
 export function projectActiveTranscriptBranch(
   messages: readonly TranscriptMessageRecord[],
   additionalSupersededTurnIds: readonly string[] = [],
+  lifecycleEvents: readonly LifecycleEvent[] = [],
 ): TranscriptMessageRecord[] {
-  const supersededTurnIds = new Set(additionalSupersededTurnIds);
+  const continuationParents = new Map<string, string>();
+  for (const event of lifecycleEvents) {
+    if (event.type !== "turn.started") continue;
+    const parent = event.payload.continuationOfTurnId;
+    if (parent) continuationParents.set(event.turnId, parent);
+  }
+  const logicalRoot = (turnId: string): string => {
+    const visited = new Set<string>();
+    let current = turnId;
+    while (continuationParents.has(current) && !visited.has(current)) {
+      visited.add(current);
+      current = continuationParents.get(current)!;
+    }
+    return current;
+  };
+  const supersededLogicalRoots = new Set(
+    additionalSupersededTurnIds.map(logicalRoot),
+  );
   for (const message of messages) {
     const revisionOfTurnId = readCanonicalIdentityField(
       message,
       "revisionOfTurnId",
     );
-    if (revisionOfTurnId) supersededTurnIds.add(revisionOfTurnId);
+    if (revisionOfTurnId) supersededLogicalRoots.add(logicalRoot(revisionOfTurnId));
   }
   return messages.filter((message) => {
     const turnId = readCanonicalIdentityField(message, "turnId");
-    return !turnId || !supersededTurnIds.has(turnId);
+    return !turnId || !supersededLogicalRoots.has(logicalRoot(turnId));
   });
 }
 
-function readCanonicalIdentityField(
+export function readCanonicalIdentityField(
   message: TranscriptMessageRecord,
   field: "turnId" | "revisionOfTurnId",
 ): string | null {

@@ -41,6 +41,7 @@ import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
+import { InMemoryRunThreadInputRegistry } from "./RunThreadInputRegistry";
 import { RunExecutionLock } from "./RunExecutionLock";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
@@ -64,6 +65,7 @@ export class RunEngineRuntime extends DurableObject {
     new InMemoryRunApprovalResolutionRegistry();
   private readonly contextCompactionRegistry =
     new InMemoryRunContextCompactionRegistry();
+  private readonly threadInputRegistry = new InMemoryRunThreadInputRegistry();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -80,6 +82,10 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/turn/start" && request.method === "POST") {
       return requestHandler.handleTurnStartRequest(request);
+    }
+
+    if (url.pathname === "/thread/inputs/steer" && request.method === "POST") {
+      return requestHandler.handleThreadInputSteerRequest(request);
     }
 
     if (url.pathname === "/scope" && request.method === "GET") {
@@ -494,6 +500,7 @@ export class RunEngineRuntime extends DurableObject {
         interruptRegistry: this.interruptRegistry,
         approvalResolutionRegistry: this.approvalResolutionRegistry,
         contextCompactionRegistry: this.contextCompactionRegistry,
+        threadInputRegistry: this.threadInputRegistry,
       },
     );
   }

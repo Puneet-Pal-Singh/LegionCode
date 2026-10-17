@@ -1,3 +1,4 @@
+import { useComposerPreferences } from "../../lib/composer-preferences";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
@@ -46,6 +47,8 @@ import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 import { ProjectChooser } from "./ProjectChooser";
 import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
+import { MarkdownMessageContent } from "@legioncode/client-ui";
+import { resolveComposerKeyboardAction } from "@legioncode/client-ui";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -82,6 +85,7 @@ export function AgentSetup({
 }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
+  const composerPreferences = useComposerPreferences();
   const [task, setTask] = useState("");
   const imageDraft = useChatImageAttachmentDraft();
   const { productMode, setProductMode } = useSessionProductMode(sessionId);
@@ -127,7 +131,7 @@ export function AgentSetup({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore();
+  } = useProviderStore(undefined, sessionId);
   const isModelPickerLoading = useMemo(
     () =>
       isProviderModelBootstrapLoading({
@@ -397,6 +401,8 @@ export function AgentSetup({
   };
 
   const handleTaskKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return;
+
     if (shouldShowFilePicker) {
       if (e.key === "ArrowDown" && suggestedFiles.length > 0) {
         e.preventDefault();
@@ -419,7 +425,8 @@ export function AgentSetup({
       if (
         (e.key === "Enter" || e.key === "Tab") &&
         suggestedFiles.length > 0 &&
-        !e.shiftKey
+        !e.shiftKey &&
+        !(e.key === "Enter" && (e.metaKey || e.ctrlKey))
       ) {
         e.preventDefault();
         const selectedPath =
@@ -437,7 +444,16 @@ export function AgentSetup({
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    const keyboardAction = resolveComposerKeyboardAction({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+      isComposing: e.nativeEvent.isComposing,
+      isActive: false,
+      preferences: composerPreferences,
+    });
+    if (keyboardAction.type === "submit") {
       e.preventDefault();
       handleSubmit(e as unknown as React.FormEvent);
     }
@@ -593,6 +609,16 @@ export function AgentSetup({
             className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
             style={{ lineHeight: "1.5" }}
           />
+          {!composerPreferences.plainTextComposer && task.trim() ? (
+            <details open className="mt-2 border-t border-zinc-800/70 pt-2">
+              <summary className="w-fit cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-300">
+                Formatted Markdown preview
+              </summary>
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-md bg-black/20 px-2 py-1.5">
+                <MarkdownMessageContent content={task} isUser />
+              </div>
+            </details>
+          ) : null}
 
           <div className="mt-2 flex items-center justify-between pt-2">
             <div className="flex items-center gap-1.5">
@@ -701,7 +727,7 @@ export function AgentSetup({
                 title={
                   requiresRepository && !hasRepositoryContext
                     ? "Connect a repository to start"
-                    : undefined
+                    : `Submit task · ${composerPreferences.sendShortcut === "enter" ? "Enter" : "Modifier+Enter"}`
                 }
               >
                 <ArrowUp size={16} />

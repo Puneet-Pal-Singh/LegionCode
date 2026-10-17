@@ -64,6 +64,18 @@ export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepos
 export { InvalidTranscriptSnapshotError } from "./sessions/types.js";
 export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepository.js";
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
+export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
+export type {
+  AdmitContinuationInput,
+  AdmitTurnWithPromptInput,
+  InterruptedTurnTarget,
+  InterruptedTurnTargetInput,
+  ReserveQueuedStartInput,
+  ReserveQueuedStartResult,
+  ReserveTurnAdmissionInput,
+  TurnAdmissionRecord,
+  TurnAdmissionRepository,
+} from "./turn-admissions/types.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
@@ -76,6 +88,10 @@ export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
+export {
+  PostgresLifecycleApprovalGrantReader,
+  type MatchingInChatApprovalGrantQuery,
+} from "./lifecycle-events/PostgresLifecycleApprovalGrantReader.js";
 export { MemoryEventStore, MemoryLifecycleEventStore } from "@repo/event-store";
 export type {
   LifecycleEventStore,
@@ -86,6 +102,17 @@ export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/P
 export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
 export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
 export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title-read-receipts.js";
+export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
+export { threadInputsAndContinuationsMigration } from "./migrations/0033-thread-inputs-and-continuations.js";
+export { PostgresThreadInputRepository, ThreadInputConflictError } from "./thread-inputs/PostgresThreadInputRepository.js";
+export type {
+  CreateThreadInput,
+  StoredThreadInput,
+  ThreadInputMutation,
+  ThreadInputRepository,
+  ThreadInputScope,
+  UpdateThreadInput,
+} from "./thread-inputs/types.js";
 export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
@@ -336,9 +363,6 @@ export {
   canonicalApprovalProjections,
 } from "./schema/index.js";
 
-export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
-export type { AdmitTurnWithPromptInput, ReserveTurnAdmissionInput, TurnAdmissionRecord, TurnAdmissionRepository } from "./turn-admissions/types.js";
-export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
 export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-receipts.js";
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";

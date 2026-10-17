@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReasoningEffortSchema } from "@repo/platform-protocol";
 
 export const BYOKProviderSlugSchema = z
   .string()
@@ -66,10 +67,8 @@ export type BYOKModelPopularityScore = z.infer<
   typeof BYOKModelPopularityScoreSchema
 >;
 
-// Effort names are provider-owned. Do not normalize them to a platform enum:
-// providers may expose values such as "light", "high", or "max".
-export const ReasoningEffortSchema = z.string().trim().min(1).max(64);
-export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+export { ReasoningEffortSchema } from "@repo/platform-protocol";
+export type { ReasoningEffort } from "@repo/platform-protocol";
 
 export const BYOKModelCapabilitySchema = z.object({
   supportsTools: z.boolean().optional(),

@@ -26,6 +26,7 @@ export interface ChatMessageProps {
   onEdit?: (content: string) => Promise<boolean>;
   resolveHydratedImageSource?: (source: string) => string | undefined;
   loadArtifactContent?: (key: string) => Promise<string>;
+  historyStatus?: "revised" | "edited";
 }
 
 export function ChatMessage({
@@ -38,6 +39,7 @@ export function ChatMessage({
   onEdit,
   resolveHydratedImageSource,
   loadArtifactContent,
+  historyStatus,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isEditing, setIsEditing] = useState(false);
@@ -67,6 +69,13 @@ export function ChatMessage({
             : "max-w-4xl flex-1",
         )}
       >
+        {historyStatus ? (
+          <span className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+            {historyStatus === "revised"
+              ? "Earlier version · revised"
+              : "Edited version"}
+          </span>
+        ) : null}
         {isEditing ? (
           <div className="w-full max-w-xl space-y-2">
             {imagePreviews.length > 0 ? (

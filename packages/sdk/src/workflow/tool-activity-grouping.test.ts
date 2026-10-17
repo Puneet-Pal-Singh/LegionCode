@@ -8,7 +8,7 @@ import {
 import type { WorkflowItem } from "./turn-workflow-projection.js";
 
 describe("groupToolActivity", () => {
-  it("prefers active display-safe tool titles over reasoning and keeps them concise", () => {
+  it("prefers active display-safe tool titles over reasoning without cutting off words", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_plan" as ItemId,
@@ -27,7 +27,7 @@ describe("groupToolActivity", () => {
     ]);
 
     expect(buildSegmentTitle(segments[0]!)).toBe(
-      "Running git status --short and inspect…",
+      "Running git status --short and inspect the branch now",
     );
   });
 
@@ -101,7 +101,7 @@ describe("groupToolActivity", () => {
     expect(buildSegmentTitle(segments[0]!)).toBe("edited files");
   });
 
-  it("keeps approval events hidden without resetting the tool activity parent", () => {
+  it("preserves approval history between tool groups", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_read" as ItemId,
@@ -120,14 +120,13 @@ describe("groupToolActivity", () => {
       }),
     ]);
 
-    expect(segments).toHaveLength(1);
-    expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
-      "item_read",
-      "item_write",
-    ]);
+    expect(segments).toHaveLength(3);
+    expect(
+      segments.map((segment) => segment.children.map((item) => item.itemId)),
+    ).toEqual([["item_read"], ["item_approval"], ["item_write"]]);
   });
 
-  it("keeps provider commentary ordered inside the tool activity parent", () => {
+  it("keeps commentary as standalone transcript paragraphs between tool groups", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_commentary" as ItemId,
@@ -153,16 +152,17 @@ describe("groupToolActivity", () => {
       }),
     ]);
 
-    expect(segments).toHaveLength(1);
-    expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
-      "item_commentary",
-      "item_shell",
-      "item_commentary_two",
-      "item_read",
+    expect(
+      segments.map((segment) => segment.children.map((item) => item.itemId)),
+    ).toEqual([
+      ["item_commentary"],
+      ["item_shell"],
+      ["item_commentary_two"],
+      ["item_read"],
     ]);
   });
 
-  it("includes provider commentary in the active trace without exposing reasoning", () => {
+  it("keeps commentary out of the active tool trace without exposing reasoning", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_reasoning" as ItemId,
@@ -185,16 +185,77 @@ describe("groupToolActivity", () => {
     ]);
 
     const trace = buildActiveWorkflowTrace(segments);
-    expect(trace.children.map((item) => item.itemId)).toEqual([
-      "item_commentary",
-      "item_shell",
-    ]);
+    expect(trace.children.map((item) => item.itemId)).toEqual(["item_shell"]);
     expect(trace.children.some((item) => item.kind === "reasoning")).toBe(
       false,
     );
   });
 
-  it("uses the latest provider-visible status between tool calls", () => {
+  it("keeps previous tool groups out of the live trace across commentary", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_commentary_a" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "Starting the inspection.",
+      }),
+      workflowItem({
+        itemId: "item_tools_a" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        status: "completed",
+      }),
+      workflowItem({
+        itemId: "item_commentary_b" as ItemId,
+        kind: "commentary",
+        toolFamily: null,
+        text: "I found the relevant files.",
+      }),
+      workflowItem({
+        itemId: "item_tools_b" as ItemId,
+        kind: "tool_call",
+        toolFamily: "edit",
+        status: "active",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.children.map((item) => item.itemId)).toEqual(["item_tools_b"]);
+    expect(trace.consumedSegmentKeys).toEqual(["segment:item_tools_b"]);
+  });
+
+  it("keeps previous tool groups out of the live trace across reasoning", () => {
+    const segments = groupToolActivity([
+      workflowItem({
+        itemId: "item_tools_before_reasoning" as ItemId,
+        kind: "tool_call",
+        toolFamily: "read",
+        status: "completed",
+      }),
+      workflowItem({
+        itemId: "item_reasoning_boundary" as ItemId,
+        kind: "reasoning",
+        toolFamily: null,
+        text: "Provider-visible summary of the result.",
+      }),
+      workflowItem({
+        itemId: "item_tools_after_reasoning" as ItemId,
+        kind: "tool_call",
+        toolFamily: "edit",
+        status: "active",
+      }),
+    ]);
+
+    const trace = buildActiveWorkflowTrace(segments);
+    expect(trace.children.map((item) => item.itemId)).toEqual([
+      "item_tools_after_reasoning",
+    ]);
+    expect(trace.consumedSegmentKeys).toEqual([
+      "segment:item_tools_after_reasoning",
+    ]);
+  });
+
+  it("uses Thinking when only commentary is available", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_commentary" as ItemId,
@@ -205,7 +266,7 @@ describe("groupToolActivity", () => {
     ]);
 
     expect(buildActiveWorkflowTrace(segments)).toMatchObject({
-      title: "Thinking through the next step",
+      title: "Thinking",
       children: [],
       consumedSegmentKeys: [],
     });
@@ -236,7 +297,7 @@ describe("groupToolActivity", () => {
     expect(trace.consumedSegmentKeys).toEqual([segments[0]?.key]);
   });
 
-  it("merges reasoning and tool segments until a commentary boundary", () => {
+  it("merges reasoning and tool segments while keeping commentary standalone", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_plan_one" as ItemId,
@@ -280,7 +341,7 @@ describe("groupToolActivity", () => {
     const segments = groupToolActivity([
       workflowItem({
         itemId: "item_plan_one" as ItemId,
-        kind: "reasoning",
+        kind: "plan",
         toolFamily: null,
         safeSummary: "Inspecting the workspace",
       }),
@@ -292,7 +353,7 @@ describe("groupToolActivity", () => {
       }),
       workflowItem({
         itemId: "item_plan_two" as ItemId,
-        kind: "reasoning",
+        kind: "plan",
         toolFamily: null,
         safeSummary: "Reading the matching files",
       }),
@@ -304,7 +365,7 @@ describe("groupToolActivity", () => {
       }),
       workflowItem({
         itemId: "item_plan_three" as ItemId,
-        kind: "reasoning",
+        kind: "plan",
         toolFamily: null,
         safeSummary: "Verifying the repository state",
       }),
@@ -344,9 +405,82 @@ describe("groupToolActivity", () => {
 
     const trace = buildActiveWorkflowTrace(segments);
     expect(segments[0]?.isActive).toBe(false);
-    expect(trace.title).toBe("Read package.json");
+    expect(trace.title).toBe("Thinking");
     expect(trace.children.map((item) => item.itemId)).toEqual(["item_read"]);
     expect(trace.consumedSegmentKeys).toEqual(["segment:item_read"]);
+  });
+
+  it("updates the live title from each visible reasoning summary while preserving its full transcript", () => {
+    const first = workflowItem({
+      itemId: "item_visible_reasoning" as ItemId,
+      kind: "reasoning",
+      toolFamily: null,
+      status: "active",
+      text: "**Inspecting database migrations**",
+    });
+    expect(buildActiveWorkflowTrace(groupToolActivity([first])).title).toBe(
+      "Inspecting database migrations",
+    );
+    const next = {
+      ...first,
+      text: `${first.text}\n\n**Correlating the requested steps**`,
+    };
+    const segments = groupToolActivity([next]);
+    expect(buildActiveWorkflowTrace(segments).title).toBe(
+      "Correlating the requested steps",
+    );
+    expect(segments[0]?.children[0]?.text).toBe(next.text);
+    expect(buildActiveWorkflowTrace(segments).consumedSegmentKeys).toEqual([]);
+  });
+
+  it("waits for complete Markdown and ignores empty/comment summary lines", () => {
+    const reasoning = workflowItem({
+      itemId: "item_visible_reasoning" as ItemId,
+      kind: "reasoning",
+      toolFamily: null,
+      text: "## Preparing deployment\n\n<!-- internal annotation -->\n**Identifying blockers",
+    });
+    expect(buildActiveWorkflowTrace(groupToolActivity([reasoning])).title).toBe(
+      "Preparing deployment",
+    );
+  });
+
+  it("prioritizes pending requests over running tools", () => {
+    const tool = workflowItem({
+      itemId: "item_shell" as ItemId,
+      kind: "tool_call",
+      toolFamily: "shell",
+      status: "active",
+      command: "git status",
+    });
+    for (const kind of ["approval_request", "user_input_request"] as const) {
+      const request = {
+        ...workflowItem({
+          itemId: "item_request" as ItemId,
+          kind,
+          toolFamily: null,
+          status: "active",
+        }),
+        request: {
+          requestId: "request_1",
+          questions: [{ id: "q1", question: "Continue?" }],
+          answers: [],
+          state: "pending" as const,
+        },
+      };
+      const trace = buildActiveWorkflowTrace(
+        groupToolActivity([tool, request]),
+      );
+      expect(trace.title).toBe(
+        kind === "approval_request"
+          ? "Awaiting approval"
+          : "Waiting for your answer",
+      );
+      expect(trace.children.map((item) => item.itemId)).toEqual([
+        "item_shell",
+        "item_request",
+      ]);
+    }
   });
 });
 

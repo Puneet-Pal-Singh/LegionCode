@@ -1,3 +1,9 @@
+import {
+  readSessionScopedSelection,
+  writeSessionScopedSelection,
+  clearPersistedSessionScopedSelections,
+  type ProviderSelectionSnapshot,
+} from "./ProviderSelectionPreferences.js";
 /**
  * Provider Store - Centralized State Management
  *
@@ -120,21 +126,12 @@ type ProviderOperationalState = Pick<
   | "refreshingModelsForProviderId"
 >;
 
-interface ProviderSelectionSnapshot {
-  selectedProviderId: string | null;
-  selectedCredentialId: string | null;
-  selectedModelId: string | null;
-}
-
 type InflightScope = "workspace" | "run";
 
 interface InflightRequest {
   promise: Promise<unknown>;
   scope: InflightScope;
 }
-
-const RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX =
-  "provider:run-scoped-selection:";
 
 export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
 export type ValidateCredentialRequest = BYOKCredentialValidateRequest;
@@ -203,6 +200,8 @@ export class ProviderStore {
   private static instance: ProviderStore;
   private state: ProviderStoreState;
   private activeRunId: string | null = null;
+  private activeSessionId: string | null = null;
+  private hasExplicitSessionSelection = false;
   private apiClient: ProviderApiClientContract;
   private listeners: Set<(state: ProviderStoreState) => void> = new Set();
   private inflight: Map<string, InflightRequest> = new Map();
@@ -233,10 +232,7 @@ export class ProviderStore {
         new ProviderApiClient({
           getRunId: () => store?.activeRunId ?? null,
         });
-      store = new ProviderStore(
-        apiClient,
-        options?.enableLogging ?? false,
-      );
+      store = new ProviderStore(apiClient, options?.enableLogging ?? false);
       ProviderStore.instance = store;
     }
     return ProviderStore.instance;
@@ -253,9 +249,6 @@ export class ProviderStore {
     }
 
     if (this.activeRunId === runId) {
-      if (this.state.status === "idle") {
-        this.restoreRunScopedSelection(runId);
-      }
       return this.state.status === "idle";
     }
 
@@ -268,18 +261,47 @@ export class ProviderStore {
         previousRunId,
         nextRunId: runId,
       });
-      this.resetRunScope();
+      this.resetRunScope(true);
     }
-
-    this.restoreRunScopedSelection(runId);
     if (hasWorkspaceGlobalState(this.state)) {
-      // A new scope must never inherit another chat's selection. If this
-      // scope has no persisted choice, start from the workspace default.
-      this.hydrateRunScopedSelectionFromWorkspaceState();
       return false;
     }
 
     return true;
+  }
+
+  setActiveSessionId(sessionId: string): void {
+    if (!sessionId || this.activeSessionId === sessionId) return;
+    const previousSessionId = this.activeSessionId;
+    this.activeSessionId = sessionId;
+    this.runScopeEpoch += 1;
+    this.clearInflightByScope("run");
+    this.lastResolveSelectionKey = null;
+    this.lastResolveError = null;
+    const defaults = this.deriveSelectionSnapshot({
+      catalog: this.state.catalog,
+      credentials: this.state.credentials,
+      preferences: this.state.preferences,
+      providerModels: this.state.providerModels,
+      visibleModelIds: this.state.visibleModelIds,
+      selectedProviderId: null,
+      selectedCredentialId: null,
+      selectedModelId: null,
+    });
+    const saved = readSessionScopedSelection(sessionId);
+    this.hasExplicitSessionSelection = saved !== null;
+    this.state = {
+      ...this.state,
+      ...createInitialRunScopedState(),
+      ...(saved ?? defaults),
+      status: this.state.status,
+      error: null,
+    };
+    this.log("[session] switched provider selection scope", {
+      previousSessionId,
+      nextSessionId: sessionId,
+    });
+    this.emit();
   }
 
   /**
@@ -289,6 +311,30 @@ export class ProviderStore {
     return {
       ...this.state,
       visibleModelIds: this.copyVisibleModelIds(this.state.visibleModelIds),
+    };
+  }
+
+  getStateForSession(sessionId: string): ProviderStoreState {
+    if (this.activeSessionId === sessionId) {
+      return this.getState();
+    }
+    const saved = readSessionScopedSelection(sessionId);
+    const defaults = this.deriveSelectionSnapshot({
+      catalog: this.state.catalog,
+      credentials: this.state.credentials,
+      preferences: this.state.preferences,
+      providerModels: this.state.providerModels,
+      visibleModelIds: this.state.visibleModelIds,
+      selectedProviderId: null,
+      selectedCredentialId: null,
+      selectedModelId: null,
+    });
+    return {
+      ...this.getState(),
+      ...(saved ?? defaults),
+      lastResolvedConfig: null,
+      axisQuota: null,
+      error: null,
     };
   }
 
@@ -747,7 +793,6 @@ export class ProviderStore {
         [providerId]: true,
       },
     });
-
     const promise = this.executeLoadManageProviderModels(
       providerId,
       limit,
@@ -1115,6 +1160,13 @@ export class ProviderStore {
       selectedProviderId: providerId,
       selectedCredentialId: credentialId,
       selectedModelId: modelId || null,
+      error: null,
+    });
+    this.hasExplicitSessionSelection = true;
+    this.persistSessionScopedSelection({
+      selectedProviderId: providerId,
+      selectedCredentialId: credentialId,
+      selectedModelId: modelId || null,
     });
   }
 
@@ -1135,7 +1187,6 @@ export class ProviderStore {
       selection.selectedCredentialId,
       selection.selectedModelId ?? undefined,
     );
-    this.persistRunScopedSelection(selection);
     return this.resolveForChat();
   }
 
@@ -1145,6 +1196,11 @@ export class ProviderStore {
    * Returns the effective provider config based on selection and preferences.
    */
   async resolveForChat(): Promise<ProviderResolution> {
+    const unavailableReason = this.getExplicitSelectionUnavailableReason();
+    if (unavailableReason) {
+      this.setState({ error: unavailableReason });
+      throw new Error(unavailableReason);
+    }
     const selection = this.deriveSelectionSnapshot({
       catalog: this.state.catalog,
       credentials: this.state.credentials,
@@ -1224,13 +1280,21 @@ export class ProviderStore {
       const config = await this.apiClient.resolveForChat(request);
       const normalizedCredentialId =
         config.credentialId.trim().length > 0 ? config.credentialId : null;
-      const effectiveModelId = this.resolveModelForResolvedProvider(
-        config.providerId,
-        config.modelId,
-      );
+      const effectiveModelId = this.hasExplicitSessionSelection
+        ? config.providerId === selection.selectedProviderId &&
+          normalizedCredentialId === selection.selectedCredentialId &&
+          config.modelId === selection.selectedModelId
+          ? config.modelId
+          : null
+        : this.resolveModelForResolvedProvider(
+            config.providerId,
+            config.modelId,
+          );
       if (!effectiveModelId) {
         throw new Error(
-          `No visible model is selected for provider "${config.providerId}". Select at least one visible model and retry.`,
+          this.hasExplicitSessionSelection
+            ? "The selected provider, credential, or model is unavailable. Select an available option and retry."
+            : `No visible model is selected for provider "${config.providerId}". Select at least one visible model and retry.`,
         );
       }
 
@@ -1263,6 +1327,11 @@ export class ProviderStore {
                 resetsAt: config.quota.resetsAt,
               }
             : null,
+      });
+      this.persistSessionScopedSelection({
+        selectedProviderId: config.providerId,
+        selectedCredentialId: normalizedCredentialId,
+        selectedModelId: effectiveModelId,
       });
       this.lastResolveSelectionKey = selectionKey;
       this.lastResolveError = null;
@@ -1337,6 +1406,11 @@ export class ProviderStore {
             selectedModelId: this.state.selectedModelId,
           })
         : null;
+    const selectedModelWasHidden =
+      this.hasExplicitSessionSelection &&
+      this.state.selectedProviderId === providerId &&
+      this.state.selectedModelId !== null &&
+      !newVisibleModelIds[providerId]?.has(this.state.selectedModelId);
     this.setState({
       providerModels: nextProviderModels,
       visibleModelIds: newVisibleModelIds,
@@ -1345,6 +1419,9 @@ export class ProviderStore {
       selectedCredentialId:
         selection?.selectedCredentialId ?? this.state.selectedCredentialId,
       selectedModelId: selection?.selectedModelId ?? this.state.selectedModelId,
+      error: selectedModelWasHidden
+        ? "Your selected model is hidden. Choose a visible model before sending."
+        : this.state.error,
     });
     // Persist changes to backend (fire and forget with error logging)
     this.persistVisibilityChanges(newVisibleModelIds).catch((error) => {
@@ -1385,6 +1462,11 @@ export class ProviderStore {
             selectedModelId: this.state.selectedModelId,
           })
         : null;
+    const selectedModelWasHidden =
+      this.hasExplicitSessionSelection &&
+      this.state.selectedProviderId === providerId &&
+      this.state.selectedModelId !== null &&
+      !newVisibleModelIds[providerId]?.has(this.state.selectedModelId);
     this.setState({
       providerModels: nextProviderModels,
       visibleModelIds: newVisibleModelIds,
@@ -1393,6 +1475,9 @@ export class ProviderStore {
       selectedCredentialId:
         selection?.selectedCredentialId ?? this.state.selectedCredentialId,
       selectedModelId: selection?.selectedModelId ?? this.state.selectedModelId,
+      error: selectedModelWasHidden
+        ? "Your selected model is hidden. Choose a visible model before sending."
+        : this.state.error,
     });
     // Persist changes to backend (fire and forget with error logging)
     this.persistVisibilityChanges(newVisibleModelIds).catch((error) => {
@@ -1429,7 +1514,7 @@ export class ProviderStore {
     this.resetAll();
   }
 
-  resetRunScope(): void {
+  resetRunScope(preserveSelection = false): void {
     this.runScopeEpoch += 1;
     this.clearInflightByScope("run");
     this.lastResolveSelectionKey = null;
@@ -1437,6 +1522,13 @@ export class ProviderStore {
     this.state = {
       ...this.state,
       ...createInitialRunScopedState(),
+      ...(preserveSelection
+        ? {
+            selectedProviderId: this.state.selectedProviderId,
+            selectedCredentialId: this.state.selectedCredentialId,
+            selectedModelId: this.state.selectedModelId,
+          }
+        : {}),
       error: null,
     };
     this.emit();
@@ -1450,7 +1542,9 @@ export class ProviderStore {
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
     this.activeRunId = null;
-    clearPersistedRunScopedSelections();
+    this.activeSessionId = null;
+    this.hasExplicitSessionSelection = false;
+    clearPersistedSessionScopedSelections();
     this.state = createInitialStoreState();
     this.emit();
   }
@@ -1529,49 +1623,33 @@ export class ProviderStore {
     );
   }
 
-  private restoreRunScopedSelection(runId: string): boolean {
-    const persistedSelection = readRunScopedSelection(runId);
-    if (!persistedSelection) {
-      return false;
+  private getExplicitSelectionUnavailableReason(): string | null {
+    if (!this.hasExplicitSessionSelection) return null;
+    const { selectedProviderId, selectedCredentialId, selectedModelId } =
+      this.state;
+    if (!selectedProviderId || !selectedCredentialId || !selectedModelId) {
+      return "Your selected provider configuration is unavailable. Choose a connected provider and model.";
     }
-
-    this.log("[run] restoring persisted run-scoped selection", {
-      runId,
-      providerId: persistedSelection.selectedProviderId,
-      credentialId: persistedSelection.selectedCredentialId,
-      modelId: persistedSelection.selectedModelId,
-    });
-    this.setState(persistedSelection);
-    return true;
+    const credential = this.state.credentials.find(
+      (item) => item.credentialId === selectedCredentialId,
+    );
+    if (!credential || credential.providerId !== selectedProviderId) {
+      return "Your selected credential is unavailable. Choose a connected credential.";
+    }
+    const visibleModels = this.state.visibleModelIds[selectedProviderId];
+    if (visibleModels && !visibleModels.has(selectedModelId)) {
+      return "Your selected model is hidden. Choose a visible model before sending.";
+    }
+    return null;
   }
 
-  private hydrateRunScopedSelectionFromWorkspaceState(): void {
-    const selection = this.deriveSelectionSnapshot({
-      catalog: this.state.catalog,
-      credentials: this.state.credentials,
-      preferences: this.state.preferences,
-      providerModels: this.state.providerModels,
-      visibleModelIds: this.state.visibleModelIds,
-      selectedProviderId: this.state.selectedProviderId,
-      selectedCredentialId: this.state.selectedCredentialId,
-      selectedModelId: this.state.selectedModelId,
-    });
-
-    this.setState({
-      selectedProviderId: selection.selectedProviderId,
-      selectedCredentialId: selection.selectedCredentialId,
-      selectedModelId: selection.selectedModelId,
-    });
-  }
-
-  private persistRunScopedSelection(
+  private persistSessionScopedSelection(
     selection: ProviderSelectionSnapshot,
   ): void {
-    if (!this.activeRunId) {
+    if (!this.activeSessionId) {
       return;
     }
-
-    writeRunScopedSelection(this.activeRunId, selection);
+    writeSessionScopedSelection(this.activeSessionId, selection);
   }
 
   private trackInflight(
@@ -1666,6 +1744,18 @@ export class ProviderStore {
       selectedCredentialId,
       selectedModelId,
     } = input;
+
+    if (
+      this.hasExplicitSessionSelection &&
+      selectedProviderId !== null &&
+      selectedCredentialId !== null
+    ) {
+      return {
+        selectedProviderId,
+        selectedCredentialId,
+        selectedModelId,
+      };
+    }
     const catalogProviderIds = new Set(
       catalog.map((entry) => entry.providerId),
     );
@@ -1957,93 +2047,6 @@ function hasWorkspaceGlobalState(state: ProviderStoreState): boolean {
     Object.keys(state.providerModels).length > 0 ||
     Object.keys(state.visibleModelIds).length > 0
   );
-}
-
-function writeRunScopedSelection(
-  runId: string,
-  selection: ProviderSelectionSnapshot,
-): void {
-  try {
-    sessionStorage.setItem(
-      buildRunScopedSelectionStorageKey(runId),
-      JSON.stringify(selection),
-    );
-  } catch (error) {
-    console.warn(
-      "[provider/store] failed to persist run-scoped selection",
-      error,
-    );
-  }
-}
-
-function readRunScopedSelection(
-  runId: string,
-): ProviderSelectionSnapshot | null {
-  try {
-    const serialized = sessionStorage.getItem(
-      buildRunScopedSelectionStorageKey(runId),
-    );
-    if (!serialized) {
-      return null;
-    }
-
-    const parsed: unknown = JSON.parse(serialized);
-    if (!isProviderSelectionSnapshot(parsed)) {
-      return null;
-    }
-
-    return parsed;
-  } catch (error) {
-    console.warn(
-      "[provider/store] failed to restore run-scoped selection",
-      error,
-    );
-    return null;
-  }
-}
-
-function buildRunScopedSelectionStorageKey(runId: string): string {
-  return `${RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX}${runId}`;
-}
-
-function clearPersistedRunScopedSelections(): void {
-  try {
-    const keysToRemove: string[] = [];
-    for (let index = 0; index < sessionStorage.length; index += 1) {
-      const key = sessionStorage.key(index);
-      if (key && key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)) {
-        keysToRemove.push(key);
-      }
-    }
-
-    for (const key of keysToRemove) {
-      sessionStorage.removeItem(key);
-    }
-  } catch (error) {
-    console.warn(
-      "[provider/store] failed to clear persisted run-scoped selections",
-      error,
-    );
-  }
-}
-
-function isProviderSelectionSnapshot(
-  value: unknown,
-): value is ProviderSelectionSnapshot {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    isNullableString(record.selectedProviderId) &&
-    isNullableString(record.selectedCredentialId) &&
-    isNullableString(record.selectedModelId)
-  );
-}
-
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === "string";
 }
 
 function mergeModelsById(

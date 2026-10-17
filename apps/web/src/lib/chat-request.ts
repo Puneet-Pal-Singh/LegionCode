@@ -1,5 +1,5 @@
-import type { ProductMode, RunMode } from "@repo/shared-types";
-import { ReasoningEffortSchema } from "@repo/shared-types";
+import type { ProductMode } from "@repo/shared-types";
+import { ReasoningEffortSchema, RunModeSchema } from "@repo/shared-types";
 import { z } from "zod";
 import { TurnScopeBootstrapSchema } from "./turn-scope-contract";
 
@@ -14,7 +14,7 @@ export const ChatRequestBodySchema = z
     runId: z.string().trim().min(1),
     identity: TurnScopeBootstrapSchema,
     clientMessageId: z.string().trim().min(1).optional(),
-    mode: z.custom<RunMode>().optional(),
+    mode: RunModeSchema.optional(),
     productMode: z.custom<ProductMode>().optional(),
     providerId: z.string().trim().min(1).optional(),
     modelId: z.string().trim().min(1).optional(),

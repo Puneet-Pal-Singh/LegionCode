@@ -37,6 +37,13 @@ export {
   type ArtifactPayloadRef,
 } from "./artifacts.js";
 export {
+  CHAT_MEDIA_IMAGE_TYPES,
+  ChatMediaImageTypeSchema,
+  ChatImageAttachmentRefSchema,
+  type ChatMediaImageType,
+  type ChatImageAttachmentRef,
+} from "./chat-media.js";
+export {
   CapabilityConfidenceSchema,
   CapabilityEntrySchema,
   CapabilityEvidenceSourceSchema,
@@ -46,6 +53,7 @@ export {
   WorkerCapabilitySnapshotSchema,
   WorkerExecutionLocationSchema,
   WorkerIsolationStrengthSchema,
+  ReasoningEffortSchema,
   type CapabilityConfidence,
   type CapabilityEntry,
   type CapabilityEvidenceSource,
@@ -55,6 +63,7 @@ export {
   type WorkerCapabilitySnapshot,
   type WorkerExecutionLocation,
   type WorkerIsolationStrength,
+  type ReasoningEffort,
 } from "./capabilities.js";
 export {
   BranchIdSchema,
@@ -86,6 +95,46 @@ export {
   type InterruptTurnIdentity,
   type InterruptTurnRequest,
 } from "./turn-scope-bootstrap.js";
+export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
+export {
+  EnqueueThreadInputCommandSchema,
+  ListThreadInputsCommandSchema,
+  RemoveThreadInputCommandSchema,
+  ResumeTurnCommandSchema,
+  ResumeTurnReceiptSchema,
+  StartedThreadInputReceiptSchema,
+  StartQueuedThreadInputCommandSchema,
+  SteerQueuedThreadInputCommandSchema,
+  SteerTurnCommandSchema,
+  ThreadInputCommandSchema,
+  ThreadInputConfigurationSchema,
+  ThreadInputContentSchema,
+  ThreadInputUpdateContentSchema,
+  ThreadInputImageSchema,
+  ThreadInputQueueItemSchema,
+  ThreadInputQueueSnapshotSchema,
+  ThreadInputReceiptSchema,
+  UpdateThreadInputCommandSchema,
+  type ResumeTurnReceipt,
+  type StartedThreadInputReceipt,
+  type ThreadInputCommand,
+  type ThreadInputConfiguration,
+  type ThreadInputQueueItem,
+  type ThreadInputQueueSnapshot,
+  type ThreadInputReceipt,
+} from "./thread-input.js";
+export {
+  ConversationHistoryRequestSchema,
+  ConversationHistoryMessageSchema,
+  ConversationHistoryResponseSchema,
+  type ConversationHistoryRequest,
+  type ConversationHistoryMessage,
+  type ConversationHistoryResponse,
+} from "./conversation-history.js";
+export {
+  TurnStartedPayloadSchema,
+  type TurnStartedPayload,
+} from "./lifecycle.js";
 export {
   GeneratedThreadTitleSchema,
   ThreadTitleUpdatedPayloadSchema,
@@ -248,6 +297,7 @@ export {
   TaskCheckoutIdSchema,
   ThreadIdSchema,
   ToolCallIdSchema,
+  ToolCallBatchIdSchema,
   TurnIdSchema,
   UserIdSchema,
   WorkerIdSchema,
@@ -273,6 +323,7 @@ export {
   type TaskCheckoutId,
   type ThreadId,
   type ToolCallId,
+  type ToolCallBatchId,
   type TurnId,
   type UserId,
   type WorkerId,
@@ -299,6 +350,7 @@ export {
   LifecycleEventProducerSchema,
   LifecycleEventSchema,
   LifecycleEventTypeSchema,
+  ApprovalGrantScopeSchema,
   LifecycleTransitionError,
   LifecycleTransitionSubjectSchema,
   RunAttemptStatusSchema,
@@ -312,6 +364,8 @@ export {
   TurnTerminalOutcomeSchema,
   TurnTerminalStatusSchema,
   LifecycleItemPayloadSchema,
+  TurnInputAcceptedPayloadSchema,
+  TurnInputAppliedPayloadSchema,
   LifecycleToolDisplaySchema,
   LifecycleToolFamilySchema,
   AssistantMessageDeltaPayloadSchema,
@@ -324,6 +378,7 @@ export {
   UsageMeasurementSourceSchema,
   UsageCostSnapshotSchema,
   ContextCompactionPhaseSchema,
+  CONTEXT_COMPACTION_SUMMARY_MAX_CHARS,
   ContextCompactionPayloadSchema,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,
@@ -357,6 +412,7 @@ export {
   type ItemKind,
   type ItemLifecycle,
   type ItemStatus,
+  type ApprovalGrantScope,
   type LifecycleEvent,
   type LifecycleEventProducer,
   type LifecycleEventType,
@@ -376,11 +432,15 @@ export {
   type TurnTerminalOutcome,
   type TurnTerminalStatus,
   type LifecycleItemPayload,
+  type TurnInputAcceptedPayload,
+  type TurnInputAppliedPayload,
   type LifecycleToolDisplay,
 } from "./lifecycle.js";
 export {
   ContentDigestSchema,
   GitObjectIdSchema,
+  ResumeWorkspaceSnapshotRefSchema,
+  ResumeWorkspaceUnavailableReasonSchema,
   RepositoryIdentitySchema,
   RepositoryProviderSchema,
   TaskCheckoutSchema,
@@ -389,6 +449,8 @@ export {
   WorkspaceSnapshotSchema,
   type ContentDigest,
   type GitObjectId,
+  type ResumeWorkspaceSnapshotRef,
+  type ResumeWorkspaceUnavailableReason,
   type RepositoryIdentity,
   type RepositoryProvider,
   type TaskCheckout,
@@ -419,6 +481,9 @@ export {
   type LocalWorkspaceReadiness,
 } from "./workspace-grants.js";
 export {
+  PRODUCT_MODES,
+  ProductModeSchema,
+  type ProductMode,
   PermissionDecisionSourceSchema,
   PermissionEffectSchema,
   PermissionPolicyDecisionSchema,
@@ -446,15 +511,31 @@ export {
 export * from "./conversation-history.js";
 
 export {
-  HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
-  HostedSessionReadReceiptRequestSchema, HostedSessionReadReceiptSchema,
-  HostedSessionSchema, HostedTaskSchema, HostedSessionsResponseSchema,
-  HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
-  type HostedSession, type HostedSessionCreateRequest, type HostedSessionRenameRequest, type HostedSessionReadReceipt, type HostedSessionsResponse,
+  HostedSessionParamsSchema,
+  HostedSessionCreateRequestSchema,
+  HostedSessionRenameRequestSchema,
+  HostedSessionReadReceiptRequestSchema,
+  HostedSessionReadReceiptSchema,
+  HostedSessionSchema,
+  HostedTaskSchema,
+  HostedSessionsResponseSchema,
+  HostedArchivedSessionsResponseSchema,
+  HostedSessionResponseSchema,
+  type HostedSession,
+  type HostedSessionCreateRequest,
+  type HostedSessionRenameRequest,
+  type HostedSessionReadReceipt,
+  type HostedSessionsResponse,
 } from "./hosted-sessions.js";
 
 export {
-  HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
-  type HostedWorkspaceSelectRequest, type HostedWorkspaceRepository, type HostedWorkspaceRecord,
-  type HostedWorkspaceSelection, type HostedWorkspaceListItem, type HostedWorkspaceListResponse,
+  HostedWorkspaceSelectRequestSchema,
+  HostedWorkspaceListResponseSchema,
+  HostedWorkspaceSelectResponseSchema,
+  type HostedWorkspaceSelectRequest,
+  type HostedWorkspaceRepository,
+  type HostedWorkspaceRecord,
+  type HostedWorkspaceSelection,
+  type HostedWorkspaceListItem,
+  type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";

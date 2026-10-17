@@ -7,6 +7,7 @@ import {
   type LifecycleEvent,
   type Run,
   type Turn,
+  type ResumeWorkspaceUnavailableReason,
 } from "@repo/platform-protocol";
 import type { WorkspaceManifestRepository } from "@repo/workspace-core";
 import type { WorkspaceManifest } from "@repo/workspace-core";
@@ -31,7 +32,7 @@ import type {
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
-import type { StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
+import type { AcceptedThreadInput, StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
 import { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
 import {
@@ -122,13 +123,41 @@ export class RuntimeKernel {
     }
   }
 
+  async acceptThreadInput(input: {
+    readonly turnId: Turn["id"];
+    readonly accepted: Omit<AcceptedThreadInput, "acceptedSequence">;
+    readonly clientInputId: string;
+    readonly transcriptMessageId: string;
+  }): Promise<number> {
+    const lifecycle = this.lifecycles.get(input.turnId);
+    if (!lifecycle || !this.dependencies.provider.enqueueThreadInput) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${input.turnId} has no active model input owner`,
+      );
+    }
+    return await lifecycle.acceptThreadInput(
+      {
+        inputId: input.accepted.inputId,
+        clientInputId: input.clientInputId,
+        transcriptMessageId: input.transcriptMessageId,
+      },
+      (acceptedSequence) => {
+        this.dependencies.provider.enqueueThreadInput?.({
+          ...input.accepted,
+          acceptedSequence,
+        });
+      },
+    );
+  }
+
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
     const prepared = await this.prepareTurn(input);
     this.preparedTurns.set(prepared.turn.id, prepared);
     const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
     if (pendingReason) {
       this.pendingInterrupts.delete(prepared.turn.id);
-      await this.interruptPreparedTurn(prepared, pendingReason);
+      await this.interruptPreparedTurn(prepared, pendingReason, true);
       this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
       return {
@@ -166,7 +195,7 @@ export class RuntimeKernel {
       workspace,
     });
     const startArtifacts = await artifactSettlement.begin();
-    const lifecycle = this.createLifecycle(run, turn, runAttemptId);
+    const lifecycle = this.createLifecycle(run, turn, runAttemptId, input);
     this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
       this.dependencies.approvals,
@@ -253,7 +282,24 @@ export class RuntimeKernel {
     } catch (error) {
       if (!lifecycle.isTerminal) {
         if (!isArtifactSettlementError(error)) {
-          await this.settleArtifacts(turn.id, lifecycle, artifacts);
+          const interrupted =
+            isTurnCancelled(error) || prepared.executionSignal.aborted;
+          const resumeQuiescent =
+            interrupted &&
+            (await this.dependencies.worker.awaitQuiescence?.({
+              turnId: turn.id,
+              timeoutMs: 500,
+            })) === true;
+          await this.settleArtifacts(
+            turn.id,
+            lifecycle,
+            artifacts,
+            true,
+            resumeQuiescent,
+            interrupted && !resumeQuiescent
+              ? "worker_not_quiescent"
+              : undefined,
+          );
         }
         if (isTurnCancelled(error) || prepared.executionSignal.aborted) {
           await lifecycle.interrupt(
@@ -311,9 +357,11 @@ export class RuntimeKernel {
       .get(turnId)
       ?.abort(new DOMException(reason, "AbortError"));
     const execution = this.executions.get(turnId);
+    let executionSettled = !execution;
     if (execution) {
       try {
         await withBoundedCancellationSettlement(execution);
+        executionSettled = true;
       } catch (error) {
         if (!isTurnCancelled(error) && !lifecycle.isTerminal) {
           throw error;
@@ -330,7 +378,13 @@ export class RuntimeKernel {
         );
       }
       this.pendingInterrupts.delete(turnId);
-      await this.interruptPreparedTurn(prepared, reason);
+      const quiescent =
+        executionSettled &&
+        (await this.dependencies.worker.awaitQuiescence?.({
+          turnId,
+          timeoutMs: 500,
+        })) === true;
+      await this.interruptPreparedTurn(prepared, reason, quiescent);
     }
   }
 
@@ -417,17 +471,40 @@ export class RuntimeKernel {
           );
       this.activeContexts.set(turn.id, effectiveContext);
       await this.maybeAutomaticallyCompact(prepared, effectiveContext);
+      const providerInput = {
+        run,
+        runAttemptId,
+        turn,
+        workspace,
+        context: this.activeContexts.get(turn.id) ?? effectiveContext,
+        toolResults,
+        signal: prepared.executionSignal,
+        refreshContext: async () => {
+          const refreshed = await this.assembleContext(
+            run,
+            turn,
+            workspace,
+            toolResults,
+            prepared.executionSignal,
+          );
+          this.activeContexts.set(turn.id, refreshed);
+          await this.maybeAutomaticallyCompact(prepared, refreshed);
+          return this.activeContexts.get(turn.id) ?? refreshed;
+        },
+        onThreadInputsApplied: async (inputs: readonly import("./types.js").AppliedThreadInput[]) => {
+          for (const input of inputs) {
+            await prepared.lifecycle.applyThreadInput({
+              inputId: input.inputId,
+              acceptedSequence: input.acceptedSequence,
+              modelStep: input.modelStep,
+              contextRevision: input.contextRevision,
+            });
+          }
+        },
+      };
       let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
       try {
-        step = await this.dependencies.provider.generateNext({
-          run,
-          runAttemptId,
-          turn,
-          workspace,
-          context: this.activeContexts.get(turn.id) ?? effectiveContext,
-          toolResults,
-          signal: prepared.executionSignal,
-        });
+        step = await this.dependencies.provider.generateNext(providerInput);
       } catch (error) {
         if (error instanceof RuntimeKernelError) throw error;
         throw new RuntimeKernelError(
@@ -447,13 +524,15 @@ export class RuntimeKernel {
           );
         }
         await lifecycle.updateUsage(step.usage);
+        const latestContext =
+          this.activeContexts.get(turn.id) ?? effectiveContext;
         const providerBudget = reconcileProviderContextBudget(
-          effectiveContext.budgetSnapshot,
+          latestContext.budgetSnapshot,
           step.usage,
         );
         if (providerBudget) {
           const measuredContext = {
-            ...effectiveContext,
+            ...latestContext,
             budgetSnapshot: providerBudget,
           };
           this.activeContexts.set(turn.id, measuredContext);
@@ -461,6 +540,20 @@ export class RuntimeKernel {
         }
       }
       if (step.kind === "complete") {
+        const reserved = await prepared.lifecycle.reserveCompletion(
+          () => this.dependencies.provider.hasPendingThreadInputs?.() ?? false,
+        );
+        if (!reserved) {
+          const flushed = await this.dependencies.provider.flushThreadInputs?.();
+          if (flushed) {
+            toolCallCount -= 1;
+            continue;
+          }
+          throw new RuntimeKernelError(
+            "turn_not_active",
+            `Turn ${turn.id} could not reserve terminal settlement`,
+          );
+        }
         if (step.reasoning) {
           const lifecycle = this.lifecycles.get(turn.id);
           if (!lifecycle) {
@@ -666,12 +759,16 @@ export class RuntimeKernel {
   private async interruptPreparedTurn(
     prepared: PreparedTurn,
     reason: string,
+    resumeWorkspaceQuiescent: boolean,
   ): Promise<void> {
     try {
       await this.settleArtifacts(
         prepared.turn.id,
         prepared.lifecycle,
         prepared.artifacts,
+        true,
+        resumeWorkspaceQuiescent,
+        resumeWorkspaceQuiescent ? undefined : "worker_not_quiescent",
       );
       await prepared.lifecycle.interrupt(reason);
     } finally {
@@ -713,6 +810,7 @@ export class RuntimeKernel {
     run: Run,
     turn: Turn,
     runAttemptId: StartTurnInput["runAttemptId"],
+    input: StartTurnInput,
   ): RuntimeLifecycleCoordinator {
     this.assertTurnAvailable(turn);
     const lifecycle = new RuntimeLifecycleCoordinator({
@@ -725,6 +823,8 @@ export class RuntimeKernel {
       runAttemptId,
       initialSequence: turn.lastEventSequence,
       revisionOfTurnId: turn.parentTurnId ?? undefined,
+      continuationOfTurnId: input.continuationOfTurnId,
+      originalPromptId: input.originalPromptId,
     });
     this.lifecycles.set(turn.id, lifecycle);
     return lifecycle;
@@ -748,10 +848,19 @@ export class RuntimeKernel {
     turnId: Turn["id"],
     lifecycle: RuntimeLifecycleCoordinator,
     coordinator: TurnArtifactSettlementCoordinator,
+    interruptedSettlement = false,
+    preserveWorkspaceProgress = false,
+    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     const existing = this.artifactSettlementEmissions.get(turnId);
     if (existing) return await existing;
-    const settlement = this.settleArtifactsNow(lifecycle, coordinator);
+    const settlement = this.settleArtifactsNow(
+      lifecycle,
+      coordinator,
+      interruptedSettlement,
+      preserveWorkspaceProgress,
+      resumeUnavailableReason,
+    );
     this.artifactSettlementEmissions.set(turnId, settlement);
     return await settlement;
   }
@@ -759,15 +868,37 @@ export class RuntimeKernel {
   private async settleArtifactsNow(
     lifecycle: RuntimeLifecycleCoordinator,
     coordinator: TurnArtifactSettlementCoordinator,
+    interruptedSettlement: boolean,
+    preserveWorkspaceProgress: boolean,
+    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     try {
-      const settlement = await coordinator.settle();
+      const settlement = await coordinator.settle({
+        interrupted: interruptedSettlement,
+        preserveWorkspaceProgress,
+        resumeUnavailableReason,
+      });
+      if (!settlement.terminalSnapshot) {
+        await lifecycle.markWorkspaceSnapshotUnavailable(
+          settlement.resumeUnavailableReason ?? "snapshot_unavailable",
+        );
+        return settlement;
+      }
+      if (settlement.resumeWorkspaceArtifact) {
+        await lifecycle.createTurnArtifact(settlement.resumeWorkspaceArtifact);
+      }
       await lifecycle.captureWorkspaceSnapshot({
         snapshot: settlement.terminalSnapshot,
-        artifact: settlement.terminalSnapshotArtifact,
+        ...(settlement.terminalSnapshotArtifact !== undefined
+          ? { artifact: settlement.terminalSnapshotArtifact }
+          : {}),
       });
-      await lifecycle.updateTurnDiff(settlement.turnDiff);
-      await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
+      if (settlement.turnDiff) {
+        await lifecycle.updateTurnDiff(settlement.turnDiff);
+      }
+      if (settlement.turnDiffArtifact) {
+        await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
+      }
       return settlement;
     } catch (error) {
       throw new RuntimeKernelError(

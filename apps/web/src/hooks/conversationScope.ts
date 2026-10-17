@@ -24,6 +24,27 @@ export interface ConversationScope {
   readonly revisionOfTurnId?: string;
 }
 
+export class ConversationScopeHttpError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly retryable: boolean;
+
+  constructor(input: {
+    status: number;
+    code: string;
+    message: string;
+    retryable?: boolean;
+  }) {
+    super(input.message);
+    this.name = "ConversationScopeHttpError";
+    this.status = input.status;
+    this.code = input.code;
+    this.retryable =
+      input.retryable ??
+      (input.status >= 500 || input.status === 408 || input.status === 429);
+  }
+}
+
 export function createConversationScope(input: {
   workspaceId: string;
   threadId: string;
@@ -61,9 +82,39 @@ export function conversationScopeKey(scope: ConversationScope): string {
 export function isTurnScopeRecoveryError(message: string | null): boolean {
   return Boolean(
     message &&
-      (message.includes("Turn scope reconstruction failed") ||
-        message.includes("TURN_SCOPE_")),
+    (message.includes("Turn scope reconstruction failed") ||
+      message.includes("TURN_SCOPE_")),
   );
+}
+
+async function readScopeError(
+  response: Response,
+): Promise<ConversationScopeHttpError> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  const record =
+    typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)
+      : null;
+  const code =
+    typeof record?.code === "string" ? record.code : `HTTP_${response.status}`;
+  const message =
+    typeof record?.error === "string"
+      ? record.error
+      : typeof record?.message === "string"
+        ? record.message
+        : `Conversation scope request failed (HTTP ${response.status}).`;
+  return new ConversationScopeHttpError({
+    status: response.status,
+    code,
+    message,
+    retryable:
+      typeof record?.retryable === "boolean" ? record.retryable : undefined,
+  });
 }
 
 export async function bootstrapConversationScope(
@@ -88,7 +139,7 @@ export async function bootstrapConversationScope(
   });
 
   if (!response.ok) {
-    throw new Error(`Turn scope bootstrap failed with HTTP ${response.status}`);
+    throw await readScopeError(response);
   }
 
   const identity: TurnScopeBootstrap = TurnScopeBootstrapSchema.parse(
@@ -116,7 +167,7 @@ export async function resumeConversationScope(
   );
   if (response.status === 404) return null;
   if (!response.ok) {
-    throw new Error(`Turn scope reconstruction failed with HTTP ${response.status}`);
+    throw await readScopeError(response);
   }
   const identity: TurnScopeBootstrap = TurnScopeBootstrapSchema.parse(
     await response.json(),

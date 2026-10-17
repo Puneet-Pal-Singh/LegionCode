@@ -65,7 +65,7 @@ vi.mock("./useProviderStore.js", () => ({
     lastResolvedConfig: null,
     providerModels: {},
     manageProviderModels: {},
-    resolveForChat: vi.fn(),
+    resolveForChat: vi.fn(async () => ({ providerId: "openai", modelId: state.selectedModelId, credentialId: "credential_submission_fixture" })),
   }),
 }));
 
@@ -126,7 +126,7 @@ function event(overrides: Partial<LifecycleEventFixture> = {}): LifecycleEvent {
     schemaVersion: 1,
     idempotencyKey: "event_submission_outcome01",
     producer: { kind: "runtime_kernel", id: "submission-outcomes-test" },
-    payload: { turnId: current.turnId },
+    payload: {},
     ...overrides,
   }) as LifecycleEvent;
 }

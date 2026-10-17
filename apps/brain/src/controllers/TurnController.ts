@@ -154,9 +154,6 @@ export class TurnController {
       if (admission.state !== "admitted") {
         return errorResponse(req, env, "Turn admission is reserved but prompt persistence has not completed", 409, "TURN_ADMISSION_RECOVERY_REQUIRED");
       }
-      if (admission.executionState === "recovery_required") {
-        return errorResponse(req, env, "This turn has an execution claim without a confirmed terminal result and requires recovery review.", 409, "TURN_EXECUTION_RECOVERY_REQUIRED");
-      }
       return jsonResponse(req, env, TurnScopeBootstrapSchema.parse({
         workspaceId: scope.workspaceId,
         threadId: admission.threadId,

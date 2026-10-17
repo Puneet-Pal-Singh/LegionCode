@@ -77,7 +77,7 @@ export function lifecycleEvent(sequence: number): LifecycleEvent {
     schemaVersion: 1,
     createdAt: "2026-06-23T00:00:00.000Z",
     type: "turn.started",
-    payload: { turnId: "trn_continue" },
+    payload: {},
   });
 }
 

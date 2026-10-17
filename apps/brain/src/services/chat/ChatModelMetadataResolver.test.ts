@@ -24,6 +24,7 @@ describe("findDiscoveredChatModelMetadata", () => {
             capabilities: {
               reasoningEfforts: ["low", "high"],
             },
+            inputModalities: { text: true, image: false },
           },
         ],
         page: { limit: 200, hasMore: false },
@@ -39,6 +40,8 @@ describe("findDiscoveredChatModelMetadata", () => {
       contextWindow: 400000,
       pricing: { inputPer1M: 5, outputPer1M: 30, currency: "USD" },
       reasoningEfforts: ["low", "high"],
+      capabilities: { reasoningEfforts: ["low", "high"] },
+      inputModalities: { text: true, image: false },
     });
     expect(getDiscoveredModels).toHaveBeenNthCalledWith(2, "openai", {
       view: "all",

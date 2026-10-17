@@ -88,6 +88,11 @@ const outcomeCopy: Record<
     detail: "The denied action was not run.",
     nextStep: "Send a revised instruction to continue.",
   },
+  APPROVAL_TIMED_OUT: {
+    title: "I stopped because the approval request expired.",
+    detail: "No decision was recorded before the approval window closed.",
+    nextStep: "Retry the action and respond before the approval window closes.",
+  },
   TOOL_EXECUTION_FAILED: {
     title: "I could not finish because a required tool step failed.",
     detail: "The terminal failure is recorded in the run evidence.",

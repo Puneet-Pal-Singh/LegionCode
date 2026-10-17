@@ -43,13 +43,13 @@ export class ToolExecutionCoordinator {
       toolCall,
     });
     const canonicalToolCall =
-      authorization.status === "rejected"
-        ? toolCall
-        : authorization.toolCall;
+      authorization.status === "rejected" ? toolCall : authorization.toolCall;
     await this.lifecycle.startToolCall(
       itemId,
       canonicalToolCall.toolCallId,
+      canonicalToolCall.toolName,
       canonicalToolCall.input,
+      canonicalToolCall.callBatchId,
       canonicalToolCall.display,
     );
     try {
@@ -78,6 +78,19 @@ export class ToolExecutionCoordinator {
           toolCall.toolCallId,
           error.message,
         );
+        const failure = toProtocolError(error);
+        return {
+          toolCallId: toolCall.toolCallId,
+          output: {
+            error: {
+              code: failure.code,
+              message: failure.message,
+              details: failure.details,
+              retryable: false,
+            },
+          },
+          failure: { ...failure, retryable: false },
+        };
       } else {
         await this.lifecycle.failToolCall(
           toolCall.toolCallId,
@@ -133,6 +146,7 @@ export class ToolExecutionCoordinator {
           error: {
             code: result.failure.code,
             message: result.failure.message,
+            details: result.failure.details,
             retryable: result.failure.retryable,
           },
         },
@@ -166,9 +180,7 @@ export class ToolExecutionCoordinator {
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
     signal?: AbortSignal,
-  ): Promise<
-    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
-  > {
+  ): Promise<Extract<WorkerToolResult, { kind: "completed" | "failed" }>> {
     const initial = await this.callWorker(
       run,
       runAttemptId,
@@ -220,9 +232,7 @@ export class ToolExecutionCoordinator {
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution,
     signal?: AbortSignal,
-  ): Promise<
-    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
-  > {
+  ): Promise<Extract<WorkerToolResult, { kind: "completed" | "failed" }>> {
     const result = await this.callWorker(
       run,
       runAttemptId,

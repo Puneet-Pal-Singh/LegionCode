@@ -330,7 +330,9 @@ function AppContent() {
   }, [isAuthenticated, sessions.length]);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
-    providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
+    providerScopeSession?.activeRunId ??
+    providerScopeSession?.latestRunId ??
+    setupSession?.activeRunId;
   const {
     bootstrap: bootstrapProviderStore,
     credentials,
@@ -386,16 +388,12 @@ function AppContent() {
 
     const storeState = uiShellStore.getState();
 
-    // Only sync if the active session actually changed
-    if (storeState.activeSessionId === activeSessionId) {
-      return;
+    if (storeState.activeSessionId !== activeSessionId) {
+      uiShellStore.setActiveSessionId(activeSessionId);
     }
 
-    uiShellStore.setActiveSessionId(activeSessionId);
-
-    // Find active session's runId and sync it
-    // Note: This lookup is safe because we've already validated activeSessionId exists
-    if (activeSession) {
+    // Keep the selected run in sync when resume or queue admission creates a new run.
+    if (activeSession && storeState.activeRunId !== activeSession.activeRunId) {
       uiShellStore.setActiveRunId(activeSession.activeRunId);
     }
   }, [activeSessionId, activeSession]);
@@ -1132,7 +1130,7 @@ function AppContent() {
               <SessionConversationSurface
                 key={activeSessionId}
                 sessionId={activeSessionId}
-                runId={activeSession.activeRunId || ""}
+                runId={activeSession.activeRunId ?? activeSession.latestRunId ?? ""}
                 mode={activeSession.mode}
                 isSessionPersistenceReady={isSessionPersistenceReady(
                   activeSession.persistenceStatus,
@@ -1143,6 +1141,15 @@ function AppContent() {
                 onServerProjectionAvailable={() =>
                   void refreshSessionProjection(activeSessionId)
                 }
+                onRunIdChange={(runId) => {
+                  if (!activeSession) return;
+                  updateSession(activeSessionId, {
+                    activeRunId: runId,
+                    runIds: Array.from(
+                      new Set([...activeSession.runIds, runId]),
+                    ),
+                  });
+                }}
               >
                 {({
                   chat,

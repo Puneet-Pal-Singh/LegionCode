@@ -64,5 +64,9 @@ function emptyProjection(): LifecycleProjection {
     settledAt: null,
     contextBudget: null,
     usage: null,
+    workspaceSnapshotState: "unknown",
+    resumeSnapshotAvailable: false,
+    workspaceSnapshotUnavailableReason: null,
+    resumeUnavailableReason: null,
   };
 }

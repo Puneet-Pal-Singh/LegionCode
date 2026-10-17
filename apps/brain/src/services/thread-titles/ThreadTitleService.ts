@@ -50,6 +50,7 @@ export class ThreadTitleService {
       ...input,
       title: buildThreadTitlePreview(input.prompt),
       source: "preview",
+      titleStatus: input.titleStatus ?? "pending",
       initialOnly: true,
     });
   }
@@ -61,6 +62,7 @@ export class ThreadTitleService {
         sessionId: input.sessionId,
         title: input.title,
         titleSource: input.source,
+        titleStatus: input.titleStatus ?? "ready",
         expectedTitleVersion: input.expectedTitleVersion,
         initialOnly: input.initialOnly,
         buildEvent: (session) => this.buildEvent(input, session, input.source),
@@ -81,7 +83,7 @@ export class ThreadTitleService {
     return await this.persist({
       ...input,
       title: buildThreadTitlePreview(input.prompt),
-      source: "generated",
+      source: "preview",
       titleStatus: "failed",
     });
   }
@@ -112,7 +114,7 @@ export class ThreadTitleService {
       title: session.title,
       titleVersion: session.titleVersion ?? 1,
       source,
-      titleStatus: input.titleStatus ?? "ready",
+      titleStatus: session.titleStatus ?? input.titleStatus ?? "ready",
       timestamp: session.updatedAt,
     });
 
