@@ -103,7 +103,7 @@ describe("AgentSidebar adapter", () => {
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  it("routes workspace selection without closing the parent sidebar", () => {
+  it("closes the sidebar before opening workspace selection", () => {
     const onAddRepository = vi.fn();
     const onClose = vi.fn();
     renderSidebar({ onClose, onAddRepository });
