@@ -225,7 +225,7 @@ body {
   gap: 0.5rem;
   border-bottom: 1px solid var(--lc-color-border);
   background: var(--lc-color-surface);
-  padding: 0 0.75rem;
+  padding: 0 0.625rem;
 }
 
 .lc-workspace-menu-button {
@@ -242,11 +242,17 @@ body {
 }
 
 .lc-workspace-menu-button:hover { background: var(--lc-color-surface-elevated); }
-.lc-workspace-topbar-content { display: flex; flex: 1; min-width: 0; align-items: center; gap: 0.75rem; }
+.lc-workspace-topbar-content { display: flex; flex: 1; min-width: 0; align-items: center; gap: 0.5rem; }
 .lc-workspace-topbar-leading, .lc-workspace-topbar-actions { display: flex; align-items: center; gap: 0.5rem; }
-.lc-workspace-topbar-title { overflow: hidden; margin: 0; color: var(--lc-color-text-primary); font-size: 0.875rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.lc-workspace-topbar-title { max-width: 52vw; overflow: hidden; margin: 0; color: var(--lc-color-text-primary); font-size: 0.875rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .lc-workspace-topbar-spacer { flex: 1; }
 .lc-workspace-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+
+@media (min-width: 640px) {
+  .lc-workspace-topbar { gap: 0.75rem; padding-inline: 0.75rem; }
+  .lc-workspace-topbar-content { gap: 0.75rem; }
+  .lc-workspace-topbar-title { max-width: 38vw; }
+}
 
 .lc-thread-sidebar {
   display: flex;

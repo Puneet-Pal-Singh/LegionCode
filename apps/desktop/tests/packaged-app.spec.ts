@@ -42,12 +42,13 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     application = launchedApplication;
     const page = await launchedApplication.firstWindow();
     await page.setViewportSize({ width: 420, height: 900 });
-    const sidebarToggle = page.locator(".lc-workspace-menu-button");
+    const openSidebar = page.getByRole("button", { name: "Open sidebar" });
     const workspaceSidebar = page.getByTestId("workspace-sidebar");
-    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    const closeSidebar = workspaceSidebar.getByRole("button", { name: "Close sidebar" });
+    await expect(openSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
     await page.setViewportSize({ width: 1100, height: 800 });
-    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(openSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
     await expect(
       page.getByRole("heading", { name: "LegionCode Desktop" }),
@@ -55,19 +56,25 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
     await expect(page.getByText("2 capability slices unavailable", { exact: true })).toBeVisible();
-    await sidebarToggle.click();
-    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await openSidebar.click();
+    await expect(workspaceSidebar).toBeVisible();
+    await expect(closeSidebar).toBeVisible();
+    await expect(openSidebar).toBeHidden();
+    await closeSidebar.click();
+    await expect(workspaceSidebar).toBeHidden();
+    await expect(openSidebar).toBeVisible();
+    await openSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
     await page.setViewportSize({ width: 420, height: 900 });
-    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(workspaceSidebar).toHaveAttribute("aria-modal", "true");
+    await closeSidebar.click();
     await expect(workspaceSidebar).toBeHidden();
-    await sidebarToggle.click();
-    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
-    await expect(workspaceSidebar).toBeVisible();
-    await expect(workspaceSidebar.getByLabel("Search")).toBeFocused();
+    await expect(openSidebar).toBeFocused();
+    await openSidebar.click();
+    await expect(closeSidebar).toBeFocused();
     await page.keyboard.press("Escape");
-    await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
-    await expect(sidebarToggle).toBeFocused();
+    await expect(workspaceSidebar).toBeHidden();
+    await expect(openSidebar).toBeFocused();
     await page.setViewportSize({ width: 1100, height: 800 });
     const appMetrics = await launchedApplication.evaluate(({ app }) => app.getAppMetrics());
     const appServerMetric = appMetrics.find(
@@ -346,12 +353,13 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     });
     const page = await application.firstWindow();
     await page.setViewportSize({ width: 420, height: 900 });
-    const initialSidebarToggle = page.locator(".lc-workspace-menu-button");
+    const initialOpenSidebar = page.getByRole("button", { name: "Open sidebar" });
     const workspaceSidebar = page.getByTestId("workspace-sidebar");
-    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    const initialCloseSidebar = workspaceSidebar.getByRole("button", { name: "Close sidebar" });
+    await expect(initialOpenSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
     await page.setViewportSize({ width: 1100, height: 800 });
-    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(initialOpenSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
 
@@ -366,14 +374,12 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await page.getByRole("button", { name: "Grant access" }).click();
     await expect(page.getByRole("heading", { name: "repository" })).toBeVisible();
     await expect(page.getByText("main", { exact: true })).toBeVisible();
-    await initialSidebarToggle.click();
-    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await initialOpenSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
-    await initialSidebarToggle.click();
-    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(initialCloseSidebar).toBeVisible();
+    await initialCloseSidebar.click();
     await expect(workspaceSidebar).toBeHidden();
-    await initialSidebarToggle.click();
-    await expect(initialSidebarToggle).toHaveAttribute("aria-expanded", "true");
+    await initialOpenSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
 
     await page.getByLabel("New thread title").fill("Initial thread");
@@ -412,26 +418,28 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     const reopenedPage = await application.firstWindow();
     await reopenedPage.setViewportSize({ width: 960, height: 800 });
     await expect(reopenedPage.getByRole("heading", { name: "repository" })).toBeVisible();
-    const reopenedSidebarToggle = reopenedPage.locator(".lc-workspace-menu-button");
-    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
-    await reopenedSidebarToggle.click();
-    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "true");
-    await expect(reopenedPage.getByTestId("workspace-sidebar")).toHaveAttribute(
+    const reopenedOpenSidebar = reopenedPage.getByRole("button", { name: "Open sidebar" });
+    const reopenedSidebar = reopenedPage.getByTestId("workspace-sidebar");
+    const reopenedCloseSidebar = reopenedSidebar.getByRole("button", { name: "Close sidebar" });
+    await expect(reopenedOpenSidebar).toBeVisible();
+    await reopenedOpenSidebar.click();
+    await expect(reopenedSidebar).toHaveAttribute(
       "aria-modal",
       "true",
     );
+    await expect(reopenedCloseSidebar).toBeFocused();
     await reopenedPage.getByRole("button", { name: /Archived/ }).click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.getByRole("option", { name: "Renamed thread" }).click();
     await expect(reopenedPage.getByRole("button", { name: "Unarchive" })).toBeVisible();
     await reopenedPage.getByRole("button", { name: "Unarchive" }).click();
     await expect(reopenedPage.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
-    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
-    await reopenedSidebarToggle.click();
+    await expect(reopenedOpenSidebar).toBeVisible();
+    await reopenedOpenSidebar.click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.keyboard.press("Escape");
-    await expect(reopenedSidebarToggle).toHaveAttribute("aria-expanded", "false");
-    await expect(reopenedPage.getByTestId("workspace-sidebar")).toBeHidden();
+    await expect(reopenedSidebar).toBeHidden();
+    await expect(reopenedOpenSidebar).toBeFocused();
     await reopenedPage.getByRole("button", { name: "Revoke access" }).click();
     await expect(reopenedPage.getByRole("heading", { name: "No workspace granted" })).toBeVisible();
 
