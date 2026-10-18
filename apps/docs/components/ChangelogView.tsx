@@ -141,11 +141,6 @@ function ReleaseArticle({ release }: { release: ChangelogRelease }) {
         >
           {dateFormatter.format(new Date(`${release.date}T00:00:00Z`))}
         </time>
-        {(release.phase === "development" || release.pullRequests) && (
-          <span className="ml-2 text-[10px] text-zinc-600 sm:ml-0 sm:block">
-            {release.phase === "development" ? "Development" : "Merged"}
-          </span>
-        )}
       </div>
       <div className="min-w-0">
         <h3
@@ -287,10 +282,6 @@ export function ChangelogView() {
             </section>
           ))}
         </div>
-        <p className="mt-10 border-t border-white/5 pt-5 text-xs leading-relaxed text-zinc-600">
-          Entries before June 22, 2026 record development milestones, not public
-          releases. Dates follow the source PRs and commits, not deployments.
-        </p>
       </div>
       <ChangelogMonths months={months} />
     </div>

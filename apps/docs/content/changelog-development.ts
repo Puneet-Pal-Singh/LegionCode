@@ -12,7 +12,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Saved tool activity and progress messages with the request that produced them.",
           "Saved complete diffs and line counts so changes could be reviewed after a workspace restart.",
@@ -30,7 +30,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added file tabs and previews. Diffs could be collapsed or expanded to show surrounding lines.",
           "Adjusted branch and permission menus and fixed wrapped file content in the review sidebar.",
@@ -47,7 +47,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added review of earlier edits even after more changes had been made in the workspace.",
           "Fixed saved edit cards changing to show later versions of a file.",
@@ -64,7 +64,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Fixed messages from the previous chat appearing after switching chats.",
           "Fixed missing files in Review and removed duplicate progress rows and Thinking indicators left behind after completion.",
@@ -132,7 +132,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "The agent could search file names and contents and browse the repository's folder tree.",
           "Large file reads showed how much was read and how to continue from the remaining content.",
@@ -149,7 +149,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added an approval panel that stayed visible until a request was answered.",
           "Tasks waiting for approval stayed marked as waiting instead of appearing complete.",
@@ -166,7 +166,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Each assistant reply could open the edits made for that request.",
           "Separated current Git changes from saved edits in Review and refreshed saved changes when a task finished.",
@@ -200,7 +200,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Reopened chats could show earlier tool calls, approvals, progress messages, and provider errors.",
           "Recoverable provider errors paused the task instead of leaving the loading indicator running.",
@@ -217,7 +217,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added image pasting with thumbnail previews and a way to remove images before sending.",
           "Checked image type, size, attachment count, and model support before sending. Image contents were excluded from debug logs.",
@@ -234,7 +234,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added saved file lists and diffs that could be opened from chat messages.",
           "Earlier edits could be reviewed after the workspace's files had changed again.",
@@ -251,7 +251,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added chat renaming, pinning, archiving, and restoring archived chats.",
           "Added automatic chat titles, a pinned group in the sidebar, and archived chats in Settings.",
@@ -268,7 +268,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Tasks were marked complete only after their final reply was saved.",
           "Denied actions and failed tasks showed an explanation instead of an empty response or raw tool output.",
@@ -285,7 +285,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Saved diffs and line counts across restarts, with support for renamed files and filenames containing spaces or special characters.",
           "Fixed task execution using the chat's previous run instead of the current request.",
@@ -302,7 +302,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Fixed selecting an existing chat restarting it or crashing the workspace when task details were missing.",
           "Chats showed when history was loading or unavailable. Sending was disabled until history finished loading.",
@@ -319,7 +319,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Fixed saved chats loading without their history or chat details and checked access before returning history.",
           "Kept tasks' Git workspaces separate and fixed cancelled tasks later appearing completed.",
@@ -356,7 +356,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added saved edit previews to chat.",
           "Adjusted preview widths and linked each file change to the assistant reply that made it.",
@@ -373,7 +373,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Changed-files cards showed file counts and added or removed lines, with an expandable file list and a Review button.",
           "Updated the right sidebar so file changes and review used more of the available space.",
@@ -390,7 +390,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added comments on diffs that could be sent to the agent with the next message.",
           "Attached comments showed the file, line, code preview, and note before sending.",
@@ -407,7 +407,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added Settings to the sidebar.",
           "Provider errors offered a link to Settings → Connect to fix the connection.",
@@ -424,7 +424,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "The agent could use supported GitHub CLI commands and read through the GitHub connector.",
           "GitHub actions checked your account's access, and changes such as posting PR comments required approval.",
@@ -441,7 +441,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added permission-mode controls to setup and saved chats.",
           "Actions needing permission asked for approval in chat and showed a waiting status in the task sidebar.",
@@ -458,7 +458,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added guided setup for choosing a repository and connecting a provider with your API key.",
           "Updated the message box, file mentions, and instructions shown before the first message.",
@@ -492,7 +492,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Fixed follow-up requests switching back to the original repository branch instead of keeping the task's branch.",
           "Improved recovery after failed pulls and error messages for missing branches and rejected pushes. GitHub activity appeared in chat.",
@@ -543,7 +543,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Separated progress messages from the final answer.",
           "Messages about recovering from errors stayed visible with the task's activity.",
@@ -560,7 +560,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "The Commit button opened a review popup with Git status, diffs, staging, and commit actions.",
           "Disabled controls for actions that were not yet available.",
@@ -577,7 +577,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added a compact activity timeline with expandable tool details.",
           "Attached live activity to the request that produced it and kept completed work in collapsible summaries.",
@@ -595,7 +595,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added Plan and Build choices to the message box and setup.",
           "Plan mode saved a plan without making code changes and offered a switch to Build when ready.",
@@ -629,7 +629,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "The agent could use a tool, read its result, and continue working on the request.",
           "Added file reading and editing, shell commands, Git status and diff, and file and text search.",
@@ -647,7 +647,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Rendered formatted Markdown in chat, including code blocks and links.",
         ],
@@ -663,7 +663,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Updated task rows and sidebar navigation. New Task used the provider selected in the message box.",
           "Git status and diffs loaded when a workspace was selected, before the first message.",
@@ -816,7 +816,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Each chat kept its own conversation, repository, and model choices.",
           "Added saved chats and switching between conversations.",
@@ -849,7 +849,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added a task inbox with filters for queued, running, waiting, failed, and completed tasks.",
           "Saved the selected workspace, chat, and right-panel view in the browser.",
@@ -950,7 +950,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: ["Added GitHub sign-in and repository selection for each chat."],
       },
     ],
@@ -964,7 +964,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added a changed-files list, line-by-line diffs, and status and commit controls to the workspace sidebar.",
         ],
@@ -980,7 +980,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Reworked the chat, task sidebar, top navigation, and workspace panels.",
           "Added chat headers, file labels, and change counts.",
@@ -997,7 +997,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added saved chats and conversation history to the workspace.",
           "Setup and the task sidebar could load existing conversations.",
@@ -1014,7 +1014,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Saved chat history as work progressed and added cloud storage for generated files.",
           "Fixed older messages being executed again when restoring a conversation.",
@@ -1035,7 +1035,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added previews of generated code and loading of saved chats.",
           "Kept conversations in memory while switching between them.",
@@ -1056,7 +1056,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Added action details and a view of generated files alongside chat.",
           "Expanded the agent's file tools and Git diff and commit actions.",
@@ -1077,7 +1077,7 @@ export const developmentReleases: ChangelogRelease[] = [
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Connected chat to model requests and command execution, with terminal feedback in the prototype.",
         ],
@@ -1111,13 +1111,13 @@ export const developmentReleases: ChangelogRelease[] = [
   },
   {
     id: "development-project-start",
-    title: "Development began as Shadowbox",
+    title: "The first Shadowbox workspace",
     date: "2026-01-24",
     phase: "development",
     sections: [
       {
         category: "product",
-        title: "Development",
+        title: "Updates",
         items: [
           "Started Shadowbox with a web workspace and a service for running code.",
           "Added multiple terminal sessions and a file explorer.",
