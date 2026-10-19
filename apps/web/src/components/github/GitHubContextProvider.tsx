@@ -30,8 +30,6 @@ interface GitHubContextValue {
   switchBranch: (branch: string) => void;
   /** Clear the context */
   clearContext: () => void;
-  /** Refresh context from localStorage */
-  refreshContext: () => void;
   /** Save context to session-scoped storage */
   saveSessionContext: (sessionId: string) => void;
 }

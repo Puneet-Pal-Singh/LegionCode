@@ -50,7 +50,10 @@ import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
 import { MarkdownMessageContent } from "../chat/chat-message/MessageContent.js";
 import { resolveComposerKeyboardAction } from "../chat/conversation/composer-keyboard.js";
 
+import type { AgentSetupDraft } from "./setupDraft";
+
 interface AgentSetupProps {
+  initialDraft?: AgentSetupDraft;
   sessionId: string;
   isRightSidebarOpen?: boolean;
   mode?: RunMode;
@@ -64,14 +67,15 @@ interface AgentSetupProps {
     mode: RunMode;
     attachments?: ChatSubmitAttachments;
   }) => void;
-  onRepoClick?: () => void;
+  onRepoClick?: (draft?: AgentSetupDraft) => void;
   projects?: readonly string[];
-  onProjectSelect?: (project: string) => void;
-  onNoProject?: () => void;
+  onProjectSelect?: (project: string, draft: AgentSetupDraft) => void;
+  onNoProject?: (draft: AgentSetupDraft) => void;
 }
 
 export function AgentSetup({
   sessionId,
+  initialDraft,
   isRightSidebarOpen = false,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
@@ -86,8 +90,14 @@ export function AgentSetup({
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const composerPreferences = useComposerPreferences();
-  const [task, setTask] = useState("");
-  const imageDraft = useChatImageAttachmentDraft();
+  const [task, setTask] = useState(initialDraft?.task ?? "");
+  const imageDraft = useChatImageAttachmentDraft(
+    initialDraft?.imageAttachments,
+  );
+  const currentDraft = (): AgentSetupDraft => ({
+    task,
+    imageAttachments: imageDraft.attachments,
+  });
   const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -459,8 +469,7 @@ export function AgentSetup({
     }
   };
 
-  const repoName =
-    repo?.name || (requiresRepository ? "Connect repository" : "New Project");
+  const repoName = repo?.name || "Select project";
   const renderSetupComposer = (placement: "hero" | "docked") => (
     <motion.div
       className={
@@ -601,7 +610,11 @@ export function AgentSetup({
             onSelect={syncCursorPosition}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            placeholder="Ask LegionCode to work on this repository…"
+            placeholder={
+              hasRepositoryContext
+                ? "Ask LegionCode to work on this repository…"
+                : "Ask anything, or describe what you want to build…"
+            }
             rows={1}
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -742,9 +755,11 @@ export function AgentSetup({
               <ProjectChooser
                 currentProject={repo?.full_name}
                 projects={projects}
-                onSelect={(project) => onProjectSelect?.(project)}
-                onNewProject={() => onRepoClick?.()}
-                onNoProject={() => onNoProject?.()}
+                onSelect={(project) =>
+                  onProjectSelect?.(project, currentDraft())
+                }
+                onNewProject={() => onRepoClick?.(currentDraft())}
+                onNoProject={() => onNoProject?.(currentDraft())}
               >
                 <button
                   type="button"
@@ -756,8 +771,12 @@ export function AgentSetup({
                   <ChevronDown size={14} className="shrink-0 text-zinc-500" />
                 </button>
               </ProjectChooser>
-              <div className="h-4 w-px bg-zinc-800/80" />
-              <ChatBranchSelector placement="below" />
+              {hasRepositoryContext ? (
+                <>
+                  <div className="h-4 w-px bg-zinc-800/80" />
+                  <ChatBranchSelector placement="below" />
+                </>
+              ) : null}
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
@@ -841,36 +860,27 @@ export function AgentSetup({
 
               {/* Title */}
               <h1 className="text-2xl font-medium text-white tracking-tight">
-                Let's build
+                {hasRepositoryContext ? "Let's build" : "What should we build?"}
               </h1>
 
-              {/* Project Name with Dropdown */}
-              <ProjectChooser
-                currentProject={repo?.full_name}
-                projects={projects}
-                onSelect={(project) => onProjectSelect?.(project)}
-                onNewProject={() => onRepoClick?.()}
-                onNoProject={() => onNoProject?.()}
-              >
-                <motion.button
-                  type="button"
-                  className="group mt-0.5 flex items-center gap-1.5 text-2xl font-medium text-zinc-500 transition-colors duration-200 hover:text-zinc-400"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <span>{repoName}</span>
-                  <ChevronDown
-                    size={18}
-                    className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
-                  />
-                </motion.button>
-              </ProjectChooser>
+              <p className="mt-2 text-sm text-zinc-400">
+                {hasRepositoryContext
+                  ? `Work in ${repoName}`
+                  : "Start a conversation, or choose a project to work with code."}
+              </p>
             </motion.div>
 
-            <div className="mb-6 w-full max-w-4xl">
-              {renderSetupComposer("hero")}
-            </div>
+            {hasRepositoryContext ? (
+              <div className="mb-6 w-full max-w-4xl">
+                {renderSetupComposer("hero")}
+              </div>
+            ) : null}
           </div>
+          {!hasRepositoryContext ? (
+            <div className="px-3 pb-4 sm:px-6 sm:pb-6">
+              {renderSetupComposer("docked")}
+            </div>
+          ) : null}
         </main>
 
         <motion.aside

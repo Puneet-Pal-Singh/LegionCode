@@ -12,6 +12,7 @@ import type { AgentSession } from "../../hooks/useSessionManager";
 import {
   groupSessionsByRepository,
   selectPinnedSessions,
+  selectRecentSessions,
   selectSessionUnread,
 } from "../../lib/session-sidebar-selectors";
 import {
@@ -173,7 +174,9 @@ export function AgentSidebar({
 
   const repositorySource = useMemo(() => {
     const combined = new Set<string>();
-    repositories.forEach((repository) => combined.add(repository));
+    repositories
+      .filter(Boolean)
+      .forEach((repository) => combined.add(repository));
     sessions.forEach((session) => {
       if (session.archivedAt !== null || session.pinnedAt !== null) {
         return;
@@ -181,8 +184,6 @@ export function AgentSidebar({
       const normalizedRepository = session.repository?.trim() ?? "";
       if (normalizedRepository.length > 0) {
         combined.add(normalizedRepository);
-      } else {
-        combined.add("No repository");
       }
     });
     return Array.from(combined);
@@ -247,6 +248,22 @@ export function AgentSidebar({
       statusFilter,
     );
   }, [activeSessionId, normalizedQuery, sessions, statusFilter]);
+
+  const recentTasks = useMemo(
+    () =>
+      filterTasks(
+        selectRecentSessions(sessions).map<SidebarTaskItem>((session) => ({
+          id: session.id,
+          title: session.name,
+          status: mapSessionStatus(session, activeSessionId),
+          updatedAt: session.updatedAt,
+          isActive: session.id === activeSessionId,
+        })),
+        normalizedQuery,
+        statusFilter,
+      ),
+    [sessions, activeSessionId, normalizedQuery, statusFilter],
+  );
 
   const utility = (
     <div className="space-y-1">
@@ -316,7 +333,7 @@ export function AgentSidebar({
           type="button"
           aria-label="Add project"
           onClick={onAddRepository}
-          className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
+          className="rounded-md p-1.5 text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:ring-2 focus-visible:ring-zinc-400"
           title="Add project"
         >
           <FolderPlus size={14} aria-hidden="true" />
@@ -435,9 +452,39 @@ export function AgentSidebar({
 
         {repositorySections.length === 0 ? (
           <p className="px-2 py-3 text-xs italic text-zinc-600">
-            No matching tasks or projects
+            {normalizedQuery || statusFilter !== "all"
+              ? "No matching projects"
+              : "Your projects will appear here"}
           </p>
         ) : null}
+
+        <section aria-label="Recents" className="space-y-1 pt-5">
+          <div className="flex h-8 items-center justify-between px-2">
+            <span className="text-sm font-medium text-zinc-500">Recents</span>
+            <button
+              type="button"
+              aria-label="New chat"
+              onClick={() => onCreate()}
+              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+            >
+              <SquarePen size={14} aria-hidden="true" />
+            </button>
+          </div>
+          {recentTasks.length > 0 ? (
+            <TaskList
+              tasks={recentTasks}
+              onSelectTask={onSelect}
+              onRemoveTask={onRemove}
+            />
+          ) : null}
+          {recentTasks.length === 0 ? (
+            <p className="px-2 py-3 text-xs text-zinc-500">
+              {normalizedQuery || statusFilter !== "all"
+                ? "No matching chats"
+                : "Chats without a project appear here"}
+            </p>
+          ) : null}
+        </section>
       </div>
     </SidebarShell>
   );

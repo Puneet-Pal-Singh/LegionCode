@@ -3,6 +3,7 @@ import type { AgentSession } from "../types/session";
 import {
   groupSessionsByRepository,
   selectPinnedSessions,
+  selectRecentSessions,
   selectSessionActive,
   selectSessionUnread,
   selectVisibleSessions,
@@ -16,7 +17,10 @@ describe("session sidebar selectors", () => {
     });
     expect(selectSessionUnread(session)).toBe(true);
     expect(
-      selectSessionUnread({ ...session, lastAcknowledgedTerminalTurnId: "turn-2" }),
+      selectSessionUnread({
+        ...session,
+        lastAcknowledgedTerminalTurnId: "turn-2",
+      }),
     ).toBe(false);
   });
 
@@ -24,7 +28,11 @@ describe("session sidebar selectors", () => {
     const session = createSession({ status: "running", titleStatus: "ready" });
     expect(selectSessionActive(session)).toBe(true);
     expect(
-      selectSessionActive({ ...session, status: "completed", titleStatus: "pending" }),
+      selectSessionActive({
+        ...session,
+        status: "completed",
+        titleStatus: "pending",
+      }),
     ).toBe(false);
   });
 
@@ -32,12 +40,16 @@ describe("session sidebar selectors", () => {
     const sessions = [
       createSession({ id: "pinned", pinnedAt: "2026-05-15T00:00:02.000Z" }),
       createSession({ id: "normal", updatedAt: "2026-05-15T00:00:03.000Z" }),
+      createSession({ id: "projectless", repository: null }),
       createSession({ id: "archived", archivedAt: "2026-05-15T00:00:04.000Z" }),
     ];
 
     expect(
       selectVisibleSessions(sessions).map((session) => session.id),
-    ).toEqual(["pinned", "normal"]);
+    ).toEqual(["pinned", "normal", "projectless"]);
+    expect(selectRecentSessions(sessions).map((session) => session.id)).toEqual(
+      ["projectless"],
+    );
     expect(selectPinnedSessions(sessions).map((session) => session.id)).toEqual(
       ["pinned"],
     );

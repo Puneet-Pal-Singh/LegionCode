@@ -50,11 +50,11 @@ describe("AuthorizedRepositoryPicker", () => {
     });
     fireEvent.click(repoButton);
 
+    expect(onRepoSelect).not.toHaveBeenCalled();
+    expect(screen.queryByText("01 AUTHORIZED")).not.toBeInTheDocument();
     const branch = await screen.findByLabelText("Starting branch");
     fireEvent.change(branch, { target: { value: "feature/onboarding" } });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open legioncode/legioncode" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Add project" }));
 
     await waitFor(() =>
       expect(onRepoSelect).toHaveBeenCalledWith(
@@ -73,7 +73,11 @@ describe("AuthorizedRepositoryPicker", () => {
         name: "No repositories are available",
       }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Manage GitHub access/i }));
-    expect(GitHubService.initiateGitHubReauthorization).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Manage GitHub access/i }),
+    );
+    expect(GitHubService.initiateGitHubReauthorization).toHaveBeenCalledTimes(
+      1,
+    );
   });
 });

@@ -34,7 +34,15 @@ describe("TranscriptController", () => {
 
   it("creates and lists authenticated sessions from the transcript repository", async () => {
     const createResponse = await TranscriptController.createSession(
-      createSessionRequest(),
+      authenticatedRequest("https://brain.local/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: TEST_SESSION_ID,
+          runId: TEST_RUN_ID,
+          title: "Chat",
+          repository: null,
+        }),
+      }),
       env,
     );
 
@@ -60,6 +68,7 @@ describe("TranscriptController", () => {
           id: TEST_SESSION_ID,
           userId: TEST_USER_ID,
           activeRunId: TEST_RUN_ID,
+          repository: null,
         },
       ],
     });
@@ -114,9 +123,9 @@ describe("TranscriptController", () => {
     expect(activeDelete.status).toBe(404);
     expect(deleted.status).toBe(200);
     await expect(deleted.json()).resolves.toEqual({ deleted: true });
-    await expect(repository.listArchivedSessions(TEST_USER_ID)).resolves.toEqual(
-      [],
-    );
+    await expect(
+      repository.listArchivedSessions(TEST_USER_ID),
+    ).resolves.toEqual([]);
   });
 
   it("renames, pins, and unarchives session metadata", async () => {

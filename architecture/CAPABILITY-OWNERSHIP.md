@@ -1,5 +1,24 @@
 # Capability ownership
 
+## Project selection and projectless chat
+
+| Responsibility | Canonical owner | Active wiring and invariant |
+| --- | --- | --- |
+| Saved session repository | Brain transcript/session repository | Session creation accepts `repository: null`. Migration `0034_projectless_session_repository` normalizes the old `New Project` label. No new sentinel repository is written. |
+| Active chat repository context | Selected session metadata, projected by Web App | Explicit project selection and the selected session's GitHub context supply repository/branch identity. Global browser context restoration and workspace-selection bootstrap are removed; a null repository cannot match a repository context. |
+| Projects and Recents | Sidebar selectors over saved session metadata | Real repositories group project chats; projectless, unarchived, unpinned chats appear in Recents. Pinning, search, status and archive use existing session projections. |
+| Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. |
+
+Projectless **execution remains an open migration**: `TaskCheckoutIssuer` requires
+an authorized repository snapshot, and native runtime manifests currently require
+Git workspace identity. Projectless session persistence and navigation do not
+remove that requirement. The next runtime slice must support an explicit
+conversation-only execution capability through the existing admission, kernel,
+lifecycle and transcript owners, without fabricating a repository, Git tree,
+checkout, or alternate chat transport. Its deletion trigger is removal of the
+unconditional checkout requirement for an admitted projectless session, proven
+by send -> terminal lifecycle -> saved history -> reload and Stop/continuation.
+
 This entry records the title, workflow display, conversation durability, and
 image-context boundaries changed by this work.
 

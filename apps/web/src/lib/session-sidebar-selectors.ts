@@ -9,15 +9,23 @@ export interface SessionRepositoryGroup {
 export function selectSessionUnread(session: AgentSession): boolean {
   return Boolean(
     session.lastTerminalTurnId &&
-      session.lastTerminalTurnId !== session.lastAcknowledgedTerminalTurnId,
+    session.lastTerminalTurnId !== session.lastAcknowledgedTerminalTurnId,
   );
 }
 
 export function selectSessionActive(session: AgentSession): boolean {
-  return session.status === "running" || session.status === "waiting_for_approval";
+  return (
+    session.status === "running" || session.status === "waiting_for_approval"
+  );
 }
 
-const NO_REPOSITORY_LABEL = "No repository";
+export function selectRecentSessions(sessions: AgentSession[]): AgentSession[] {
+  return selectVisibleSessions(sessions)
+    .filter(
+      (session) => session.repository === null && session.pinnedAt === null,
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
 
 export function selectVisibleSessions(
   sessions: AgentSession[],
@@ -41,7 +49,8 @@ export function groupSessionsByRepository(
     if (session.pinnedAt !== null) {
       continue;
     }
-    const repository = session.repository?.trim() || NO_REPOSITORY_LABEL;
+    const repository = session.repository?.trim();
+    if (!repository) continue;
     groups.set(repository, [...(groups.get(repository) ?? []), session]);
   }
 
@@ -59,9 +68,6 @@ export function groupSessionsByRepository(
 }
 
 function getRepositoryLabel(repository: string): string {
-  if (repository === NO_REPOSITORY_LABEL) {
-    return repository;
-  }
   const [, name] = repository.split("/");
   return name || repository;
 }

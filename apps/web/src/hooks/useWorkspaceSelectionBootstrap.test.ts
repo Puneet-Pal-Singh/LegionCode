@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repositoryFromWorkspaceSelection } from "./useWorkspaceSelectionBootstrap";
+import { repositoryFromWorkspaceSelection } from "../lib/workspace-repository";
 
 describe("repositoryFromWorkspaceSelection", () => {
   it("maps the durable server selection into Web repository context", () => {
