@@ -20,6 +20,7 @@ describe("GitHubSignInPage", () => {
     const action = screen.getByRole("button", { name: "Continue with GitHub" });
     fireEvent.click(action);
     expect(onLogin).toHaveBeenCalledTimes(1);
+    expect(onLogin).toHaveBeenCalledWith();
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(screen.queryByText(/by continuing/i)).not.toBeInTheDocument();

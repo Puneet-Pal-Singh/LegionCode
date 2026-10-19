@@ -1,0 +1,135 @@
+.sign-in {
+  height: 100%;
+  overflow-y: auto;
+  background: #101011;
+  color: #fafafa;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sign-in__entry {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100%;
+  padding: 28px 24px;
+}
+
+.sign-in__wordmark {
+  width: fit-content;
+  font-size: 21px;
+  font-weight: 650;
+  line-height: 28px;
+  letter-spacing: -0.7px;
+}
+
+.sign-in__wordmark-muted {
+  color: #929299;
+}
+
+.sign-in__content {
+  align-self: center;
+  justify-self: center;
+  width: min(100%, 360px);
+  padding: 64px 0 120px;
+  text-align: center;
+}
+
+.sign-in__title {
+  margin: 0 0 36px;
+  font-size: clamp(24px, 4.8vw, 28px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.65px;
+  text-wrap: balance;
+}
+
+.sign-in__github {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #e4e4e7;
+  border-radius: 7px;
+  padding: 12px 20px;
+  background: #f4f4f5;
+  color: #101011;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.sign-in__github:hover {
+  background: #ffffff;
+}
+
+.sign-in__github:active {
+  background: #e4e4e7;
+}
+
+.sign-in__github:focus-visible {
+  outline: 2px solid #fafafa;
+  outline-offset: 5px;
+}
+
+.sign-in__github svg {
+  flex-shrink: 0;
+}
+
+.sign-in__help {
+  margin: 20px 0 0;
+  color: #a1a1aa;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sign-in__visual {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .sign-in {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sign-in__entry {
+    padding: 36px 40px;
+  }
+
+  .sign-in__content {
+    align-self: start;
+    margin-top: clamp(100px, 26svh, 300px);
+    padding: 0 0 64px;
+  }
+
+  .sign-in__visual {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    min-height: max(100svh, 680px);
+    overflow: hidden;
+    border-left: 1px solid #383a3d;
+    padding: clamp(40px, 4vw, 64px);
+    background: #202225;
+  }
+
+  .sign-in__artwork {
+    position: absolute;
+    inset: 0;
+    background-image: url("../../assets/sign-in-cloud.webp");
+    background-position: center;
+    background-size: cover;
+  }
+
+  .sign-in__tagline {
+    position: relative;
+    margin: 0;
+    font-size: clamp(32px, 3.2vw, 48px);
+    font-weight: 500;
+    line-height: 1.16;
+    letter-spacing: -1.4px;
+  }
+}
