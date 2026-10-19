@@ -22,8 +22,11 @@ describe("GitHubSignInPage", () => {
     expect(onLogin).toHaveBeenCalledTimes(1);
     expect(onLogin).toHaveBeenCalledWith();
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    expect(screen.queryByText(/by continuing/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/by continuing, you agree to our/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Terms of Service")).toBeInTheDocument();
+    expect(screen.getByText("Privacy Policy")).toBeInTheDocument();
     expect(screen.queryByText(/private alpha/i)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/repositories LegionCode/i),

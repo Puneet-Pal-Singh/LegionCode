@@ -1,10 +1,26 @@
+@font-face {
+  font-family: "LegionCode Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../../assets/inter-latin.woff2") format("woff2");
+}
+
 .sign-in {
   height: 100%;
-  overflow-y: auto;
-  background: #101011;
+  overflow: hidden;
+  padding: 4px;
+  background: #111112;
   color: #fafafa;
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "LegionCode Inter", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+.sign-in__layout {
+  height: 100%;
+  overflow-y: auto;
+  border-radius: 24px;
+  background: #09090a;
 }
 
 .sign-in__entry {
@@ -16,10 +32,10 @@
 
 .sign-in__wordmark {
   width: fit-content;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 650;
   line-height: 28px;
-  letter-spacing: -0.7px;
+  letter-spacing: -0.55px;
 }
 
 .sign-in__wordmark-muted {
@@ -30,16 +46,16 @@
   align-self: center;
   justify-self: center;
   width: min(100%, 360px);
-  padding: 64px 0 120px;
+  padding: 64px 0 88px;
   text-align: center;
 }
 
 .sign-in__title {
-  margin: 0 0 36px;
+  margin: 0 0 32px;
   font-size: clamp(24px, 4.8vw, 28px);
   font-weight: 600;
   line-height: 1.25;
-  letter-spacing: -0.65px;
+  letter-spacing: -0.75px;
   text-wrap: balance;
 }
 
@@ -47,15 +63,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 20px;
   width: 100%;
   min-height: 48px;
   border: 1px solid #e4e4e7;
-  border-radius: 7px;
+  border-radius: 5px;
   padding: 12px 20px;
-  background: #f4f4f5;
+  background: #fafafa;
   color: #101011;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 22px;
   cursor: pointer;
@@ -76,6 +92,8 @@
 
 .sign-in__github svg {
   flex-shrink: 0;
+  width: 24px;
+  height: 24px;
 }
 
 .sign-in__help {
@@ -85,34 +103,89 @@
   line-height: 20px;
 }
 
+.sign-in__consent {
+  margin: 64px 0 0;
+  color: #b4b4bb;
+  font-size: 11.5px;
+  line-height: 18px;
+}
+
+.sign-in__policy {
+  color: #d4d4d8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sign-in__policy:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid #fafafa;
+  outline-offset: 4px;
+}
+
 .sign-in__visual {
   display: none;
 }
 
 @media (min-width: 1024px) {
-  .sign-in {
+  .sign-in__layout {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    border-radius: 40px;
   }
 
   .sign-in__entry {
-    padding: 36px 40px;
+    padding: clamp(36px, 3.125vw, 50px);
+  }
+
+  .sign-in__wordmark {
+    font-size: clamp(20px, 1.75vw, 28px);
+    line-height: 1.4;
+    transform: translateY(-6px);
   }
 
   .sign-in__content {
     align-self: start;
-    margin-top: clamp(100px, 26svh, 300px);
+    width: min(100%, clamp(352px, 31vw, 480px));
+    margin-top: clamp(100px, 24.1svh, 300px);
     padding: 0 0 64px;
+  }
+
+  .sign-in__title {
+    margin-bottom: clamp(35px, 3.05vw, 48px);
+    font-size: clamp(26px, 2.35vw, 36px);
+  }
+
+  .sign-in__github {
+    gap: clamp(20px, 1.75vw, 24px);
+    min-height: clamp(48px, 4.2vw, 64px);
+    font-size: clamp(14px, 1.2vw, 18px);
+  }
+
+  .sign-in__github svg {
+    width: clamp(24px, 2.05vw, 32px);
+    height: clamp(24px, 2.05vw, 32px);
+  }
+
+  .sign-in__help {
+    margin-top: clamp(12px, 1.05vw, 16px);
+    font-size: clamp(13px, 1.12vw, 16px);
+    line-height: 1.55;
+  }
+
+  .sign-in__consent {
+    margin-top: clamp(64px, 5.55vw, 88px);
+    font-size: clamp(11.5px, 1vw, 15px);
+    line-height: 1.6;
   }
 
   .sign-in__visual {
     position: relative;
     display: flex;
     align-items: flex-end;
-    min-height: max(100svh, 680px);
+    min-height: max(calc(100svh - 8px), 680px);
     overflow: hidden;
-    border-left: 1px solid #383a3d;
-    padding: clamp(40px, 4vw, 64px);
+    border-left: 1px solid #303236;
+    padding: clamp(36px, 4vw, 64px) clamp(40px, 5.55vw, 88px);
     background: #202225;
   }
 
@@ -120,16 +193,17 @@
     position: absolute;
     inset: 0;
     background-image: url("../../assets/sign-in-cloud.webp");
-    background-position: center;
-    background-size: cover;
+    background-position: 75% 8px;
+    background-size: auto 108%;
+    background-repeat: no-repeat;
   }
 
   .sign-in__tagline {
     position: relative;
     margin: 0;
-    font-size: clamp(32px, 3.2vw, 48px);
-    font-weight: 500;
+    font-size: clamp(32px, 3.25vw, 52px);
+    font-weight: 650;
     line-height: 1.16;
-    letter-spacing: -1.4px;
+    letter-spacing: -0.025em;
   }
 }
