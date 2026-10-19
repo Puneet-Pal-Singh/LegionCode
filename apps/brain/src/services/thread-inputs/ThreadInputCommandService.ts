@@ -24,7 +24,7 @@ import { ThreadInputConflictError } from "@repo/persistence";
 import { readRunTerminal } from "./AdmittedTurnExecutionService";
 import { RunAdmissionService } from "../../runtime/RunAdmissionService";
 import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
-import { resolveAuthorizedWorkspaceRepositoryContext } from "../workspaces/AuthorizedWorkspaceRepositoryContext";
+import { resolveSessionRepositoryContext } from "../workspaces/SessionRepositoryContext";
 
 type ResumeTurnCommand = Extract<
   ThreadInputCommand,
@@ -291,17 +291,12 @@ export class ThreadInputCommandService {
         "Queue item not found.",
         "queue_item_changed",
       );
-    const repositoryContext = await resolveAuthorizedWorkspaceRepositoryContext({
+    const repositoryContext = await resolveSessionRepositoryContext({
       env: this.env,
       userId: input.userId,
+      sessionId: input.sessionId,
       workspaceId: command.workspaceId,
     });
-    if (!repositoryContext) {
-      throw new ThreadInputConflictError(
-        "The selected workspace is no longer available for this account.",
-        "workspace_unavailable",
-      );
-    }
     if (
       item.delivery !== "queue" ||
       (item.state === "pending" && item.version !== command.expectedVersion)
@@ -404,7 +399,7 @@ export class ThreadInputCommandService {
           mode: item.configuration.mode ?? "auto_edit",
           providerId: item.configuration.providerId ?? null,
           modelId: item.configuration.modelId ?? null,
-          branch: repositoryContext.repositoryBranch,
+          branch: repositoryContext?.repositoryBranch ?? null,
           explicitStart: input.explicitStart ?? true,
           promptMessage: {
             parts: [

@@ -134,6 +134,14 @@ describe("turn workflow projection", () => {
       }),
     );
 
+    const projectless = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "run_attempt.started", { payload: { executionCapability: "conversation" } }),
+      event(2, "turn.interrupted", { payload: { outcome: { status: "interrupted", reason: "Stopped" } } }),
+    ]);
+    expect(projectless.executionCapability).toBe("conversation");
+    expect(projectless.terminal?.state).toBe("interrupted");
+    expect(projectless.workspaceSnapshotState).toBe("unknown");
+
     expect(projection.phase).toBe("interrupted");
     expect(projection.terminal?.state).toBe("interrupted");
     expect(projection.items[0]).toMatchObject({

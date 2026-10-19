@@ -504,15 +504,15 @@ export function ChatInterface({
       canResume={Boolean(
         conversationScope &&
         activeTurn.projection?.terminal?.state === "interrupted" &&
-        activeTurn.projection.workspaceSnapshotState === "captured" &&
-        activeTurn.projection.resumeSnapshotAvailable === true,
+        (activeTurn.projection.executionCapability === "conversation" ||
+          (activeTurn.projection.workspaceSnapshotState === "captured" && activeTurn.projection.resumeSnapshotAvailable === true)),
       )}
       onResume={() => {
         const projection = activeTurn.projection;
         if (
           projection?.terminal?.state === "interrupted" &&
-          projection.workspaceSnapshotState === "captured" &&
-          projection.resumeSnapshotAvailable === true
+          (projection.executionCapability === "conversation" ||
+            (projection.workspaceSnapshotState === "captured" && projection.resumeSnapshotAvailable === true))
         ) {
           void chatProps.resumeInterruptedTurn(projection.lastSequence);
         }

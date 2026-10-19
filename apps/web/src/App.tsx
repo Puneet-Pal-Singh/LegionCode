@@ -30,6 +30,7 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
+import { ProviderStore } from "./services/provider/ProviderStore";
 import {
   isSessionContextPending,
   resolveShellStartupState,
@@ -826,6 +827,7 @@ function AppContent() {
       // Create a session for this specific repository
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
+      if (draft) inheritComposerSelection(sessionId);
       if (draft)
         setSetupDrafts((current) => ({
           ...current,
@@ -860,6 +862,11 @@ function AppContent() {
     }
   };
 
+  const inheritComposerSelection = (sessionId: string) => {
+    const sourceId = activeSession?.id ?? setupSession?.id;
+    if (sourceId) ProviderStore.getInstance().copySessionSelection(sourceId, sessionId);
+  };
+
   const handleChooseExistingProject = (
     repository: string,
     draft: AgentSetupDraft,
@@ -873,6 +880,7 @@ function AppContent() {
     if (activeSession?.repository === null) return;
     clearSetupSessionState();
     const sessionId = createSession("New chat", null);
+    inheritComposerSelection(sessionId);
     setSetupDrafts((current) => ({
       ...current,
       [sessionId]: copySetupDraft(draft),
@@ -945,6 +953,7 @@ function AppContent() {
     const sessionName = `New Task`;
     const sessionId = createSession(sessionName, selectedRepo.full_name);
     if (projectPickerDraftRef.current) {
+      inheritComposerSelection(sessionId);
       const draft = projectPickerDraftRef.current;
       setSetupDrafts((current) => ({ ...current, [sessionId]: draft }));
       projectPickerDraftRef.current = undefined;
@@ -1322,6 +1331,7 @@ function AppContent() {
                         null,
                         config.mode,
                       );
+                      inheritComposerSelection(sessionId);
                       clearContext();
                       clearSetupSessionState();
                       updateInitialPromptSubmissions((current) => ({

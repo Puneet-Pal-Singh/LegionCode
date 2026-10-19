@@ -9,9 +9,9 @@ import {
 import { ResumeWorkspaceSnapshotStore } from "../../runtime/task-workspaces/ResumeWorkspaceSnapshotStore";
 import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
 import {
-  resolveAuthorizedWorkspaceRepositoryContext,
   type AuthorizedWorkspaceRepositoryContext,
 } from "../workspaces/AuthorizedWorkspaceRepositoryContext";
+import { resolveSessionRepositoryContext } from "../workspaces/SessionRepositoryContext";
 import type { Env } from "../../types/ai";
 import { withTurnAdmissionRepository } from "./TurnAdmissionPersistenceFactory";
 
@@ -44,9 +44,9 @@ export interface ResumedTurn {
     readonly productMode?: ThreadInputConfiguration["productMode"];
     readonly harnessId?: ThreadInputConfiguration["harnessId"];
   };
-  readonly resumeSnapshot: ResumeWorkspaceSnapshotRef;
-  readonly workspacePatch: string;
-  readonly repository: AuthorizedWorkspaceRepositoryContext;
+  readonly resumeSnapshot: ResumeWorkspaceSnapshotRef | undefined;
+  readonly workspacePatch: string | undefined;
+  readonly repository: AuthorizedWorkspaceRepositoryContext | null;
 }
 
 export class ResumeTurnError extends Error {
@@ -61,9 +61,6 @@ export class ResumeTurnService {
   constructor(private readonly env: Env) {}
 
   async resume(input: ResumeTurnInput): Promise<ResumedTurn> {
-    if (!this.env.EDIT_ARTIFACTS) {
-      throw new ResumeTurnError("Workspace resume artifacts are unavailable", "resume_snapshot_unavailable", 503);
-    }
     if (!input.clientCommandId.trim() || input.clientCommandId.length > 200) {
       throw new ResumeTurnError("A stable resume command ID is required", "client_command_id_invalid", 400);
     }
@@ -92,18 +89,10 @@ export class ResumeTurnService {
     if (!target) {
       throw new ResumeTurnError("The interrupted turn is no longer the current resumable turn", "resume_target_conflict");
     }
-    const repository = await resolveAuthorizedWorkspaceRepositoryContext({
-      env: this.env,
-      userId: input.userId,
-      workspaceId: input.workspaceId,
-      preferredBranch: target.run.branch,
+    const repository = await resolveSessionRepositoryContext({
+      env: this.env, userId: input.userId, sessionId: input.sessionId,
+      workspaceId: input.workspaceId, preferredBranch: target.run.branch,
     });
-    if (!repository) {
-      throw new ResumeTurnError(
-        "The interrupted workspace is no longer available for this account.",
-        "resume_workspace_unavailable",
-      );
-    }
     try {
       toRuntimeRunMode(explicitConfiguration.mode ?? target.run.mode);
     } catch {
@@ -114,7 +103,11 @@ export class ResumeTurnService {
       );
     }
 
-    const resumeSnapshot = parseResumeSnapshotArtifact(target.snapshotEvent, target.resumeArtifactEvent);
+    let resumeSnapshot: ResumeWorkspaceSnapshotRef | undefined;
+    let workspacePatch: string | undefined;
+    if (repository) {
+      if (!this.env.EDIT_ARTIFACTS) throw new ResumeTurnError("Workspace resume artifacts are unavailable", "resume_snapshot_unavailable", 503);
+    resumeSnapshot = parseResumeSnapshotArtifact(target.snapshotEvent, target.resumeArtifactEvent);
     const artifactUserId = userIdFromExternalId(input.userId);
     const artifactWorkspaceId = workspaceIdFromExternalId(input.workspaceId);
     if (
@@ -127,7 +120,6 @@ export class ResumeTurnService {
     ) {
       throw new ResumeTurnError("The captured workspace snapshot does not belong to the interrupted turn", "resume_snapshot_scope_conflict");
     }
-    let workspacePatch: string;
     try {
       workspacePatch = await new ResumeWorkspaceSnapshotStore(this.env.EDIT_ARTIFACTS).read(
         resumeSnapshot,
@@ -135,6 +127,7 @@ export class ResumeTurnService {
       );
     } catch {
       throw new ResumeTurnError("The captured workspace snapshot failed ownership or integrity validation", "resume_snapshot_unavailable");
+    }
     }
     const configuration: {
       mode: string;
@@ -164,7 +157,7 @@ export class ResumeTurnService {
         modelId: target.run.modelId,
         branch: target.run.branch,
       },
-      snapshotDigest: resumeSnapshot.patchSha256,
+      snapshotDigest: resumeSnapshot?.patchSha256 ?? null,
     });
     const resumed = await withTurnAdmissionRepository(this.env, async (repository) =>
       await repository.admitContinuation({

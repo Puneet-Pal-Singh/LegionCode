@@ -9,15 +9,16 @@
 | Projects and Recents | Sidebar selectors over saved session metadata | Real repositories group project chats; projectless, unarchived, unpinned chats appear in Recents. Pinning, search, status and archive use existing session projections. |
 | Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. |
 
-Projectless **execution remains an open migration**: `TaskCheckoutIssuer` requires
-an authorized repository snapshot, and native runtime manifests currently require
-Git workspace identity. Projectless session persistence and navigation do not
-remove that requirement. The next runtime slice must support an explicit
-conversation-only execution capability through the existing admission, kernel,
-lifecycle and transcript owners, without fabricating a repository, Git tree,
-checkout, or alternate chat transport. Its deletion trigger is removal of the
-unconditional checkout requirement for an admitted projectless session, proven
-by send -> terminal lifecycle -> saved history -> reload and Stop/continuation.
+| Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
+| Turn execution and Stop | Existing native runner and RuntimeKernel | Both capabilities share provider/context/budgeting, canonical lifecycle append, interruption and terminal settlement. `Run.executionCapability` is emitted on the started attempt; no alternate chat transport or fabricated manifest is introduced. |
+| Interrupted continuation | Existing turn admission and ResumeTurnService | Exact owner, thread, turn, attempt, terminal sequence, root prompt and command dedupe remain required. Projectless resume restores conversation history; repository resume additionally validates its captured workspace artifact. SDK replay projects capability for Web Play availability. |
+
+The unconditional checkout requirement is removed for admitted projectless chats.
+Repository execution retains its Git and artifact requirements. The SDK renders
+runtime capability from lifecycle replay rather than inferring it from the current
+project picker. ProviderStore carries an unsent composer's model preference into
+the chat created by an explicit project choice or first submission; validation
+at admission remains authoritative.
 
 This entry records the title, workflow display, conversation durability, and
 image-context boundaries changed by this work.
