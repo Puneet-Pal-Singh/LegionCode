@@ -25,8 +25,12 @@ describe("GitHubSignInPage", () => {
     expect(
       screen.getByText(/by continuing, you agree to our/i),
     ).toBeInTheDocument();
-    expect(screen.getByText("Terms of Service")).toBeInTheDocument();
-    expect(screen.getByText("Privacy Policy")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Terms of Service" }),
+    ).toHaveAttribute("href", "https://legioncode.dev/terms/");
+    expect(
+      screen.getByRole("link", { name: "Privacy Policy" }),
+    ).toHaveAttribute("href", "https://legioncode.dev/privacy/");
     expect(screen.queryByText(/private alpha/i)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/repositories LegionCode/i),

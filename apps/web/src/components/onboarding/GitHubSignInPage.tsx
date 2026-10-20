@@ -35,8 +35,19 @@ export function GitHubSignInPage({ onLogin }: GitHubSignInPageProps) {
             <p className="sign-in__consent">
               By continuing, you agree to our
               <br />
-              <span className="sign-in__policy">Terms of Service</span> and{" "}
-              <span className="sign-in__policy">Privacy Policy</span>
+              <a
+                className="sign-in__policy"
+                href="https://legioncode.dev/terms/"
+              >
+                Terms of Service
+              </a>{" "}
+              and{" "}
+              <a
+                className="sign-in__policy"
+                href="https://legioncode.dev/privacy/"
+              >
+                Privacy Policy
+              </a>
             </p>
           </section>
         </div>
