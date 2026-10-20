@@ -1,4 +1,12 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useImperativeHandle,
+  type Ref,
+} from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
@@ -50,10 +58,11 @@ import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
 import { MarkdownMessageContent } from "../chat/chat-message/MessageContent.js";
 import { resolveComposerKeyboardAction } from "../chat/conversation/composer-keyboard.js";
 
-import type { AgentSetupDraft } from "./setupDraft";
+import type { AgentSetupDraft, AgentSetupDraftReader } from "./setupDraft";
 
 interface AgentSetupProps {
   initialDraft?: AgentSetupDraft;
+  draftRef?: Ref<AgentSetupDraftReader>;
   sessionId: string;
   isRightSidebarOpen?: boolean;
   mode?: RunMode;
@@ -76,6 +85,7 @@ interface AgentSetupProps {
 export function AgentSetup({
   sessionId,
   initialDraft,
+  draftRef,
   isRightSidebarOpen = false,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
@@ -94,10 +104,16 @@ export function AgentSetup({
   const imageDraft = useChatImageAttachmentDraft(
     initialDraft?.imageAttachments,
   );
-  const currentDraft = (): AgentSetupDraft => ({
-    task,
-    imageAttachments: imageDraft.attachments,
-  });
+  const currentDraft = useCallback(
+    (): AgentSetupDraft => ({
+      task,
+      imageAttachments: imageDraft.attachments,
+    }),
+    [task, imageDraft.attachments],
+  );
+  useImperativeHandle(draftRef, () => ({ getDraft: currentDraft }), [
+    currentDraft,
+  ]);
   const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -470,19 +486,14 @@ export function AgentSetup({
   };
 
   const repoName = repo?.name || "Select project";
-  const renderSetupComposer = (placement: "hero" | "docked") => (
+  const renderSetupComposer = () => (
     <motion.div
-      className={
-        placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"
-      }
+      className="w-full max-w-4xl"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4, duration: 0.4 }}
     >
-      <form
-        onSubmit={handleSubmit}
-        className={placement === "hero" ? "relative" : "relative px-4 pb-3"}
-      >
+      <form onSubmit={handleSubmit} className="relative">
         {shouldShowFilePicker ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
             <div
@@ -860,27 +871,35 @@ export function AgentSetup({
 
               {/* Title */}
               <h1 className="text-2xl font-medium text-white tracking-tight">
-                {hasRepositoryContext ? "Let's build" : "What should we build?"}
+                Let's build
               </h1>
 
-              <p className="mt-2 text-sm text-zinc-400">
-                {hasRepositoryContext
-                  ? `Work in ${repoName}`
-                  : "Start a conversation, or choose a project to work with code."}
-              </p>
+              <ProjectChooser
+                currentProject={repo?.full_name}
+                projects={projects}
+                onSelect={(project) =>
+                  onProjectSelect?.(project, currentDraft())
+                }
+                onNewProject={() => onRepoClick?.(currentDraft())}
+                onNoProject={() => onNoProject?.(currentDraft())}
+              >
+                <motion.button
+                  type="button"
+                  aria-label={`Choose project, current project ${repoName}`}
+                  className="group mt-0.5 flex items-center gap-1.5 text-2xl font-medium text-zinc-500 transition-colors hover:text-zinc-400"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <span>{repoName}</span>
+                  <ChevronDown
+                    size={18}
+                    className="text-zinc-600 group-hover:text-zinc-500"
+                  />
+                </motion.button>
+              </ProjectChooser>
             </motion.div>
-
-            {hasRepositoryContext ? (
-              <div className="mb-6 w-full max-w-4xl">
-                {renderSetupComposer("hero")}
-              </div>
-            ) : null}
+            <div className="mb-6 w-full max-w-4xl">{renderSetupComposer()}</div>
           </div>
-          {!hasRepositoryContext ? (
-            <div className="px-3 pb-4 sm:px-6 sm:pb-6">
-              {renderSetupComposer("docked")}
-            </div>
-          ) : null}
         </main>
 
         <motion.aside

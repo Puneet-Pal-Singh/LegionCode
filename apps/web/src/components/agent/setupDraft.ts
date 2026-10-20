@@ -6,6 +6,11 @@ export interface AgentSetupDraft {
   imageAttachments: ChatImageAttachment[];
 }
 
+/** Reads the mounted composer's draft without introducing another draft owner. */
+export interface AgentSetupDraftReader {
+  getDraft(): AgentSetupDraft;
+}
+
 export function copySetupDraft(draft: AgentSetupDraft): AgentSetupDraft {
   return {
     task: draft.task,
