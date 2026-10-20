@@ -1,7 +1,7 @@
-import { RunModeSchema } from "@repo/shared-types";
 import { AppServerClientError, type HostedSession, type HostedSessionReadReceipt } from "@legioncode/sdk";
 import type { AgentSession, SessionStatus } from "../../types/session";
 import { isCanonicalRunId } from "../../lib/run-id";
+import { normalizeSessionRunMode } from "../sessionRunMode";
 import { createHostedAppServerClient } from "./appServerClient";
 
 // Retain the lifetime and response-body contract of the replaced hosted fetches.
@@ -87,7 +87,7 @@ export function mapServerSession(session: ServerSessionRecord): AgentSession | n
     latestRunId,
     runIds: Array.from(new Set([activeRunId, latestRunId].filter((id): id is string => id !== null))),
     status: mapServerStatus(session.status),
-    mode: RunModeSchema.parse(session.mode),
+    mode: normalizeSessionRunMode(session.mode),
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
     createdAt: session.createdAt,

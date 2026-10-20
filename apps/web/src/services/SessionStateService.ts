@@ -13,7 +13,7 @@
  * @module services/SessionStateService
  */
 
-import { DEFAULT_RUN_MODE, RunModeSchema, type RunMode } from "@repo/shared-types";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import type {
   AgentSession,
   ChatTitleSource,
@@ -23,6 +23,7 @@ import type {
   SetupSessionState,
 } from "../types/session";
 import { createRunId, isCanonicalRunId } from "../lib/run-id";
+import { normalizeSessionRunMode } from "./sessionRunMode";
 
 const SESSIONS_KEY = "legioncode:sessions:v3";
 const ACTIVE_SESSION_ID_KEY = "legioncode:active-session-id:v4";
@@ -492,11 +493,4 @@ function normalizeStoredSessionStatus(
 ): SessionStatus {
   if (status === "error") return "failed";
   return status ?? "idle";
-}
-
-function normalizeSessionRunMode(mode: string | undefined): RunMode {
-  if (mode === "auto_edit") {
-    return "build";
-  }
-  return RunModeSchema.parse(mode ?? DEFAULT_RUN_MODE);
 }
