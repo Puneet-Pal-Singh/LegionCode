@@ -120,17 +120,6 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           canStop={props.canStop}
         />
       ) : null}
-      {props.canResume && props.onResume ? (
-        <div className="mb-3 flex justify-end">
-          <button
-            type="button"
-            className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/15"
-            onClick={props.onResume}
-          >
-            Resume interrupted turn
-          </button>
-        </div>
-      ) : null}
       {props.resumeUnavailableMessage ? (
         <p role="alert" className="mb-3 text-right text-xs text-amber-200/90">
           {props.resumeUnavailableMessage}
@@ -145,6 +134,8 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
         reviewComments={props.reviewComments}
         onRemoveReviewComment={props.onRemoveReviewComment}
         reviewCommentError={props.reviewCommentError}
+        canResume={props.canResume}
+        onResume={props.onResume}
         onStop={props.approval.pending ? undefined : props.onStop}
         canStop={props.canStop}
         isLoading={props.isLoading}

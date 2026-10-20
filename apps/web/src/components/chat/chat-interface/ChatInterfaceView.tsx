@@ -1,4 +1,8 @@
-import { forwardRef, type ReactNode } from "react";
+import { Fragment, forwardRef, type ReactNode } from "react";
+import {
+  ConversationTimeMarker,
+  ConversationTerminalMarker,
+} from "../workflow/ConversationMarker";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
 import type {
   DiffContent,
@@ -215,20 +219,24 @@ function Transcript(props: ChatInterfaceViewProps) {
           );
         }
         return (
-          <ChatMessage
-            key={entry.message.id}
-            message={entry.message}
-            metadata={props.messageMetadataById[entry.message.id]}
-            onArtifactOpen={props.onArtifactOpen}
-            onReviewOpen={props.onReviewOpen}
-            changedFilesSummary={resolveMessageChangedFilesSummary(
-              props,
-              entry.message.id,
-            )}
-            hookAudits={entry.projection?.hookAudits}
-            onEdit={resolveUserMessageEdit(props, entry)}
-            historyStatus={entry.historyStatus}
-          />
+          <Fragment key={entry.message.id}>
+            {entry.message.role === "user" ? (
+              <ConversationTimeMarker at={entry.message.createdAt} />
+            ) : null}
+            <ChatMessage
+              message={entry.message}
+              metadata={props.messageMetadataById[entry.message.id]}
+              onArtifactOpen={props.onArtifactOpen}
+              onReviewOpen={props.onReviewOpen}
+              changedFilesSummary={resolveMessageChangedFilesSummary(
+                props,
+                entry.message.id,
+              )}
+              hookAudits={entry.projection?.hookAudits}
+              onEdit={resolveUserMessageEdit(props, entry)}
+              historyStatus={entry.historyStatus}
+            />
+          </Fragment>
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
@@ -295,6 +303,12 @@ function TurnWorkflowEntry({
         >
           {workspaceSnapshotNotice(entry.projection)}
         </p>
+      ) : null}
+      {entry.projection.continuationOfTurnId ? (
+        <ConversationTimeMarker
+          at={entry.projection.startedAt}
+          label="Continued"
+        />
       ) : null}
       <CanonicalWorkflowSurface
         projection={entry.projection}
@@ -388,18 +402,10 @@ function TerminalMessage(
 
   if (terminal.state !== "completed") {
     return (
-      <div
-        role="alert"
-        className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
-      >
-        <span className="mt-0.5 text-zinc-500" aria-hidden="true">
-          {terminal.state === "interrupted" ? "■" : "!"}
-        </span>
-        <p className="leading-5 text-zinc-300">
-          {terminal.content ||
-            "The run ended before it could return an answer. Retry the request."}
-        </p>
-      </div>
+      <ConversationTerminalMarker
+        interrupted={terminal.state === "interrupted"}
+        content={terminal.content}
+      />
     );
   }
 
