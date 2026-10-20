@@ -314,6 +314,7 @@ function DesktopApp(): React.JSX.Element {
               : undefined}
             onArchive={archiveThread}
             onUnarchive={unarchiveThread}
+            onClose={() => setSidebarOpen(false)}
           />
         )}
         topBar={(

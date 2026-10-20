@@ -60,10 +60,7 @@ export function AgentSidebar({
   const footer = (
     <SidebarAccountMenu
       user={accountUser}
-      onOpenSettings={() => {
-        onClose?.();
-        onOpenSettings();
-      }}
+      onOpenSettings={onOpenSettings}
       onLogout={onLogout}
     />
   );
@@ -79,10 +76,7 @@ export function AgentSidebar({
             : workspaceSelectionId,
         )
       }
-      onAddWorkspace={() => {
-        onClose?.();
-        onAddRepository();
-      }}
+      onAddWorkspace={onAddRepository}
       canManageWorkspace={(workspaceSelectionId) =>
         workspaceSelectionId !== "No repository"
       }
@@ -102,6 +96,7 @@ export function AgentSidebar({
       }
       onArchive={(selectionId) => onArchive(selectionId)}
       onUnarchive={(selectionId) => onUnarchive?.(selectionId)}
+      onClose={onClose}
       footer={footer}
       width={width}
     />

@@ -125,6 +125,7 @@ describe("ThreadSidebar interactions", () => {
       screen.getByRole("option", { name: "Fix keyboard navigation" }),
     ).toHaveFocus();
 
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
     fireEvent.change(screen.getByRole("searchbox"), {
       target: { value: "Review" },
     });
@@ -166,21 +167,20 @@ describe("ThreadSidebar interactions", () => {
     });
     render(<ThreadSidebar model={readModel} onSelect={vi.fn()} />);
 
-    fireEvent.change(screen.getByLabelText("Filter threads"), {
-      target: { value: "running" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Running" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
     fireEvent.change(screen.getByRole("searchbox"), {
       target: { value: "LegionCode" },
     });
     expect(
       within(screen.getByRole("listbox", { name: "Thread list" }))
         .getAllByRole("option")
-        .map((option) => option.textContent),
+        .map((option) => option.getAttribute("aria-label")),
     ).toEqual(["Fix keyboard navigation", "Review architecture"]);
     expect(
       screen.queryByRole("option", { name: "Update documentation" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Local only")).toBeInTheDocument();
   });
 
   it("requires confirmation before archiving and supports cancellation", () => {
@@ -316,13 +316,13 @@ describe("ThreadSidebar interactions", () => {
         onCreate={onCreate}
       />,
     );
-    expect(screen.getByText("No threads yet")).toBeInTheDocument();
+    expect(screen.getByText("No tasks yet")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "New thread in LegionCode" }),
+      screen.getByRole("button", { name: "New task in LegionCode" }),
     ).toBeInTheDocument();
   });
 
-  it("toggles each workspace independently and routes workspace actions by selection identity", () => {
+  it("toggles each workspace independently and routes workspace actions by selection identity", async () => {
     const firstIdentity = "acme/foo_bar";
     const secondIdentity = "acme_foo/bar";
     const readModel = sidebarModel({
@@ -376,26 +376,26 @@ describe("ThreadSidebar interactions", () => {
     fireEvent.click(firstToggle);
     expect(firstToggle).toHaveAttribute("aria-expanded", "false");
     expect(secondToggle).toHaveAttribute("aria-expanded", "true");
-    expect(
+    await waitFor(() => expect(
       screen.queryByRole("option", { name: "Fix keyboard navigation" }),
-    ).not.toBeInTheDocument();
+    ).not.toBeInTheDocument());
     expect(
       screen.getByRole("option", { name: "Second repository" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "New thread in bar" }));
+    fireEvent.click(screen.getByRole("button", { name: "New task in bar" }));
     expect(onCreate).toHaveBeenCalledWith(secondIdentity);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Rename workspace bar" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Workspace actions for bar" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Rename bar" }), {
       target: { value: "renamed" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Rename bar" }), {
+      key: "Enter",
+    });
     expect(onRenameWorkspace).toHaveBeenCalledWith(secondIdentity, "renamed");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove workspace bar" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Workspace actions for bar" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(onRemoveWorkspace).toHaveBeenCalledWith(secondIdentity);
   });

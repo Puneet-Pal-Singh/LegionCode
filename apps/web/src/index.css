@@ -3,6 +3,12 @@
 @import "@legioncode/client-ui/styles.css";
 @source "../../../packages/client-ui/src";
 
+@layer base {
+  html {
+    font-size: 13px;
+  }
+}
+
 /* Configuration for Tailwind v4 happens here */
 @theme {
   --color-background: var(--lc-color-background);
