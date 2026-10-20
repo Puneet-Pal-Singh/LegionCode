@@ -52,8 +52,8 @@ describe("AgentSidebar", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Add project" }));
     expect(onAddRepository).toHaveBeenCalledOnce();
-    const projects = screen.getByRole("button", { name: "Projects", exact: true });
-    const recents = screen.getByRole("button", { name: "Recents", exact: true });
+    const projects = screen.getByRole("button", { name: "Projects" });
+    const recents = screen.getByRole("button", { name: "Recents" });
     fireEvent.click(projects);
     expect(projects).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("Your projects will appear here")).not.toBeVisible();
