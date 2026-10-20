@@ -1,23 +1,36 @@
 import { CircleAlert, Pause } from "lucide-react";
 import type { ReactNode } from "react";
+import { formatTimestamp } from "../messageMetadata";
 
 function Marker({
   children,
   role,
+  lines = true,
 }: {
   children: ReactNode;
   role?: "status" | "alert";
+  lines?: boolean;
 }) {
   return (
     <div
       role={role}
-      className="my-5 flex items-center gap-3 text-xs leading-5 text-zinc-500"
+      className="my-5 flex items-center justify-center gap-3 text-xs leading-5 text-zinc-500"
     >
-      <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-zinc-800/70" />
+      {lines ? (
+        <span
+          aria-hidden="true"
+          className="h-px min-w-4 flex-1 bg-zinc-800/70"
+        />
+      ) : null}
       <span className="flex min-w-0 items-center justify-center gap-2 text-center">
         {children}
       </span>
-      <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-zinc-800/70" />
+      {lines ? (
+        <span
+          aria-hidden="true"
+          className="h-px min-w-4 flex-1 bg-zinc-800/70"
+        />
+      ) : null}
     </div>
   );
 }
@@ -36,12 +49,9 @@ export function ConversationTimeMarker({
   const day = today
     ? "Today"
     : date.toLocaleDateString([], { month: "short", day: "numeric" });
-  const time = date.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const time = formatTimestamp(date.getTime());
   return (
-    <Marker>
+    <Marker lines={false}>
       <time dateTime={date.toISOString()}>
         {label ? `${label} · ` : ""}
         {day} {time}
@@ -71,6 +81,15 @@ export function ConversationTerminalMarker({
             ? "Turn interrupted"
             : "The run ended before it could return an answer. Retry the request."}
       </span>
+    </Marker>
+  );
+}
+
+export function ConversationNoticeMarker({ message }: { message: string }) {
+  return (
+    <Marker role="status">
+      <CircleAlert size={13} className="shrink-0" />
+      <span>{message}</span>
     </Marker>
   );
 }

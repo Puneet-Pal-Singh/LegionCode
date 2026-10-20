@@ -1271,6 +1271,9 @@ function AppContent() {
                             updateSession(activeSessionId, { mode })
                           }
                           isRightSidebarOpen={isRightSidebarOpen}
+                          rightSidebarWidth={rightSidebarWidth}
+                          setRightSidebarWidth={setRightSidebarWidth}
+                          onCloseRightSidebar={() => setIsRightSidebarOpen(false)}
                           reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                           onRepoClick={handleOpenRepositoryPicker}
                           projects={repositories}
@@ -1327,6 +1330,9 @@ function AppContent() {
                     draftRef={setupDraftReaderRef}
                     sessionId={setupSession.id}
                     isRightSidebarOpen={isRightSidebarOpen}
+                    rightSidebarWidth={rightSidebarWidth}
+                    setRightSidebarWidth={setRightSidebarWidth}
+                    onCloseRightSidebar={() => setIsRightSidebarOpen(false)}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     onRepoClick={handleOpenRepositoryPicker}
                     projects={repositories}

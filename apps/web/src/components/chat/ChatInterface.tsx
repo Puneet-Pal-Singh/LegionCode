@@ -52,7 +52,6 @@ import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoa
 import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";
 import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
 import { ThreadInputQueuePanel } from "./conversation/ThreadInputQueuePanel";
-import { resumeUnavailableMessage } from "./chat-interface/workspace-snapshot-status.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -494,12 +493,6 @@ export function ChatInterface({
             return receipt;
           }}
         />
-      }
-      resumeUnavailableMessage={
-        resumeUnavailableMessage(
-          activeTurn.projection,
-          Boolean(conversationScope),
-        ) ?? null
       }
       canResume={Boolean(
         conversationScope &&

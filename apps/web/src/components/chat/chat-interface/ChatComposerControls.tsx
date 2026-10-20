@@ -55,7 +55,6 @@ interface ChatComposerControlsProps {
   ) => Promise<boolean>;
   canResume?: boolean;
   onResume?: () => void;
-  resumeUnavailableMessage?: string | null;
   queuePanel?: ReactNode;
   reviewComments: ReviewCommentDraft[];
   onRemoveReviewComment: (commentId: string) => void;
@@ -119,11 +118,6 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           onStop={props.onStop}
           canStop={props.canStop}
         />
-      ) : null}
-      {props.resumeUnavailableMessage ? (
-        <p role="alert" className="mb-3 text-right text-xs text-amber-200/90">
-          {props.resumeUnavailableMessage}
-        </p>
       ) : null}
       {props.queuePanel}
       <ChatInputBar

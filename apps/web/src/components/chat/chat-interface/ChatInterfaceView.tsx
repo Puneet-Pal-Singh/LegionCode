@@ -1,7 +1,9 @@
+import { conversationDateMarkers } from "./conversationDateMarkers";
 import { Fragment, forwardRef, type ReactNode } from "react";
 import {
   ConversationTimeMarker,
   ConversationTerminalMarker,
+  ConversationNoticeMarker,
 } from "../workflow/ConversationMarker";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
 import type {
@@ -210,17 +212,23 @@ export const ChatInterfaceView = forwardRef<
 });
 
 function Transcript(props: ChatInterfaceViewProps) {
+  const dateMarkers = conversationDateMarkers(props.chatEntries);
   return (
     <>
       {props.chatEntries.map((entry) => {
         if (entry.kind === "workflow") {
           return (
-            <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
+            <TurnWorkflowEntry
+              key={entry.key}
+              entry={entry}
+              props={props}
+              showDateMarker={dateMarkers.has(entry.key)}
+            />
           );
         }
         return (
           <Fragment key={entry.message.id}>
-            {entry.message.role === "user" ? (
+            {dateMarkers.has(entry.message.id) ? (
               <ConversationTimeMarker at={entry.message.createdAt} />
             ) : null}
             <ChatMessage
@@ -269,9 +277,11 @@ function resolveUserMessageEdit(
 function TurnWorkflowEntry({
   entry,
   props,
+  showDateMarker,
 }: {
   entry: Extract<ChatInterfaceEntry, { kind: "workflow" }>;
   props: ChatInterfaceViewProps;
+  showDateMarker: boolean;
 }) {
   const turnId = entry.projection.turnId;
   const surfaceId = props.threadId
@@ -296,15 +306,7 @@ function TurnWorkflowEntry({
           Earlier workflow · revised
         </span>
       ) : null}
-      {workspaceSnapshotNotice(entry.projection) ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100/90"
-        >
-          {workspaceSnapshotNotice(entry.projection)}
-        </p>
-      ) : null}
-      {entry.projection.continuationOfTurnId ? (
+      {showDateMarker ? (
         <ConversationTimeMarker
           at={entry.projection.startedAt}
           label="Continued"
@@ -401,7 +403,10 @@ function TerminalMessage(
   if (!terminal) return null;
 
   if (terminal.state !== "completed") {
-    return (
+    const notice = workspaceSnapshotNotice(props.projection);
+    return notice ? (
+      <ConversationNoticeMarker message={notice} />
+    ) : (
       <ConversationTerminalMarker
         interrupted={terminal.state === "interrupted"}
         content={terminal.content}
