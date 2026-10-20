@@ -16,7 +16,9 @@
 The unconditional checkout requirement is removed for admitted projectless chats.
 Repository execution retains its Git and artifact requirements. The SDK renders
 runtime capability from lifecycle replay rather than inferring it from the current
-project picker. ProviderStore carries an unsent composer's model preference into
+project picker. Completed-turn review uses that same capability: conversations
+have no Git diff and do not display a missing-diff warning; repository turns
+still require their settled canonical diff. ProviderStore carries an unsent composer's model preference into
 the chat created by an explicit project choice or first submission; validation
 at admission remains authoritative.
 
