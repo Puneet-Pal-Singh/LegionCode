@@ -9,6 +9,7 @@ import { AgentSetup } from "./components/agent/AgentSetup";
 import {
   copySetupDraft,
   type AgentSetupDraft,
+  type AgentSetupDraftReader,
 } from "./components/agent/setupDraft";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -16,7 +17,7 @@ import {
   GitHubContextProvider,
   useGitHub,
 } from "./components/github/GitHubContextProvider";
-import { AuthorizedRepositoryPicker } from "./components/github/AuthorizedRepositoryPicker";
+import { RepositoryPickerModal } from "./components/github/RepositoryPickerModal";
 import type {
   Repository,
   WorkspaceListItem,
@@ -193,6 +194,7 @@ function AppContent() {
     Record<string, AgentSetupDraft>
   >({});
   const projectPickerDraftRef = useRef<AgentSetupDraft | undefined>(undefined);
+  const setupDraftReaderRef = useRef<AgentSetupDraftReader | null>(null);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
@@ -790,7 +792,10 @@ function AppContent() {
   }, [activeSessionId, archiveSession]);
 
   const handleOpenRepositoryPicker = (draft?: AgentSetupDraft) => {
-    projectPickerDraftRef.current = draft ? copySetupDraft(draft) : undefined;
+    const currentDraft = draft ?? setupDraftReaderRef.current?.getDraft();
+    projectPickerDraftRef.current = currentDraft
+      ? copySetupDraft(currentDraft)
+      : undefined;
     if (!isAuthenticated) {
       login();
       return;
@@ -1249,6 +1254,7 @@ function AppContent() {
                         sessionId={activeSession.id}
                       >
                         <AgentSetup
+                          draftRef={setupDraftReaderRef}
                           sessionId={activeSessionId}
                           initialDraft={setupDrafts[activeSessionId]}
                           mode={activeSession.mode}
@@ -1309,6 +1315,7 @@ function AppContent() {
                   sessionId={setupSession.id}
                 >
                   <AgentSetup
+                    draftRef={setupDraftReaderRef}
                     sessionId={setupSession.id}
                     isRightSidebarOpen={isRightSidebarOpen}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
@@ -1362,12 +1369,10 @@ function AppContent() {
           </AnimatePresence>
 
           {showRepoPicker && isAuthenticated ? (
-            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-3 sm:p-6">
-              <AuthorizedRepositoryPicker
-                onRepoSelect={handleRepoSelect}
-                onClose={() => setShowRepoPicker(false)}
-              />
-            </div>
+            <RepositoryPickerModal
+              onRepoSelect={handleRepoSelect}
+              onClose={() => setShowRepoPicker(false)}
+            />
           ) : null}
 
           <SettingsDialog

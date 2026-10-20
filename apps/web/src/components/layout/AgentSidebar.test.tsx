@@ -52,6 +52,20 @@ describe("AgentSidebar", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Add project" }));
     expect(onAddRepository).toHaveBeenCalledOnce();
+    const projects = screen.getByRole("button", { name: "Projects", exact: true });
+    const recents = screen.getByRole("button", { name: "Recents", exact: true });
+    fireEvent.click(projects);
+    expect(projects).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Your projects will appear here")).not.toBeVisible();
+    fireEvent.click(recents);
+    expect(recents).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Chats without a project appear here")).not.toBeVisible();
+    fireEvent.click(projects);
+    fireEvent.click(recents);
+    expect(screen.getByText("Your projects will appear here")).toBeVisible();
+    expect(screen.getByText("Chats without a project appear here")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Filter chats" }));
+    expect(screen.getByRole("menuitemradio", { name: "Paused" })).toBeVisible();
   });
 
   it("opens the account menu and logs out the authenticated user", async () => {
