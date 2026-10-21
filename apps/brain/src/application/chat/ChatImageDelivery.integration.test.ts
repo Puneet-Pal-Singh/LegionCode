@@ -23,6 +23,9 @@ import type { ILLMGateway } from "@legioncode/execution-engine/runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { HandleChatRequest } from "./HandleChatRequest";
+import { prepareRuntimeExecutionResources } from "../../runtime/RuntimeExecutionResources";
+import { ResumeTurnService } from "../../services/turn-admissions/ResumeTurnService";
+import { resolveSessionRepositoryContext } from "../../services/workspaces/SessionRepositoryContext";
 import { PersistenceService } from "../../services/PersistenceService";
 import { BrainLifecycleEventStore } from "../../services/lifecycle/BrainLifecycleEventStore";
 import { ThreadTitleService } from "../../services/thread-titles";
@@ -112,6 +115,51 @@ describe("authenticated image submission through native provider delivery", () =
   it("delivers stored pixels on submission, later recall, and text-only revision after reload", async () => {
     const first = await submit(env, imageMessage, identity);
     await expectProviderImage(first.executionPayload);
+    const resources = await prepareRuntimeExecutionResources(
+      { storage: new TestRuntimeStorage() }, {
+        ...env, HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
+        BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-only-credential-encryption-key",
+      } as Env, first.executionPayload,
+    );
+    expect(resources.workspace).toBeNull();
+    expect(resources.agent).toBeUndefined();
+    expect(resources.runEngineDeps.workspaceBootstrapper).toBeUndefined();
+    expect(resources.artifacts).toBeUndefined();
+    expect(await resolveSessionRepositoryContext({ env, sessionId, userId, workspaceId: identity.workspaceId })).toBeNull();
+    await expect(prepareRuntimeExecutionResources({}, env, {
+      ...first.executionPayload, input: { ...first.executionPayload.input, repositoryContext: { owner: "other", repo: "repo" } },
+    })).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    await expect(prepareRuntimeExecutionResources({}, env, { ...first.executionPayload, userId: "different-owner" })).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    const projectlessRuntime = createRuntime(first.executionPayload, false, true);
+    await projectlessRuntime.execute();
+    expect(providerImages(projectlessRuntime.requests[0]!)).toContainEqual(image);
+    const projectlessReplay = await projectlessRuntime.lifecycle.replay({ turnId: TurnIdSchema.parse(identity.turnId), afterSequence: 0, limit: 100 });
+    expect(projectlessReplay.events.at(-1)?.type).toBe("turn.completed");
+    expect(projectlessReplay.events.some((event) => event.type === "workspace.snapshot_captured")).toBe(false);
+    await createRuntime({ ...first.executionPayload, input: { ...first.executionPayload.input, mode: "plan" } }, false, true).execute();
+    const admitted = await vi.mocked(admissionFixture.admitWithPrompt).mock.results[0]!.value;
+    const admitContinuation = vi.fn(async () => ({ admission: admitted.admission, run: admitted.run }));
+    const resumed = await new ResumeTurnService({
+      ...env, EDIT_ARTIFACTS: undefined,
+      AUTH_TURN_ADMISSION_REPOSITORY: {
+        ...admissionFixture,
+        getInterruptedTarget: async () => ({
+          admission: admitted.admission, run: admitted.run, originalPromptId: "original-prompt",
+          prompt: { text: "Inspect the agents screenshot", parts: [] }, terminalEvent: null, snapshotEvent: null, resumeArtifactEvent: null,
+        }),
+        admitContinuation,
+      },
+    } as Env).resume({
+      userId, sessionId, workspaceId: identity.workspaceId, threadId: identity.threadId,
+      expectedTurnId: identity.turnId, expectedRunAttemptId: identity.runAttemptId, terminalSequence: 9,
+      clientCommandId: "projectless-resume", turnId: "trn_projectless_resume", runAttemptId: "attempt_projectless_resume", runId: "run_projectless_resume",
+    });
+    expect(resumed.repository).toBeNull();
+    expect(resumed.resumeSnapshot).toBeUndefined();
+    expect(resumed.workspacePatch).toBeUndefined();
+    expect(admitContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      continuationOfTurnId: identity.turnId, continuationTerminalSequence: 9, originalPromptId: "original-prompt",
+    }));
     const transcript = await repository.listTranscript({
       userId,
       sessionId,
@@ -500,7 +548,7 @@ function providerImages(messages: readonly CoreMessage[]) {
   );
 }
 
-function createRuntime(payload: Payload, withTools = false) {
+function createRuntime(payload: Payload, withTools = false, projectless = false) {
   const requests: CoreMessage[][] = [];
   const lifecycle = new MemoryLifecycleEventStore();
   let runner: RuntimeKernelNativeRunner;
@@ -596,7 +644,7 @@ function createRuntime(payload: Payload, withTools = false) {
         lifecycleEvents: lifecycle,
         ...delivered.identity,
         turnId: TurnIdSchema.parse(delivered.identity.turnId),
-        workspace: {
+        workspace: projectless ? null : {
           filesystemRoot: "/workspace",
           workingBranch: "test",
           startTreeId: "a".repeat(40),

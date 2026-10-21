@@ -81,6 +81,8 @@ interface ChatInputBarProps {
   reviewComments?: ReviewCommentDraft[];
   onRemoveReviewComment?: (commentId: string) => void;
   reviewCommentError?: string | null;
+  canResume?: boolean;
+  onResume?: () => void;
   onStop?: () => void;
   canStop?: boolean;
   isLoading?: boolean;
@@ -110,6 +112,8 @@ export function ChatInputBar({
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
+  canResume = false,
+  onResume,
   onStop,
   canStop = false,
   isLoading = false,
@@ -1035,6 +1039,8 @@ export function ChatInputBar({
                 isActive={isComposerActiveRun}
                 canSubmit={canSubmit}
                 canSendMessage={canSendMessage}
+                canResume={canResume}
+                onResume={onResume}
                 canStop={shouldShowStop}
                 followUpAvailable={
                   onFollowUpSubmit !== undefined && !hasReviewComments

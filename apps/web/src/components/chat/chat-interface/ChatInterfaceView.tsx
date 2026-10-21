@@ -1,4 +1,10 @@
-import { forwardRef, type ReactNode } from "react";
+import { conversationDateMarkers } from "./conversationDateMarkers";
+import { Fragment, forwardRef, type ReactNode } from "react";
+import {
+  ConversationTimeMarker,
+  ConversationTerminalMarker,
+  ConversationNoticeMarker,
+} from "../workflow/ConversationMarker";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
 import type {
   DiffContent,
@@ -206,29 +212,39 @@ export const ChatInterfaceView = forwardRef<
 });
 
 function Transcript(props: ChatInterfaceViewProps) {
+  const dateMarkers = conversationDateMarkers(props.chatEntries);
   return (
     <>
       {props.chatEntries.map((entry) => {
         if (entry.kind === "workflow") {
           return (
-            <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
+            <TurnWorkflowEntry
+              key={entry.key}
+              entry={entry}
+              props={props}
+              showDateMarker={dateMarkers.has(entry.key)}
+            />
           );
         }
         return (
-          <ChatMessage
-            key={entry.message.id}
-            message={entry.message}
-            metadata={props.messageMetadataById[entry.message.id]}
-            onArtifactOpen={props.onArtifactOpen}
-            onReviewOpen={props.onReviewOpen}
-            changedFilesSummary={resolveMessageChangedFilesSummary(
-              props,
-              entry.message.id,
-            )}
-            hookAudits={entry.projection?.hookAudits}
-            onEdit={resolveUserMessageEdit(props, entry)}
-            historyStatus={entry.historyStatus}
-          />
+          <Fragment key={entry.message.id}>
+            {dateMarkers.has(entry.message.id) ? (
+              <ConversationTimeMarker at={entry.message.createdAt} />
+            ) : null}
+            <ChatMessage
+              message={entry.message}
+              metadata={props.messageMetadataById[entry.message.id]}
+              onArtifactOpen={props.onArtifactOpen}
+              onReviewOpen={props.onReviewOpen}
+              changedFilesSummary={resolveMessageChangedFilesSummary(
+                props,
+                entry.message.id,
+              )}
+              hookAudits={entry.projection?.hookAudits}
+              onEdit={resolveUserMessageEdit(props, entry)}
+              historyStatus={entry.historyStatus}
+            />
+          </Fragment>
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
@@ -261,9 +277,11 @@ function resolveUserMessageEdit(
 function TurnWorkflowEntry({
   entry,
   props,
+  showDateMarker,
 }: {
   entry: Extract<ChatInterfaceEntry, { kind: "workflow" }>;
   props: ChatInterfaceViewProps;
+  showDateMarker: boolean;
 }) {
   const turnId = entry.projection.turnId;
   const surfaceId = props.threadId
@@ -288,13 +306,11 @@ function TurnWorkflowEntry({
           Earlier workflow · revised
         </span>
       ) : null}
-      {workspaceSnapshotNotice(entry.projection) ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100/90"
-        >
-          {workspaceSnapshotNotice(entry.projection)}
-        </p>
+      {showDateMarker ? (
+        <ConversationTimeMarker
+          at={entry.projection.startedAt}
+          label="Continued"
+        />
       ) : null}
       <CanonicalWorkflowSurface
         projection={entry.projection}
@@ -387,19 +403,14 @@ function TerminalMessage(
   if (!terminal) return null;
 
   if (terminal.state !== "completed") {
-    return (
-      <div
-        role="alert"
-        className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
-      >
-        <span className="mt-0.5 text-zinc-500" aria-hidden="true">
-          {terminal.state === "interrupted" ? "■" : "!"}
-        </span>
-        <p className="leading-5 text-zinc-300">
-          {terminal.content ||
-            "The run ended before it could return an answer. Retry the request."}
-        </p>
-      </div>
+    const notice = workspaceSnapshotNotice(props.projection);
+    return notice ? (
+      <ConversationNoticeMarker message={notice} />
+    ) : (
+      <ConversationTerminalMarker
+        interrupted={terminal.state === "interrupted"}
+        content={terminal.content}
+      />
     );
   }
 

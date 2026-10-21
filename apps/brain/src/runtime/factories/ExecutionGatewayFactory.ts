@@ -43,7 +43,7 @@ export function buildRuntimeDependencies(
   payload: ExecuteRunPayload,
   options: {
     strict?: boolean;
-    issuedTaskCheckout: IssuedTaskCheckout;
+    issuedTaskCheckout: IssuedTaskCheckout | null;
   },
 ): {
   agent: IAgent | undefined;
@@ -72,6 +72,19 @@ export function buildRuntimeDependencies(
     budgetManager,
     pricingResolver,
   } = budgetingComponents;
+
+  // Build session memory client
+  const sessionMemoryClient = payload.userId
+    ? buildSessionMemoryClient(env, payload.userId, payload.sessionId)
+    : undefined;
+  const baseDependencies: RunEngineDependencies = {
+    aiService: llmRuntimeService, llmGateway, costLedger, costTracker,
+    pricingRegistry, pricingResolver, budgetManager, sessionMemoryClient,
+    hasGitHubAuth: async ({ userId }) => hasGitHubTokenForUser(env, userId ?? payload.userId),
+  };
+  if (options.issuedTaskCheckout === null) {
+    return { agent: undefined, runEngineDeps: baseDependencies };
+  }
 
   // Resolve agent with strict policy
   const identity = payload.identity;
@@ -106,10 +119,6 @@ export function buildRuntimeDependencies(
     executionService,
   );
 
-  // Build session memory client
-  const sessionMemoryClient = payload.userId
-    ? buildSessionMemoryClient(env, payload.userId, payload.sessionId)
-    : undefined;
   const workspaceBootstrapper = WorkspaceBootstrapService.fromEnv(
     env,
     payload.sessionId,
@@ -125,19 +134,7 @@ export function buildRuntimeDependencies(
 
   return {
     agent,
-    runEngineDeps: {
-      aiService: llmRuntimeService,
-      llmGateway,
-      costLedger,
-      costTracker,
-      pricingRegistry,
-      pricingResolver,
-      budgetManager,
-      sessionMemoryClient,
-      workspaceBootstrapper,
-      hasGitHubAuth: async ({ userId }) =>
-        hasGitHubTokenForUser(env, userId ?? payload.userId),
-    },
+    runEngineDeps: { ...baseDependencies, workspaceBootstrapper },
   };
 }
 

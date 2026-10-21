@@ -314,6 +314,16 @@ export class ProviderStore {
     };
   }
 
+  /** Carry an unsent composer's explicit choice into the chat it creates. */
+  copySessionSelection(sourceSessionId: string, destinationSessionId: string): void {
+    const source = this.getStateForSession(sourceSessionId);
+    writeSessionScopedSelection(destinationSessionId, {
+      selectedProviderId: source.selectedProviderId,
+      selectedCredentialId: source.selectedCredentialId,
+      selectedModelId: source.selectedModelId,
+    });
+  }
+
   getStateForSession(sessionId: string): ProviderStoreState {
     if (this.activeSessionId === sessionId) {
       return this.getState();

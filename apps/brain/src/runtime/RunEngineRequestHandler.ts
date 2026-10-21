@@ -22,7 +22,6 @@ import {
   TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
-  userIdFromExternalId,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,
   type TurnId,
@@ -46,7 +45,7 @@ import {
   SerializableToolDefinitionSchema,
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
-import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
+import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
 import {
   DomainError,
   isDomainError,
@@ -67,9 +66,6 @@ import {
   runEngineJsonResponse,
   withRunEngineHeaders,
 } from "./RunEngineHttpResponse";
-import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
-import { SecureGitArtifactClient } from "../services/edit-artifacts/SecureGitArtifactClient";
-import { SecureRuntimeGitSnapshotPort } from "../services/edit-artifacts/SecureRuntimeGitSnapshotPort";
 import { withTurnAdmissionRepository } from "../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
@@ -103,19 +99,15 @@ import { ChatImageAttachmentRefSchema } from "@repo/shared-types";
 import { ChatMediaStore } from "../services/chat/ChatMediaStore";
 import { resolveChatImageSettings } from "../services/chat/ChatImageSettings";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
-import { BrainApprovalGrantReader } from "../services/lifecycle/BrainApprovalGrantReader";
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
 } from "@legioncode/execution-engine/runtime";
 import { RuntimeWorkspaceScopeResponseSchema } from "./RuntimeWorkspaceScope";
-import { TaskCheckoutIssuer } from "./task-workspaces/TaskCheckoutIssuer";
 import {
   TaskCheckoutExecutionOrchestrator,
   type TaskCheckoutScopeResolutionPort,
 } from "./task-workspaces/TaskCheckoutExecutionOrchestrator";
-import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
-import { ProductionHookOrchestrator } from "../services/hooks/ProductionHookOrchestrator";
 
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
@@ -1334,142 +1326,18 @@ export class RunEngineRequestHandler {
         executionClaim = { turnId, claimId };
         this.interruptRegistry.beginStartup(turnId);
         const runtimeState = this.createRuntimeState();
-        const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
-          this.env,
-        );
-        const issuedTaskCheckout = await new TaskCheckoutIssuer(this.env).issue(
-          payload,
-          { resumeSnapshot: payload.resumeSnapshotRef },
-        );
-        let claimedTaskCheckout;
+        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
+        const taskCheckoutLifecycle = resources.checkoutLifecycle;
+        const editArtifactCoordinator = resources.artifacts;
         try {
-          claimedTaskCheckout =
-            await taskCheckoutOrchestrator.claimForExecution(
-              {
-                workspaceId: identity.workspaceId,
-                threadId,
-                turnId,
-                runAttemptId,
-              },
-              payload.correlationId,
-            );
-        } catch (error) {
-          await issuedTaskCheckout.executionSession.release();
-          throw error;
-        }
-        const taskCheckoutLifecycle = new TaskCheckoutRunLifecycle(
-          claimedTaskCheckout.checkoutId,
-          taskCheckoutOrchestrator,
-          issuedTaskCheckout.executionSession,
-        );
-        try {
-          const { agent, runEngineDeps } = buildRuntimeDependencies(
-            this.ctx,
-            this.env,
-            payload,
-            {
-              strict: true,
-              issuedTaskCheckout: {
-                ...issuedTaskCheckout,
-                checkout: claimedTaskCheckout,
-              },
-            },
-          );
-          console.log(
-            formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
-              correlationId: payload.correlationId,
-              runId: payload.runId,
-              sessionId: payload.sessionId,
-              toolCount: payload.tools?.length ?? 0,
-              checkoutId: claimedTaskCheckout.checkoutId,
-              sandboxId: claimedTaskCheckout.sandboxId,
-            }),
-          );
-          const editArtifactCoordinator = createEditArtifactCoordinator({
-            env: this.env,
-            userId: payload.userId,
-            workspaceId: workspaceId.data,
-            identity,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            repositoryContext: payload.input.repositoryContext,
-            workspaceScope: issuedTaskCheckout.workspaceScope,
-            executionSession: issuedTaskCheckout.executionSession,
-          });
-          const gitSnapshots = new SecureRuntimeGitSnapshotPort(
-            new SecureGitArtifactClient(
-              this.env,
-              payload.sessionId,
-              payload.runId,
-              issuedTaskCheckout.workspaceScope,
-              issuedTaskCheckout.executionSession,
-            ),
-            {
-              bucket: this.env.EDIT_ARTIFACTS!,
-              userId: userIdFromExternalId(payload.userId!),
-              workspaceId: workspaceIdFromExternalId(workspaceId.data),
-              threadId,
-              sourceRunId: payload.runId,
-              sourceTurnId: turnId,
-              sourceRunAttemptId: runAttemptId,
-              baseSnapshotId: issuedTaskCheckout.checkout.snapshotId,
-              baseCommitSha: issuedTaskCheckout.authorizedCommitId,
-            },
-          );
           const userMessageId = readLatestUserMessageId(payload.messages);
-          editArtifactCoordinator.setMessageContext({
-            userMessageId: userMessageId ?? undefined,
-          });
-          const runtimeRunner = new RuntimeKernelNativeRunner(
-            runtimeState,
-            {
-              env: this.env,
-              sessionId: payload.sessionId,
-              runId: payload.runId,
-              userId: payload.userId,
-              correlationId: payload.correlationId,
-              requestOrigin: payload.requestOrigin,
-            },
-            agent,
-            {
-              ...runEngineDeps,
-              approvalGrants: new BrainApprovalGrantReader(this.env),
-              gitSnapshots,
-              prepareMutationCapture: async () => {
-                await issuedTaskCheckout.restoreWorkspaceProgress?.();
-                await editArtifactCoordinator.prepare();
-              },
-              runEventListener: async (event) => {
-                // Legacy RunEvent records remain a projection for internal
-                // activity/artifact capture only. Kernel lifecycle events are
-                // appended and streamed exclusively by the lifecycle store.
-                editArtifactCoordinator.handleEvent(event);
-              },
-            },
-          );
-
-          const runtimeTools = toRuntimeCoreTools(payload.tools);
-          if (!payload.userId) {
-            throw new DomainError(
-              "RUN_SCOPE_MISMATCH",
-              "Authenticated user scope is required for hook execution.",
-              409,
-              false,
-              payload.correlationId,
-            );
-          }
-          const hookOrchestration = new ProductionHookOrchestrator(this.env, {
-            userId: payload.userId,
-            workspaceId: workspaceId.data,
-            runId: payload.runId,
-            threadId,
-            turnId,
-            runAttemptId,
-            workspaceRoot: claimedTaskCheckout.filesystemRoot,
-            prompt: payload.input.prompt,
-            selectedMode: payload.input.mode === "plan" ? "plan" : "auto_edit",
-            backendId: payload.input.executionBackend,
-          });
+          editArtifactCoordinator?.setMessageContext({ userMessageId: userMessageId ?? undefined });
+          const runtimeRunner = new RuntimeKernelNativeRunner(runtimeState, {
+            env: this.env, sessionId: payload.sessionId, runId: payload.runId, userId: payload.userId,
+            correlationId: payload.correlationId, requestOrigin: payload.requestOrigin,
+          }, resources.agent, resources.runEngineDeps);
+          const runtimeTools = resources.workspace ? toRuntimeCoreTools(payload.tools) : {};
+          const hookOrchestration = resources.hooks;
           this.threadInputRegistry.register(turnId, async (threadInput) =>
             await runtimeRunner.acceptThreadInput(threadInput),
           );
@@ -1508,12 +1376,7 @@ export class RunEngineRequestHandler {
             revisionOfTurnId: identity.revisionOfTurnId,
             continuationOfTurnId: identity.continuationOfTurnId,
             originalPromptId: identity.originalPromptId,
-            workspace: {
-              filesystemRoot: claimedTaskCheckout.filesystemRoot,
-              workingBranch: claimedTaskCheckout.workingBranch,
-              startTreeId: claimedTaskCheckout.startTreeId,
-              artifactNamespace: `task-checkouts/${claimedTaskCheckout.checkoutId}`,
-            },
+            workspace: resources.workspace,
           });
           console.log(
             formatDiagnosticLogLine("run/runtime", "engine-executed", {
@@ -1543,11 +1406,11 @@ export class RunEngineRequestHandler {
             }),
           );
           if (persistedAssistantMessageId) {
-            editArtifactCoordinator.setMessageContext({
+            editArtifactCoordinator?.setMessageContext({
               assistantMessageId: persistedAssistantMessageId,
             });
           }
-          await editArtifactCoordinator.waitForPendingCapture();
+          await editArtifactCoordinator?.waitForPendingCapture();
           const lifecycleEvents = await readAllLifecycleEvents(
             this.createLifecycleEventStore(),
             turnId,
@@ -1564,7 +1427,7 @@ export class RunEngineRequestHandler {
               payload.correlationId,
             );
           }
-          await taskCheckoutLifecycle.settle(
+          await taskCheckoutLifecycle?.settle(
             terminalLifecycleEvent.type === "turn.completed"
               ? { status: "settled" }
               : {
@@ -1589,9 +1452,9 @@ export class RunEngineRequestHandler {
             "X-Run-Attempt-Id": runAttemptId,
           });
         } catch (error) {
-          if (!taskCheckoutLifecycle.isSettled) {
+          if (taskCheckoutLifecycle && !taskCheckoutLifecycle.isSettled) {
             try {
-              await taskCheckoutLifecycle.settle({
+              await taskCheckoutLifecycle?.settle({
                 status: "failed",
                 failureCode: "RUN_PIPELINE_FAILED",
               });
@@ -1603,7 +1466,7 @@ export class RunEngineRequestHandler {
                 true,
                 payload.correlationId,
                 {
-                  checkoutId: claimedTaskCheckout.checkoutId,
+                  checkoutId: resources.checkoutId,
                   runAttemptId,
                 },
               );
@@ -1615,7 +1478,7 @@ export class RunEngineRequestHandler {
           this.approvalResolutionRegistry.unregister(turnId);
           this.contextCompactionRegistry.unregister(turnId);
           this.threadInputRegistry.unregister(turnId);
-          await taskCheckoutLifecycle.release();
+          await taskCheckoutLifecycle?.release();
         }
       });
     } catch (error: unknown) {

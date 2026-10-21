@@ -5,6 +5,9 @@ import {
   RUN_WORKFLOW_STEPS,
   WORKFLOW_INTENTS,
 } from "@repo/shared-types";
+import { MemoryLifecycleEventStore } from "../../../../event-store/src/MemoryLifecycleEventStore.js";
+import { TurnIdSchema, RunAttemptIdSchema, ThreadIdSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
+import { RuntimeKernelNativeRunner } from "./RuntimeKernelNativeRunner.js";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import type {
@@ -77,6 +80,27 @@ describe("RunEngine", () => {
     );
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
+
+    const lifecycleEvents = new MemoryLifecycleEventStore();
+    const native = new RuntimeKernelNativeRunner(new MockRuntimeState(), {
+      env: { NODE_ENV: "test" }, sessionId: "session-projectless", runId: "run_projectless_native",
+    }, undefined, { llmGateway: adaptLegacyTestGateway(llmGateway) });
+    const turnId = TurnIdSchema.parse("trn_projectless_native");
+    const nativeResponse = await native.execute({
+      input: { agentType: "coding", mode: "build", prompt: "hello", sessionId: "session-projectless" },
+      messages: [{ role: "user", content: "hello" }], tools: {}, lifecycleEvents,
+      workspace: null, turnId, runAttemptId: RunAttemptIdSchema.parse("attempt_projectless_native"),
+      threadId: ThreadIdSchema.parse("thr_projectless_native"), workspaceId: WorkspaceIdSchema.parse("wrk_projectless_native"),
+    });
+    expect(nativeResponse.status).toBe(200);
+    expect(await nativeResponse.text()).toContain("I can help you plan the next task.");
+    const replay = await lifecycleEvents.replay({ turnId, afterSequence: 0, limit: 100 });
+    expect(replay.events.at(-1)?.type).toBe("turn.completed");
+    expect(replay.events.filter((event) => event.type.startsWith("workspace.") || event.type.startsWith("tool_call.") || event.type === "artifact.created")).toEqual([]);
+    expect(replay.events.find((event) => event.type === "run_attempt.started")?.payload).toMatchObject({ executionCapability: "conversation" });
+    const lastRequest = generateText.mock.calls.at(-1)?.[0] as unknown as { tools?: Record<string, unknown>; messages?: unknown[] };
+    expect(Object.keys(lastRequest.tools ?? {})).toHaveLength(0);
+    expect(JSON.stringify(lastRequest.messages)).toContain("This conversation has no project or repository");
   });
 
   it("does not bootstrap a selected repository for ordinary chat prompts", async () => {

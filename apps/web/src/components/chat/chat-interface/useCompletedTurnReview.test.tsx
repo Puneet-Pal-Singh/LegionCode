@@ -40,5 +40,15 @@ describe("useCompletedTurnReview", () => {
 
     expect(result.current.error).toContain("canonical turn diff");
     expect(result.current.messageId).toBe("assistant-1");
+
+    const { result: conversationReview } = renderHook(() =>
+      useCompletedTurnReview(
+        { ...projection, executionCapability: "conversation" },
+        "assistant-conversation",
+      ),
+    );
+    expect(conversationReview.current.error).toBeNull();
+    expect(conversationReview.current.turnId).toBeNull();
+    expect(conversationReview.current.files).toEqual([]);
   });
 });

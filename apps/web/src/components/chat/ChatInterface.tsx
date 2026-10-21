@@ -52,7 +52,6 @@ import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoa
 import { useChatAutoScroll } from "./chat-interface/useChatAutoScroll.js";
 import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
 import { ThreadInputQueuePanel } from "./conversation/ThreadInputQueuePanel";
-import { resumeUnavailableMessage } from "./chat-interface/workspace-snapshot-status.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -495,24 +494,18 @@ export function ChatInterface({
           }}
         />
       }
-      resumeUnavailableMessage={
-        resumeUnavailableMessage(
-          activeTurn.projection,
-          Boolean(conversationScope),
-        ) ?? null
-      }
       canResume={Boolean(
         conversationScope &&
         activeTurn.projection?.terminal?.state === "interrupted" &&
-        activeTurn.projection.workspaceSnapshotState === "captured" &&
-        activeTurn.projection.resumeSnapshotAvailable === true,
+        (activeTurn.projection.executionCapability === "conversation" ||
+          (activeTurn.projection.workspaceSnapshotState === "captured" && activeTurn.projection.resumeSnapshotAvailable === true)),
       )}
       onResume={() => {
         const projection = activeTurn.projection;
         if (
           projection?.terminal?.state === "interrupted" &&
-          projection.workspaceSnapshotState === "captured" &&
-          projection.resumeSnapshotAvailable === true
+          (projection.executionCapability === "conversation" ||
+            (projection.workspaceSnapshotState === "captured" && projection.resumeSnapshotAvailable === true))
         ) {
           void chatProps.resumeInterruptedTurn(projection.lastSequence);
         }

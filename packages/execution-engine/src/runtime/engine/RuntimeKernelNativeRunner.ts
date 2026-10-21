@@ -175,7 +175,7 @@ const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
   Awaited<
     ReturnType<
-      RuntimeKernelDependencies["workspaceManifests"]["getLatestByRunId"]
+      NonNullable<RuntimeKernelDependencies["workspaceManifests"]>["getLatestByRunId"]
     >
   >
 >;
@@ -199,7 +199,7 @@ export interface RuntimeKernelNativeRunnerInput {
     workingBranch: string;
     startTreeId: string;
     artifactNamespace: string;
-  };
+  } | null;
   now?: () => string;
 }
 
@@ -325,7 +325,7 @@ export class RuntimeKernelNativeRunner {
     await this.budgetManager.loadSessionCosts();
     const run = await this.getOrCreateRun(input.input);
     await this.prepareRun(run, input);
-    if (run.metadata.manifest?.mode !== "build") {
+    if (input.workspace && run.metadata.manifest?.mode !== "build") {
       return await this.executePlanMode(run, input.input);
     }
     const bootstrapResponse = await this.prepareBuildWorkspace(
@@ -337,15 +337,13 @@ export class RuntimeKernelNativeRunner {
     }
     await this.prepareMutationCapture?.();
     await this.activateBuildRun(run);
-    const executionService = this.getDirectExecutionService();
-    const runtimeTools = enforceCodingToolFloor(
-      { ...getCodingCoreToolRegistry(), ...input.tools },
-      input.input.metadata,
-    );
+    const runtimeTools = input.workspace ? enforceCodingToolFloor(
+      { ...getCodingCoreToolRegistry(), ...input.tools }, input.input.metadata,
+    ) : {};
     recordTurnModeDecision(run, {
-      mode: "action",
+      mode: input.workspace ? "action" : "chat",
       source: "runtime-kernel",
-      rationale: "Build turns use the canonical runtime kernel path.",
+      rationale: "Repository and conversation turns use the canonical runtime kernel path.",
       confidence: 1,
     });
     recordPhaseSelectionSnapshot(run, "execution");
@@ -383,7 +381,7 @@ export class RuntimeKernelNativeRunner {
     const provider = new KernelAgenticProvider({
       run,
       input: input.input,
-      messages: input.messages,
+      messages: input.workspace ? input.messages : [{ role: "system", content: "This conversation has no project or repository. You can answer questions and help plan work. You have no filesystem, terminal, Git, or repository tools. If the user asks you to inspect or change repository files, ask them to select a project. Never claim to have inspected or edited files." }, ...input.messages],
       tools: runtimeTools,
       llmGateway: this.llmGateway,
       budget: this.budgetManager,
@@ -393,36 +391,14 @@ export class RuntimeKernelNativeRunner {
       maxSteps,
       rootPromptId: input.originalPromptId,
     });
-    const capabilityManifest = createCloudSandboxRunCapabilityManifest({
-      runId: protocol.run.id,
-      workspaceRoot: protocol.manifest.filesystemRoot,
-      artifactRoot: `${protocol.manifest.filesystemRoot}/artifacts`,
-      availableToolIds: Object.keys(runtimeTools),
-      providerId: input.input.providerId,
-      modelId: input.input.runtimeModelId ?? input.input.modelId,
-    });
-    const worker = new KernelToolWorker({
-      runEventRecorder: this.runEventRecorder,
-      tracker: provider,
-      isRunCancelled: this.isRunCancelled.bind(this),
-      toolGateway: new RuntimeToolGateway({
-        executor: executionService,
-        manifest: capabilityManifest,
-        scope: new RuntimeWorkspaceScope({
-          runId: protocol.run.id,
-          threadId: protocol.turn.threadId,
-          turnId: protocol.turn.id,
-          runAttemptId: protocol.runAttemptId,
-          workspaceId: protocol.manifest.workspaceId,
-          root: protocol.manifest.filesystemRoot,
-        }),
-      }),
-    });
+    const worker = protocol.manifest
+      ? this.createRepositoryWorker(protocol.manifest, protocol.runAttemptId, protocol.turn, provider, runtimeTools, input.input)
+      : { executeTool: async (): Promise<WorkerToolResult> => failed("policy_denied", "Select a project before using repository tools.", false, "terminal"), awaitQuiescence: async () => true };
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
-      workspaceManifests: createWorkspaceManifestRepository(protocol.manifest),
+      workspaceManifests: protocol.manifest ? createWorkspaceManifestRepository(protocol.manifest) : undefined,
       gitSnapshots:
-        this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest),
+        protocol.manifest ? this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest) : undefined,
       turnArtifacts: createTurnArtifactPort(),
       contextAssembly: createNativeContextAssembly(
         input.input,
@@ -875,6 +851,21 @@ export class RuntimeKernelNativeRunner {
   private async isRunCancelled(): Promise<boolean> {
     const current = await this.runRepo.getById(this.options.runId);
     return current?.status === "CANCELLED";
+  }
+
+  private createRepositoryWorker(manifest: KernelWorkspaceManifest, runAttemptId: RunAttemptId, turn: Turn, provider: KernelAgenticProvider, runtimeTools: Record<string, CoreTool>, input: RunInput): KernelToolWorker {
+    const capabilityManifest = createCloudSandboxRunCapabilityManifest({
+      runId: manifest.runId, workspaceRoot: manifest.filesystemRoot,
+      artifactRoot: `${manifest.filesystemRoot}/artifacts`, availableToolIds: Object.keys(runtimeTools),
+      providerId: input.providerId, modelId: input.runtimeModelId ?? input.modelId,
+    });
+    return new KernelToolWorker({
+      runEventRecorder: this.runEventRecorder, tracker: provider, isRunCancelled: this.isRunCancelled.bind(this),
+      toolGateway: new RuntimeToolGateway({ executor: this.getDirectExecutionService(), manifest: capabilityManifest,
+        scope: new RuntimeWorkspaceScope({ runId: manifest.runId, threadId: turn.threadId, turnId: turn.id,
+          runAttemptId, workspaceId: manifest.workspaceId, root: manifest.filesystemRoot }),
+      }),
+    });
   }
 
   private getDirectExecutionService(): RuntimeExecutionService {
@@ -2123,7 +2114,7 @@ function buildProtocolEnvelope(input: {
   run: ProtocolRun;
   turn: Turn;
   runAttemptId: RunAttemptId;
-  manifest: KernelWorkspaceManifest;
+  manifest: KernelWorkspaceManifest | null;
 } {
   const workspaceId = workspaceIdFromExternalId(
     input.canonicalWorkspaceId ?? input.runId,
@@ -2151,13 +2142,14 @@ function buildProtocolEnvelope(input: {
     ),
     workerId,
     permissionProfileId,
+    executionCapability: input.workspace ? "repository" : "conversation",
     startedAt: input.timestamp,
     completedAt: null,
     createdAt: input.timestamp,
     updatedAt: input.timestamp,
     lastEventSequence: 0,
   });
-  const manifest = {
+  const manifest = input.workspace ? {
     runId: run.id,
     workspaceId: run.workspaceId,
     repoOwner: normalizeRepoPart(input.input.repositoryContext?.owner, "local"),
@@ -2179,7 +2171,7 @@ function buildProtocolEnvelope(input: {
     lastError: null,
     createdAt: input.timestamp,
     updatedAt: input.timestamp,
-  } satisfies KernelWorkspaceManifest;
+  } satisfies KernelWorkspaceManifest : null;
   return {
     run,
     turn: TurnSchema.parse({

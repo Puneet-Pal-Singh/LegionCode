@@ -173,11 +173,14 @@ describe("ChatInputBar", () => {
     const onStop = vi.fn();
     const onSubmit = vi.fn();
 
-    render(
+    const onResume = vi.fn();
+    const { rerender } = render(
       <ChatInputBar
         input=""
         onChange={vi.fn()}
         onSubmit={onSubmit}
+        canResume
+        onResume={onResume}
         onStop={onStop}
         canStop
         isLoading={false}
@@ -189,6 +192,17 @@ describe("ChatInputBar", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Resume interrupted turn")).not.toBeInTheDocument();
+    rerender(<ChatInputBar input="" onChange={vi.fn()} onSubmit={onSubmit} canResume onResume={onResume} sessionId="session-1" />);
+    fireEvent.click(screen.getByLabelText("Resume interrupted turn"));
+    expect(onResume).toHaveBeenCalledOnce();
+    rerender(<ChatInputBar input="A new request" onChange={vi.fn()} onSubmit={onSubmit} canResume onResume={onResume} sessionId="session-1" />);
+    expect(screen.queryByLabelText("Resume interrupted turn")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Send message"));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onResume).toHaveBeenCalledOnce();
+    rerender(<ChatInputBar input="" onChange={vi.fn()} onSubmit={onSubmit} canResume onResume={onResume} isLoading sessionId="session-1" />);
+    expect(screen.queryByLabelText("Resume interrupted turn")).not.toBeInTheDocument();
   });
 
   it("submits /compact during an active run once the canonical warning threshold is reached", async () => {

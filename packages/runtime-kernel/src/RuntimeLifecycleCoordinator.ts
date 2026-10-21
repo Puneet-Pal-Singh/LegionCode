@@ -64,6 +64,7 @@ export interface RuntimeLifecycleCoordinatorOptions extends LifecycleIdentity {
   readonly revisionOfTurnId?: TurnId;
   readonly continuationOfTurnId?: TurnId;
   readonly originalPromptId?: string;
+  readonly executionCapability?: "repository" | "conversation";
 }
 
 interface EventFields {
@@ -549,7 +550,7 @@ export class RuntimeLifecycleCoordinator {
         },
         2,
       ),
-      this.createEvent({ type: "run_attempt.started", payload: {} }, 3),
+      this.createEvent({ type: "run_attempt.started", payload: this.options.executionCapability ? { executionCapability: this.options.executionCapability } : {} }, 3),
     ];
     await this.options.sink.appendBatch(events);
     this.sequence += events.length;

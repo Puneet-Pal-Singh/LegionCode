@@ -144,6 +144,7 @@ export interface TurnWorkflowProjection {
   readonly originalPromptId?: string | null;
   readonly workspaceSnapshotState: "unknown" | "captured" | "unavailable";
   readonly resumeSnapshotAvailable: boolean | null;
+  readonly executionCapability?: "repository" | "conversation";
   readonly workspaceSnapshotUnavailableReason: string | null;
   readonly resumeUnavailableReason: string | null;
   readonly lastSequence: number;
@@ -266,6 +267,7 @@ function applyKnownEvent(
     case "run_attempt.started":
       return {
         ...projection,
+        executionCapability: readString(readPayload(event), "executionCapability") === "conversation" ? "conversation" : "repository",
         phase: "working",
         startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
       };

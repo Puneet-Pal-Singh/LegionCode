@@ -16,9 +16,11 @@ export function useCompletedTurnReview(
   projection: LifecycleProjection | null,
   messageId: string | null,
 ): CompletedTurnReview {
-  const isCompletedTurn = projection?.terminal?.state === "completed";
+  const isCompletedTurn =
+    projection?.terminal?.state === "completed" &&
+    projection.executionCapability !== "conversation";
   const error =
-    projection?.terminal?.state === "completed" && !projection.turnDiff
+    isCompletedTurn && !projection.turnDiff
       ? "Completed-turn review is unavailable because the canonical turn diff was not settled."
       : null;
   const files = useMemo(

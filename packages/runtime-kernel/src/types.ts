@@ -130,14 +130,14 @@ export interface StartTurnResult {
   readonly status: "completed";
   readonly output: string;
   readonly toolCallCount: number;
-  readonly workspace: WorkspaceManifest;
+  readonly workspace: WorkspaceManifest | null;
 }
 
 export interface ProviderCallInput {
   readonly run: Run;
   readonly runAttemptId: RunAttemptId;
   readonly turn: Turn;
-  readonly workspace: WorkspaceManifest;
+  readonly workspace: WorkspaceManifest | null;
   readonly context: RuntimeContext;
   readonly toolResults: readonly ToolResult[];
   readonly onThreadInputsApplied?: (

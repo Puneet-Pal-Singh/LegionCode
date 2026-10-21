@@ -287,7 +287,7 @@ function resolveMessageTimestamp(message: Message): number | undefined {
   return undefined;
 }
 
-function formatTimestamp(timestampMs?: number): string | undefined {
+export function formatTimestamp(timestampMs?: number): string | undefined {
   if (!timestampMs) {
     return undefined;
   }

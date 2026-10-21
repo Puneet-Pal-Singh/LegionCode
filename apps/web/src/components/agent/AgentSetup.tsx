@@ -6,6 +6,8 @@ import {
   useMemo,
   useImperativeHandle,
   type Ref,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
@@ -26,6 +28,8 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
+import { SidebarHeader } from "../layout/workspace/SidebarHeader";
+import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 import { SidebarContent } from "../layout/workspace/SidebarContent";
 import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
@@ -65,6 +69,9 @@ interface AgentSetupProps {
   draftRef?: Ref<AgentSetupDraftReader>;
   sessionId: string;
   isRightSidebarOpen?: boolean;
+  rightSidebarWidth: number;
+  setRightSidebarWidth: Dispatch<SetStateAction<number>>;
+  onCloseRightSidebar: () => void;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
@@ -87,6 +94,9 @@ export function AgentSetup({
   initialDraft,
   draftRef,
   isRightSidebarOpen = false,
+  rightSidebarWidth: sidebarWidth,
+  setRightSidebarWidth: setSidebarWidth,
+  onCloseRightSidebar,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   requiresRepository = false,
@@ -195,8 +205,11 @@ export function AgentSetup({
   const {
     activeTab,
     setActiveTab,
-    sidebarWidth,
-    setSidebarWidth,
+    contentTabs,
+    activeContentTabId,
+    selectContentTab,
+    closeContentTab,
+    openFilesTab,
     isResizing,
     setIsResizing,
     selectedFile,
@@ -209,6 +222,12 @@ export function AgentSetup({
     contentError,
     setContentError,
   } = useWorkspaceState();
+  const { isCompact, isMobile } = useWorkspaceViewport();
+  const renderedSidebarWidth = isMobile
+    ? "100vw"
+    : isCompact
+      ? "min(560px, 86vw)"
+      : sidebarWidth;
   const {
     repoTree,
     isLoadingTree,
@@ -902,17 +921,42 @@ export function AgentSetup({
           </div>
         </main>
 
+        {isRightSidebarOpen ? (
+          <SidebarHeader
+            sidebarWidth={renderedSidebarWidth}
+            isViewingContent={isViewingContent}
+            contentTabs={contentTabs}
+            activeContentTabId={activeContentTabId}
+            onSelectReview={() => {
+              setIsViewingContent(false);
+              setActiveTab("review");
+            }}
+            onSelectContent={(id) => {
+              selectContentTab(id);
+              setActiveTab("review");
+            }}
+            onCloseReview={onCloseRightSidebar}
+            onCloseContent={closeContentTab}
+            onOpenFiles={() => {
+              openFilesTab();
+              setActiveTab("files");
+            }}
+            onOpenChanges={toggleChangesPanel}
+            onExpand={() => setIsGitReviewOpen(true)}
+            onCloseSidebar={onCloseRightSidebar}
+          />
+        ) : null}
         <motion.aside
           initial={false}
           animate={{
-            width: isRightSidebarOpen ? sidebarWidth : 0,
+            width: isRightSidebarOpen ? renderedSidebarWidth : 0,
           }}
           transition={
             isResizing
               ? { duration: 0 }
               : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
           }
-          className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative ${
+          className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-50 ${
             !isRightSidebarOpen ? "border-transparent" : ""
           }`}
         >
@@ -923,15 +967,15 @@ export function AgentSetup({
               onResizeEnd={() => setIsResizing(false)}
               onResize={(delta) =>
                 setSidebarWidth((prev) =>
-                  Math.max(280, Math.min(600, prev + delta)),
+                  Math.max(320, Math.min(720, prev + delta)),
                 )
               }
             />
           )}
 
           <div
-            className="flex-1 flex flex-col min-w-[280px]"
-            style={{ width: sidebarWidth }}
+            className="flex-1 flex flex-col min-w-0"
+            style={{ width: renderedSidebarWidth }}
           >
             <SidebarContent
               isViewingContent={isViewingContent}

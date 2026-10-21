@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Play, Square } from "lucide-react";
 import type { ComposerPreferences } from "../../../lib/composer-preferences";
 import type { ComposerDelivery } from "./composer-keyboard.js";
 
@@ -8,6 +8,8 @@ interface ComposerSubmitControlsProps {
   readonly canSubmit: boolean;
   readonly canSendMessage: boolean;
   readonly canStop: boolean;
+  readonly canResume?: boolean;
+  readonly onResume?: () => void;
   readonly followUpAvailable: boolean;
   readonly preferences: Pick<
     ComposerPreferences,
@@ -24,6 +26,8 @@ export function ComposerSubmitControls({
   canSubmit,
   canSendMessage,
   canStop,
+  canResume = false,
+  onResume,
   followUpAvailable,
   preferences,
   modifierShortcutLabel,
@@ -74,22 +78,28 @@ export function ComposerSubmitControls({
     );
   }
 
+  const resume = !canSubmit && canResume && onResume !== undefined;
+  const enabled = canSendMessage || resume;
   return (
     <motion.button
       type="button"
-      onClick={onSend}
-      disabled={!canSendMessage}
-      aria-label="Send message"
-      title={`Send message · ${preferences.sendShortcut === "enter" ? "Enter" : modifierShortcutLabel}`}
-      whileHover={{ scale: canSendMessage ? 1.05 : 1 }}
-      whileTap={{ scale: canSendMessage ? 0.95 : 1 }}
+      onClick={resume ? onResume : onSend}
+      disabled={!enabled}
+      aria-label={resume ? "Resume interrupted turn" : "Send message"}
+      title={
+        resume
+          ? "Resume interrupted turn"
+          : `Send message · ${preferences.sendShortcut === "enter" ? "Enter" : modifierShortcutLabel}`
+      }
+      whileHover={{ scale: enabled ? 1.05 : 1 }}
+      whileTap={{ scale: enabled ? 0.95 : 1 }}
       className={`p-1.5 rounded-full transition-all ${
-        canSendMessage
+        enabled
           ? "bg-white text-black hover:bg-zinc-200"
           : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
       }`}
     >
-      <ArrowUp size={16} />
+      {resume ? <Play size={16} /> : <ArrowUp size={16} />}
     </motion.button>
   );
 }
