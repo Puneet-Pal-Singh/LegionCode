@@ -1,7 +1,9 @@
 import { AppServerOperationError, type AppServerComposition } from "@legioncode/app-server/server";
 import { SessionReadReceiptError, type SessionRecord } from "@repo/persistence";
+import type { HostedSessionWorkspaceContextRequest } from "@repo/platform-protocol";
 import type { Env } from "../../types/ai";
 import { withTranscriptRepository } from "../../services/sessions/TranscriptPersistenceFactory";
+import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withSessionReadReceiptRepository } from "../../services/sessions/SessionReadReceiptPersistenceFactory";
 import { withWorkspaceRepository } from "../../services/workspaces/WorkspacePersistenceFactory";
 import { readPersistedThreadTitleScope, ThreadTitleService } from "../../services/thread-titles";
@@ -29,6 +31,7 @@ export function composeHostedSessionMetadata(
       const sessions = await withTranscriptRepository(env, (repository) => repository.listArchivedSessions(userId));
       return { sessions: await attachReadStates(env, userId, sessions) };
     }),
+    workspaceContext: (params) => unavailableOnFailure(() => readWorkspaceContext(env, userId, params)),
     readReceipt: (params) => unavailableOnFailure(async () => {
       try {
         const receipt = await withSessionReadReceiptRepository(env, (repository) => repository.acknowledge({
@@ -79,6 +82,66 @@ export function composeHostedSessionMetadata(
       if (!deleted) throw new AppServerOperationError(404, "not_found", "Archived session not found");
       return { deleted: true as const };
     }),
+  };
+}
+
+async function readWorkspaceContext(
+  env: Env,
+  userId: string,
+  params: HostedSessionWorkspaceContextRequest,
+) {
+  const session = await withTranscriptRepository(env, async (repository) => {
+    const active = (await repository.listSessions(userId)).sessions.find(
+      (candidate) => candidate.id === params.sessionId,
+    );
+    if (active) return active;
+    return (await repository.listArchivedSessions(userId)).find(
+      (candidate) => candidate.id === params.sessionId,
+    ) ?? null;
+  });
+  if (!session || session.userId !== userId) {
+    throw new AppServerOperationError(404, "not_found", "Session not found");
+  }
+
+  const runId = params.runId ?? session.activeRunId ?? session.latestRunId ?? null;
+  const run = runId
+    ? await withRunRepository(env, (repository) => repository.getRun(runId, userId))
+    : null;
+  if (run && run.sessionId !== session.id) {
+    throw new AppServerOperationError(404, "not_found", "Session run not found");
+  }
+  if (run?.workspaceId && session.workspaceId && run.workspaceId !== session.workspaceId) {
+    throw new AppServerOperationError(404, "not_found", "Session workspace context not found");
+  }
+
+  const workspaceId = run?.workspaceId ?? session.workspaceId;
+  const workspaces = await withWorkspaceRepository(env, (repository) =>
+    repository.listWorkspaces(userId),
+  );
+  const boundWorkspace = workspaceId
+    ? workspaces.find(({ workspace }) => workspace.id === workspaceId && workspace.userId === userId)
+    : undefined;
+  if (workspaceId && !boundWorkspace) {
+    throw new AppServerOperationError(404, "not_found", "Session workspace context not found");
+  }
+  const legacyMatches = !workspaceId && session.repository
+    ? workspaces.filter(({ repository }) => repository.fullName === session.repository)
+    : [];
+  const displayWorkspace = boundWorkspace ?? (legacyMatches.length === 1 ? legacyMatches[0] : undefined);
+  const repository = displayWorkspace?.repository ?? null;
+  const selectedBranch = run?.branch?.trim() || (
+    displayWorkspace?.workspace.lastSelectedBranch ||
+    displayWorkspace?.workspace.defaultBranch ||
+    displayWorkspace?.repository.defaultBranch ||
+    null
+  );
+
+  return {
+    sessionId: session.id,
+    workspaceId,
+    threadId: session.threadId,
+    repository,
+    selectedBranch,
   };
 }
 
