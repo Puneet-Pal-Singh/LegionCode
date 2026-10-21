@@ -512,6 +512,8 @@ export * from "./conversation-history.js";
 
 export {
   HostedSessionParamsSchema,
+  HostedSessionWorkspaceContextRequestSchema,
+  HostedSessionWorkspaceContextSchema,
   HostedSessionCreateRequestSchema,
   HostedSessionRenameRequestSchema,
   HostedSessionReadReceiptRequestSchema,
@@ -522,6 +524,8 @@ export {
   HostedArchivedSessionsResponseSchema,
   HostedSessionResponseSchema,
   type HostedSession,
+  type HostedSessionWorkspaceContext,
+  type HostedSessionWorkspaceContextRequest,
   type HostedSessionCreateRequest,
   type HostedSessionRenameRequest,
   type HostedSessionReadReceipt,

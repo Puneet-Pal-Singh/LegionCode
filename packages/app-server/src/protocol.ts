@@ -3,6 +3,7 @@ import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentia
 import {
   HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
+  HostedSessionWorkspaceContextRequestSchema, HostedSessionWorkspaceContextSchema,
   HostedSessionReadReceiptRequestSchema, HostedSessionReadReceiptSchema,
   HostedSessionsResponseSchema, HostedArchivedSessionsResponseSchema, HostedSessionResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
@@ -79,6 +80,7 @@ export const AppServerMethodSchema = z.enum([
   "session/delete",
   "session/archived",
   "session/readReceipt",
+  "session/workspaceContext",
   "turn/reserve",
   "turn/scope",
 
@@ -128,6 +130,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/delete"), params: HostedSessionParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/archived"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/readReceipt"), params: HostedSessionReadReceiptRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("session/workspaceContext"), params: HostedSessionWorkspaceContextRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/reserve"), params: HostedTurnScopeReserveParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/scope"), params: HostedTurnScopeReadParamsSchema }).strict(),
 
@@ -173,6 +176,7 @@ export const AppServerResultSchemas = {
   "session/delete": z.object({ deleted: z.literal(true) }).strict(),
   "session/archived": HostedArchivedSessionsResponseSchema,
   "session/readReceipt": HostedSessionReadReceiptSchema,
+  "session/workspaceContext": HostedSessionWorkspaceContextSchema,
   "turn/reserve": TurnScopeBootstrapSchema,
   "turn/scope": TurnScopeBootstrapSchema,
 
@@ -218,6 +222,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/delete", AppServerResultSchemas["session/delete"]),
   success("session/archived", AppServerResultSchemas["session/archived"]),
   success("session/readReceipt", AppServerResultSchemas["session/readReceipt"]),
+  success("session/workspaceContext", AppServerResultSchemas["session/workspaceContext"]),
   success("turn/reserve", AppServerResultSchemas["turn/reserve"]),
   success("turn/scope", AppServerResultSchemas["turn/scope"]),
 

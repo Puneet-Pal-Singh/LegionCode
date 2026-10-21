@@ -1,9 +1,20 @@
 import { z } from "zod";
 import { RunIdSchema } from "./ids.js";
 import { TurnIdSchema } from "./ids.js";
+import { HostedWorkspaceRepositorySchema } from "./hosted-workspaces.js";
 
 // Hosted records use persisted session UUIDs, independent of local Thread IDs.
 export const HostedSessionParamsSchema = z.object({ sessionId: z.string().uuid() }).strict();
+export const HostedSessionWorkspaceContextRequestSchema = HostedSessionParamsSchema.extend({
+  runId: RunIdSchema.optional(),
+}).strict();
+export const HostedSessionWorkspaceContextSchema = z.object({
+  sessionId: z.string().uuid(),
+  workspaceId: z.string().min(1).nullable(),
+  threadId: z.string().min(1).nullable(),
+  repository: HostedWorkspaceRepositorySchema.nullable(),
+  selectedBranch: z.string().min(1).nullable(),
+}).strict();
 export const HostedSessionReadReceiptRequestSchema = HostedSessionParamsSchema.extend({ terminalTurnId: TurnIdSchema }).strict();
 export const HostedSessionReadReceiptSchema = z.object({
   sessionId: z.string().uuid(),
@@ -56,6 +67,8 @@ export const HostedArchivedSessionsResponseSchema = z.object({ sessions: z.array
 export const HostedSessionResponseSchema = z.object({ session: HostedSessionSchema }).strict();
 
 export type HostedSession = z.infer<typeof HostedSessionSchema>;
+export type HostedSessionWorkspaceContext = z.infer<typeof HostedSessionWorkspaceContextSchema>;
+export type HostedSessionWorkspaceContextRequest = z.infer<typeof HostedSessionWorkspaceContextRequestSchema>;
 export type HostedSessionReadReceipt = z.infer<typeof HostedSessionReadReceiptSchema>;
 export type HostedSessionCreateRequest = z.input<typeof HostedSessionCreateRequestSchema>;
 export type HostedSessionRenameRequest = z.infer<typeof HostedSessionRenameRequestSchema>;
