@@ -22,9 +22,12 @@ const ALLOWED_IMPORT_FILES = new Set([
   "hooks/chat/useConversationInputCommands.ts",
   "hooks/chat/useThreadInputQueue.ts",
   "hooks/useChat.ts",
+  "hooks/conversationScope.ts",
   "hooks/useConversationLifecycleProjections.ts",
   "hooks/useTurnLifecycleProjection.ts",
   "lib/session-sidebar-selectors.ts",
+  "lib/chat-request.ts",
+  "lib/provider-recovery.ts",
   "components/chat/chat-interface/TurnLifecycleStatus.tsx",
   "components/layout/workspace/runUiState.ts",
 ]);
