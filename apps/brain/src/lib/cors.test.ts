@@ -24,7 +24,7 @@ describe("brain cors policy", () => {
   });
 
   it("allows the correlation header required to bootstrap a browser turn", () => {
-    const request = new Request("http://localhost:8788/turn/start", {
+    const request = new Request("http://localhost:8788/app-server/request", {
       method: "OPTIONS",
       headers: {
         Origin: "http://localhost:5174",
