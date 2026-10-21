@@ -6,6 +6,7 @@ import { APP_SERVER_PROTOCOL_VERSION, AppServerRequestSchema } from "@legioncode
 import { getAuthenticatedUserSession, isSessionStoreUnavailableError } from "../services/AuthService";
 import { composeHostedSessionMetadata } from "../integration/app-server/HostedSessionMetadata";
 import { composeHostedConversationHistory } from "../integration/app-server/HostedConversationHistory";
+import { composeHostedTurnScope } from "../integration/app-server/HostedTurnScope";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
 import { getCorsHeaders } from "../lib/cors";
@@ -43,6 +44,7 @@ export const AppServerController = {
     let hostedWorkspaceService: ReturnType<typeof composeHostedWorkspaceSelection> | undefined;
     let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
     let sessionMetadataService: ReturnType<typeof composeHostedSessionMetadata> | undefined;
+    let hostedTurnScopeService: ReturnType<typeof composeHostedTurnScope> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
@@ -54,7 +56,7 @@ export const AppServerController = {
         const auth = earlyAuth ?? await getAuthenticatedUserSession(request, env);
         if (!auth) return json(env, request, 401, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
-          ok: false, error: { code: "unauthorized", message: "Unauthorized" },
+          ok: false, error: { code: "unauthorized", message: "Unauthorized", ...turnAuthFailureDetails(parsed.data.method, 401) },
         });
         hostedProviderCredentialService = composeHostedProviderCredentials(request, env, auth.userId);
         hostedProviderPreferenceService = composeHostedProviderPreferences(request, env, auth.userId);
@@ -62,10 +64,12 @@ export const AppServerController = {
         hostedWorkspaceService = composeHostedWorkspaceSelection(request, env, auth.userId);
         historyService = composeHostedConversationHistory(env, auth.userId);
         sessionMetadataService = composeHostedSessionMetadata(env, auth.userId);
+        hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
       } catch (error) {
-        return json(env, request, isSessionStoreUnavailableError(error) ? 503 : 500, {
+        const statusCode = isSessionStoreUnavailableError(error) ? 503 : 500;
+        return json(env, request, statusCode, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
-          ok: false, error: { code: "server_unavailable", message: "Authentication is unavailable" },
+          ok: false, error: { code: "server_unavailable", message: "Authentication is unavailable", ...turnAuthFailureDetails(parsed.data.method, statusCode) },
         });
       }
     }
@@ -87,11 +91,21 @@ export const AppServerController = {
         hostedProviderCredentialService,
         conversationHistoryService: historyService,
         sessionMetadataService,
+        hostedTurnScopeService,
       },
     );
     return json(env, request, result.statusCode, result.payload);
   },
 };
+
+function turnAuthFailureDetails(method: string, statusCode: number) {
+  if (method !== "turn/reserve" && method !== "turn/scope") return {};
+  return {
+    statusCode,
+    operationCode: statusCode === 401 ? "AUTH_FAILED" : "AUTH_SESSION_STORE_UNAVAILABLE",
+    retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+  };
+}
 
 async function readBoundedBody(
   request: Request,

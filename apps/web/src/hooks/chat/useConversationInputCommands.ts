@@ -273,6 +273,8 @@ export function useConversationInputCommands(input: {
           threadId: capturedScope.threadId,
           turnId: receipt.turnId,
           runAttemptId: receipt.runAttemptId,
+          continuationOfTurnId: receipt.continuationOfTurnId,
+          originalPromptId: receipt.originalPromptId,
           sessionId: capturedScope.sessionId,
           runId: receipt.runId,
         });

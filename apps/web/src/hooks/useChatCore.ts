@@ -54,9 +54,9 @@ import {
   isTurnScopeRecoveryError,
   publishConversationScopeReady,
   resumeConversationScope,
-  ConversationScopeHttpError,
   type ConversationScope,
 } from "./conversationScope";
+import { ConversationScopeHttpError } from "@legioncode/sdk";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
@@ -435,6 +435,13 @@ export function useChatCore(
               runAttemptId: activeConversationScope.runAttemptId,
               ...(activeConversationScope.revisionOfTurnId
                 ? { revisionOfTurnId: activeConversationScope.revisionOfTurnId }
+                : {}),
+              ...(activeConversationScope.continuationOfTurnId
+                ? {
+                    continuationOfTurnId:
+                      activeConversationScope.continuationOfTurnId,
+                    originalPromptId: activeConversationScope.originalPromptId,
+                  }
                 : {}),
             },
           }

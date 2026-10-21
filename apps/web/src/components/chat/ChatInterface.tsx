@@ -23,7 +23,7 @@ import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "../../hooks/conversationScope";
-import type { ConversationScopeHttpError } from "../../hooks/conversationScope";
+import type { ConversationScopeHttpError } from "@legioncode/sdk";
 import type { SubmissionOutcome } from "../../hooks/chat/submissionAttemptRegistry";
 import type { HydrationStatus } from "../../services/ChatHydrationService";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";

@@ -63,6 +63,9 @@ export const AppServerErrorSchema = z
       "server_unavailable",
     ]),
     message: z.string().min(1).max(500),
+    statusCode: z.number().int().min(400).max(599).optional(),
+    operationCode: z.string().trim().min(1).max(200).optional(),
+    retryable: z.boolean().optional(),
   })
   .strict();
 export type AppServerError = z.infer<typeof AppServerErrorSchema>;

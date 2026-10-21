@@ -11,6 +11,7 @@ export {
   type AppServerTransport,
   type WorkspaceGrantSource,
 } from "./platform/app-server-client.js";
+export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
 export {
   AppServerTransportError,
   createAppServerHttpTransport,
@@ -55,6 +56,9 @@ export {
   RunIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeBootstrapSchema,
+  TurnScopeReadQuerySchema,
   WorkspaceIdSchema,
   ContextBudgetSnapshotSchema,
   UsageCostSnapshotSchema,
@@ -69,6 +73,8 @@ export {
   type ThreadId,
   type TurnDiffPayload,
   type TurnId,
+  type TurnScopeBootstrap,
+  type TurnScopeReadQuery,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
 } from "@repo/platform-protocol";

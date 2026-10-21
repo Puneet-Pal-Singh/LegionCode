@@ -9,7 +9,7 @@ import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
-import type { ConversationScopeHttpError } from "./conversationScope";
+import type { ConversationScopeHttpError } from "@legioncode/sdk";
 import type { ConversationScope } from "./conversationScope";
 import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";

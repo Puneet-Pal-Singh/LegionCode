@@ -163,7 +163,7 @@ then delete the Web fetch method. No product storage or migration is altered her
 
 | Responsibility | Canonical owner | Active consumers |
 | --- | --- | --- |
-| Owned session/thread binding, idempotent prompt admission and execution claim | Existing PostgresTurnAdmissionRepository | Brain TurnController reserves identity; HandleChatRequest admits prompt/run atomically; RunEngineRequestHandler imports that identity and claims execution. |
+| Owned session/thread binding, idempotent prompt admission and execution claim | Existing PostgresTurnAdmissionRepository | HostedTurnScope reserves identity through the authenticated App Server; HandleChatRequest admits prompt/run atomically; RunEngineRequestHandler imports that identity and claims execution. |
 | Assistant transcript deltas and terminal run/session settlement | PostgresLifecycleEventStore canonical append transaction | RuntimeKernel emits through the existing lifecycle store; TranscriptRepository reads the same committed projection and admission identity. |
 
 The incoming durability implementation is adopted before client command extraction.
@@ -178,6 +178,17 @@ claim/revision safeguards. New-session creation is awaited before publishing the
 conversation to submit callers; canonical delta fragments retain exact whitespace
 in subsequent model context. Browser admission binding remains pending the next baseline
 slice; hosted command routing through App Server remains pending 058.3.
+
+## Plan 058 C1 — Hosted turn admission and scope
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Authenticated turn reservation and durable scope lookup | `HostedTurnScope` over the existing `PostgresTurnAdmissionRepository` and `startRunTurn` | Typed `turn/reserve` and `turn/scope` App Server operations; Web uses the SDK client and retains the actual admitted continuation pair. |
+
+The public Brain `/turn/start` and `/turn/scope` routes and duplicated Web
+response contract are retired. Runtime-internal routes remain available to the
+existing runtime owner. The App Server principal supplies identity; callers only
+send canonical run, session, client-message and optional revision identifiers.
 
 ## Plan 058 baseline — Session conversation and delivery binding
 

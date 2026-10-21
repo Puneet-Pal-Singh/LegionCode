@@ -23,6 +23,8 @@ import {
   type AppServerInitializeResponse,
   type ProviderId,
   type Thread,
+  type TurnScopeBootstrap,
+  type TurnScopeReadQuery,
 } from "@repo/platform-protocol";
 import type {
   BYOKDiscoveredProviderModelsResponse,
@@ -31,6 +33,7 @@ import type {
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { z } from "zod";
+import { ConversationScopeHttpError } from "./conversation-scope-error.js";
 
 export type { AppServerRequest } from "@legioncode/app-server/protocol";
 
@@ -85,6 +88,8 @@ export type AppServerClient = {
   unarchiveSession(sessionId: string): Promise<HostedSession>;
   deleteArchivedSession(sessionId: string): Promise<void>;
   getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
+  reserveTurnScope(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
+  getTurnScope(params: TurnScopeReadQuery): Promise<TurnScopeBootstrap | null>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
@@ -141,6 +146,17 @@ export function createAppServerClient(
     getConversationHistoryPage: async (params) => request(options, {
       method: "session/history", params,
     }, AppServerResultSchemas["session/history"]),
+    reserveTurnScope: async (params) => turnScopeRequest(options, {
+      method: "turn/reserve", params,
+    }, AppServerResultSchemas["turn/reserve"]),
+    getTurnScope: async (params) => {
+      try {
+        return await turnScopeRequest(options, { method: "turn/scope", params }, AppServerResultSchemas["turn/scope"]);
+      } catch (error) {
+        if (error instanceof ConversationScopeHttpError && error.status === 404) return null;
+        throw error;
+      }
+    },
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
     getWorkspaceGrant: async () => {
@@ -243,6 +259,59 @@ export function createAppServerClient(
       return result.selection;
     },
   };
+}
+
+async function turnScopeRequest<Schema extends z.ZodTypeAny>(
+  options: AppServerClientOptions,
+  requestInput: Omit<AppServerRequest, "protocolVersion">,
+  resultSchema: Schema,
+): Promise<z.output<Schema>> {
+  try {
+    return await request(options, requestInput, resultSchema);
+  } catch (error) {
+    if (error instanceof AppServerClientError && error.code === "server_error" && error.serverError) {
+      const serverError = error.serverError;
+      const statusByCode: Record<string, number> = {
+        not_found: 404, unauthorized: 401, conflict: 409, invalid_request: 400, server_unavailable: 503,
+      };
+      const status = serverError.statusCode ?? statusByCode[serverError.code] ?? 500;
+      const operationCode = "operationCode" in serverError && typeof serverError.operationCode === "string"
+        ? serverError.operationCode
+        : serverError.code;
+      const retryable = "retryable" in serverError && typeof serverError.retryable === "boolean"
+        ? serverError.retryable
+        : undefined;
+      throw new ConversationScopeHttpError({
+        status,
+        code: operationCode,
+        message: serverError.message,
+        retryable,
+      });
+    }
+    if (error instanceof AppServerClientError && error.code === "transport") {
+      const cause = error.cause;
+      if (cause instanceof Error && cause.name === "AbortError") throw cause;
+      if (cause && typeof cause === "object" && "name" in cause && cause.name === "AppServerTransportError") {
+        const transportError = cause as { code?: unknown; statusCode?: unknown; serverCode?: unknown; message?: unknown; cause?: unknown };
+        if (transportError.code === "aborted") {
+          throw transportError.cause instanceof Error && transportError.cause.name === "AbortError"
+            ? transportError.cause
+            : new DOMException("The operation was aborted.", "AbortError");
+        }
+        if (typeof transportError.statusCode === "number" && transportError.statusCode >= 400) {
+          throw new ConversationScopeHttpError({
+            status: transportError.statusCode,
+            code: typeof transportError.serverCode === "string" ? transportError.serverCode : `HTTP_${transportError.statusCode}`,
+            message: typeof transportError.message === "string" ? transportError.message : "App Server request failed",
+          });
+        }
+        if (transportError.cause !== undefined) throw transportError.cause;
+        throw cause;
+      }
+      if (cause !== undefined) throw cause;
+    }
+    throw error;
+  }
 }
 
 async function request<Schema extends z.ZodTypeAny>(

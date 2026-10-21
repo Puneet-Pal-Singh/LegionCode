@@ -2,7 +2,7 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
-import type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionsResponse, TurnId } from "@repo/platform-protocol";
+import type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -60,10 +60,14 @@ export type AppServerComposition = {
     unpin(sessionId: string): Promise<{ session: HostedSession }>;
     archive(sessionId: string): Promise<{ session: HostedSession }>;
     unarchive(sessionId: string): Promise<{ session: HostedSession }>;
-    deleteArchived(sessionId: string): Promise<{ deleted: true }>;
+  deleteArchived(sessionId: string): Promise<{ deleted: true }>;
   };
   conversationHistoryService?: {
     readPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
+  };
+  hostedTurnScopeService?: {
+    reserve(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
+    read(params: Extract<AppServerRequest, { method: "turn/scope" }>['params']): Promise<TurnScopeBootstrap>;
   };
 };
 
@@ -73,6 +77,8 @@ export class AppServerOperationError extends Error {
     readonly statusCode: number,
     readonly code: AppServerError["code"],
     message: string,
+    readonly operationCode?: string,
+    readonly retryable?: boolean,
   ) { super(message); }
 }
 
@@ -159,7 +165,10 @@ export async function handleAppServerHttpRequest(
       };
     }
     if (error instanceof AppServerOperationError) {
-      return methodError(request.method, error.statusCode, error.code, error.message);
+      return methodError(request.method, error.statusCode, error.code, error.message,
+        error.operationCode || error.retryable !== undefined
+          ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}) }
+          : undefined);
     }
     if (error instanceof LocalPersistenceError) {
       return methodError(
@@ -214,6 +223,14 @@ async function dispatch(
     case "session/readReceipt": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
       return composition.sessionMetadataService.readReceipt(request.params);
+    }
+    case "turn/reserve": {
+      if (!composition.hostedTurnScopeService) throw new Error("unsupported");
+      return composition.hostedTurnScopeService.reserve(request.params);
+    }
+    case "turn/scope": {
+      if (!composition.hostedTurnScopeService) throw new Error("unsupported");
+      return composition.hostedTurnScopeService.read(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
@@ -403,12 +420,13 @@ function methodError(
   statusCode: number,
   code: AppServerError["code"],
   message: string,
+  details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable">,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({
     protocolVersion: APP_SERVER_PROTOCOL_VERSION,
     method,
     ok: false,
-    error: AppServerErrorSchema.parse({ code, message }),
+    error: AppServerErrorSchema.parse({ code, message, ...details }),
   });
   return { statusCode, headers: JSON_HEADERS, payload: response };
 }

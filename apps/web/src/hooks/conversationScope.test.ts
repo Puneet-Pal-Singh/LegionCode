@@ -38,18 +38,23 @@ describe("ConversationScope", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          workspaceId: "123e4567-e89b-42d3-a456-426614174000",
-          threadId: "thr_server001",
-          turnId: "trn_server001",
-          runAttemptId: "attempt_server001",
+          protocolVersion: "1.0.0",
+          method: "turn/reserve",
+          ok: true,
+          result: {
+            workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+            threadId: "thr_server001",
+            turnId: "trn_server001",
+            runAttemptId: "attempt_server001",
+          },
         }),
-        { status: 201 },
+        { status: 200 },
       ),
     );
 
     const scope = await bootstrapConversationScope(
       "session-1",
-      "run-1",
+      "run_server001",
       "client-message-1",
     );
 
@@ -59,19 +64,15 @@ describe("ConversationScope", () => {
       turnId: "trn_server001",
       runAttemptId: "attempt_server001",
       sessionId: "session-1",
-      runId: "run-1",
+      runId: "run_server001",
     });
-    expect(conversationScopeKey(scope)).not.toContain("run-1");
+    expect(conversationScopeKey(scope)).not.toContain("run_server001");
     expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/turn/start"),
+      expect.stringContaining("/app-server/request"),
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        body: JSON.stringify({
-          sessionId: "session-1",
-          runId: "run-1",
-          clientMessageId: "client-message-1",
-        }),
+        body: expect.stringContaining('"method":"turn/reserve"'),
       }),
     );
     fetchSpy.mockRestore();
@@ -110,8 +111,15 @@ describe("ConversationScope", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          error: "The saved turn needs recovery.",
-          code: "TURN_EXECUTION_RECOVERY_REQUIRED",
+          protocolVersion: "1.0.0",
+          method: "turn/scope",
+          ok: false,
+          error: {
+            code: "conflict",
+            message: "The saved turn needs recovery.",
+            statusCode: 409,
+            operationCode: "TURN_EXECUTION_RECOVERY_REQUIRED",
+          },
         }),
         { status: 409 },
       ),
