@@ -15,6 +15,9 @@ import {
   ThreadIdSchema,
   ThreadSchema,
   RunIdSchema,
+  TurnScopeBootstrapSchema,
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeReadQuerySchema,
 } from "@repo/platform-protocol";
 import {
   BYOKDiscoveredProviderModelsResponseSchema,
@@ -55,6 +58,14 @@ export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
   .strict();
 
+export const HostedTurnScopeReserveParamsSchema = TurnScopeBootstrapRequestSchema.pick({
+  runId: true,
+  sessionId: true,
+  clientMessageId: true,
+  revisionOfTurnId: true,
+}).extend({ clientMessageId: TurnScopeBootstrapRequestSchema.shape.clientMessageId.unwrap() }).strict();
+const HostedTurnScopeReadParamsSchema = TurnScopeReadQuerySchema.strict();
+
 export const AppServerMethodSchema = z.enum([
   "initialize",
   "session/history",
@@ -68,6 +79,8 @@ export const AppServerMethodSchema = z.enum([
   "session/delete",
   "session/archived",
   "session/readReceipt",
+  "turn/reserve",
+  "turn/scope",
 
   "workspace/list",
   "workspace/select",
@@ -115,6 +128,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/delete"), params: HostedSessionParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/archived"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/readReceipt"), params: HostedSessionReadReceiptRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/reserve"), params: HostedTurnScopeReserveParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/scope"), params: HostedTurnScopeReadParamsSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -158,6 +173,8 @@ export const AppServerResultSchemas = {
   "session/delete": z.object({ deleted: z.literal(true) }).strict(),
   "session/archived": HostedArchivedSessionsResponseSchema,
   "session/readReceipt": HostedSessionReadReceiptSchema,
+  "turn/reserve": TurnScopeBootstrapSchema,
+  "turn/scope": TurnScopeBootstrapSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -201,6 +218,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/delete", AppServerResultSchemas["session/delete"]),
   success("session/archived", AppServerResultSchemas["session/archived"]),
   success("session/readReceipt", AppServerResultSchemas["session/readReceipt"]),
+  success("turn/reserve", AppServerResultSchemas["turn/reserve"]),
+  success("turn/scope", AppServerResultSchemas["turn/scope"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
