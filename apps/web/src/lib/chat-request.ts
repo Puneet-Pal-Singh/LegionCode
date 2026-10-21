@@ -1,7 +1,7 @@
 import type { ProductMode } from "@repo/shared-types";
 import { ReasoningEffortSchema, RunModeSchema } from "@repo/shared-types";
 import { z } from "zod";
-import { TurnScopeBootstrapSchema } from "./turn-scope-contract";
+import { TurnScopeBootstrapSchema } from "@legioncode/sdk";
 
 export const RuntimeHarnessIdSchema = z.enum([
   "cloudflare-sandbox",

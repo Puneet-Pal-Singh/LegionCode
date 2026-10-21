@@ -188,9 +188,28 @@ function installServer(
       const method = init?.method ?? "GET";
       const body = typeof init?.body === "string" ? init.body : null;
       requests.push({ url, method, body });
-      if (url.includes("/turn/scope?"))
-        return new Response("not resumed", { status: 404 });
-      if (url.endsWith("/turn/start")) return turnStart(input, init);
+      if (url.endsWith("/app-server/request")) {
+        const request = body ? JSON.parse(body) as { method: string } : { method: "" };
+        if (request.method === "turn/scope") {
+          return Response.json({
+            protocolVersion: "1.0.0", method: "turn/scope", ok: false,
+            error: { code: "not_found", message: "not resumed", statusCode: 404, operationCode: "TURN_SCOPE_NOT_FOUND" },
+          });
+        }
+        if (request.method === "turn/reserve") {
+          const response = await turnStart(input, init);
+          if (!response.ok) {
+            return Response.json({
+              protocolVersion: "1.0.0", method: "turn/reserve", ok: false,
+              error: { code: "server_unavailable", message: await response.text(), statusCode: response.status, operationCode: `HTTP_${response.status}` },
+            });
+          }
+          return Response.json({
+            protocolVersion: "1.0.0", method: "turn/reserve", ok: true,
+            result: await response.json(),
+          });
+        }
+      }
       if (url.endsWith("/chat")) return chat(input, init);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }),
@@ -279,7 +298,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
     expect(retry).toBe(false);
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(2);
     expect(
-      requests.filter(({ url }) => url.endsWith("/turn/start")),
+      requests.filter(({ url, body }) => url.endsWith("/app-server/request") && JSON.parse(body ?? "{}").method === "turn/reserve"),
     ).toHaveLength(1);
   });
 

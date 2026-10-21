@@ -1,4 +1,4 @@
-import type { ConversationScopeHttpError } from "../hooks/conversationScope";
+import type { ConversationScopeHttpError } from "@legioncode/sdk";
 
 export interface ProviderRecoveryAdvice {
   message: string;

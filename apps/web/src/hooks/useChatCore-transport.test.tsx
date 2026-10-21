@@ -76,22 +76,43 @@ function installServer(
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? init.body : null;
     requests.push({ url, method, body });
-    if (url.includes("/turn/scope?")) {
-      return new Response("scope unavailable", { status: 404 });
-    }
-    if (url.endsWith("/turn/start")) {
-      if (turnStart) return turnStart(input, init);
-      return Response.json({
-        workspaceId: FIXTURE.workspaceId,
-        threadId: FIXTURE.threadId,
-        turnId: FIXTURE.turnId,
-        runAttemptId: FIXTURE.runAttemptId,
-      });
+    if (url.endsWith("/app-server/request")) {
+      const request = body ? JSON.parse(body) as { method: string } : { method: "" };
+      if (request.method === "turn/scope") {
+        return Response.json({
+          protocolVersion: "1.0.0", method: "turn/scope", ok: false,
+          error: { code: "not_found", message: "scope unavailable", statusCode: 404, operationCode: "TURN_SCOPE_NOT_FOUND" },
+        });
+      }
+      if (request.method === "turn/reserve") {
+        const response = turnStart
+          ? await turnStart(input, init)
+          : Response.json({
+              workspaceId: FIXTURE.workspaceId,
+              threadId: FIXTURE.threadId,
+              turnId: FIXTURE.turnId,
+              runAttemptId: FIXTURE.runAttemptId,
+            });
+        if (!response.ok) {
+          return Response.json({
+            protocolVersion: "1.0.0", method: "turn/reserve", ok: false,
+            error: { code: "conflict", message: await response.text(), statusCode: response.status, operationCode: `HTTP_${response.status}` },
+          });
+        }
+        return Response.json({
+          protocolVersion: "1.0.0", method: "turn/reserve", ok: true,
+          result: await response.json(),
+        });
+      }
     }
     if (url.endsWith("/chat")) return chat(input, init);
     throw new Error(`Unexpected request: ${method} ${url}`);
   }));
   return requests;
+}
+
+function reservations(requests: Array<{ url: string; body: string | null }>) {
+  return requests.filter(({ url, body }) => url.endsWith("/app-server/request") && JSON.parse(body ?? "{}").method === "turn/reserve");
 }
 
 function renderCore(runId = `${FIXTURE.runId}_${crypto.randomUUID()}`) {
@@ -143,7 +164,7 @@ describe("useChatCore installed SDK request outcomes", () => {
     let submitted!: boolean;
     await act(async () => { submitted = await result.current.handleSubmit(); });
 
-    expect(requests.some(({ url, method }) => url.endsWith("/turn/start") && method === "POST")).toBe(true);
+    expect(reservations(requests)).toHaveLength(1);
     expect(requests.some(({ url, method }) => url.endsWith("/chat") && method === "POST")).toBe(true);
     expect(submitted).toBe(false);
     expect(result.current.error).toMatch(/503/);
@@ -158,7 +179,7 @@ describe("useChatCore installed SDK request outcomes", () => {
     expect(result.current.isLoading).toBe(false);
     expect(chatRequests).toHaveLength(2);
     expect(chatRequests[1]?.body).toBe(firstWire);
-    expect(requests.filter(({ url, method }) => url.endsWith("/turn/start") && method === "POST")).toHaveLength(1);
+    expect(reservations(requests)).toHaveLength(1);
   });
 
   it("reuses the reserved scope and exact emitted wire for an unchanged same-CID retry after a run reset", async () => {
@@ -170,7 +191,7 @@ describe("useChatCore installed SDK request outcomes", () => {
     rerender({ currentRunId: "run_transport_changed02" });
     const second = await append(result, original);
     const chatRequests = requests.filter(({ url }) => url.endsWith("/chat"));
-    const starts = requests.filter(({ url }) => url.endsWith("/turn/start") && url.includes("/turn/start"));
+    const starts = reservations(requests);
 
     expect(first.status).toBe("unconfirmed");
     expect(second.status).toBe("unconfirmed");
@@ -210,7 +231,7 @@ describe("useChatCore installed SDK request outcomes", () => {
     firstCore.unmount();
     const retryCore = renderCore("run_after_reservation_remount02");
     expect((await append(retryCore.result, original)).status).toBe("accepted");
-    const starts = requests.filter(({ url }) => url.endsWith("/turn/start"));
+    const starts = reservations(requests);
     expect(starts).toHaveLength(2);
     expect(starts[1]?.body).toBe(starts[0]?.body);
     expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
@@ -230,7 +251,7 @@ describe("useChatCore installed SDK request outcomes", () => {
     rerender({ currentRunId: FIXTURE.runId });
     const changed = await append(result, { id: suppliedId, content: "changed setup intent" });
     const retry = await append(result, { id: suppliedId, content: "changed setup intent" });
-    const starts = requests.filter(({ url }) => url.endsWith("/turn/start") && url.includes("/turn/start"));
+    const starts = reservations(requests);
     const chatRequests = requests.filter(({ url }) => url.endsWith("/chat"));
     const cids = chatRequests.map(({ body }) => {
       const parsed = body ? JSON.parse(body) as { clientMessageId: string } : null;
