@@ -42,6 +42,12 @@ export interface AgentSession {
   /** Unique session identifier (UI-level) */
   id: string;
 
+  /** Server-owned hosted workspace identity; null when the session is unbound. */
+  workspaceId?: string | null;
+
+  /** Server-owned thread identity; null when no thread has been bound. */
+  threadId?: string | null;
+
   /** Session display name */
   name: string;
 

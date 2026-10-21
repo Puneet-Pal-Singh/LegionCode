@@ -1,4 +1,4 @@
-import { AppServerClientError, type HostedSession, type HostedSessionReadReceipt } from "@legioncode/sdk";
+import { AppServerClientError, type HostedSession, type HostedSessionReadReceipt, type HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { AgentSession, SessionStatus } from "../../types/session";
 import { isCanonicalRunId } from "../../lib/run-id";
 import { normalizeSessionRunMode } from "../sessionRunMode";
@@ -20,6 +20,7 @@ export async function persistSession(session: AgentSession): Promise<AgentSessio
   return mapped(await client().createSession({
     sessionId: session.id, title: session.name, mode: session.mode,
     ...(session.activeRunId !== null ? { runId: session.activeRunId } : {}),
+    ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
     ...(session.repository !== null ? { repository: session.repository } : {}),
   }));
 }
@@ -61,6 +62,18 @@ export async function acknowledgeSessionReadReceipt(
   return await client().acknowledgeSessionReadReceipt(sessionId, terminalTurnId);
 }
 
+export async function getSessionWorkspaceContext(
+  sessionId: string,
+  runId?: string,
+  signal?: AbortSignal,
+): Promise<HostedSessionWorkspaceContext> {
+  return await createHostedAppServerClient({
+    signal,
+    timeoutMs: null,
+    maxResponseBytes: null,
+  }).getSessionWorkspaceContext(sessionId, runId);
+}
+
 function mapped(session: ServerSessionRecord): AgentSession {
   const result = mapServerSession(session);
   if (!result) throw new Error("Invalid session response");
@@ -78,6 +91,8 @@ export function mapServerSession(session: ServerSessionRecord): AgentSession | n
 
   return {
     id: session.id,
+    workspaceId: session.workspaceId,
+    threadId: session.threadId,
     name: session.title,
     titleSource: session.titleSource ?? "preview",
     ...mapServerThreadMetadata(session),
