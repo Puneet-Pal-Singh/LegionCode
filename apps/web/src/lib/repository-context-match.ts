@@ -68,7 +68,7 @@ export function doesSessionContextMatchRepository(
 ): boolean {
   const normalizedExpected = normalizeRepositoryIdentifier(expectedRepository);
   if (!normalizedExpected) {
-    return true;
+    return false;
   }
 
   const normalizedFullName = normalizeRepositoryIdentifier(context.fullName);

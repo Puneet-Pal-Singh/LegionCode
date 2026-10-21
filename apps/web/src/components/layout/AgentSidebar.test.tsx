@@ -39,6 +39,10 @@ describe("AgentSidebar", () => {
       />,
     );
 
+    expect(
+      screen.getByRole("button", { name: "Add project" }).className,
+    ).not.toContain("opacity-0");
+    expect(screen.getByRole("region", { name: "Recents" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "New task" }));
     expect(onCreate).toHaveBeenCalledWith();
     expect(screen.getByText("Projects")).toBeInTheDocument();
@@ -48,6 +52,20 @@ describe("AgentSidebar", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Add project" }));
     expect(onAddRepository).toHaveBeenCalledOnce();
+    const projects = screen.getByRole("button", { name: "Projects" });
+    const recents = screen.getByRole("button", { name: "Recents" });
+    fireEvent.click(projects);
+    expect(projects).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Your projects will appear here")).not.toBeVisible();
+    fireEvent.click(recents);
+    expect(recents).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Chats without a project appear here")).not.toBeVisible();
+    fireEvent.click(projects);
+    fireEvent.click(recents);
+    expect(screen.getByText("Your projects will appear here")).toBeVisible();
+    expect(screen.getByText("Chats without a project appear here")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Filter chats" }));
+    expect(screen.getByRole("menuitemradio", { name: "Paused" })).toBeVisible();
   });
 
   it("opens the account menu and logs out the authenticated user", async () => {
@@ -354,6 +372,7 @@ describe("AgentSidebar", () => {
           }),
           createSession({
             id: "session-mid-idle",
+            repository: null,
             name: "Mid idle",
             status: "idle",
             updatedAt: "2026-04-14T12:05:00.000Z",
@@ -377,8 +396,14 @@ describe("AgentSidebar", () => {
 
     const taskRows = screen.getAllByRole("option");
     expect(taskRows[0]).toHaveTextContent("New completed");
-    expect(taskRows[1]).toHaveTextContent("Mid idle");
-    expect(taskRows[2]).toHaveTextContent("Old running");
+    expect(taskRows[1]).toHaveTextContent("Old running");
+    expect(taskRows[2]).toHaveTextContent("Mid idle");
+    expect(screen.getByRole("region", { name: "Recents" })).toContainElement(
+      taskRows[2] ?? null,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Toggle No repository" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens settings from the footer action", () => {

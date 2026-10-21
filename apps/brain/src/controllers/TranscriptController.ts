@@ -31,7 +31,7 @@ const SessionCreateRequestSchema = z.object({
   runId: RunIdSchema.optional(),
   workspaceId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160).optional(),
-  repository: z.string().trim().min(1).max(240).optional(),
+  repository: z.string().trim().min(1).max(240).nullable().optional(),
   mode: z.string().trim().min(1).max(64).optional(),
 });
 

@@ -6,13 +6,18 @@ import { Workspace } from "./components/layout/Workspace";
 import { SessionConversationSurface } from "./components/layout/SessionConversationSurface";
 import { TabType } from "./components/layout/workspace/useWorkspaceState";
 import { AgentSetup } from "./components/agent/AgentSetup";
+import {
+  copySetupDraft,
+  type AgentSetupDraft,
+  type AgentSetupDraftReader,
+} from "./components/agent/setupDraft";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import {
   GitHubContextProvider,
   useGitHub,
 } from "./components/github/GitHubContextProvider";
-import { AuthorizedRepositoryPicker } from "./components/github/AuthorizedRepositoryPicker";
+import { RepositoryPickerModal } from "./components/github/RepositoryPickerModal";
 import type {
   Repository,
   WorkspaceListItem,
@@ -47,7 +52,7 @@ import {
   type InitialPromptSubmissionId,
   type InitialPromptSubmissionStatus,
 } from "./lib/initial-prompt-submission";
-import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
+import { repositoryFromWorkspaceSelection } from "./lib/workspace-repository";
 import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
 import { isSessionPersistenceReady } from "./lib/session-persistence";
 import {
@@ -65,29 +70,6 @@ function getInitialRightSidebarWidth(): number {
     MIN_RIGHT_SIDEBAR_WIDTH,
     Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
   );
-}
-
-function buildRepositoryFromWorkspace(
-  repository: WorkspaceRepositoryRecord,
-  selectedBranch: string,
-): Repository {
-  return {
-    id: Number(repository.providerRepoId ?? 0),
-    name: repository.name,
-    full_name: repository.fullName,
-    owner: {
-      login: repository.owner,
-      avatar_url: "",
-    },
-    description: null,
-    private: false,
-    html_url: repository.repoUrl,
-    clone_url: `${repository.repoUrl}.git`,
-    default_branch: selectedBranch || repository.defaultBranch,
-    stargazers_count: 0,
-    language: null,
-    updated_at: repository.updatedAt,
-  };
 }
 
 function findWorkspaceForRepository(
@@ -207,12 +189,12 @@ function AppContent() {
     clearContext,
     saveSessionContext,
   } = useGitHub();
-  const workspaceSelectionBootstrapStatus = useWorkspaceSelectionBootstrap({
-    enabled: isAuthenticated && !isLoading,
-    currentRepository: repo,
-    setContext,
-  });
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [setupDrafts, setSetupDrafts] = useState<
+    Record<string, AgentSetupDraft>
+  >({});
+  const projectPickerDraftRef = useRef<AgentSetupDraft | undefined>(undefined);
+  const setupDraftReaderRef = useRef<AgentSetupDraftReader | null>(null);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
@@ -373,6 +355,13 @@ function AppContent() {
       lastSyncedGitHubSessionIdRef.current !== activeSessionId;
     lastSyncedGitHubSessionIdRef.current = activeSessionId;
 
+    if (!activeSession.repository) {
+      scheduleWorkspaceContextRepairState(false);
+      SessionStateService.clearSessionGitHubContext(activeSessionId);
+      if (repo) clearContext();
+      return;
+    }
+
     const sessionContext =
       SessionStateService.loadSessionGitHubContext(activeSessionId);
 
@@ -452,7 +441,7 @@ function AppContent() {
         return;
       }
 
-      if (!activeRepository || activeRepository === "New Project") {
+      if (!activeRepository) {
         scheduleWorkspaceContextRepairState(false);
         if (repo) {
           clearContext();
@@ -482,10 +471,10 @@ function AppContent() {
             return;
           }
 
-          const repairedRepo = buildRepositoryFromWorkspace(
-            workspaceContext.repository,
-            workspaceContext.branch,
-          );
+          const repairedRepo = repositoryFromWorkspaceSelection({
+            repository: workspaceContext.repository,
+            selectedBranch: workspaceContext.branch,
+          });
           SessionStateService.saveSessionGitHubContext(activeSessionId, {
             repoOwner: repairedRepo.owner.login,
             repoName: repairedRepo.name,
@@ -802,7 +791,11 @@ function AppContent() {
     }
   }, [activeSessionId, archiveSession]);
 
-  const handleOpenRepositoryPicker = () => {
+  const handleOpenRepositoryPicker = (draft?: AgentSetupDraft) => {
+    const currentDraft = draft ?? setupDraftReaderRef.current?.getDraft();
+    projectPickerDraftRef.current = currentDraft
+      ? copySetupDraft(currentDraft)
+      : undefined;
     if (!isAuthenticated) {
       login();
       return;
@@ -817,7 +810,7 @@ function AppContent() {
     });
   }, [openSettingsDialog]);
 
-  const handleNewTask = (repositoryName?: string) => {
+  const handleNewTask = (repositoryName?: string, draft?: AgentSetupDraft) => {
     if (!isAuthenticated) {
       login();
       return;
@@ -826,9 +819,11 @@ function AppContent() {
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
 
-    // If no repo name provided, try to use the currently active repo.
+    // Only an explicit project-scoped action chooses a repository.
     // Bare sidebar labels cannot load branches or bootstrap git safely.
-    const targetRepo = resolveTaskRepositoryFullName(repositoryName, repo);
+    const targetRepo = repositoryName
+      ? resolveTaskRepositoryFullName(repositoryName, repo)
+      : null;
 
     if (targetRepo) {
       setShowRepoPicker(false);
@@ -836,6 +831,11 @@ function AppContent() {
       // Create a session for this specific repository
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
+      if (draft)
+        setSetupDrafts((current) => ({
+          ...current,
+          [sessionId]: copySetupDraft(draft),
+        }));
 
       // Sync GitHub context with new session
       // Use SessionStateService for session-scoped storage
@@ -858,20 +858,30 @@ function AppContent() {
         saveSessionContext(sessionId);
       }
     } else {
-      // If absolutely no repo is selected, targetRepo is missing,
-      // or the user has deleted the repo folder
-      handleOpenRepositoryPicker();
+      setShowRepoPicker(false);
+      clearContext();
+      clearSetupSessionState();
+      createSession("New chat", null);
     }
   };
 
-  const handleChooseExistingProject = (repository: string) => {
-    handleNewTask(repository);
+  const handleChooseExistingProject = (
+    repository: string,
+    draft: AgentSetupDraft,
+  ) => {
+    handleNewTask(repository, draft);
   };
 
-  const handleChooseNoProject = () => {
+  const handleChooseNoProject = (draft: AgentSetupDraft) => {
+    setShowRepoPicker(false);
     clearContext();
+    if (activeSession?.repository === null) return;
     clearSetupSessionState();
-    createSession("New Task", "New Project");
+    const sessionId = createSession("New chat", null);
+    setSetupDrafts((current) => ({
+      ...current,
+      [sessionId]: copySetupDraft(draft),
+    }));
   };
 
   const focusReviewSidebar = () => {
@@ -939,6 +949,11 @@ function AppContent() {
     // Create a session immediately for this repository so it shows in sidebar
     const sessionName = `New Task`;
     const sessionId = createSession(sessionName, selectedRepo.full_name);
+    if (projectPickerDraftRef.current) {
+      const draft = projectPickerDraftRef.current;
+      setSetupDrafts((current) => ({ ...current, [sessionId]: draft }));
+      projectPickerDraftRef.current = undefined;
+    }
 
     // Store GitHub context for the session using SessionStateService
     SessionStateService.saveSessionGitHubContext(sessionId, {
@@ -954,10 +969,7 @@ function AppContent() {
     isAuthLoading: isLoading,
     sessionHydrationStatus,
   });
-  const isShellContextLoading =
-    isLoading ||
-    isSessionContextLoading ||
-    (workspaceSelectionBootstrapStatus === "loading" && !hasRealSession);
+  const isShellContextLoading = isLoading || isSessionContextLoading;
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
@@ -966,10 +978,6 @@ function AppContent() {
 
   if (!isAuthenticated) {
     return <GitHubSignInPage onLogin={login} />;
-  }
-
-  if (!hasRepoContext) {
-    return <AuthorizedRepositoryPicker onRepoSelect={handleRepoSelect} />;
   }
 
   return (
@@ -1013,7 +1021,7 @@ function AppContent() {
               }}
               onRenameRepository={renameRepository}
               onClose={handleToggleSidebar}
-              onAddRepository={handleOpenRepositoryPicker}
+              onAddRepository={() => handleOpenRepositoryPicker()}
               onOpenSettings={() => openSettingsDialog("general")}
               accountUser={user}
               onLogout={logout}
@@ -1120,7 +1128,9 @@ function AppContent() {
               <SessionConversationSurface
                 key={activeSessionId}
                 sessionId={activeSessionId}
-                runId={activeSession.activeRunId ?? activeSession.latestRunId ?? ""}
+                runId={
+                  activeSession.activeRunId ?? activeSession.latestRunId ?? ""
+                }
                 mode={activeSession.mode}
                 isSessionPersistenceReady={isSessionPersistenceReady(
                   activeSession.persistenceStatus,
@@ -1225,7 +1235,9 @@ function AppContent() {
                         }}
                         onTabChange={setActiveTab}
                         summaryActionRequest={summaryActionRequest}
-                        onOpenRepositoryPicker={handleOpenRepositoryPicker}
+                        onOpenRepositoryPicker={() =>
+                          handleOpenRepositoryPicker()
+                        }
                       />
                     </motion.div>
                   ) : (
@@ -1242,7 +1254,9 @@ function AppContent() {
                         sessionId={activeSession.id}
                       >
                         <AgentSetup
+                          draftRef={setupDraftReaderRef}
                           sessionId={activeSessionId}
+                          initialDraft={setupDrafts[activeSessionId]}
                           mode={activeSession.mode}
                           onModeChange={(mode) =>
                             updateSession(activeSessionId, { mode })
@@ -1250,9 +1264,7 @@ function AppContent() {
                           isRightSidebarOpen={isRightSidebarOpen}
                           reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                           onRepoClick={handleOpenRepositoryPicker}
-                          projects={repositories.filter(
-                            (repository) => repository !== "New Project",
-                          )}
+                          projects={repositories}
                           onProjectSelect={handleChooseExistingProject}
                           onNoProject={handleChooseNoProject}
                           onStart={(config) => {
@@ -1303,18 +1315,33 @@ function AppContent() {
                   sessionId={setupSession.id}
                 >
                   <AgentSetup
+                    draftRef={setupDraftReaderRef}
                     sessionId={setupSession.id}
                     isRightSidebarOpen={isRightSidebarOpen}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
-                    requiresRepository
                     onRepoClick={handleOpenRepositoryPicker}
-                    projects={repositories.filter(
-                      (repository) => repository !== "New Project",
-                    )}
+                    projects={repositories}
                     onProjectSelect={handleChooseExistingProject}
                     onNoProject={handleChooseNoProject}
-                    onStart={() => {
-                      handleOpenRepositoryPicker();
+                    onStart={(config) => {
+                      const sessionId = createSession(
+                        "New chat",
+                        null,
+                        config.mode,
+                      );
+                      clearContext();
+                      clearSetupSessionState();
+                      updateInitialPromptSubmissions((current) => ({
+                        ...current,
+                        [sessionId]: {
+                          id: createInitialPromptSubmissionId(
+                            crypto.randomUUID(),
+                          ),
+                          prompt: config.task,
+                          attachments: config.attachments,
+                          status: "queued",
+                        },
+                      }));
                     }}
                   />
                 </RunContextProvider>
@@ -1342,12 +1369,10 @@ function AppContent() {
           </AnimatePresence>
 
           {showRepoPicker && isAuthenticated ? (
-            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-              <AuthorizedRepositoryPicker
-                onRepoSelect={handleRepoSelect}
-                onClose={() => setShowRepoPicker(false)}
-              />
-            </div>
+            <RepositoryPickerModal
+              onRepoSelect={handleRepoSelect}
+              onClose={() => setShowRepoPicker(false)}
+            />
           ) : null}
 
           <SettingsDialog

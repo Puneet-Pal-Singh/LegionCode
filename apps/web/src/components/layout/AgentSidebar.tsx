@@ -7,11 +7,13 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
   groupSessionsByRepository,
   selectPinnedSessions,
+  selectRecentSessions,
   selectSessionUnread,
 } from "../../lib/session-sidebar-selectors";
 import {
@@ -145,10 +147,16 @@ export function AgentSidebar({
   onLogout,
   width = 280,
 }: AgentSidebarProps) {
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
+  const [recentsExpanded, setRecentsExpanded] = useState(true);
+  const projectsId = useId();
+  const recentsId = useId();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
-  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+  const [filterMenuSection, setFilterMenuSection] = useState<
+    "projects" | "recents" | null
+  >(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedQuery = normalizeSearch(searchQuery);
@@ -159,7 +167,7 @@ export function AgentSidebar({
         filterMenuRef.current &&
         !filterMenuRef.current.contains(event.target as Node)
       ) {
-        setIsFilterMenuOpen(false);
+        setFilterMenuSection(null);
       }
     }
 
@@ -173,7 +181,9 @@ export function AgentSidebar({
 
   const repositorySource = useMemo(() => {
     const combined = new Set<string>();
-    repositories.forEach((repository) => combined.add(repository));
+    repositories
+      .filter(Boolean)
+      .forEach((repository) => combined.add(repository));
     sessions.forEach((session) => {
       if (session.archivedAt !== null || session.pinnedAt !== null) {
         return;
@@ -181,8 +191,6 @@ export function AgentSidebar({
       const normalizedRepository = session.repository?.trim() ?? "";
       if (normalizedRepository.length > 0) {
         combined.add(normalizedRepository);
-      } else {
-        combined.add("No repository");
       }
     });
     return Array.from(combined);
@@ -248,6 +256,22 @@ export function AgentSidebar({
     );
   }, [activeSessionId, normalizedQuery, sessions, statusFilter]);
 
+  const recentTasks = useMemo(
+    () =>
+      filterTasks(
+        selectRecentSessions(sessions).map<SidebarTaskItem>((session) => ({
+          id: session.id,
+          title: session.name,
+          status: mapSessionStatus(session, activeSessionId),
+          updatedAt: session.updatedAt,
+          isActive: session.id === activeSessionId,
+        })),
+        normalizedQuery,
+        statusFilter,
+      ),
+    [sessions, activeSessionId, normalizedQuery, statusFilter],
+  );
+
   const utility = (
     <div className="space-y-1">
       <button
@@ -308,69 +332,76 @@ export function AgentSidebar({
     </div>
   );
 
-  const projectsHeader = (
-    <div className="group/projects flex h-8 items-center justify-between px-2">
-      <span className="text-sm font-medium text-zinc-500">Projects</span>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          aria-label="Add project"
-          onClick={onAddRepository}
-          className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
-          title="Add project"
-        >
-          <FolderPlus size={14} aria-hidden="true" />
-        </button>
-        <div className="relative" ref={filterMenuRef}>
-          <button
-            type="button"
-            aria-label="Filter tasks"
-            onClick={() => setIsFilterMenuOpen((value) => !value)}
-            className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
-            title="Filter tasks"
-            aria-haspopup="menu"
-            aria-expanded={isFilterMenuOpen}
-          >
-            <MoreHorizontal
-              size={14}
-              aria-hidden="true"
-              className={
-                statusFilter !== "all" ? "text-emerald-300" : undefined
-              }
-            />
-          </button>
+  const renderFilterMenu = (section: "projects" | "recents") => (
+    <div
+      className="relative"
+      ref={filterMenuSection === section ? filterMenuRef : undefined}
+    >
+      <button
+        type="button"
+        aria-label={`Filter ${section === "projects" ? "tasks" : "chats"}`}
+        onClick={() =>
+          setFilterMenuSection((value) => (value === section ? null : section))
+        }
+        className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+        title="Filter tasks"
+        aria-haspopup="menu"
+        aria-expanded={filterMenuSection === section}
+      >
+        <MoreHorizontal
+          size={14}
+          aria-hidden="true"
+          className={statusFilter !== "all" ? "text-emerald-300" : undefined}
+        />
+      </button>
 
-          {isFilterMenuOpen ? (
-            <div
-              role="menu"
-              className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
+      {filterMenuSection === section ? (
+        <div
+          role="menu"
+          className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
+        >
+          <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">Show tasks</div>
+          {FILTER_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                setStatusFilter(option.value);
+                setFilterMenuSection(null);
+              }}
+              className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+              role="menuitemradio"
+              aria-checked={statusFilter === option.value}
             >
-              <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">
-                Show tasks
-              </div>
-              {FILTER_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter(option.value);
-                    setIsFilterMenuOpen(false);
-                  }}
-                  className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                  role="menuitemradio"
-                  aria-checked={statusFilter === option.value}
-                >
-                  <span>{option.label}</span>
-                  {statusFilter === option.value ? (
-                    <Check size={14} className="text-zinc-300" />
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
+              <span>{option.label}</span>
+              {statusFilter === option.value ? (
+                <Check size={14} className="text-zinc-300" />
+              ) : null}
+            </button>
+          ))}
         </div>
-      </div>
+      ) : null}
     </div>
+  );
+
+  const projectsHeader = (
+    <SidebarSectionHeader
+      label="Projects"
+      expanded={projectsExpanded}
+      controlsId={projectsId}
+      onToggle={() => setProjectsExpanded((value) => !value)}
+    >
+      {renderFilterMenu("projects")}
+      <button
+        type="button"
+        aria-label="Add project"
+        onClick={onAddRepository}
+        title="Add project"
+        className="rounded-md p-1.5 text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:ring-2 focus-visible:ring-zinc-400"
+      >
+        <FolderPlus size={14} aria-hidden="true" />
+      </button>
+    </SidebarSectionHeader>
   );
 
   const footer = (
@@ -418,26 +449,64 @@ export function AgentSidebar({
           </section>
         ) : null}
 
-        {repositorySections.map((section) => (
-          <WorkspaceSection
-            key={section.repository}
-            workspaceName={section.repositoryLabel}
-            tasks={section.tasks}
-            onSelectTask={onSelect}
-            onAddTask={() => onCreate(section.repository)}
-            onRemoveTask={onRemove}
-            onRemoveWorkspace={() => onRemoveRepository?.(section.repository)}
-            onRenameWorkspace={(newName) =>
-              onRenameRepository?.(section.repository, newName)
-            }
-          />
-        ))}
+        <div id={projectsId} hidden={!projectsExpanded}>
+          {repositorySections.map((section) => (
+            <WorkspaceSection
+              key={section.repository}
+              workspaceName={section.repositoryLabel}
+              tasks={section.tasks}
+              onSelectTask={onSelect}
+              onAddTask={() => onCreate(section.repository)}
+              onRemoveTask={onRemove}
+              onRemoveWorkspace={() => onRemoveRepository?.(section.repository)}
+              onRenameWorkspace={(newName) =>
+                onRenameRepository?.(section.repository, newName)
+              }
+            />
+          ))}
 
-        {repositorySections.length === 0 ? (
-          <p className="px-2 py-3 text-xs italic text-zinc-600">
-            No matching tasks or projects
-          </p>
-        ) : null}
+          {repositorySections.length === 0 ? (
+            <p className="px-2 py-3 text-xs italic text-zinc-600">
+              {normalizedQuery || statusFilter !== "all"
+                ? "No matching projects"
+                : "Your projects will appear here"}
+            </p>
+          ) : null}
+        </div>
+        <section aria-label="Recents" className="space-y-1 pt-5">
+          <SidebarSectionHeader
+            label="Recents"
+            expanded={recentsExpanded}
+            controlsId={recentsId}
+            onToggle={() => setRecentsExpanded((value) => !value)}
+          >
+            {renderFilterMenu("recents")}
+            <button
+              type="button"
+              aria-label="New chat"
+              onClick={() => onCreate()}
+              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+            >
+              <SquarePen size={14} aria-hidden="true" />
+            </button>
+          </SidebarSectionHeader>
+          <div id={recentsId} hidden={!recentsExpanded}>
+            {recentTasks.length > 0 ? (
+              <TaskList
+                tasks={recentTasks}
+                onSelectTask={onSelect}
+                onRemoveTask={onRemove}
+              />
+            ) : null}
+            {recentTasks.length === 0 ? (
+              <p className="px-2 py-3 text-xs text-zinc-500">
+                {normalizedQuery || statusFilter !== "all"
+                  ? "No matching chats"
+                  : "Chats without a project appear here"}
+              </p>
+            ) : null}
+          </div>
+        </section>
       </div>
     </SidebarShell>
   );

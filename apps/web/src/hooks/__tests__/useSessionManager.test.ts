@@ -217,10 +217,12 @@ describe("useSessionManager", () => {
       const { result } = renderHook(() => useSessionManager());
 
       act(() => {
-        result.current.createSession(undefined, "test-repo");
+        result.current.createSession();
       });
 
       expect(result.current.sessions[0]?.name).toBe("New Task");
+      expect(result.current.sessions[0]?.repository).toBeNull();
+      expect(result.current.repositories).toEqual([]);
     });
 
     it("should add repository on session creation", () => {
