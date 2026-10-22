@@ -32,6 +32,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/layout/workspace/runUiState.ts",
   "components/layout/SessionConversationSurface.tsx",
   "hooks/useSessionWorkspaceContext.ts",
+  "hooks/useSessionPullRequests.ts",
   "services/provider/ProviderStore.ts",
   "services/provider/ProviderSelectionPreferences.ts",
 ]);

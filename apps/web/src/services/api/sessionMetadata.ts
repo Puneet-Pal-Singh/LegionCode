@@ -1,4 +1,4 @@
-import { AppServerClientError, type HostedSession, type HostedSessionReadReceipt, type HostedSessionWorkspaceContext } from "@legioncode/sdk";
+import { AppServerClientError, type HostedSession, type HostedSessionPullRequestsResponse, type HostedSessionReadReceipt, type HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { AgentSession, SessionStatus } from "../../types/session";
 import { isCanonicalRunId } from "../../lib/run-id";
 import { normalizeSessionRunMode } from "../sessionRunMode";
@@ -72,6 +72,17 @@ export async function getSessionWorkspaceContext(
     timeoutMs: null,
     maxResponseBytes: null,
   }).getSessionWorkspaceContext(sessionId, runId);
+}
+
+export async function getSessionPullRequests(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<HostedSessionPullRequestsResponse> {
+  return await createHostedAppServerClient({
+    signal,
+    timeoutMs: null,
+    maxResponseBytes: null,
+  }).getSessionPullRequests(sessionId);
 }
 
 function mapped(session: ServerSessionRecord): AgentSession {
