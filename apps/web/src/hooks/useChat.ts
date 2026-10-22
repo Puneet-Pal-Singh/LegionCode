@@ -10,6 +10,7 @@ import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 import type { ConversationScopeHttpError } from "@legioncode/sdk";
+import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { ConversationScope } from "./conversationScope";
 import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
@@ -74,6 +75,7 @@ export function useChat(
   onServerProjectionAvailable?: () => void,
   isSessionPersistenceReady = true,
   onRunIdChange?: (runId: string) => void,
+  workspaceContext?: HostedSessionWorkspaceContext | null,
 ): UseChatResult {
   const [transcriptState, setTranscriptState] = useState<{
     sessionId: string;
@@ -119,6 +121,7 @@ export function useChat(
     productMode,
     onServerProjectionAvailable,
     onRunIdChange,
+    workspaceContext,
   );
 
   const messages = useMemo(() => {

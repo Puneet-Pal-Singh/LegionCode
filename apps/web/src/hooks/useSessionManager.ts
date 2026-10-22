@@ -433,6 +433,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       name?: string,
       repository: string = "New Project",
       mode: RunMode = DEFAULT_RUN_MODE,
+      workspaceId?: string,
     ) => {
       const sessionName = typeof name === "string" ? name : `New Task`;
 
@@ -451,6 +452,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         "idle",
         mode,
       );
+      if (workspaceId) newSession.workspaceId = workspaceId;
 
       // Admission requires the owned conversation to exist before it is visible
       // to setup/submit callers. A failed create must not publish a local session.

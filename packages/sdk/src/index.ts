@@ -324,6 +324,7 @@ export { collectLifecycleTurnDiffFiles } from "./platform/conversation-turn-diff
 
 export type {
   HostedSession,
+  HostedSessionWorkspaceContext,
   HostedSessionCreateRequest,
   HostedSessionReadReceipt,
 } from "@repo/platform-protocol";

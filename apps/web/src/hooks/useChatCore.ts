@@ -5,6 +5,7 @@ import {
   ThreadIdSchema,
   TurnIdSchema,
 } from "@legioncode/sdk";
+import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import {
   DEFAULT_RUN_MODE,
   RunModeSchema,
@@ -40,7 +41,7 @@ import {
   type ChatRequestBody,
 } from "../lib/chat-request";
 import { resolveReasoningEffortForRequest } from "../lib/model-reasoning-preferences";
-import { loadRepositoryContextFields } from "../lib/chat-repository-context";
+import { loadSessionBranchPreference } from "../lib/session-branch-preference";
 import {
   toImageParts,
   toRedactedImageMetadata,
@@ -153,7 +154,12 @@ export function useChatCore(
   productMode?: ProductMode,
   onServerProjectionAvailable?: () => void,
   onRunIdChange?: (runId: string) => void,
+  workspaceContext?: HostedSessionWorkspaceContext | null,
 ): UseChatCoreResult {
+  const isWorkspaceExecutionAllowed = Boolean(
+    workspaceContext?.sessionId === sessionId &&
+    workspaceContext.workspaceStatus !== "archived",
+  );
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
   );
@@ -651,6 +657,7 @@ export function useChatCore(
       config: ResolvedProviderConfig,
       clientMessageId: string,
       identity: ConversationScope,
+      repositoryFields: Pick<ChatRequestBody, "repositoryOwner" | "repositoryName" | "repositoryBranch" | "repositoryBaseUrl">,
     ): ChatRequestBody =>
       parseChatRequestBody({
         sessionId: identity.sessionId,
@@ -683,7 +690,7 @@ export function useChatCore(
             ? { revisionOfTurnId: identity.revisionOfTurnId }
             : {}),
         },
-        ...loadRepositoryContextFields(sessionId),
+        ...repositoryFields,
       }),
     [mode, productMode, selectedModelEfforts, sessionId],
   );
@@ -763,6 +770,12 @@ export function useChatCore(
         isActiveRunScope(bootstrapScopeKey);
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
+      if (!isWorkspaceExecutionAllowed) {
+        return {
+          status: "unconfirmed",
+          message: "This conversation's workspace is unavailable for new work.",
+        };
+      }
       if ((!content && !hasImages) || status !== "ready") {
         return {
           status: "unconfirmed",
@@ -782,6 +795,16 @@ export function useChatCore(
         : revisionTarget
           ? `revision:${revisionTarget}`
           : "composer";
+      const repositoryFields = workspaceContext?.sessionId === sessionId &&
+        workspaceContext.workspaceStatus !== "archived" &&
+        workspaceContext.repository
+        ? {
+            repositoryOwner: workspaceContext.repository.owner,
+            repositoryName: workspaceContext.repository.name,
+            repositoryBranch: loadSessionBranchPreference(sessionId, workspaceContext.repository.fullName) ?? workspaceContext.selectedBranch ?? undefined,
+            repositoryBaseUrl: workspaceContext.repository.repoUrl,
+          }
+        : {};
       const intentFingerprint = JSON.stringify({
         sessionId,
         content: message.content,
@@ -799,7 +822,7 @@ export function useChatCore(
             selectedModelEfforts,
           ) ?? null,
         harnessId: resolveRuntimeHarnessId(sessionId),
-        repository: loadRepositoryContextFields(sessionId),
+        repository: repositoryFields,
       });
       const activeAttempt = activeSubmissionAttemptRef.current;
       if (
@@ -972,6 +995,7 @@ export function useChatCore(
           providerConfig,
           submittedMessage.id,
           requestScope,
+          repositoryFields,
         );
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
@@ -1171,6 +1195,7 @@ export function useChatCore(
     },
     [
       buildChatRequestBody,
+      isWorkspaceExecutionAllowed,
       isActiveRunScope,
       lifecycleClient,
       mode,
@@ -1187,6 +1212,7 @@ export function useChatCore(
       status,
       stopStream,
       submitResolvedMessage,
+      workspaceContext,
     ],
   );
 
@@ -1204,7 +1230,7 @@ export function useChatCore(
     activeConversationScopeRef.current = scope;
     setConversationScope(scope);
   }, []);
-  const { submitFollowUp, resumeInterruptedTurn, applyStartedQueueReceipt } =
+  const { submitFollowUp: submitFollowUpCommand, resumeInterruptedTurn: resumeInterruptedTurnCommand, applyStartedQueueReceipt } =
     useConversationInputCommands({
       sessionId,
       runId,
@@ -1225,6 +1251,20 @@ export function useChatCore(
       setError,
       commitScope: commitConversationScope,
     });
+  const submitFollowUp = useCallback((text: string, attachments: ChatSubmitAttachments | undefined, delivery: "queue" | "steer") => {
+    if (!isWorkspaceExecutionAllowed) {
+      setError("This conversation's workspace is unavailable for new work.");
+      return Promise.resolve(false);
+    }
+    return submitFollowUpCommand(text, attachments, delivery);
+  }, [isWorkspaceExecutionAllowed, submitFollowUpCommand]);
+  const resumeInterruptedTurn = useCallback((expectedTerminalSequence: number) => {
+    if (!isWorkspaceExecutionAllowed) {
+      setError("This conversation's workspace is unavailable for new work.");
+      return Promise.resolve(false);
+    }
+    return resumeInterruptedTurnCommand(expectedTerminalSequence);
+  }, [isWorkspaceExecutionAllowed, resumeInterruptedTurnCommand]);
 
   const restoreChatInput = useCallback(
     (value: string) => {
@@ -1352,6 +1392,10 @@ export function useChatCore(
       attachments?: ChatSubmitAttachments,
     ): Promise<boolean> => {
       e?.preventDefault();
+      if (!isWorkspaceExecutionAllowed) {
+        setError("This conversation's workspace is unavailable for new work.");
+        return false;
+      }
       const originalInput = input;
       const trimmedInput = input.trim();
       const imageAttachments = attachments?.imageAttachments ?? [];
@@ -1386,6 +1430,7 @@ export function useChatCore(
       input,
       canonicalRunLoading,
       isModelConfigReady,
+      isWorkspaceExecutionAllowed,
       isStopping,
       isSubmitting,
       runId,

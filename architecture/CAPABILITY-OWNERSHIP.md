@@ -371,6 +371,21 @@ writing. Typed hosted record results remain distinct from local filesystem
 grants. SDK/Web cutover follows in this slice; browser context reconciliation
 and storage retirement remain pending their server-reconstruction proof.
 
+### Authenticated session workspace context
+
+The authenticated App Server session metadata operation resolves the owned
+active or archived session, its optional owned run, and the exact owned
+workspace. A unique exact-repository legacy match is display-only and keeps a
+null workspace identity. Web uses this projection for session display and chat
+request context; run branch remains the immutable historical run value. Explicit
+workspace branch selection remains a server workspace/select command. The
+session-scoped branch preference is a browser UI intent bound to the projected
+canonical repository name; the existing legacy session context key is read only
+for a matching repository and is never rewritten or deleted. An unbound match
+never receives an inferred workspace ID; the canonical turn admission remains
+responsible for authorizing execution. Workspace ownership and session/run
+linkage are checked by the hosted metadata owner.
+
 ### Plan 058 Web workspace operation cutover
 
 App selection/reconstruction and workspace bootstrap call the existing SDK

@@ -2,7 +2,7 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
-import type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
+import type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -54,6 +54,7 @@ export type AppServerComposition = {
     list(): Promise<HostedSessionsResponse>;
     listArchived(): Promise<{ sessions: HostedSession[] }>;
     readReceipt(params: { sessionId: string; terminalTurnId: TurnId }): Promise<HostedSessionReadReceipt>;
+    workspaceContext(params: HostedSessionWorkspaceContextRequest): Promise<HostedSessionWorkspaceContext>;
     create(params: HostedSessionCreateRequest): Promise<{ session: HostedSession }>;
     rename(params: HostedSessionRenameRequest): Promise<{ session: HostedSession }>;
     pin(sessionId: string): Promise<{ session: HostedSession }>;
@@ -223,6 +224,10 @@ async function dispatch(
     case "session/readReceipt": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
       return composition.sessionMetadataService.readReceipt(request.params);
+    }
+    case "session/workspaceContext": {
+      if (!composition.sessionMetadataService) throw new Error("unsupported");
+      return composition.sessionMetadataService.workspaceContext(request.params);
     }
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");

@@ -117,7 +117,26 @@ function reservations(requests: Array<{ url: string; body: string | null }>) {
 
 function renderCore(runId = `${FIXTURE.runId}_${crypto.randomUUID()}`) {
   return renderHook(({ currentRunId }: { currentRunId: string }) =>
-    useChatCore(FIXTURE.sessionId, currentRunId), {
+    useChatCore(FIXTURE.sessionId, currentRunId, undefined, undefined, undefined, undefined, {
+      sessionId: FIXTURE.sessionId,
+      workspaceId: FIXTURE.workspaceId,
+      threadId: FIXTURE.threadId,
+      workspaceStatus: "active",
+      repository: {
+        id: "repo_transport_fixture01",
+        provider: "github",
+        owner: "acme",
+        name: "transport-fixture",
+        fullName: "acme/transport-fixture",
+        repoUrl: "https://github.com/acme/transport-fixture",
+        defaultBranch: "main",
+        providerRepoId: "42",
+        createdAt: "2026-10-04T00:00:00.000Z",
+        updatedAt: "2026-10-04T00:00:00.000Z",
+      },
+      selectedBranch: "main",
+      runBranch: null,
+    }), {
       initialProps: { currentRunId: runId },
     });
 }

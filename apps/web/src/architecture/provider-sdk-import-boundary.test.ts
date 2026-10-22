@@ -30,6 +30,8 @@ const ALLOWED_IMPORT_FILES = new Set([
   "lib/provider-recovery.ts",
   "components/chat/chat-interface/TurnLifecycleStatus.tsx",
   "components/layout/workspace/runUiState.ts",
+  "components/layout/SessionConversationSurface.tsx",
+  "hooks/useSessionWorkspaceContext.ts",
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {
