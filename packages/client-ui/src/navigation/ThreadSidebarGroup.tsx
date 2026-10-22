@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Archive,
   ArchiveRestore,
-  Circle,
   Edit2,
   Folder,
   FolderOpen,
@@ -67,7 +66,6 @@ const STATUS_VISUALS: Partial<Record<ThreadSidebarDisplayStatus, StatusVisual>> 
   running: { icon: LoaderCircle, className: "animate-spin text-zinc-300", kind: "spinner" },
   paused: { icon: Pause, className: "text-zinc-500", kind: "icon" },
   failed: { icon: AlertCircle, className: "text-red-400", kind: "icon" },
-  completed: { icon: Circle, className: "fill-sky-400 text-sky-400", kind: "icon" },
 };
 
 function getRelativeTime(updatedAt: string): string {
@@ -85,7 +83,7 @@ function StatusIndicator({ status }: { status: ThreadSidebarDisplayStatus }): Re
   const visual = STATUS_VISUALS[status];
   if (!visual) return null;
   const StatusIcon = visual.icon;
-  const isNotification = status === "failed" || status === "completed";
+  const isNotification = status === "failed";
   return (
     <span className="inline-flex size-4 items-center justify-center" aria-hidden="true">
       <StatusIcon
