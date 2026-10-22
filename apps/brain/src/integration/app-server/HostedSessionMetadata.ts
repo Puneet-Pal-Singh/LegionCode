@@ -103,10 +103,18 @@ async function readWorkspaceContext(
     throw new AppServerOperationError(404, "not_found", "Session not found");
   }
 
-  const runId = params.runId ?? session.activeRunId ?? session.latestRunId ?? null;
-  const run = runId
-    ? await withRunRepository(env, (repository) => repository.getRun(runId, userId))
-    : null;
+  const run = await withRunRepository(env, async (repository) => {
+    const runIds = params.runId
+      ? [params.runId]
+      : [...new Set([session.activeRunId, session.latestRunId].filter((id): id is string => Boolean(id)))];
+    for (const runId of runIds) {
+      const candidate = await repository.getRun(runId, userId);
+      if (candidate) return candidate;
+      if (params.runId) break;
+    }
+    return null;
+  });
+  if (params.runId && !run) throw new AppServerOperationError(404, "not_found", "Session run not found");
   if (run && run.sessionId !== session.id) {
     throw new AppServerOperationError(404, "not_found", "Session run not found");
   }
@@ -129,7 +137,7 @@ async function readWorkspaceContext(
     : [];
   const displayWorkspace = boundWorkspace ?? (legacyMatches.length === 1 ? legacyMatches[0] : undefined);
   const repository = displayWorkspace?.repository ?? null;
-  const selectedBranch = run?.branch?.trim() || (
+  const selectedBranch = (
     displayWorkspace?.workspace.lastSelectedBranch ||
     displayWorkspace?.workspace.defaultBranch ||
     displayWorkspace?.repository.defaultBranch ||
@@ -140,8 +148,10 @@ async function readWorkspaceContext(
     sessionId: session.id,
     workspaceId,
     threadId: session.threadId,
+    workspaceStatus: boundWorkspace?.workspace.status ?? null,
     repository,
     selectedBranch,
+    runBranch: run?.branch?.trim() || null,
   };
 }
 

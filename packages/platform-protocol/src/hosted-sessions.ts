@@ -12,8 +12,10 @@ export const HostedSessionWorkspaceContextSchema = z.object({
   sessionId: z.string().uuid(),
   workspaceId: z.string().min(1).nullable(),
   threadId: z.string().min(1).nullable(),
+  workspaceStatus: z.enum(["active", "archived"]).nullable(),
   repository: HostedWorkspaceRepositorySchema.nullable(),
   selectedBranch: z.string().min(1).nullable(),
+  runBranch: z.string().min(1).nullable(),
 }).strict();
 export const HostedSessionReadReceiptRequestSchema = HostedSessionParamsSchema.extend({ terminalTurnId: TurnIdSchema }).strict();
 export const HostedSessionReadReceiptSchema = z.object({
