@@ -3,6 +3,7 @@ import type { BYOKModelDiscoverySource } from "@repo/shared-types";
 export interface ProviderModelDiscoveryMetrics {
   model_discovery_requests_total: Record<string, number>;
   model_discovery_fetch_latency_ms: number[];
+  model_discovery_stage_latency_ms: Record<string, number[]>;
   model_discovery_cache_hits_total: Record<string, number>;
   model_discovery_stale_total: Record<string, number>;
   model_discovery_adapter_failures_total: Record<string, number>;
@@ -56,6 +57,15 @@ export class ProviderModelDiscoveryObservability {
     }
   }
 
+  recordStage(providerId: string, stage: "cache" | "provider" | "metadata", latencyMs: number): void {
+    if (!Number.isFinite(latencyMs) || latencyMs < 0) return;
+    const key = `${providerId}_${stage}`;
+    const samples = this.metrics.model_discovery_stage_latency_ms[key] ?? [];
+    samples.push(latencyMs);
+    this.metrics.model_discovery_stage_latency_ms[key] = samples.slice(-ProviderModelDiscoveryObservability.MAX_LATENCY_SAMPLES);
+    if (this.enableLogging) console.log(`[provider-discovery/stage] provider=${providerId} stage=${stage} latencyMs=${latencyMs}`);
+  }
+
   recordCacheHit(providerId: string): void {
     this.metrics.model_discovery_cache_hits_total[providerId] =
       (this.metrics.model_discovery_cache_hits_total[providerId] ?? 0) + 1;
@@ -91,6 +101,7 @@ export class ProviderModelDiscoveryObservability {
   getMetrics(): ProviderModelDiscoveryMetrics {
     return {
       ...this.metrics,
+      model_discovery_stage_latency_ms: Object.fromEntries(Object.entries(this.metrics.model_discovery_stage_latency_ms).map(([key, samples]) => [key, [...samples]])),
       model_discovery_fetch_latency_ms: [
         ...this.metrics.model_discovery_fetch_latency_ms,
       ],
@@ -187,6 +198,7 @@ export class ProviderModelDiscoveryObservability {
     return {
       model_discovery_requests_total: {},
       model_discovery_fetch_latency_ms: [],
+      model_discovery_stage_latency_ms: {},
       model_discovery_cache_hits_total: {},
       model_discovery_stale_total: {},
       model_discovery_adapter_failures_total: {},
