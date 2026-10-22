@@ -120,7 +120,7 @@ function displayStatus(
       : "idle";
   }
   if (session.status === "failed") {
-    return selectSessionUnread(session) ? "failed" : "idle";
+    return "failed";
   }
   return "idle";
 }

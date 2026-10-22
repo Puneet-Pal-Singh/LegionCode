@@ -26,6 +26,8 @@ export interface ThreadSidebarProps {
   onRenameWorkspace?: (workspaceSelectionId: WorkspaceSelectionId, newLabel: string) => void | Promise<void>;
   onRemoveWorkspace?: (workspaceSelectionId: WorkspaceSelectionId) => void | Promise<void>;
   canManageWorkspace?: (workspaceSelectionId: WorkspaceSelectionId) => boolean;
+  onPin?: (selectionId: string) => void | Promise<void>;
+  onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onClose?: () => void;
@@ -42,6 +44,8 @@ export function ThreadSidebar({
   onRenameWorkspace,
   onRemoveWorkspace,
   canManageWorkspace,
+  onPin,
+  onUnpin,
   onArchive,
   onUnarchive,
   onClose,
@@ -59,6 +63,7 @@ export function ThreadSidebar({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
+  const [previewSelectionId, setPreviewSelectionId] = useState<string | null>(null);
   const [isArchivedOpen, setIsArchivedOpen] = useState(false);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<ReadonlySet<string>>(() => new Set());
   const [visibleCounts, setVisibleCounts] = useState<Readonly<Record<string, number>>>({});
@@ -123,7 +128,10 @@ export function ThreadSidebar({
   }));
   const visibleArchived = visibleItems(archived, visibleCounts["\0archived"] ?? INITIAL_VISIBLE_ROWS);
   const entries: ThreadSidebarEntry[] = [
-    ...visiblePinned.map((item) => ({ item, workspaceLabel: "Pinned" })),
+    ...visiblePinned.map((item) => ({
+      item,
+      workspaceLabel: item.workspaceLabel ?? "Unknown workspace",
+    })),
     ...visibleGroups.flatMap((group) => collapsedWorkspaces.has(group.workspaceSelectionId)
       ? []
       : group.visibleThreads.map((item) => ({ item, workspaceLabel: group.label ?? "Unknown workspace" }))),
@@ -132,6 +140,10 @@ export function ThreadSidebar({
       : []),
   ];
   const activeIndex = entries.length === 0 ? 0 : Math.min(focusedIndex, entries.length - 1);
+
+  function closePreview(selectionId: string): void {
+    setPreviewSelectionId((current) => current === selectionId ? null : current);
+  }
 
   function focusAt(index: number): void {
     if (entries.length === 0) return;
@@ -267,7 +279,10 @@ export function ThreadSidebar({
                 </div>
                 <ThreadSidebarGroup
                   label="Pinned"
-                  entries={visiblePinned.map((item) => ({ item, workspaceLabel: "Pinned" }))}
+                  entries={visiblePinned.map((item) => ({
+                    item,
+                    workspaceLabel: item.workspaceLabel ?? "Unknown workspace",
+                  }))}
                   startIndex={0}
                   focusedIndex={activeIndex}
                   rowRefs={rowRefs.current}
@@ -275,6 +290,11 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
+                  previewSelectionId={previewSelectionId}
+                  onPreviewOpen={setPreviewSelectionId}
+                  onPreviewClose={closePreview}
+                  onPin={onPin}
+                  onUnpin={onUnpin}
                   onArchive={onArchive}
                   onConfirmArchive={confirmArchive}
                   onCancelArchive={() => setPendingArchiveId(null)}
@@ -313,6 +333,11 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
+                  previewSelectionId={previewSelectionId}
+                  onPreviewOpen={setPreviewSelectionId}
+                  onPreviewClose={closePreview}
+                  onPin={onPin}
+                  onUnpin={onUnpin}
                   onArchive={onArchive}
                   onConfirmArchive={confirmArchive}
                   onCancelArchive={() => setPendingArchiveId(null)}
@@ -346,6 +371,9 @@ export function ThreadSidebar({
                     onFocus={setFocusedIndex}
                     onKeyDown={handleKeyDown}
                     onSelect={onSelect}
+                    previewSelectionId={previewSelectionId}
+                    onPreviewOpen={setPreviewSelectionId}
+                    onPreviewClose={closePreview}
                     onConfirmArchive={confirmArchive}
                     onCancelArchive={() => setPendingArchiveId(null)}
                     setPendingArchiveId={setPendingArchiveId}

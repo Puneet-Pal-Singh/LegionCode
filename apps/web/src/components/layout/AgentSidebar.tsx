@@ -17,6 +17,8 @@ interface AgentSidebarProps {
   hydrationStatus?: SessionHydrationStatus;
   onSelect: (id: string) => void;
   onCreate: (repo?: string) => void;
+  onPin?: (id: string) => void | Promise<void>;
+  onUnpin?: (id: string) => void | Promise<void>;
   onArchive: (id: string) => void | Promise<void>;
   onUnarchive?: (id: string) => void | Promise<void>;
   onRemoveRepository?: (repo: string) => void;
@@ -36,6 +38,8 @@ export function AgentSidebar({
   hydrationStatus = "ready",
   onSelect,
   onCreate,
+  onPin,
+  onUnpin,
   onArchive,
   onUnarchive,
   onRemoveRepository,
@@ -95,6 +99,8 @@ export function AgentSidebar({
           : undefined
       }
       onArchive={(selectionId) => onArchive(selectionId)}
+      onPin={onPin}
+      onUnpin={onUnpin}
       onUnarchive={(selectionId) => onUnarchive?.(selectionId)}
       onClose={onClose}
       footer={footer}
