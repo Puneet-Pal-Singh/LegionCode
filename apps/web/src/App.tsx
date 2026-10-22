@@ -731,6 +731,8 @@ function AppContent() {
               hydrationStatus={sessionHydrationStatus}
               onSelect={handleSelectSession}
               onCreate={handleNewTask}
+              onPin={pinSession}
+              onUnpin={unpinSession}
               onArchive={async (sessionId) => {
                 if (await archiveSession(sessionId)) {
                   retireSessionInitialPrompt(sessionId);

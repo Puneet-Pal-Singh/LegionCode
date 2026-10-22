@@ -25,7 +25,7 @@ describe("Web session to shared Thread sidebar projection", () => {
         status: "failed",
         updatedAt: new Date(NOW - 60_000).toISOString(),
         lastTerminalTurnId: "turn-failed",
-        lastAcknowledgedTerminalTurnId: null,
+        lastAcknowledgedTerminalTurnId: "turn-failed",
       }),
     ];
     const model = projectAgentSessionsForSidebar({
@@ -54,6 +54,9 @@ describe("Web session to shared Thread sidebar projection", () => {
     expect(
       entries.find((entry) => entry.selectionId === "completed")?.isUnread,
     ).toBe(true);
+    expect(
+      entries.find((entry) => entry.selectionId === "failed")?.isUnread,
+    ).toBe(false);
     expect(selectSessionUnread(sessions[3]!)).toBe(true);
   });
 
