@@ -7,6 +7,7 @@ import { getAuthenticatedUserSession, isSessionStoreUnavailableError } from "../
 import { composeHostedSessionMetadata } from "../integration/app-server/HostedSessionMetadata";
 import { composeHostedConversationHistory } from "../integration/app-server/HostedConversationHistory";
 import { composeHostedTurnScope } from "../integration/app-server/HostedTurnScope";
+import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
 import { getCorsHeaders } from "../lib/cors";
@@ -44,6 +45,7 @@ export const AppServerController = {
     let hostedWorkspaceService: ReturnType<typeof composeHostedWorkspaceSelection> | undefined;
     let historyService: ReturnType<typeof composeHostedConversationHistory> | undefined;
     let sessionMetadataService: ReturnType<typeof composeHostedSessionMetadata> | undefined;
+    let hostedSessionPullRequestService: ReturnType<typeof composeHostedSessionPullRequests> | undefined;
     let hostedTurnScopeService: ReturnType<typeof composeHostedTurnScope> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
@@ -64,6 +66,7 @@ export const AppServerController = {
         hostedWorkspaceService = composeHostedWorkspaceSelection(request, env, auth.userId);
         historyService = composeHostedConversationHistory(env, auth.userId);
         sessionMetadataService = composeHostedSessionMetadata(env, auth.userId);
+        hostedSessionPullRequestService = composeHostedSessionPullRequests(request, env, auth.userId);
         hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
       } catch (error) {
         const statusCode = isSessionStoreUnavailableError(error) ? 503 : 500;
@@ -91,6 +94,7 @@ export const AppServerController = {
         hostedProviderCredentialService,
         conversationHistoryService: historyService,
         sessionMetadataService,
+        hostedSessionPullRequestService,
         hostedTurnScopeService,
       },
     );
