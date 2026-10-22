@@ -2,7 +2,7 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
-import type { HostedSession, HostedSessionCreateRequest, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
+import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -65,6 +65,9 @@ export type AppServerComposition = {
   };
   conversationHistoryService?: {
     readPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
+  };
+  hostedSessionPullRequestService?: {
+    read(sessionId: string): Promise<HostedSessionPullRequestsResponse>;
   };
   hostedTurnScopeService?: {
     reserve(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
@@ -228,6 +231,10 @@ async function dispatch(
     case "session/workspaceContext": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
       return composition.sessionMetadataService.workspaceContext(request.params);
+    }
+    case "session/pullRequests": {
+      if (!composition.hostedSessionPullRequestService) throw new Error("unsupported");
+      return composition.hostedSessionPullRequestService.read(request.params.sessionId);
     }
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
