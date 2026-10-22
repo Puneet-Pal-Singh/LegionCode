@@ -452,6 +452,8 @@ runtime workspace preferences and provider services remain authoritative;
 HostedProviderPreferences binds the verified viewer/run/workspace through the
 same hosted provider scope as discovery/credentials. SDK ProviderClient and
 Web ProviderApiClient/ProviderStore consume those validated hosted operations.
+SDK `providers/selection` owns pure provider, credential, and model selection
+derivation; ProviderStore supplies current catalog and session-selection state.
 All exported SDK provider transports now use the authenticated App Server.
 `createProviderAppServerTransport` is the canonical hosted transport, and
 `createByokCloudTransport` delegates to it while preserving omitted cookie

@@ -1,8 +1,4 @@
-export interface ProviderSelectionSnapshot {
-  selectedProviderId: string | null;
-  selectedCredentialId: string | null;
-  selectedModelId: string | null;
-}
+import type { ProviderSelectionSnapshot } from "@legioncode/sdk";
 
 const SESSION_SCOPED_SELECTION_STORAGE_KEY_PREFIX =
   "provider:session-scoped-selection:";
