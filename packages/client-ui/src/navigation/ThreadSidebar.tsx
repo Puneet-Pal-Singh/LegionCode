@@ -26,6 +26,8 @@ export interface ThreadSidebarProps {
   onRenameWorkspace?: (workspaceSelectionId: WorkspaceSelectionId, newLabel: string) => void | Promise<void>;
   onRemoveWorkspace?: (workspaceSelectionId: WorkspaceSelectionId) => void | Promise<void>;
   canManageWorkspace?: (workspaceSelectionId: WorkspaceSelectionId) => boolean;
+  onPin?: (selectionId: string) => void | Promise<void>;
+  onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onClose?: () => void;
@@ -42,6 +44,8 @@ export function ThreadSidebar({
   onRenameWorkspace,
   onRemoveWorkspace,
   canManageWorkspace,
+  onPin,
+  onUnpin,
   onArchive,
   onUnarchive,
   onClose,
@@ -123,7 +127,10 @@ export function ThreadSidebar({
   }));
   const visibleArchived = visibleItems(archived, visibleCounts["\0archived"] ?? INITIAL_VISIBLE_ROWS);
   const entries: ThreadSidebarEntry[] = [
-    ...visiblePinned.map((item) => ({ item, workspaceLabel: "Pinned" })),
+    ...visiblePinned.map((item) => ({
+      item,
+      workspaceLabel: item.workspaceLabel ?? "Unknown workspace",
+    })),
     ...visibleGroups.flatMap((group) => collapsedWorkspaces.has(group.workspaceSelectionId)
       ? []
       : group.visibleThreads.map((item) => ({ item, workspaceLabel: group.label ?? "Unknown workspace" }))),
@@ -267,7 +274,10 @@ export function ThreadSidebar({
                 </div>
                 <ThreadSidebarGroup
                   label="Pinned"
-                  entries={visiblePinned.map((item) => ({ item, workspaceLabel: "Pinned" }))}
+                  entries={visiblePinned.map((item) => ({
+                    item,
+                    workspaceLabel: item.workspaceLabel ?? "Unknown workspace",
+                  }))}
                   startIndex={0}
                   focusedIndex={activeIndex}
                   rowRefs={rowRefs.current}
@@ -275,6 +285,8 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
+                  onPin={onPin}
+                  onUnpin={onUnpin}
                   onArchive={onArchive}
                   onConfirmArchive={confirmArchive}
                   onCancelArchive={() => setPendingArchiveId(null)}
@@ -313,6 +325,8 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
+                  onPin={onPin}
+                  onUnpin={onUnpin}
                   onArchive={onArchive}
                   onConfirmArchive={confirmArchive}
                   onCancelArchive={() => setPendingArchiveId(null)}
