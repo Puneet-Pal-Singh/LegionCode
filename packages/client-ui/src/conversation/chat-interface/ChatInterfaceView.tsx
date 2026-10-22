@@ -114,11 +114,6 @@ export const ChatInterfaceView = forwardRef<
           {lifecyclePhaseLabel(props.lifecycleProjection.phase)}
         </span>
       ) : null}
-      {props.completedTurnReview.error ? (
-        <div role="alert" data-testid="completed-turn-review-error">
-          {props.completedTurnReview.error}
-        </div>
-      ) : null}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"

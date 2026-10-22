@@ -350,7 +350,10 @@ export function GitReviewProvider({
     setReviewScope,
     reviewSource,
     reviewSourceLoading,
-    reviewSourceError,
+    reviewSourceError:
+      reviewSource.kind === "turn_diff"
+        ? (canonicalTurnReview?.error ?? null)
+        : reviewSourceError,
     canonicalReviewAvailable: canonicalTurnReview !== null,
     openReview,
     openPromptArtifactReview,

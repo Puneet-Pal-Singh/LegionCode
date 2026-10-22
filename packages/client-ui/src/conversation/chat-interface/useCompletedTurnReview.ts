@@ -19,7 +19,7 @@ export function useCompletedTurnReview(
   const isCompletedTurn = projection?.terminal?.state === "completed";
   const error =
     projection?.terminal?.state === "completed" && !projection.turnDiff
-      ? "Completed-turn review is unavailable because the canonical turn diff was not settled."
+      ? "Saved changes are unavailable for this reply."
       : null;
   const files = useMemo(
     () =>

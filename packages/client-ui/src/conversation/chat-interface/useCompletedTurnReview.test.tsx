@@ -40,7 +40,7 @@ describe("useCompletedTurnReview", () => {
       useCompletedTurnReview(projection, "assistant-1"),
     );
 
-    expect(result.current.error).toContain("canonical turn diff");
+    expect(result.current.error).toBe("Saved changes are unavailable for this reply.");
     expect(result.current.messageId).toBe("assistant-1");
   });
 });
