@@ -63,6 +63,7 @@ export function ThreadSidebar({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
+  const [previewSelectionId, setPreviewSelectionId] = useState<string | null>(null);
   const [isArchivedOpen, setIsArchivedOpen] = useState(false);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<ReadonlySet<string>>(() => new Set());
   const [visibleCounts, setVisibleCounts] = useState<Readonly<Record<string, number>>>({});
@@ -139,6 +140,10 @@ export function ThreadSidebar({
       : []),
   ];
   const activeIndex = entries.length === 0 ? 0 : Math.min(focusedIndex, entries.length - 1);
+
+  function closePreview(selectionId: string): void {
+    setPreviewSelectionId((current) => current === selectionId ? null : current);
+  }
 
   function focusAt(index: number): void {
     if (entries.length === 0) return;
@@ -285,6 +290,9 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
+                  previewSelectionId={previewSelectionId}
+                  onPreviewOpen={setPreviewSelectionId}
+                  onPreviewClose={closePreview}
                   onPin={onPin}
                   onUnpin={onUnpin}
                   onArchive={onArchive}
@@ -325,6 +333,9 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
+                  previewSelectionId={previewSelectionId}
+                  onPreviewOpen={setPreviewSelectionId}
+                  onPreviewClose={closePreview}
                   onPin={onPin}
                   onUnpin={onUnpin}
                   onArchive={onArchive}
@@ -360,6 +371,9 @@ export function ThreadSidebar({
                     onFocus={setFocusedIndex}
                     onKeyDown={handleKeyDown}
                     onSelect={onSelect}
+                    previewSelectionId={previewSelectionId}
+                    onPreviewOpen={setPreviewSelectionId}
+                    onPreviewClose={closePreview}
                     onConfirmArchive={confirmArchive}
                     onCancelArchive={() => setPendingArchiveId(null)}
                     setPendingArchiveId={setPendingArchiveId}

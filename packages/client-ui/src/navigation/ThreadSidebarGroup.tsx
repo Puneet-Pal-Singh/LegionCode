@@ -41,6 +41,9 @@ export interface ThreadSidebarGroupProps {
   onFocus: (index: number) => void;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>, index: number, item: ThreadSidebarItem) => void;
   onSelect: (selectionId: string) => void;
+  previewSelectionId: string | null;
+  onPreviewOpen: (selectionId: string) => void;
+  onPreviewClose: (selectionId: string) => void;
   onPin?: (selectionId: string) => void | Promise<void>;
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
@@ -248,6 +251,9 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
                     onFocus={props.onFocus}
                     onKeyDown={props.onKeyDown}
                     onSelect={props.onSelect}
+                    previewSelectionId={props.previewSelectionId}
+                    onPreviewOpen={props.onPreviewOpen}
+                    onPreviewClose={props.onPreviewClose}
                     rowRefs={props.rowRefs}
                     onPin={props.onPin}
                     onUnpin={props.onUnpin}
@@ -289,6 +295,9 @@ interface ThreadSidebarRowProps {
   onFocus: (index: number) => void;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>, index: number, item: ThreadSidebarItem) => void;
   onSelect: (selectionId: string) => void;
+  previewSelectionId: string | null;
+  onPreviewOpen: (selectionId: string) => void;
+  onPreviewClose: (selectionId: string) => void;
   rowRefs: Map<string, HTMLButtonElement>;
   onPin?: (selectionId: string) => void | Promise<void>;
   onUnpin?: (selectionId: string) => void | Promise<void>;
@@ -311,6 +320,9 @@ function ThreadSidebarRow({
   onFocus,
   onKeyDown,
   onSelect,
+  previewSelectionId,
+  onPreviewOpen,
+  onPreviewClose,
   rowRefs,
   onPin,
   onUnpin,
@@ -323,7 +335,7 @@ function ThreadSidebarRow({
 }: ThreadSidebarRowProps): React.ReactElement {
   const rowRef = useRef<HTMLLIElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const isDetailsOpen = previewSelectionId === item.selectionId;
   const [detailsPosition, setDetailsPosition] = useState<{ left: number; top: number } | null>(null);
   const detailsId = `thread-details-${item.selectionId}`;
   const hideIndicatorCluster = hasThreadActions && !confirming;
@@ -345,7 +357,7 @@ function ThreadSidebarRow({
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape") setIsDetailsOpen(false);
+      if (event.key === "Escape") onPreviewClose(item.selectionId);
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -353,7 +365,7 @@ function ThreadSidebarRow({
       window.removeEventListener("scroll", updatePosition, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isDetailsOpen]);
+  }, [isDetailsOpen, item.selectionId, onPreviewClose]);
 
   const pinAction = item.isPinned ? onUnpin : onPin;
   const PinActionIcon = item.isPinned ? PinOff : Pin;
@@ -362,12 +374,12 @@ function ThreadSidebarRow({
     <li
       ref={rowRef}
       className="group relative"
-      onMouseEnter={() => setIsDetailsOpen(true)}
-      onMouseLeave={() => setIsDetailsOpen(false)}
-      onFocusCapture={() => setIsDetailsOpen(true)}
+      onMouseEnter={() => onPreviewOpen(item.selectionId)}
+      onMouseLeave={() => onPreviewClose(item.selectionId)}
+      onFocusCapture={() => onPreviewOpen(item.selectionId)}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setIsDetailsOpen(false);
+          onPreviewClose(item.selectionId);
         }
       }}
     >
