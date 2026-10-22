@@ -19,7 +19,7 @@ export function listWorkspaces(): Promise<WorkspaceListResponse> {
   return client().listHostedWorkspaces();
 }
 
-export function selectWorkspace(repository: Repository, selectedBranch: string): Promise<WorkspaceSelection> {
+export function selectWorkspace(repository: { owner: Pick<Repository["owner"], "login">; name: string }, selectedBranch: string): Promise<WorkspaceSelection> {
   return client().selectHostedWorkspace({
     repository: { owner: repository.owner.login, name: repository.name }, selectedBranch,
   });

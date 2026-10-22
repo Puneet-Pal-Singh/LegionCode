@@ -22,7 +22,7 @@ interface GitHubContextValue {
   branch: string;
   /** Repository owner login */
   owner: string;
-  /** Whether context has been loaded from storage */
+  /** Whether in-memory context setup has completed */
   isLoaded: boolean;
   /** Set the full context (repo + branch) */
   setContext: (repo: Repository, branch: string) => void;
@@ -30,10 +30,6 @@ interface GitHubContextValue {
   switchBranch: (branch: string) => void;
   /** Clear the context */
   clearContext: () => void;
-  /** Refresh context from localStorage */
-  refreshContext: () => void;
-  /** Save context to session-scoped storage */
-  saveSessionContext: (sessionId: string) => void;
 }
 
 /**

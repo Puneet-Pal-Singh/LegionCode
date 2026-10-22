@@ -23,7 +23,6 @@ import type {
   Repository,
 } from "./services/GitHubService";
 import * as WorkspaceSelection from "./services/api/workspaceSelection";
-import type { WorkspaceListItem, WorkspaceListResponse, WorkspaceRepositoryRecord } from "./services/api/workspaceSelection";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
@@ -45,6 +44,8 @@ import {
 } from "./lib/settings-dialog-events";
 import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
 import { initializeHostedAppServer } from "./services/api/appServerClient";
+import { useSessionWorkspaceContext } from "./hooks/useSessionWorkspaceContext";
+import { saveSessionBranchPreference } from "./lib/session-branch-preference";
 import {
   createInitialPromptSubmissionId,
   type InitialPromptSubmission,
@@ -79,70 +80,6 @@ function getInitialRightSidebarWidth(): number {
     MIN_RIGHT_SIDEBAR_WIDTH,
     Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
   );
-}
-
-function buildRepositoryFromWorkspace(
-  repository: WorkspaceRepositoryRecord,
-  selectedBranch: string,
-): Repository {
-  return {
-    id: Number(repository.providerRepoId ?? 0),
-    name: repository.name,
-    full_name: repository.fullName,
-    owner: {
-      login: repository.owner,
-      avatar_url: "",
-    },
-    description: null,
-    private: false,
-    html_url: repository.repoUrl,
-    clone_url: `${repository.repoUrl}.git`,
-    default_branch: selectedBranch || repository.defaultBranch,
-    stargazers_count: 0,
-    language: null,
-    updated_at: repository.updatedAt,
-  };
-}
-
-function findWorkspaceForRepository(
-  repository: string | null,
-  workspaceState: WorkspaceListResponse,
-): { repository: WorkspaceRepositoryRecord; branch: string } | null {
-  const expectedRepository = repository?.trim();
-  if (!expectedRepository) {
-    return null;
-  }
-
-  if (
-    workspaceState.selection &&
-    doesSessionContextMatchRepository(expectedRepository, {
-      fullName: workspaceState.selection.repository.fullName,
-      repoName: workspaceState.selection.repository.name,
-    })
-  ) {
-    return {
-      repository: workspaceState.selection.repository,
-      branch: workspaceState.selection.selectedBranch,
-    };
-  }
-
-  const workspace = workspaceState.workspaces.find((item: WorkspaceListItem) =>
-    doesSessionContextMatchRepository(expectedRepository, {
-      fullName: item.repository.fullName,
-      repoName: item.repository.name,
-    }),
-  );
-  if (!workspace) {
-    return null;
-  }
-
-  return {
-    repository: workspace.repository,
-    branch:
-      workspace.workspace.lastSelectedBranch ||
-      workspace.workspace.defaultBranch ||
-      workspace.repository.defaultBranch,
-  };
 }
 
 /**
@@ -212,7 +149,7 @@ function AppContent() {
         });
       });
   }, []);
-  const { isAuthenticated, isLoading, login, logout, refreshSession, user } =
+  const { isAuthenticated, isLoading, login, logout, user } =
     useAuth();
   const {
     sessions,
@@ -235,16 +172,16 @@ function AppContent() {
   } = useSessionManager({
     hydrateFromServer: isAuthenticated && !isLoading,
   });
-  const {
-    repo,
-    branch,
-    switchBranch,
-    setContext,
-    clearContext,
-    saveSessionContext,
-  } = useGitHub();
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  const { repo, branch, switchBranch, setContext, clearContext } = useGitHub();
+  const activeSessionIdRef = useRef(activeSessionId);
+  const repoFullNameRef = useRef(repo?.full_name ?? null);
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+    repoFullNameRef.current = repo?.full_name ?? null;
+  }, [activeSessionId, repo?.full_name]);
   const workspaceSelectionBootstrapStatus = useWorkspaceSelectionBootstrap({
-    enabled: isAuthenticated && !isLoading,
+    enabled: isAuthenticated && !isLoading && !activeSession,
     currentRepository: repo,
     setContext,
   });
@@ -290,34 +227,23 @@ function AppContent() {
     },
     [activeSessionId],
   );
-  const [isWorkspaceContextRepairing, setIsWorkspaceContextRepairing] =
-    useState(false);
-  const workspaceContextRepairGenerationRef = useRef(0);
-  const scheduleWorkspaceContextRepairState = useCallback(
-    (nextValue: boolean): void => {
-      const generation = workspaceContextRepairGenerationRef.current + 1;
-      workspaceContextRepairGenerationRef.current = generation;
-
-      window.setTimeout(() => {
-        if (workspaceContextRepairGenerationRef.current !== generation) {
-          return;
-        }
-        setIsWorkspaceContextRepairing(nextValue);
-      }, 0);
-    },
-    [],
-  );
-  const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
+  const { context: sessionWorkspaceContext, isLoading: isWorkspaceContextRepairing,
+    isResolved: isWorkspaceContextResolved,
+    setContext: setSessionWorkspaceContext } = useSessionWorkspaceContext({
+    authenticated: isAuthenticated,
+    sessionId: activeSession?.id ?? null,
+    persistenceReady: Boolean(activeSession && isSessionPersistenceReady(activeSession.persistenceStatus)),
+    updateSession,
+  });
 
   const openSettingsDialog = useCallback(
     (section: SettingsSection = "general") => {
       setSettingsInitialSection(section);
       setIsSettingsDialogOpen(true);
     },
-    [],
+    [setSettingsInitialSection, setIsSettingsDialogOpen],
   );
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   const setupSession = useMemo<SetupSessionState | null>(() => {
     if (!isAuthenticated || sessions.length > 0) {
       return null;
@@ -334,7 +260,6 @@ function AppContent() {
     providerScopeSession?.latestRunId ??
     setupSession?.activeRunId;
   const {
-    bootstrap: bootstrapProviderStore,
     credentials,
     reset: resetProviderStore,
   } = useProviderStore(isAuthenticated ? providerScopeRunId : undefined);
@@ -397,237 +322,6 @@ function AppContent() {
       uiShellStore.setActiveRunId(activeSession.activeRunId);
     }
   }, [activeSessionId, activeSession]);
-
-  // Sync GitHub context with active session
-  // Uses SessionStateService for session-scoped storage
-  useEffect(() => {
-    if (!activeSessionId || !activeSession) {
-      scheduleWorkspaceContextRepairState(false);
-      return;
-    }
-    const sessionChanged =
-      lastSyncedGitHubSessionIdRef.current !== activeSessionId;
-    lastSyncedGitHubSessionIdRef.current = activeSessionId;
-
-    const sessionContext =
-      SessionStateService.loadSessionGitHubContext(activeSessionId);
-
-    if (sessionContext) {
-      if (
-        !doesSessionContextMatchRepository(activeSession.repository, {
-          fullName: sessionContext.fullName,
-          repoName: sessionContext.repoName,
-        })
-      ) {
-        console.warn(
-          `[App] Invalid session context for ${activeSessionId}. Expected ${activeSession.repository}, found ${sessionContext.fullName}. Clearing stale context.`,
-        );
-        SessionStateService.clearSessionGitHubContext(activeSessionId);
-        if (repo) {
-          clearContext();
-        }
-        return;
-      }
-
-      scheduleWorkspaceContextRepairState(false);
-      // Reconstruct Repository object from stored context
-      // Only include fields actually needed; others should be loaded on demand
-      const storedRepo: Repository = {
-        id: 0,
-        name: sessionContext.repoName,
-        full_name: sessionContext.fullName,
-        owner: {
-          login: sessionContext.repoOwner,
-          avatar_url: "", // Not stored; can be fetched from GitHub API if needed
-        },
-        description: null,
-        private: false,
-        html_url: `https://github.com/${sessionContext.fullName}`,
-        clone_url: `https://github.com/${sessionContext.fullName}.git`,
-        default_branch: sessionContext.branch,
-        stargazers_count: 0,
-        language: null,
-        updated_at: new Date().toISOString(),
-      };
-
-      const hasCurrentBranch = branch.trim().length > 0;
-      const shouldHydrateFromSession =
-        sessionChanged ||
-        repo?.full_name !== sessionContext.fullName ||
-        !hasCurrentBranch;
-
-      if (shouldHydrateFromSession) {
-        setContext(storedRepo, sessionContext.branch);
-      } else if (branch !== sessionContext.branch) {
-        SessionStateService.saveSessionGitHubContext(activeSessionId, {
-          ...sessionContext,
-          branch,
-        });
-      }
-    } else {
-      const activeRepository = activeSession.repository?.trim() ?? "";
-
-      if (
-        repo &&
-        doesSessionContextMatchRepository(activeRepository, {
-          fullName: repo.full_name,
-          repoName: repo.name,
-        })
-      ) {
-        scheduleWorkspaceContextRepairState(false);
-        const repairedBranch = branch.trim() || repo.default_branch || "main";
-        SessionStateService.saveSessionGitHubContext(activeSessionId, {
-          repoOwner: repo.owner.login,
-          repoName: repo.name,
-          fullName: repo.full_name,
-          branch: repairedBranch,
-        });
-        if (!branch.trim()) {
-          setContext(repo, repairedBranch);
-        }
-        return;
-      }
-
-      if (!activeRepository || activeRepository === "New Project") {
-        scheduleWorkspaceContextRepairState(false);
-        if (repo) {
-          clearContext();
-        }
-        return;
-      }
-
-      let cancelled = false;
-      scheduleWorkspaceContextRepairState(true);
-
-      const repairSessionContextFromWorkspace = async (): Promise<void> => {
-        try {
-          const workspaceState = await WorkspaceSelection.listWorkspaces();
-          if (cancelled) {
-            return;
-          }
-
-          const workspaceContext = findWorkspaceForRepository(
-            activeRepository,
-            workspaceState,
-          );
-          if (!workspaceContext) {
-            scheduleWorkspaceContextRepairState(false);
-            if (repo) {
-              clearContext();
-            }
-            return;
-          }
-
-          const repairedRepo = buildRepositoryFromWorkspace(
-            workspaceContext.repository,
-            workspaceContext.branch,
-          );
-          SessionStateService.saveSessionGitHubContext(activeSessionId, {
-            repoOwner: repairedRepo.owner.login,
-            repoName: repairedRepo.name,
-            fullName: repairedRepo.full_name,
-            branch: workspaceContext.branch,
-          });
-          setContext(repairedRepo, workspaceContext.branch);
-          scheduleWorkspaceContextRepairState(false);
-        } catch (error) {
-          console.warn(
-            "[App] Failed to repair session GitHub context from workspace state:",
-            error,
-          );
-          if (!cancelled && repo) {
-            clearContext();
-          }
-          if (!cancelled) {
-            scheduleWorkspaceContextRepairState(false);
-          }
-        }
-      };
-
-      void repairSessionContextFromWorkspace();
-
-      return () => {
-        cancelled = true;
-      };
-    }
-  }, [
-    activeSessionId,
-    activeSession,
-    repo,
-    branch,
-    setContext,
-    clearContext,
-    scheduleWorkspaceContextRepairState,
-  ]);
-
-  const lastPersistedWorkspaceSelectionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const selectedBranch = branch.trim();
-    if (
-      isLoading ||
-      !isAuthenticated ||
-      !user ||
-      !repo ||
-      selectedBranch.length === 0
-    ) {
-      return;
-    }
-
-    const selectionKey = `${user.id}:${repo.full_name}:${selectedBranch}`;
-    if (lastPersistedWorkspaceSelectionRef.current === selectionKey) {
-      return;
-    }
-
-    let cancelled = false;
-    lastPersistedWorkspaceSelectionRef.current = selectionKey;
-
-    const persistActiveWorkspaceSelection = async (): Promise<void> => {
-      try {
-        await WorkspaceSelection.selectWorkspace(repo, selectedBranch);
-        if (cancelled) {
-          return;
-        }
-        await refreshSession();
-        if (cancelled || !providerScopeRunId) {
-          return;
-        }
-        await bootstrapProviderStore();
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        lastPersistedWorkspaceSelectionRef.current = null;
-        console.error(
-          "[workspace/select] Failed to reconcile selection:",
-          error,
-        );
-        window.dispatchEvent(
-          new CustomEvent("legioncode:workspace-selection-persist-failed", {
-            detail: {
-              repository: repo.full_name,
-              branch: selectedBranch,
-            },
-          }),
-        );
-      }
-    };
-
-    void persistActiveWorkspaceSelection();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    bootstrapProviderStore,
-    branch,
-    isAuthenticated,
-    isLoading,
-    providerScopeRunId,
-    refreshSession,
-    repo,
-    user,
-  ]);
 
   const clearSetupSessionState = useCallback(() => {
     SessionStateService.clearSetupSession();
@@ -776,6 +470,9 @@ function AppContent() {
   const hasMatchingActiveWorkspaceContext = Boolean(
     repo?.full_name &&
     activeSession &&
+    sessionWorkspaceContext?.sessionId === activeSession.id &&
+    sessionWorkspaceContext.workspaceId &&
+    sessionWorkspaceContext.workspaceStatus === "active" &&
     doesSessionContextMatchRepository(activeSession.repository, {
       fullName: repo.full_name,
       repoName: repo.name,
@@ -870,37 +567,37 @@ function AppContent() {
 
     if (targetRepo) {
       setShowRepoPicker(false);
+      let workspaceId = sessionWorkspaceContext?.sessionId === activeSessionId &&
+        sessionWorkspaceContext.workspaceStatus === "active" &&
+        doesSessionContextMatchRepository(targetRepo, {
+          fullName: sessionWorkspaceContext.repository?.fullName,
+          repoName: sessionWorkspaceContext.repository?.name,
+        }) ? sessionWorkspaceContext.workspaceId ?? undefined : undefined;
+      if (!workspaceId) {
+        const workspaces = await WorkspaceSelection.listWorkspaces();
+        const matches = workspaces.workspaces.filter((item) =>
+          item.workspace.status === "active" &&
+          doesSessionContextMatchRepository(targetRepo, {
+            fullName: item.repository.fullName,
+            repoName: item.repository.name,
+          }),
+        );
+        if (matches.length === 1) workspaceId = matches[0]!.workspace.id;
+      }
+      if (!workspaceId) {
+        handleOpenRepositoryPicker();
+        return;
+      }
       // Create the durable conversation before exposing setup/submit controls.
       const sessionName = `New Task`;
-      let sessionId: string;
       try {
-        sessionId = await createSession(sessionName, targetRepo);
+        await createSession(sessionName, targetRepo, undefined, workspaceId);
       } catch (error) {
         console.warn("[session/create] Failed to persist session:", error);
         return;
       }
       clearSetupSessionState();
 
-      // Sync GitHub context with new session
-      // Use SessionStateService for session-scoped storage
-      const otherSessionWithRepo = sessions.find(
-        (s) => s.repository === targetRepo,
-      );
-
-      if (otherSessionWithRepo) {
-        const sessionContext = SessionStateService.loadSessionGitHubContext(
-          otherSessionWithRepo.id,
-        );
-        if (sessionContext) {
-          SessionStateService.saveSessionGitHubContext(
-            sessionId,
-            sessionContext,
-          );
-        }
-      } else if (repo && repo.full_name === targetRepo) {
-        // Copy current GitHub context to new session
-        saveSessionContext(sessionId);
-      }
     } else {
       // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
@@ -921,6 +618,19 @@ function AppContent() {
       console.warn("[session/create] Failed to persist session:", error);
     }
   };
+
+  const handleExplicitBranchSelect = useCallback(async (nextBranch: string) => {
+    if (!repo) return;
+    const sessionId = activeSessionId;
+    const fullName = repo.full_name;
+    await WorkspaceSelection.selectWorkspace(repo, nextBranch);
+    if (activeSessionIdRef.current !== sessionId || repoFullNameRef.current !== fullName) return;
+    switchBranch(nextBranch);
+    if (sessionId) saveSessionBranchPreference(sessionId, fullName, nextBranch);
+    setSessionWorkspaceContext((current) => current?.sessionId === sessionId
+      ? { ...current, selectedBranch: nextBranch }
+      : current);
+  }, [activeSessionId, repo, switchBranch, setSessionWorkspaceContext]);
 
   const focusReviewSidebar = () => {
     setReviewSidebarFocusRequest((previous) => previous + 1);
@@ -959,8 +669,9 @@ function AppContent() {
     selectedRepo: Repository,
     selectedBranch: string,
   ): Promise<void> => {
+    let selection: WorkspaceSelection.WorkspaceSelection;
     try {
-      await WorkspaceSelection.selectWorkspace(selectedRepo, selectedBranch);
+      selection = await WorkspaceSelection.selectWorkspace(selectedRepo, selectedBranch);
     } catch (error) {
       console.error("[workspace/select] Failed to persist selection:", error);
       window.dispatchEvent(
@@ -981,16 +692,8 @@ function AppContent() {
 
     // Publish setup only after the owned conversation exists.
     const sessionName = `New Task`;
-    const sessionId = await createSession(sessionName, selectedRepo.full_name);
+    await createSession(sessionName, selectedRepo.full_name, undefined, selection.workspaceId);
     clearSetupSessionState();
-
-    // Store GitHub context for the session using SessionStateService
-    SessionStateService.saveSessionGitHubContext(sessionId, {
-      repoOwner: selectedRepo.owner.login,
-      repoName: selectedRepo.name,
-      fullName: selectedRepo.full_name,
-      branch: selectedBranch,
-    });
   };
 
   const isSessionContextLoading = isSessionContextPending({
@@ -1106,7 +809,7 @@ function AppContent() {
                   ? {
                       repo,
                       branch,
-                      onBranchChange: switchBranch,
+                      onBranchChange: (nextBranch: string) => { void handleExplicitBranchSelect(nextBranch); },
                       onOpenChanges: () =>
                         setSummaryActionRequest({
                           id: Date.now(),
@@ -1138,6 +841,7 @@ function AppContent() {
                 sessionId={activeSessionId}
                 runId={activeSession.activeRunId ?? activeSession.latestRunId ?? ""}
                 mode={activeSession.mode}
+                workspaceContext={sessionWorkspaceContext?.sessionId === activeSession.id ? sessionWorkspaceContext : null}
                 isSessionPersistenceReady={isSessionPersistenceReady(
                   activeSession.persistenceStatus,
                 )}
@@ -1186,6 +890,10 @@ function AppContent() {
                         mode={activeSession.mode}
                         isSessionRunning={activeSession.status === "running"}
                         hasStartedSession
+                        isWorkspaceContextReady={Boolean(
+                          isWorkspaceContextResolved &&
+                          activeSessionId === activeSession.id,
+                        )}
                         sessionPersistenceStatus={
                           activeSession.persistenceStatus
                         }
@@ -1270,6 +978,7 @@ function AppContent() {
                             (repository) => repository !== "New Project",
                           )}
                           onProjectSelect={handleChooseExistingProject}
+                          onBranchSelect={handleExplicitBranchSelect}
                           onNoProject={handleChooseNoProject}
                           onStart={(config) => {
                             updateSession(activeSessionId, {

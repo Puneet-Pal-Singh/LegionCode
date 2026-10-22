@@ -67,6 +67,7 @@ interface AgentSetupProps {
   onRepoClick?: () => void;
   projects?: readonly string[];
   onProjectSelect?: (project: string) => void;
+  onBranchSelect?: (branch: string) => void | Promise<void>;
   onNoProject?: () => void;
 }
 
@@ -81,6 +82,7 @@ export function AgentSetup({
   onRepoClick,
   projects = [],
   onProjectSelect,
+  onBranchSelect,
   onNoProject,
 }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
@@ -757,7 +759,7 @@ export function AgentSetup({
                 </button>
               </ProjectChooser>
               <div className="h-4 w-px bg-zinc-800/80" />
-              <ChatBranchSelector placement="below" />
+              <ChatBranchSelector placement="below" onBranchSelect={onBranchSelect} />
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}

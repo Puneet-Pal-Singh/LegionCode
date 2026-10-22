@@ -63,6 +63,7 @@ interface WorkspaceProps {
   onModeChange?: (mode: RunMode) => void;
   isSessionRunning?: boolean;
   hasStartedSession?: boolean;
+  isWorkspaceContextReady?: boolean;
   sessionPersistenceStatus?: SessionPersistenceStatus;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
@@ -104,6 +105,7 @@ export function Workspace({
   onModeChange,
   isSessionRunning = false,
   hasStartedSession = false,
+  isWorkspaceContextReady = true,
   sessionPersistenceStatus,
   onSessionStatusChange,
   onPromptSubmitted,
@@ -395,6 +397,7 @@ export function Workspace({
     if (!isModelConfigReady) {
       return;
     }
+    if (!isWorkspaceContextReady) return;
     if (!onInitialPromptClaim(initialPromptSubmission.id)) {
       return;
     }
@@ -456,6 +459,7 @@ export function Workspace({
     activeRunId,
     restoredUserMessageIds,
     isModelConfigReady,
+    isWorkspaceContextReady,
     isSessionPersisted,
     onInitialPromptClaim,
     onInitialPromptStatusChange,

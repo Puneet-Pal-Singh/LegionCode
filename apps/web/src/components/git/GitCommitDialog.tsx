@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Check, GitBranch, Github, Sparkles, Upload, X } from "lucide-react";
 import { useGitReview } from "./useGitReview";
 import { useAuth } from "../../contexts/AuthContext";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { useRunContext } from "../../hooks/useRunContext";
-import { SessionStateService } from "../../services/SessionStateService";
+import { selectWorkspace } from "../../services/api/workspaceSelection";
+import { saveSessionBranchPreference } from "../../lib/session-branch-preference";
 import { createGitPullRequest } from "../../lib/git-client";
 import type { GitCommitIdentity } from "@repo/shared-types";
 
@@ -43,6 +44,12 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
   const { user } = useAuth();
   const { repo, switchBranch } = useGitHub();
   const { runId, sessionId } = useRunContext();
+  const sessionIdRef = useRef(sessionId);
+  const runIdRef = useRef(runId);
+  const repoFullNameRef = useRef(repo?.full_name ?? null);
+  sessionIdRef.current = sessionId;
+  runIdRef.current = runId;
+  repoFullNameRef.current = repo?.full_name ?? null;
   const [includeUnstaged, setIncludeUnstaged] = useState(false);
   const [nextStep, setNextStep] = useState<CommitNextStep>("commit");
   const [useCustomAuthor, setUseCustomAuthor] = useState(false);
@@ -245,7 +252,13 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
       }
 
       activeBranch = await pushBranch(activeBranch);
-      persistSessionBranch(sessionId, repo, activeBranch, switchBranch);
+      await persistSessionBranch(
+        sessionId,
+        repo,
+        activeBranch,
+        switchBranch,
+        () => sessionIdRef.current === sessionId && runIdRef.current === runId && repoFullNameRef.current === repo?.full_name,
+      );
 
       if (nextStep === "commit-and-push") {
         setFlowSuccess({
@@ -675,7 +688,7 @@ function slugifyBranchSegment(value: string): string {
   return normalized.length > 0 ? normalized : "legioncode-update";
 }
 
-function persistSessionBranch(
+async function persistSessionBranch(
   sessionId: string | null,
   repo: {
     owner: { login: string };
@@ -684,19 +697,12 @@ function persistSessionBranch(
   } | null,
   branch: string,
   switchBranch: (branchName: string) => void,
-): void {
+  isCurrentTarget: () => boolean,
+): Promise<void> {
+  if (repo) await selectWorkspace(repo, branch);
+  if (!isCurrentTarget()) return;
+  if (sessionId && repo) saveSessionBranchPreference(sessionId, repo.full_name, branch);
   switchBranch(branch);
-
-  if (!sessionId || !repo) {
-    return;
-  }
-
-  SessionStateService.saveSessionGitHubContext(sessionId, {
-    repoOwner: repo.owner.login,
-    repoName: repo.name,
-    fullName: repo.full_name,
-    branch,
-  });
 }
 
 function getPrimaryActionLabel(

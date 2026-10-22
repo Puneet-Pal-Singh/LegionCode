@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
+import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import { useChat, type UseChatResult } from "../../hooks/useChat";
 import {
   loadStoredProductMode,
@@ -20,6 +21,7 @@ interface SessionConversationSurfaceProps {
   mode?: RunMode;
   onServerProjectionAvailable?: () => void;
   onRunIdChange?: (runId: string) => void;
+  workspaceContext?: HostedSessionWorkspaceContext | null;
   isSessionPersistenceReady: boolean;
   hasQueuedIntent: boolean;
   children: (context: SessionConversationSurfaceContext) => ReactNode;
@@ -32,6 +34,7 @@ export function SessionConversationSurface({
   mode,
   onServerProjectionAvailable,
   onRunIdChange,
+  workspaceContext,
   isSessionPersistenceReady,
   hasQueuedIntent,
   children,
@@ -66,6 +69,7 @@ export function SessionConversationSurface({
     onServerProjectionAvailable,
     isSessionPersistenceReady,
     onRunIdChange,
+    workspaceContext,
   );
   const showWorkspace =
     isSessionPersistenceReady &&
