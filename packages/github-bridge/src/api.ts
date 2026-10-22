@@ -135,7 +135,7 @@ export class GitHubAPIClient {
         response.status === 403 && (
           response.headers.get("x-ratelimit-remaining") === "0" ||
           response.headers.has("retry-after") ||
-          /(?:api|secondary) rate limit exceeded/i.test(error)
+          /(?:api rate limit exceeded|secondary rate limit|abuse detection)/i.test(error)
         )
       );
       throw new GitHubAPIError(
@@ -344,8 +344,9 @@ export class GitHubAPIClient {
     owner: string,
     repo: string,
     number: number,
+    signal?: AbortSignal,
   ): Promise<PullRequest> {
-    return this.request(`/repos/${owner}/${repo}/pulls/${number}`);
+    return this.request(`/repos/${owner}/${repo}/pulls/${number}`, { signal });
   }
 
   /**
