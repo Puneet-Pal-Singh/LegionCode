@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, FolderPlus, MoreHorizontal, Pin, Search, SquarePen, PanelLeftClose, X } from "lucide-react";
-import type { ThreadSidebarDisplayStatus, ThreadSidebarItem, ThreadSidebarReadModel } from "@legioncode/sdk";
+import type { HostedSessionPullRequestsResponse, ThreadSidebarDisplayStatus, ThreadSidebarItem, ThreadSidebarReadModel } from "@legioncode/sdk";
 import { ThreadSidebarGroup, type ThreadSidebarEntry } from "./ThreadSidebarGroup.js";
 
 type WorkspaceSelectionId = string;
@@ -30,6 +30,9 @@ export interface ThreadSidebarProps {
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
+  pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
+  onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
+  onPreviewSelectionChange?: (selectionId: string | null) => void;
   onClose?: () => void;
   brand?: ReactNode;
   footer?: ReactNode;
@@ -48,6 +51,9 @@ export function ThreadSidebar({
   onUnpin,
   onArchive,
   onUnarchive,
+  pullRequestsBySessionId,
+  onVisibleSelectionChange,
+  onPreviewSelectionChange,
   onClose,
   brand = (
     <div className="truncate pl-2 text-lg font-semibold tracking-tight">
@@ -143,6 +149,12 @@ export function ThreadSidebar({
 
   function closePreview(selectionId: string): void {
     setPreviewSelectionId((current) => current === selectionId ? null : current);
+    if (previewSelectionId === selectionId) onPreviewSelectionChange?.(null);
+  }
+
+  function openPreview(selectionId: string): void {
+    setPreviewSelectionId(selectionId);
+    onPreviewSelectionChange?.(selectionId);
   }
 
   function focusAt(index: number): void {
@@ -291,8 +303,10 @@ export function ThreadSidebar({
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
                   previewSelectionId={previewSelectionId}
-                  onPreviewOpen={setPreviewSelectionId}
+                  onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
+                  pullRequestsBySessionId={pullRequestsBySessionId}
+                  onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
                   onUnpin={onUnpin}
                   onArchive={onArchive}
@@ -334,8 +348,10 @@ export function ThreadSidebar({
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
                   previewSelectionId={previewSelectionId}
-                  onPreviewOpen={setPreviewSelectionId}
+                  onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
+                  pullRequestsBySessionId={pullRequestsBySessionId}
+                  onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
                   onUnpin={onUnpin}
                   onArchive={onArchive}
@@ -372,8 +388,10 @@ export function ThreadSidebar({
                     onKeyDown={handleKeyDown}
                     onSelect={onSelect}
                     previewSelectionId={previewSelectionId}
-                    onPreviewOpen={setPreviewSelectionId}
+                    onPreviewOpen={openPreview}
                     onPreviewClose={closePreview}
+                    pullRequestsBySessionId={pullRequestsBySessionId}
+                    onVisibleSelectionChange={onVisibleSelectionChange}
                     onConfirmArchive={confirmArchive}
                     onCancelArchive={() => setPendingArchiveId(null)}
                     setPendingArchiveId={setPendingArchiveId}

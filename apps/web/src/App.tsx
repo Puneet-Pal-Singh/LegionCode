@@ -753,6 +753,7 @@ function AppContent() {
                 openSettingsDialog("general");
               }}
               accountUser={user}
+              accountId={user?.id ?? null}
               onLogout={logout}
               width={isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth}
             />
