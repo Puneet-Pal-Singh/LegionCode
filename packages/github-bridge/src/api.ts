@@ -134,7 +134,8 @@ export class GitHubAPIClient {
       const rateLimited = response.status === 429 || (
         response.status === 403 && (
           response.headers.get("x-ratelimit-remaining") === "0" ||
-          /api rate limit exceeded/i.test(error)
+          response.headers.has("retry-after") ||
+          /(?:api|secondary) rate limit exceeded/i.test(error)
         )
       );
       throw new GitHubAPIError(
