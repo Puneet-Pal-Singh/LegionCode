@@ -365,7 +365,7 @@ function ThreadSidebarRow({
       window.removeEventListener("scroll", updatePosition, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isDetailsOpen, item.selectionId, onPreviewClose]);
+  }, [isDetailsOpen, item.selectionId, item.title, workspaceLabel, relativeTime, onPreviewClose]);
 
   const pinAction = item.isPinned ? onUnpin : onPin;
   const PinActionIcon = item.isPinned ? PinOff : Pin;
@@ -499,7 +499,7 @@ function ThreadSidebarRow({
               style={detailsPosition ?? { left: 0, top: 0, visibility: "hidden" }}
             >
               <div className="flex min-w-0 items-center justify-between gap-4">
-                <div className="truncate text-sm font-medium text-zinc-100">{item.title}</div>
+                <div className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-zinc-100">{item.title}</div>
                 <span className="shrink-0 text-xs text-zinc-400">
                   {relativeTime === "now" ? "just now" : `${relativeTime} ago`}
                 </span>
