@@ -16,7 +16,7 @@ const GITHUB_READ_CONCURRENCY = 2;
 // Match the canonical PR path and allow normal URL suffixes (trailing slash,
 // query, fragment, or PR subpage). The left boundary prevents treating a
 // github.com substring inside another URL or identifier as a chat link.
-const PULL_REQUEST_URL = /(?<![A-Za-z0-9_@./-])https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)(?![A-Za-z0-9_-])/gi;
+const PULL_REQUEST_URL = /(?<![A-Za-z0-9_@./?&=#%-])https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*(?:[^\s<>{}()[\]"'`]*)/gi;
 
 interface PullRequestCandidate {
   owner: string;
@@ -51,19 +51,21 @@ async function readHostedSessionPullRequests(
   userId: string,
   sessionId: string,
 ): Promise<HostedSessionPullRequestsResponse> {
+  const signal = request.signal;
   const firstPage = await readHostedConversationHistory(env, userId, {
     session: sessionId,
     limit: HISTORY_PAGE_SIZE,
-  });
+  }, signal);
   const history = await readConversationHistory<ConversationHistoryMessage>(
-    (cursor, snapshot) => cursor === null
+    (cursor, snapshot, pageSignal) => cursor === null
       ? Promise.resolve(firstPage)
       : readHostedConversationHistory(env, userId, {
           session: sessionId,
           cursor: cursor ?? undefined,
           snapshot: snapshot ?? undefined,
           limit: HISTORY_PAGE_SIZE,
-        }),
+        }, pageSignal),
+    { signal },
   );
   const candidates = findPullRequestLinks(history.messages);
   if (candidates.length === 0) {
@@ -78,7 +80,7 @@ async function readHostedSessionPullRequests(
   const pullRequests = await mapWithConcurrency(
     candidates,
     GITHUB_READ_CONCURRENCY,
-    (candidate) => verifyPullRequest(auth.client, candidate),
+    (candidate) => verifyPullRequest(auth.client, candidate, signal),
   );
   return available(sessionId, pullRequests.filter((pullRequest): pullRequest is HostedSessionPullRequest => pullRequest !== null));
 }
@@ -89,11 +91,10 @@ function findPullRequestLinks(messages: readonly ConversationHistoryMessage[]): 
     for (const text of visibleText(message)) {
       PULL_REQUEST_URL.lastIndex = 0;
       for (const match of text.matchAll(PULL_REQUEST_URL)) {
-        const owner = match[1];
-        const repository = match[2];
-        const number = Number(match[3]);
-        if (!owner || !repository || !Number.isSafeInteger(number) || number <= 0) continue;
-        const candidate = { owner, repository, number };
+        const link = normalizePullRequestLink(match[0]);
+        if (!link) continue;
+        const candidate = link;
+        const { owner, repository, number } = candidate;
         const key = `${owner.toLowerCase()}/${repository.toLowerCase()}#${number}`;
         candidates.set(key, candidate);
       }
@@ -114,21 +115,28 @@ function visibleText(message: ConversationHistoryMessage): string[] {
 async function verifyPullRequest(
   client: Pick<GitHubAPIClient, "getPullRequest">,
   candidate: PullRequestCandidate,
+  signal: AbortSignal,
 ): Promise<HostedSessionPullRequest | null> {
+  if (signal.aborted) throw new Error("Pull request query was cancelled");
   try {
     const pullRequest: PullRequest = await client.getPullRequest(
       candidate.owner,
       candidate.repository,
       candidate.number,
+      signal,
     );
-    const returnedLink = parsePullRequestUrl(pullRequest.html_url);
+    const returnedLink = parsePullRequestUrl(pullRequest.html_url, false);
     if (
       !returnedLink ||
       pullRequest.number !== candidate.number ||
       returnedLink.number !== candidate.number ||
       returnedLink.owner.toLowerCase() !== candidate.owner.toLowerCase() ||
       returnedLink.repository.toLowerCase() !== candidate.repository.toLowerCase() ||
-      !pullRequest.title.trim()
+      typeof pullRequest.title !== "string" ||
+      !pullRequest.title.trim() ||
+      (pullRequest.state !== "open" && pullRequest.state !== "closed") ||
+      typeof pullRequest.draft !== "boolean" ||
+      !(pullRequest.merged_at === null || isValidTimestamp(pullRequest.merged_at))
     ) {
       throw new Error("GitHub returned mismatched pull request metadata");
     }
@@ -150,13 +158,26 @@ async function verifyPullRequest(
   }
 }
 
-function parsePullRequestUrl(value: string): PullRequestCandidate | null {
+function normalizePullRequestLink(value: string): PullRequestCandidate | null {
+  let candidate = value;
+  while (candidate && /[.,!?;:)]$/.test(candidate)) candidate = candidate.slice(0, -1);
+  return parsePullRequestUrl(candidate);
+}
+
+function isValidTimestamp(value: string): boolean {
+  return typeof value === "string" && value.trim().length > 0 && Number.isFinite(Date.parse(value));
+}
+
+function parsePullRequestUrl(value: string, allowSubpath = true): PullRequestCandidate | null {
   try {
+    const authority = value.match(/^https:\/\/([^/?#]+)/i)?.[1];
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.hostname !== "github.com" || url.port || url.username || url.password) {
+    if (url.protocol !== "https:" || !authority || authority.toLowerCase() !== "github.com" || url.hostname !== "github.com" || url.port || url.username || url.password) {
       return null;
     }
-    const match = url.pathname.match(/^\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)(?:\/.*)?$/);
+    const match = url.pathname.match(allowSubpath
+      ? /^\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)(?:\/.*)?$/
+      : /^\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)$/);
     if (!match?.[1] || !match[2] || !match[3]) return null;
     const number = Number(match[3]);
     if (!Number.isSafeInteger(number) || number <= 0) return null;
@@ -173,11 +194,17 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results = new Array<R>(values.length);
   let nextIndex = 0;
+  let stop = false;
   const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (true) {
+    while (!stop) {
       const index = nextIndex++;
       if (index >= values.length) return;
-      results[index] = await map(values[index]!);
+      try {
+        results[index] = await map(values[index]!);
+      } catch (error) {
+        stop = true;
+        throw error;
+      }
     }
   });
   await Promise.all(workers);
