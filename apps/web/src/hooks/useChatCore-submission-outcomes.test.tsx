@@ -218,7 +218,26 @@ function installServer(
 }
 
 function renderCore(current = state.fixture!) {
-  return renderHook(() => useChatCore(current.sessionId, current.runId));
+  return renderHook(() => useChatCore(current.sessionId, current.runId, undefined, undefined, undefined, undefined, {
+    sessionId: current.sessionId,
+    workspaceId: current.workspaceId,
+    threadId: current.threadId,
+    workspaceStatus: "active",
+    repository: {
+      id: "repo_submission_fixture01",
+      provider: "github",
+      owner: "acme",
+      name: "submission-fixture",
+      fullName: "acme/submission-fixture",
+      repoUrl: "https://github.com/acme/submission-fixture",
+      defaultBranch: "main",
+      providerRepoId: "43",
+      createdAt: "2026-10-05T00:00:00.000Z",
+      updatedAt: "2026-10-05T00:00:00.000Z",
+    },
+    selectedBranch: "main",
+    runBranch: null,
+  }));
 }
 
 async function append(

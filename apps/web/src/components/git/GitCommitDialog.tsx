@@ -47,6 +47,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
   const sessionIdRef = useRef(sessionId);
   const runIdRef = useRef(runId);
   const repoFullNameRef = useRef(repo?.full_name ?? null);
+  const isMountedRef = useRef(false);
   sessionIdRef.current = sessionId;
   runIdRef.current = runId;
   repoFullNameRef.current = repo?.full_name ?? null;
@@ -63,6 +64,11 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
     null,
   );
   const [submittingFlow, setSubmittingFlow] = useState(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -257,7 +263,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
         repo,
         activeBranch,
         switchBranch,
-        () => sessionIdRef.current === sessionId && runIdRef.current === runId && repoFullNameRef.current === repo?.full_name,
+        () => isMountedRef.current && sessionIdRef.current === sessionId && runIdRef.current === runId && repoFullNameRef.current === repo?.full_name,
       );
 
       if (nextStep === "commit-and-push") {
@@ -699,6 +705,7 @@ async function persistSessionBranch(
   switchBranch: (branchName: string) => void,
   isCurrentTarget: () => boolean,
 ): Promise<void> {
+  if (!isCurrentTarget()) return;
   if (repo) await selectWorkspace(repo, branch);
   if (!isCurrentTarget()) return;
   if (sessionId && repo) saveSessionBranchPreference(sessionId, repo.full_name, branch);

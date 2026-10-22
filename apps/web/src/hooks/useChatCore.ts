@@ -158,10 +158,7 @@ export function useChatCore(
 ): UseChatCoreResult {
   const isWorkspaceExecutionAllowed = Boolean(
     workspaceContext?.sessionId === sessionId &&
-    workspaceContext.workspaceStatus !== "archived" &&
-    (workspaceContext.workspaceId
-      ? workspaceContext.workspaceStatus === "active" && workspaceContext.repository
-      : !workspaceContext.repository),
+    workspaceContext.workspaceStatus !== "archived",
   );
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
@@ -660,6 +657,7 @@ export function useChatCore(
       config: ResolvedProviderConfig,
       clientMessageId: string,
       identity: ConversationScope,
+      repositoryFields: Pick<ChatRequestBody, "repositoryOwner" | "repositoryName" | "repositoryBranch" | "repositoryBaseUrl">,
     ): ChatRequestBody =>
       parseChatRequestBody({
         sessionId: identity.sessionId,
@@ -692,16 +690,9 @@ export function useChatCore(
             ? { revisionOfTurnId: identity.revisionOfTurnId }
             : {}),
         },
-        ...(workspaceContext?.workspaceId && workspaceContext.workspaceStatus === "active" && workspaceContext.repository
-          ? {
-              repositoryOwner: workspaceContext.repository.owner,
-              repositoryName: workspaceContext.repository.name,
-              repositoryBranch: loadSessionBranchPreference(sessionId, workspaceContext.repository.fullName) ?? workspaceContext.selectedBranch ?? undefined,
-              repositoryBaseUrl: workspaceContext.repository.repoUrl,
-            }
-          : {}),
+        ...repositoryFields,
       }),
-    [mode, productMode, selectedModelEfforts, sessionId, workspaceContext],
+    [mode, productMode, selectedModelEfforts, sessionId],
   );
 
   const pushChatRequestDebugEvent = useCallback(
@@ -804,6 +795,16 @@ export function useChatCore(
         : revisionTarget
           ? `revision:${revisionTarget}`
           : "composer";
+      const repositoryFields = workspaceContext?.sessionId === sessionId &&
+        workspaceContext.workspaceStatus !== "archived" &&
+        workspaceContext.repository
+        ? {
+            repositoryOwner: workspaceContext.repository.owner,
+            repositoryName: workspaceContext.repository.name,
+            repositoryBranch: loadSessionBranchPreference(sessionId, workspaceContext.repository.fullName) ?? workspaceContext.selectedBranch ?? undefined,
+            repositoryBaseUrl: workspaceContext.repository.repoUrl,
+          }
+        : {};
       const intentFingerprint = JSON.stringify({
         sessionId,
         content: message.content,
@@ -821,14 +822,7 @@ export function useChatCore(
             selectedModelEfforts,
           ) ?? null,
         harnessId: resolveRuntimeHarnessId(sessionId),
-        repository: workspaceContext?.workspaceId && workspaceContext.workspaceStatus === "active" && workspaceContext.repository
-          ? {
-              repositoryOwner: workspaceContext.repository.owner,
-              repositoryName: workspaceContext.repository.name,
-              repositoryBranch: loadSessionBranchPreference(sessionId, workspaceContext.repository.fullName) ?? workspaceContext.selectedBranch ?? undefined,
-              repositoryBaseUrl: workspaceContext.repository.repoUrl,
-            }
-          : {},
+        repository: repositoryFields,
       });
       const activeAttempt = activeSubmissionAttemptRef.current;
       if (
@@ -1001,6 +995,7 @@ export function useChatCore(
           providerConfig,
           submittedMessage.id,
           requestScope,
+          repositoryFields,
         );
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
