@@ -194,6 +194,15 @@ export {
   type ProviderClientTransport,
 } from "./providers/client.js";
 export {
+  deriveSelectionSnapshot,
+  getSelectableModelsForProvider,
+  resolveConstrainedModelId,
+  resolveModelForResolvedProvider,
+  resolvePendingVisibleModelId,
+  resolveSelectedModelIdForProvider,
+  type ProviderSelectionSnapshot,
+} from "./providers/selection.js";
+export {
   createByokCloudTransport,
   type ProviderCloudTransportOptions,
 } from "./providers/cloud-transport.js";
