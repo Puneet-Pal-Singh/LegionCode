@@ -131,19 +131,25 @@
   }
 
   .sign-in__entry {
+    position: relative;
+    grid-template-rows: 1fr;
     padding: 32px;
   }
 
+  .sign-in__wordmark {
+    position: absolute;
+    top: 32px;
+    left: 32px;
+  }
+
   .sign-in__content {
-    align-self: start;
-    margin-top: clamp(64px, 8svh, 96px);
-    padding: 0 0 56px;
+    padding: 0;
   }
 
   .sign-in__visual {
     position: relative;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     min-height: max(100svh, 600px);
     overflow: hidden;
     border-left: 1px solid #282828;
@@ -153,11 +159,17 @@
 
   .sign-in__artwork {
     position: absolute;
-    inset: 0;
+    inset: 5% 0 10% 15%;
     background-image: url("../../assets/sign-in-cloud.webp");
     background-position: right top;
     background-size: cover;
     background-repeat: no-repeat;
+    mask-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(0 0 0 / 18%) 35%,
+      #000 85%
+    );
   }
 
   .sign-in__tagline {
