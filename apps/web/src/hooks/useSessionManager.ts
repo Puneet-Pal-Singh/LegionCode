@@ -510,9 +510,12 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
       // Admission requires the owned conversation to exist before it is visible
       // to setup/submit callers. A failed create must not publish a local session.
-      await SessionMetadata.persistSession(newSession);
       const activeHydrationWindow = hydrationCreationWindowRef.current;
-      if (activeHydrationWindow) {
+      await SessionMetadata.persistSession(newSession);
+      if (
+        activeHydrationWindow &&
+        hydrationCreationWindowRef.current === activeHydrationWindow
+      ) {
         activeHydrationWindow.confirmedSessionIds.add(newSession.id);
       }
       const nextSessions = [

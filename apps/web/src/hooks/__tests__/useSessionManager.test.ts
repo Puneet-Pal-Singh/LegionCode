@@ -786,6 +786,73 @@ describe("useSessionManager", () => {
         confirmedDuringFailure,
       ]);
       expect(result.current.activeSessionId).toBe(confirmedDuringFailure);
+
+      const staleGenerationHydration = createDeferred<
+        Record<string, AgentSession>
+      >();
+      vi.mocked(
+        SessionMetadata.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(staleGenerationHydration.promise);
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(SessionMetadata.hydrateSessionsFromServer).toHaveBeenCalledTimes(3);
+      });
+
+      let releaseStaleCreate!: (session: AgentSession) => void;
+      let stalePendingSession!: AgentSession;
+      vi.mocked(SessionMetadata.persistSession).mockImplementationOnce(
+        (session) => {
+          stalePendingSession = session;
+          return new Promise<AgentSession>((resolve) => {
+            releaseStaleCreate = resolve;
+          });
+        },
+      );
+      let staleCreation!: Promise<string>;
+      await act(async () => {
+        staleCreation = result.current.createSession(
+          "Created in an earlier hydration generation",
+          "repo",
+        );
+      });
+
+      let rejectNextGenerationHydration!: (error: Error) => void;
+      const nextGenerationHydration = new Promise<
+        Record<string, AgentSession>
+      >((_, reject) => {
+        rejectNextGenerationHydration = reject;
+      });
+      vi.mocked(
+        SessionMetadata.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(nextGenerationHydration);
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(SessionMetadata.hydrateSessionsFromServer).toHaveBeenCalledTimes(4);
+      });
+
+      await act(async () => {
+        releaseStaleCreate(stalePendingSession);
+        await staleCreation;
+      });
+      await act(async () => {
+        rejectNextGenerationHydration(
+          new Error("new hosted session list unavailable"),
+        );
+        await nextGenerationHydration.catch(() => undefined);
+      });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("failed");
+      });
+      expect(result.current.sessions).toEqual([]);
+      expect(result.current.activeSessionId).toBeNull();
     });
 
     it("clears stale local sessions when the server snapshot is empty", async () => {
