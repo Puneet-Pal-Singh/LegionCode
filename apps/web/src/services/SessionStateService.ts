@@ -5,7 +5,7 @@
  * Enforces session-scoped storage keys and data model consistency.
  *
  * Storage Keys:
- * - legioncode:sessions:v3 — Main session store
+ * - legioncode:sessions:v3 — Read-only legacy session snapshot
  * - legioncode:active-session-id:v4 — Per-tab active session selector
  * - legioncode:session-context:{sessionId} — GitHub context per session
  * - legioncode:run:{runId}:messages — Messages per run
@@ -84,47 +84,13 @@ export class SessionStateService {
   }
 
   /**
-   * Save all sessions to localStorage
-   * Maintains append-only invariant for messages elsewhere
-   *
-   * Note: Pass activeSessionId explicitly to avoid race conditions
-   * where another tab updates the active session between load and save.
-   */
-  static saveSessions(
-    sessions: Record<string, AgentSession>,
-    activeSessionId: string | null = null,
-  ): void {
-    // Use provided activeSessionId or load current value
-    // Prefer parameter to avoid race condition
-    const currentActiveId =
-      activeSessionId !== null ? activeSessionId : this.loadActiveSessionId();
-
-    const schema: SessionStorageSchema = {
-      version: 3,
-      sessions,
-      activeSessionId: currentActiveId,
-      lastModified: new Date().toISOString(),
-    };
-
-    try {
-      localStorage.setItem(SESSIONS_KEY, JSON.stringify(schema));
-    } catch (e) {
-      console.error("[SessionStateService] Failed to save sessions:", e);
-    }
-  }
-
-  /**
-   * Load the currently active session ID
+   * Read the current tab's saved selection as an unverified reference.
+   * Callers must resolve it against the owned server session snapshot before use.
    */
   static loadActiveSessionId(): string | null {
     try {
       const stored = sessionStorage.getItem(ACTIVE_SESSION_ID_KEY);
-      if (!stored) {
-        return null;
-      }
-
-      const sessions = this.loadSessions();
-      return sessions[stored] ? stored : null;
+      return stored && stored.trim().length > 0 ? stored : null;
     } catch (e) {
       console.error(
         "[SessionStateService] Failed to load active session ID:",
@@ -132,24 +98,6 @@ export class SessionStateService {
       );
       return null;
     }
-  }
-
-  /**
-   * Resolve active run ID from persisted session state
-   * Returns null if no active session exists or session data is unavailable
-   */
-  static loadActiveSessionRunId(): string | null {
-    const activeSessionId = this.loadActiveSessionId();
-    if (!activeSessionId) {
-      return this.loadSetupSession()?.activeRunId ?? null;
-    }
-
-    const sessions = this.loadSessions();
-    return (
-      sessions[activeSessionId]?.activeRunId ??
-      this.loadSetupSession()?.activeRunId ??
-      null
-    );
   }
 
   /**
@@ -277,42 +225,6 @@ export class SessionStateService {
         e,
       );
       return null;
-    }
-  }
-
-  /**
-   * Save GitHub context for a specific session
-   * Enforces session-scoped storage
-   */
-  static saveSessionGitHubContext(
-    sessionId: string,
-    context: SessionGitHubContext,
-  ): void {
-    try {
-      const key = getSessionContextKey(sessionId);
-      localStorage.setItem(key, JSON.stringify(context));
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to save GitHub context for session:",
-        sessionId,
-        e,
-      );
-    }
-  }
-
-  /**
-   * Clear GitHub context for a specific session
-   */
-  static clearSessionGitHubContext(sessionId: string): void {
-    try {
-      const key = getSessionContextKey(sessionId);
-      localStorage.removeItem(key);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to clear GitHub context for session:",
-        sessionId,
-        e,
-      );
     }
   }
 

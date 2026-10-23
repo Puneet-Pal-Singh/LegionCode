@@ -33,11 +33,18 @@ describe("SessionStateService", () => {
       );
 
       const sessions = { [session.id]: session };
-      SessionStateService.saveSessions(sessions);
+      const snapshot = JSON.stringify({
+        version: 3,
+        sessions,
+        activeSessionId: null,
+        lastModified: "2026-10-23T00:00:00.000Z",
+      });
+      localStorage.setItem("legioncode:sessions:v3", snapshot);
 
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual(sessions);
       expect(loaded[session.id]).toBeDefined();
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(snapshot);
     });
 
     it("should return empty object when no sessions exist", () => {
@@ -47,12 +54,28 @@ describe("SessionStateService", () => {
 
     it("should handle corrupted localStorage gracefully", () => {
       const errorSpy = silenceConsoleError();
-      localStorage.setItem("legioncode:sessions:v3", "invalid json");
+      const corruptSnapshot = "invalid json";
+      localStorage.setItem("legioncode:sessions:v3", corruptSnapshot);
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(corruptSnapshot);
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining("[SessionStateService] Failed to load sessions:"),
         expect.any(SyntaxError),
+      );
+
+      const warnSpy = silenceConsoleWarn();
+      const unknownVersionSnapshot = JSON.stringify({
+        version: 99,
+        sessions: {},
+        activeSessionId: null,
+        lastModified: "legacy",
+      });
+      localStorage.setItem("legioncode:sessions:v3", unknownVersionSnapshot);
+      expect(SessionStateService.loadSessions()).toEqual({});
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(unknownVersionSnapshot);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Unknown version, returning empty sessions",
       );
     });
 
@@ -113,7 +136,6 @@ describe("SessionStateService", () => {
       const session = SessionStateService.createSession("Test", "repo");
       const sessions = { [session.id]: session };
 
-      SessionStateService.saveSessions(sessions, session.id);
       SessionStateService.saveActiveSessionId(session.id, sessions);
       const loaded = SessionStateService.loadActiveSessionId();
 
@@ -128,7 +150,10 @@ describe("SessionStateService", () => {
         [otherTabSession.id]: otherTabSession,
       };
 
-      SessionStateService.saveSessions(sessions, otherTabSession.id);
+      localStorage.setItem(
+        "legioncode:sessions:v3",
+        JSON.stringify({ version: 3, sessions, activeSessionId: otherTabSession.id, lastModified: "legacy" }),
+      );
       SessionStateService.saveActiveSessionId(tabSession.id, sessions);
 
       expect(SessionStateService.loadActiveSessionId()).toBe(tabSession.id);
@@ -156,55 +181,6 @@ describe("SessionStateService", () => {
 
       const loaded = SessionStateService.loadActiveSessionId();
       expect(loaded).toBeNull();
-    });
-  });
-
-  describe("Active Run Resolution", () => {
-    it("should resolve active run ID from active session", () => {
-      const session = SessionStateService.createSession("Test Session", "repo");
-      const sessions = { [session.id]: session };
-
-      SessionStateService.saveSessions(sessions, session.id);
-      SessionStateService.saveActiveSessionId(session.id, sessions);
-
-      const runId = SessionStateService.loadActiveSessionRunId();
-      expect(runId).toBe(session.activeRunId);
-    });
-
-    it("should return null when active session is missing", () => {
-      const runId = SessionStateService.loadActiveSessionRunId();
-      expect(runId).toBeNull();
-    });
-
-    it("should fall back to setup session run ID when no repo session exists", () => {
-      const setupSession = SessionStateService.createSetupSession();
-      SessionStateService.saveSetupSession(setupSession);
-
-      const runId = SessionStateService.loadActiveSessionRunId();
-
-      expect(runId).toBe(setupSession.activeRunId);
-    });
-
-    it("should fall back to setup session run ID when active session cannot be resolved", () => {
-      const session = SessionStateService.createSession("Test Session", "repo");
-      const setupSession = SessionStateService.createSetupSession();
-
-      SessionStateService.saveSessions(
-        { [session.id]: session },
-        "missing-session",
-      );
-      SessionStateService.saveActiveSessionId(session.id, {
-        [session.id]: session,
-      });
-      sessionStorage.setItem(
-        "legioncode:active-session-id:v4",
-        "missing-session",
-      );
-      SessionStateService.saveSetupSession(setupSession);
-
-      const runId = SessionStateService.loadActiveSessionRunId();
-
-      expect(runId).toBe(setupSession.activeRunId);
     });
   });
 
@@ -237,7 +213,10 @@ describe("SessionStateService", () => {
         branch: "main",
       };
 
-      SessionStateService.saveSessionGitHubContext(sessionId, context);
+      localStorage.setItem(
+        `legioncode:session-context:${sessionId}`,
+        JSON.stringify(context),
+      );
       const loaded = SessionStateService.loadSessionGitHubContext(sessionId);
 
       expect(loaded).toEqual(context);
@@ -245,22 +224,6 @@ describe("SessionStateService", () => {
 
     it("should return null for non-existent session context", () => {
       const loaded = SessionStateService.loadSessionGitHubContext("unknown");
-      expect(loaded).toBeNull();
-    });
-
-    it("should clear context for specific session", () => {
-      const sessionId = "session-1";
-      const context = {
-        repoOwner: "user",
-        repoName: "repo",
-        fullName: "user/repo",
-        branch: "main",
-      };
-
-      SessionStateService.saveSessionGitHubContext(sessionId, context);
-      SessionStateService.clearSessionGitHubContext(sessionId);
-
-      const loaded = SessionStateService.loadSessionGitHubContext(sessionId);
       expect(loaded).toBeNull();
     });
 
@@ -279,8 +242,8 @@ describe("SessionStateService", () => {
         branch: "dev",
       };
 
-      SessionStateService.saveSessionGitHubContext("session-1", context1);
-      SessionStateService.saveSessionGitHubContext("session-2", context2);
+      localStorage.setItem("legioncode:session-context:session-1", JSON.stringify(context1));
+      localStorage.setItem("legioncode:session-context:session-2", JSON.stringify(context2));
 
       const loaded1 = SessionStateService.loadSessionGitHubContext("session-1");
       const loaded2 = SessionStateService.loadSessionGitHubContext("session-2");
@@ -528,8 +491,8 @@ describe("SessionStateService", () => {
         branch: "dev",
       };
 
-      SessionStateService.saveSessionGitHubContext(session1.id, context1);
-      SessionStateService.saveSessionGitHubContext(session2.id, context2);
+      localStorage.setItem(`legioncode:session-context:${session1.id}`, JSON.stringify(context1));
+      localStorage.setItem(`legioncode:session-context:${session2.id}`, JSON.stringify(context2));
 
       // Load and verify isolation
       const loaded1 = SessionStateService.loadSessionGitHubContext(session1.id);

@@ -12,7 +12,6 @@ import * as SessionMetadata from "../services/api/sessionMetadata";
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
-import { agentStore } from "../store/agentStore";
 import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
 import { createRunId } from "../lib/run-id";
@@ -161,6 +160,9 @@ function isMissingServerSessionArchive(error: unknown): boolean {
 
 export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const hydrateFromServer = options.hydrateFromServer ?? true;
+  const [pendingActiveSessionId] = useState(() =>
+    SessionStateService.loadActiveSessionId(),
+  );
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const sessionsMap = SessionStateService.loadSessions();
     return Object.values(sessionsMap);
@@ -170,7 +172,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       hydrateFromServer ? "loading" : "idle",
     );
   const sessionsRef = useRef<AgentSession[]>(sessions);
+  const legacySessionIdsRef = useRef(new Set(sessions.map((session) => session.id)));
   const activeSessionIdRef = useRef<string | null>(null);
+  const activeSelectionChangedRef = useRef(false);
   const localMutationVersionRef = useRef(0);
   const sessionProjectionRefreshRef = useRef<Promise<void> | null>(null);
   const isMountedRef = useRef(true);
@@ -183,16 +187,10 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   }, []);
 
   // Persist activeSessionId to survive refreshes
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
-    const savedId = SessionStateService.loadActiveSessionId();
-    if (!savedId) return null;
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-    // Validate session exists
-    const sessions = SessionStateService.loadSessions();
-    return sessions[savedId] ? savedId : null;
-  });
-
-  // Persist sessions and active ID to localStorage with v2 schema
+  // The v3 session snapshot is a read-only recovery cache. Persist only the
+  // per-tab selection after the server has supplied its owned session list.
   useEffect(() => {
     const sessionsMap = createSessionsMap(sessions);
     const refActiveSessionId = activeSessionIdRef.current;
@@ -202,20 +200,21 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         : activeSessionId;
 
     sessionsRef.current = sessions;
+    if (sessionHydrationStatus !== "ready") return;
     activeSessionIdRef.current = effectiveActiveSessionId;
-    // Pass activeSessionId to avoid race condition between load and save
-    SessionStateService.saveSessions(sessionsMap, effectiveActiveSessionId);
     SessionStateService.saveActiveSessionId(
       effectiveActiveSessionId,
       sessionsMap,
     );
-  }, [activeSessionId, sessions]);
+  }, [activeSessionId, sessions, sessionHydrationStatus]);
 
   const selectActiveSession = useCallback((sessionId: string | null): void => {
     activeSessionIdRef.current = sessionId;
+    activeSelectionChangedRef.current = true;
+    if (sessionHydrationStatus !== "ready") return;
     localMutationVersionRef.current += 1;
     setActiveSessionId(sessionId);
-  }, []);
+  }, [sessionHydrationStatus]);
 
   const [repositories, setRepositories] = useState<string[]>(() => {
     try {
@@ -256,12 +255,19 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         const serverSessionList = sortSessions(Object.values(serverSessions));
         const hasLocalMutation =
           localMutationVersionRef.current !== hydrationVersion;
+        const sessionsCreatedAfterCacheRead = sessionsRef.current.filter(
+          (session) => !legacySessionIdsRef.current.has(session.id),
+        );
         const nextSessions = hasLocalMutation
-          ? mergeHydratedSessions(serverSessionList, sessionsRef.current)
+          ? mergeHydratedSessions(serverSessionList, sessionsCreatedAfterCacheRead)
           : serverSessionList;
 
+        const requestedActiveSessionId =
+          activeSelectionChangedRef.current || hasLocalMutation
+            ? activeSessionIdRef.current
+            : pendingActiveSessionId;
         const nextActiveSessionId = resolveActiveSessionId(
-          activeSessionIdRef.current,
+          requestedActiveSessionId,
           nextSessions,
         );
         sessionsRef.current = nextSessions;
@@ -281,6 +287,20 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       } catch (error) {
         console.warn("[useSessionManager] Failed to hydrate sessions:", error);
         if (!cancelled) {
+          const sessionsCreatedAfterCacheRead = sessionsRef.current.filter(
+            (session) => !legacySessionIdsRef.current.has(session.id),
+          );
+          const createdSessionIds = new Set(
+            sessionsCreatedAfterCacheRead.map((session) => session.id),
+          );
+          const activeCreatedSessionId = activeSessionIdRef.current &&
+            createdSessionIds.has(activeSessionIdRef.current)
+            ? activeSessionIdRef.current
+            : null;
+          sessionsRef.current = sessionsCreatedAfterCacheRead;
+          activeSessionIdRef.current = activeCreatedSessionId;
+          setSessions(sessionsCreatedAfterCacheRead);
+          setActiveSessionId(activeCreatedSessionId);
           setSessionHydrationStatus("failed");
         }
       }
@@ -291,7 +311,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     return () => {
       cancelled = true;
     };
-  }, [hydrateFromServer]);
+  }, [hydrateFromServer, pendingActiveSessionId]);
 
   const mergeTitleServerSessions = useCallback(
     (
@@ -463,7 +483,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       ];
       const sessionsMap = createSessionsMap(nextSessions);
 
-      SessionStateService.saveSessions(sessionsMap, newSession.id);
       SessionStateService.saveActiveSessionId(newSession.id, sessionsMap);
 
       sessionsRef.current = nextSessions;
@@ -487,10 +506,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       let next = replaceSessionById(sessionsRef.current, savingSession);
       sessionsRef.current = next;
       setSessions(next);
-      SessionStateService.saveSessions(
-        createSessionsMap(next),
-        activeSessionIdRef.current,
-      );
       try {
         const serverSession =
           await SessionMetadata.persistSession(savingSession);
@@ -511,10 +526,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       }
       sessionsRef.current = next;
       setSessions(next);
-      SessionStateService.saveSessions(
-        createSessionsMap(next),
-        activeSessionIdRef.current,
-      );
     },
     [],
   );
@@ -544,12 +555,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         const sessionsToRemove = prev.filter(
           (s) => s.repository === repository,
         );
-        sessionsToRemove.forEach((s) => {
-          // Clear all runs for this session
-          for (const runId of s.runIds) {
-            agentStore.clearMessagesForRun(runId);
-          }
-        });
         const remaining = prev.filter((s) => s.repository !== repository);
 
         // If active session was in this repo, clear active ID
@@ -867,35 +872,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     [],
   );
 
-  /**
-   * Clear all sessions and clean up storage
-   * Used during logout or factory reset
-   * Clears both session records and per-session scoped storage
-   */
-  const clearAllSessions = useCallback(() => {
-    // Clear per-session scoped storage before clearing main session store
-    // Prevents orphaned session-scoped GitHub context keys.
-    sessions.forEach((session) => {
-      SessionStateService.clearSessionGitHubContext(session.id);
-      // Clear all message runs for this session
-      for (const runId of session.runIds) {
-        agentStore.clearMessagesForRun(runId);
-      }
-    });
-
-    // Clear main session state
-    setSessions([]);
-    setActiveSessionId(null);
-    setRepositories([]);
-    agentStore.clearAllMessages();
-
-    // Clear v2 schema storage
-    SessionStateService.saveSessions({}, null);
-    SessionStateService.saveActiveSessionId(null, {});
-
-    localStorage.removeItem("legioncode_repositories");
-  }, [sessions]);
-
   return {
     sessions,
     activeSessionId,
@@ -913,7 +889,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     unarchiveSession,
     acknowledgeSession,
     updateSession,
-    clearAllSessions,
     addRepository,
     removeRepository,
     renameRepository,
