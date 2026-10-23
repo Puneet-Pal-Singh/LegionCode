@@ -14,6 +14,7 @@ import type { AgentSession } from "../../types/session";
 import { TurnIdSchema } from "@legioncode/sdk";
 import { useSessionManager } from "../useSessionManager";
 import { SessionStateService } from "../../services/SessionStateService";
+import { agentStore } from "../../store/agentStore";
 
 describe("useSessionManager", () => {
   beforeEach(() => {
@@ -60,7 +61,7 @@ describe("useSessionManager", () => {
         runIds: ["run_selected123"],
         status: "running",
       });
-      SessionStateService.saveSessions(
+      storeLegacySessions(
         { [inactive.id]: inactive, [selected.id]: selected },
         selected.id,
       );
@@ -120,9 +121,21 @@ describe("useSessionManager", () => {
     });
 
     it("defers server hydration until explicitly enabled", async () => {
+      const cachedSession = SessionStateService.createSession("Cached", "repo");
+      const hostedSession = SessionStateService.createSession("Hosted", "repo");
+      const legacySnapshot = storeLegacySessions(
+        { [cachedSession.id]: cachedSession },
+        cachedSession.id,
+      );
+      SessionStateService.saveActiveSessionId(hostedSession.id, {
+        [hostedSession.id]: hostedSession,
+      });
       const hydrateSpy = vi.mocked(
         SessionMetadata.hydrateSessionsFromServer,
       );
+      hydrateSpy
+        .mockResolvedValueOnce({ [hostedSession.id]: hostedSession })
+        .mockRejectedValueOnce(new Error("hosted session list unavailable"));
       const { result, rerender } = renderHook(
         ({ enabled }) => useSessionManager({ hydrateFromServer: enabled }),
         { initialProps: { enabled: false } },
@@ -135,6 +148,24 @@ describe("useSessionManager", () => {
 
       expect(result.current.sessionHydrationStatus).toBe("loading");
       expect(hydrateSpy).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("ready");
+      });
+      expect(result.current.sessions).toEqual([hostedSession]);
+      expect(result.current.activeSessionId).toBe(hostedSession.id);
+
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("failed");
+      });
+      expect(result.current.sessions).toEqual([]);
+      expect(result.current.activeSessionId).toBeNull();
+      expect(SessionStateService.loadActiveSessionId()).toBe(hostedSession.id);
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
     });
 
     it("publishes a new conversation only after durable session creation completes", async () => {
@@ -414,7 +445,10 @@ describe("useSessionManager", () => {
         fullName: "user/repo",
         branch: "main",
       };
-      SessionStateService.saveSessionGitHubContext(sessionId, context);
+      localStorage.setItem(
+        `legioncode:session-context:${sessionId}`,
+        JSON.stringify(context),
+      );
 
       // Remove session
       await act(async () => {
@@ -597,6 +631,7 @@ describe("useSessionManager", () => {
 
     it("should remove sessions when removing repository", async () => {
       const { result } = renderHook(() => useSessionManager());
+      const clearMessagesForRun = vi.spyOn(agentStore, "clearMessagesForRun");
 
       await act(async () => {
         await result.current.createSession("Task 1", "repo");
@@ -610,6 +645,7 @@ describe("useSessionManager", () => {
       });
 
       expect(result.current.sessions).toHaveLength(0);
+      expect(clearMessagesForRun).not.toHaveBeenCalled();
     });
 
     it("should rename repository", async () => {
@@ -634,35 +670,16 @@ describe("useSessionManager", () => {
   });
 
   describe("Persistence", () => {
-    it("should persist sessions to localStorage", async () => {
-      const { result } = renderHook(() => useSessionManager());
-
-      await act(async () => {
-        await result.current.createSession("Task", "repo");
-      });
-
-      // Load from localStorage to verify persistence
-      const loaded = SessionStateService.loadSessions();
-      expect(Object.keys(loaded)).toHaveLength(1);
-    });
-
     it("should restore sessions on mount", async () => {
-      // Create and persist sessions via first hook instance
-      let sessionId = "";
-      const { result: result1, unmount } = renderHook(() =>
-        useSessionManager(),
+      const session = SessionStateService.createSession("Task", "repo");
+      const legacySnapshot = storeLegacySessions({ [session.id]: session }, session.id);
+
+      // The explicit no-hydration seam still reads the legacy session list.
+      const { result } = renderHook(() =>
+        useSessionManager({ hydrateFromServer: false }),
       );
-      await act(async () => {
-        sessionId = await result1.current.createSession("Task", "repo");
-      });
-
-      // Unmount the hook (which persists sessions to localStorage)
-      unmount();
-
-      // Remount and verify restoration from localStorage
-      const { result: result2 } = renderHook(() => useSessionManager());
-      expect(result2.current.sessions).toHaveLength(1);
-      expect(result2.current.sessions[0]?.id).toBe(sessionId);
+      expect(result.current.sessions).toEqual([session]);
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
     });
 
     it("should persist active session ID", async () => {
@@ -679,12 +696,12 @@ describe("useSessionManager", () => {
     it("replaces stale local sessions with the authoritative server snapshot", async () => {
       const staleSession = SessionStateService.createSession("Stale", "repo");
       const serverSession = SessionStateService.createSession("Server", "repo");
-      SessionStateService.saveSessions(
+      const legacySnapshot = storeLegacySessions(
         { [staleSession.id]: staleSession },
         staleSession.id,
       );
-      SessionStateService.saveActiveSessionId(staleSession.id, {
-        [staleSession.id]: staleSession,
+      SessionStateService.saveActiveSessionId(serverSession.id, {
+        [serverSession.id]: serverSession,
       });
       vi.mocked(
         SessionMetadata.hydrateSessionsFromServer,
@@ -697,9 +714,11 @@ describe("useSessionManager", () => {
       });
       expect(result.current.sessions).toEqual([serverSession]);
       expect(result.current.activeSessionId).toBe(serverSession.id);
+      expect(SessionStateService.loadActiveSessionId()).toBe(serverSession.id);
       expect(SessionStateService.loadSessions()).toEqual({
-        [serverSession.id]: serverSession,
+        [staleSession.id]: staleSession,
       });
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
     });
 
     it("preserves a locally-created active session when stale hydration resolves later", async () => {
@@ -708,7 +727,10 @@ describe("useSessionManager", () => {
         SessionMetadata.hydrateSessionsFromServer,
       ).mockReturnValueOnce(hydration.promise);
 
-      const { result } = renderHook(() => useSessionManager());
+      const { result, rerender } = renderHook(
+        ({ enabled }) => useSessionManager({ hydrateFromServer: enabled }),
+        { initialProps: { enabled: true } },
+      );
 
       let sessionId = "";
       await act(async () => {
@@ -728,11 +750,114 @@ describe("useSessionManager", () => {
       );
       expect(result.current.activeSessionId).toBe(sessionId);
       expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
+
+      let rejectFailedHydration!: (error: Error) => void;
+      const failedHydration = new Promise<Record<string, AgentSession>>(
+        (_, reject) => {
+          rejectFailedHydration = reject;
+        },
+      );
+      vi.mocked(
+        SessionMetadata.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(failedHydration);
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(SessionMetadata.hydrateSessionsFromServer).toHaveBeenCalledTimes(2);
+      });
+
+      let confirmedDuringFailure = "";
+      await act(async () => {
+        confirmedDuringFailure = await result.current.createSession(
+          "Confirmed during failed hydration",
+          "repo",
+        );
+      });
+      await act(async () => {
+        rejectFailedHydration(new Error("hosted session list unavailable"));
+      });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("failed");
+      });
+      expect(result.current.sessions.map((session) => session.id)).toEqual([
+        confirmedDuringFailure,
+      ]);
+      expect(result.current.activeSessionId).toBe(confirmedDuringFailure);
+
+      const staleGenerationHydration = createDeferred<
+        Record<string, AgentSession>
+      >();
+      vi.mocked(
+        SessionMetadata.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(staleGenerationHydration.promise);
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(SessionMetadata.hydrateSessionsFromServer).toHaveBeenCalledTimes(3);
+      });
+
+      let releaseStaleCreate!: (session: AgentSession) => void;
+      let stalePendingSession!: AgentSession;
+      vi.mocked(SessionMetadata.persistSession).mockImplementationOnce(
+        (session) => {
+          stalePendingSession = session;
+          return new Promise<AgentSession>((resolve) => {
+            releaseStaleCreate = resolve;
+          });
+        },
+      );
+      let staleCreation!: Promise<string>;
+      await act(async () => {
+        staleCreation = result.current.createSession(
+          "Created in an earlier hydration generation",
+          "repo",
+        );
+      });
+
+      let rejectNextGenerationHydration!: (error: Error) => void;
+      const nextGenerationHydration = new Promise<
+        Record<string, AgentSession>
+      >((_, reject) => {
+        rejectNextGenerationHydration = reject;
+      });
+      vi.mocked(
+        SessionMetadata.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(nextGenerationHydration);
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(SessionMetadata.hydrateSessionsFromServer).toHaveBeenCalledTimes(4);
+      });
+
+      await act(async () => {
+        releaseStaleCreate(stalePendingSession);
+        await staleCreation;
+      });
+      await act(async () => {
+        rejectNextGenerationHydration(
+          new Error("new hosted session list unavailable"),
+        );
+        await nextGenerationHydration.catch(() => undefined);
+      });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("failed");
+      });
+      expect(result.current.sessions).toEqual([]);
+      expect(result.current.activeSessionId).toBeNull();
     });
 
     it("clears stale local sessions when the server snapshot is empty", async () => {
       const staleSession = SessionStateService.createSession("Stale", "repo");
-      SessionStateService.saveSessions(
+      const legacySnapshot = storeLegacySessions(
         { [staleSession.id]: staleSession },
         staleSession.id,
       );
@@ -747,7 +872,10 @@ describe("useSessionManager", () => {
       });
       expect(result.current.sessions).toEqual([]);
       expect(result.current.activeSessionId).toBeNull();
-      expect(SessionStateService.loadSessions()).toEqual({});
+      expect(SessionStateService.loadSessions()).toEqual({
+        [staleSession.id]: staleSession,
+      });
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
       expect(SessionStateService.loadActiveSessionId()).toBeNull();
     });
 
@@ -878,46 +1006,21 @@ describe("useSessionManager", () => {
     });
   });
 
-  describe("Clear All Sessions", () => {
-    it("should clear all sessions and cleanup", async () => {
-      const { result } = renderHook(() => useSessionManager());
-
-      await act(async () => {
-        await result.current.createSession("Task 1", "repo1");
-        await result.current.createSession("Task 2", "repo2");
-      });
-
-      expect(result.current.sessions).toHaveLength(2);
-      expect(result.current.repositories).toHaveLength(2);
-
-      await act(async () => {
-        result.current.clearAllSessions();
-      });
-
-      expect(result.current.sessions).toHaveLength(0);
-      expect(result.current.repositories).toHaveLength(0);
-      expect(result.current.activeSessionId).toBeNull();
-    });
-
-    it("should clear v2 schema storage when clearing all sessions", async () => {
-      const { result } = renderHook(() => useSessionManager());
-
-      await act(async () => {
-        await result.current.createSession("Task", "repo");
-      });
-
-      await act(async () => {
-        result.current.clearAllSessions();
-      });
-
-      const sessions = SessionStateService.loadSessions();
-      const activeId = SessionStateService.loadActiveSessionId();
-
-      expect(sessions).toEqual({});
-      expect(activeId).toBeNull();
-    });
-  });
 });
+
+function storeLegacySessions(
+  sessions: Record<string, AgentSession>,
+  activeSessionId: string | null,
+): string {
+  const snapshot = JSON.stringify({
+    version: 3,
+    sessions,
+    activeSessionId,
+    lastModified: "2026-10-23T00:00:00.000Z",
+  });
+  localStorage.setItem("legioncode:sessions:v3", snapshot);
+  return snapshot;
+}
 
 function createArchivedServerSession(
   sessionId: string,

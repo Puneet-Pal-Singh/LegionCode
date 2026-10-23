@@ -362,6 +362,19 @@ read/unread proof passed on 2026-10-13 for session
 selecting the session cleared the marker, and a full reload preserved its
 canonical history and read state.
 
+The legacy `legioncode:sessions:v3` snapshot is frozen as read-only recovery
+data: `SessionStateService` may continue reading it during this partial cutover,
+but no Web path writes, clears, or reserializes it. Its records cannot validate
+the per-tab `legioncode:active-session-id:v4` reference or provide active run or
+workspace identity. The saved selector remains pending until the owned hosted
+session list succeeds, then existing reconciliation keeps it only when that
+server snapshot contains the session. A failed list leaves the selector
+inactive and the sidebar reports the existing load error. The repository-folder
+key remains a UI preference; removing a folder only changes the current view
+and never clears in-memory conversation messages. Legacy per-session GitHub
+context remains read-only for branch preference reconstruction. Full browser
+storage retirement and any cache recovery/import policy remain undecided.
+
 ### Plan 058 authenticated hosted workspace selection
 
 Hosted workspace list/select use the existing WorkspaceSelectionService and
