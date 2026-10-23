@@ -158,6 +158,10 @@ function isMissingServerSessionArchive(error: unknown): boolean {
   return /failed:\s*404\b/.test(error.message);
 }
 
+interface HydrationSessionCreationWindow {
+  confirmedSessionIds: Set<string>;
+}
+
 export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const hydrateFromServer = options.hydrateFromServer ?? true;
   const [pendingActiveSessionId] = useState(() =>
@@ -172,7 +176,8 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       hydrateFromServer ? "loading" : "idle",
     );
   const sessionsRef = useRef<AgentSession[]>(sessions);
-  const legacySessionIdsRef = useRef(new Set(sessions.map((session) => session.id)));
+  const hydrationCreationWindowRef =
+    useRef<HydrationSessionCreationWindow | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const activeSelectionChangedRef = useRef(false);
   const localMutationVersionRef = useRef(0);
@@ -237,6 +242,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
   useEffect(() => {
     let cancelled = false;
+    let hydrationCreationWindow: HydrationSessionCreationWindow | null = null;
 
     async function hydrateServerSessions(): Promise<void> {
       if (!hydrateFromServer) {
@@ -245,6 +251,11 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       }
 
       setSessionHydrationStatus("loading");
+      const currentHydrationCreationWindow: HydrationSessionCreationWindow = {
+        confirmedSessionIds: new Set(),
+      };
+      hydrationCreationWindow = currentHydrationCreationWindow;
+      hydrationCreationWindowRef.current = currentHydrationCreationWindow;
       const hydrationVersion = localMutationVersionRef.current;
       try {
         const serverSessions =
@@ -255,11 +266,15 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         const serverSessionList = sortSessions(Object.values(serverSessions));
         const hasLocalMutation =
           localMutationVersionRef.current !== hydrationVersion;
-        const sessionsCreatedAfterCacheRead = sessionsRef.current.filter(
-          (session) => !legacySessionIdsRef.current.has(session.id),
+        const sessionsCreatedDuringHydration = sessionsRef.current.filter(
+          (session) =>
+            currentHydrationCreationWindow.confirmedSessionIds.has(session.id),
         );
         const nextSessions = hasLocalMutation
-          ? mergeHydratedSessions(serverSessionList, sessionsCreatedAfterCacheRead)
+          ? mergeHydratedSessions(
+              serverSessionList,
+              sessionsCreatedDuringHydration,
+            )
           : serverSessionList;
 
         const requestedActiveSessionId =
@@ -283,24 +298,37 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
             ),
           );
         }
+        if (
+          hydrationCreationWindowRef.current === currentHydrationCreationWindow
+        ) {
+          hydrationCreationWindowRef.current = null;
+        }
         setSessionHydrationStatus("ready");
       } catch (error) {
         console.warn("[useSessionManager] Failed to hydrate sessions:", error);
         if (!cancelled) {
-          const sessionsCreatedAfterCacheRead = sessionsRef.current.filter(
-            (session) => !legacySessionIdsRef.current.has(session.id),
+          const sessionsCreatedDuringHydration = sessionsRef.current.filter(
+            (session) =>
+              currentHydrationCreationWindow.confirmedSessionIds.has(
+                session.id,
+              ),
           );
           const createdSessionIds = new Set(
-            sessionsCreatedAfterCacheRead.map((session) => session.id),
+            sessionsCreatedDuringHydration.map((session) => session.id),
           );
           const activeCreatedSessionId = activeSessionIdRef.current &&
             createdSessionIds.has(activeSessionIdRef.current)
             ? activeSessionIdRef.current
             : null;
-          sessionsRef.current = sessionsCreatedAfterCacheRead;
+          sessionsRef.current = sessionsCreatedDuringHydration;
           activeSessionIdRef.current = activeCreatedSessionId;
-          setSessions(sessionsCreatedAfterCacheRead);
+          setSessions(sessionsCreatedDuringHydration);
           setActiveSessionId(activeCreatedSessionId);
+          if (
+            hydrationCreationWindowRef.current === currentHydrationCreationWindow
+          ) {
+            hydrationCreationWindowRef.current = null;
+          }
           setSessionHydrationStatus("failed");
         }
       }
@@ -310,6 +338,12 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
     return () => {
       cancelled = true;
+      if (
+        hydrationCreationWindow &&
+        hydrationCreationWindowRef.current === hydrationCreationWindow
+      ) {
+        hydrationCreationWindowRef.current = null;
+      }
     };
   }, [hydrateFromServer, pendingActiveSessionId]);
 
@@ -477,6 +511,10 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       // Admission requires the owned conversation to exist before it is visible
       // to setup/submit callers. A failed create must not publish a local session.
       await SessionMetadata.persistSession(newSession);
+      const activeHydrationWindow = hydrationCreationWindowRef.current;
+      if (activeHydrationWindow) {
+        activeHydrationWindow.confirmedSessionIds.add(newSession.id);
+      }
       const nextSessions = [
         ...sessionsRef.current,
         { ...newSession, persistenceStatus: "saved" as const },

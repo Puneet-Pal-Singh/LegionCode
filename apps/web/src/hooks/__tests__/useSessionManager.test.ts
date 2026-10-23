@@ -121,9 +121,21 @@ describe("useSessionManager", () => {
     });
 
     it("defers server hydration until explicitly enabled", async () => {
+      const cachedSession = SessionStateService.createSession("Cached", "repo");
+      const hostedSession = SessionStateService.createSession("Hosted", "repo");
+      const legacySnapshot = storeLegacySessions(
+        { [cachedSession.id]: cachedSession },
+        cachedSession.id,
+      );
+      SessionStateService.saveActiveSessionId(hostedSession.id, {
+        [hostedSession.id]: hostedSession,
+      });
       const hydrateSpy = vi.mocked(
         SessionMetadata.hydrateSessionsFromServer,
       );
+      hydrateSpy
+        .mockResolvedValueOnce({ [hostedSession.id]: hostedSession })
+        .mockRejectedValueOnce(new Error("hosted session list unavailable"));
       const { result, rerender } = renderHook(
         ({ enabled }) => useSessionManager({ hydrateFromServer: enabled }),
         { initialProps: { enabled: false } },
@@ -136,6 +148,24 @@ describe("useSessionManager", () => {
 
       expect(result.current.sessionHydrationStatus).toBe("loading");
       expect(hydrateSpy).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("ready");
+      });
+      expect(result.current.sessions).toEqual([hostedSession]);
+      expect(result.current.activeSessionId).toBe(hostedSession.id);
+
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("failed");
+      });
+      expect(result.current.sessions).toEqual([]);
+      expect(result.current.activeSessionId).toBeNull();
+      expect(SessionStateService.loadActiveSessionId()).toBe(hostedSession.id);
+      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
     });
 
     it("publishes a new conversation only after durable session creation completes", async () => {
@@ -697,7 +727,10 @@ describe("useSessionManager", () => {
         SessionMetadata.hydrateSessionsFromServer,
       ).mockReturnValueOnce(hydration.promise);
 
-      const { result } = renderHook(() => useSessionManager());
+      const { result, rerender } = renderHook(
+        ({ enabled }) => useSessionManager({ hydrateFromServer: enabled }),
+        { initialProps: { enabled: true } },
+      );
 
       let sessionId = "";
       await act(async () => {
@@ -717,6 +750,42 @@ describe("useSessionManager", () => {
       );
       expect(result.current.activeSessionId).toBe(sessionId);
       expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
+
+      let rejectFailedHydration!: (error: Error) => void;
+      const failedHydration = new Promise<Record<string, AgentSession>>(
+        (_, reject) => {
+          rejectFailedHydration = reject;
+        },
+      );
+      vi.mocked(
+        SessionMetadata.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(failedHydration);
+      rerender({ enabled: false });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("idle");
+      });
+      rerender({ enabled: true });
+      await waitFor(() => {
+        expect(SessionMetadata.hydrateSessionsFromServer).toHaveBeenCalledTimes(2);
+      });
+
+      let confirmedDuringFailure = "";
+      await act(async () => {
+        confirmedDuringFailure = await result.current.createSession(
+          "Confirmed during failed hydration",
+          "repo",
+        );
+      });
+      await act(async () => {
+        rejectFailedHydration(new Error("hosted session list unavailable"));
+      });
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("failed");
+      });
+      expect(result.current.sessions.map((session) => session.id)).toEqual([
+        confirmedDuringFailure,
+      ]);
+      expect(result.current.activeSessionId).toBe(confirmedDuringFailure);
     });
 
     it("clears stale local sessions when the server snapshot is empty", async () => {
