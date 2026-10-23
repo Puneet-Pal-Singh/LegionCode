@@ -346,6 +346,8 @@ function ThreadSidebarRow({
   const rowRef = useRef<HTMLLIElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
   const previewTimerRef = useRef<number | null>(null);
+  const pendingCardFocusRef = useRef(false);
+  const suppressPreviewOnFocusRef = useRef(false);
   const isDetailsOpen = previewSelectionId === item.selectionId;
   const [detailsPosition, setDetailsPosition] = useState<{ left: number; top: number } | null>(null);
   const detailsId = `thread-details-${item.selectionId}`;
@@ -383,8 +385,21 @@ function ThreadSidebarRow({
     onPreviewOpen(item.selectionId);
   }
 
+  function focusFirstPullRequestLink(): void {
+    const firstLink = detailsRef.current?.querySelector<HTMLAnchorElement>("a[href]");
+    if (!firstLink) return;
+    pendingCardFocusRef.current = false;
+    firstLink.focus();
+  }
+
   useLayoutEffect(() => {
     if (!isDetailsOpen) return;
+    if (pendingCardFocusRef.current) {
+      focusFirstPullRequestLink();
+      if (pullRequestResult?.status === "unavailable" || (pullRequestResult?.status === "available" && pullRequestResult.pullRequests.length === 0)) {
+        pendingCardFocusRef.current = false;
+      }
+    }
     const updatePosition = (): void => {
       const rect = rowRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -400,7 +415,16 @@ function ThreadSidebarRow({
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape") onPreviewClose(item.selectionId);
+      if (event.key !== "Escape") return;
+      const activeElement = document.activeElement;
+      const focusIsInDetails = detailsRef.current?.contains(activeElement) ?? false;
+      if (!focusIsInDetails && !rowRef.current?.contains(activeElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pendingCardFocusRef.current = false;
+      suppressPreviewOnFocusRef.current = focusIsInDetails;
+      onPreviewClose(item.selectionId);
+      rowRefs.get(item.selectionId)?.focus();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -419,7 +443,13 @@ function ThreadSidebarRow({
       className="group relative"
       onMouseEnter={keepPreviewOpen}
       onMouseLeave={schedulePreviewClose}
-      onFocusCapture={keepPreviewOpen}
+      onFocusCapture={() => {
+        if (suppressPreviewOnFocusRef.current) {
+          suppressPreviewOnFocusRef.current = false;
+          return;
+        }
+        keepPreviewOpen();
+      }}
       onBlurCapture={(event) => {
         const nextTarget = event.relatedTarget as Node | null;
         if (!event.currentTarget.contains(nextTarget) && !detailsRef.current?.contains(nextTarget)) {
@@ -443,13 +473,22 @@ function ThreadSidebarRow({
         aria-label={`${item.title}${item.displayStatus === "waiting_for_approval" ? ", awaiting approval" : item.displayStatus === "failed" ? ", failed" : ""}${item.isUnread ? ", unread activity" : ""}`}
         tabIndex={focusedIndex === index ? 0 : -1}
         onFocus={() => onFocus(index)}
-        onKeyDown={(event) => onKeyDown(event, index, item)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowRight" && (pullRequestResult === undefined || (pullRequestResult.status === "available" && pullRequestResult.pullRequests.length > 0))) {
+            event.preventDefault();
+            event.stopPropagation();
+            pendingCardFocusRef.current = true;
+            if (isDetailsOpen) focusFirstPullRequestLink();
+            return;
+          }
+          onKeyDown(event, index, item);
+        }}
         onClick={() => onSelect(item.selectionId)}
         className={`relative h-[34px] w-full rounded-md text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${item.isSelected ? "bg-zinc-800/55 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/35 hover:text-zinc-100"} ${confirming ? "pr-28" : ""}`}
       >
         <div
           className={`flex min-w-0 items-center gap-2 pl-8 ${hasThreadActions ? "pr-14" : "pr-2"}`}
-          style={{ paddingRight: hasThreadActions ? 56 : Math.max(8, indicatorSlots * 16 + Math.max(0, indicatorSlots - 1) * 6 + 8) }}
+          style={{ paddingRight: Math.max(hasThreadActions ? 56 : 8, indicatorSlots * 16 + Math.max(0, indicatorSlots - 1) * 6 + 8) }}
         >
           <div className="flex min-w-0 items-center gap-2">
             <span className={`min-w-0 truncate text-sm ${item.isSelected ? "font-medium" : "font-normal"}`}>

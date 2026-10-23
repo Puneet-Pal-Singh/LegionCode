@@ -21,7 +21,7 @@ export function useSessionPullRequests(
   accountId: string | null,
 ) {
   const [prioritySessionId, setPrioritySessionId] = useState<string | null>(null);
-  const [results, setResults] = useState<ReadonlyMap<string, CachedResult>>(() => new Map());
+  const [cacheRevision, setCacheRevision] = useState(0);
   const cacheRef = useRef(new Map<string, CachedResult>());
   const visibleKey = Array.from(visibleSessionIds).sort().join("\0");
   const sessionsById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
@@ -41,7 +41,7 @@ export function useSessionPullRequests(
 
   useEffect(() => {
     cacheRef.current.clear();
-    setResults(new Map());
+    setCacheRevision((revision) => revision + 1);
   }, [accountId]);
 
   useEffect(() => {
@@ -58,9 +58,7 @@ export function useSessionPullRequests(
       if (!session) return [];
       const key = resultKey(accountId, session);
       const cached = cacheRef.current.get(key);
-      const priorityRefresh = id === prioritySessionId && cached && now - cached.fetchedAt >= CACHE_TTL_MS;
       if (cached && now - cached.fetchedAt < CACHE_TTL_MS) return [];
-      if (cached && !priorityRefresh) return [];
       return [{ id, key }];
     });
     let nextIndex = 0;
@@ -73,7 +71,7 @@ export function useSessionPullRequests(
           if (!generationCurrent) return;
           const cached = { key: entry.key, fetchedAt: Date.now(), result };
           saveResult(entry.id, cached);
-          setResults((current) => new Map(current).set(entry.id, cached));
+          setCacheRevision((revision) => revision + 1);
         } catch {
           if (!generationCurrent || controller.signal.aborted) return;
           const cached: CachedResult = {
@@ -82,7 +80,7 @@ export function useSessionPullRequests(
             result: { status: "unavailable", sessionId: entry.id },
           };
           saveResult(entry.id, cached);
-          setResults((current) => new Map(current).set(entry.id, cached));
+          setCacheRevision((revision) => revision + 1);
         }
       }
     };
@@ -103,11 +101,11 @@ export function useSessionPullRequests(
       const session = sessionsById.get(sessionId);
       if (!session || !accountId) continue;
       const key = resultKey(accountId, session);
-      const cached = results.get(sessionId) ?? cacheRef.current.get(key);
+      const cached = cacheRef.current.get(key);
       if (cached?.key === key) projected.set(sessionId, cached.result);
     }
     return projected;
-  }, [accountId, results, sessionsById, visibleSessionIds]);
+  }, [accountId, sessionsById, visibleSessionIds, cacheRevision]);
 
   return { pullRequestsBySessionId, prioritizeSession };
 }
