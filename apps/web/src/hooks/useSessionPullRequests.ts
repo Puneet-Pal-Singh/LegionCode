@@ -21,7 +21,7 @@ export function useSessionPullRequests(
   accountId: string | null,
 ) {
   const [prioritySessionId, setPrioritySessionId] = useState<string | null>(null);
-  const [cacheRevision, setCacheRevision] = useState(0);
+  const [, setCacheRevision] = useState(0);
   const cacheRef = useRef(new Map<string, CachedResult>());
   const visibleKey = Array.from(visibleSessionIds).sort().join("\0");
   const sessionsById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
@@ -95,17 +95,14 @@ export function useSessionPullRequests(
     setPrioritySessionId(sessionId);
   }, []);
 
-  const pullRequestsBySessionId = useMemo(() => {
-    const projected = new Map<string, PullRequestResult>();
-    for (const sessionId of visibleSessionIds) {
-      const session = sessionsById.get(sessionId);
-      if (!session || !accountId) continue;
-      const key = resultKey(accountId, session);
-      const cached = cacheRef.current.get(key);
-      if (cached?.key === key) projected.set(sessionId, cached.result);
-    }
-    return projected;
-  }, [accountId, sessionsById, visibleSessionIds, cacheRevision]);
+  const pullRequestsBySessionId = new Map<string, PullRequestResult>();
+  for (const sessionId of visibleSessionIds) {
+    const session = sessionsById.get(sessionId);
+    if (!session || !accountId) continue;
+    const key = resultKey(accountId, session);
+    const cached = cacheRef.current.get(key);
+    if (cached?.key === key) pullRequestsBySessionId.set(sessionId, cached.result);
+  }
 
   return { pullRequestsBySessionId, prioritizeSession };
 }

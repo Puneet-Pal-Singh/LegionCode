@@ -479,6 +479,7 @@ function ThreadSidebarRow({
             event.stopPropagation();
             pendingCardFocusRef.current = true;
             if (isDetailsOpen) focusFirstPullRequestLink();
+            else keepPreviewOpen();
             return;
           }
           onKeyDown(event, index, item);
