@@ -605,3 +605,15 @@ This ledger records the active wiring for image-bearing conversation context.
 No lifecycle, grant or chat database migration is required. The old run-keyed
 composer preference cache and direct unvalidated submission shortcut are removed
 from the active path. Active turns retain their admitted provider configuration.
+
+## Verified pull-request links in saved chat
+
+| Responsibility | Canonical owner | Active wiring and invariant |
+| --- | --- | --- |
+| Saved chat text and owned session scope | Existing TranscriptRepository and active transcript projection | Brain reads the complete pinned history for the authenticated session; superseded transcript branches are excluded and no history is imported or rewritten. |
+| PR link discovery and remote state verification | Authenticated hosted App Server operation using the existing GitHub client | Only exact HTTPS `github.com/{owner}/{repo}/pull/{positive-safe-integer}` links from visible transcript text are candidates; each exact owner/repo/number is verified through GitHub. Per-link 403/404 candidates are omitted; account-wide auth, rate-limit and network failures stay explicitly unavailable, never empty/closed. |
+| Sidebar PR status scheduling and presentation | Web visible-row binding; shared UI renders supplied state | Web queries visible rows with at most two concurrent requests, scopes ephemeral cache to authenticated account/session/transcript update identity, cancels stale requests and prioritizes hover/focus refresh after the short freshness interval. PR indicators, unread dots and failure icons are independent. No association table, history backfill, arbitrary-URL fetch or shared-UI network authority is added. |
+
+PR display state is derived and volatile: GitHub can change without a transcript
+update, so hover/focus refreshes stale verification. An unavailable result is
+never rendered as a successfully verified closed pull request.

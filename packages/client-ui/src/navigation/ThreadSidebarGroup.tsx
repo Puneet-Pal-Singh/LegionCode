@@ -6,6 +6,8 @@ import {
   Edit2,
   Folder,
   FolderOpen,
+  GitMerge,
+  GitPullRequest,
   LoaderCircle,
   MoreHorizontal,
   Pause,
@@ -18,7 +20,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { ThreadSidebarDisplayStatus, ThreadSidebarItem } from "@legioncode/sdk";
+import type { HostedSessionPullRequestsResponse, ThreadSidebarDisplayStatus, ThreadSidebarItem } from "@legioncode/sdk";
 
 export interface ThreadSidebarEntry {
   item: ThreadSidebarItem;
@@ -48,6 +50,8 @@ export interface ThreadSidebarGroupProps {
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
+  pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
+  onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   archived?: boolean;
   onConfirmArchive: (selectionId: string) => Promise<void>;
   onCancelArchive: () => void;
@@ -259,6 +263,8 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
                     onUnpin={props.onUnpin}
                     onArchive={props.onArchive}
                     onUnarchive={props.onUnarchive}
+                    pullRequestResult={props.pullRequestsBySessionId?.get(item.selectionId)}
+                    onVisibleSelectionChange={props.onVisibleSelectionChange}
                     archived={props.archived}
                     setPendingArchiveId={props.setPendingArchiveId}
                     onConfirmArchive={props.onConfirmArchive}
@@ -303,6 +309,8 @@ interface ThreadSidebarRowProps {
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
+  pullRequestResult?: HostedSessionPullRequestsResponse;
+  onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   archived?: boolean;
   setPendingArchiveId: (selectionId: string | null) => void;
   onConfirmArchive: (selectionId: string) => Promise<void>;
@@ -328,6 +336,8 @@ function ThreadSidebarRow({
   onUnpin,
   onArchive,
   onUnarchive,
+  pullRequestResult,
+  onVisibleSelectionChange,
   archived,
   setPendingArchiveId,
   onConfirmArchive,
@@ -335,13 +345,61 @@ function ThreadSidebarRow({
 }: ThreadSidebarRowProps): React.ReactElement {
   const rowRef = useRef<HTMLLIElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const pendingCardFocusRef = useRef(false);
+  const suppressPreviewOnFocusRef = useRef(false);
   const isDetailsOpen = previewSelectionId === item.selectionId;
   const [detailsPosition, setDetailsPosition] = useState<{ left: number; top: number } | null>(null);
   const detailsId = `thread-details-${item.selectionId}`;
   const hideIndicatorCluster = hasThreadActions && !confirming;
+  const pullRequestStates = pullRequestResult?.status === "available"
+    ? Array.from(new Set(pullRequestResult.pullRequests.map((pullRequest) => pullRequest.state))).filter((state) => state !== "closed")
+    : [];
+  const indicatorSlots = Number(item.isUnread) + Number(item.displayStatus === "running" || item.displayStatus === "paused" || item.displayStatus === "failed") + pullRequestStates.length;
+
+  useEffect(() => {
+    const node = rowRef.current;
+    if (!node || !onVisibleSelectionChange || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      onVisibleSelectionChange(item.selectionId, Boolean(entry?.isIntersecting && entry.intersectionRatio > 0));
+    });
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      onVisibleSelectionChange(item.selectionId, false);
+    };
+  }, [item.selectionId, onVisibleSelectionChange]);
+
+  useEffect(() => () => {
+    if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+  }, []);
+
+  function schedulePreviewClose(): void {
+    if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = window.setTimeout(() => onPreviewClose(item.selectionId), 120);
+  }
+
+  function keepPreviewOpen(): void {
+    if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = null;
+    onPreviewOpen(item.selectionId);
+  }
+
+  function focusFirstPullRequestLink(): void {
+    const firstLink = detailsRef.current?.querySelector<HTMLAnchorElement>("a[href]");
+    if (!firstLink) return;
+    pendingCardFocusRef.current = false;
+    firstLink.focus();
+  }
 
   useLayoutEffect(() => {
     if (!isDetailsOpen) return;
+    if (pendingCardFocusRef.current) {
+      focusFirstPullRequestLink();
+      if (pullRequestResult?.status === "unavailable" || (pullRequestResult?.status === "available" && pullRequestResult.pullRequests.length === 0)) {
+        pendingCardFocusRef.current = false;
+      }
+    }
     const updatePosition = (): void => {
       const rect = rowRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -357,7 +415,16 @@ function ThreadSidebarRow({
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape") onPreviewClose(item.selectionId);
+      if (event.key !== "Escape") return;
+      const activeElement = document.activeElement;
+      const focusIsInDetails = detailsRef.current?.contains(activeElement) ?? false;
+      if (!focusIsInDetails && !rowRef.current?.contains(activeElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pendingCardFocusRef.current = false;
+      suppressPreviewOnFocusRef.current = focusIsInDetails;
+      onPreviewClose(item.selectionId);
+      rowRefs.get(item.selectionId)?.focus();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -365,7 +432,7 @@ function ThreadSidebarRow({
       window.removeEventListener("scroll", updatePosition, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isDetailsOpen, item.selectionId, item.title, workspaceLabel, relativeTime, onPreviewClose]);
+  }, [isDetailsOpen, item.selectionId, item.title, workspaceLabel, relativeTime, pullRequestResult, onPreviewClose]);
 
   const pinAction = item.isPinned ? onUnpin : onPin;
   const PinActionIcon = item.isPinned ? PinOff : Pin;
@@ -374,12 +441,19 @@ function ThreadSidebarRow({
     <li
       ref={rowRef}
       className="group relative"
-      onMouseEnter={() => onPreviewOpen(item.selectionId)}
-      onMouseLeave={() => onPreviewClose(item.selectionId)}
-      onFocusCapture={() => onPreviewOpen(item.selectionId)}
+      onMouseEnter={keepPreviewOpen}
+      onMouseLeave={schedulePreviewClose}
+      onFocusCapture={() => {
+        if (suppressPreviewOnFocusRef.current) {
+          suppressPreviewOnFocusRef.current = false;
+          return;
+        }
+        keepPreviewOpen();
+      }}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          onPreviewClose(item.selectionId);
+        const nextTarget = event.relatedTarget as Node | null;
+        if (!event.currentTarget.contains(nextTarget) && !detailsRef.current?.contains(nextTarget)) {
+          schedulePreviewClose();
         }
       }}
     >
@@ -399,11 +473,24 @@ function ThreadSidebarRow({
         aria-label={`${item.title}${item.displayStatus === "waiting_for_approval" ? ", awaiting approval" : item.displayStatus === "failed" ? ", failed" : ""}${item.isUnread ? ", unread activity" : ""}`}
         tabIndex={focusedIndex === index ? 0 : -1}
         onFocus={() => onFocus(index)}
-        onKeyDown={(event) => onKeyDown(event, index, item)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowRight" && (pullRequestResult === undefined || (pullRequestResult.status === "available" && pullRequestResult.pullRequests.length > 0))) {
+            event.preventDefault();
+            event.stopPropagation();
+            pendingCardFocusRef.current = true;
+            if (isDetailsOpen) focusFirstPullRequestLink();
+            else keepPreviewOpen();
+            return;
+          }
+          onKeyDown(event, index, item);
+        }}
         onClick={() => onSelect(item.selectionId)}
         className={`relative h-[34px] w-full rounded-md text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${item.isSelected ? "bg-zinc-800/55 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/35 hover:text-zinc-100"} ${confirming ? "pr-28" : ""}`}
       >
-        <div className={`flex min-w-0 items-center gap-2 pl-8 pr-2 ${hasThreadActions ? "pr-14" : ""}`}>
+        <div
+          className={`flex min-w-0 items-center gap-2 pl-8 ${hasThreadActions ? "pr-14" : "pr-2"}`}
+          style={{ paddingRight: Math.max(hasThreadActions ? 56 : 8, indicatorSlots * 16 + Math.max(0, indicatorSlots - 1) * 6 + 8) }}
+        >
           <div className="flex min-w-0 items-center gap-2">
             <span className={`min-w-0 truncate text-sm ${item.isSelected ? "font-medium" : "font-normal"}`}>
               {item.title}
@@ -427,6 +514,13 @@ function ThreadSidebarRow({
               </span>
             ) : null}
             <StatusIndicator status={item.displayStatus} />
+            {pullRequestResult?.status === "available" ? (
+              pullRequestStates.map((state) => (
+                <span key={state} className={`inline-flex size-4 items-center justify-center ${state === "merged" ? "text-violet-400" : "text-emerald-400"}`} aria-label={state === "merged" ? "Merged pull request" : "Open pull request"} title={state === "merged" ? "Merged pull request" : "Open pull request"}>
+                  {state === "merged" ? <GitMerge size={14} aria-hidden="true" /> : <GitPullRequest size={14} aria-hidden="true" />}
+                </span>
+              ))
+            ) : null}
         </div>
       </button>
 
@@ -494,8 +588,16 @@ function ThreadSidebarRow({
             <div
               ref={detailsRef}
               id={detailsId}
-              role="tooltip"
-              className="pointer-events-none fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur"
+              role="dialog"
+              aria-label={`${item.title} details`}
+              onMouseEnter={keepPreviewOpen}
+              onMouseLeave={schedulePreviewClose}
+              onFocusCapture={keepPreviewOpen}
+              onBlurCapture={(event) => {
+                const nextTarget = event.relatedTarget as Node | null;
+                if (!event.currentTarget.contains(nextTarget) && !rowRef.current?.contains(nextTarget)) schedulePreviewClose();
+              }}
+              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur"
               style={detailsPosition ?? { left: 0, top: 0, visibility: "hidden" }}
             >
               <div className="flex min-w-0 items-center justify-between gap-4">
@@ -508,6 +610,22 @@ function ThreadSidebarRow({
                 <FolderOpen size={14} className="shrink-0" aria-hidden="true" />
                 <span className="truncate">{workspaceLabel}</span>
               </div>
+              {pullRequestResult?.status === "available" && pullRequestResult.pullRequests.length > 0 ? (
+                <div className="mt-3 space-y-1 border-t border-zinc-800 pt-2">
+                  {pullRequestResult.pullRequests.map((pullRequest) => (
+                    <a key={`${pullRequest.url}`} href={pullRequest.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500">
+                      {pullRequest.state === "merged" ? <GitMerge size={14} className="shrink-0 text-violet-400" aria-hidden="true" /> : <GitPullRequest size={14} className={`shrink-0 ${pullRequest.state === "open" ? "text-emerald-400" : "text-zinc-500"}`} aria-hidden="true" />}
+                      <span className="min-w-0 flex-1 truncate">{pullRequest.title}</span>
+                      <span className="shrink-0 text-zinc-500">#{pullRequest.number}</span>
+                      <span className={`shrink-0 ${pullRequest.state === "merged" ? "text-violet-400" : pullRequest.state === "open" ? "text-emerald-400" : "text-zinc-500"}`}>
+                        {pullRequest.state === "merged" ? "Merged" : pullRequest.state === "closed" ? "Closed" : pullRequest.draft ? "Draft" : "Open"}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              ) : pullRequestResult?.status === "unavailable" ? (
+                <p className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">Pull request status unavailable</p>
+              ) : null}
             </div>,
             document.body,
           )

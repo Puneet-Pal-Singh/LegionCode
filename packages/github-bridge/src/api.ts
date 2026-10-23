@@ -57,6 +57,8 @@ export interface PullRequest {
   title: string;
   body: string | null;
   state: "open" | "closed";
+  draft: boolean;
+  merged_at: string | null;
   html_url: string;
   head: {
     ref: string;
@@ -72,6 +74,17 @@ export interface PullRequest {
   };
   created_at: string;
   updated_at: string;
+}
+
+export class GitHubAPIError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly rateLimited: boolean,
+  ) {
+    super(message);
+    this.name = "GitHubAPIError";
+  }
 }
 
 export interface GitHubEmail {
@@ -118,7 +131,18 @@ export class GitHubAPIClient {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`GitHub API error (${response.status}): ${error}`);
+      const rateLimited = response.status === 429 || (
+        response.status === 403 && (
+          response.headers.get("x-ratelimit-remaining") === "0" ||
+          response.headers.has("retry-after") ||
+          /(?:api rate limit exceeded|secondary rate limit|abuse detection)/i.test(error)
+        )
+      );
+      throw new GitHubAPIError(
+        response.status,
+        `GitHub API error (${response.status}): ${error}`,
+        rateLimited,
+      );
     }
 
     return response.json();
@@ -320,8 +344,9 @@ export class GitHubAPIClient {
     owner: string,
     repo: string,
     number: number,
+    signal?: AbortSignal,
   ): Promise<PullRequest> {
-    return this.request(`/repos/${owner}/${repo}/pulls/${number}`);
+    return this.request(`/repos/${owner}/${repo}/pulls/${number}`, { signal });
   }
 
   /**

@@ -15,6 +15,7 @@ import {
   type HostedSessionCreateRequest,
   type HostedSessionReadReceipt,
   type HostedSessionWorkspaceContext,
+  type HostedSessionPullRequestsResponse,
   type ConversationHistoryRequest,
   type ConversationHistoryResponse,
   ThreadIdSchema,
@@ -81,6 +82,7 @@ export type AppServerClient = {
   listSessions(): Promise<HostedSession[]>;
   listArchivedSessions(): Promise<HostedSession[]>;
   getSessionWorkspaceContext(sessionId: string, runId?: string): Promise<HostedSessionWorkspaceContext>;
+  getSessionPullRequests(sessionId: string): Promise<HostedSessionPullRequestsResponse>;
   acknowledgeSessionReadReceipt(sessionId: string, terminalTurnId: string): Promise<HostedSessionReadReceipt>;
   createSession(params: HostedSessionCreateRequest): Promise<HostedSession>;
   renameSession(sessionId: string, title: string): Promise<HostedSession>;
@@ -138,6 +140,9 @@ export function createAppServerClient(
     getSessionWorkspaceContext: async (sessionId, runId) => request(options, {
       method: "session/workspaceContext", params: { sessionId, ...(runId ? { runId } : {}) },
     }, AppServerResultSchemas["session/workspaceContext"]),
+    getSessionPullRequests: async (sessionId) => request(options, {
+      method: "session/pullRequests", params: { sessionId },
+    }, AppServerResultSchemas["session/pullRequests"]),
     acknowledgeSessionReadReceipt: async (sessionId, terminalTurnId) => request(options, {
       method: "session/readReceipt", params: { sessionId, terminalTurnId },
     }, AppServerResultSchemas["session/readReceipt"]),

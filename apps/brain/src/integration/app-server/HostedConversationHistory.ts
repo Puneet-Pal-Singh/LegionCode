@@ -19,7 +19,9 @@ export async function readHostedConversationHistory(
   env: Env,
   userId: string,
   query: ConversationHistoryRequest,
+  signal?: AbortSignal,
 ): Promise<ConversationHistoryResponse> {
+  if (signal?.aborted) throw new Error("Conversation history read was cancelled");
   const result = await withTranscriptRepository(env, (repository) =>
     repository.listTranscript({
       sessionId: query.session,

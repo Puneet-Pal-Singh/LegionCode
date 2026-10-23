@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ThreadSidebar } from "@legioncode/client-ui";
 import type {
   AgentSession,
   SessionHydrationStatus,
 } from "../../hooks/useSessionManager";
 import { projectAgentSessionsForSidebar } from "../../lib/session-sidebar-selectors";
+import { useSessionPullRequests } from "../../hooks/useSessionPullRequests";
 import {
   SidebarAccountMenu,
   type SidebarAccountUser,
@@ -27,6 +28,7 @@ interface AgentSidebarProps {
   onAddRepository: () => void;
   onOpenSettings: () => void;
   accountUser?: SidebarAccountUser | null;
+  accountId?: string | null;
   onLogout?: () => Promise<void>;
   width?: number;
 }
@@ -48,9 +50,28 @@ export function AgentSidebar({
   onAddRepository,
   onOpenSettings,
   accountUser,
+  accountId = null,
   onLogout,
   width = 280,
 }: AgentSidebarProps): React.ReactElement {
+  const [visibleSessionIds, setVisibleSessionIds] = useState<ReadonlySet<string>>(() => new Set());
+  const { pullRequestsBySessionId, prioritizeSession } = useSessionPullRequests(
+    sessions,
+    visibleSessionIds,
+    accountId,
+  );
+  const handleVisibleSelectionChange = useCallback((selectionId: string, visible: boolean) => {
+    setVisibleSessionIds((current) => {
+      if (current.has(selectionId) === visible) return current;
+      const next = new Set(current);
+      if (visible) next.add(selectionId);
+      else next.delete(selectionId);
+      return next;
+    });
+  }, []);
+  const handlePreviewSelectionChange = useCallback((selectionId: string | null) => {
+    prioritizeSession(selectionId);
+  }, [prioritizeSession]);
   const model = useMemo(
     () =>
       projectAgentSessionsForSidebar({
@@ -102,6 +123,9 @@ export function AgentSidebar({
       onPin={onPin}
       onUnpin={onUnpin}
       onUnarchive={(selectionId) => onUnarchive?.(selectionId)}
+      pullRequestsBySessionId={pullRequestsBySessionId}
+      onVisibleSelectionChange={handleVisibleSelectionChange}
+      onPreviewSelectionChange={handlePreviewSelectionChange}
       onClose={onClose}
       footer={footer}
       width={width}

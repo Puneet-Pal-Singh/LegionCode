@@ -17,6 +17,24 @@ export const HostedSessionWorkspaceContextSchema = z.object({
   selectedBranch: z.string().min(1).nullable(),
   runBranch: z.string().min(1).nullable(),
 }).strict();
+export const HostedSessionPullRequestSchema = z.object({
+  number: z.number().int().positive().safe(),
+  title: z.string().min(1),
+  url: z.string().url(),
+  state: z.enum(["open", "closed", "merged"]),
+  draft: z.boolean(),
+}).strict();
+export const HostedSessionPullRequestsResponseSchema = z.discriminatedUnion("status", [
+  z.object({
+    sessionId: z.string().uuid(),
+    status: z.literal("available"),
+    pullRequests: z.array(HostedSessionPullRequestSchema),
+  }).strict(),
+  z.object({
+    sessionId: z.string().uuid(),
+    status: z.literal("unavailable"),
+  }).strict(),
+]);
 export const HostedSessionReadReceiptRequestSchema = HostedSessionParamsSchema.extend({ terminalTurnId: TurnIdSchema }).strict();
 export const HostedSessionReadReceiptSchema = z.object({
   sessionId: z.string().uuid(),
@@ -71,6 +89,8 @@ export const HostedSessionResponseSchema = z.object({ session: HostedSessionSche
 export type HostedSession = z.infer<typeof HostedSessionSchema>;
 export type HostedSessionWorkspaceContext = z.infer<typeof HostedSessionWorkspaceContextSchema>;
 export type HostedSessionWorkspaceContextRequest = z.infer<typeof HostedSessionWorkspaceContextRequestSchema>;
+export type HostedSessionPullRequest = z.infer<typeof HostedSessionPullRequestSchema>;
+export type HostedSessionPullRequestsResponse = z.infer<typeof HostedSessionPullRequestsResponseSchema>;
 export type HostedSessionReadReceipt = z.infer<typeof HostedSessionReadReceiptSchema>;
 export type HostedSessionCreateRequest = z.input<typeof HostedSessionCreateRequestSchema>;
 export type HostedSessionRenameRequest = z.infer<typeof HostedSessionRenameRequestSchema>;
