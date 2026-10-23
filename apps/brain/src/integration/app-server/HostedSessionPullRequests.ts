@@ -88,6 +88,7 @@ async function readHostedSessionPullRequests(
 function findPullRequestLinks(messages: readonly ConversationHistoryMessage[]): PullRequestCandidate[] {
   const candidates = new Map<string, PullRequestCandidate>();
   for (const message of messages) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
     for (const text of visibleText(message)) {
       PULL_REQUEST_URL.lastIndex = 0;
       for (const match of text.matchAll(PULL_REQUEST_URL)) {
