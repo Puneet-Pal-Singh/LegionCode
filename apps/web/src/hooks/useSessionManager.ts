@@ -117,6 +117,12 @@ function mergeProjectionIfChanged(
   return unchanged ? current : merged;
 }
 
+function parseIsoTimestamp(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 function mergeHydratedSessions(
   serverSessions: AgentSession[],
   currentSessions: AgentSession[],
@@ -729,13 +735,19 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         const target = current.find((session) => session.id === id);
         if (!target) return current;
         const mergedTitle = mergeServerSessionProjection(target, serverSession);
+        const currentUpdatedAt = parseIsoTimestamp(target.updatedAt);
+        const serverUpdatedAt = parseIsoTimestamp(serverSession.updatedAt);
         const updatedTarget: AgentSession = {
           ...target,
           name: mergedTitle.name,
           titleSource: mergedTitle.titleSource,
           titleVersion: mergedTitle.titleVersion,
           titleStatus: mergedTitle.titleStatus,
-          updatedAt: serverSession.updatedAt,
+          updatedAt:
+            serverUpdatedAt !== null &&
+            (currentUpdatedAt === null || serverUpdatedAt > currentUpdatedAt)
+              ? serverSession.updatedAt
+              : target.updatedAt,
         };
         const next = current.map((session) =>
           session.id === id ? updatedTarget : session,
