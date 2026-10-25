@@ -405,6 +405,16 @@ function ThreadSidebarRow({
     requestAnimationFrame(() => renameButtonRef.current?.focus());
   }
 
+  function beginRename(): void {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+    setRenameDraft(item.title);
+    setRenameError(null);
+    setIsRenaming(true);
+  }
+
   async function saveRename(): Promise<void> {
     const title = renameDraft.trim().slice(0, 80);
     if (!title || !onRenameSession || isRenamePending) return;
@@ -442,6 +452,8 @@ function ThreadSidebarRow({
 
   function schedulePreviewClose(): void {
     if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = null;
+    if (isRenaming) return;
     previewTimerRef.current = window.setTimeout(() => onPreviewClose(item.selectionId), 120);
   }
 
@@ -689,7 +701,15 @@ function ThreadSidebarRow({
                         if (event.key === "Escape") {
                           event.preventDefault();
                           event.stopPropagation();
-                          cancelRename();
+                          if (!isRenamePending) {
+                            setRenameDraft(item.title);
+                            setRenameError(null);
+                            setIsRenaming(false);
+                          }
+                          pendingCardFocusRef.current = false;
+                          suppressPreviewOnFocusRef.current = true;
+                          onPreviewClose(item.selectionId);
+                          rowRefs.get(item.selectionId)?.focus();
                         }
                       }}
                       className="h-7 w-full min-w-0 rounded border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
@@ -730,11 +750,7 @@ function ThreadSidebarRow({
                       type="button"
                       aria-label={`Rename ${item.title}`}
                       title={`Rename ${item.title}`}
-                      onClick={() => {
-                        setRenameDraft(item.title);
-                        setRenameError(null);
-                        setIsRenaming(true);
-                      }}
+                      onClick={beginRename}
                       className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
                     >
                       <Pencil size={13} aria-hidden="true" />
