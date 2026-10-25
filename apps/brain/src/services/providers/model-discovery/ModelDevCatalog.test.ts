@@ -135,6 +135,22 @@ describe("HttpModelDevCatalogSource", () => {
       throw new Error("network down");
     });
     await expect(source.getCatalog()).resolves.toBeNull();
+
+    vi.useFakeTimers();
+    const fetch = vi.fn((_url: string, options?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const bounded = new HttpModelDevCatalogSource(undefined, "https://catalog.test/slow.json").getCatalog();
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(bounded).resolves.toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("returns null on non-ok response", async () => {

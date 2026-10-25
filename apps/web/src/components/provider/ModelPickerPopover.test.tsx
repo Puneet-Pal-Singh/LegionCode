@@ -226,9 +226,8 @@ describe("ModelPickerPopover", () => {
         screen.getByRole("button", { name: /open model picker/i }),
       );
 
-      expect(screen.getByTestId("model-picker-popover")).toHaveTextContent(
-        "Loading selected models...",
-      );
+      expect(screen.queryByTestId("model-picker-popover")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /open model picker/i })).toHaveAttribute("aria-busy", "true");
     });
 
     it("opens popover on button click", async () => {
@@ -1023,11 +1022,9 @@ describe("ModelPickerPopover", () => {
 
       fireEvent.click(triggerButton);
 
-      expect(
-        await screen.findByText(
-          /fetching available models from your providers/i,
-        ),
-      ).toBeInTheDocument();
+      expect(screen.queryByTestId("model-picker-popover")).not.toBeInTheDocument();
+      expect(triggerButton).toHaveAttribute("aria-busy", "true");
+      expect(triggerButton).toHaveAttribute("aria-expanded", "false");
     });
 
     it("shows inline loading text while selected provider models are still loading", async () => {
