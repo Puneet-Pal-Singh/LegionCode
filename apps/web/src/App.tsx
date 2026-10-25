@@ -229,7 +229,7 @@ function AppContent() {
   );
   const handlePreviewSessionChange = useCallback(
     (selectionId: string | null) => {
-      prioritizeSession(selectionId ?? activeSessionId);
+      prioritizeSession(selectionId ?? activeSessionId, selectionId !== null);
     },
     [activeSessionId, prioritizeSession],
   );
