@@ -16,7 +16,7 @@ export function WorkspaceTopBar({
       {title ? <h1 className="lc-workspace-topbar-title">{title}</h1> : null}
       {leading ? <div className="lc-workspace-topbar-leading">{leading}</div> : null}
       <div className="lc-workspace-topbar-spacer" />
-      {actions ? <div className="lc-workspace-topbar-actions">{actions}</div> : null}
+      {actions ? <div className="lc-workspace-topbar-actions shrink-0">{actions}</div> : null}
     </header>
   );
 }

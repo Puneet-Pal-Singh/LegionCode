@@ -6,14 +6,11 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Check,
   ChevronDown,
-  Cloud,
   FileDiff,
   GitBranch,
   GitCommitHorizontal,
   Image,
-  Laptop,
   List as ListIcon,
   Loader2,
   GitMerge,
@@ -47,16 +44,29 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isBranchOpen, setIsBranchOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => {
     setIsOpen(false);
     setIsBranchOpen(false);
   }, []);
   const { branches, loading } = useBranches(props.repo);
   useOutsideDismiss(rootRef, isOpen || isBranchOpen, close);
+  useEffect(() => {
+    if (!isOpen && !isBranchOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [close, isBranchOpen, isOpen]);
 
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           const next = !isOpen;
@@ -84,7 +94,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           branches={branches}
           currentBranch={props.branch}
           isLoading={loading}
-          className="right-[348px] top-10"
+          className="right-0 top-10 min-[768px]:right-[348px]"
           onBranchSelect={(branch) => {
             props.onBranchChange?.(branch);
             setIsBranchOpen(false);
@@ -101,15 +111,12 @@ function EnvironmentPanel(
     onOpenBranch: () => void;
   },
 ) {
-  const [runtimeOpen, setRuntimeOpen] = useState(false);
   const closeAfter = (action: () => void) => () => {
     action();
     props.onClose();
   };
   const actions = {
     ...props,
-    runtimeOpen,
-    setRuntimeOpen,
     onOpenChanges: props.onOpenChanges
       ? closeAfter(props.onOpenChanges)
       : undefined,
@@ -133,9 +140,8 @@ function EnvironmentPanelView({
     <div
       role="dialog"
       aria-label="Environment summary"
-      className="ui-surface-popover absolute right-0 top-10 z-50 max-h-[min(70vh,560px)] w-[340px] overflow-y-auto p-2"
+      className="ui-surface-popover absolute right-0 top-10 z-50 max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto !rounded-[20px] !bg-[#242424] p-2"
     >
-      <div className="px-2.5 py-1.5 text-xs text-zinc-400">Environment</div>
       <EnvironmentActions {...actions} />
     </div>
   );
@@ -143,8 +149,6 @@ function EnvironmentPanelView({
 
 interface EnvironmentActionsProps extends EnvironmentSummaryMenuProps {
   pullRequestLoading: boolean;
-  runtimeOpen: boolean;
-  setRuntimeOpen: (open: boolean) => void;
   onOpenBranch: () => void;
 }
 
@@ -154,50 +158,67 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
     branch,
     changedFileCount,
     pullRequestLoading,
-    runtimeOpen,
-    setRuntimeOpen,
     onOpenBranch,
     onOpenChanges,
     onOpenCommit,
   } = props;
+  const hasEnvironmentActions = Boolean(
+    (repo && props.onBranchChange) ||
+      (changedFileCount !== undefined && changedFileCount > 0 &&
+        (onOpenChanges || onOpenCommit)),
+  );
+  const savedSources = props.savedSources ?? EMPTY_SOURCES;
+  const showPullRequests =
+    pullRequestLoading ||
+    props.pullRequestResult?.status === "unavailable" ||
+    (props.pullRequestResult?.status === "available" &&
+      props.pullRequestResult.pullRequests.length > 0);
+  const showSources =
+    savedSources.status !== "ready" || savedSources.images.length > 0;
+  const hasSummaryContent =
+    showPullRequests || showSources || hasEnvironmentActions;
   return (
     <>
-      <section aria-label="Pull requests" className="mb-2">
-        <SectionHeading>Pull requests</SectionHeading>
-        <PullRequestStatus
-          loading={pullRequestLoading}
-          result={props.pullRequestResult}
+      {showPullRequests ? (
+        <section
+          aria-label="Pull requests"
+          className="border-b border-zinc-800/80 px-1 pb-2"
+        >
+          <SectionHeading>Pull requests</SectionHeading>
+          <PullRequestStatus
+            loading={pullRequestLoading}
+            result={props.pullRequestResult}
+          />
+        </section>
+      ) : null}
+      {showSources ? (
+        <SourcesSummary
+          sources={savedSources}
+          onOpenSources={props.onOpenSources}
         />
-      </section>
-      <UnavailableSummary label="Outputs" />
-      <UnavailableSummary label="Subagents" />
-      <UnavailableSummary label="Background processes" />
-      <SourcesSummary
-        sources={props.savedSources ?? EMPTY_SOURCES}
-        onOpenSources={props.onOpenSources}
-      />
-      <div className="mt-2 border-t border-zinc-700 pt-1">
-        <div className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-500">
-          Environment controls
+      ) : null}
+      {hasEnvironmentActions ? (
+        <div className="mt-2 border-t border-zinc-800/80 pt-1">
+          {onOpenChanges ? (
+            <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
+          ) : null}
+          <BranchAction
+            repo={repo}
+            branch={branch}
+            onToggle={onOpenBranch}
+            enabled={Boolean(props.onBranchChange)}
+          />
+          <CommitAction
+            visible={changedFileCount !== undefined && changedFileCount > 0 && Boolean(onOpenCommit)}
+            onClick={onOpenCommit ?? (() => undefined)}
+          />
         </div>
-        {onOpenChanges ? (
-          <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
-        ) : null}
-        <RuntimeAction
-          open={runtimeOpen}
-          onToggle={() => setRuntimeOpen(!runtimeOpen)}
-        />
-        <BranchAction
-          repo={repo}
-          branch={branch}
-          onToggle={onOpenBranch}
-          enabled={Boolean(props.onBranchChange)}
-        />
-        <CommitAction
-          visible={changedFileCount !== undefined && changedFileCount > 0 && Boolean(onOpenCommit)}
-          onClick={onOpenCommit ?? (() => undefined)}
-        />
-      </div>
+      ) : null}
+      {!hasSummaryContent ? (
+        <p role="status" className="px-2.5 py-2 text-xs text-zinc-400">
+          No additional details for this chat.
+        </p>
+      ) : null}
     </>
   );
 }
@@ -213,20 +234,6 @@ function SectionHeading({ children }: { children: ReactNode }) {
     <h3 className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-400">
       {children}
     </h3>
-  );
-}
-
-function UnavailableSummary({ label }: { label: string }) {
-  return (
-    <section aria-label={label}>
-      <SectionHeading>{label}</SectionHeading>
-      <div
-        aria-disabled="true"
-        className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-zinc-600"
-      >
-        <span className="min-w-0 flex-1">Unavailable</span>
-      </div>
-    </section>
   );
 }
 
@@ -246,12 +253,10 @@ function SourcesSummary({
         ? "Saved sources could not be loaded."
         : sources.status === "recovery-required"
           ? "Saved chat history needs recovery."
-          : sourceCount === 0
-            ? "No saved sources in this chat."
-            : null;
+          : null;
 
   return (
-    <section aria-label="Sources" className="mt-1">
+    <section aria-label="Sources" className="border-b border-zinc-800/80 px-1 pb-2 pt-1">
       <div className="flex items-center justify-between">
         <SectionHeading>Sources</SectionHeading>
         {sourceCount > 0 ? (
@@ -328,26 +333,6 @@ function ChangesAction({
       detail={`${count}`}
       onClick={onClick}
     />
-  );
-}
-
-function RuntimeAction({
-  open,
-  onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <>
-      <SummaryButton
-        icon={<Cloud size={15} />}
-        label="LegionCode cloud"
-        chevron
-        onClick={onToggle}
-      />
-      {open ? <RuntimeOptions /> : null}
-    </>
   );
 }
 
@@ -470,25 +455,6 @@ function SummaryButton({
       {detail ? <span className="text-xs text-zinc-500">{detail}</span> : null}
       {chevron ? <ChevronDown size={15} className="text-zinc-500" /> : null}
     </button>
-  );
-}
-
-function RuntimeOptions() {
-  return (
-    <div className="mx-1.5 rounded-lg border border-zinc-700 bg-zinc-900/70 p-1">
-      <div className="flex items-center gap-2.5 rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-white">
-        <Cloud size={14} />
-        <span className="flex-1">LegionCode cloud</span>
-        <Check size={15} />
-      </div>
-      <div
-        aria-disabled="true"
-        className="flex items-center gap-2.5 px-2.5 py-1.5 text-xs text-zinc-600"
-      >
-        <Laptop size={14} />
-        Work locally
-      </div>
-    </div>
   );
 }
 

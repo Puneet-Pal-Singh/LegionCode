@@ -14,7 +14,6 @@ interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
   onReview?: () => void;
   isRightSidebarOpen?: boolean;
-  rightSidebarWidth?: number;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
   taskTitle?: string;
@@ -37,7 +36,6 @@ interface TopNavBarProps {
     onOpenSources?: () => void;
     onOpen?: () => void;
   };
-  isCompact?: boolean;
   isMobile?: boolean;
 }
 
@@ -93,33 +91,26 @@ function TopNavActions({
   onOpenIde,
   onReview,
   isRightSidebarOpen = false,
-  rightSidebarWidth = 0,
   onToggleRightSidebar,
   isAuthenticated = false,
   onConnectGitHub,
   environmentSummary,
-  isCompact = false,
   isMobile = false,
 }: Pick<
   TopNavBarProps,
   | "onOpenIde"
   | "onReview"
   | "isRightSidebarOpen"
-  | "rightSidebarWidth"
   | "onToggleRightSidebar"
   | "isAuthenticated"
   | "onConnectGitHub"
   | "environmentSummary"
-  | "isCompact"
   | "isMobile"
 >) {
   return (
     <div
       data-testid="top-nav-actions"
-      className="flex items-center gap-2 transition-[margin] duration-150"
-      style={{
-        marginRight: isRightSidebarOpen && !isCompact ? rightSidebarWidth : 0,
-      }}
+      className="flex shrink-0 items-center gap-2"
     >
       {!isAuthenticated && onConnectGitHub ? (
         <GitHubLoginButton
@@ -131,7 +122,7 @@ function TopNavActions({
       {!isMobile ? (
         <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
       ) : null}
-      {environmentSummary && !isCompact ? (
+      {environmentSummary ? (
         <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
       {!isRightSidebarOpen ? (

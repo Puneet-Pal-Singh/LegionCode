@@ -69,16 +69,32 @@ describe("EnvironmentSummaryMenu", () => {
     ).toHaveClass("p-1.5");
     expect(
       screen.getByRole("dialog", { name: "Environment summary" }),
-    ).toHaveClass("w-[340px]");
+    ).toHaveClass("w-[min(21.25rem,calc(100vw-1rem))]");
     expect(
       screen
         .getByRole("dialog", { name: "Environment summary" })
         .querySelector(".lucide-plus"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("LegionCode cloud")).toBeInTheDocument();
+    expect(screen.getByText("Pull requests")).toBeInTheDocument();
+    expect(screen.queryByText("Sources")).not.toBeInTheDocument();
+    expect(screen.queryByText("LegionCode cloud")).not.toBeInTheDocument();
+    expect(screen.queryByText("Outputs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Subagents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Background processes")).not.toBeInTheDocument();
     expect(screen.queryByText("Changes")).not.toBeInTheDocument();
     expect(screen.queryByText("Commit or push")).not.toBeInTheDocument();
 
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: "Environment summary" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Toggle environment summary" }),
+    ).toHaveFocus();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle environment summary" }),
+    );
     fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }));
     expect(
       screen.queryByRole("dialog", { name: "Environment summary" }),
@@ -127,7 +143,7 @@ describe("EnvironmentSummaryMenu", () => {
     ).not.toBeInTheDocument();
     await waitFor(() => screen.getByRole("button", { name: "feat/menu" }));
     expect(screen.getByRole("dialog", { name: "Switch branch" })).toHaveClass(
-      "right-[348px]",
+      "min-[768px]:right-[348px]",
     );
     fireEvent.click(screen.getByRole("button", { name: "feat/menu" }));
     expect(onBranchChange).toHaveBeenCalledWith("feat/menu");

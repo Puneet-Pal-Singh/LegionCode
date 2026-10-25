@@ -853,7 +853,6 @@ function AppContent() {
             <TopNavBar
               onReview={activeSession ? handleOpenReviewSidebar : undefined}
               isRightSidebarOpen={Boolean(activeSession) && isRightSidebarOpen}
-              rightSidebarWidth={rightSidebarWidth}
               onToggleRightSidebar={handleToggleRightSidebar}
               threadTitle={threadTitle}
               taskTitle={taskTitle}
@@ -893,7 +892,6 @@ function AppContent() {
                     }
                   : {}),
               } : undefined}
-              isCompact={isCompact}
               isMobile={isMobile}
             />
           </>
