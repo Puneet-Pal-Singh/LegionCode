@@ -88,7 +88,27 @@ export function WorkspaceSurfaceBody({
           <p className="mb-3 text-xs text-zinc-500">{savedSources.error}</p>
         ) : null}
         {savedSources.images.length > 0 ? (
-          <ChatImageGallery images={savedSources.images} />
+          <div className="space-y-2">
+            {savedSources.images.map((image) => (
+              <div
+                key={image.id}
+                className="flex min-w-0 items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2"
+              >
+                <ChatImageGallery
+                  images={[image]}
+                  className="shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-zinc-200" title={image.name}>
+                    {image.name}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {image.mediaType} · Attached to conversation
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : savedSources.status === "ready" ? (
           <p className="text-xs text-zinc-500">
             No saved image sources in this chat.
