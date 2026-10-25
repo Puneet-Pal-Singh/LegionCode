@@ -48,11 +48,7 @@ import {
   type HookSettingsAuditReadModel,
 } from "../../services/api/lifecycleClient.js";
 import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
-import { resolveHydratedChatImageSource } from "../chat/chatMessageImagePresentation";
-import {
-  projectSavedChatSources,
-  type SavedChatSourcesProjection,
-} from "../../lib/saved-chat-sources";
+import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -94,7 +90,6 @@ interface WorkspaceProps {
   onTabChange?: (tab: TabType) => void;
   summaryActionRequest?: { id: number; action: "changes" | "commit" | "sources" } | null;
   savedSources?: SavedChatSourcesProjection;
-  onSavedSourcesChange?: (projection: SavedChatSourcesProjection) => void;
   onOpenRepositoryPicker?: () => void;
 }
 
@@ -132,33 +127,8 @@ export function Workspace({
   onTabChange,
   summaryActionRequest,
   savedSources,
-  onSavedSourcesChange,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
-  const currentSavedSources = useMemo(
-    () =>
-      projectSavedChatSources({
-        messages: chat.messages,
-        restoredUserMessageIds: chat.restoredUserMessageIds,
-        hydrationStatus: chat.hydrationStatus,
-        isHydrating: chat.isHydrating,
-        hasHydrated: chat.hasHydrated,
-        hydrationError: chat.hydrationError,
-        resolveImageSource: resolveHydratedChatImageSource,
-      }),
-    [
-      chat.hydrationError,
-      chat.hydrationStatus,
-      chat.hasHydrated,
-      chat.isHydrating,
-      chat.messages,
-      chat.restoredUserMessageIds,
-    ],
-  );
-
-  useEffect(() => {
-    onSavedSourcesChange?.(currentSavedSources);
-  }, [currentSavedSources, onSavedSourcesChange]);
   const isSessionPersisted = isSessionPersistenceReady(
     sessionPersistenceStatus,
   );
@@ -818,7 +788,7 @@ export function Workspace({
                 selectedDiff={selectedDiff}
                 selectedContext={selectedContext}
                 selectedSources={selectedSources !== null}
-                savedSources={savedSources ?? currentSavedSources}
+                savedSources={savedSources ?? { images: [], status: "ready", error: null }}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}

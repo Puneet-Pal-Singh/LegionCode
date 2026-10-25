@@ -175,8 +175,8 @@ function AppContent() {
     hydrateFromServer: isAuthenticated && !isLoading,
   });
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
-  const activeSourcesKey = user?.id && activeSessionId
-    ? `${user.id}\0${activeSessionId}`
+  const activeSourcesKey = activeSessionId
+    ? `${user?.id ?? "anonymous-account"}\0${activeSessionId}`
     : null;
   const [savedSourcesSnapshot, setSavedSourcesSnapshot] = useState<{
     key: string;
@@ -920,6 +920,7 @@ function AppContent() {
                 onServerProjectionAvailable={() =>
                   void refreshSessionProjection(activeSessionId)
                 }
+                onSavedSourcesChange={handleSavedSourcesChange}
                 onRunIdChange={(runId) => {
                   if (!activeSession) return;
                   updateSession(activeSessionId, {
@@ -934,6 +935,7 @@ function AppContent() {
                   chat,
                   productMode,
                   setProductMode,
+                  savedSources,
                   showWorkspace,
                   registerFileCreatedRefresh,
                 }) =>
@@ -1018,8 +1020,7 @@ function AppContent() {
                         }}
                         onTabChange={setActiveTab}
                         summaryActionRequest={summaryActionRequest}
-                        savedSources={activeSavedSources}
-                        onSavedSourcesChange={handleSavedSourcesChange}
+                        savedSources={savedSources}
                         onOpenRepositoryPicker={handleOpenRepositoryPicker}
                       />
                     </motion.div>
