@@ -394,8 +394,19 @@ function ThreadSidebarRow({
   }, [item.selectionId]);
 
   useEffect(() => {
-    if (isRenaming) renameInputRef.current?.focus();
-  }, [isRenaming]);
+    if (
+      !isRenaming ||
+      !isDetailsOpen ||
+      currentSelectionIdRef.current !== item.selectionId
+    ) {
+      return;
+    }
+    if (isRenamePending) {
+      detailsRef.current?.focus();
+      return;
+    }
+    renameInputRef.current?.focus();
+  }, [isDetailsOpen, isRenamePending, isRenaming, item.selectionId]);
 
   function cancelRename(): void {
     if (isRenamePending) return;
@@ -668,6 +679,7 @@ function ThreadSidebarRow({
               id={detailsId}
               role="dialog"
               aria-label={`${item.title} details`}
+              tabIndex={-1}
               onMouseEnter={keepPreviewOpen}
               onMouseLeave={schedulePreviewClose}
               onFocusCapture={keepPreviewOpen}
