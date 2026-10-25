@@ -1,12 +1,13 @@
 import type { Repository } from "../../services/GitHubService";
 import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
+import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
 import { EnvironmentSummaryMenu } from "../layout/workspace/EnvironmentSummaryMenu";
 
 interface TopEnvironmentSummaryProps {
   repo: Repository | null;
   branch: string;
   pullRequestResult?: HostedSessionPullRequestsResponse;
-  sourceCount?: number;
+  savedSources?: SavedChatSourcesProjection;
   changedFileCount?: number;
   onBranchChange?: (branch: string) => void;
   onOpenChanges?: () => void;
@@ -19,7 +20,7 @@ export function TopEnvironmentSummary({
   repo,
   branch,
   pullRequestResult,
-  sourceCount,
+  savedSources,
   changedFileCount,
   onBranchChange,
   onOpenChanges,
@@ -33,7 +34,7 @@ export function TopEnvironmentSummary({
       branch={branch || repo?.default_branch || "main"}
       changedFileCount={changedFileCount}
       pullRequestResult={pullRequestResult}
-      sourceCount={sourceCount}
+      savedSources={savedSources}
       onBranchChange={onBranchChange}
       onOpenChanges={onOpenChanges}
       onOpenCommit={onOpenCommit}

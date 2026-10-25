@@ -7,6 +7,7 @@ import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
 import type { AgentSession } from "../../types/session";
 import type { Repository } from "../../services/GitHubService";
 import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
+import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
 import { TopEnvironmentSummary } from "../navigation/TopEnvironmentSummary";
 
 interface TopNavBarProps {
@@ -28,7 +29,7 @@ interface TopNavBarProps {
     repo: Repository | null;
     branch: string;
     pullRequestResult?: HostedSessionPullRequestsResponse;
-    sourceCount?: number;
+    savedSources?: SavedChatSourcesProjection;
     changedFileCount?: number;
     onBranchChange?: (branch: string) => void;
     onOpenChanges?: () => void;

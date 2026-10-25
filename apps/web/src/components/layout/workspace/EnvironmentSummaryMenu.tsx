@@ -28,13 +28,14 @@ import { listBranches } from "../../../services/GitHubService";
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
 import { cn } from "@legioncode/client-ui";
 import { BranchSelectorPanel } from "../../github/BranchSelector";
+import type { SavedChatSourcesProjection } from "../../../lib/saved-chat-sources";
 
 export interface EnvironmentSummaryMenuProps {
   repo: Repository | null;
   branch: string;
   changedFileCount?: number;
   pullRequestResult?: HostedSessionPullRequestsResponse;
-  sourceCount?: number;
+  savedSources?: SavedChatSourcesProjection;
   onBranchChange?: (branch: string) => void;
   onOpenChanges?: () => void;
   onOpenCommit?: () => void;
@@ -132,7 +133,7 @@ function EnvironmentPanelView({
     <div
       role="dialog"
       aria-label="Environment summary"
-      className="ui-surface-popover absolute right-0 top-10 z-50 w-[340px] p-2"
+      className="ui-surface-popover absolute right-0 top-10 z-50 max-h-[min(70vh,560px)] w-[340px] overflow-y-auto p-2"
     >
       <div className="px-2.5 py-1.5 text-xs text-zinc-400">Environment</div>
       <EnvironmentActions {...actions} />
@@ -161,51 +162,154 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
   } = props;
   return (
     <>
-      {onOpenChanges ? (
-        <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
-      ) : null}
-      {props.onOpenSources ? (
-        <SummaryButton
-          icon={<Image size={15} />}
-          label="Sources"
-          detail={props.sourceCount ? `${props.sourceCount}` : undefined}
-          onClick={props.onOpenSources}
+      <section aria-label="Pull requests" className="mb-2">
+        <SectionHeading>Pull requests</SectionHeading>
+        <PullRequestStatus
+          loading={pullRequestLoading}
+          result={props.pullRequestResult}
         />
-      ) : null}
-      <RuntimeAction
-        open={runtimeOpen}
-        onToggle={() => setRuntimeOpen(!runtimeOpen)}
-      />
-      <BranchAction
-        repo={repo}
-        branch={branch}
-        onToggle={onOpenBranch}
-        enabled={Boolean(props.onBranchChange)}
-      />
-      <CommitAction
-        visible={changedFileCount !== undefined && changedFileCount > 0 && Boolean(onOpenCommit)}
-        onClick={onOpenCommit ?? (() => undefined)}
-      />
+      </section>
       <UnavailableSummary label="Outputs" />
       <UnavailableSummary label="Subagents" />
-      <UnavailableSummary label="Background tasks" />
-      <PullRequestStatus
-        loading={pullRequestLoading}
-        result={props.pullRequestResult}
+      <UnavailableSummary label="Background processes" />
+      <SourcesSummary
+        sources={props.savedSources ?? EMPTY_SOURCES}
+        onOpenSources={props.onOpenSources}
       />
+      <div className="mt-2 border-t border-zinc-700 pt-1">
+        <div className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-500">
+          Environment controls
+        </div>
+        {onOpenChanges ? (
+          <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
+        ) : null}
+        <RuntimeAction
+          open={runtimeOpen}
+          onToggle={() => setRuntimeOpen(!runtimeOpen)}
+        />
+        <BranchAction
+          repo={repo}
+          branch={branch}
+          onToggle={onOpenBranch}
+          enabled={Boolean(props.onBranchChange)}
+        />
+        <CommitAction
+          visible={changedFileCount !== undefined && changedFileCount > 0 && Boolean(onOpenCommit)}
+          onClick={onOpenCommit ?? (() => undefined)}
+        />
+      </div>
     </>
+  );
+}
+
+const EMPTY_SOURCES: SavedChatSourcesProjection = {
+  images: [],
+  status: "ready",
+  error: null,
+};
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-400">
+      {children}
+    </h3>
   );
 }
 
 function UnavailableSummary({ label }: { label: string }) {
   return (
-    <div
-      aria-disabled="true"
-      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs text-zinc-600"
-    >
-      <span className="min-w-0 flex-1">{label}</span>
-      <span>Unavailable</span>
-    </div>
+    <section aria-label={label}>
+      <SectionHeading>{label}</SectionHeading>
+      <div
+        aria-disabled="true"
+        className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-zinc-600"
+      >
+        <span className="min-w-0 flex-1">Unavailable</span>
+      </div>
+    </section>
+  );
+}
+
+function SourcesSummary({
+  sources,
+  onOpenSources,
+}: {
+  sources: SavedChatSourcesProjection;
+  onOpenSources?: () => void;
+}) {
+  const sourceCount = sources.images.length;
+  const statusMessage = sources.status === "loading"
+    ? "Loading saved sources…"
+    : sources.status === "partial"
+      ? "Some saved sources could not be loaded."
+      : sources.status === "failed"
+        ? "Saved sources could not be loaded."
+        : sources.status === "recovery-required"
+          ? "Saved chat history needs recovery."
+          : sourceCount === 0
+            ? "No saved sources in this chat."
+            : null;
+
+  return (
+    <section aria-label="Sources" className="mt-1">
+      <div className="flex items-center justify-between">
+        <SectionHeading>Sources</SectionHeading>
+        {sourceCount > 0 ? (
+          <span className="px-2.5 text-[11px] text-zinc-500">{sourceCount}</span>
+        ) : null}
+      </div>
+      {sourceCount > 0 ? (
+        <div className="space-y-1 px-2.5">
+          {sources.images.slice(0, 3).map((image) => (
+            <div
+              key={image.id}
+              className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1"
+              title={image.name}
+            >
+              <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded border border-zinc-700 bg-zinc-900">
+                {image.src ? (
+                  <img
+                    src={image.src}
+                    alt=""
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <Image size={15} className="text-zinc-500" aria-hidden="true" />
+                )}
+              </div>
+              <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
+                {image.name}
+              </span>
+            </div>
+          ))}
+          {sourceCount > 3 ? (
+            <p className="px-1 text-[11px] text-zinc-500">
+              {sourceCount - 3} more saved {sourceCount - 3 === 1 ? "image" : "images"}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {statusMessage ? (
+        <p
+          role={sources.status === "ready" ? undefined : "status"}
+          className="px-2.5 py-1 text-xs text-zinc-500"
+        >
+          {statusMessage}
+        </p>
+      ) : null}
+      {sources.error ? (
+        <p className="px-2.5 pb-1 text-[11px] text-zinc-500">{sources.error}</p>
+      ) : null}
+      {onOpenSources ? (
+        <button
+          type="button"
+          onClick={onOpenSources}
+          className="mt-1 w-full rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+        >
+          View all
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -303,7 +407,7 @@ function PullRequestStatus({
     );
   if (!result || result.status === "unavailable") {
     return (
-      <div role="status" className="flex items-center gap-2 px-2.5 py-2 text-xs text-zinc-500">
+      <div role="status" className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-500">
         <GitPullRequest size={15} />
         Pull request status unavailable
       </div>
@@ -311,7 +415,7 @@ function PullRequestStatus({
   }
   if (result.pullRequests.length === 0) {
     return (
-      <div className="px-2.5 py-2 text-xs text-zinc-500">
+      <div className="px-2.5 py-1.5 text-xs text-zinc-500">
         No linked pull requests
       </div>
     );

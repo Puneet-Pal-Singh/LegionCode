@@ -874,11 +874,12 @@ function AppContent() {
                 pullRequestResult: user?.id
                   ? pullRequestsBySessionId.get(activeSession.id)
                   : { status: "unavailable", sessionId: activeSession.id },
-                sourceCount: activeSavedSources.images.length,
+                savedSources: activeSavedSources,
                 onOpen: () => prioritizeSession(activeSession.id, true),
                 onOpenSources:
-                  activeSavedSources.images.length > 0 ||
-                  activeSavedSources.status !== "ready"
+                  isSessionPersistenceReady(activeSession.persistenceStatus) &&
+                  (activeSavedSources.images.length > 0 ||
+                    activeSavedSources.status !== "ready")
                     ? () => setSummaryActionRequest({
                         id: Date.now(),
                         action: "sources",
