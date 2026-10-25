@@ -9,23 +9,22 @@ import {
   Check,
   ChevronDown,
   Cloud,
-  ExternalLink,
   FileDiff,
   GitBranch,
   GitCommitHorizontal,
+  Image,
   Laptop,
   List as ListIcon,
   Loader2,
+  GitMerge,
+  GitPullRequest,
 } from "lucide-react";
 import type {
   Branch,
-  PullRequestSummary,
   Repository,
 } from "../../../services/GitHubService";
-import {
-  listBranches,
-  listOpenPullRequests,
-} from "../../../services/GitHubService";
+import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
+import { listBranches } from "../../../services/GitHubService";
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
 import { cn } from "@legioncode/client-ui";
 import { BranchSelectorPanel } from "../../github/BranchSelector";
@@ -33,10 +32,14 @@ import { BranchSelectorPanel } from "../../github/BranchSelector";
 export interface EnvironmentSummaryMenuProps {
   repo: Repository | null;
   branch: string;
-  changedFileCount: number;
-  onBranchChange: (branch: string) => void;
-  onOpenChanges: () => void;
-  onOpenCommit: () => void;
+  changedFileCount?: number;
+  pullRequestResult?: HostedSessionPullRequestsResponse;
+  sourceCount?: number;
+  onBranchChange?: (branch: string) => void;
+  onOpenChanges?: () => void;
+  onOpenCommit?: () => void;
+  onOpenSources?: () => void;
+  onOpen?: () => void;
 }
 
 export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
@@ -54,7 +57,11 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          const next = !isOpen;
+          setIsOpen(next);
+          if (next) props.onOpen?.();
+        }}
         aria-label="Toggle environment summary"
         aria-expanded={isOpen}
         className={cn(
@@ -78,7 +85,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           isLoading={loading}
           className="right-[348px] top-10"
           onBranchSelect={(branch) => {
-            props.onBranchChange(branch);
+            props.onBranchChange?.(branch);
             setIsBranchOpen(false);
           }}
         />
@@ -94,22 +101,24 @@ function EnvironmentPanel(
   },
 ) {
   const [runtimeOpen, setRuntimeOpen] = useState(false);
-  const { pullRequest, loading: pullRequestLoading } = useActivePullRequest(
-    props.repo,
-    props.branch,
-  );
   const closeAfter = (action: () => void) => () => {
     action();
     props.onClose();
   };
   const actions = {
     ...props,
-    pullRequest,
-    pullRequestLoading,
     runtimeOpen,
     setRuntimeOpen,
-    onOpenChanges: closeAfter(props.onOpenChanges),
-    onOpenCommit: closeAfter(props.onOpenCommit),
+    onOpenChanges: props.onOpenChanges
+      ? closeAfter(props.onOpenChanges)
+      : undefined,
+    onOpenCommit: props.onOpenCommit
+      ? closeAfter(props.onOpenCommit)
+      : undefined,
+    onOpenSources: props.onOpenSources
+      ? closeAfter(props.onOpenSources)
+      : undefined,
+    pullRequestLoading: props.pullRequestResult === undefined,
   };
   return <EnvironmentPanelView actions={actions} />;
 }
@@ -132,7 +141,6 @@ function EnvironmentPanelView({
 }
 
 interface EnvironmentActionsProps extends EnvironmentSummaryMenuProps {
-  pullRequest: PullRequestSummary | null;
   pullRequestLoading: boolean;
   runtimeOpen: boolean;
   setRuntimeOpen: (open: boolean) => void;
@@ -144,7 +152,6 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
     repo,
     branch,
     changedFileCount,
-    pullRequest,
     pullRequestLoading,
     runtimeOpen,
     setRuntimeOpen,
@@ -154,18 +161,51 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
   } = props;
   return (
     <>
-      <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
+      {onOpenChanges ? (
+        <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
+      ) : null}
+      {props.onOpenSources ? (
+        <SummaryButton
+          icon={<Image size={15} />}
+          label="Sources"
+          detail={props.sourceCount ? `${props.sourceCount}` : undefined}
+          onClick={props.onOpenSources}
+        />
+      ) : null}
       <RuntimeAction
         open={runtimeOpen}
         onToggle={() => setRuntimeOpen(!runtimeOpen)}
       />
-      <BranchAction repo={repo} branch={branch} onToggle={onOpenBranch} />
-      <CommitAction visible={changedFileCount > 0} onClick={onOpenCommit} />
+      <BranchAction
+        repo={repo}
+        branch={branch}
+        onToggle={onOpenBranch}
+        enabled={Boolean(props.onBranchChange)}
+      />
+      <CommitAction
+        visible={changedFileCount !== undefined && changedFileCount > 0 && Boolean(onOpenCommit)}
+        onClick={onOpenCommit ?? (() => undefined)}
+      />
+      <UnavailableSummary label="Outputs" />
+      <UnavailableSummary label="Subagents" />
+      <UnavailableSummary label="Background tasks" />
       <PullRequestStatus
         loading={pullRequestLoading}
-        pullRequest={pullRequest}
+        result={props.pullRequestResult}
       />
     </>
+  );
+}
+
+function UnavailableSummary({ label }: { label: string }) {
+  return (
+    <div
+      aria-disabled="true"
+      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs text-zinc-600"
+    >
+      <span className="min-w-0 flex-1">{label}</span>
+      <span>Unavailable</span>
+    </div>
   );
 }
 
@@ -173,10 +213,10 @@ function ChangesAction({
   count,
   onClick,
 }: {
-  count: number;
+  count?: number;
   onClick: () => void;
 }) {
-  if (count === 0) return null;
+  if (count === undefined || count === 0) return null;
   return (
     <SummaryButton
       icon={<FileDiff size={15} />}
@@ -211,12 +251,14 @@ function BranchAction({
   repo,
   branch,
   onToggle,
+  enabled,
 }: {
   repo: Repository | null;
   branch: string;
   onToggle: () => void;
+  enabled: boolean;
 }) {
-  if (!repo) return null;
+  if (!repo || !enabled) return null;
   return (
     <>
       <SummaryButton
@@ -247,10 +289,10 @@ function CommitAction({
 
 function PullRequestStatus({
   loading,
-  pullRequest,
+  result,
 }: {
   loading: boolean;
-  pullRequest: PullRequestSummary | null;
+  result?: HostedSessionPullRequestsResponse;
 }) {
   if (loading)
     return (
@@ -259,7 +301,45 @@ function PullRequestStatus({
         Checking pull request...
       </div>
     );
-  return pullRequest ? <PullRequestLink pullRequest={pullRequest} /> : null;
+  if (!result || result.status === "unavailable") {
+    return (
+      <div role="status" className="flex items-center gap-2 px-2.5 py-2 text-xs text-zinc-500">
+        <GitPullRequest size={15} />
+        Pull request status unavailable
+      </div>
+    );
+  }
+  if (result.pullRequests.length === 0) {
+    return (
+      <div className="px-2.5 py-2 text-xs text-zinc-500">
+        No linked pull requests
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1.5 space-y-0.5 border-t border-zinc-700 pt-1">
+      {result.pullRequests.map((pullRequest) => (
+        <a
+          key={pullRequest.url}
+          href={pullRequest.url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-zinc-200 hover:bg-zinc-700/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+        >
+          {pullRequest.state === "merged" ? (
+            <GitMerge size={14} className="shrink-0 text-violet-400" aria-hidden="true" />
+          ) : (
+            <GitPullRequest size={14} className={`shrink-0 ${pullRequest.state === "open" ? "text-emerald-400" : "text-zinc-500"}`} aria-hidden="true" />
+          )}
+          <span className="min-w-0 flex-1 truncate">{pullRequest.title}</span>
+          <span className="shrink-0 text-zinc-500">#{pullRequest.number}</span>
+          <span className={`shrink-0 ${pullRequest.state === "merged" ? "text-violet-400" : pullRequest.state === "open" ? "text-emerald-400" : "text-zinc-500"}`}>
+            {pullRequest.state === "merged" ? "Merged" : pullRequest.state === "closed" ? "Closed" : pullRequest.draft ? "Draft" : "Open"}
+          </span>
+        </a>
+      ))}
+    </div>
+  );
 }
 
 function SummaryButton({
@@ -308,21 +388,6 @@ function RuntimeOptions() {
   );
 }
 
-function PullRequestLink({ pullRequest }: { pullRequest: PullRequestSummary }) {
-  return (
-    <a
-      href={pullRequest.url}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-1.5 flex items-center gap-2.5 rounded-lg border-t border-zinc-700 px-2.5 py-2 text-xs text-zinc-200 hover:bg-zinc-700/60"
-    >
-      <GitBranch size={15} />
-      <span className="min-w-0 flex-1 truncate">{pullRequest.title}</span>
-      <ExternalLink size={15} className="text-zinc-500" />
-    </a>
-  );
-}
-
 function useBranches(repo: Repository | null): {
   branches: Branch[];
   loading: boolean;
@@ -353,38 +418,4 @@ function useBranches(repo: Repository | null): {
     };
   }, [repo]);
   return { branches, loading };
-}
-
-function useActivePullRequest(
-  repo: Repository | null,
-  branch: string,
-): { pullRequest: PullRequestSummary | null; loading: boolean } {
-  const [pullRequest, setPullRequest] = useState<PullRequestSummary | null>(
-    null,
-  );
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    if (!repo || !branch) {
-      // Clear data from the previously selected branch.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setPullRequest(null);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    void listOpenPullRequests(repo.owner.login, repo.name, branch)
-      .then((items) => {
-        if (!cancelled) setPullRequest(items[0] ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setPullRequest(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [branch, repo]);
-  return { pullRequest, loading };
 }

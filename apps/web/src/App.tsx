@@ -7,6 +7,8 @@ import {
 } from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
+import { useSessionPullRequests } from "./hooks/useSessionPullRequests";
+import type { SavedChatSourcesProjection } from "./lib/saved-chat-sources";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
 import { SessionConversationSurface } from "./components/layout/SessionConversationSurface";
@@ -173,6 +175,64 @@ function AppContent() {
     hydrateFromServer: isAuthenticated && !isLoading,
   });
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  const activeSourcesKey = user?.id && activeSessionId
+    ? `${user.id}\0${activeSessionId}`
+    : null;
+  const [savedSourcesSnapshot, setSavedSourcesSnapshot] = useState<{
+    key: string;
+    projection: SavedChatSourcesProjection;
+  } | null>(null);
+  const handleSavedSourcesChange = useCallback(
+    (projection: SavedChatSourcesProjection) => {
+      if (!activeSourcesKey) return;
+      const key = activeSourcesKey;
+      setSavedSourcesSnapshot((current) =>
+        current?.key === key && current.projection === projection
+          ? current
+          : { key, projection },
+      );
+    },
+    [activeSourcesKey],
+  );
+  const activeSavedSources: SavedChatSourcesProjection =
+    savedSourcesSnapshot?.key === activeSourcesKey
+      ? savedSourcesSnapshot.projection
+      : {
+          images: [],
+          status: activeSessionId ? "loading" : "ready",
+          error: null,
+        };
+  const [visibleSessionIds, setVisibleSessionIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const requestedPullRequestSessionIds = useMemo(() => {
+    const requested = new Set(visibleSessionIds);
+    if (activeSessionId) requested.add(activeSessionId);
+    return requested;
+  }, [activeSessionId, visibleSessionIds]);
+  const { pullRequestsBySessionId, prioritizeSession } = useSessionPullRequests(
+    sessions,
+    requestedPullRequestSessionIds,
+    user?.id ?? null,
+  );
+  const handleVisibleSessionChange = useCallback(
+    (selectionId: string, visible: boolean) => {
+      setVisibleSessionIds((current) => {
+        if (current.has(selectionId) === visible) return current;
+        const next = new Set(current);
+        if (visible) next.add(selectionId);
+        else next.delete(selectionId);
+        return next;
+      });
+    },
+    [],
+  );
+  const handlePreviewSessionChange = useCallback(
+    (selectionId: string | null) => {
+      prioritizeSession(selectionId ?? activeSessionId);
+    },
+    [activeSessionId, prioritizeSession],
+  );
   const { repo, branch, switchBranch, setContext, clearContext } = useGitHub();
   const activeSessionIdRef = useRef(activeSessionId);
   const repoFullNameRef = useRef(repo?.full_name ?? null);
@@ -193,7 +253,7 @@ function AppContent() {
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
   const [summaryActionRequest, setSummaryActionRequest] = useState<{
     id: number;
-    action: "changes" | "commit";
+    action: "changes" | "commit" | "sources";
   } | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     try {
@@ -507,14 +567,11 @@ function AppContent() {
   const taskTitle = activeSession?.name;
   const threadTitle = activeSession?.name;
 
-  const handleRenameActiveSession = useCallback(
-    async (title: string): Promise<void> => {
-      if (!activeSessionId) {
-        return;
-      }
-      await renameSession(activeSessionId, title);
+  const handleRenameSession = useCallback(
+    async (sessionId: string, title: string): Promise<void> => {
+      await renameSession(sessionId, title);
     },
-    [activeSessionId, renameSession],
+    [renameSession],
   );
 
   const handlePinActiveSession = useCallback(async (): Promise<void> => {
@@ -739,8 +796,12 @@ function AppContent() {
                 }
               }}
               onUnarchive={unarchiveSession}
+              onRenameSession={handleRenameSession}
               onRemoveRepository={removeRepository}
               onRenameRepository={renameRepository}
+              pullRequestsBySessionId={pullRequestsBySessionId}
+              onVisibleSelectionChange={handleVisibleSessionChange}
+              onPreviewSelectionChange={handlePreviewSessionChange}
               onClose={() => {
                 setIsSidebarOpen(false);
               }}
@@ -753,7 +814,6 @@ function AppContent() {
                 openSettingsDialog("general");
               }}
               accountUser={user}
-              accountId={user?.id ?? null}
               onLogout={logout}
               width={isCompact ? Math.min(sidebarWidth, 360) : sidebarWidth}
             />
@@ -798,34 +858,40 @@ function AppContent() {
               threadTitle={threadTitle}
               taskTitle={taskTitle}
               activeSession={activeSession}
-              onRenameSession={handleRenameActiveSession}
+              onRenameSession={handleRenameSession}
               onPinSession={handlePinActiveSession}
               onUnpinSession={handleUnpinActiveSession}
               onArchiveSession={handleArchiveActiveSession}
               isAuthenticated={isAuthenticated}
               onConnectGitHub={login}
-              environmentSummary={
-                activeSessionId &&
-                activeSession &&
-                !isWorkspaceContextRepairing &&
-                hasMatchingActiveWorkspaceContext
+              environmentSummary={activeSession ? {
+                repo: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+                  ? repo
+                  : null,
+                branch: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+                  ? branch
+                  : "",
+                pullRequestResult: user?.id
+                  ? pullRequestsBySessionId.get(activeSession.id)
+                  : { status: "unavailable", sessionId: activeSession.id },
+                sourceCount: activeSavedSources.images.length,
+                onOpen: () => prioritizeSession(activeSession.id),
+                onOpenSources:
+                  activeSavedSources.images.length > 0 ||
+                  activeSavedSources.status !== "ready"
+                    ? () => setSummaryActionRequest({
+                        id: Date.now(),
+                        action: "sources",
+                      })
+                    : undefined,
+                ...(!isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
                   ? {
-                      repo,
-                      branch,
-                      onBranchChange: (nextBranch: string) => { void handleExplicitBranchSelect(nextBranch); },
-                      onOpenChanges: () =>
-                        setSummaryActionRequest({
-                          id: Date.now(),
-                          action: "changes",
-                        }),
-                      onOpenCommit: () =>
-                        setSummaryActionRequest({
-                          id: Date.now(),
-                          action: "commit",
-                        }),
+                      onBranchChange: (nextBranch: string) => {
+                        void handleExplicitBranchSelect(nextBranch);
+                      },
                     }
-                  : undefined
-              }
+                  : {}),
+              } : undefined}
               isCompact={isCompact}
               isMobile={isMobile}
             />
@@ -952,6 +1018,8 @@ function AppContent() {
                         }}
                         onTabChange={setActiveTab}
                         summaryActionRequest={summaryActionRequest}
+                        savedSources={activeSavedSources}
+                        onSavedSourcesChange={handleSavedSourcesChange}
                         onOpenRepositoryPicker={handleOpenRepositoryPicker}
                       />
                     </motion.div>

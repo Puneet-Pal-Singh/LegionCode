@@ -11,7 +11,6 @@ import { EnvironmentSummaryMenu } from "./EnvironmentSummaryMenu";
 
 const serviceMocks = vi.hoisted(() => ({
   listBranches: vi.fn(),
-  listOpenPullRequests: vi.fn(),
 }));
 
 vi.mock("../../../services/GitHubService", async (importOriginal) => ({
@@ -40,7 +39,6 @@ describe("EnvironmentSummaryMenu", () => {
       { name: "main", protected: true, commit: { sha: "1", url: "" } },
       { name: "feat/menu", protected: false, commit: { sha: "2", url: "" } },
     ]);
-    serviceMocks.listOpenPullRequests.mockResolvedValue([]);
   });
 
   it("shows only available actions and closes on outside click", () => {
@@ -89,21 +87,24 @@ describe("EnvironmentSummaryMenu", () => {
 
   it("switches branches and links the active pull request", async () => {
     const onBranchChange = vi.fn();
-    serviceMocks.listOpenPullRequests.mockResolvedValue([
-      {
-        number: 42,
-        title: "feat(web): add environment summary",
-        url: "https://github.com/legion/legioncode/pull/42",
-        state: "open",
-        head: "main",
-        base: "main",
-      },
-    ]);
     render(
       <EnvironmentSummaryMenu
         repo={repo}
         branch="main"
         changedFileCount={3}
+        pullRequestResult={{
+          sessionId: "123e4567-e89b-42d3-a456-426614174000",
+          status: "available",
+          pullRequests: [
+            {
+              number: 42,
+              title: "feat(web): add environment summary",
+              url: "https://github.com/legion/legioncode/pull/42",
+              state: "open",
+              draft: false,
+            },
+          ],
+        }}
         onBranchChange={onBranchChange}
         onOpenChanges={vi.fn()}
         onOpenCommit={vi.fn()}

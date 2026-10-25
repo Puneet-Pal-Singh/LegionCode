@@ -6,6 +6,7 @@ import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
 import type { AgentSession } from "../../types/session";
 import type { Repository } from "../../services/GitHubService";
+import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
 import { TopEnvironmentSummary } from "../navigation/TopEnvironmentSummary";
 
 interface TopNavBarProps {
@@ -17,7 +18,7 @@ interface TopNavBarProps {
   threadTitle?: string;
   taskTitle?: string;
   activeSession?: AgentSession | null;
-  onRenameSession?: (title: string) => Promise<void>;
+  onRenameSession?: (sessionId: string, title: string) => Promise<void>;
   onPinSession?: () => Promise<void>;
   onUnpinSession?: () => Promise<void>;
   onArchiveSession?: () => Promise<void>;
@@ -26,9 +27,14 @@ interface TopNavBarProps {
   environmentSummary?: {
     repo: Repository | null;
     branch: string;
-    onBranchChange: (branch: string) => void;
-    onOpenChanges: () => void;
-    onOpenCommit: () => void;
+    pullRequestResult?: HostedSessionPullRequestsResponse;
+    sourceCount?: number;
+    changedFileCount?: number;
+    onBranchChange?: (branch: string) => void;
+    onOpenChanges?: () => void;
+    onOpenCommit?: () => void;
+    onOpenSources?: () => void;
+    onOpen?: () => void;
   };
   isCompact?: boolean;
   isMobile?: boolean;
