@@ -48,6 +48,11 @@ import {
   type HookSettingsAuditReadModel,
 } from "../../services/api/lifecycleClient.js";
 import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
+import { resolveHydratedChatImageSource } from "../chat/chatMessageImagePresentation";
+import {
+  projectSavedChatSources,
+  type SavedChatSourcesProjection,
+} from "../../lib/saved-chat-sources";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -87,7 +92,9 @@ interface WorkspaceProps {
   isGitReviewOpen?: boolean;
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
-  summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
+  summaryActionRequest?: { id: number; action: "changes" | "commit" | "sources" } | null;
+  savedSources?: SavedChatSourcesProjection;
+  onSavedSourcesChange?: (projection: SavedChatSourcesProjection) => void;
   onOpenRepositoryPicker?: () => void;
 }
 
@@ -124,8 +131,34 @@ export function Workspace({
   onGitReviewOpenChange,
   onTabChange,
   summaryActionRequest,
+  savedSources,
+  onSavedSourcesChange,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
+  const currentSavedSources = useMemo(
+    () =>
+      projectSavedChatSources({
+        messages: chat.messages,
+        restoredUserMessageIds: chat.restoredUserMessageIds,
+        hydrationStatus: chat.hydrationStatus,
+        isHydrating: chat.isHydrating,
+        hasHydrated: chat.hasHydrated,
+        hydrationError: chat.hydrationError,
+        resolveImageSource: resolveHydratedChatImageSource,
+      }),
+    [
+      chat.hydrationError,
+      chat.hydrationStatus,
+      chat.hasHydrated,
+      chat.isHydrating,
+      chat.messages,
+      chat.restoredUserMessageIds,
+    ],
+  );
+
+  useEffect(() => {
+    onSavedSourcesChange?.(currentSavedSources);
+  }, [currentSavedSources, onSavedSourcesChange]);
   const isSessionPersisted = isSessionPersistenceReady(
     sessionPersistenceStatus,
   );
@@ -154,8 +187,10 @@ export function Workspace({
     selectedFile,
     selectedDiff,
     selectedContext,
+    selectedSources,
     openFileTab,
     openFilesTab,
+    openSourcesTab,
     openContextTab,
     selectContentTab,
     closeContentTab,
@@ -180,6 +215,12 @@ export function Workspace({
       return;
     }
     setIsRightSidebarOpen?.(true);
+    if (summaryActionRequest.action === "sources") {
+      setIsViewingContent(true);
+      setActiveTab("review");
+      openSourcesTab();
+      return;
+    }
     setIsViewingContent(false);
     setActiveTab("changes");
   }, [
@@ -187,6 +228,7 @@ export function Workspace({
     setActiveTab,
     setIsRightSidebarOpen,
     setIsViewingContent,
+    openSourcesTab,
   ]);
 
   useEffect(() => {
@@ -775,6 +817,8 @@ export function Workspace({
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
                 selectedContext={selectedContext}
+                selectedSources={selectedSources !== null}
+                savedSources={savedSources ?? currentSavedSources}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}

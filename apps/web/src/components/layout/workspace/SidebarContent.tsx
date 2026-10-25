@@ -13,6 +13,7 @@ import type {
 import type { Repository } from "../../../services/GitHubService";
 import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
 import { WorkspaceSurfaceBody } from "./WorkspaceSurfaceBody";
+import type { SavedChatSourcesProjection } from "../../../lib/saved-chat-sources";
 
 interface SidebarContentProps {
   isViewingContent: boolean;
@@ -22,6 +23,8 @@ interface SidebarContentProps {
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
   selectedContext?: Extract<SidebarContentTab, { kind: "context" }> | null;
+  selectedSources?: boolean;
+  savedSources?: SavedChatSourcesProjection;
 
   // GitHub / File Tree props
   repo: Repository | null;
@@ -52,6 +55,8 @@ export function SidebarContent({
   selectedFile,
   selectedDiff,
   selectedContext = null,
+  selectedSources = false,
+  savedSources = { images: [], status: "ready", error: null },
   repo,
   isGitHubLoaded,
   repoTree,
@@ -150,6 +155,8 @@ export function SidebarContent({
               selectedFile={selectedFile}
               selectedDiff={selectedDiff}
               selectedContext={selectedContext}
+              selectedSources={selectedSources}
+              savedSources={savedSources}
               isLoadingContent={isLoadingContent}
               contentError={contentError}
               filesOpen={activeTab === "files"}
