@@ -875,7 +875,7 @@ function AppContent() {
                   ? pullRequestsBySessionId.get(activeSession.id)
                   : { status: "unavailable", sessionId: activeSession.id },
                 sourceCount: activeSavedSources.images.length,
-                onOpen: () => prioritizeSession(activeSession.id),
+                onOpen: () => prioritizeSession(activeSession.id, true),
                 onOpenSources:
                   activeSavedSources.images.length > 0 ||
                   activeSavedSources.status !== "ready"
