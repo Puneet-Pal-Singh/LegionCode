@@ -14,21 +14,14 @@ import React, {
   useRef,
 } from "react";
 import * as GitHubService from "../services/GitHubService";
-import type { GitCommitIdentityState } from "@repo/shared-types";
-
-interface GitHubUser {
-  id: string;
-  login: string;
-  avatar: string;
-  email: string | null;
-  name: string | null;
-  commitIdentity?: GitCommitIdentityState;
-}
+import type { GitHubUser } from "../services/GitHubService";
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: GitHubUser | null;
   isLoading: boolean;
+  hasVerifiedSession: boolean;
+  sessionCheckError: string | null;
   login: (reauthorize?: boolean) => void;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -40,28 +33,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const checkSessionInFlightRef = useRef<Promise<void> | null>(null);
+  const [hasVerifiedSession, setHasVerifiedSession] = useState(false);
+  const [sessionCheckError, setSessionCheckError] = useState<string | null>(null);
+  const checkSessionInFlightRef = useRef<{
+    token: symbol;
+    promise: Promise<void>;
+  } | null>(null);
+  const authGenerationRef = useRef(0);
 
   const checkSession = useCallback(async () => {
     if (checkSessionInFlightRef.current) {
-      return checkSessionInFlightRef.current;
+      return checkSessionInFlightRef.current.promise;
     }
+    const generation = authGenerationRef.current;
+    const token = Symbol();
     const request = (async () => {
       try {
         const session = await GitHubService.getSession();
-
+        if (generation !== authGenerationRef.current) return;
         setIsAuthenticated(session.authenticated);
-        setUser(session.user || null);
+        setUser(session.authenticated ? session.user : null);
+        setSessionCheckError(null);
+        setHasVerifiedSession(true);
       } catch (error) {
+        if (generation !== authGenerationRef.current) return;
         console.error("Session check failed:", error);
-        setIsAuthenticated(false);
-        setUser(null);
+        setSessionCheckError(
+          error instanceof Error ? error.message : "Session check unavailable",
+        );
       } finally {
-        checkSessionInFlightRef.current = null;
-        setIsLoading(false);
+        if (checkSessionInFlightRef.current?.token === token) {
+          checkSessionInFlightRef.current = null;
+          setIsLoading(false);
+        }
       }
     })();
-    checkSessionInFlightRef.current = request;
+    checkSessionInFlightRef.current = { token, promise: request };
     return request;
   }, []);
 
@@ -85,8 +92,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     try {
       await GitHubService.logout();
+      authGenerationRef.current += 1;
+      checkSessionInFlightRef.current = null;
       setIsAuthenticated(false);
       setUser(null);
+      setHasVerifiedSession(true);
+      setSessionCheckError(null);
+      setIsLoading(false);
     } catch (error) {
       console.error("Logout failed:", error);
       throw error;
@@ -103,6 +115,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated,
         user,
         isLoading,
+        hasVerifiedSession,
+        sessionCheckError,
         login,
         logout,
         refreshSession,

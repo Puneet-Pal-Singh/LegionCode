@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   ClientShell,
   ClientShellLoading,
+  ChatErrorNotice,
   WorkspaceFrame,
   type AppServerEnvironmentSnapshot,
 } from "@legioncode/client-ui";
@@ -151,8 +152,16 @@ function AppContent() {
         });
       });
   }, []);
-  const { isAuthenticated, isLoading, login, logout, user } =
-    useAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    hasVerifiedSession,
+    sessionCheckError,
+    login,
+    logout,
+    refreshSession,
+    user,
+  } = useAuth();
   const {
     sessions,
     activeSessionId,
@@ -388,7 +397,7 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (isLoading) {
+    if (isLoading || !hasVerifiedSession) {
       return;
     }
 
@@ -409,6 +418,7 @@ function AppContent() {
   }, [
     clearSetupSessionState,
     isAuthenticated,
+    hasVerifiedSession,
     isLoading,
     resetProviderStore,
     sessions.length,
@@ -799,6 +809,26 @@ function AppContent() {
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
     return <ClientShellLoading label="Checking session" />;
+  }
+
+  if (!hasVerifiedSession) {
+    if (!sessionCheckError) {
+      return <ClientShellLoading label="Checking session" />;
+    }
+
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10 text-text-primary">
+        <section className="w-full max-w-[440px] rounded-2xl border border-border-subtle bg-surface p-6">
+          <ChatErrorNotice
+            message="Unable to verify your session."
+            remediation="Retry the session check. Sign-in is available after the server confirms that no session exists."
+            technicalDetails={sessionCheckError}
+            actionLabel="Retry"
+            onOpen={() => void refreshSession()}
+          />
+        </section>
+      </main>
+    );
   }
 
   if (!isAuthenticated) {
