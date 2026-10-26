@@ -48,7 +48,7 @@ import {
   type ComposerLayout,
 } from "./chat-interface/ChatComposerControls";
 import { ChatInterfaceView } from "@legioncode/client-ui";
-import { createLifecycleClient } from "../../services/api/lifecycleClient";
+import { createWebPlatformClient } from "../../services/api/platformClient";
 import { useChatPresentation } from "@legioncode/client-ui";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
@@ -179,7 +179,7 @@ export function ChatInterface({
   const compactActiveTurn = useCallback(async () => {
     const scope = conversationScope;
     if (!scope) return;
-    await createLifecycleClient().compactTurn({
+    await createWebPlatformClient().compactTurn({
       runId: RunIdSchema.parse(runId),
       sessionId: scope.sessionId,
       workspaceId: WorkspaceIdSchema.parse(scope.workspaceId),

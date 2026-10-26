@@ -5,12 +5,12 @@ import {
   LifecycleEventSchema,
   type EventId,
   type EventIdempotencyKey,
-  type LifecycleClient,
+  type PlatformClient,
   type LifecycleEvent,
   type RunAttemptId,
   type ThreadId,
   type TurnId,
-} from "../services/api/lifecycleClient";
+} from "@legioncode/sdk";
 import { useConversationLifecycleProjections } from "./useConversationLifecycleProjections";
 
 const THREAD_ID = "thr_history01" as ThreadId;
@@ -92,51 +92,11 @@ describe("useConversationLifecycleProjections", () => {
 });
 
 function createClient(
-  replay: LifecycleClient["replayLifecycleEvents"],
-): LifecycleClient {
+  replay: PlatformClient["replayLifecycleEvents"],
+): Pick<PlatformClient, "replayLifecycleEvents" | "followTurnLifecycle"> {
   return {
-    startTurn: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
     followTurnLifecycle: vi.fn(async function* () {}),
     replayLifecycleEvents: vi.fn(replay),
-    submitApproval: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    submitUserInputResponse: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    getTurnDiff: vi.fn(async () => null),
-    interruptTurn: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    compactTurn: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    resumeTurn: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    steerTurn: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    enqueueThreadInput: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    listThreadInputs: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    updateThreadInput: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    removeThreadInput: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    steerQueuedThreadInput: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
-    startQueuedThreadInput: vi.fn(async () => {
-      throw new Error("Unsupported test operation");
-    }),
   };
 }
 

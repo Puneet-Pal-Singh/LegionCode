@@ -10,6 +10,8 @@ import {
   retainSubmissionReservation,
   type SubmissionAttempt,
   type SubmissionOutcome,
+  type PlatformClient,
+  type LifecycleEvent,
 } from "@legioncode/sdk";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import {
@@ -63,7 +65,7 @@ import {
   resumeConversationScope,
 } from "./conversationScope";
 import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/sdk";
-import { createLifecycleClient } from "../services/api/lifecycleClient";
+import { createWebPlatformClient } from "../services/api/platformClient";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
 import {
   createSubmissionObservedFetch,
@@ -413,7 +415,7 @@ export function useChatCore(
   );
   const hasConnectedCredential = credentials.length > 0;
   const isModelConfigReady = status === "ready" && hasConnectedCredential;
-  const lifecycleClient = useMemo(() => createLifecycleClient(), []);
+  const lifecycleClient = useMemo(() => createWebPlatformClient(), []);
 
   const {
     input,
@@ -1554,7 +1556,7 @@ export function useChatCore(
 }
 
 export async function interruptAndAwaitTerminal(
-  lifecycleClient: ReturnType<typeof createLifecycleClient>,
+  lifecycleClient: Pick<PlatformClient, "interruptTurn" | "followTurnLifecycle">,
   scope: ConversationScope,
   onInterruptAccepted: () => void,
 ): Promise<void> {
@@ -1567,7 +1569,7 @@ export async function interruptAndAwaitTerminal(
     15_000,
   );
   let iterator: AsyncIterator<
-    import("../services/api/lifecycleClient").LifecycleEvent
+    LifecycleEvent
   > | null = null;
   try {
     const response = await requestExactInterrupt(
@@ -1614,7 +1616,7 @@ export async function interruptAndAwaitTerminal(
 }
 
 async function requestExactInterrupt(
-  lifecycleClient: ReturnType<typeof createLifecycleClient>,
+  lifecycleClient: Pick<PlatformClient, "interruptTurn">,
   scope: ConversationScope,
   signal: AbortSignal,
 ): Promise<import("@legioncode/sdk").InterruptTurnResponse> {

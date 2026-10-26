@@ -4,12 +4,10 @@ import {
   TurnIdSchema,
   replayLifecycleEventsWithRetry,
   type LifecycleEvent,
-} from "@legioncode/sdk";
-import {
-  createLifecycleClient,
-  type LifecycleClient,
+  type PlatformClient,
   type TurnId,
-} from "../services/api/lifecycleClient";
+} from "@legioncode/sdk";
+import { createWebPlatformClient } from "../services/api/platformClient";
 import {
   applyConversationLifecycleEvent as applyLifecycleEvent,
   createLifecycleProjection,
@@ -47,10 +45,10 @@ interface ContinuationStatusState {
 export function useTurnLifecycleProjection(
   turnId: string | null | undefined,
   shouldFollow: boolean,
-  injectedClient?: LifecycleClient,
+  injectedClient?: Pick<PlatformClient, "replayLifecycleEvents" | "followTurnLifecycle">,
 ): UseTurnLifecycleProjectionResult {
   const lifecycleClient = useMemo(
-    () => injectedClient ?? createLifecycleClient(),
+    () => injectedClient ?? createWebPlatformClient(),
     [injectedClient],
   );
   const canonicalTurnId = normalizeCanonicalTurnId(turnId);
@@ -113,7 +111,7 @@ function normalizeCanonicalTurnId(
 
 interface FollowLifecycleInput {
   readonly turnId: TurnId;
-  readonly lifecycleClient: LifecycleClient;
+  readonly lifecycleClient: Pick<PlatformClient, "replayLifecycleEvents" | "followTurnLifecycle">;
   readonly abortController: AbortController;
   readonly setProjectionState: Dispatch<SetStateAction<ProjectionState | null>>;
   readonly setErrorState: Dispatch<SetStateAction<ErrorState | null>>;
