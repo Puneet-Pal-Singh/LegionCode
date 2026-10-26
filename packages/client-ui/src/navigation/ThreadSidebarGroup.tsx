@@ -15,7 +15,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Check,
   Trash2,
   ChevronDown,
   type LucideIcon,
@@ -680,6 +679,7 @@ function ThreadSidebarRow({
               role="dialog"
               aria-label={`${item.title} details`}
               tabIndex={-1}
+              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur outline-none focus:outline-none"
               onMouseEnter={keepPreviewOpen}
               onMouseLeave={schedulePreviewClose}
               onFocusCapture={keepPreviewOpen}
@@ -687,7 +687,6 @@ function ThreadSidebarRow({
                 const nextTarget = event.relatedTarget as Node | null;
                 if (!event.currentTarget.contains(nextTarget) && !rowRef.current?.contains(nextTarget)) schedulePreviewClose();
               }}
-              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur"
               style={detailsPosition ?? { left: 0, top: 0, visibility: "hidden" }}
             >
               <div className="flex min-w-0 items-start justify-between gap-2">
@@ -731,24 +730,11 @@ function ThreadSidebarRow({
                         {renameError}
                       </p>
                     ) : null}
-                    <div className="mt-1.5 flex justify-end gap-1.5">
-                      <button
-                        type="button"
-                        disabled={isRenamePending}
-                        onClick={cancelRename}
-                        className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={!renameDraft.trim() || isRenamePending}
-                        className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-950 disabled:opacity-50"
-                      >
-                        <Check size={12} aria-hidden="true" />
-                        {isRenamePending ? "Saving…" : "Save"}
-                      </button>
-                    </div>
+                    {isRenamePending ? (
+                      <p role="status" className="mt-1 text-[11px] text-zinc-500">
+                        Saving…
+                      </p>
+                    ) : null}
                   </form>
                 ) : (
                   <div className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-zinc-100">
