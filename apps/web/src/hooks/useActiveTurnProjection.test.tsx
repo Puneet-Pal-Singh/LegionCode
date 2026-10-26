@@ -1,7 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createLifecycleProjection } from "@legioncode/sdk";
-import type { TurnId } from "../services/api/lifecycleClient";
+import type { TurnId } from "@legioncode/sdk";
 import {
   deriveCanonicalRunLoading,
   resolveActiveProjectionTurnId,

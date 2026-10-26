@@ -28,7 +28,7 @@ import { formatModelDisplayName } from "../provider/modelDisplayName.js";
 import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";
 import { HooksSettingsPanel } from "./HooksSettingsPanel.js";
 import type { ProviderModelOption } from "../../services/api/providerClient.js";
-import type { HookSettingsAuditReadModel } from "../../services/api/lifecycleClient.js";
+import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
 import {
   updateComposerPreferences,
   useComposerPreferences,

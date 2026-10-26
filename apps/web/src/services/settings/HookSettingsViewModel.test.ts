@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HookDefinition } from "../api/hookDefinitionsClient.js";
-import type { HookSettingsAuditReadModel } from "../api/lifecycleClient.js";
+import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
 import { buildHookSettingsViewModel } from "./HookSettingsViewModel.js";
 
 const userDefinition: HookDefinition = {

@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import type { HookSettingsAuditReadModel } from "../../services/api/lifecycleClient.js";
+import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
 import {
   createHookDefinitionsClient,
   type HookDefinitionsClient,

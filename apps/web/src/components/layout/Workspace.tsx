@@ -43,10 +43,7 @@ import type {
   InitialPromptSubmissionStatus,
 } from "../../lib/initial-prompt-submission";
 import { useCompletedTurnReview } from "@legioncode/client-ui";
-import {
-  buildHookSettingsAuditReadModel,
-  type HookSettingsAuditReadModel,
-} from "../../services/api/lifecycleClient.js";
+import { buildHookSettingsAuditReadModel, type HookSettingsAuditReadModel } from "@legioncode/sdk";
 import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
 import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSummary";

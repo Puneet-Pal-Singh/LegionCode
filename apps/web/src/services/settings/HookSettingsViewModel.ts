@@ -1,5 +1,5 @@
 import type { HookDefinition } from "../api/hookDefinitionsClient.js";
-import type { HookSettingsAuditReadModel } from "../api/lifecycleClient.js";
+import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
 
 export interface HookSettingsRowViewModel {
   readonly key: string;
