@@ -11,11 +11,10 @@ import {
   parsePlatformOperationErrorCode,
   parseProtocolErrorEnvelope,
 } from "./errors.js";
+import { createAppServerClient, AppServerClientError } from "./app-server-client.js";
+import { createAppServerHttpTransport, AppServerTransportError } from "./app-server-http-transport.js";
+import { AppServerErrorSchema, AppServerFailureResponseSchema } from "@legioncode/app-server/protocol";
 import type {
-  GetTurnDiffRequest,
-  CompactTurnRequest,
-  ReplayLifecycleEventsRequest,
-  SubmitLifecycleApprovalRequest,
   SubmitUserInputResponseRequest,
 } from "./lifecycle-types.js";
 import type {
@@ -29,6 +28,7 @@ import type {
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
+type HostedLifecycleMethod = "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
 
 export interface PlatformHttpTransportOptions {
   baseUrl: string;
@@ -42,6 +42,37 @@ export function createPlatformHttpTransport(
   options: PlatformHttpTransportOptions,
 ): PlatformClientTransport {
   const request = createTransportRequest(options);
+  const hostedOperation = async <T>(
+    method: HostedLifecycleMethod,
+    signal: AbortSignal | undefined,
+    action: (client: ReturnType<typeof createAppServerClient>) => Promise<T>,
+  ): Promise<T> => {
+    const suppliedHeaders = new Headers(options.getHeaders?.() ?? {});
+    const authorization = suppliedHeaders.get("authorization");
+    const client = createAppServerClient({
+      clientId: "legioncode-platform",
+      clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: options.baseUrl,
+        credentials: options.credentials ?? "include",
+        fetchImpl: async (input, init) => {
+          const headers = new Headers(init?.headers);
+          if (authorization !== null) headers.set("Authorization", authorization);
+          return (options.fetchImpl ?? globalThis.fetch.bind(globalThis))(input, { ...init, headers });
+        },
+        timeoutMs: null,
+        maxResponseBytes: null,
+        responsePreviewLimit: options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT,
+        signal,
+        requestHeaders: () => Object.fromEntries(suppliedHeaders),
+      }),
+    });
+    try {
+      return await action(client);
+    } catch (error) {
+      throw mapHostedLifecycleError(error, method);
+    }
+  };
 
   return {
     createThread: (payload, options) =>
@@ -63,26 +94,13 @@ export function createPlatformHttpTransport(
         undefined,
         options,
       ),
-    replayLifecycleEvents: (payload, options) =>
-      request.json(
-        "GET",
-        buildReplayLifecycleEventsPath(payload),
-        undefined,
-        options,
-      ),
+    replayLifecycleEvents: (payload, options) => hostedOperation("turn/lifecycleEvents", options?.signal, (client) => client.replayLifecycleEvents(payload)),
     interruptTurn: (payload, options) =>
       request.json("POST", buildInterruptTurnPath(), payload, options),
-    compactTurn: (payload, options) =>
-      request.json("POST", buildCompactTurnPath(payload), payload, options),
+    compactTurn: (payload, options) => hostedOperation("turn/compact", options?.signal, (client) => client.compactTurn(payload)),
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
-    submitLifecycleApproval: (payload, options) =>
-      request.json(
-        "POST",
-        buildLifecycleApprovalPath(payload),
-        payload,
-        options,
-      ),
+    submitLifecycleApproval: (payload, options) => hostedOperation("turn/approval", options?.signal, (client) => client.submitLifecycleApproval(payload)),
     submitUserInputResponse: (payload, options) =>
       request.json(
         "POST",
@@ -90,8 +108,7 @@ export function createPlatformHttpTransport(
         payload,
         options,
       ),
-    getTurnDiff: (payload, options) =>
-      request.json("GET", buildTurnDiffPath(payload), undefined, options),
+    getTurnDiff: (payload, options) => hostedOperation("turn/diff", options?.signal, (client) => client.getTurnDiff(payload)),
     getArtifact: (artifactId, options) =>
       request.json("GET", buildArtifactPath(artifactId), undefined, options),
     listArtifacts: (payload, options) =>
@@ -416,6 +433,134 @@ function createGenericJsonError(
   );
 }
 
+function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod): PlatformClientOperationError {
+  if (error instanceof AppServerClientError) {
+    if (error.code === "server_error" && error.serverError) {
+      const serverError = error.serverError;
+      const statusCode = serverError.statusCode ?? appServerStatus(serverError.code);
+      return mapAppServerError(serverError, statusCode);
+    }
+    if (error.code === "transport") return mapHostedLifecycleError(error.cause, method);
+    return new PlatformClientOperationError(
+      "INVALID_RESPONSE_FORMAT",
+      error.message,
+      false,
+      undefined,
+      502,
+    );
+  }
+
+  if (error instanceof AppServerTransportError) {
+    if (error.code === "aborted") {
+      return new PlatformClientOperationError("ABORTED", "Operation aborted", true, undefined, 0);
+    }
+    if (error.code === "invalid_response") {
+      const failedResponse = typeof error.statusCode === "number" && error.statusCode >= 400;
+      return new PlatformClientOperationError(
+        failedResponse ? "INVALID_ERROR_RESPONSE" : "INVALID_RESPONSE_FORMAT",
+        failedResponse
+          ? `${error.message}${error.responsePreview ? `: ${error.responsePreview}` : ""}`
+          : error.message,
+        false,
+        undefined,
+        failedResponse ? error.statusCode : 502,
+      );
+    }
+    if (typeof error.statusCode === "number" && error.cause !== undefined) {
+      return mapHostedHttpFailure(error.cause, error.statusCode, method);
+    }
+    if (typeof error.statusCode === "number") {
+      return new PlatformClientOperationError(
+        "API_ERROR",
+        `HTTP ${error.statusCode}`,
+        error.statusCode >= 500 || error.statusCode === 429,
+        undefined,
+        error.statusCode,
+      );
+    }
+    if (error.cause instanceof Error && error.cause.name === "AbortError") {
+      return new PlatformClientOperationError("ABORTED", "Operation aborted", true, undefined, 0);
+    }
+    return new PlatformClientOperationError("NETWORK_ERROR", error.message, true, undefined, 0);
+  }
+
+  if (error instanceof Error && error.name === "AbortError") {
+    return new PlatformClientOperationError("ABORTED", "Operation aborted", true, undefined, 0);
+  }
+  if (error instanceof Error && error.name === "TypeError") {
+    return new PlatformClientOperationError("NETWORK_ERROR", error.message, true, undefined, 0);
+  }
+  return new PlatformClientOperationError(
+    "UNKNOWN_OPERATION_ERROR",
+    error instanceof Error ? error.message : "Hosted lifecycle operation failed",
+    false,
+    undefined,
+    500,
+  );
+}
+
+function mapHostedHttpFailure(payload: unknown, statusCode: number, method: HostedLifecycleMethod): PlatformClientOperationError {
+  const failure = AppServerFailureResponseSchema.safeParse(payload);
+  if (failure.success && failure.data.method === method) {
+    return mapAppServerError(failure.data.error, statusCode);
+  }
+  if (failure.success || (payload && typeof payload === "object" && "method" in payload && "protocolVersion" in payload)) {
+    return new PlatformClientOperationError(
+      "INVALID_RESPONSE_FORMAT",
+      "App Server returned an invalid response envelope",
+      false,
+      undefined,
+      502,
+    );
+  }
+
+  const protocolError = parseProtocolErrorEnvelope(payload);
+  if (protocolError) {
+    return PlatformClientOperationError.fromProtocolError(protocolError, statusCode);
+  }
+
+  const appServerError = AppServerErrorSchema.safeParse(payload);
+  if (appServerError.success) {
+    return mapAppServerError(appServerError.data, statusCode);
+  }
+
+  return createGenericJsonError(payload, statusCode);
+}
+
+function mapAppServerError(
+  payload: unknown,
+  fallbackStatus: number,
+): PlatformClientOperationError {
+  const parsed = AppServerErrorSchema.safeParse(payload);
+  if (!parsed.success) return createGenericJsonError(payload, fallbackStatus);
+  const error = parsed.data;
+  const operationCode = "operationCode" in error && typeof error.operationCode === "string"
+    ? error.operationCode
+    : error.code;
+  return new PlatformClientOperationError(
+    parsePlatformOperationErrorCode(operationCode),
+    error.message,
+    "retryable" in error && typeof error.retryable === "boolean"
+      ? error.retryable
+      : fallbackStatus >= 500 || fallbackStatus === 429,
+    "correlationId" in error && typeof error.correlationId === "string" ? error.correlationId : undefined,
+    "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : fallbackStatus,
+  );
+}
+
+function appServerStatus(code: string): number {
+  switch (code) {
+    case "unauthorized": return 401;
+    case "forbidden": return 403;
+    case "not_found": return 404;
+    case "conflict": return 409;
+    case "invalid_request": return 400;
+    case "server_unavailable": return 503;
+    case "protocol_incompatible": return 409;
+    default: return 500;
+  }
+}
+
 function extractErrorFields(payload: unknown): {
   code?: string;
   message?: string;
@@ -496,10 +641,6 @@ function buildRunEventsPath(runId: string | null): string {
   return `${buildRunPath(RunIdSchema.parse(runId))}/events`;
 }
 
-function buildLifecycleEventsPath(turnId: string): string {
-  return `/turns/${encodeURIComponent(TurnIdSchema.parse(turnId))}/lifecycle-events`;
-}
-
 function buildThreadPath(threadId: string): string {
   return `/threads/${encodeURIComponent(ThreadIdSchema.parse(threadId))}`;
 }
@@ -554,29 +695,10 @@ function buildReplayRunEventsPath(request: ReplayRunEventsRequest): string {
   return query.length > 0 ? `${path}?${query}` : path;
 }
 
-function buildReplayLifecycleEventsPath(
-  request: ReplayLifecycleEventsRequest,
-): string {
-  const path = buildLifecycleEventsPath(request.turnId);
-  return addLifecycleReplayQuery(
-    path,
-    request.afterSequence ?? null,
-    request.limit,
-  );
-}
-
 function buildApprovalPath(request: SubmitApprovalRequest): string {
   const runId = encodeURIComponent(RunIdSchema.parse(request.runId));
   const approvalId = encodeURIComponent(request.approvalId);
   return `/runs/${runId}/approvals/${approvalId}`;
-}
-
-function buildLifecycleApprovalPath(
-  request: SubmitLifecycleApprovalRequest,
-): string {
-  const turnId = encodeURIComponent(TurnIdSchema.parse(request.turnId));
-  const approvalId = encodeURIComponent(request.approvalId);
-  return `/turns/${turnId}/approvals/${approvalId}`;
 }
 
 function buildUserInputResponsePath(
@@ -587,16 +709,8 @@ function buildUserInputResponsePath(
   return `/turns/${turnId}/user-input/${requestId}`;
 }
 
-function buildTurnDiffPath(request: GetTurnDiffRequest): string {
-  return `/turns/${encodeURIComponent(TurnIdSchema.parse(request.turnId))}/diff`;
-}
-
 function buildInterruptTurnPath(): string {
   return "/api/run/interrupt";
-}
-
-function buildCompactTurnPath(request: CompactTurnRequest): string {
-  return `/turns/${encodeURIComponent(TurnIdSchema.parse(request.turnId))}/compact`;
 }
 
 function buildArtifactPath(artifactId: ArtifactId): string {
@@ -605,22 +719,6 @@ function buildArtifactPath(artifactId: ArtifactId): string {
 
 function buildWorkspaceManifestPath(runId: string): string {
   return `/runs/${encodeURIComponent(RunIdSchema.parse(runId))}/workspace-manifest`;
-}
-
-function addLifecycleReplayQuery(
-  path: string,
-  afterSequence: number | null,
-  limit: number | undefined,
-): string {
-  const params = new URLSearchParams();
-  if (afterSequence !== null) {
-    params.set("afterSequence", String(afterSequence));
-  }
-  if (limit !== undefined) {
-    params.set("limit", String(limit));
-  }
-  const query = params.toString();
-  return query.length > 0 ? `${path}?${query}` : path;
 }
 
 function addListQuery(

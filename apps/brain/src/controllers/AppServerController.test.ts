@@ -42,6 +42,12 @@ describe("hosted App Server integration", () => {
     await expect(client.getConversationHistoryPage({ session: "550e8400-e29b-41d4-a716-446655440001" })).rejects.toMatchObject({
       code: "server_error", serverCode: "unauthorized", method: "session/history",
     });
+    await expect(client.replayLifecycleEvents({ turnId: "trn_123456" })).rejects.toMatchObject({
+      code: "server_error",
+      serverCode: "unauthorized",
+      method: "turn/lifecycleEvents",
+      serverError: { statusCode: 401, operationCode: "API_ERROR", retryable: false },
+    });
   });
 
   it("retains typed authorization errors when a provider preference body requests its existing uncapped contract", async () => {

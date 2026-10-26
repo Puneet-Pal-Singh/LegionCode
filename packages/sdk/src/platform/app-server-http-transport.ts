@@ -11,6 +11,8 @@ export type AppServerHttpTransportOptions = {
   timeoutMs?: number | null;
   /** Null preserves an operation's existing uncapped response-body contract. */
   maxResponseBytes?: number | null;
+  /** Keeps malformed response diagnostics within the caller's established bound. */
+  responsePreviewLimit?: number;
   credentials?: RequestCredentials;
   signal?: AbortSignal;
   requestHeaders?: (
@@ -27,6 +29,7 @@ export class AppServerTransportError extends Error {
     public readonly statusCode?: number,
     public readonly serverCode?: string,
     public readonly cause?: unknown,
+    public readonly responsePreview?: string,
   ) {
     super(message);
     this.name = "AppServerTransportError";
@@ -70,12 +73,40 @@ export function createAppServerHttpTransport(
           credentials: options.credentials,
           signal: controller.signal,
         });
-        const payload = await readBoundedJson(response, options.maxResponseBytes === undefined ? MAX_RESPONSE_BYTES : options.maxResponseBytes);
-        if (payload === undefined) {
+        const result = await readBoundedJson(
+          response,
+          options.maxResponseBytes === undefined ? MAX_RESPONSE_BYTES : options.maxResponseBytes,
+          options.responsePreviewLimit ?? 120,
+        );
+        if (result === undefined) {
           throw new AppServerTransportError(
             "invalid_response",
             "App Server returned invalid JSON",
             response.status,
+          );
+        }
+        const { payload, preview } = result;
+        const isJson = response.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false;
+        if (!response.ok && !isJson && isHostedLifecycleMethod(envelope.method)) {
+          throw new AppServerTransportError(
+            "invalid_response",
+            "Unexpected non-JSON error response",
+            response.status,
+            undefined,
+            undefined,
+            preview,
+          );
+        }
+        if (payload === undefined) {
+          throw new AppServerTransportError(
+            "invalid_response",
+            response.headers.get("content-type")?.toLowerCase().includes("application/json")
+              ? "Malformed JSON error response"
+              : "Unexpected non-JSON error response",
+            response.status,
+            undefined,
+            undefined,
+            preview,
           );
         }
         if (!response.ok) {
@@ -94,12 +125,15 @@ export function createAppServerHttpTransport(
               genericError.data.message,
               response.status,
               genericError.data.code,
+              payload,
             );
           }
           throw new AppServerTransportError(
             "transport",
             "App Server request failed",
             response.status,
+            undefined,
+            payload,
           );
         }
         return payload;
@@ -120,7 +154,16 @@ export function createAppServerHttpTransport(
   };
 }
 
-async function readBoundedJson(response: Response, maxResponseBytes: number | null): Promise<unknown | undefined> {
+function isHostedLifecycleMethod(method: AppServerRequest["method"]): boolean {
+  return method === "turn/lifecycleEvents" || method === "turn/diff" ||
+    method === "turn/approval" || method === "turn/compact";
+}
+
+async function readBoundedJson(
+  response: Response,
+  maxResponseBytes: number | null,
+  responsePreviewLimit: number,
+): Promise<{ payload: unknown | undefined; preview: string } | undefined> {
   const declaredLength = response.headers.get("content-length");
   if (maxResponseBytes !== null && declaredLength && Number(declaredLength) > maxResponseBytes) {
     await response.body?.cancel();
@@ -153,9 +196,17 @@ async function readBoundedJson(response: Response, maxResponseBytes: number | nu
     offset += chunk.byteLength;
   }
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    const text = new TextDecoder().decode(bytes);
+    const preview = text.trim().slice(0, responsePreviewLimit);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(text) as unknown;
+    } catch {
+      return { payload: undefined, preview };
+    }
+    return { payload, preview };
   } catch {
-    return undefined;
+    return { payload: undefined, preview: "" };
   }
 }
 

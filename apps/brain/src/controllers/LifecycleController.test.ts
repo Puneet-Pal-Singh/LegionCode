@@ -47,6 +47,10 @@ function operations(env: Env) {
 describe("LifecycleController", () => {
   beforeEach(() => {
     runtimeHelpers.fetchRunRuntimeRoute.mockReset();
+    runtimeHelpers.withRunRepository.mockReset();
+    runtimeHelpers.withTurnAdmissionRepository.mockReset();
+    authHelpers.getAuthenticatedUserSession.mockReset();
+    authHelpers.isSessionStoreUnavailableError.mockReset().mockReturnValue(false);
     runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValue(
       new Response("Not Found", { status: 404 }),
     );
@@ -116,6 +120,8 @@ describe("LifecycleController", () => {
     runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
       Response.json({ events: [], nextSequence: null }),
     );
+    const authenticatedGetRun = vi.fn().mockResolvedValue({ id: RUN_ID });
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) => callback({ getRun: authenticatedGetRun }));
     const hostedResponse = await AppServerController.request(
       new Request("https://brain.local/app-server/request", {
         method: "POST",
@@ -134,18 +140,43 @@ describe("LifecycleController", () => {
       ok: true,
       result: { events: [], nextSequence: null },
     });
-    expect(runtimeHelpers.withRunRepository).toHaveBeenLastCalledWith(
+    expect(authHelpers.getAuthenticatedUserSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ headers: expect.any(Headers) }),
       expect.anything(),
-      expect.any(Function),
     );
+    expect(authenticatedGetRun).toHaveBeenCalledWith(RUN_ID, USER_ID);
   });
 
   it("rejects lifecycle replay when the user does not own the run", async () => {
+    const env = {} as Env;
+    const denyAdmission = (admission: unknown) => {
+      runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+        callback({ getRun: vi.fn().mockResolvedValue(null) }),
+      );
+      runtimeHelpers.withTurnAdmissionRepository.mockImplementationOnce((_env, callback) =>
+        callback({ getByTurnId: vi.fn().mockResolvedValue(admission) }),
+      );
+    };
+
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({ getRun: vi.fn().mockResolvedValue(null) }),
     );
+    await expect(operations(env).replayLifecycleEvents({ turnId: TURN_ID }))
+      .rejects.toMatchObject({ statusCode: 404, operationCode: "API_ERROR" });
+    denyAdmission({ userId: "usr_654321", runId: RUN_ID, state: "reserved" });
+    await expect(operations(env).replayLifecycleEvents({ turnId: TURN_ID }))
+      .rejects.toMatchObject({ statusCode: 404, operationCode: "API_ERROR" });
+    denyAdmission({ userId: USER_ID, runId: "run_123e4567e89b42d3a456426614174101", state: "reserved" });
+    await expect(operations(env).replayLifecycleEvents({ turnId: TURN_ID }))
+      .rejects.toMatchObject({ statusCode: 404, operationCode: "API_ERROR" });
 
-    await expect(operations({} as Env).replayLifecycleEvents({ turnId: TURN_ID }))
+    const unmaterializedGetRun = vi.fn().mockResolvedValue(null);
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) => callback({ getRun: unmaterializedGetRun }));
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) => callback({ getRun: unmaterializedGetRun }));
+    runtimeHelpers.withTurnAdmissionRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getByTurnId: vi.fn().mockResolvedValue({ userId: USER_ID, runId: RUN_ID, state: "admitted" }) }),
+    );
+    await expect(operations(env).replayLifecycleEvents({ turnId: TURN_ID }))
       .rejects.toMatchObject({ statusCode: 404, operationCode: "API_ERROR" });
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
   });
@@ -164,11 +195,6 @@ describe("LifecycleController", () => {
 
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({ getRun: vi.fn().mockResolvedValue(null) }),
-    );
-    runtimeHelpers.withTurnAdmissionRepository.mockImplementationOnce(
-      (_env, callback) => callback({
-        getByTurnId: vi.fn().mockResolvedValue({ userId: USER_ID, runId: RUN_ID, state: "reserved" }),
-      }),
     );
     await expect(operations(env).getTurnDiff({ turnId: TURN_ID })).rejects.toMatchObject({ statusCode: 404 });
     expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledTimes(1);
@@ -189,6 +215,13 @@ describe("LifecycleController", () => {
       itemId: null,
       error: null,
     };
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getRun: vi.fn().mockResolvedValue(null) }),
+    );
+    await expect(operations(env).compactTurn(compactRequest)).rejects.toMatchObject({ statusCode: 404 });
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledTimes(1);
+    expect(runtimeHelpers.withTurnAdmissionRepository).not.toHaveBeenCalled();
+
     runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(Response.json(compactResponse));
     await expect(operations(env).compactTurn(compactRequest)).resolves.toEqual(compactResponse);
     expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
@@ -204,6 +237,16 @@ describe("LifecycleController", () => {
         runAttemptId: compactRequest.runAttemptId,
       }) }),
     );
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(Response.json({
+      code: "conflict",
+      message: "Compaction is already active",
+      retryable: false,
+    }, { status: 409 }));
+    await expect(operations(env).compactTurn(compactRequest)).rejects.toMatchObject({
+      statusCode: 409,
+      operationCode: "conflict",
+      retryable: false,
+    });
   });
 
   it("proxies lifecycle approval decisions to the owning runtime", async () => {
@@ -232,6 +275,13 @@ describe("LifecycleController", () => {
       type: "approval.decided",
       payload: { status: "approved", grantScope: "matching_in_chat" },
     };
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({ getRun: vi.fn().mockResolvedValue(null) }),
+    );
+    await expect(operations(env).submitLifecycleApproval(approval)).rejects.toMatchObject({ statusCode: 404 });
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+    expect(runtimeHelpers.withTurnAdmissionRepository).not.toHaveBeenCalled();
+
     runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(Response.json(event));
 
     await expect(operations(env).submitLifecycleApproval(approval)).resolves.toEqual(event);

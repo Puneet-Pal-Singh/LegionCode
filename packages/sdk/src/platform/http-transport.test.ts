@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { registerPlatformTransportConformance } from "@repo/contract-conformance";
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { createPlatformClient } from "./client.js";
 import { createPlatformHttpTransport } from "./http-transport.js";
 import {
@@ -26,6 +27,15 @@ function createJsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function appServerResult(method: string, result: unknown): Response {
+  return createJsonResponse({
+    protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+    method,
+    ok: true,
+    result,
   });
 }
 
@@ -159,7 +169,7 @@ describe("createPlatformHttpTransport", () => {
         if (String(input).endsWith("/turns")) {
           return createJsonResponse({ run: createRun(), turn: createTurn() });
         }
-        return createJsonResponse({
+        return appServerResult("turn/lifecycleEvents", {
           events: [createLifecycleEvent(1)],
           nextSequence: 1,
         });
@@ -174,15 +184,22 @@ describe("createPlatformHttpTransport", () => {
     });
     expect(calls.map((call) => call.url)).toEqual([
       "https://control-plane.test/turns",
-      "https://control-plane.test/turns/trn_123456/lifecycle-events?afterSequence=4&limit=25",
+      "https://control-plane.test/app-server/request",
     ]);
+    expect(JSON.parse(String(calls[1]?.init.body))).toMatchObject({
+      method: "turn/lifecycleEvents",
+      params: { turnId: TEST_IDS.turnId, afterSequence: 4, limit: 25 },
+    });
   });
 
   it("maps protocol error envelopes to typed errors", async () => {
+    let responseIndex = 0;
     const transport = createPlatformHttpTransport({
       baseUrl: "https://control-plane.test",
-      fetchImpl: createFetch(
-        createJsonResponse(
+      fetchImpl: vi.fn(async () => {
+        responseIndex += 1;
+        if (responseIndex === 1) {
+          return createJsonResponse(
           {
             error: {
               code: "not_found",
@@ -193,8 +210,28 @@ describe("createPlatformHttpTransport", () => {
             },
           },
           404,
-        ),
-      ),
+          );
+        }
+        if (responseIndex === 2) return createJsonResponse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "turn/lifecycleEvents",
+          ok: false,
+          error: {
+            code: "not_found",
+            message: "Run was not found",
+            statusCode: 404,
+            operationCode: "API_ERROR",
+            retryable: false,
+          },
+        }, 404);
+        const protocolError = {
+          code: "conflict",
+          message: "Lifecycle request conflicted",
+          retryable: false,
+          correlationId: "corr-outer",
+        };
+        return createJsonResponse(responseIndex === 3 ? protocolError : { error: protocolError }, 409);
+      }),
     });
     const client = createPlatformClient(transport);
 
@@ -203,6 +240,24 @@ describe("createPlatformHttpTransport", () => {
       correlationId: "corr-1",
       statusCode: 404,
       retryable: false,
+    });
+    await expect(client.replayLifecycleEvents({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
+      code: "API_ERROR",
+      statusCode: 404,
+      retryable: false,
+      message: "Run was not found",
+    });
+    await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
+      code: "conflict",
+      statusCode: 409,
+      retryable: false,
+      correlationId: "corr-outer",
+    });
+    await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
+      code: "conflict",
+      statusCode: 409,
+      retryable: false,
+      correlationId: "corr-outer",
     });
   });
 
@@ -237,15 +292,17 @@ describe("createPlatformHttpTransport", () => {
       baseUrl: "https://control-plane.test",
       fetchImpl: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         calls.push({ url: String(input), init: init ?? {} });
-        if (String(input).includes("approvals")) {
-          return createJsonResponse(
-            createLifecycleEvent(2, {
+        if (String(input).endsWith("/app-server/request")) {
+          const envelope = JSON.parse(String(init?.body)) as { method: string };
+          if (envelope.method === "turn/approval") {
+            return appServerResult("turn/approval", createLifecycleEvent(2, {
               type: "approval.decided",
               itemId: TEST_IDS.approvalItemId,
               approvalId: TEST_IDS.approvalId,
               payload: { status: "approved", decision: "approved" },
-            }),
-          );
+            }));
+          }
+          return appServerResult("turn/diff", { diff: createTurnDiff() });
         }
         if (String(input).includes("user-input")) {
           return createJsonResponse(
@@ -278,10 +335,18 @@ describe("createPlatformHttpTransport", () => {
     await client.getTurnDiff({ turnId: TEST_IDS.turnId });
 
     expect(calls.map((call) => call.url)).toEqual([
-      "https://control-plane.test/turns/trn_123456/approvals/appr_123456",
+      "https://control-plane.test/app-server/request",
       "https://control-plane.test/turns/trn_123456/user-input/input_123456",
-      "https://control-plane.test/turns/trn_123456/diff",
+      "https://control-plane.test/app-server/request",
     ]);
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      method: "turn/approval",
+      params: { turnId: TEST_IDS.turnId, approvalId: TEST_IDS.approvalId },
+    });
+    expect(JSON.parse(String(calls[2]?.init.body))).toMatchObject({
+      method: "turn/diff",
+      params: { turnId: TEST_IDS.turnId },
+    });
   });
 });
 
