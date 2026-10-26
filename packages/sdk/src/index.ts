@@ -14,6 +14,19 @@ export {
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
 export type { ConversationScope } from "./platform/conversation-scope.js";
 export {
+  acquireSubmissionAttempt,
+  findSubmissionAttempt,
+  finishSubmissionAttempt,
+  freezeSubmissionWireBody,
+  retainSubmissionReservation,
+  retireSessionSubmissionAttempts,
+  retireSubmissionIntent,
+} from "./platform/submission-attempt-registry.js";
+export type {
+  SubmissionAttempt,
+  SubmissionOutcome,
+} from "./platform/submission-attempt-registry.js";
+export {
   AppServerTransportError,
   createAppServerHttpTransport,
   type AppServerHttpTransportOptions,

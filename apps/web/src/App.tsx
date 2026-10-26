@@ -56,11 +56,11 @@ import {
 } from "./lib/initial-prompt-submission";
 import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
 import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
-import { isSessionPersistenceReady } from "./lib/session-persistence";
 import {
   retireSessionSubmissionAttempts,
   retireSubmissionIntent,
-} from "./hooks/chat/submissionAttemptRegistry";
+} from "@legioncode/sdk";
+import { isSessionPersistenceReady } from "./lib/session-persistence";
 
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
 const MIN_RIGHT_SIDEBAR_WIDTH = 420;

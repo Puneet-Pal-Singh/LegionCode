@@ -1,8 +1,8 @@
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
+import type { SubmissionOutcome } from "@legioncode/sdk";
 import { useChatCore, type ChatAppendMessage } from "./useChatCore";
-import type { SubmissionOutcome } from "./chat/submissionAttemptRegistry";
 import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";

@@ -4,6 +4,11 @@ import {
   RunIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
+  acquireSubmissionAttempt,
+  finishSubmissionAttempt,
+  retainSubmissionReservation,
+  type SubmissionAttempt,
+  type SubmissionOutcome,
 } from "@legioncode/sdk";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import {
@@ -60,13 +65,6 @@ import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
-import {
-  acquireSubmissionAttempt,
-  finishSubmissionAttempt,
-  retainSubmissionReservation,
-  type SubmissionAttempt,
-  type SubmissionOutcome,
-} from "./chat/submissionAttemptRegistry";
 import {
   createSubmissionObservedFetch,
   findAttemptForObservedResponse,

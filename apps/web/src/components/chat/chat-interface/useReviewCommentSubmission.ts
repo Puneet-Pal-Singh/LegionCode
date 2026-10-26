@@ -1,7 +1,7 @@
 import type { ComposerDelivery } from "@legioncode/client-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReviewCommentDraft } from "@legioncode/client-ui";
-import type { SubmissionOutcome } from "../../../hooks/chat/submissionAttemptRegistry";
+import type { SubmissionOutcome } from "@legioncode/sdk";
 import {
   buildReviewCommentPrompt,
   validateReviewPromptBudget,
