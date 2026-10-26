@@ -3,7 +3,7 @@ import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
 import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
 import { EnvironmentSummaryMenu } from "../layout/workspace/EnvironmentSummaryMenu";
 
-interface TopEnvironmentSummaryProps {
+export interface TopEnvironmentSummaryProps {
   repo: Repository | null;
   branch: string;
   pullRequestResult?: HostedSessionPullRequestsResponse;

@@ -689,6 +689,39 @@ function AppContent() {
       : current);
   }, [activeSessionId, repo, switchBranch, setSessionWorkspaceContext]);
 
+  const environmentSummary = activeSession
+    ? {
+        repo: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+          ? repo
+          : null,
+        branch: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+          ? branch
+          : "",
+        pullRequestResult: user?.id
+          ? pullRequestsBySessionId.get(activeSession.id)
+          : { status: "unavailable" as const, sessionId: activeSession.id },
+        savedSources: activeSavedSources,
+        onOpen: () => prioritizeSession(activeSession.id, true),
+        onOpenSources:
+          isSessionPersistenceReady(activeSession.persistenceStatus) &&
+          (activeSavedSources.images.length > 0 ||
+            activeSavedSources.status !== "ready")
+            ? () =>
+                setSummaryActionRequest({
+                  id: Date.now(),
+                  action: "sources",
+                })
+            : undefined,
+        ...(!isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+          ? {
+              onBranchChange: (nextBranch: string) => {
+                void handleExplicitBranchSelect(nextBranch);
+              },
+            }
+          : {}),
+      }
+    : undefined;
+
   const focusReviewSidebar = () => {
     setReviewSidebarFocusRequest((previous) => previous + 1);
   };
@@ -853,13 +886,6 @@ function AppContent() {
             <TopNavBar
               onReview={activeSession ? handleOpenReviewSidebar : undefined}
               isRightSidebarOpen={Boolean(activeSession) && isRightSidebarOpen}
-              rightSidebarInset={
-                isRightSidebarOpen && !isMobile
-                  ? isCompact
-                    ? "min(560px, 86vw)"
-                    : rightSidebarWidth
-                  : 0
-              }
               onToggleRightSidebar={handleToggleRightSidebar}
               threadTitle={threadTitle}
               taskTitle={taskTitle}
@@ -870,35 +896,7 @@ function AppContent() {
               onArchiveSession={handleArchiveActiveSession}
               isAuthenticated={isAuthenticated}
               onConnectGitHub={login}
-              environmentSummary={activeSession ? {
-                repo: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
-                  ? repo
-                  : null,
-                branch: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
-                  ? branch
-                  : "",
-                pullRequestResult: user?.id
-                  ? pullRequestsBySessionId.get(activeSession.id)
-                  : { status: "unavailable", sessionId: activeSession.id },
-                savedSources: activeSavedSources,
-                onOpen: () => prioritizeSession(activeSession.id, true),
-                onOpenSources:
-                  isSessionPersistenceReady(activeSession.persistenceStatus) &&
-                  (activeSavedSources.images.length > 0 ||
-                    activeSavedSources.status !== "ready")
-                    ? () => setSummaryActionRequest({
-                        id: Date.now(),
-                        action: "sources",
-                      })
-                    : undefined,
-                ...(!isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
-                  ? {
-                      onBranchChange: (nextBranch: string) => {
-                        void handleExplicitBranchSelect(nextBranch);
-                      },
-                    }
-                  : {}),
-              } : undefined}
+              environmentSummary={environmentSummary}
               isMobile={isMobile}
             />
           </>
@@ -1027,6 +1025,7 @@ function AppContent() {
                         onTabChange={setActiveTab}
                         summaryActionRequest={summaryActionRequest}
                         savedSources={savedSources}
+                        environmentSummary={environmentSummary}
                         onOpenRepositoryPicker={handleOpenRepositoryPicker}
                       />
                     </motion.div>

@@ -143,7 +143,7 @@ describe("EnvironmentSummaryMenu", () => {
     ).not.toBeInTheDocument();
     await waitFor(() => screen.getByRole("button", { name: "feat/menu" }));
     expect(screen.getByRole("dialog", { name: "Switch branch" })).toHaveClass(
-      "min-[768px]:right-[348px]",
+      "fixed",
     );
     fireEvent.click(screen.getByRole("button", { name: "feat/menu" }));
     expect(onBranchChange).toHaveBeenCalledWith("feat/menu");

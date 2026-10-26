@@ -1,9 +1,12 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   ChevronDown,
@@ -45,6 +48,15 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
   const [isBranchOpen, setIsBranchOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const branchTriggerRef = useRef<HTMLButtonElement>(null);
+  const branchPanelRef = useRef<HTMLDivElement>(null);
+  const panelPosition = useViewportPopoverPosition(isOpen, triggerRef, panelRef);
+  const branchPanelPosition = useViewportPopoverPosition(
+    isBranchOpen && Boolean(props.repo),
+    branchTriggerRef,
+    branchPanelRef,
+  );
   const close = useCallback(() => {
     setIsOpen(false);
     setIsBranchOpen(false);
@@ -86,6 +98,9 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
         <EnvironmentPanel
           {...props}
           onClose={close}
+          panelRef={panelRef}
+          panelPosition={panelPosition}
+          branchTriggerRef={branchTriggerRef}
           onOpenBranch={() => setIsBranchOpen((current) => !current)}
         />
       ) : null}
@@ -94,7 +109,9 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           branches={branches}
           currentBranch={props.branch}
           isLoading={loading}
-          className="right-0 top-10 min-[768px]:right-[348px]"
+          panelRef={branchPanelRef}
+          style={branchPanelPosition}
+          className="fixed left-0 top-0 z-[130]"
           onBranchSelect={(branch) => {
             props.onBranchChange?.(branch);
             setIsBranchOpen(false);
@@ -109,6 +126,9 @@ function EnvironmentPanel(
   props: EnvironmentSummaryMenuProps & {
     onClose: () => void;
     onOpenBranch: () => void;
+    panelRef: RefObject<HTMLDivElement | null>;
+    panelPosition: CSSProperties;
+    branchTriggerRef: RefObject<HTMLButtonElement | null>;
   },
 ) {
   const closeAfter = (action: () => void) => () => {
@@ -127,20 +147,33 @@ function EnvironmentPanel(
       ? closeAfter(props.onOpenSources)
       : undefined,
     pullRequestLoading: props.pullRequestResult === undefined,
+    branchTriggerRef: props.branchTriggerRef,
   };
-  return <EnvironmentPanelView actions={actions} />;
+  return (
+    <EnvironmentPanelView
+      actions={actions}
+      panelRef={props.panelRef}
+      panelPosition={props.panelPosition}
+    />
+  );
 }
 
 function EnvironmentPanelView({
   actions,
+  panelRef,
+  panelPosition,
 }: {
   actions: EnvironmentActionsProps;
+  panelRef: RefObject<HTMLDivElement | null>;
+  panelPosition: CSSProperties;
 }) {
   return (
     <div
+      ref={panelRef}
       role="dialog"
       aria-label="Environment summary"
-      className="ui-surface-popover absolute right-0 top-10 z-50 max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto !rounded-[20px] !bg-[#242424] p-2"
+      className="ui-surface-popover fixed left-0 top-0 z-[120] max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto !rounded-[20px] p-2"
+      style={panelPosition}
     >
       <EnvironmentActions {...actions} />
     </div>
@@ -150,6 +183,7 @@ function EnvironmentPanelView({
 interface EnvironmentActionsProps extends EnvironmentSummaryMenuProps {
   pullRequestLoading: boolean;
   onOpenBranch: () => void;
+  branchTriggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 function EnvironmentActions(props: EnvironmentActionsProps) {
@@ -207,6 +241,7 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
             branch={branch}
             onToggle={onOpenBranch}
             enabled={Boolean(props.onBranchChange)}
+            triggerRef={props.branchTriggerRef}
           />
           <CommitAction
             visible={changedFileCount !== undefined && changedFileCount > 0 && Boolean(onOpenCommit)}
@@ -341,16 +376,19 @@ function BranchAction({
   branch,
   onToggle,
   enabled,
+  triggerRef,
 }: {
   repo: Repository | null;
   branch: string;
   onToggle: () => void;
   enabled: boolean;
+  triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   if (!repo || !enabled) return null;
   return (
     <>
       <SummaryButton
+        buttonRef={triggerRef}
         icon={<GitBranch size={16} />}
         label={branch || repo.default_branch}
         chevron
@@ -437,15 +475,18 @@ function SummaryButton({
   detail,
   chevron,
   onClick,
+  buttonRef,
 }: {
   icon: ReactNode;
   label: string;
   detail?: string;
   chevron?: boolean;
   onClick: () => void;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-zinc-100 transition-colors hover:bg-zinc-800"
@@ -456,6 +497,49 @@ function SummaryButton({
       {chevron ? <ChevronDown size={15} className="text-zinc-500" /> : null}
     </button>
   );
+}
+
+function useViewportPopoverPosition(
+  isOpen: boolean,
+  triggerRef: RefObject<HTMLElement | null>,
+  panelRef: RefObject<HTMLElement | null>,
+): CSSProperties {
+  const [position, setPosition] = useState<CSSProperties>({
+    position: "fixed",
+    left: 0,
+    top: 0,
+    visibility: "hidden",
+  });
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const updatePosition = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      const panel = panelRef.current?.getBoundingClientRect();
+      if (!trigger || !panel) return;
+
+      const left = Math.max(
+        8,
+        Math.min(trigger.right - panel.width, window.innerWidth - panel.width - 8),
+      );
+      const below = trigger.bottom + 8;
+      const top =
+        below + panel.height <= window.innerHeight - 8
+          ? below
+          : Math.max(8, trigger.top - panel.height - 8);
+      setPosition({ position: "fixed", left, top, visibility: "visible" });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, panelRef, triggerRef]);
+
+  return position;
 }
 
 function useBranches(repo: Repository | null): {

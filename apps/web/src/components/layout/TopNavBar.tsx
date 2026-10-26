@@ -5,16 +5,13 @@ import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
 import type { AgentSession } from "../../types/session";
-import type { Repository } from "../../services/GitHubService";
-import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
-import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
 import { TopEnvironmentSummary } from "../navigation/TopEnvironmentSummary";
+import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSummary";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
   onReview?: () => void;
   isRightSidebarOpen?: boolean;
-  rightSidebarInset?: number | string;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
   taskTitle?: string;
@@ -25,18 +22,7 @@ interface TopNavBarProps {
   onArchiveSession?: () => Promise<void>;
   isAuthenticated?: boolean;
   onConnectGitHub?: () => void;
-  environmentSummary?: {
-    repo: Repository | null;
-    branch: string;
-    pullRequestResult?: HostedSessionPullRequestsResponse;
-    savedSources?: SavedChatSourcesProjection;
-    changedFileCount?: number;
-    onBranchChange?: (branch: string) => void;
-    onOpenChanges?: () => void;
-    onOpenCommit?: () => void;
-    onOpenSources?: () => void;
-    onOpen?: () => void;
-  };
+  environmentSummary?: TopEnvironmentSummaryProps;
   isMobile?: boolean;
 }
 
@@ -92,7 +78,6 @@ function TopNavActions({
   onOpenIde,
   onReview,
   isRightSidebarOpen = false,
-  rightSidebarInset = 0,
   onToggleRightSidebar,
   isAuthenticated = false,
   onConnectGitHub,
@@ -103,7 +88,6 @@ function TopNavActions({
   | "onOpenIde"
   | "onReview"
   | "isRightSidebarOpen"
-  | "rightSidebarInset"
   | "onToggleRightSidebar"
   | "isAuthenticated"
   | "onConnectGitHub"
@@ -113,10 +97,7 @@ function TopNavActions({
   return (
     <div
       data-testid="top-nav-actions"
-      className="flex shrink-0 items-center gap-2 transition-[margin] duration-150"
-      style={{
-        marginRight: isRightSidebarOpen ? rightSidebarInset : 0,
-      }}
+      className="flex shrink-0 items-center gap-2"
     >
       {!isAuthenticated && onConnectGitHub ? (
         <GitHubLoginButton
@@ -134,7 +115,7 @@ function TopNavActions({
           onToggleRightSidebar={onToggleRightSidebar}
         />
       ) : null}
-      {environmentSummary ? (
+      {environmentSummary && !isRightSidebarOpen ? (
         <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
     </div>
