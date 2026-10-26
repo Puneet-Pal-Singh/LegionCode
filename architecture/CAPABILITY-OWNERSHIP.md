@@ -195,6 +195,7 @@ send canonical run, session, client-message and optional revision identifiers.
 | Responsibility | Canonical owner | Active consumers |
 | --- | --- | --- |
 | Submitted transcript and terminal state | Existing Brain admission, transcript and lifecycle append owners | Web reads verified session history independently of execution scope and renders SDK lifecycle projections, including partial replies. |
+| Browser authentication snapshot and session availability | Brain cookie-backed session endpoint; Web `GitHubService` and `AuthContext` | Only a validated session response can change auth state. A transient or invalid response preserves the last verified user; initial unknown state offers Retry before sign-in, and confirmed logout invalidates pending refresh writes. |
 | Request acknowledgement and explicit delivery retry | Existing server admission identity and SDK `submission-attempt-registry` / `submission-evidence`; Web `submissionTransport` binds the observed authenticated fetch | useChatCore and queued setup intent retain the exact reserved tuple, client message identity and serialized payload; only bound acknowledgements or exact canonical evidence confirm admission. |
 | Mounted conversation and history recovery presentation | Web SessionConversationSurface and useChatHydration | Setup/workspace share one useChat owner for the selected session; partial/failed reads preserve verified rows, and stale reads cannot replace another session. |
 
