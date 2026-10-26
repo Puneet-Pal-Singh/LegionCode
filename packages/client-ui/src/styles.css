@@ -384,7 +384,8 @@ body {
 
   .composer-surface {
     background: #171717;
-    border-color: rgb(63 63 70 / 0.9);
+    border-width: 0;
+    border-color: transparent;
     border-radius: 1rem;
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.025) inset,
@@ -394,7 +395,6 @@ body {
   .composer-surface-focused {
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.04) inset,
-      0 0 0 1px rgb(255 255 255 / 0.06),
       0 18px 50px rgb(0 0 0 / 0.24);
   }
 }
