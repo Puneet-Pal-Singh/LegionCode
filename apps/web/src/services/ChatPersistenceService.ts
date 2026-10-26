@@ -11,7 +11,7 @@
 
 import type { Message } from "@ai-sdk/react";
 import { agentStore } from "../store/agentStore";
-import type { ConversationScope } from "../hooks/conversationScope";
+import type { ConversationScope } from "@legioncode/sdk";
 
 export class ChatPersistenceService {
   /**

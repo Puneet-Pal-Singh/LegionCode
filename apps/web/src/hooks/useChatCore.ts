@@ -55,9 +55,8 @@ import {
   isTurnScopeRecoveryError,
   publishConversationScopeReady,
   resumeConversationScope,
-  type ConversationScope,
 } from "./conversationScope";
-import { ConversationScopeHttpError } from "@legioncode/sdk";
+import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/sdk";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";

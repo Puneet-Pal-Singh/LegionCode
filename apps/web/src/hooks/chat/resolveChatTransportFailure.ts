@@ -2,7 +2,7 @@ import type {
   LifecycleClient,
   TurnId,
 } from "../../services/api/lifecycleClient";
-import type { ConversationScope } from "../conversationScope";
+import type { ConversationScope } from "@legioncode/sdk";
 
 const DEFAULT_CANONICAL_EVIDENCE_TIMEOUT_MS = 2_000;
 

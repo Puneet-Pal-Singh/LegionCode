@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
 import { ChatPersistenceService } from "../services/ChatPersistenceService";
-import type { ConversationScope } from "./conversationScope";
+import type { ConversationScope } from "@legioncode/sdk";
 
 interface UseChatPersistenceProps {
   scope: ConversationScope | null;

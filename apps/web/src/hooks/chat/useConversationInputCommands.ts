@@ -14,8 +14,8 @@ import { resolveReasoningEffortForRequest } from "../../lib/model-reasoning-pref
 import { resolveRuntimeHarnessId } from "../../lib/chat-request";
 import {
   createConversationScope,
-  type ConversationScope,
 } from "../conversationScope";
+import type { ConversationScope } from "@legioncode/sdk";
 
 export function useConversationInputCommands(input: {
   sessionId: string;

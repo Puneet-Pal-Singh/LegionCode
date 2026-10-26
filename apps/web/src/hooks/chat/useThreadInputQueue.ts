@@ -14,7 +14,7 @@ import {
   type ThreadInputQueueSnapshot,
   type ThreadInputReceipt,
 } from "@legioncode/sdk";
-import type { ConversationScope } from "../conversationScope";
+import type { ConversationScope } from "@legioncode/sdk";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 
 export function useThreadInputQueue(
