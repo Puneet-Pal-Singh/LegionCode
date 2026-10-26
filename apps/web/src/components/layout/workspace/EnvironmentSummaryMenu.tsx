@@ -91,7 +91,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
         aria-controls="environment-summary-panel"
         title="Toggle summary"
         className={cn(
-          "size-8 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white",
+          "size-8 rounded-lg p-1.5 text-zinc-400 outline-none transition-colors hover:bg-zinc-800 hover:text-white focus-visible:ring-1 focus-visible:ring-zinc-500",
           isOpen && "bg-zinc-800 text-white",
         )}
       >
@@ -215,12 +215,13 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
     savedSources.status !== "ready" || savedSources.images.length > 0;
   const hasSummaryContent =
     showPullRequests || showSources || hasEnvironmentActions;
+  const hasSummarySection = showPullRequests || showSources;
   return (
     <>
       {showPullRequests ? (
         <section
           aria-label="Pull requests"
-          className="border-b border-zinc-800/80 px-1 pb-2"
+          className="px-1 pb-2"
         >
           <SectionHeading>Pull requests</SectionHeading>
           <PullRequestStatus
@@ -230,13 +231,25 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
         </section>
       ) : null}
       {showSources ? (
-        <SourcesSummary
-          sources={savedSources}
-          onOpenSources={props.onOpenSources}
-        />
+        <div
+          className={cn(
+            "px-1 pb-2 pt-1",
+            showPullRequests && "border-t border-zinc-700/70",
+          )}
+        >
+          <SourcesSummary
+            sources={savedSources}
+            onOpenSources={props.onOpenSources}
+          />
+        </div>
       ) : null}
       {hasEnvironmentActions ? (
-        <div className="mt-2 border-t border-zinc-800/80 pt-1">
+        <div
+          className={cn(
+            "mt-2 pt-1",
+            hasSummarySection && "border-t border-zinc-700/70",
+          )}
+        >
           {onOpenChanges ? (
             <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
           ) : null}
@@ -295,7 +308,7 @@ function SourcesSummary({
           : null;
 
   return (
-    <section aria-label="Sources" className="border-b border-zinc-800/80 px-1 pb-2 pt-1">
+    <section aria-label="Sources">
       <div className="flex items-center justify-between">
         <SectionHeading>Sources</SectionHeading>
         {sourceCount > 0 ? (
@@ -448,7 +461,7 @@ function PullRequestStatus({
     );
   }
   return (
-    <div className="mt-1.5 space-y-0.5 border-t border-zinc-700 pt-1">
+    <div className="mt-1.5 space-y-0.5 pt-1">
       {result.pullRequests.map((pullRequest) => (
         <a
           key={pullRequest.url}

@@ -679,7 +679,7 @@ function ThreadSidebarRow({
               role="dialog"
               aria-label={`${item.title} details`}
               tabIndex={-1}
-              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur outline-none focus:outline-none"
+              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-[20px] border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur outline-none focus:outline-none"
               onMouseEnter={keepPreviewOpen}
               onMouseLeave={schedulePreviewClose}
               onFocusCapture={keepPreviewOpen}
@@ -778,8 +778,6 @@ function ThreadSidebarRow({
                 </div>
               ) : pullRequestResult === undefined ? (
                 <p role="status" className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">Checking pull request status…</p>
-              ) : pullRequestResult.status === "available" ? (
-                <p className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">No linked pull requests</p>
               ) : pullRequestResult.status === "unavailable" ? (
                 <p className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">Pull request status unavailable</p>
               ) : null}
