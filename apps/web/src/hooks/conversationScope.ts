@@ -4,23 +4,11 @@ import {
   RunIdSchema,
   TurnIdSchema,
 } from "@legioncode/sdk";
+import type { ConversationScope } from "@legioncode/sdk";
 import { createHostedAppServerClient } from "../services/api/appServerClient";
 
 export const CONVERSATION_SCOPE_READY_EVENT =
   "legioncode:conversation-scope-ready";
-
-export interface ConversationScope {
-  readonly workspaceId: string;
-  readonly threadId: string;
-  readonly turnId: string;
-  readonly runAttemptId: string;
-  readonly revisionOfTurnId?: string;
-  readonly continuationOfTurnId?: string;
-  readonly originalPromptId?: string;
-  /** Transport correlation fields; never used as the scope key. */
-  readonly sessionId: string;
-  readonly runId: string;
-}
 
 export function createConversationScope(input: {
   workspaceId: string;

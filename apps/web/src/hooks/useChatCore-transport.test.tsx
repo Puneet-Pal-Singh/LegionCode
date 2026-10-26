@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatCore } from "./useChatCore";
-import type { SubmissionOutcome } from "./chat/submissionAttemptRegistry";
+import type { SubmissionOutcome } from "@legioncode/sdk";
 
 const FIXTURE = {
   sessionId: "d1137b54-39df-4f38-b012-478018630ace",

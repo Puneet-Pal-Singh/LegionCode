@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  LifecycleClient,
-  LifecycleEvent,
-  TurnId,
-} from "../../services/api/lifecycleClient";
-import { hasCanonicalLifecycleEvidence } from "./resolveChatTransportFailure";
+import type { LifecycleEvent, TurnId } from "@repo/platform-protocol";
+import type { PlatformClient } from "./types.js";
+import { hasCanonicalLifecycleEvidence } from "./submission-evidence.js";
+
+type LifecycleEvidenceClient = Pick<PlatformClient, "followTurnLifecycle">;
 
 const TURN_ID = "trn_transport001" as TurnId;
 const SCOPE = {
@@ -32,7 +31,7 @@ describe("hasCanonicalLifecycleEvidence", () => {
       followTurnLifecycle: vi.fn(async function* () {
         yield event;
       }),
-    } as unknown as LifecycleClient;
+    } as unknown as LifecycleEvidenceClient;
 
     await expect(
       hasCanonicalLifecycleEvidence(lifecycleClient, SCOPE),
@@ -45,7 +44,7 @@ describe("hasCanonicalLifecycleEvidence", () => {
         yield* [];
         return;
       }),
-    } as unknown as LifecycleClient;
+    } as unknown as LifecycleEvidenceClient;
 
     await expect(
       hasCanonicalLifecycleEvidence(lifecycleClient, SCOPE),
@@ -60,7 +59,7 @@ describe("hasCanonicalLifecycleEvidence", () => {
         yield wrongAttempt;
         yield exactAttempt;
       }),
-    } as unknown as LifecycleClient;
+    } as unknown as LifecycleEvidenceClient;
 
     await expect(hasCanonicalLifecycleEvidence(lifecycleClient, SCOPE)).resolves.toBe(true);
   });
@@ -72,7 +71,7 @@ describe("hasCanonicalLifecycleEvidence", () => {
         yield eventFor({ ...SCOPE, turnId: "trn_other001" });
         yield eventFor({ ...SCOPE, runAttemptId: "attempt_other001" });
       }),
-    } as unknown as LifecycleClient;
+    } as unknown as LifecycleEvidenceClient;
 
     await expect(hasCanonicalLifecycleEvidence(lifecycleClient, SCOPE)).resolves.toBe(false);
   });
@@ -90,7 +89,7 @@ describe("hasCanonicalLifecycleEvidence", () => {
           }),
         };
       }),
-    } as unknown as LifecycleClient;
+    } as unknown as LifecycleEvidenceClient;
 
     await expect(hasCanonicalLifecycleEvidence(lifecycleClient, SCOPE, 10)).resolves.toBe(false);
     expect(signal?.aborted).toBe(true);

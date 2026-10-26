@@ -1,4 +1,4 @@
-import type { ConversationScope } from "../conversationScope";
+import type { ConversationScope } from "./conversation-scope.js";
 
 export type SubmissionOutcome =
   | { status: "accepted"; scope: ConversationScope }

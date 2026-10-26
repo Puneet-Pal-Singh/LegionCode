@@ -2,7 +2,7 @@ import {
   findSubmissionAttempt,
   freezeSubmissionWireBody,
   type SubmissionAttempt,
-} from "./submissionAttemptRegistry";
+} from "@legioncode/sdk";
 
 export type AuthenticatedFetch = (
   input: RequestInfo | URL,

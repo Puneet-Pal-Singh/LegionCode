@@ -1,8 +1,6 @@
 import type { Message } from "@ai-sdk/react";
-import {
-  conversationScopeKey,
-  type ConversationScope,
-} from "../hooks/conversationScope";
+import type { ConversationScope } from "@legioncode/sdk";
+import { conversationScopeKey } from "../hooks/conversationScope";
 
 class AgentStore {
   private messagesMap: Map<string, Message[]> = new Map();

@@ -12,6 +12,21 @@ export {
   type WorkspaceGrantSource,
 } from "./platform/app-server-client.js";
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
+export type { ConversationScope } from "./platform/conversation-scope.js";
+export {
+  acquireSubmissionAttempt,
+  findSubmissionAttempt,
+  finishSubmissionAttempt,
+  freezeSubmissionWireBody,
+  retainSubmissionReservation,
+  retireSessionSubmissionAttempts,
+  retireSubmissionIntent,
+} from "./platform/submission-attempt-registry.js";
+export type {
+  SubmissionAttempt,
+  SubmissionOutcome,
+} from "./platform/submission-attempt-registry.js";
+export { hasCanonicalLifecycleEvidence } from "./platform/submission-evidence.js";
 export {
   AppServerTransportError,
   createAppServerHttpTransport,

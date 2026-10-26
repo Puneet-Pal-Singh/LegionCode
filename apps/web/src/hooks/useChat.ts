@@ -1,17 +1,17 @@
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
+import type { SubmissionOutcome } from "@legioncode/sdk";
 import { useChatCore, type ChatAppendMessage } from "./useChatCore";
-import type { SubmissionOutcome } from "./chat/submissionAttemptRegistry";
 import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
+import type { ConversationScope } from "@legioncode/sdk";
 import type { ConversationScopeHttpError } from "@legioncode/sdk";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
-import type { ConversationScope } from "./conversationScope";
 import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
