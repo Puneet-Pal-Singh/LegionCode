@@ -1,11 +1,8 @@
 import { z } from "zod";
 import {
-  ApprovalDecisionSchema,
-  ApprovalIdSchema,
-  EventSequenceSchema,
   InterruptTurnRequestSchema,
-  JsonRecordSchema,
   LifecycleEventSchema,
+  JsonRecordSchema,
   ModelIdSchema,
   PermissionProfileIdSchema,
   ProviderIdSchema,
@@ -13,7 +10,6 @@ import {
   RunSchema,
   RunIdSchema,
   ThreadIdSchema,
-  TurnDiffPayloadSchema,
   TurnIdSchema,
   TurnSchema,
   UserIdSchema,
@@ -23,14 +19,38 @@ import {
   CompactTurnResponseSchema,
   type CompactTurnRequest,
   type CompactTurnResponse,
-  type EventSequence,
-  type LifecycleEvent,
   type Run,
   type Turn,
-  type TurnDiffPayload,
+} from "@repo/platform-protocol";
+import {
+  FollowLifecycleRequestSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  type FollowLifecycleRequest,
+  type GetTurnDiffRequest,
+  type GetTurnDiffResponse,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type SubmitLifecycleApprovalRequest,
 } from "@repo/platform-protocol";
 
-const MAX_LIFECYCLE_REPLAY_LIMIT = 1_000;
+export {
+  FollowLifecycleRequestSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  type FollowLifecycleRequest,
+  type GetTurnDiffRequest,
+  type GetTurnDiffResponse,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type SubmitLifecycleApprovalRequest,
+};
 
 export const StartTurnRequestSchema = z
   .object({
@@ -58,57 +78,6 @@ export interface StartTurnResponse {
   readonly turn: Turn;
 }
 
-export const ReplayLifecycleEventsRequestSchema = z
-  .object({
-    turnId: TurnIdSchema,
-    afterSequence: EventSequenceSchema.nullable().optional(),
-    limit: z.number().int().min(1).max(MAX_LIFECYCLE_REPLAY_LIMIT).optional(),
-  })
-  .strict();
-export type ReplayLifecycleEventsRequest = z.infer<
-  typeof ReplayLifecycleEventsRequestSchema
->;
-
-export const ReplayLifecycleEventsResponseSchema = z
-  .object({
-    events: z.array(LifecycleEventSchema),
-    nextSequence: EventSequenceSchema.nullable(),
-  })
-  .strict();
-export interface ReplayLifecycleEventsResponse {
-  readonly events: readonly LifecycleEvent[];
-  readonly nextSequence: EventSequence | null;
-}
-
-export const FollowLifecycleRequestSchema =
-  ReplayLifecycleEventsRequestSchema.omit({ limit: true })
-    .extend({
-      replayLimit: z
-        .number()
-        .int()
-        .min(1)
-        .max(MAX_LIFECYCLE_REPLAY_LIMIT)
-        .optional(),
-    })
-    .strict();
-export type FollowLifecycleRequest = z.infer<
-  typeof FollowLifecycleRequestSchema
->;
-
-export const SubmitLifecycleApprovalRequestSchema = z
-  .object({
-    turnId: TurnIdSchema,
-    approvalId: ApprovalIdSchema,
-    decision: ApprovalDecisionSchema,
-    grantScope: z.enum(["once", "matching_in_chat"]).optional(),
-    decidedBy: UserIdSchema.nullable(),
-    reason: z.string().min(1).max(2_000).nullable(),
-  })
-  .strict();
-export type SubmitLifecycleApprovalRequest = z.infer<
-  typeof SubmitLifecycleApprovalRequestSchema
->;
-
 export const SubmitUserInputResponseRequestSchema = z
   .object({
     turnId: TurnIdSchema,
@@ -121,24 +90,8 @@ export type SubmitUserInputResponseRequest = z.infer<
   typeof SubmitUserInputResponseRequestSchema
 >;
 
-export const GetTurnDiffRequestSchema = z
-  .object({
-    turnId: TurnIdSchema,
-  })
-  .strict();
-export type GetTurnDiffRequest = z.infer<typeof GetTurnDiffRequestSchema>;
-
 export { CompactTurnRequestSchema, CompactTurnResponseSchema };
 export type { CompactTurnRequest, CompactTurnResponse };
-
-export const GetTurnDiffResponseSchema = z
-  .object({
-    diff: TurnDiffPayloadSchema.nullable(),
-  })
-  .strict();
-export interface GetTurnDiffResponse {
-  readonly diff: TurnDiffPayload | null;
-}
 
 import {
   InterruptTurnIdentitySchema,

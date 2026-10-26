@@ -97,6 +97,20 @@ export {
 } from "./turn-scope-bootstrap.js";
 export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
 export {
+  FollowLifecycleRequestSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  type FollowLifecycleRequest,
+  type GetTurnDiffRequest,
+  type GetTurnDiffResponse,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type SubmitLifecycleApprovalRequest,
+} from "./lifecycle-operations.js";
+export {
   EnqueueThreadInputCommandSchema,
   ListThreadInputsCommandSchema,
   RemoveThreadInputCommandSchema,

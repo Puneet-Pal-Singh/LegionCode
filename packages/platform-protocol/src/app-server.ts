@@ -55,6 +55,7 @@ export const AppServerErrorSchema = z
   .object({
     code: z.enum([
       "unauthorized",
+      "forbidden",
       "not_found",
       "conflict",
       "TITLE_SCOPE_UNAVAILABLE",
@@ -66,6 +67,7 @@ export const AppServerErrorSchema = z
     statusCode: z.number().int().min(400).max(599).optional(),
     operationCode: z.string().trim().min(1).max(200).optional(),
     retryable: z.boolean().optional(),
+    correlationId: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type AppServerError = z.infer<typeof AppServerErrorSchema>;
