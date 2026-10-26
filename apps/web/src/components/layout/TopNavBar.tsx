@@ -122,14 +122,14 @@ function TopNavActions({
       {!isMobile ? (
         <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
       ) : null}
-      {environmentSummary ? (
-        <TopEnvironmentSummary {...environmentSummary} />
-      ) : null}
       {!isRightSidebarOpen ? (
         <ReviewControls
           onReview={onReview}
           onToggleRightSidebar={onToggleRightSidebar}
         />
+      ) : null}
+      {environmentSummary ? (
+        <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
     </div>
   );
