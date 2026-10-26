@@ -333,7 +333,7 @@ body {
 
 @layer utilities {
   .ui-surface-popover {
-    @apply rounded-xl border border-zinc-700/80 bg-zinc-900/95 text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.42)] backdrop-blur-md;
+    @apply rounded-2xl border border-zinc-800/80 bg-[#111113] text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.42)] backdrop-blur-md;
   }
 
   /* Shared by the provider setup surface and existing Web forms. */

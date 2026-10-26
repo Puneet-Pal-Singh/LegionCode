@@ -176,7 +176,7 @@ function EnvironmentPanelView({
       id="environment-summary-panel"
       role="dialog"
       aria-label="Environment summary"
-      className="ui-surface-popover fixed left-0 top-0 z-[120] max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto !rounded-[20px] p-2"
+      className="ui-surface-popover fixed left-0 top-0 z-[120] max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto p-2"
       style={panelPosition}
     >
       <EnvironmentActions {...actions} />
