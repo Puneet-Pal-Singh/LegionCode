@@ -8,6 +8,7 @@ import {
 import type { ThreadInputCommand } from "@repo/platform-protocol";
 import {
   PlatformClientOperationError,
+  PlatformClientContractError,
   parsePlatformOperationErrorCode,
   parseProtocolErrorEnvelope,
 } from "./errors.js";
@@ -29,6 +30,7 @@ import type {
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
 type HostedLifecycleMethod = "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
+type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
 
 export interface PlatformHttpTransportOptions {
   baseUrl: string;
@@ -433,14 +435,19 @@ function createGenericJsonError(
   );
 }
 
-function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod): PlatformClientOperationError {
+function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod): HostedOperationError {
   if (error instanceof AppServerClientError) {
     if (error.code === "server_error" && error.serverError) {
       const serverError = error.serverError;
       const statusCode = serverError.statusCode ?? appServerStatus(serverError.code);
-      return mapAppServerError(serverError, statusCode);
+      const operationCode = "operationCode" in serverError && typeof serverError.operationCode === "string"
+        ? serverError.operationCode
+        : serverError.code;
+      if (operationCode === "INVALID_RESPONSE_CONTRACT") return hostedResponseContractError(method);
+      return mapAppServerError(serverError, statusCode, method);
     }
     if (error.code === "transport") return mapHostedLifecycleError(error.cause, method);
+    if (error.code === "invalid_response") return hostedResponseContractError(method);
     return new PlatformClientOperationError(
       "INVALID_RESPONSE_FORMAT",
       error.message,
@@ -458,9 +465,7 @@ function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod):
       const failedResponse = typeof error.statusCode === "number" && error.statusCode >= 400;
       return new PlatformClientOperationError(
         failedResponse ? "INVALID_ERROR_RESPONSE" : "INVALID_RESPONSE_FORMAT",
-        failedResponse
-          ? `${error.message}${error.responsePreview ? `: ${error.responsePreview}` : ""}`
-          : error.message,
+        `${error.message}${error.responsePreview ? `: ${error.responsePreview}` : ""}`,
         false,
         undefined,
         failedResponse ? error.statusCode : 502,
@@ -499,10 +504,10 @@ function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod):
   );
 }
 
-function mapHostedHttpFailure(payload: unknown, statusCode: number, method: HostedLifecycleMethod): PlatformClientOperationError {
+function mapHostedHttpFailure(payload: unknown, statusCode: number, method: HostedLifecycleMethod): HostedOperationError {
   const failure = AppServerFailureResponseSchema.safeParse(payload);
   if (failure.success && failure.data.method === method) {
-    return mapAppServerError(failure.data.error, statusCode);
+    return mapAppServerError(failure.data.error, statusCode, method);
   }
   if (failure.success || (payload && typeof payload === "object" && "method" in payload && "protocolVersion" in payload)) {
     return new PlatformClientOperationError(
@@ -521,7 +526,7 @@ function mapHostedHttpFailure(payload: unknown, statusCode: number, method: Host
 
   const appServerError = AppServerErrorSchema.safeParse(payload);
   if (appServerError.success) {
-    return mapAppServerError(appServerError.data, statusCode);
+    return mapAppServerError(appServerError.data, statusCode, method);
   }
 
   return createGenericJsonError(payload, statusCode);
@@ -530,13 +535,15 @@ function mapHostedHttpFailure(payload: unknown, statusCode: number, method: Host
 function mapAppServerError(
   payload: unknown,
   fallbackStatus: number,
-): PlatformClientOperationError {
+  method: HostedLifecycleMethod,
+): HostedOperationError {
   const parsed = AppServerErrorSchema.safeParse(payload);
   if (!parsed.success) return createGenericJsonError(payload, fallbackStatus);
   const error = parsed.data;
   const operationCode = "operationCode" in error && typeof error.operationCode === "string"
     ? error.operationCode
     : error.code;
+  if (operationCode === "INVALID_RESPONSE_CONTRACT") return hostedResponseContractError(method);
   return new PlatformClientOperationError(
     parsePlatformOperationErrorCode(operationCode),
     error.message,
@@ -545,6 +552,21 @@ function mapAppServerError(
       : fallbackStatus >= 500 || fallbackStatus === 429,
     "correlationId" in error && typeof error.correlationId === "string" ? error.correlationId : undefined,
     "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : fallbackStatus,
+  );
+}
+
+function hostedResponseContractError(method: HostedLifecycleMethod): PlatformClientContractError {
+  const operation = method === "turn/lifecycleEvents"
+    ? "replayLifecycleEvents"
+    : method === "turn/diff"
+      ? "getTurnDiff"
+      : method === "turn/approval"
+        ? "submitLifecycleApproval"
+        : "compactTurn";
+  return new PlatformClientContractError(
+    "response",
+    operation,
+    `Invalid response contract for ${operation}`,
   );
 }
 

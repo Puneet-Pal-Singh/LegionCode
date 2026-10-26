@@ -87,10 +87,10 @@ export function createAppServerHttpTransport(
         }
         const { payload, preview } = result;
         const isJson = response.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false;
-        if (!response.ok && !isJson && isHostedLifecycleMethod(envelope.method)) {
+        if (!isJson && isHostedLifecycleMethod(envelope.method)) {
           throw new AppServerTransportError(
             "invalid_response",
-            "Unexpected non-JSON error response",
+            response.ok ? "Expected JSON response" : "Unexpected non-JSON error response",
             response.status,
             undefined,
             undefined,

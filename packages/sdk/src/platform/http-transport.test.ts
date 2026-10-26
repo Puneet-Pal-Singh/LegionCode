@@ -3,6 +3,7 @@ import { registerPlatformTransportConformance } from "@repo/contract-conformance
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { createPlatformClient } from "./client.js";
 import { createPlatformHttpTransport } from "./http-transport.js";
+import { PlatformClientContractError } from "./errors.js";
 import {
   TEST_IDS,
   createArtifact,
@@ -224,13 +225,26 @@ describe("createPlatformHttpTransport", () => {
             retryable: false,
           },
         }, 404);
+        if (responseIndex === 5) return createJsonResponse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "turn/diff",
+          ok: false,
+          error: {
+            code: "server_unavailable",
+            message: "Invalid lifecycle response",
+            statusCode: 502,
+            operationCode: "INVALID_RESPONSE_CONTRACT",
+            retryable: false,
+          },
+        }, 502);
         const protocolError = {
           code: "conflict",
           message: "Lifecycle request conflicted",
-          retryable: false,
+          retryable: responseIndex !== 3,
           correlationId: "corr-outer",
+          details: null,
         };
-        return createJsonResponse(responseIndex === 3 ? protocolError : { error: protocolError }, 409);
+        return createJsonResponse(responseIndex === 3 ? protocolError : { error: protocolError }, responseIndex === 3 ? 503 : 409);
       }),
     });
     const client = createPlatformClient(transport);
@@ -249,15 +263,20 @@ describe("createPlatformHttpTransport", () => {
     });
     await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
       code: "conflict",
-      statusCode: 409,
+      statusCode: 503,
       retryable: false,
       correlationId: "corr-outer",
     });
     await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
       code: "conflict",
       statusCode: 409,
-      retryable: false,
+      retryable: true,
       correlationId: "corr-outer",
+    });
+    await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
+      name: "PlatformClientContractError",
+      phase: "response",
+      operation: "getTurnDiff",
     });
   });
 
@@ -288,6 +307,7 @@ describe("createPlatformHttpTransport", () => {
 
   it("constructs lifecycle approval, user-input, and turn-diff endpoints", async () => {
     const calls: FetchCall[] = [];
+    let diffResponseCount = 0;
     const transport = createPlatformHttpTransport({
       baseUrl: "https://control-plane.test",
       fetchImpl: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -301,6 +321,17 @@ describe("createPlatformHttpTransport", () => {
               approvalId: TEST_IDS.approvalId,
               payload: { status: "approved", decision: "approved" },
             }));
+          }
+          diffResponseCount += 1;
+          if (diffResponseCount === 2) return appServerResult("turn/diff", null);
+          if (diffResponseCount === 3) return appServerResult("turn/diff", { diff: "wrong" });
+          if (diffResponseCount === 4) {
+            return new Response(JSON.stringify({
+              protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+              method: "turn/diff",
+              ok: true,
+              result: { diff: createTurnDiff() },
+            }), { headers: { "Content-Type": "text/plain" } });
           }
           return appServerResult("turn/diff", { diff: createTurnDiff() });
         }
@@ -333,10 +364,19 @@ describe("createPlatformHttpTransport", () => {
       response: { value: "continue" },
     });
     await client.getTurnDiff({ turnId: TEST_IDS.turnId });
+    await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toBeInstanceOf(PlatformClientContractError);
+    await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toBeInstanceOf(PlatformClientContractError);
+    await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE_FORMAT",
+      statusCode: 502,
+    });
 
     expect(calls.map((call) => call.url)).toEqual([
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/turns/trn_123456/user-input/input_123456",
+      "https://control-plane.test/app-server/request",
+      "https://control-plane.test/app-server/request",
+      "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
     ]);
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({

@@ -507,6 +507,7 @@ export class DefaultPlatformClient implements PlatformClient {
     try {
       return await run();
     } catch (error) {
+      if (error instanceof PlatformClientContractError) throw error;
       throw normalizePlatformClientOperationError(error, operation);
     }
   }
