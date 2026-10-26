@@ -8,7 +8,6 @@ import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { ChatMediaController } from "./controllers/ChatMediaController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
-import { LifecycleController } from "./controllers/LifecycleController";
 import { ThreadInputController } from "./controllers/ThreadInputController";
 import { HookDefinitionController } from "./controllers/HookDefinitionController";
 import { AppServerController } from "./controllers/AppServerController";
@@ -163,18 +162,6 @@ function createRouter(): Router {
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
   router.add(/^\/api\/run\/interrupt$/, RunController.interrupt, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
-  router.add(
-    /^\/turns\/[^/]+\/lifecycle-events$/,
-    LifecycleController.getEvents,
-    "GET",
-  );
-  router.add(/^\/turns\/[^/]+\/diff$/, LifecycleController.getTurnDiff, "GET");
-  router.add(
-    /^\/turns\/[^/]+\/approvals\/[^/]+$/,
-    LifecycleController.submitApproval,
-    "POST",
-  );
-  router.add(/^\/turns\/[^/]+\/compact$/, LifecycleController.compact, "POST");
   router.add(
     /^\/api\/edit-artifacts\/latest$/,
     EditArtifactController.getLatest,

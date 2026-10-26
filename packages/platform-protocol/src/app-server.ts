@@ -63,7 +63,7 @@ export const AppServerErrorSchema = z
       "invalid_request",
       "server_unavailable",
     ]),
-    message: z.string().min(1).max(500),
+    message: z.string().min(1).max(10_000),
     statusCode: z.number().int().min(400).max(599).optional(),
     operationCode: z.string().trim().min(1).max(200).optional(),
     retryable: z.boolean().optional(),

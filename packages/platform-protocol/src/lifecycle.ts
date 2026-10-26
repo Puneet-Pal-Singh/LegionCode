@@ -25,6 +25,8 @@ import {
 
 // Version 1 exports only stable lifecycle fields; it has no experimental fields.
 export const LIFECYCLE_SCHEMA_VERSION = 1;
+export const LifecycleOperationBackendSchema = z.enum(["execution-engine-v1", "cloudflare_agents"]);
+export type LifecycleOperationBackend = z.infer<typeof LifecycleOperationBackendSchema>;
 
 export const TurnStatusSchema = z.enum([
   "queued",
@@ -335,6 +337,7 @@ export const CompactTurnRequestSchema = z
     threadId: ThreadIdSchema,
     turnId: TurnIdSchema,
     runAttemptId: RunAttemptIdSchema,
+    backend: LifecycleOperationBackendSchema.optional(),
   })
   .strict();
 export type CompactTurnRequest = z.infer<typeof CompactTurnRequestSchema>;

@@ -309,6 +309,7 @@ export async function fetchRunRuntimeRoute(
     path: string;
     body?: string;
     headers?: Record<string, string>;
+    signal?: Request["signal"];
   },
 ): Promise<Response> {
   const runtimeTarget = resolveRuntimeTarget(env, requestedBackend);
@@ -337,6 +338,7 @@ async function fetchViaRunEngineDurableObject(
     path: string;
     body?: string;
     headers?: Record<string, string>;
+    signal?: Request["signal"];
   },
 ): Promise<Response> {
   if (!env.RUN_ENGINE_RUNTIME) {
@@ -351,6 +353,9 @@ async function fetchViaRunEngineDurableObject(
       method: requestInit.method,
       headers: requestInit.headers,
       body: requestInit.body,
+      // Cloudflare's Worker AbortSignal declaration differs from the DOM lib type
+      // used by Request.signal; both refer to the same runtime signal object.
+      signal: requestInit.signal as never,
     },
   );
   return runtimeResponse as unknown as Response;
