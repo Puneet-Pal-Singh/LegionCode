@@ -26,6 +26,7 @@ export type {
   SubmissionAttempt,
   SubmissionOutcome,
 } from "./platform/submission-attempt-registry.js";
+export { hasCanonicalLifecycleEvidence } from "./platform/submission-evidence.js";
 export {
   AppServerTransportError,
   createAppServerHttpTransport,

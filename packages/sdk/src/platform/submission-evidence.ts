@@ -1,8 +1,6 @@
-import type {
-  LifecycleClient,
-  TurnId,
-} from "../../services/api/lifecycleClient";
-import type { ConversationScope } from "@legioncode/sdk";
+import type { LifecycleEvent, TurnId } from "@repo/platform-protocol";
+import type { ConversationScope } from "./conversation-scope.js";
+import type { PlatformClient } from "./types.js";
 
 const DEFAULT_CANONICAL_EVIDENCE_TIMEOUT_MS = 2_000;
 
@@ -11,7 +9,7 @@ const DEFAULT_CANONICAL_EVIDENCE_TIMEOUT_MS = 2_000;
  * accepted only when replay proves the exact reserved thread, turn and attempt.
  */
 export async function hasCanonicalLifecycleEvidence(
-  lifecycleClient: LifecycleClient,
+  lifecycleClient: Pick<PlatformClient, "followTurnLifecycle">,
   scope: ConversationScope,
   timeoutMs = DEFAULT_CANONICAL_EVIDENCE_TIMEOUT_MS,
 ): Promise<boolean> {
@@ -20,11 +18,11 @@ export async function hasCanonicalLifecycleEvidence(
   const timeoutPromise = new Promise<null>((resolve) => {
     timeoutResolver = () => resolve(null);
   });
-  const timeoutId = window.setTimeout(() => {
+  const timeoutId = globalThis.setTimeout(() => {
     abortController.abort("Canonical lifecycle evidence timed out.");
     timeoutResolver?.();
   }, timeoutMs);
-  let iterator: AsyncIterator<import("../../services/api/lifecycleClient").LifecycleEvent> | null = null;
+  let iterator: AsyncIterator<LifecycleEvent> | null = null;
 
   try {
     const stream = lifecycleClient.followTurnLifecycle(
@@ -46,7 +44,7 @@ export async function hasCanonicalLifecycleEvidence(
   } catch {
     return false;
   } finally {
-    window.clearTimeout(timeoutId);
+    globalThis.clearTimeout(timeoutId);
     abortController.abort("Canonical lifecycle evidence check settled.");
     if (iterator?.return) {
       void Promise.resolve(iterator.return()).catch(() => undefined);

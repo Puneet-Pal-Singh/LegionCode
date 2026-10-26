@@ -6,6 +6,7 @@ import {
   TurnIdSchema,
   acquireSubmissionAttempt,
   finishSubmissionAttempt,
+  hasCanonicalLifecycleEvidence,
   retainSubmissionReservation,
   type SubmissionAttempt,
   type SubmissionOutcome,
@@ -63,7 +64,6 @@ import {
 } from "./conversationScope";
 import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/sdk";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
-import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
 import {
   createSubmissionObservedFetch,
