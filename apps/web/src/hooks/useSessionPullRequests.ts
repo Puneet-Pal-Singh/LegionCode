@@ -21,6 +21,7 @@ export function useSessionPullRequests(
   accountId: string | null,
 ) {
   const [prioritySessionId, setPrioritySessionId] = useState<string | null>(null);
+  const [refreshRequestVersion, setRefreshRequestVersion] = useState(0);
   const [, setCacheRevision] = useState(0);
   const cacheRef = useRef(new Map<string, CachedResult>());
   const visibleKey = Array.from(visibleSessionIds).sort().join("\0");
@@ -89,10 +90,11 @@ export function useSessionPullRequests(
       generationCurrent = false;
       controller.abort();
     };
-  }, [accountId, prioritySessionId, saveResult, sessionsById, visibleKey]);
+  }, [accountId, prioritySessionId, refreshRequestVersion, saveResult, sessionsById, visibleKey]);
 
-  const prioritizeSession = useCallback((sessionId: string | null) => {
+  const prioritizeSession = useCallback((sessionId: string | null, refresh = false) => {
     setPrioritySessionId(sessionId);
+    if (refresh) setRefreshRequestVersion((version) => version + 1);
   }, []);
 
   const pullRequestsBySessionId = new Map<string, PullRequestResult>();

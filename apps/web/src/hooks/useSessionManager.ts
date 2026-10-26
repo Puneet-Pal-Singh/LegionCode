@@ -117,6 +117,12 @@ function mergeProjectionIfChanged(
   return unchanged ? current : merged;
 }
 
+function parseIsoTimestamp(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 function mergeHydratedSessions(
   serverSessions: AgentSession[],
   currentSessions: AgentSession[],
@@ -716,20 +722,41 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     async (id: string, title: string): Promise<void> => {
       const trimmedTitle = title.trim().slice(0, 80);
       if (!trimmedTitle) {
-        return;
+        throw new Error("Chat title cannot be empty");
       }
-      await reconcileSessionMutation(
+      const serverSession = await SessionMetadata.renameSessionTitle(
         id,
-        (session) => ({
-          ...session,
-          name: trimmedTitle,
-          titleSource: "user",
-          updatedAt: new Date().toISOString(),
-        }),
-        () => SessionMetadata.renameSessionTitle(id, trimmedTitle),
+        trimmedTitle,
       );
+      if (serverSession.id !== id) {
+        throw new Error("Session metadata response id mismatch");
+      }
+      setSessions((current) => {
+        const target = current.find((session) => session.id === id);
+        if (!target) return current;
+        const mergedTitle = mergeServerSessionProjection(target, serverSession);
+        const currentUpdatedAt = parseIsoTimestamp(target.updatedAt);
+        const serverUpdatedAt = parseIsoTimestamp(serverSession.updatedAt);
+        const updatedTarget: AgentSession = {
+          ...target,
+          name: mergedTitle.name,
+          titleSource: mergedTitle.titleSource,
+          titleVersion: mergedTitle.titleVersion,
+          titleStatus: mergedTitle.titleStatus,
+          updatedAt:
+            serverUpdatedAt !== null &&
+            (currentUpdatedAt === null || serverUpdatedAt > currentUpdatedAt)
+              ? serverSession.updatedAt
+              : target.updatedAt,
+        };
+        const next = current.map((session) =>
+          session.id === id ? updatedTarget : session,
+        );
+        sessionsRef.current = next;
+        return next;
+      });
     },
-    [reconcileSessionMutation],
+    [],
   );
 
   const refreshSessionProjection = useCallback(

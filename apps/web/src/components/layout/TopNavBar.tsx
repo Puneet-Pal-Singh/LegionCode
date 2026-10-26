@@ -5,32 +5,24 @@ import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
 import type { AgentSession } from "../../types/session";
-import type { Repository } from "../../services/GitHubService";
 import { TopEnvironmentSummary } from "../navigation/TopEnvironmentSummary";
+import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSummary";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
   onReview?: () => void;
   isRightSidebarOpen?: boolean;
-  rightSidebarWidth?: number;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
   taskTitle?: string;
   activeSession?: AgentSession | null;
-  onRenameSession?: (title: string) => Promise<void>;
+  onRenameSession?: (sessionId: string, title: string) => Promise<void>;
   onPinSession?: () => Promise<void>;
   onUnpinSession?: () => Promise<void>;
   onArchiveSession?: () => Promise<void>;
   isAuthenticated?: boolean;
   onConnectGitHub?: () => void;
-  environmentSummary?: {
-    repo: Repository | null;
-    branch: string;
-    onBranchChange: (branch: string) => void;
-    onOpenChanges: () => void;
-    onOpenCommit: () => void;
-  };
-  isCompact?: boolean;
+  environmentSummary?: TopEnvironmentSummaryProps;
   isMobile?: boolean;
 }
 
@@ -86,33 +78,26 @@ function TopNavActions({
   onOpenIde,
   onReview,
   isRightSidebarOpen = false,
-  rightSidebarWidth = 0,
   onToggleRightSidebar,
   isAuthenticated = false,
   onConnectGitHub,
   environmentSummary,
-  isCompact = false,
   isMobile = false,
 }: Pick<
   TopNavBarProps,
   | "onOpenIde"
   | "onReview"
   | "isRightSidebarOpen"
-  | "rightSidebarWidth"
   | "onToggleRightSidebar"
   | "isAuthenticated"
   | "onConnectGitHub"
   | "environmentSummary"
-  | "isCompact"
   | "isMobile"
 >) {
   return (
     <div
       data-testid="top-nav-actions"
-      className="flex items-center gap-2 transition-[margin] duration-150"
-      style={{
-        marginRight: isRightSidebarOpen && !isCompact ? rightSidebarWidth : 0,
-      }}
+      className="flex shrink-0 items-center gap-2"
     >
       {!isAuthenticated && onConnectGitHub ? (
         <GitHubLoginButton
@@ -124,14 +109,14 @@ function TopNavActions({
       {!isMobile ? (
         <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
       ) : null}
-      {environmentSummary && !isCompact ? (
-        <TopEnvironmentSummary {...environmentSummary} />
-      ) : null}
       {!isRightSidebarOpen ? (
         <ReviewControls
           onReview={onReview}
           onToggleRightSidebar={onToggleRightSidebar}
         />
+      ) : null}
+      {environmentSummary && !isRightSidebarOpen ? (
+        <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
     </div>
   );

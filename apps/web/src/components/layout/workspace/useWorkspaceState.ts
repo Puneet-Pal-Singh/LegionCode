@@ -23,6 +23,7 @@ export interface SelectedDiff {
 
 export type SidebarContentTab =
   | { id: "files"; kind: "empty"; path: "Open file" }
+  | { id: "sources"; kind: "sources"; path: "Sources" }
   | {
       id: "context";
       kind: "context";
@@ -75,6 +76,8 @@ export function useWorkspaceState() {
     activeContentTab?.kind === "diff" ? activeContentTab : null;
   const selectedContext =
     activeContentTab?.kind === "context" ? activeContentTab : null;
+  const selectedSources =
+    activeContentTab?.kind === "sources" ? activeContentTab : null;
 
   const openContentTab = useCallback((tab: SidebarContentTab) => {
     setContentTabs((current) => {
@@ -105,6 +108,10 @@ export function useWorkspaceState() {
 
   const openFilesTab = useCallback(() => {
     openContentTab({ id: "files", kind: "empty", path: "Open file" });
+  }, [openContentTab]);
+
+  const openSourcesTab = useCallback(() => {
+    openContentTab({ id: "sources", kind: "sources", path: "Sources" });
   }, [openContentTab]);
 
   const openContextTab = useCallback(
@@ -183,8 +190,10 @@ export function useWorkspaceState() {
     selectedFile,
     selectedDiff,
     selectedContext,
+    selectedSources,
     openFileTab,
     openFilesTab,
+    openSourcesTab,
     openContextTab,
     openDiffTab,
     selectContentTab,

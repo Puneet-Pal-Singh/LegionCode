@@ -11,7 +11,6 @@ import { EnvironmentSummaryMenu } from "./EnvironmentSummaryMenu";
 
 const serviceMocks = vi.hoisted(() => ({
   listBranches: vi.fn(),
-  listOpenPullRequests: vi.fn(),
 }));
 
 vi.mock("../../../services/GitHubService", async (importOriginal) => ({
@@ -40,7 +39,6 @@ describe("EnvironmentSummaryMenu", () => {
       { name: "main", protected: true, commit: { sha: "1", url: "" } },
       { name: "feat/menu", protected: false, commit: { sha: "2", url: "" } },
     ]);
-    serviceMocks.listOpenPullRequests.mockResolvedValue([]);
   });
 
   it("shows only available actions and closes on outside click", () => {
@@ -64,23 +62,39 @@ describe("EnvironmentSummaryMenu", () => {
     expect(
       screen
         .getByRole("button", { name: "Toggle environment summary" })
-        .querySelector(".lucide-list"),
+        .querySelector(".lucide-square-menu"),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Toggle environment summary" }),
-    ).toHaveClass("p-1.5");
+    ).toHaveClass("size-8", "rounded-lg");
     expect(
       screen.getByRole("dialog", { name: "Environment summary" }),
-    ).toHaveClass("w-[340px]");
+    ).toHaveClass("w-[min(21.25rem,calc(100vw-1rem))]");
     expect(
       screen
         .getByRole("dialog", { name: "Environment summary" })
         .querySelector(".lucide-plus"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("LegionCode cloud")).toBeInTheDocument();
+    expect(screen.getByText("Pull requests")).toBeInTheDocument();
+    expect(screen.queryByText("Sources")).not.toBeInTheDocument();
+    expect(screen.queryByText("LegionCode cloud")).not.toBeInTheDocument();
+    expect(screen.queryByText("Outputs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Subagents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Background processes")).not.toBeInTheDocument();
     expect(screen.queryByText("Changes")).not.toBeInTheDocument();
     expect(screen.queryByText("Commit or push")).not.toBeInTheDocument();
 
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: "Environment summary" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Toggle environment summary" }),
+    ).toHaveFocus();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle environment summary" }),
+    );
     fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }));
     expect(
       screen.queryByRole("dialog", { name: "Environment summary" }),
@@ -89,21 +103,24 @@ describe("EnvironmentSummaryMenu", () => {
 
   it("switches branches and links the active pull request", async () => {
     const onBranchChange = vi.fn();
-    serviceMocks.listOpenPullRequests.mockResolvedValue([
-      {
-        number: 42,
-        title: "feat(web): add environment summary",
-        url: "https://github.com/legion/legioncode/pull/42",
-        state: "open",
-        head: "main",
-        base: "main",
-      },
-    ]);
     render(
       <EnvironmentSummaryMenu
         repo={repo}
         branch="main"
         changedFileCount={3}
+        pullRequestResult={{
+          sessionId: "123e4567-e89b-42d3-a456-426614174000",
+          status: "available",
+          pullRequests: [
+            {
+              number: 42,
+              title: "feat(web): add environment summary",
+              url: "https://github.com/legion/legioncode/pull/42",
+              state: "open",
+              draft: false,
+            },
+          ],
+        }}
         onBranchChange={onBranchChange}
         onOpenChanges={vi.fn()}
         onOpenCommit={vi.fn()}
@@ -126,7 +143,7 @@ describe("EnvironmentSummaryMenu", () => {
     ).not.toBeInTheDocument();
     await waitFor(() => screen.getByRole("button", { name: "feat/menu" }));
     expect(screen.getByRole("dialog", { name: "Switch branch" })).toHaveClass(
-      "right-[348px]",
+      "fixed",
     );
     fireEvent.click(screen.getByRole("button", { name: "feat/menu" }));
     expect(onBranchChange).toHaveBeenCalledWith("feat/menu");

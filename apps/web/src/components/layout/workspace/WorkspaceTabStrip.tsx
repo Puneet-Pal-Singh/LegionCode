@@ -1,4 +1,4 @@
-import { FileDiff, X } from "lucide-react";
+import { FileDiff, Image, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@legioncode/client-ui";
 import { FileTypeIcon } from "@legioncode/client-ui";
@@ -62,6 +62,9 @@ export function WorkspaceTabStrip({
 }
 
 function WorkspaceTabIcon({ tab }: { tab: SidebarContentTab }) {
+  if (tab.kind === "sources") {
+    return <Image size={15} />;
+  }
   if (tab.kind === "context") {
     return (
       <ContextUsageRing

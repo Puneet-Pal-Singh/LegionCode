@@ -4,7 +4,7 @@ import type { AgentSession } from "../../types/session";
 
 interface ChatHeaderMenuProps {
   session: AgentSession | null;
-  onRename: (title: string) => Promise<void>;
+  onRename: (sessionId: string, title: string) => Promise<void>;
   onPin: () => Promise<void>;
   onUnpin: () => Promise<void>;
   onArchive: () => Promise<void>;
@@ -20,7 +20,10 @@ export function ChatHeaderMenu({
   const [isOpen, setIsOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(session?.name ?? "");
+  const [isRenamePending, setIsRenamePending] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const renameGenerationRef = useRef(0);
   const isDisabled = !session;
 
   useEffect(() => {
@@ -45,14 +48,46 @@ export function ChatHeaderMenu({
     };
   }, []);
 
+  useEffect(() => {
+    renameGenerationRef.current += 1;
+    setIsRenaming(false);
+    setIsRenamePending(false);
+    setRenameError(null);
+    return () => {
+      renameGenerationRef.current += 1;
+    };
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!isRenaming) setRenameValue(session?.name ?? "");
+  }, [isRenaming, session?.name]);
+
   const saveRename = async (): Promise<void> => {
     const trimmedTitle = renameValue.trim();
     if (!trimmedTitle || !session) {
       return;
     }
-    await onRename(trimmedTitle.slice(0, 80));
-    setIsRenaming(false);
-    setIsOpen(false);
+    if (isRenamePending) return;
+    const targetSessionId = session.id;
+    const generation = renameGenerationRef.current;
+    setIsRenamePending(true);
+    setRenameError(null);
+    try {
+      await onRename(targetSessionId, trimmedTitle.slice(0, 80));
+      if (renameGenerationRef.current !== generation) return;
+      setIsRenaming(false);
+      setIsOpen(false);
+    } catch (error) {
+      if (renameGenerationRef.current === generation) {
+        setRenameError(
+          error instanceof Error ? error.message : "Could not rename chat",
+        );
+      }
+    } finally {
+      if (renameGenerationRef.current === generation) {
+        setIsRenamePending(false);
+      }
+    }
   };
 
   return (
@@ -116,7 +151,11 @@ export function ChatHeaderMenu({
               <button
                 type="button"
                 aria-label="Cancel rename"
-                onClick={() => setIsRenaming(false)}
+              disabled={isRenamePending}
+              onClick={() => {
+                setRenameError(null);
+                setIsRenaming(false);
+              }}
                 className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
               >
                 <X size={15} />
@@ -130,25 +169,37 @@ export function ChatHeaderMenu({
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
+                  if (isRenamePending) return;
+                  setRenameError(null);
                   setIsRenaming(false);
                 }
               }}
+              disabled={isRenamePending}
               className="ui-input h-9 w-full px-3 text-sm text-zinc-100"
             />
+            {renameError ? (
+              <p role="alert" className="mt-2 text-xs text-red-300">
+                {renameError}
+              </p>
+            ) : null}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setIsRenaming(false)}
+                disabled={isRenamePending}
+                onClick={() => {
+                  setRenameError(null);
+                  setIsRenaming(false);
+                }}
                 className="rounded-md px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={renameValue.trim().length === 0}
+                disabled={renameValue.trim().length === 0 || isRenamePending}
                 className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
               >
-                Save
+                {isRenamePending ? "Saving…" : "Save"}
               </button>
             </div>
           </form>

@@ -3,6 +3,8 @@ import { Maximize2, PanelRight } from "lucide-react";
 import { cn } from "@legioncode/client-ui";
 import type { SidebarContentTab } from "./useWorkspaceState";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
+import { TopEnvironmentSummary } from "../../navigation/TopEnvironmentSummary";
+import type { TopEnvironmentSummaryProps } from "../../navigation/TopEnvironmentSummary";
 
 interface SidebarHeaderProps {
   sidebarWidth: number | string;
@@ -17,6 +19,7 @@ interface SidebarHeaderProps {
   onOpenChanges: () => void;
   onExpand?: () => void;
   onCloseSidebar: () => void;
+  environmentSummary?: TopEnvironmentSummaryProps;
 }
 
 export function SidebarHeader({
@@ -32,6 +35,7 @@ export function SidebarHeader({
   onOpenChanges,
   onExpand,
   onCloseSidebar,
+  environmentSummary,
 }: SidebarHeaderProps) {
   return (
     <WorkspaceSurfaceHeader
@@ -50,6 +54,9 @@ export function SidebarHeader({
       addTabLabel="Add sidebar tab"
       trailingActions={
         <>
+          {environmentSummary ? (
+            <TopEnvironmentSummary {...environmentSummary} />
+          ) : null}
           <IconButton
             label="Fullscreen review"
             onClick={onExpand}

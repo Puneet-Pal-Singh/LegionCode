@@ -10,6 +10,7 @@ import {
   GitPullRequest,
   LoaderCircle,
   MoreHorizontal,
+  Pencil,
   Pause,
   Pin,
   PinOff,
@@ -50,6 +51,7 @@ export interface ThreadSidebarGroupProps {
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
+  onRenameSession?: (selectionId: string, title: string) => Promise<void>;
   pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   archived?: boolean;
@@ -263,6 +265,7 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
                     onUnpin={props.onUnpin}
                     onArchive={props.onArchive}
                     onUnarchive={props.onUnarchive}
+                    onRenameSession={props.onRenameSession}
                     pullRequestResult={props.pullRequestsBySessionId?.get(item.selectionId)}
                     onVisibleSelectionChange={props.onVisibleSelectionChange}
                     archived={props.archived}
@@ -309,6 +312,7 @@ interface ThreadSidebarRowProps {
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
+  onRenameSession?: (selectionId: string, title: string) => Promise<void>;
   pullRequestResult?: HostedSessionPullRequestsResponse;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   archived?: boolean;
@@ -336,6 +340,7 @@ function ThreadSidebarRow({
   onUnpin,
   onArchive,
   onUnarchive,
+  onRenameSession,
   pullRequestResult,
   onVisibleSelectionChange,
   archived,
@@ -348,6 +353,15 @@ function ThreadSidebarRow({
   const previewTimerRef = useRef<number | null>(null);
   const pendingCardFocusRef = useRef(false);
   const suppressPreviewOnFocusRef = useRef(false);
+  const renameGenerationRef = useRef(0);
+  const currentSelectionIdRef = useRef(item.selectionId);
+  currentSelectionIdRef.current = item.selectionId;
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameButtonRef = useRef<HTMLButtonElement>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState(item.title);
+  const [isRenamePending, setIsRenamePending] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const isDetailsOpen = previewSelectionId === item.selectionId;
   const [detailsPosition, setDetailsPosition] = useState<{ left: number; top: number } | null>(null);
   const detailsId = `thread-details-${item.selectionId}`;
@@ -374,8 +388,82 @@ function ThreadSidebarRow({
     if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
   }, []);
 
+  useEffect(() => () => {
+    renameGenerationRef.current += 1;
+  }, [item.selectionId]);
+
+  useEffect(() => {
+    if (
+      !isRenaming ||
+      !isDetailsOpen ||
+      currentSelectionIdRef.current !== item.selectionId
+    ) {
+      return;
+    }
+    if (isRenamePending) {
+      detailsRef.current?.focus();
+      return;
+    }
+    renameInputRef.current?.focus();
+  }, [isDetailsOpen, isRenamePending, isRenaming, item.selectionId]);
+
+  function cancelRename(): void {
+    if (isRenamePending) return;
+    setRenameError(null);
+    setRenameDraft(item.title);
+    setIsRenaming(false);
+    requestAnimationFrame(() => renameButtonRef.current?.focus());
+  }
+
+  function beginRename(): void {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+    setRenameDraft(item.title);
+    setRenameError(null);
+    setIsRenaming(true);
+  }
+
+  async function saveRename(): Promise<void> {
+    const title = renameDraft.trim().slice(0, 80);
+    if (!title || !onRenameSession || isRenamePending) return;
+    if (title === item.title) {
+      cancelRename();
+      return;
+    }
+    const targetSelectionId = item.selectionId;
+    const generation = ++renameGenerationRef.current;
+    setIsRenamePending(true);
+    setRenameError(null);
+    try {
+      await onRenameSession(targetSelectionId, title);
+      if (
+        renameGenerationRef.current === generation &&
+        currentSelectionIdRef.current === targetSelectionId
+      ) {
+        setIsRenaming(false);
+      }
+    } catch (error) {
+      if (
+        renameGenerationRef.current === generation &&
+        currentSelectionIdRef.current === targetSelectionId
+      ) {
+        setRenameError(
+          error instanceof Error ? error.message : "Could not rename chat",
+        );
+      }
+    } finally {
+      if (renameGenerationRef.current === generation) {
+        setIsRenamePending(false);
+      }
+    }
+  }
+
   function schedulePreviewClose(): void {
     if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = null;
+    if (isRenaming) return;
     previewTimerRef.current = window.setTimeout(() => onPreviewClose(item.selectionId), 120);
   }
 
@@ -432,7 +520,7 @@ function ThreadSidebarRow({
       window.removeEventListener("scroll", updatePosition, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isDetailsOpen, item.selectionId, item.title, workspaceLabel, relativeTime, pullRequestResult, onPreviewClose]);
+  }, [isDetailsOpen, isRenaming, renameError, item.selectionId, item.title, workspaceLabel, relativeTime, pullRequestResult, onPreviewClose]);
 
   const pinAction = item.isPinned ? onUnpin : onPin;
   const PinActionIcon = item.isPinned ? PinOff : Pin;
@@ -590,6 +678,8 @@ function ThreadSidebarRow({
               id={detailsId}
               role="dialog"
               aria-label={`${item.title} details`}
+              tabIndex={-1}
+              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-[20px] border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur outline-none focus:outline-none"
               onMouseEnter={keepPreviewOpen}
               onMouseLeave={schedulePreviewClose}
               onFocusCapture={keepPreviewOpen}
@@ -597,14 +687,77 @@ function ThreadSidebarRow({
                 const nextTarget = event.relatedTarget as Node | null;
                 if (!event.currentTarget.contains(nextTarget) && !rowRef.current?.contains(nextTarget)) schedulePreviewClose();
               }}
-              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur"
               style={detailsPosition ?? { left: 0, top: 0, visibility: "hidden" }}
             >
-              <div className="flex min-w-0 items-center justify-between gap-4">
-                <div className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-zinc-100">{item.title}</div>
-                <span className="shrink-0 text-xs text-zinc-400">
-                  {relativeTime === "now" ? "just now" : `${relativeTime} ago`}
-                </span>
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                {isRenaming ? (
+                  <form
+                    className="min-w-0 flex-1"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void saveRename();
+                    }}
+                  >
+                    <label className="sr-only" htmlFor={`rename-${item.selectionId}`}>
+                      Rename {item.title}
+                    </label>
+                    <input
+                      id={`rename-${item.selectionId}`}
+                      ref={renameInputRef}
+                      maxLength={80}
+                      value={renameDraft}
+                      disabled={isRenamePending}
+                      onChange={(event) => setRenameDraft(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (!isRenamePending) {
+                            setRenameDraft(item.title);
+                            setRenameError(null);
+                            setIsRenaming(false);
+                          }
+                          pendingCardFocusRef.current = false;
+                          suppressPreviewOnFocusRef.current = true;
+                          onPreviewClose(item.selectionId);
+                          rowRefs.get(item.selectionId)?.focus();
+                        }
+                      }}
+                      className="h-7 w-full min-w-0 rounded border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                    />
+                    {renameError ? (
+                      <p role="alert" className="mt-1 text-xs text-red-300">
+                        {renameError}
+                      </p>
+                    ) : null}
+                    {isRenamePending ? (
+                      <p role="status" className="mt-1 text-[11px] text-zinc-500">
+                        Saving…
+                      </p>
+                    ) : null}
+                  </form>
+                ) : (
+                  <div className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-zinc-100">
+                    {item.title}
+                  </div>
+                )}
+                <div className="flex shrink-0 items-center gap-1">
+                  {!isRenaming && onRenameSession ? (
+                    <button
+                      ref={renameButtonRef}
+                      type="button"
+                      aria-label={`Rename ${item.title}`}
+                      title={`Rename ${item.title}`}
+                      onClick={beginRename}
+                      className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+                    >
+                      <Pencil size={13} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                  <span className="shrink-0 text-xs text-zinc-400">
+                    {relativeTime === "now" ? "just now" : `${relativeTime} ago`}
+                  </span>
+                </div>
               </div>
               <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-zinc-400">
                 <FolderOpen size={14} className="shrink-0" aria-hidden="true" />
@@ -623,7 +776,9 @@ function ThreadSidebarRow({
                     </a>
                   ))}
                 </div>
-              ) : pullRequestResult?.status === "unavailable" ? (
+              ) : pullRequestResult === undefined ? (
+                <p role="status" className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">Checking pull request status…</p>
+              ) : pullRequestResult.status === "unavailable" ? (
                 <p className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">Pull request status unavailable</p>
               ) : null}
             </div>,

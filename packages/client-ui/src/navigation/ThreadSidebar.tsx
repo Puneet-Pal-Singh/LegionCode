@@ -30,6 +30,7 @@ export interface ThreadSidebarProps {
   onUnpin?: (selectionId: string) => void | Promise<void>;
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
+  onRenameSession?: (selectionId: string, title: string) => Promise<void>;
   pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   onPreviewSelectionChange?: (selectionId: string | null) => void;
@@ -51,6 +52,7 @@ export function ThreadSidebar({
   onUnpin,
   onArchive,
   onUnarchive,
+  onRenameSession,
   pullRequestsBySessionId,
   onVisibleSelectionChange,
   onPreviewSelectionChange,
@@ -306,6 +308,7 @@ export function ThreadSidebar({
                   onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
                   pullRequestsBySessionId={pullRequestsBySessionId}
+                  onRenameSession={onRenameSession}
                   onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
                   onUnpin={onUnpin}
@@ -351,6 +354,7 @@ export function ThreadSidebar({
                   onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
                   pullRequestsBySessionId={pullRequestsBySessionId}
+                  onRenameSession={onRenameSession}
                   onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
                   onUnpin={onUnpin}
@@ -391,6 +395,7 @@ export function ThreadSidebar({
                     onPreviewOpen={openPreview}
                     onPreviewClose={closePreview}
                     pullRequestsBySessionId={pullRequestsBySessionId}
+                    onRenameSession={onRenameSession}
                     onVisibleSelectionChange={onVisibleSelectionChange}
                     onConfirmArchive={confirmArchive}
                     onCancelArchive={() => setPendingArchiveId(null)}

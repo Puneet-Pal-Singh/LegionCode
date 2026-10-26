@@ -48,6 +48,8 @@ import {
   type HookSettingsAuditReadModel,
 } from "../../services/api/lifecycleClient.js";
 import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
+import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
+import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSummary";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -87,7 +89,9 @@ interface WorkspaceProps {
   isGitReviewOpen?: boolean;
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
-  summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
+  summaryActionRequest?: { id: number; action: "changes" | "commit" | "sources" } | null;
+  savedSources?: SavedChatSourcesProjection;
+  environmentSummary?: TopEnvironmentSummaryProps;
   onOpenRepositoryPicker?: () => void;
 }
 
@@ -124,6 +128,8 @@ export function Workspace({
   onGitReviewOpenChange,
   onTabChange,
   summaryActionRequest,
+  savedSources,
+  environmentSummary,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
   const isSessionPersisted = isSessionPersistenceReady(
@@ -154,8 +160,10 @@ export function Workspace({
     selectedFile,
     selectedDiff,
     selectedContext,
+    selectedSources,
     openFileTab,
     openFilesTab,
+    openSourcesTab,
     openContextTab,
     selectContentTab,
     closeContentTab,
@@ -180,6 +188,12 @@ export function Workspace({
       return;
     }
     setIsRightSidebarOpen?.(true);
+    if (summaryActionRequest.action === "sources") {
+      setIsViewingContent(true);
+      setActiveTab("review");
+      openSourcesTab();
+      return;
+    }
     setIsViewingContent(false);
     setActiveTab("changes");
   }, [
@@ -187,6 +201,7 @@ export function Workspace({
     setActiveTab,
     setIsRightSidebarOpen,
     setIsViewingContent,
+    openSourcesTab,
   ]);
 
   useEffect(() => {
@@ -731,6 +746,7 @@ export function Workspace({
                 onGitReviewOpenChange?.(true);
               }}
               onCloseSidebar={() => setIsRightSidebarOpen?.(false)}
+              environmentSummary={environmentSummary}
             />
           ) : null}
 
@@ -775,6 +791,8 @@ export function Workspace({
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
                 selectedContext={selectedContext}
+                selectedSources={selectedSources !== null}
+                savedSources={savedSources ?? { images: [], status: "ready", error: null }}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}

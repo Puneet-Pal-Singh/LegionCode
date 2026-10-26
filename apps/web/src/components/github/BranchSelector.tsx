@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown, GitBranch, Loader2, Search } from "lucide-react";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
@@ -107,6 +107,8 @@ interface BranchSelectorPanelProps {
   isLoading?: boolean;
   onBranchSelect: (branch: string) => void;
   className?: string;
+  panelRef?: RefObject<HTMLDivElement | null>;
+  style?: CSSProperties;
 }
 
 export function BranchSelectorPanel({
@@ -115,6 +117,8 @@ export function BranchSelectorPanel({
   isLoading = false,
   onBranchSelect,
   className,
+  panelRef,
+  style,
 }: BranchSelectorPanelProps) {
   const [query, setQuery] = useState("");
   const visibleBranches = useMemo(
@@ -129,6 +133,7 @@ export function BranchSelectorPanel({
   );
   return (
     <motion.div
+      ref={panelRef}
       role="dialog"
       aria-label="Switch branch"
       initial={{ opacity: 0, y: -4, scale: 0.98 }}
@@ -138,6 +143,7 @@ export function BranchSelectorPanel({
         "ui-surface-popover absolute z-50 w-[min(20rem,calc(100vw-1rem))] overflow-hidden",
         className,
       )}
+      style={style}
     >
       <div className="border-b border-zinc-800 px-3 py-2.5 text-sm font-medium text-zinc-500">
         Switch branch

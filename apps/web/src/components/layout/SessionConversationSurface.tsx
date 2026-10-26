@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import { useChat, type UseChatResult } from "../../hooks/useChat";
+import { resolveHydratedChatImageSource } from "../chat/chatMessageImagePresentation";
+import {
+  projectSavedChatSources,
+  type SavedChatSourcesProjection,
+} from "../../lib/saved-chat-sources";
 import {
   loadStoredProductMode,
   persistProductMode,
@@ -11,6 +22,7 @@ export interface SessionConversationSurfaceContext {
   chat: UseChatResult;
   productMode: ProductMode;
   setProductMode: (mode: ProductMode) => void;
+  savedSources: SavedChatSourcesProjection;
   showWorkspace: boolean;
   registerFileCreatedRefresh: (callback: (() => void) | null) => void;
 }
@@ -20,6 +32,7 @@ interface SessionConversationSurfaceProps {
   runId?: string;
   mode?: RunMode;
   onServerProjectionAvailable?: () => void;
+  onSavedSourcesChange?: (projection: SavedChatSourcesProjection) => void;
   onRunIdChange?: (runId: string) => void;
   workspaceContext?: HostedSessionWorkspaceContext | null;
   isSessionPersistenceReady: boolean;
@@ -33,6 +46,7 @@ export function SessionConversationSurface({
   runId,
   mode,
   onServerProjectionAvailable,
+  onSavedSourcesChange,
   onRunIdChange,
   workspaceContext,
   isSessionPersistenceReady,
@@ -71,6 +85,29 @@ export function SessionConversationSurface({
     onRunIdChange,
     workspaceContext,
   );
+  const savedSources = useMemo(
+    () =>
+      projectSavedChatSources({
+        messages: chat.messages,
+        restoredUserMessageIds: chat.restoredUserMessageIds,
+        hydrationStatus: chat.hydrationStatus,
+        isHydrating: chat.isHydrating,
+        hasHydrated: chat.hasHydrated,
+        hydrationError: chat.hydrationError,
+        resolveImageSource: resolveHydratedChatImageSource,
+      }),
+    [
+      chat.hydrationError,
+      chat.hydrationStatus,
+      chat.hasHydrated,
+      chat.isHydrating,
+      chat.messages,
+      chat.restoredUserMessageIds,
+    ],
+  );
+  useEffect(() => {
+    onSavedSourcesChange?.(savedSources);
+  }, [onSavedSourcesChange, savedSources]);
   const showWorkspace =
     isSessionPersistenceReady &&
     (hasQueuedIntent ||
@@ -86,6 +123,7 @@ export function SessionConversationSurface({
     chat,
     productMode,
     setProductMode,
+    savedSources,
     showWorkspace,
     registerFileCreatedRefresh,
   });

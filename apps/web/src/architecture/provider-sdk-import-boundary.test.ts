@@ -33,6 +33,12 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/layout/SessionConversationSurface.tsx",
   "hooks/useSessionWorkspaceContext.ts",
   "hooks/useSessionPullRequests.ts",
+  // UI surfaces render the canonical verified pull-request response DTO;
+  // querying and transport ownership stay in useSessionPullRequests.
+  "components/layout/AgentSidebar.tsx",
+  "components/layout/TopNavBar.tsx",
+  "components/layout/workspace/EnvironmentSummaryMenu.tsx",
+  "components/navigation/TopEnvironmentSummary.tsx",
   "services/provider/ProviderStore.ts",
   "services/provider/ProviderSelectionPreferences.ts",
 ]);

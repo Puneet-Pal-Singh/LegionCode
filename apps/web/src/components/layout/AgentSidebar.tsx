@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ThreadSidebar } from "@legioncode/client-ui";
+import type { HostedSessionPullRequestsResponse } from "@legioncode/sdk";
 import type {
   AgentSession,
   SessionHydrationStatus,
 } from "../../hooks/useSessionManager";
 import { projectAgentSessionsForSidebar } from "../../lib/session-sidebar-selectors";
-import { useSessionPullRequests } from "../../hooks/useSessionPullRequests";
 import {
   SidebarAccountMenu,
   type SidebarAccountUser,
@@ -22,13 +22,16 @@ interface AgentSidebarProps {
   onUnpin?: (id: string) => void | Promise<void>;
   onArchive: (id: string) => void | Promise<void>;
   onUnarchive?: (id: string) => void | Promise<void>;
+  onRenameSession?: (id: string, title: string) => Promise<void>;
   onRemoveRepository?: (repo: string) => void;
   onRenameRepository?: (oldName: string, newName: string) => void;
   onClose?: () => void;
   onAddRepository: () => void;
   onOpenSettings: () => void;
   accountUser?: SidebarAccountUser | null;
-  accountId?: string | null;
+  pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
+  onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
+  onPreviewSelectionChange?: (selectionId: string | null) => void;
   onLogout?: () => Promise<void>;
   width?: number;
 }
@@ -44,34 +47,19 @@ export function AgentSidebar({
   onUnpin,
   onArchive,
   onUnarchive,
+  onRenameSession,
   onRemoveRepository,
   onRenameRepository,
   onClose,
   onAddRepository,
   onOpenSettings,
   accountUser,
-  accountId = null,
+  pullRequestsBySessionId,
+  onVisibleSelectionChange,
+  onPreviewSelectionChange,
   onLogout,
   width = 280,
 }: AgentSidebarProps): React.ReactElement {
-  const [visibleSessionIds, setVisibleSessionIds] = useState<ReadonlySet<string>>(() => new Set());
-  const { pullRequestsBySessionId, prioritizeSession } = useSessionPullRequests(
-    sessions,
-    visibleSessionIds,
-    accountId,
-  );
-  const handleVisibleSelectionChange = useCallback((selectionId: string, visible: boolean) => {
-    setVisibleSessionIds((current) => {
-      if (current.has(selectionId) === visible) return current;
-      const next = new Set(current);
-      if (visible) next.add(selectionId);
-      else next.delete(selectionId);
-      return next;
-    });
-  }, []);
-  const handlePreviewSelectionChange = useCallback((selectionId: string | null) => {
-    prioritizeSession(selectionId);
-  }, [prioritizeSession]);
   const model = useMemo(
     () =>
       projectAgentSessionsForSidebar({
@@ -123,9 +111,10 @@ export function AgentSidebar({
       onPin={onPin}
       onUnpin={onUnpin}
       onUnarchive={(selectionId) => onUnarchive?.(selectionId)}
+      onRenameSession={onRenameSession}
       pullRequestsBySessionId={pullRequestsBySessionId}
-      onVisibleSelectionChange={handleVisibleSelectionChange}
-      onPreviewSelectionChange={handlePreviewSelectionChange}
+      onVisibleSelectionChange={onVisibleSelectionChange}
+      onPreviewSelectionChange={onPreviewSelectionChange}
       onClose={onClose}
       footer={footer}
       width={width}
