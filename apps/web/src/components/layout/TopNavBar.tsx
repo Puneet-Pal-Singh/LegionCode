@@ -14,6 +14,7 @@ interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
   onReview?: () => void;
   isRightSidebarOpen?: boolean;
+  rightSidebarInset?: number | string;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
   taskTitle?: string;
@@ -91,6 +92,7 @@ function TopNavActions({
   onOpenIde,
   onReview,
   isRightSidebarOpen = false,
+  rightSidebarInset = 0,
   onToggleRightSidebar,
   isAuthenticated = false,
   onConnectGitHub,
@@ -101,6 +103,7 @@ function TopNavActions({
   | "onOpenIde"
   | "onReview"
   | "isRightSidebarOpen"
+  | "rightSidebarInset"
   | "onToggleRightSidebar"
   | "isAuthenticated"
   | "onConnectGitHub"
@@ -110,7 +113,10 @@ function TopNavActions({
   return (
     <div
       data-testid="top-nav-actions"
-      className="flex shrink-0 items-center gap-2"
+      className="flex shrink-0 items-center gap-2 transition-[margin] duration-150"
+      style={{
+        marginRight: isRightSidebarOpen ? rightSidebarInset : 0,
+      }}
     >
       {!isAuthenticated && onConnectGitHub ? (
         <GitHubLoginButton

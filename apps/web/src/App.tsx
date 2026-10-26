@@ -853,6 +853,13 @@ function AppContent() {
             <TopNavBar
               onReview={activeSession ? handleOpenReviewSidebar : undefined}
               isRightSidebarOpen={Boolean(activeSession) && isRightSidebarOpen}
+              rightSidebarInset={
+                isRightSidebarOpen && !isMobile
+                  ? isCompact
+                    ? "min(560px, 86vw)"
+                    : rightSidebarWidth
+                  : 0
+              }
               onToggleRightSidebar={handleToggleRightSidebar}
               threadTitle={threadTitle}
               taskTitle={taskTitle}
