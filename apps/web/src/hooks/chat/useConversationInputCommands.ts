@@ -8,7 +8,7 @@ import {
 } from "@legioncode/sdk";
 import type { ProductMode, RunMode, ReasoningEffort } from "@repo/shared-types";
 import type { ThreadInputReceipt } from "@legioncode/sdk";
-import type { LifecycleClient } from "../../services/api/lifecycleClient";
+import type { PlatformClient } from "@legioncode/sdk";
 import type { ChatImageAttachment } from "@legioncode/client-ui";
 import { resolveReasoningEffortForRequest } from "../../lib/model-reasoning-preferences";
 import { resolveRuntimeHarnessId } from "../../lib/chat-request";
@@ -26,7 +26,7 @@ export function useConversationInputCommands(input: {
   selectedProviderId?: string | null;
   selectedModelId?: string | null;
   selectedModelEfforts?: readonly ReasoningEffort[];
-  lifecycleClient: LifecycleClient;
+  lifecycleClient: Pick<PlatformClient, "steerTurn" | "enqueueThreadInput" | "resumeTurn">;
   scopeRef: MutableRefObject<ConversationScope | null>;
   runScopeRef: MutableRefObject<string>;
   generationRef: MutableRefObject<number>;

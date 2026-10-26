@@ -15,14 +15,14 @@ import {
   type ThreadInputReceipt,
 } from "@legioncode/sdk";
 import type { ConversationScope } from "@legioncode/sdk";
-import { createLifecycleClient } from "../../services/api/lifecycleClient";
+import { createWebPlatformClient } from "../../services/api/platformClient";
 
 export function useThreadInputQueue(
   scope: ConversationScope | null,
   activeTarget: { turnId: string; runAttemptId: string } | null,
   invalidationKey: string,
 ) {
-  const client = useMemo(() => createLifecycleClient(), []);
+  const client = useMemo(() => createWebPlatformClient(), []);
   const [snapshotState, setSnapshotState] = useState<{
     scopeKey: string;
     value: ThreadInputQueueSnapshot;

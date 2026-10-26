@@ -69,8 +69,8 @@ vi.mock("./useProviderStore.js", () => ({
   }),
 }));
 
-vi.mock("../services/api/lifecycleClient", () => ({
-  createLifecycleClient: () => ({
+vi.mock("../services/api/platformClient", () => ({
+  createWebPlatformClient: () => ({
     followTurnLifecycle: state.followTurnLifecycle,
     replayLifecycleEvents: vi.fn(async () => ({
       events: [],

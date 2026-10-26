@@ -22,7 +22,7 @@ import {
   logClientEvent,
   logClientWarning,
 } from "../../../lib/client-logger.js";
-import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type { TurnDiffPayload } from "@legioncode/sdk";
 import { buildDiffContentFromTurnDiff } from "@legioncode/sdk";
 
 interface ChangedFilesControllerInput {

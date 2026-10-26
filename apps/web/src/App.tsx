@@ -44,7 +44,7 @@ import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
-import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
+import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
 import { initializeHostedAppServer } from "./services/api/appServerClient";
 import { useSessionWorkspaceContext } from "./hooks/useSessionWorkspaceContext";
 import { saveSessionBranchPreference } from "./lib/session-branch-preference";

@@ -11,20 +11,18 @@ import {
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
 import { RiskyActionCategorySchema } from "@repo/shared-types";
 import { ApprovalIdSchema } from "@legioncode/sdk";
-import {
-  createLifecycleClient,
-  type LifecycleClient,
-} from "../../../services/api/lifecycleClient";
+import { createWebPlatformClient } from "../../../services/api/platformClient";
 import type {
   LifecycleProjection,
   LifecycleProjectionApproval,
+  PlatformClient,
 } from "@legioncode/sdk";
 import { getDisplayedApprovalDecisions } from "@legioncode/client-ui";
 
 interface ApprovalControllerInput {
   lifecycleProjection: LifecycleProjection | null;
   sessionId: string;
-  lifecycleClient?: LifecycleClient;
+  lifecycleClient?: Pick<PlatformClient, "submitLifecycleApproval">;
 }
 
 type PendingApprovalState = {
@@ -36,7 +34,7 @@ type PendingApprovalState = {
 
 export function useApprovalController(input: ApprovalControllerInput) {
   const lifecycleClient = useMemo(
-    () => input.lifecycleClient ?? createLifecycleClient(),
+    () => input.lifecycleClient ?? createWebPlatformClient(),
     [input.lifecycleClient],
   );
   const [busyDecision, setBusyDecision] = useState<ApprovalDecisionKind | null>(
@@ -173,7 +171,7 @@ function useApprovalLifecycle(
 
 interface ResolveDecisionInput {
   readonly decision: ApprovalDecisionKind;
-  readonly lifecycleClient: LifecycleClient;
+  readonly lifecycleClient: Pick<PlatformClient, "submitLifecycleApproval">;
   readonly pendingApprovalState: PendingApprovalState | null;
   readonly submittingRef: MutableRefObject<boolean>;
   readonly setBusyDecision: Dispatch<
@@ -194,7 +192,7 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   try {
     if (input.pendingApprovalState.source === "lifecycle") {
       const grantScope = mapApprovalGrantScope(input.decision);
-      await input.lifecycleClient.submitApproval({
+      await input.lifecycleClient.submitLifecycleApproval({
         turnId: input.pendingApprovalState.turnId,
         approvalId: ApprovalIdSchema.parse(
           input.pendingApprovalState.approval.approvalId,

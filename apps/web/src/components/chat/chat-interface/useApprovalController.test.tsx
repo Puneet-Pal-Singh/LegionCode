@@ -1,18 +1,17 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApprovalId, ItemId, TurnId } from "@legioncode/sdk";
-import type { LifecycleClient } from "../../../services/api/lifecycleClient";
-import type { LifecycleProjectionApproval } from "@legioncode/sdk";
+import type { LifecycleProjectionApproval, PlatformClient } from "@legioncode/sdk";
 import { createLifecycleProjection } from "@legioncode/sdk";
 import { useApprovalController } from "./useApprovalController";
 
 describe("useApprovalController", () => {
   it("dismisses an approval immediately after the canonical submission succeeds", async () => {
-    const submitApproval = vi.fn().mockResolvedValue({});
+    const submitLifecycleApproval = vi.fn().mockResolvedValue({});
     const { result } = renderHook(() =>
       useApprovalController({
         lifecycleProjection: pendingApprovalProjection(),
-        lifecycleClient: { submitApproval } as unknown as LifecycleClient,
+        lifecycleClient: { submitLifecycleApproval } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
         sessionId: "session-1",
       }),
     );
@@ -21,14 +20,14 @@ describe("useApprovalController", () => {
     expect(result.current.pendingApproval?.category).toBe("network_external");
     await act(() => result.current.resolve("allow_once"));
 
-    expect(submitApproval).toHaveBeenCalledWith(
+    expect(submitLifecycleApproval).toHaveBeenCalledWith(
       expect.objectContaining({ decision: "approved", grantScope: "once" }),
     );
     expect(result.current.pendingApproval).toBeNull();
   });
 
   it("offers chat-scoped approval only when the canonical option is present", async () => {
-    const submitApproval = vi.fn().mockResolvedValue({});
+    const submitLifecycleApproval = vi.fn().mockResolvedValue({});
     const { result } = renderHook(() =>
       useApprovalController({
         lifecycleProjection: pendingApprovalProjection([
@@ -39,7 +38,7 @@ describe("useApprovalController", () => {
             description: "Reuse this approval in the current chat.",
           },
         ]),
-        lifecycleClient: { submitApproval } as unknown as LifecycleClient,
+        lifecycleClient: { submitLifecycleApproval } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
         sessionId: "session-1",
       }),
     );
@@ -51,7 +50,7 @@ describe("useApprovalController", () => {
     });
     expect(result.current.decisions).toContain("allow_persistent_rule");
     await act(() => result.current.resolve("allow_persistent_rule"));
-    expect(submitApproval).toHaveBeenCalledWith(
+    expect(submitLifecycleApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         decision: "approved",
         grantScope: "matching_in_chat",
@@ -64,8 +63,8 @@ describe("useApprovalController", () => {
       useApprovalController({
         lifecycleProjection: pendingApprovalProjection(),
         lifecycleClient: {
-          submitApproval: vi.fn().mockResolvedValue({}),
-        } as unknown as LifecycleClient,
+          submitLifecycleApproval: vi.fn().mockResolvedValue({}),
+        } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
         sessionId: "session-1",
       }),
     );
@@ -82,8 +81,8 @@ describe("useApprovalController", () => {
           { id: "abort", label: "Abort", description: null },
         ]),
         lifecycleClient: {
-          submitApproval: vi.fn().mockResolvedValue({}),
-        } as unknown as LifecycleClient,
+          submitLifecycleApproval: vi.fn().mockResolvedValue({}),
+        } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
         sessionId: "session-1",
       }),
     );
@@ -92,21 +91,21 @@ describe("useApprovalController", () => {
   });
 
   it("keeps the approval visible when submission fails", async () => {
-    const submitApproval = vi.fn().mockRejectedValue(new Error("offline"));
+    const submitLifecycleApproval = vi.fn().mockRejectedValue(new Error("offline"));
     const { result } = renderHook(() =>
       useApprovalController({
         lifecycleProjection: pendingApprovalProjection(),
         sessionId: "session-1",
-        lifecycleClient: { submitApproval } as unknown as LifecycleClient,
+        lifecycleClient: { submitLifecycleApproval } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
       }),
     );
 
     await act(() => result.current.resolve("deny"));
 
-    expect(submitApproval).toHaveBeenCalledWith(
+    expect(submitLifecycleApproval).toHaveBeenCalledWith(
       expect.objectContaining({ decision: "denied" }),
     );
-    expect(submitApproval.mock.calls[0]?.[0]).not.toHaveProperty("grantScope");
+    expect(submitLifecycleApproval.mock.calls[0]?.[0]).not.toHaveProperty("grantScope");
     expect(result.current.pendingApproval).not.toBeNull();
     expect(result.current.error).toBe("offline");
   });
@@ -117,8 +116,8 @@ describe("useApprovalController", () => {
         useApprovalController({
           lifecycleProjection: pendingApprovalProjection(),
           lifecycleClient: {
-            submitApproval: vi.fn().mockResolvedValue({}),
-          } as unknown as LifecycleClient,
+            submitLifecycleApproval: vi.fn().mockResolvedValue({}),
+          } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
           sessionId,
         }),
       { initialProps: { sessionId: "session-1" } },

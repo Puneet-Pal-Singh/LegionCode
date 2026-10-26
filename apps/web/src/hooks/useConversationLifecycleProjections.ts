@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TurnIdSchema } from "@legioncode/sdk";
-import type { ConversationTurn } from "@legioncode/sdk";
-import {
-  createLifecycleClient,
-  type LifecycleClient,
-  type TurnId,
-} from "../services/api/lifecycleClient";
+import type { ConversationTurn, PlatformClient, TurnId } from "@legioncode/sdk";
+import { createWebPlatformClient } from "../services/api/platformClient";
 import {
   applyConversationLifecycleEvent as applyLifecycleEvent,
   createLifecycleProjection,
@@ -34,10 +30,10 @@ export interface ConversationLifecycleProjections {
 export function useConversationLifecycleProjections(
   turns: readonly ConversationTurn[],
   activeTurnId: string | null | undefined,
-  injectedClient?: LifecycleClient,
+  injectedClient?: Pick<PlatformClient, "replayLifecycleEvents">,
 ): ConversationLifecycleProjections {
   const client = useMemo(
-    () => injectedClient ?? createLifecycleClient(),
+    () => injectedClient ?? createWebPlatformClient(),
     [injectedClient],
   );
   const turnIds = useMemo(
@@ -87,7 +83,7 @@ export function useConversationLifecycleProjections(
 }
 
 async function replaySettledTurn(
-  client: LifecycleClient,
+  client: Pick<PlatformClient, "replayLifecycleEvents">,
   turnId: TurnId,
   abortController: AbortController,
 ): Promise<LifecycleProjection | null> {
