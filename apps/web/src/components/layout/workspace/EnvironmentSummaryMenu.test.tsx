@@ -62,11 +62,11 @@ describe("EnvironmentSummaryMenu", () => {
     expect(
       screen
         .getByRole("button", { name: "Toggle environment summary" })
-        .querySelector(".lucide-list"),
+        .querySelector(".lucide-square-menu"),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Toggle environment summary" }),
-    ).toHaveClass("p-1.5");
+    ).toHaveClass("size-8", "rounded-lg");
     expect(
       screen.getByRole("dialog", { name: "Environment summary" }),
     ).toHaveClass("w-[min(21.25rem,calc(100vw-1rem))]");

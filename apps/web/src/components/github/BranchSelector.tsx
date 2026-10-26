@@ -140,7 +140,7 @@ export function BranchSelectorPanel({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -4, scale: 0.98 }}
       className={cn(
-        "ui-surface-popover w-[min(20rem,calc(100vw-1rem))] overflow-hidden",
+        "ui-surface-popover absolute z-50 w-[min(20rem,calc(100vw-1rem))] overflow-hidden",
         className,
       )}
       style={style}

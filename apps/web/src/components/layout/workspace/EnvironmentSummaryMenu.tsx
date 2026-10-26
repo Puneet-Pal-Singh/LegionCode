@@ -14,10 +14,10 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Image,
-  List as ListIcon,
   Loader2,
   GitMerge,
   GitPullRequest,
+  SquareMenu,
 } from "lucide-react";
 import type {
   Branch,
@@ -87,12 +87,15 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
         }}
         aria-label="Toggle environment summary"
         aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-controls="environment-summary-panel"
+        title="Toggle summary"
         className={cn(
-          "rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white",
+          "size-8 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white",
           isOpen && "bg-zinc-800 text-white",
         )}
       >
-        <ListIcon size={16} />
+        <SquareMenu size={16} />
       </button>
       {isOpen ? (
         <EnvironmentPanel
@@ -111,7 +114,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           isLoading={loading}
           panelRef={branchPanelRef}
           style={branchPanelPosition}
-          className="fixed left-0 top-0 z-[130]"
+          className="fixed left-0 top-0 z-[130] overflow-y-auto"
           onBranchSelect={(branch) => {
             props.onBranchChange?.(branch);
             setIsBranchOpen(false);
@@ -170,6 +173,7 @@ function EnvironmentPanelView({
   return (
     <div
       ref={panelRef}
+      id="environment-summary-panel"
       role="dialog"
       aria-label="Environment summary"
       className="ui-surface-popover fixed left-0 top-0 z-[120] max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto !rounded-[20px] p-2"
@@ -527,15 +531,27 @@ function useViewportPopoverPosition(
         below + panel.height <= window.innerHeight - 8
           ? below
           : Math.max(8, trigger.top - panel.height - 8);
-      setPosition({ position: "fixed", left, top, visibility: "visible" });
+      setPosition({
+        position: "fixed",
+        left,
+        top,
+        maxHeight: Math.max(0, window.innerHeight - 16),
+        visibility: "visible",
+      });
     };
 
     updatePosition();
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updatePosition);
+    if (panelRef.current) resizeObserver?.observe(panelRef.current);
     return () => {
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
+      resizeObserver?.disconnect();
     };
   }, [isOpen, panelRef, triggerRef]);
 
