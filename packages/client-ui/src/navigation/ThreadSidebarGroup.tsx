@@ -679,7 +679,7 @@ function ThreadSidebarRow({
               role="dialog"
               aria-label={`${item.title} details`}
               tabIndex={-1}
-              className="fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] rounded-[20px] border border-zinc-700/80 bg-zinc-900/95 p-3 shadow-2xl shadow-black/50 backdrop-blur outline-none focus:outline-none"
+              className="ui-surface-popover fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] p-3 shadow-2xl shadow-black/50 outline-none focus:outline-none"
               onMouseEnter={keepPreviewOpen}
               onMouseLeave={schedulePreviewClose}
               onFocusCapture={keepPreviewOpen}
