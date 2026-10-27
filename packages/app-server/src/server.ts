@@ -4,6 +4,16 @@ import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsRes
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
+import type {
+  CompactTurnRequest,
+  CompactTurnResponse,
+  GetTurnDiffRequest,
+  GetTurnDiffResponse,
+  LifecycleEvent,
+  ReplayLifecycleEventsRequest,
+  ReplayLifecycleEventsResponse,
+  SubmitLifecycleApprovalRequest,
+} from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
   AppServerMethodSchema,
@@ -73,6 +83,12 @@ export type AppServerComposition = {
     reserve(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
     read(params: Extract<AppServerRequest, { method: "turn/scope" }>['params']): Promise<TurnScopeBootstrap>;
   };
+  hostedLifecycleOperationsService?: {
+    replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+    getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
+    submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+    compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
+  };
 };
 
 /** A composed owner can preserve an explicit domain failure at the validated boundary. */
@@ -83,6 +99,7 @@ export class AppServerOperationError extends Error {
     message: string,
     readonly operationCode?: string,
     readonly retryable?: boolean,
+    readonly correlationId?: string,
   ) { super(message); }
 }
 
@@ -170,8 +187,8 @@ export async function handleAppServerHttpRequest(
     }
     if (error instanceof AppServerOperationError) {
       return methodError(request.method, error.statusCode, error.code, error.message,
-        error.operationCode || error.retryable !== undefined
-          ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}) }
+        error.operationCode || error.retryable !== undefined || error.correlationId
+          ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}), ...(error.correlationId ? { correlationId: error.correlationId } : {}) }
           : undefined);
     }
     if (error instanceof LocalPersistenceError) {
@@ -243,6 +260,22 @@ async function dispatch(
     case "turn/scope": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
       return composition.hostedTurnScopeService.read(request.params);
+    }
+    case "turn/lifecycleEvents": {
+      if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
+      return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
+    }
+    case "turn/diff": {
+      if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
+      return composition.hostedLifecycleOperationsService.getTurnDiff(request.params);
+    }
+    case "turn/approval": {
+      if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
+      return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
+    }
+    case "turn/compact": {
+      if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
+      return composition.hostedLifecycleOperationsService.compactTurn(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
@@ -432,7 +465,7 @@ function methodError(
   statusCode: number,
   code: AppServerError["code"],
   message: string,
-  details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable">,
+  details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable" | "correlationId">,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({
     protocolVersion: APP_SERVER_PROTOCOL_VERSION,

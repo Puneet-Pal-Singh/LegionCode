@@ -1,4 +1,8 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import {
+  APP_SERVER_PROTOCOL_VERSION,
+  ReplayLifecycleEventsRequestSchema,
+} from "@legioncode/sdk";
 
 const TURN_ID = "trn_run_browsergolden1";
 const NOW = "2026-07-01T10:00:00.000Z";
@@ -112,9 +116,21 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
     releaseLiveReplay = resolve;
   });
 
-  await page.route("**/turns/**", async (route) => {
-    const url = new URL(route.request().url());
-    const afterSequence = Number(url.searchParams.get("afterSequence") ?? 0);
+  await page.route("**/app-server/request", async (route) => {
+    const request = route.request();
+    const envelope = request.postDataJSON() as Record<string, unknown>;
+    if (envelope.method !== "turn/lifecycleEvents") {
+      await route.continue();
+      return;
+    }
+
+    expect(request.method()).toBe("POST");
+    expect(envelope.protocolVersion).toBe(APP_SERVER_PROTOCOL_VERSION);
+    const replayRequest = ReplayLifecycleEventsRequestSchema.parse(
+      envelope.params,
+    );
+    expect(replayRequest.turnId).toBe(TURN_ID);
+    const afterSequence = replayRequest.afterSequence ?? 0;
     if (replayMode === "initial" && afterSequence > 0) {
       await liveReplayGate;
     }
@@ -154,10 +170,15 @@ async function fulfillReplay(
   await route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
-      events,
-      nextSequence: events.length
-        ? (events.at(-1) as { readonly sequence: number }).sequence
-        : null,
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "turn/lifecycleEvents",
+      ok: true,
+      result: {
+        events,
+        nextSequence: events.length
+          ? (events.at(-1) as { readonly sequence: number }).sequence
+          : null,
+      },
     }),
   });
 }

@@ -97,6 +97,20 @@ export {
 } from "./turn-scope-bootstrap.js";
 export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
 export {
+  FollowLifecycleRequestSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  type FollowLifecycleRequest,
+  type GetTurnDiffRequest,
+  type GetTurnDiffResponse,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type SubmitLifecycleApprovalRequest,
+} from "./lifecycle-operations.js";
+export {
   EnqueueThreadInputCommandSchema,
   ListThreadInputsCommandSchema,
   RemoveThreadInputCommandSchema,
@@ -382,6 +396,7 @@ export {
   ContextCompactionPayloadSchema,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,
+  LifecycleOperationBackendSchema,
   assertNextLifecycleSequence,
   assertTurnAcceptsLifecycleEvent,
   isTerminalApprovalStatus,
@@ -407,6 +422,7 @@ export {
   type ContextCompactionPayload,
   type CompactTurnRequest,
   type CompactTurnResponse,
+  type LifecycleOperationBackend,
   type ApprovalLifecycle,
   type ApprovalStatus,
   type ItemKind,

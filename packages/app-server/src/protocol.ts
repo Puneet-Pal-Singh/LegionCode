@@ -20,6 +20,14 @@ import {
   TurnScopeBootstrapSchema,
   TurnScopeBootstrapRequestSchema,
   TurnScopeReadQuerySchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  CompactTurnRequestSchema,
+  CompactTurnResponseSchema,
+  LifecycleEventSchema,
 } from "@repo/platform-protocol";
 import {
   BYOKDiscoveredProviderModelsResponseSchema,
@@ -85,6 +93,10 @@ export const AppServerMethodSchema = z.enum([
   "session/pullRequests",
   "turn/reserve",
   "turn/scope",
+  "turn/lifecycleEvents",
+  "turn/diff",
+  "turn/approval",
+  "turn/compact",
 
   "workspace/list",
   "workspace/select",
@@ -136,6 +148,10 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/pullRequests"), params: HostedSessionParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/reserve"), params: HostedTurnScopeReserveParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/scope"), params: HostedTurnScopeReadParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/lifecycleEvents"), params: ReplayLifecycleEventsRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/diff"), params: GetTurnDiffRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/approval"), params: SubmitLifecycleApprovalRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/compact"), params: CompactTurnRequestSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -183,6 +199,10 @@ export const AppServerResultSchemas = {
   "session/pullRequests": HostedSessionPullRequestsResponseSchema,
   "turn/reserve": TurnScopeBootstrapSchema,
   "turn/scope": TurnScopeBootstrapSchema,
+  "turn/lifecycleEvents": ReplayLifecycleEventsResponseSchema,
+  "turn/diff": GetTurnDiffResponseSchema,
+  "turn/approval": LifecycleEventSchema,
+  "turn/compact": CompactTurnResponseSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -230,6 +250,10 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/pullRequests", AppServerResultSchemas["session/pullRequests"]),
   success("turn/reserve", AppServerResultSchemas["turn/reserve"]),
   success("turn/scope", AppServerResultSchemas["turn/scope"]),
+  success("turn/lifecycleEvents", AppServerResultSchemas["turn/lifecycleEvents"]),
+  success("turn/diff", AppServerResultSchemas["turn/diff"]),
+  success("turn/approval", AppServerResultSchemas["turn/approval"]),
+  success("turn/compact", AppServerResultSchemas["turn/compact"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),

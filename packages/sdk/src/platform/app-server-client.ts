@@ -27,6 +27,14 @@ import {
   type Thread,
   type TurnScopeBootstrap,
   type TurnScopeReadQuery,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type GetTurnDiffRequest,
+  type GetTurnDiffResponse,
+  type SubmitLifecycleApprovalRequest,
+  type CompactTurnRequest,
+  type CompactTurnResponse,
+  type LifecycleEvent,
 } from "@repo/platform-protocol";
 import type {
   BYOKDiscoveredProviderModelsResponse,
@@ -94,6 +102,10 @@ export type AppServerClient = {
   getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
   reserveTurnScope(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
   getTurnScope(params: TurnScopeReadQuery): Promise<TurnScopeBootstrap | null>;
+  replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+  getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
+  submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+  compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
@@ -167,6 +179,18 @@ export function createAppServerClient(
         throw error;
       }
     },
+    replayLifecycleEvents: async (params) => request(options, {
+      method: "turn/lifecycleEvents", params,
+    }, AppServerResultSchemas["turn/lifecycleEvents"]),
+    getTurnDiff: async (params) => request(options, {
+      method: "turn/diff", params,
+    }, AppServerResultSchemas["turn/diff"]),
+    submitLifecycleApproval: async (params) => request(options, {
+      method: "turn/approval", params,
+    }, AppServerResultSchemas["turn/approval"]),
+    compactTurn: async (params) => request(options, {
+      method: "turn/compact", params,
+    }, AppServerResultSchemas["turn/compact"]),
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
     getWorkspaceGrant: async () => {
