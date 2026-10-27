@@ -67,6 +67,29 @@ describe("App Server protocol", () => {
     ]) {
       expect(AppServerRequestSchema.safeParse(request).success).toBe(false);
     }
+
+    const interrupt = {
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "turn/interrupt",
+      params: {
+        runId: "run_123e4567e89b42d3a456426614174100",
+        workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+        sessionId: "session-123456",
+        threadId: "thr_123456",
+        turnId: "trn_123456",
+        runAttemptId: "attempt_123456",
+        reason: "User stopped the turn.",
+      },
+    };
+    expect(AppServerRequestSchema.safeParse(interrupt).success).toBe(true);
+    expect(AppServerRequestSchema.safeParse({
+      ...interrupt,
+      params: { ...interrupt.params, orchestratorBackend: "cloudflare_agents" },
+    }).success).toBe(true);
+    expect(AppServerRequestSchema.safeParse({
+      ...interrupt,
+      params: { ...interrupt.params, userId: "another-user" },
+    }).success).toBe(false);
   });
 
   it("preserves UUID session scope and pinned history validation without local Thread IDs", () => {
@@ -92,6 +115,16 @@ describe("App Server protocol", () => {
         result: { revoked: true },
       }).success,
     ).toBe(true);
+    expect(AppServerResponseSchema.safeParse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "turn/interrupt",
+      ok: true,
+      result: {
+        runId: "run_123456",
+        accepted: true,
+        status: "interrupt_requested",
+      },
+    }).success).toBe(true);
     for (const response of [
       { protocolVersion: "9.0.0", method: "workspace/revoke", ok: true, result: { revoked: true } },
       { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/list", ok: true, result: { threads: [], extra: 1 } },

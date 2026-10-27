@@ -89,11 +89,13 @@ export {
   TurnScopeBootstrapSchema,
   InterruptTurnIdentitySchema,
   InterruptTurnRequestSchema,
+  InterruptTurnResponseSchema,
   type TurnScopeBootstrapRequest,
   type TurnScopeReadQuery,
   type TurnScopeBootstrap,
   type InterruptTurnIdentity,
   type InterruptTurnRequest,
+  type InterruptTurnResponse,
 } from "./turn-scope-bootstrap.js";
 export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
 export {
