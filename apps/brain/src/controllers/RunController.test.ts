@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import type { Env } from "../types/ai";
 
 const runtimeHelpers = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ vi.mock("../services/AuthService", () => ({
   isSessionStoreUnavailableError: authHelpers.isSessionStoreUnavailableError,
 }));
 
+import { AppServerController } from "./AppServerController";
 import { RunController } from "./RunController";
 
 const INTERRUPT_PAYLOAD = {
@@ -35,6 +37,18 @@ const INTERRUPT_PAYLOAD = {
   runAttemptId: "attempt_123456",
   reason: "User interrupted the turn.",
 };
+
+function interruptRequest(): Request {
+  return new Request("https://brain.local/app-server/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "turn/interrupt",
+      params: INTERRUPT_PAYLOAD,
+    }),
+  });
+}
 
 describe("RunController", () => {
   beforeEach(() => {
@@ -493,13 +507,7 @@ describe("RunController", () => {
     authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
     const env = {} as Env;
 
-    const response = await RunController.interrupt(
-      new Request("https://brain.local/api/run/interrupt", {
-        method: "POST",
-        body: JSON.stringify(INTERRUPT_PAYLOAD),
-      }),
-      env,
-    );
+    const response = await AppServerController.request(interruptRequest(), env);
 
     expect(response.status).toBe(401);
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
@@ -515,13 +523,7 @@ describe("RunController", () => {
     );
     const env = {} as Env;
 
-    const response = await RunController.interrupt(
-      new Request("https://brain.local/api/run/interrupt", {
-        method: "POST",
-        body: JSON.stringify(INTERRUPT_PAYLOAD),
-      }),
-      env,
-    );
+    const response = await AppServerController.request(interruptRequest(), env);
 
     expect(response.status).toBe(404);
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
@@ -546,13 +548,7 @@ describe("RunController", () => {
       }),
     );
 
-    const response = await RunController.interrupt(
-      new Request("https://brain.local/api/run/interrupt", {
-        method: "POST",
-        body: JSON.stringify(INTERRUPT_PAYLOAD),
-      }),
-      env,
-    );
+    const response = await AppServerController.request(interruptRequest(), env);
 
     expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
       env,
@@ -565,7 +561,11 @@ describe("RunController", () => {
         headers: { "Content-Type": "application/json" },
       },
     );
-    await expect(response.json()).resolves.toMatchObject({ accepted: true });
+    await expect(response.json()).resolves.toMatchObject({
+      method: "turn/interrupt",
+      ok: true,
+      result: { accepted: true },
+    });
   });
 
   it("rejects approve without an authenticated session", async () => {
