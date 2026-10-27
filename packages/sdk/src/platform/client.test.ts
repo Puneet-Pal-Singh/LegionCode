@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { InterruptTurnRequestSchema } from "@repo/platform-protocol";
 import { DefaultPlatformClient, createPlatformClient } from "./client.js";
 import {
   PlatformClientContractError,
@@ -292,14 +293,37 @@ describe("DefaultPlatformClient", () => {
   });
 
   it("fails fast on invalid server contracts", async () => {
+    const interruptTurn = vi.fn(async () => ({
+      runId: TEST_IDS.runId,
+      accepted: true,
+      status: "interrupt_requested" as const,
+    }));
     const transport = createTransport({
       submitApproval: vi.fn(async () => ({ type: "approval.decided" })),
+      interruptTurn,
     });
     const client = new DefaultPlatformClient(transport);
 
     await expect(
       client.submitApproval(createApprovalRequest()),
     ).rejects.toBeInstanceOf(PlatformClientContractError);
+
+    const invalidInterruptRequest = {
+      ...InterruptTurnRequestSchema.parse({
+      runId: TEST_IDS.runId,
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      sessionId: "session-123456",
+      threadId: TEST_IDS.threadId,
+      turnId: TEST_IDS.turnId,
+      runAttemptId: TEST_IDS.runAttemptId,
+      reason: "User stopped the turn.",
+      }),
+      orchestratorBackend: "execution-engine-v1",
+    };
+    await expect(client.interruptTurn(invalidInterruptRequest)).rejects.toBeInstanceOf(
+      PlatformClientContractError,
+    );
+    expect(interruptTurn).not.toHaveBeenCalled();
   });
 });
 

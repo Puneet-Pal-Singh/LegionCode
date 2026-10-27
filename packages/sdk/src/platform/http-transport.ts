@@ -29,7 +29,7 @@ import type {
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
-type HostedLifecycleMethod = "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
+type HostedLifecycleMethod = "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
 type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
 
 export interface PlatformHttpTransportOptions {
@@ -98,7 +98,7 @@ export function createPlatformHttpTransport(
       ),
     replayLifecycleEvents: (payload, options) => hostedOperation("turn/lifecycleEvents", options?.signal, (client) => client.replayLifecycleEvents(payload)),
     interruptTurn: (payload, options) =>
-      request.json("POST", buildInterruptTurnPath(), payload, options),
+      hostedOperation("turn/interrupt", options?.signal, (client) => client.interruptTurn(payload)),
     compactTurn: (payload, options) => hostedOperation("turn/compact", options?.signal, (client) => client.compactTurn(payload)),
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
@@ -444,6 +444,15 @@ function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod):
         ? serverError.operationCode
         : serverError.code;
       if (operationCode === "INVALID_RESPONSE_CONTRACT") return hostedResponseContractError(method);
+      if (method === "turn/interrupt") {
+        return new PlatformClientOperationError(
+          "API_ERROR",
+          `HTTP ${statusCode}`,
+          statusCode >= 500 || statusCode === 429,
+          undefined,
+          statusCode,
+        );
+      }
       return mapAppServerError(serverError, statusCode, method);
     }
     if (error.code === "transport") return mapHostedLifecycleError(error.cause, method);
@@ -556,13 +565,15 @@ function mapAppServerError(
 }
 
 function hostedResponseContractError(method: HostedLifecycleMethod): PlatformClientContractError {
-  const operation = method === "turn/lifecycleEvents"
-    ? "replayLifecycleEvents"
-    : method === "turn/diff"
-      ? "getTurnDiff"
-      : method === "turn/approval"
-        ? "submitLifecycleApproval"
-        : "compactTurn";
+  const operation = method === "turn/interrupt"
+    ? "interruptTurn"
+    : method === "turn/lifecycleEvents"
+      ? "replayLifecycleEvents"
+      : method === "turn/diff"
+        ? "getTurnDiff"
+        : method === "turn/approval"
+          ? "submitLifecycleApproval"
+          : "compactTurn";
   return new PlatformClientContractError(
     "response",
     operation,
@@ -729,10 +740,6 @@ function buildUserInputResponsePath(
   const turnId = encodeURIComponent(TurnIdSchema.parse(request.turnId));
   const requestId = encodeURIComponent(request.requestId);
   return `/turns/${turnId}/user-input/${requestId}`;
-}
-
-function buildInterruptTurnPath(): string {
-  return "/api/run/interrupt";
 }
 
 function buildArtifactPath(artifactId: ArtifactId): string {
