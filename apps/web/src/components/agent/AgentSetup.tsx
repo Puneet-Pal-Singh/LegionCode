@@ -551,7 +551,7 @@ export function AgentSetup({
           onDragLeave={imageDraft.handleDragLeave}
           onDrop={imageDraft.handleDrop}
           className={`
-            ui-control-surface relative z-10 p-3
+            composer-surface relative z-10 p-3
             transition-all duration-200
             ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
             ${imageDraft.isDraggingImages ? "ring-1 ring-cyan-400/70" : ""}
@@ -739,7 +739,7 @@ export function AgentSetup({
         </motion.div>
 
         <div className="relative -mt-1 px-0.5">
-          <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
+          <div className="rounded-b-2xl bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
               <ProjectChooser
                 currentProject={repo?.full_name}
