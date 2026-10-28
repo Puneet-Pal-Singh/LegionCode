@@ -108,7 +108,7 @@ async function readRuntimeErrorPreview(response: Response): Promise<string> {
   try {
     const payload = (await response.clone().json()) as { error?: unknown };
     if (typeof payload.error === "string" && payload.error.trim().length > 0) {
-      return payload.error.trim();
+      return payload.error.trim().slice(0, 200);
     }
   } catch {
     // Fall back to a bounded plain-text preview.
