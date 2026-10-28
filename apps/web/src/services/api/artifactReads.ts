@@ -5,6 +5,7 @@ import type {
 } from "@repo/shared-types";
 import {
   AppServerClientError,
+  AppServerTransportError,
   type ArtifactReviewLookupResult,
 } from "@legioncode/sdk";
 import { createHostedAppServerClient } from "./appServerClient.js";
@@ -83,8 +84,11 @@ async function readNullableLookup(
 }
 
 function getAppServerStatus(error: unknown): number | undefined {
-  return error instanceof AppServerClientError
-    ? error.serverError?.statusCode
+  if (!(error instanceof AppServerClientError)) return undefined;
+  if (error.serverError?.statusCode === 404) return 404;
+  return error.cause instanceof AppServerTransportError &&
+    error.cause.statusCode === 404
+    ? 404
     : undefined;
 }
 
