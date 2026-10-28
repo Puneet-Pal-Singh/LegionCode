@@ -4,6 +4,7 @@ import {
   X,
   FileText,
   Folder,
+  Play,
   FileCode2,
   Info,
   TerminalSquare,
@@ -68,6 +69,8 @@ export interface ChatInputBarProps {
     attachments: ChatSubmitAttachments | undefined,
     delivery: ComposerDelivery,
   ) => boolean | void | Promise<boolean | void>;
+  canResume?: boolean;
+  onResume?: () => Promise<boolean>;
   reviewComments?: ReviewCommentDraft[];
   onRemoveReviewComment?: (commentId: string) => void;
   reviewCommentError?: string | null;
@@ -104,6 +107,8 @@ export function ChatInputBar({
   onChange,
   onSubmit,
   onFollowUpSubmit,
+  canResume = false,
+  onResume,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -807,6 +812,8 @@ export function ChatInputBar({
               ) : null}
               <ComposerSubmitControls
                 isActive={isComposerActiveRun}
+                canResume={canResume && !canSubmit}
+                onResume={onResume}
                 canSubmit={canSubmit}
                 canSendMessage={canSendMessage}
                 canStop={shouldShowStop}

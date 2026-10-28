@@ -509,20 +509,22 @@ export function ChatInterface({
         ) ?? null
       }
       canResume={Boolean(
+        !activeRunLoading &&
         conversationScope &&
         activeTurn.projection?.terminal?.state === "interrupted" &&
         activeTurn.projection.workspaceSnapshotState === "captured" &&
         activeTurn.projection.resumeSnapshotAvailable === true,
       )}
-      onResume={() => {
+      onResume={async () => {
         const projection = activeTurn.projection;
         if (
           projection?.terminal?.state === "interrupted" &&
           projection.workspaceSnapshotState === "captured" &&
           projection.resumeSnapshotAvailable === true
         ) {
-          void chatProps.resumeInterruptedTurn(projection.lastSequence);
+          return chatProps.resumeInterruptedTurn(projection.lastSequence);
         }
+        return false;
       }}
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}
