@@ -386,6 +386,8 @@ function TerminalMessage(
   const completedTurnReview = useCompletedTurnReview(props.projection, null);
   if (!terminal) return null;
 
+  if (terminal.state === "interrupted") return null;
+
   if (terminal.state !== "completed") {
     return (
       <div

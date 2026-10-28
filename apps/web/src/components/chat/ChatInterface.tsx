@@ -192,7 +192,7 @@ export function ChatInterface({
   // RunEvent and persisted activity backfills are deliberately not rendered.
   const awaitingCanonicalLifecycle =
     activeTurn.isTransportPending ||
-    (activeTurn.hasCanonicalTurn && !activeTurn.isReplayReady) ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
     (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
