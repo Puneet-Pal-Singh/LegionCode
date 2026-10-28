@@ -7,7 +7,6 @@ import { RunController } from "./controllers/RunController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { ChatMediaController } from "./controllers/ChatMediaController";
-import { EditArtifactController } from "./controllers/EditArtifactController";
 import { ThreadInputController } from "./controllers/ThreadInputController";
 import { HookDefinitionController } from "./controllers/HookDefinitionController";
 import { AppServerController } from "./controllers/AppServerController";
@@ -161,27 +160,6 @@ function createRouter(): Router {
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
-  router.add(
-    /^\/api\/edit-artifacts\/latest$/,
-    EditArtifactController.getLatest,
-    "GET",
-  );
-  router.add(
-    /^\/api\/edit-artifacts\/by-message$/,
-    EditArtifactController.getByMessage,
-    "GET",
-  );
-  router.add(
-    /^\/api\/edit-artifacts\/[^/]+\/files$/,
-    EditArtifactController.getFiles,
-    "GET",
-  );
-  router.add(
-    /^\/api\/edit-artifacts\/[^/]+\/diff$/,
-    EditArtifactController.getDiff,
-    "GET",
-  );
-
   return router;
 }
 
