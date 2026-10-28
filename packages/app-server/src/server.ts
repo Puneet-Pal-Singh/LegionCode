@@ -7,6 +7,7 @@ import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServer
 import type {
   CompactTurnRequest,
   CompactTurnResponse,
+  InterruptTurnResponse,
   GetTurnDiffRequest,
   GetTurnDiffResponse,
   LifecycleEvent,
@@ -82,6 +83,9 @@ export type AppServerComposition = {
   hostedTurnScopeService?: {
     reserve(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
     read(params: Extract<AppServerRequest, { method: "turn/scope" }>['params']): Promise<TurnScopeBootstrap>;
+  };
+  hostedTurnCommandsService?: {
+    interruptTurn(params: Extract<AppServerRequest, { method: "turn/interrupt" }>["params"]): Promise<InterruptTurnResponse>;
   };
   hostedLifecycleOperationsService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
@@ -260,6 +264,10 @@ async function dispatch(
     case "turn/scope": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
       return composition.hostedTurnScopeService.read(request.params);
+    }
+    case "turn/interrupt": {
+      if (!composition.hostedTurnCommandsService) throw new Error("unsupported");
+      return composition.hostedTurnCommandsService.interruptTurn(request.params);
     }
     case "turn/lifecycleEvents": {
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
