@@ -68,6 +68,7 @@ export const AppServerErrorSchema = z
     operationCode: z.string().trim().min(1).max(200).optional(),
     retryable: z.boolean().optional(),
     correlationId: z.string().min(1).max(200).optional(),
+    metadata: z.record(z.unknown()).optional(),
   })
   .strict();
 export type AppServerError = z.infer<typeof AppServerErrorSchema>;
