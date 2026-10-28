@@ -10,6 +10,7 @@ import { composeHostedTurnScope } from "../integration/app-server/HostedTurnScop
 import { composeHostedLifecycleOperations } from "../integration/app-server/HostedLifecycleOperations";
 import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnCommands";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
+import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
 import { getCorsHeaders } from "../lib/cors";
@@ -51,6 +52,7 @@ export const AppServerController = {
     let hostedTurnScopeService: ReturnType<typeof composeHostedTurnScope> | undefined;
     let hostedTurnCommandsService: ReturnType<typeof composeHostedTurnCommands> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
+    let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
@@ -74,11 +76,16 @@ export const AppServerController = {
         hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
         hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
+        hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
       } catch (error) {
-        const statusCode = isSessionStoreUnavailableError(error) ? 503 : 500;
+        const sessionStoreUnavailable = isSessionStoreUnavailableError(error);
+        const statusCode = sessionStoreUnavailable ? 503 : 500;
+        const message = isArtifactReadMethod(parsed.data.method) && sessionStoreUnavailable
+          ? error.message
+          : "Authentication is unavailable";
         return json(env, request, statusCode, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
-          ok: false, error: { code: "server_unavailable", message: "Authentication is unavailable", ...turnAuthFailureDetails(parsed.data.method, statusCode) },
+          ok: false, error: { code: "server_unavailable", message, ...turnAuthFailureDetails(parsed.data.method, statusCode) },
         });
       }
     }
@@ -104,13 +111,25 @@ export const AppServerController = {
         hostedTurnScopeService,
         hostedTurnCommandsService,
         hostedLifecycleOperationsService,
+        hostedEditArtifactReadsService,
       },
     );
     return json(env, request, result.statusCode, result.payload);
   },
 };
 
+function isArtifactReadMethod(method: string): boolean {
+  return method === "artifact/reviewLatest" || method === "artifact/reviewByMessage" || method === "artifact/diff";
+}
+
 function turnAuthFailureDetails(method: string, statusCode: number) {
+  if (isArtifactReadMethod(method)) {
+    return {
+      statusCode,
+      operationCode: statusCode === 401 ? "AUTH_FAILED" : "API_ERROR",
+      retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+    };
+  }
   if (method === "turn/lifecycleEvents" || method === "turn/diff" || method === "turn/approval" || method === "turn/compact" || method === "turn/interrupt") {
     return {
       statusCode,

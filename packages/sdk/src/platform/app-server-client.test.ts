@@ -29,6 +29,27 @@ describe("AppServerClient", () => {
               },
             };
           }
+          if (envelope.method === "artifact/reviewLatest" || envelope.method === "artifact/reviewByMessage") {
+            return {
+              protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+              method: envelope.method,
+              ok: true,
+              result: { source: null, status: 204 },
+            };
+          }
+          if (envelope.method === "artifact/diff") {
+            return {
+              protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+              method: "artifact/diff",
+              ok: true,
+              result: {
+                artifactId: "550e8400-e29b-41d4-a716-446655440002",
+                path: "src/example.ts",
+                source: "artifact_patch",
+                diff: { oldPath: "src/example.ts", newPath: "src/example.ts", hunks: [], isBinary: false, isNewFile: false, isDeleted: false },
+              },
+            };
+          }
           return {
             protocolVersion: APP_SERVER_PROTOCOL_VERSION,
             method: "initialize",
@@ -75,6 +96,41 @@ describe("AppServerClient", () => {
       method: "turn/interrupt",
       params: interruptRequest,
     });
+
+    const artifactIdentity = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      runAttemptId: "attempt-1",
+      workspaceId: "workspace-1",
+    };
+    await expect(client.getLatestEditArtifactReviewSource({
+      runId: "run-1", sessionId: "session-1", identity: artifactIdentity,
+    })).resolves.toEqual({ source: null, status: 204 });
+    await expect(client.getEditArtifactReviewSourceByMessage({
+      runId: "run-1", assistantMessageId: "message-1", identity: artifactIdentity,
+    })).resolves.toEqual({ source: null, status: 204 });
+    await expect(client.getEditArtifactDiff({
+      artifactId: "550e8400-e29b-41d4-a716-446655440002",
+      path: "src/example.ts",
+      identity: artifactIdentity,
+    })).resolves.toMatchObject({ source: "artifact_patch", path: "src/example.ts" });
+    expect(sent.slice(2)).toEqual([
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "artifact/reviewLatest",
+        params: { runId: "run-1", sessionId: "session-1", ...artifactIdentity },
+      },
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "artifact/reviewByMessage",
+        params: { runId: "run-1", assistantMessageId: "message-1", ...artifactIdentity },
+      },
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "artifact/diff",
+        params: { artifactId: "550e8400-e29b-41d4-a716-446655440002", path: "src/example.ts", ...artifactIdentity },
+      },
+    ]);
   });
 
   it("acknowledges a canonical terminal turn through the typed session operation", async () => {

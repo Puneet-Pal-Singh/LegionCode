@@ -48,6 +48,15 @@ describe("hosted App Server integration", () => {
       method: "turn/lifecycleEvents",
       serverError: { statusCode: 401, operationCode: "API_ERROR", retryable: false },
     });
+    await expect(client.getLatestEditArtifactReviewSource({
+      runId: "run_123456",
+      identity: { threadId: "thread-1", turnId: "turn-1", runAttemptId: "attempt-1", workspaceId: "workspace-1" },
+    })).rejects.toMatchObject({
+      code: "server_error",
+      serverCode: "unauthorized",
+      method: "artifact/reviewLatest",
+      serverError: { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false },
+    });
   });
 
   it("retains typed authorization errors when a provider preference body requests its existing uncapped contract", async () => {

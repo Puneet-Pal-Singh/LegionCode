@@ -45,6 +45,11 @@ import type {
   BYOKDiscoveredProviderModelsRefreshResponse,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import type {
+  EditArtifactDiffResponse,
+  EditArtifactIdentity,
+  PromptArtifactReviewSource,
+} from "@repo/shared-types";
 import { z } from "zod";
 import { ConversationScopeHttpError } from "./conversation-scope-error.js";
 
@@ -67,6 +72,11 @@ export type WorkspaceGrantSource =
 export type ProviderSelection = {
   providerId: ProviderId;
   modelId: string;
+};
+
+export type ArtifactReviewLookupResult = {
+  source: PromptArtifactReviewSource | null;
+  status: 200 | 204;
 };
 
 export class AppServerClientError extends Error {
@@ -110,6 +120,9 @@ export type AppServerClient = {
   getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
   compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
+  getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
+  getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
+  getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
@@ -199,6 +212,18 @@ export function createAppServerClient(
     compactTurn: async (params) => request(options, {
       method: "turn/compact", params,
     }, AppServerResultSchemas["turn/compact"]),
+    getLatestEditArtifactReviewSource: async ({ runId, sessionId, identity }) => request(options, {
+      method: "artifact/reviewLatest",
+      params: { runId, ...(sessionId ? { sessionId } : {}), ...identity },
+    }, AppServerResultSchemas["artifact/reviewLatest"]),
+    getEditArtifactReviewSourceByMessage: async ({ runId, assistantMessageId, identity }) => request(options, {
+      method: "artifact/reviewByMessage",
+      params: { runId, assistantMessageId, ...identity },
+    }, AppServerResultSchemas["artifact/reviewByMessage"]),
+    getEditArtifactDiff: async ({ artifactId, path, identity }) => request(options, {
+      method: "artifact/diff",
+      params: { artifactId, path, ...identity },
+    }, AppServerResultSchemas["artifact/diff"]),
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
     getWorkspaceGrant: async () => {
