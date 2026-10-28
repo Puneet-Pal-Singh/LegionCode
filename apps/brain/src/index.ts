@@ -8,7 +8,6 @@ import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { ChatMediaController } from "./controllers/ChatMediaController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
-import { ThreadInputController } from "./controllers/ThreadInputController";
 import { HookDefinitionController } from "./controllers/HookDefinitionController";
 import { AppServerController } from "./controllers/AppServerController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
@@ -90,14 +89,6 @@ function createRouter(): Router {
   router.add(/^\/api\/chat\/media\/[^/]+$/, ChatMediaController.get, "GET");
   router.add(/\/chat/, (request, env, context) =>
     ChatController.handle(request, env, undefined, context), "POST");
-  router.add(/^\/thread\/inputs$/, ThreadInputController.handle, "GET");
-  router.add(/^\/thread\/inputs$/, ThreadInputController.handle, "POST");
-  router.add(/^\/turn\/steer$/, ThreadInputController.handle, "POST");
-  router.add(/^\/turn\/resume$/, ThreadInputController.handle, "POST");
-  router.add(/^\/thread\/inputs\/[^/]+$/, ThreadInputController.handle, "PATCH");
-  router.add(/^\/thread\/inputs\/[^/]+$/, ThreadInputController.handle, "DELETE");
-  router.add(/^\/thread\/inputs\/[^/]+\/steer$/, ThreadInputController.handle, "POST");
-  router.add(/^\/thread\/inputs\/[^/]+\/start$/, ThreadInputController.handle, "POST");
   router.add(
     /^\/api\/debug\/runtime$/,
     RuntimeController.getRuntimeDebug,
