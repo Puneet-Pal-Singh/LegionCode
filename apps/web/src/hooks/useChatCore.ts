@@ -4,10 +4,7 @@ import {
   RunIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
-  acquireSubmissionAttempt,
-  finishSubmissionAttempt,
-  hasCanonicalLifecycleEvidence,
-  retainSubmissionReservation,
+  submitConversationMessage,
   type SubmissionAttempt,
   type SubmissionOutcome,
   type PlatformClient,
@@ -835,359 +832,267 @@ export function useChatCore(
             "Another submission is still settling for this chat. Wait for it to finish, then retry this intent.",
         };
       }
-      const acquired = acquireSubmissionAttempt({
-        sessionId,
-        runId,
-        runScopeGeneration: bootstrapScopeGeneration,
-        clientMessageId: message.id,
-        intentKey,
-        intentFingerprint,
-      });
-      if (!acquired) {
-        return {
-          status: "unconfirmed",
-          message:
-            "This submission is already in flight or its client identity belongs to a different intent.",
-        };
-      }
-      if (acquired.previousOutcome) return acquired.previousOutcome;
-      const attempt = acquired.attempt;
-      const ownsSubmissionAttempt = () =>
-        activeSubmissionAttemptRef.current?.token === attempt.token &&
-        ownsInvocationScope();
-      retainedSubmissionScopeRef.current = acquired.reused
-        ? attempt.scope
-        : null;
-      activeSubmissionAttemptRef.current = attempt;
-      const submittedMessage = ensureClientMessageId({
-        ...message,
-        id: attempt.clientMessageId,
-      });
-      setError(null);
-      setScopeRecoveryError(null);
-      setIsSubmitting(true);
-      setIsStopping(false);
-      // The previous scope may already be terminal. Clear it before admission
-      // so a lagging serverTurnId cannot make a fresh submission look settled.
-      setConversationScope(null);
-      activeConversationScopeRef.current = null;
-      activeScopeKeyRef.current = bootstrapScopeKey;
-      preAdmissionStopKeyRef.current = null;
-      stopRequestedRef.current = false;
-      setPendingUserMessage({
-        scopeKey: bootstrapScopeKey,
-        message: buildPendingUserMessage(submittedMessage),
-      });
-      setOptimisticUserMessageId(submittedMessage.id ?? null);
-      logClientEvent("chat/pending-user", "projected", {
-        runId,
-        sessionId,
-        scopeKey: bootstrapScopeKey,
-        clientMessageId: submittedMessage.id,
-        userContentHash: hashLogString(content),
-      });
-      logClientEvent("chat/submit", "started", {
-        runId,
-        sessionId,
-        scopeKey: bootstrapScopeKey,
-        clientMessageId: submittedMessage.id,
-        userContentHash: hashLogString(content),
-        hasText: Boolean(content),
-        imageCount: submittedMessage.imageMetadata?.length ?? 0,
-      });
-      dispatchRunSummaryRefresh(runId);
+
+      const submissionBinding: { attempt: SubmissionAttempt | null } = {
+        attempt: null,
+      };
+      let submittedMessage: (ChatAppendMessage & { id: string }) | null = null;
 
       try {
-        const providerConfig =
-          await resolveProviderConfigFromApi(bootstrapScopeKey);
-        if (!providerConfig) {
-          logClientWarning("chat/submit", "aborted", {
-            runId,
-            sessionId,
-            scopeKey: bootstrapScopeKey,
-            reason: "provider-resolution-unavailable",
-          });
-          if (!ownsInvocationScope()) {
-            finishSubmissionAttempt(attempt, { status: "inactive" });
-            return { status: "inactive" };
-          }
-          throw new Error(
-            "The selected provider configuration is unavailable. Reconnect the provider or choose another model, then try again.",
-          );
-        }
-        if (
-          stopRequestedRef.current &&
-          preAdmissionStopKeyRef.current === bootstrapScopeKey
-        ) {
-          const outcome = cancelledBeforeDispatch(attempt);
-          finishSubmissionAttempt(attempt, outcome);
-          return outcome;
-        }
-        if (!ownsInvocationScope()) {
-          logClientWarning("chat/submit", "aborted", {
-            runId,
-            sessionId,
-            scopeKey: bootstrapScopeKey,
-            reason: "inactive-scope-after-provider-resolution",
-          });
-          const outcome: SubmissionOutcome = { status: "inactive" };
-          finishSubmissionAttempt(attempt, outcome);
-          return outcome;
-        }
-
-        const requestScope =
-          attempt.scope ??
-          (await bootstrapConversationScope(
-            sessionId,
-            attempt.originalRunId,
-            submittedMessage.id,
-            revisionTarget,
-          ));
-        retainSubmissionReservation(attempt, requestScope);
-        if (!ownsInvocationScope()) {
-          const outcome: SubmissionOutcome = {
-            status: "inactive",
-            scope: requestScope,
-          };
-          finishSubmissionAttempt(attempt, outcome);
-          return outcome;
-        }
-        retainedSubmissionScopeRef.current = requestScope;
-        const requestScopeKey = conversationScopeKey(requestScope);
-        activeScopeKeyRef.current = requestScopeKey;
-        activeConversationScopeRef.current = requestScope;
-        setConversationScope(requestScope);
-        setError((current) =>
-          isTurnScopeRecoveryError(current) ? null : current,
-        );
-        publishConversationScopeReady(requestScope);
-        setPendingUserMessage({
-          scopeKey: requestScopeKey,
-          message: buildPendingUserMessage(submittedMessage, requestScope),
-        });
-
-        if (
-          attempt.stopRequested ||
-          (stopRequestedRef.current &&
-            preAdmissionStopKeyRef.current === bootstrapScopeKey)
-        ) {
-          const outcome = cancelledBeforeDispatch(attempt, requestScope);
-          finishSubmissionAttempt(attempt, outcome);
-          if (
-            !(
-              outcome.status === "cancelled" && outcome.admission === "accepted"
-            ) &&
-            activeSubmissionAttemptRef.current?.token === attempt.token &&
-            ownsInvocationScope()
-          ) {
-            retainedSubmissionScopeRef.current = null;
+        const outcome = await submitConversationMessage<ResolvedProviderConfig>({
+          sessionId,
+          runId,
+          runScopeGeneration: bootstrapScopeGeneration,
+          clientMessageId: message.id,
+          intentKey,
+          intentFingerprint,
+          lifecycleClient,
+          resolveProviderConfig: async () => {
+            const config = await resolveProviderConfigFromApi(bootstrapScopeKey);
+            if (!config) {
+              logClientWarning("chat/submit", "aborted", {
+                runId,
+                sessionId,
+                scopeKey: bootstrapScopeKey,
+                reason: "provider-resolution-unavailable",
+              });
+            }
+            return config;
+          },
+          onAttemptAcquired: (attempt) => {
+            submissionBinding.attempt = attempt;
+            submittedMessage = ensureClientMessageId({
+              ...message,
+              id: attempt.clientMessageId,
+            });
+            retainedSubmissionScopeRef.current = attempt.scope;
+            activeSubmissionAttemptRef.current = attempt;
+            setError(null);
+            setScopeRecoveryError(null);
+            setIsSubmitting(true);
+            setIsStopping(false);
+            // The previous scope may already be terminal. Clear it before admission
+            // so a lagging serverTurnId cannot make a fresh submission look settled.
             setConversationScope(null);
             activeConversationScopeRef.current = null;
             activeScopeKeyRef.current = bootstrapScopeKey;
-            setPendingUserMessage(null);
-            setOptimisticUserMessageId(null);
-          }
-          return outcome;
-        }
-
-        const requestBody = buildChatRequestBody(
-          providerConfig,
-          submittedMessage.id,
-          requestScope,
-          repositoryFields,
-        );
-        logClientEvent("chat/submit", "provider-resolved", {
-          runId,
-          sessionId,
-          scopeKey: requestScopeKey,
-          clientMessageId: submittedMessage.id,
-          providerId: providerConfig.providerId,
-          modelId: providerConfig.modelId,
-          source: providerConfig.source,
-        });
-        pushChatRequestDebugEvent(
-          submittedMessage,
-          requestBody,
-          providerConfig,
-        );
-        dispatchRunSummaryRefresh(runId);
-        try {
-          await submitResolvedMessage(submittedMessage, requestBody);
-        } catch (transportError) {
-          attempt.transportError ??=
-            transportError instanceof Error
-              ? transportError.message
-              : String(transportError);
-        }
-        const positivelyAcknowledged =
-          attempt.responseStatus !== null &&
-          attempt.responseStatus >= 200 &&
-          attempt.responseStatus < 300 &&
-          attempt.responseTupleMatches;
-        const canonicalTurnAccepted =
-          positivelyAcknowledged ||
-          (await hasCanonicalLifecycleEvidence(lifecycleClient, requestScope));
-        if (attempt.stopRequested && canonicalTurnAccepted) {
-          try {
-            await interruptAndAwaitTerminal(
-              lifecycleClient,
-              requestScope,
-              () => {
-                if (ownsSubmissionAttempt()) stopStream();
-              },
-            );
-          } catch (interruptError) {
-            if (ownsSubmissionAttempt()) {
-              stopRequestedRef.current = false;
-              setIsStopping(false);
-              setError(
-                "Stop not confirmed yet. Check status or try Stop again.",
-              );
-            }
-            logClientWarning("chat/stop", "accepted-turn-interrupt-unsettled", {
-              runId: requestScope.runId,
-              sessionId: requestScope.sessionId,
-              scopeKey: requestScopeKey,
-              error:
-                interruptError instanceof Error
-                  ? interruptError.message
-                  : String(interruptError),
+            preAdmissionStopKeyRef.current = null;
+            stopRequestedRef.current = false;
+            setPendingUserMessage({
+              scopeKey: bootstrapScopeKey,
+              message: buildPendingUserMessage(submittedMessage),
             });
-          }
-          const outcome: SubmissionOutcome = {
-            status: "cancelled",
-            admission: "accepted",
-            scope: requestScope,
-          };
-          finishSubmissionAttempt(attempt, outcome);
-          return outcome;
-        }
-        if (!canonicalTurnAccepted) {
-          const message =
-            attempt.transportError ??
-            (attempt.responseStatus === null
-              ? "The chat request ended without a bound admission acknowledgement. Retry this same intent manually."
-              : `Chat admission could not be confirmed (HTTP ${attempt.responseStatus}). Retry this same intent manually.`);
-          if (attempt.stopRequested && attempt.dispatched) {
+            setOptimisticUserMessageId(submittedMessage.id);
+            logClientEvent("chat/pending-user", "projected", {
+              runId,
+              sessionId,
+              scopeKey: bootstrapScopeKey,
+              clientMessageId: submittedMessage.id,
+              userContentHash: hashLogString(content),
+            });
+            logClientEvent("chat/submit", "started", {
+              runId,
+              sessionId,
+              scopeKey: bootstrapScopeKey,
+              clientMessageId: submittedMessage.id,
+              userContentHash: hashLogString(content),
+              hasText: Boolean(content),
+              imageCount: submittedMessage.imageMetadata?.length ?? 0,
+            });
+            dispatchRunSummaryRefresh(runId);
+          },
+          reserveScope: async (attempt) => {
+            try {
+              return await bootstrapConversationScope(
+                sessionId,
+                attempt.originalRunId,
+                attempt.clientMessageId,
+                revisionTarget,
+              );
+            } catch (error) {
+              if (
+                !attempt.stopRequested &&
+                activeSubmissionAttemptRef.current?.token === attempt.token &&
+                ownsInvocationScope()
+              ) {
+                setScopeRecoveryError(
+                  error instanceof ConversationScopeHttpError ? error : null,
+                );
+              }
+              throw error;
+            }
+          },
+          onReserved: (scope) => {
+            if (!ownsInvocationScope() || !submittedMessage) return false;
+            retainedSubmissionScopeRef.current = scope;
+            const requestScopeKey = conversationScopeKey(scope);
+            activeScopeKeyRef.current = requestScopeKey;
+            activeConversationScopeRef.current = scope;
+            setConversationScope(scope);
+            setError((current) =>
+              isTurnScopeRecoveryError(current) ? null : current,
+            );
+            publishConversationScopeReady(scope);
+            setPendingUserMessage({
+              scopeKey: requestScopeKey,
+              message: buildPendingUserMessage(submittedMessage, scope),
+            });
+            return true;
+          },
+          isStopPending: () =>
+            stopRequestedRef.current &&
+            preAdmissionStopKeyRef.current === bootstrapScopeKey,
+          isInvocationActive: ownsInvocationScope,
+          onInactiveScopeAfterProviderResolution: () => {
+            logClientWarning("chat/submit", "aborted", {
+              runId,
+              sessionId,
+              scopeKey: bootstrapScopeKey,
+              reason: "inactive-scope-after-provider-resolution",
+            });
+          },
+          dispatch: async ({ config, scope, clientMessageId }) => {
+            const dispatchedMessage = ensureClientMessageId({
+              ...message,
+              id: clientMessageId,
+            });
+            const requestBody = buildChatRequestBody(
+              config,
+              clientMessageId,
+              scope,
+              repositoryFields,
+            );
+            logClientEvent("chat/submit", "provider-resolved", {
+              runId,
+              sessionId,
+              scopeKey: conversationScopeKey(scope),
+              clientMessageId,
+              providerId: config.providerId,
+              modelId: config.modelId,
+              source: config.source,
+            });
+            pushChatRequestDebugEvent(dispatchedMessage, requestBody, config);
+            dispatchRunSummaryRefresh(runId);
+            await submitResolvedMessage(dispatchedMessage, requestBody);
+          },
+          interruptAcceptedTurn: async (attempt, scope) => {
+            const ownsSubmissionAttempt = () =>
+              activeSubmissionAttemptRef.current?.token === attempt.token &&
+              ownsInvocationScope();
             try {
               await interruptAndAwaitTerminal(
                 lifecycleClient,
-                requestScope,
+                scope,
                 () => {
                   if (ownsSubmissionAttempt()) stopStream();
                 },
               );
-              const outcome: SubmissionOutcome = {
-                status: "cancelled",
-                admission: "accepted",
-                scope: requestScope,
-              };
-              finishSubmissionAttempt(attempt, outcome);
-              return outcome;
+            } catch (interruptError) {
+              if (ownsSubmissionAttempt()) {
+                stopRequestedRef.current = false;
+                setIsStopping(false);
+                setError(
+                  "Stop not confirmed yet. Check status or try Stop again.",
+                );
+              }
+              logClientWarning(
+                "chat/stop",
+                "accepted-turn-interrupt-unsettled",
+                {
+                  runId: scope.runId,
+                  sessionId: scope.sessionId,
+                  scopeKey: conversationScopeKey(scope),
+                  error:
+                    interruptError instanceof Error
+                      ? interruptError.message
+                      : String(interruptError),
+                },
+              );
+            }
+          },
+          interruptUnconfirmedTurn: async (attempt, scope) => {
+            try {
+              await interruptAndAwaitTerminal(
+                lifecycleClient,
+                scope,
+                () => {
+                  if (
+                    activeSubmissionAttemptRef.current?.token ===
+                      attempt.token &&
+                    ownsInvocationScope()
+                  ) {
+                    stopStream();
+                  }
+                },
+              );
+              return true;
             } catch (interruptError) {
               logClientWarning("chat/stop", "uncertain-interrupt-failed", {
-                runId: requestScope.runId,
-                sessionId: requestScope.sessionId,
-                scopeKey: requestScopeKey,
+                runId: scope.runId,
+                sessionId: scope.sessionId,
+                scopeKey: conversationScopeKey(scope),
                 error:
                   interruptError instanceof Error
                     ? interruptError.message
                     : String(interruptError),
               });
+              return false;
             }
-          }
-          const outcome: SubmissionOutcome = attempt.stopRequested
-            ? {
-                status: "cancelled",
-                admission: "unconfirmed",
-                scope: requestScope,
-              }
-            : { status: "unconfirmed", scope: requestScope, message };
-          finishSubmissionAttempt(attempt, outcome);
-          if (
-            activeSubmissionAttemptRef.current?.token === attempt.token &&
-            ownsInvocationScope()
-          ) {
+          },
+          onReservationCancelled: (attempt) => {
+            if (
+              activeSubmissionAttemptRef.current?.token !== attempt.token ||
+              !ownsInvocationScope()
+            ) {
+              return;
+            }
             retainedSubmissionScopeRef.current = null;
             setConversationScope(null);
             activeConversationScopeRef.current = null;
             activeScopeKeyRef.current = bootstrapScopeKey;
-            if (outcome.status === "unconfirmed") setError(message);
+            setPendingUserMessage(null);
+            setOptimisticUserMessageId(null);
+          },
+        });
+
+        const settledAttempt = submissionBinding.attempt;
+        const ownsSettledAttempt =
+          settledAttempt !== null &&
+          activeSubmissionAttemptRef.current?.token === settledAttempt.token &&
+          ownsInvocationScope();
+        if (outcome.status === "accepted") {
+          if (ownsSettledAttempt) setError(null);
+        } else if (
+          outcome.status === "unconfirmed" ||
+          (outcome.status === "cancelled" &&
+            outcome.admission === "unconfirmed")
+        ) {
+          if (ownsSettledAttempt) {
+            retainedSubmissionScopeRef.current = null;
+            setConversationScope(null);
+            activeConversationScopeRef.current = null;
+            activeScopeKeyRef.current = bootstrapScopeKey;
+            if (outcome.status === "unconfirmed") setError(outcome.message);
             setPendingUserMessage(null);
             setOptimisticUserMessageId(null);
           }
-          return outcome;
-        }
-        if (
-          activeSubmissionAttemptRef.current?.token === attempt.token &&
-          ownsInvocationScope()
-        )
-          setError(null);
-        const outcome: SubmissionOutcome = {
-          status: "accepted",
-          scope: requestScope,
-        };
-        finishSubmissionAttempt(attempt, outcome);
-        return outcome;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const outcome: SubmissionOutcome = {
-          status: attempt.stopRequested ? "cancelled" : "unconfirmed",
-          ...(attempt.stopRequested
-            ? {
-                admission:
-                  attempt.dispatched || attempt.hadPriorDispatch
-                    ? ("unconfirmed" as const)
-                    : ("not-dispatched" as const),
-              }
-            : {}),
-          ...(attempt.scope ? { scope: attempt.scope } : {}),
-          ...(attempt.stopRequested ? {} : { message }),
-        } as SubmissionOutcome;
-        finishSubmissionAttempt(attempt, outcome);
-        if (
-          outcome.status === "unconfirmed" &&
-          activeSubmissionAttemptRef.current?.token === attempt.token &&
-          ownsInvocationScope()
-        ) {
-          retainedSubmissionScopeRef.current = null;
-          setConversationScope(null);
-          activeConversationScopeRef.current = null;
-          activeScopeKeyRef.current = bootstrapScopeKey;
-          setError(message);
-          setScopeRecoveryError(
-            error instanceof ConversationScopeHttpError ? error : null,
-          );
-          setPendingUserMessage(null);
-          setOptimisticUserMessageId(null);
-        } else if (
-          outcome.status === "cancelled" &&
-          outcome.admission === "unconfirmed" &&
-          activeSubmissionAttemptRef.current?.token === attempt.token &&
-          ownsInvocationScope()
-        ) {
-          retainedSubmissionScopeRef.current = null;
-          setConversationScope(null);
-          activeConversationScopeRef.current = null;
-          activeScopeKeyRef.current = bootstrapScopeKey;
-          setPendingUserMessage(null);
-          setOptimisticUserMessageId(null);
         }
         return outcome;
       } finally {
+        const settledAttempt = submissionBinding.attempt;
         const ownsSettlement =
-          activeSubmissionAttemptRef.current?.token === attempt.token;
+          settledAttempt !== null &&
+          activeSubmissionAttemptRef.current?.token === settledAttempt.token;
         if (ownsSettlement) {
           activeSubmissionAttemptRef.current = null;
         }
-        if (ownsSettlement && ownsInvocationScope()) {
-          const settledScopeKey = activeScopeKeyRef.current;
+        if (ownsSettlement && settledAttempt !== null && ownsInvocationScope()) {
           setIsSubmitting(false);
           logClientEvent("chat/submit", "settled", {
             runId,
             sessionId,
-            scopeKey: settledScopeKey,
-            clientMessageId: submittedMessage.id,
+            scopeKey: activeScopeKeyRef.current,
+            clientMessageId: settledAttempt.clientMessageId,
           });
         }
       }
@@ -1672,17 +1577,6 @@ function raceWithAbort<T>(
       },
     );
   });
-}
-
-function cancelledBeforeDispatch(
-  attempt: SubmissionAttempt,
-  scope?: ConversationScope,
-): SubmissionOutcome {
-  return {
-    status: "cancelled",
-    admission: attempt.hadPriorDispatch ? "unconfirmed" : "not-dispatched",
-    ...(scope ? { scope } : {}),
-  };
 }
 
 function isExactTerminalEvent(
