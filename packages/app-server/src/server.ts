@@ -14,6 +14,7 @@ import type {
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
   SubmitLifecycleApprovalRequest,
+  ThreadInputCommand,
 } from "@repo/platform-protocol";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -87,6 +88,9 @@ export type AppServerComposition = {
   hostedTurnCommandsService?: {
     interruptTurn(params: Extract<AppServerRequest, { method: "turn/interrupt" }>["params"]): Promise<InterruptTurnResponse>;
   };
+  hostedThreadInputOperationsService?: {
+    execute(command: ThreadInputCommand): Promise<AppServerMethodOutcome>;
+  };
   hostedLifecycleOperationsService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
     getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
@@ -104,7 +108,16 @@ export class AppServerOperationError extends Error {
     readonly operationCode?: string,
     readonly retryable?: boolean,
     readonly correlationId?: string,
+    readonly metadata?: Record<string, unknown>,
   ) { super(message); }
+}
+
+/** Internal composition result for operations whose existing HTTP status is meaningful. */
+export class AppServerMethodOutcome {
+  constructor(
+    readonly statusCode: 200 | 201 | 202 | 409,
+    readonly result: unknown,
+  ) {}
 }
 
 /** Preserves the existing provider error contract across hosted dispatch. */
@@ -171,14 +184,20 @@ export async function handleAppServerHttpRequest(
 
   const request = parsed.data;
   try {
-    const result = await dispatch(request, composition);
+    const dispatched = await dispatch(request, composition);
+    const statusCode = dispatched instanceof AppServerMethodOutcome
+      ? dispatched.statusCode
+      : 200;
+    const result = dispatched instanceof AppServerMethodOutcome
+      ? dispatched.result
+      : dispatched;
     const response = AppServerResponseSchema.parse({
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
       method: request.method,
       ok: true,
       result,
     });
-    return { statusCode: 200, headers: JSON_HEADERS, payload: response };
+    return { statusCode, headers: JSON_HEADERS, payload: response };
   } catch (error) {
     if (error instanceof AppServerProviderOperationError) {
       return {
@@ -191,8 +210,8 @@ export async function handleAppServerHttpRequest(
     }
     if (error instanceof AppServerOperationError) {
       return methodError(request.method, error.statusCode, error.code, error.message,
-        error.operationCode || error.retryable !== undefined || error.correlationId
-          ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}), ...(error.correlationId ? { correlationId: error.correlationId } : {}) }
+        error.operationCode || error.retryable !== undefined || error.correlationId || error.metadata
+          ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}), ...(error.correlationId ? { correlationId: error.correlationId } : {}), ...(error.metadata ? { metadata: error.metadata } : {}) }
           : undefined);
     }
     if (error instanceof LocalPersistenceError) {
@@ -268,6 +287,17 @@ async function dispatch(
     case "turn/interrupt": {
       if (!composition.hostedTurnCommandsService) throw new Error("unsupported");
       return composition.hostedTurnCommandsService.interruptTurn(request.params);
+    }
+    case "turn/steer":
+    case "turn/resume":
+    case "thread/input/enqueue":
+    case "thread/input/list":
+    case "thread/input/update":
+    case "thread/input/remove":
+    case "thread/input/steer":
+    case "thread/input/start": {
+      if (!composition.hostedThreadInputOperationsService) throw new Error("unsupported");
+      return composition.hostedThreadInputOperationsService.execute(request.params);
     }
     case "turn/lifecycleEvents": {
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
@@ -473,7 +503,7 @@ function methodError(
   statusCode: number,
   code: AppServerError["code"],
   message: string,
-  details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable" | "correlationId">,
+  details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable" | "correlationId" | "metadata">,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({
     protocolVersion: APP_SERVER_PROTOCOL_VERSION,

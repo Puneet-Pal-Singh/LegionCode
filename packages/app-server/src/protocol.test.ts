@@ -5,6 +5,7 @@ import {
   AppServerRequestSchema,
   AppServerResponseSchema,
 } from "./protocol.js";
+import { AppServerMethodOutcome, handleAppServerHttpRequest } from "./server.js";
 
 describe("App Server protocol", () => {
   it("validates hosted session identity and rejects client-supplied tenancy", () => {
@@ -90,6 +91,27 @@ describe("App Server protocol", () => {
       ...interrupt,
       params: { ...interrupt.params, userId: "another-user" },
     }).success).toBe(false);
+
+    const threadScope = {
+      threadId: "thr_123456",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+    };
+    const threadInputCommands = [
+      { method: "turn/steer", params: { ...threadScope, operation: "turn.steer", clientInputId: "input-1", expectedTurnId: "trn_123456", expectedRunAttemptId: "attempt_123456", content: { text: "hello", images: [] } } },
+      { method: "turn/resume", params: { ...threadScope, operation: "turn.resume", clientCommandId: "command-1", expectedTurnId: "trn_123456", expectedRunAttemptId: "attempt_123456", expectedTerminalSequence: 1 } },
+      { method: "thread/input/enqueue", params: { ...threadScope, operation: "thread.input.enqueue", clientInputId: "input-1", content: { text: "hello", images: [] }, configuration: {} } },
+      { method: "thread/input/list", params: { ...threadScope, operation: "thread.input.list" } },
+      { method: "thread/input/update", params: { ...threadScope, operation: "thread.input.update", itemId: "123e4567-e89b-42d3-a456-426614174222", expectedVersion: 1, content: { text: "hello" } } },
+      { method: "thread/input/remove", params: { ...threadScope, operation: "thread.input.remove", itemId: "123e4567-e89b-42d3-a456-426614174222", expectedVersion: 1 } },
+      { method: "thread/input/steer", params: { ...threadScope, operation: "thread.input.steer", itemId: "123e4567-e89b-42d3-a456-426614174222", expectedVersion: 1, expectedTurnId: "trn_123456", expectedRunAttemptId: "attempt_123456" } },
+      { method: "thread/input/start", params: { ...threadScope, operation: "thread.input.start", itemId: "123e4567-e89b-42d3-a456-426614174222", expectedVersion: 1, expectedThreadRevision: 1 } },
+    ];
+    for (const command of threadInputCommands) {
+      expect(AppServerRequestSchema.safeParse({
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        ...command,
+      }).success).toBe(true);
+    }
   });
 
   it("preserves UUID session scope and pinned history validation without local Thread IDs", () => {
@@ -106,7 +128,7 @@ describe("App Server protocol", () => {
     expect(AppServerResponseSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "session/history", ok: true, result: { messages: [], nextCursor: null, snapshot: "0" } }).success).toBe(true);
   });
 
-  it("validates strict success and failure response envelopes", () => {
+  it("validates strict success and failure response envelopes", async () => {
     expect(
       AppServerResponseSchema.safeParse({
         protocolVersion: APP_SERVER_PROTOCOL_VERSION,
@@ -125,6 +147,18 @@ describe("App Server protocol", () => {
         status: "interrupt_requested",
       },
     }).success).toBe(true);
+    expect(AppServerResponseSchema.safeParse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "thread/input/enqueue",
+      ok: true,
+      result: { status: "conflict", code: "queue_item_changed", message: "Queue item changed" },
+    }).success).toBe(true);
+    expect(AppServerResponseSchema.safeParse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "thread/input/enqueue",
+      ok: false,
+      error: { code: "conflict", message: "Queue item changed", statusCode: 409, operationCode: "queue_item_changed", metadata: { source: "queue" } },
+    }).success).toBe(true);
     for (const response of [
       { protocolVersion: "9.0.0", method: "workspace/revoke", ok: true, result: { revoked: true } },
       { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/list", ok: true, result: { threads: [], extra: 1 } },
@@ -133,5 +167,51 @@ describe("App Server protocol", () => {
     ]) {
       expect(AppServerResponseSchema.safeParse(response).success).toBe(false);
     }
+
+    let inputCall = 0;
+    const inputRequest = {
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "thread/input/enqueue",
+      params: {
+        operation: "thread.input.enqueue",
+        threadId: "thr_123456",
+        workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+        clientInputId: "input-1",
+        content: { text: "hello", images: [] },
+        configuration: {},
+      },
+    };
+    const dispatchInput = () => handleAppServerHttpRequest({
+      method: "POST",
+      path: "/app-server/request",
+      contentType: "application/json",
+      rawBody: JSON.stringify(inputRequest),
+    }, {
+      environment: "hosted",
+      serverId: "test",
+      serverVersion: "test",
+      hostedThreadInputOperationsService: {
+        execute: async () => {
+          inputCall += 1;
+          return inputCall === 1
+            ? new AppServerMethodOutcome(201, {
+                status: "pending", clientInputId: "input-1",
+                itemId: "123e4567-e89b-42d3-a456-426614174222",
+                order: 1, version: 1, revision: 1,
+              })
+            : new AppServerMethodOutcome(409, {
+                status: "conflict", code: "queue_item_changed", message: "Queue item changed",
+              });
+        },
+      },
+    });
+    await expect(dispatchInput()).resolves.toMatchObject({
+      statusCode: 201,
+      payload: { method: "thread/input/enqueue", ok: true, result: { status: "pending" } },
+    });
+    await expect(dispatchInput()).resolves.toMatchObject({
+      statusCode: 409,
+      payload: { method: "thread/input/enqueue", ok: true, result: { status: "conflict" } },
+    });
   });
 });

@@ -38,6 +38,10 @@ import {
   type CompactTurnRequest,
   type CompactTurnResponse,
   type LifecycleEvent,
+  type ResumeTurnReceipt,
+  type ThreadInputCommand,
+  type ThreadInputQueueSnapshot,
+  type ThreadInputReceipt,
 } from "@repo/platform-protocol";
 import type {
   BYOKDiscoveredProviderModelsResponse,
@@ -106,6 +110,14 @@ export type AppServerClient = {
   reserveTurnScope(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
   getTurnScope(params: TurnScopeReadQuery): Promise<TurnScopeBootstrap | null>;
   interruptTurn(params: InterruptTurnRequest): Promise<InterruptTurnResponse>;
+  resumeTurn(params: Extract<ThreadInputCommand, { operation: "turn.resume" }>): Promise<ResumeTurnReceipt>;
+  steerTurn(params: Extract<ThreadInputCommand, { operation: "turn.steer" }>): Promise<ThreadInputReceipt>;
+  enqueueThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.enqueue" }>): Promise<ThreadInputReceipt>;
+  listThreadInputs(params: Extract<ThreadInputCommand, { operation: "thread.input.list" }>): Promise<ThreadInputQueueSnapshot>;
+  updateThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.update" }>): Promise<ThreadInputReceipt>;
+  removeThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.remove" }>): Promise<ThreadInputReceipt>;
+  steerQueuedThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.steer" }>): Promise<ThreadInputReceipt>;
+  startQueuedThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.start" }>): Promise<ThreadInputReceipt>;
   replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
   getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
@@ -187,6 +199,30 @@ export function createAppServerClient(
       method: "turn/interrupt",
       params: InterruptTurnRequestSchema.parse(params),
     }, AppServerResultSchemas["turn/interrupt"]),
+    resumeTurn: (params) => request(options, {
+      method: "turn/resume", params,
+    }, AppServerResultSchemas["turn/resume"]),
+    steerTurn: (params) => request(options, {
+      method: "turn/steer", params,
+    }, AppServerResultSchemas["turn/steer"]),
+    enqueueThreadInput: (params) => request(options, {
+      method: "thread/input/enqueue", params,
+    }, AppServerResultSchemas["thread/input/enqueue"]),
+    listThreadInputs: (params) => request(options, {
+      method: "thread/input/list", params,
+    }, AppServerResultSchemas["thread/input/list"]),
+    updateThreadInput: (params) => request(options, {
+      method: "thread/input/update", params,
+    }, AppServerResultSchemas["thread/input/update"]),
+    removeThreadInput: (params) => request(options, {
+      method: "thread/input/remove", params,
+    }, AppServerResultSchemas["thread/input/remove"]),
+    steerQueuedThreadInput: (params) => request(options, {
+      method: "thread/input/steer", params,
+    }, AppServerResultSchemas["thread/input/steer"]),
+    startQueuedThreadInput: (params) => request(options, {
+      method: "thread/input/start", params,
+    }, AppServerResultSchemas["thread/input/start"]),
     replayLifecycleEvents: async (params) => request(options, {
       method: "turn/lifecycleEvents", params,
     }, AppServerResultSchemas["turn/lifecycleEvents"]),

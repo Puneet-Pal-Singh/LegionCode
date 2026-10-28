@@ -60,6 +60,28 @@ describe("hosted App Server integration", () => {
       }),
     });
     await expect(client.updateProviderPreferences("run_valid123", { visibleModelIds: {} })).rejects.toMatchObject({ code: "server_error", serverCode: "unauthorized", method: "provider/preferences/update" });
+
+    const inputClient = createAppServerClient({
+      clientId: "hosted-test-client", clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: "https://brain.example", credentials: "include",
+        requestHeaders: (envelope) => ({ "X-LegionCode-AppServer-Method": envelope.method }),
+        fetchImpl: async (input, init) => AppServerController.request(new Request(input, init), {} as Env),
+      }),
+    });
+    await expect(inputClient.steerTurn({
+      operation: "turn.steer",
+      threadId: "thr_123456",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      clientInputId: "input-1",
+      expectedTurnId: "trn_123456",
+      expectedRunAttemptId: "attempt_123456",
+      content: { text: "x".repeat(50_000), images: [] },
+    })).rejects.toMatchObject({
+      code: "server_error",
+      serverError: { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false },
+      method: "turn/steer",
+    });
   });
 
   it("cancels a streamed body as soon as it exceeds the request limit", async () => {
