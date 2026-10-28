@@ -181,6 +181,10 @@ export function useChatCore(
   const stopRequestedRef = useRef(false);
   const activeSubmissionAttemptRef = useRef<SubmissionAttempt | null>(null);
   const retainedSubmissionScopeRef = useRef<ConversationScope | null>(null);
+  const mountGenerationRef = useRef(0);
+  useEffect(() => () => {
+    mountGenerationRef.current += 1;
+  }, []);
   const activeComposerSubmissionRef = useRef<string | null>(null);
   const latestComposerInputRef = useRef("");
   const composerInputVersionRef = useRef(0);
@@ -761,7 +765,9 @@ export function useChatCore(
     ): Promise<SubmissionOutcome> => {
       const bootstrapScopeKey = runScopeKey;
       const bootstrapScopeGeneration = runScopeGenerationRef.current;
+      const bootstrapMountGeneration = mountGenerationRef.current;
       const ownsInvocationScope = () =>
+        mountGenerationRef.current === bootstrapMountGeneration &&
         runScopeGenerationRef.current === bootstrapScopeGeneration &&
         isActiveRunScope(bootstrapScopeKey);
       const content = extractTextContent(message.content).trim();

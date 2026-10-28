@@ -119,7 +119,11 @@ export async function submitConversationMessage<TConfig>(
 
     const requestScope = attempt.scope ?? (await input.reserveScope(attempt));
     retainSubmissionReservation(attempt, requestScope);
-    if (!input.onReserved(requestScope)) {
+    if (
+      !input.isInvocationActive() ||
+      !input.onReserved(requestScope) ||
+      !input.isInvocationActive()
+    ) {
       const outcome: SubmissionOutcome = {
         status: "inactive",
         scope: requestScope,
