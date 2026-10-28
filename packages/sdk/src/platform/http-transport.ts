@@ -31,6 +31,9 @@ const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
 type HostedLifecycleMethod = "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
 type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
+type HostedThreadInputMethod = "turn/steer" | "turn/resume" |
+  "thread/input/enqueue" | "thread/input/list" | "thread/input/update" |
+  "thread/input/remove" | "thread/input/steer" | "thread/input/start";
 
 export interface PlatformHttpTransportOptions {
   baseUrl: string;
@@ -73,6 +76,49 @@ export function createPlatformHttpTransport(
       return await action(client);
     } catch (error) {
       throw mapHostedLifecycleError(error, method);
+    }
+  };
+  const hostedThreadInputOperation = async <T>(
+    command: ThreadInputCommand,
+    signal: AbortSignal | undefined,
+    action: (client: ReturnType<typeof createAppServerClient>) => Promise<T>,
+  ): Promise<unknown> => {
+    const suppliedHeaders = new Headers(options.getHeaders?.() ?? {});
+    const authorization = suppliedHeaders.get("authorization");
+    let responseStatus: number | undefined;
+    const client = createAppServerClient({
+      clientId: "legioncode-platform",
+      clientVersion: "0.1.0",
+      transport: createAppServerHttpTransport({
+        baseUrl: options.baseUrl,
+        credentials: options.credentials ?? "include",
+        fetchImpl: async (input, init) => {
+          const headers = new Headers(init?.headers);
+          if (authorization !== null) headers.set("Authorization", authorization);
+          const response = await (options.fetchImpl ?? globalThis.fetch.bind(globalThis))(input, { ...init, headers });
+          responseStatus = response.status;
+          return response;
+        },
+        timeoutMs: null,
+        maxResponseBytes: null,
+        acceptThreadInputConflict: true,
+        responsePreviewLimit: options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT,
+        signal,
+        requestHeaders: (envelope) => ({
+          ...Object.fromEntries(suppliedHeaders),
+          ...(isLargeThreadInputCommand(command) && envelope.method === threadInputMethod(command)
+            ? { "X-LegionCode-AppServer-Method": envelope.method }
+            : {}),
+        }),
+      }),
+    });
+    try {
+      const result = await action(client);
+      return responseStatus === 409 && command.operation !== "thread.input.list"
+        ? { kind: "thread-input-conflict", payload: result } satisfies ThreadInputConflictResponse
+        : result;
+    } catch (error) {
+      throw mapHostedThreadInputError(error, responseStatus, command.operation);
     }
   };
 
@@ -123,7 +169,7 @@ export function createPlatformHttpTransport(
         options,
       ),
     threadInputCommand: (command, options) =>
-      sendThreadInputCommand(request, command, options),
+      hostedThreadInputOperation(command, options?.signal, (client) => sendThreadInputCommand(client, command)),
   };
 }
 
@@ -180,59 +226,148 @@ function createTransportRequest(
 }
 
 function sendThreadInputCommand(
-  request: TransportRequest,
+  client: ReturnType<typeof createAppServerClient>,
   command: ThreadInputCommand,
-  options?: PlatformClientOperationOptions,
 ): Promise<unknown> {
   switch (command.operation) {
     case "turn.resume":
-      return request.json("POST", "/turn/resume", command, options, true);
+      return client.resumeTurn(command);
     case "turn.steer":
-      return request.json("POST", "/turn/steer", command, options, true);
+      return client.steerTurn(command);
     case "thread.input.enqueue":
-      return request.json("POST", "/thread/inputs", command, options, true);
+      return client.enqueueThreadInput(command);
     case "thread.input.list":
-      return request.json(
-        "GET",
-        buildListThreadInputsPath(command),
-        undefined,
-        options,
-      );
+      return client.listThreadInputs(command);
     case "thread.input.update":
-      return request.json(
-        "PATCH",
-        buildThreadInputPath(command.itemId),
-        command,
-        options,
-        true,
-      );
+      return client.updateThreadInput(command);
     case "thread.input.remove":
-      return request.json(
-        "DELETE",
-        buildThreadInputPath(command.itemId),
-        command,
-        options,
-        true,
-      );
+      return client.removeThreadInput(command);
     case "thread.input.steer":
-      return request.json(
-        "POST",
-        `${buildThreadInputPath(command.itemId)}/steer`,
-        command,
-        options,
-        true,
-      );
+      return client.steerQueuedThreadInput(command);
     case "thread.input.start":
-      return request.json(
-        "POST",
-        `${buildThreadInputPath(command.itemId)}/start`,
-        command,
-        options,
-        true,
-      );
+      return client.startQueuedThreadInput(command);
   }
   const exhaustive: never = command;
   return exhaustive;
+}
+
+function threadInputMethod(command: ThreadInputCommand): HostedThreadInputMethod {
+  switch (command.operation) {
+    case "turn.resume": return "turn/resume";
+    case "turn.steer": return "turn/steer";
+    case "thread.input.enqueue": return "thread/input/enqueue";
+    case "thread.input.list": return "thread/input/list";
+    case "thread.input.update": return "thread/input/update";
+    case "thread.input.remove": return "thread/input/remove";
+    case "thread.input.steer": return "thread/input/steer";
+    case "thread.input.start": return "thread/input/start";
+  }
+  const exhaustive: never = command;
+  return exhaustive;
+}
+
+function isLargeThreadInputCommand(command: ThreadInputCommand): boolean {
+  return command.operation === "turn.steer" ||
+    command.operation === "thread.input.enqueue" ||
+    command.operation === "thread.input.update";
+}
+
+function mapHostedThreadInputError(
+  error: unknown,
+  responseStatus: number | undefined,
+  operation: ThreadInputCommand["operation"],
+): Error {
+  const transportError = error instanceof AppServerClientError && error.code === "transport"
+    ? error.cause
+    : error;
+  if (responseStatus === 409 && operation !== "thread.input.list") {
+    if (transportError instanceof AppServerTransportError && transportError.code === "invalid_response") {
+      return new PlatformClientOperationError(
+        "INVALID_RESPONSE_FORMAT",
+        transportError.message,
+        false,
+        undefined,
+        502,
+      );
+    }
+    return new PlatformClientOperationError(
+      "INVALID_ERROR_RESPONSE",
+      `Invalid conflict response for ${operation}`,
+      false,
+      undefined,
+      409,
+    );
+  }
+  if (error instanceof AppServerClientError) {
+    if (error.code === "server_error" && error.serverError) {
+      const serverError = error.serverError;
+      const statusCode = serverError.statusCode ?? appServerStatus(serverError.code);
+      const operationCode = "operationCode" in serverError && typeof serverError.operationCode === "string"
+        ? serverError.operationCode
+        : serverError.code;
+      return new PlatformClientOperationError(
+        parsePlatformOperationErrorCode(operationCode),
+        serverError.message,
+        "retryable" in serverError && typeof serverError.retryable === "boolean"
+          ? serverError.retryable
+          : statusCode >= 500 || statusCode === 429,
+        "correlationId" in serverError && typeof serverError.correlationId === "string"
+          ? serverError.correlationId
+          : undefined,
+        statusCode,
+      );
+    }
+    if (error.code === "invalid_response") {
+      return new PlatformClientOperationError(
+        "INVALID_RESPONSE_FORMAT",
+        error.message,
+        false,
+        undefined,
+        502,
+      );
+    }
+  }
+  if (transportError instanceof AppServerTransportError) {
+    if (transportError.code === "aborted") {
+      return new PlatformClientOperationError("ABORTED", "Operation aborted", true, undefined, 0);
+    }
+    if (transportError.code === "invalid_response") {
+      const failedResponse = typeof transportError.statusCode === "number" && transportError.statusCode >= 400;
+      return new PlatformClientOperationError(
+        failedResponse ? "INVALID_ERROR_RESPONSE" : "INVALID_RESPONSE_FORMAT",
+        transportError.message,
+        false,
+        undefined,
+        failedResponse ? transportError.statusCode : 502,
+      );
+    }
+    if (transportError.cause instanceof Error && transportError.cause.name === "AbortError") {
+      return new PlatformClientOperationError("ABORTED", "Operation aborted", true, undefined, 0);
+    }
+    if (typeof transportError.statusCode === "number") {
+      return new PlatformClientOperationError(
+        parsePlatformOperationErrorCode(transportError.serverCode ?? "API_ERROR"),
+        transportError.message,
+        transportError.statusCode >= 500 || transportError.statusCode === 429,
+        undefined,
+        transportError.statusCode,
+      );
+    }
+    return new PlatformClientOperationError("NETWORK_ERROR", transportError.message, true, undefined, 0);
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return new PlatformClientOperationError("ABORTED", "Operation aborted", true, undefined, 0);
+  }
+  if (error instanceof Error && error.name === "TypeError") {
+    return new PlatformClientOperationError("NETWORK_ERROR", error.message, true, undefined, 0);
+  }
+  return new PlatformClientOperationError(
+    "UNKNOWN_OPERATION_ERROR",
+    error instanceof Error ? error.message : "Thread input operation failed",
+    false,
+    undefined,
+    500,
+  );
 }
 
 interface JsonRequestInput {
@@ -676,23 +811,6 @@ function buildRunEventsPath(runId: string | null): string {
 
 function buildThreadPath(threadId: string): string {
   return `/threads/${encodeURIComponent(ThreadIdSchema.parse(threadId))}`;
-}
-
-function buildThreadInputPath(itemId: string): string {
-  return `/thread/inputs/${encodeURIComponent(itemId)}`;
-}
-
-function buildListThreadInputsPath(
-  request: Extract<ThreadInputCommand, { operation: "thread.input.list" }>,
-): string {
-  const params = new URLSearchParams({
-    threadId: request.threadId,
-    workspaceId: request.workspaceId,
-  });
-  if (request.knownRevision !== undefined) {
-    params.set("knownRevision", String(request.knownRevision));
-  }
-  return `/thread/inputs?${params.toString()}`;
 }
 
 function buildRunPath(runId: string): string {
