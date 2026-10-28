@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
-import { InterruptTurnRequestSchema } from "@repo/platform-protocol";
+import {
+  InterruptTurnRequestSchema,
+  RunAttemptIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+  WorkspaceScopeIdSchema,
+} from "@repo/platform-protocol";
 import {
   AppServerClientError,
   createAppServerClient,
@@ -231,6 +237,14 @@ describe("AppServerClient", () => {
             "provider/current": { selection: null },
             "provider/select": { selection: { providerId: "openai", modelId: "gpt-4o" } },
             "provider/clear": { selection: null },
+            "turn/resume": { status: "resumed", clientCommandId: "command-1", continuationOfTurnId: "trn_123456", originalPromptId: "prompt-1", turnId: "trn_654321", runAttemptId: "attempt_654321", runId: "run_123456" },
+            "turn/steer": { status: "conflict", code: "target_superseded", message: "Changed" },
+            "thread/input/enqueue": { status: "conflict", code: "queue_item_changed", message: "Changed" },
+            "thread/input/list": { threadId: "thr_123456", workspaceId: "123e4567-e89b-42d3-a456-426614174111", revision: 0, paused: false, pauseReason: null, activeRunId: null, latestStarted: null, items: [] },
+            "thread/input/update": { status: "conflict", code: "queue_item_changed", message: "Changed" },
+            "thread/input/remove": { status: "conflict", code: "queue_item_changed", message: "Changed" },
+            "thread/input/steer": { status: "conflict", code: "target_superseded", message: "Changed" },
+            "thread/input/start": { status: "conflict", code: "queue_item_changed", message: "Changed" },
           };
           return {
             protocolVersion: APP_SERVER_PROTOCOL_VERSION,
@@ -247,12 +261,35 @@ describe("AppServerClient", () => {
     await expect(client.getProviderSelection()).resolves.toBeNull();
     await expect(client.selectProvider("openai", "gpt-4o")).resolves.toEqual({ providerId: "openai", modelId: "gpt-4o" });
     await expect(client.clearProviderSelection()).resolves.toBeNull();
+    const threadScope = {
+      threadId: ThreadIdSchema.parse("thr_123456"),
+      workspaceId: WorkspaceScopeIdSchema.parse("123e4567-e89b-42d3-a456-426614174111"),
+    };
+    const turnId = TurnIdSchema.parse("trn_123456");
+    const runAttemptId = RunAttemptIdSchema.parse("attempt_123456");
+    await client.resumeTurn({ operation: "turn.resume", ...threadScope, clientCommandId: "command-1", expectedTurnId: turnId, expectedRunAttemptId: runAttemptId, expectedTerminalSequence: 1 });
+    await client.steerTurn({ operation: "turn.steer", ...threadScope, clientInputId: "input-1", expectedTurnId: turnId, expectedRunAttemptId: runAttemptId, content: { text: "hello", images: [] } });
+    await client.enqueueThreadInput({ operation: "thread.input.enqueue", ...threadScope, clientInputId: "input-1", content: { text: "hello", images: [] }, configuration: {} });
+    await client.listThreadInputs({ operation: "thread.input.list", ...threadScope });
+    const itemId = "123e4567-e89b-42d3-a456-426614174222";
+    await client.updateThreadInput({ operation: "thread.input.update", ...threadScope, itemId, expectedVersion: 1, content: { text: "hello" } });
+    await client.removeThreadInput({ operation: "thread.input.remove", ...threadScope, itemId, expectedVersion: 1 });
+    await client.steerQueuedThreadInput({ operation: "thread.input.steer", ...threadScope, itemId, expectedVersion: 1, expectedTurnId: turnId, expectedRunAttemptId: runAttemptId });
+    await client.startQueuedThreadInput({ operation: "thread.input.start", ...threadScope, itemId, expectedVersion: 1, expectedThreadRevision: 1 });
     expect(sent.map(({ method }) => method)).toEqual([
       "provider/catalog",
       "provider/models",
       "provider/current",
       "provider/select",
       "provider/clear",
+      "turn/resume",
+      "turn/steer",
+      "thread/input/enqueue",
+      "thread/input/list",
+      "thread/input/update",
+      "thread/input/remove",
+      "thread/input/steer",
+      "thread/input/start",
     ]);
     expect(sent[3]).toMatchObject({ params: { providerId: "openai", modelId: "gpt-4o" } });
   });

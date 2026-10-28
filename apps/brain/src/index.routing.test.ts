@@ -24,6 +24,10 @@ describe("Brain auth route wiring", () => {
     expect(workerSource).toContain(
       'router.add(/^\\/app-server\\/request$/, AppServerController.request, "POST");',
     );
+    expect(workerSource).not.toContain("ThreadInputController");
+    expect(workerSource).not.toContain('router.add(/^\\/thread\\/inputs');
+    expect(workerSource).not.toContain('router.add(/^\\/turn\\/resume');
+    expect(workerSource).not.toContain('router.add(/^\\/turn\\/steer');
     expect(workerSource).not.toContain("/api/byok");
     expect(workerSource).not.toContain("ProviderController");
   });

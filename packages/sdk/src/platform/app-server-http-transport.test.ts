@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+import { APP_SERVER_PROTOCOL_VERSION, AppServerRequestSchema } from "@legioncode/app-server/protocol";
 import { createAppServerHttpTransport } from "./app-server-http-transport.js";
 
 const envelope = {
@@ -159,6 +159,45 @@ describe("App Server HTTP transport", () => {
         ),
     });
     await expect(transport.request(envelope)).rejects.toMatchObject({ code: "transport" });
+
+    const conflictEnvelope = AppServerRequestSchema.parse({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "thread/input/enqueue",
+      params: {
+        operation: "thread.input.enqueue",
+        threadId: "thr_123456",
+        workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+        clientInputId: "input-1",
+        content: { text: "hello", images: [] },
+        configuration: {},
+      },
+    });
+    const conflictTransport = createAppServerHttpTransport({
+      baseUrl: "http://127.0.0.1:4310",
+      acceptThreadInputConflict: true,
+      fetchImpl: async () => new Response(JSON.stringify({
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "thread/input/enqueue",
+        ok: true,
+        result: { status: "conflict", code: "queue_item_changed", message: "Queue item changed" },
+      }), { status: 409, headers: { "content-type": "application/json" } }),
+    });
+    await expect(conflictTransport.request(conflictEnvelope)).resolves.toMatchObject({
+      method: "thread/input/enqueue",
+      ok: true,
+      result: { status: "conflict" },
+    });
+    const invalidConflictTransport = createAppServerHttpTransport({
+      baseUrl: "http://127.0.0.1:4310",
+      acceptThreadInputConflict: true,
+      fetchImpl: async () => new Response(JSON.stringify({
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "thread/input/enqueue",
+        ok: true,
+        result: { status: "pending", clientInputId: "input-1", itemId: "123e4567-e89b-42d3-a456-426614174222", order: 1, version: 1, revision: 1 },
+      }), { status: 409, headers: { "content-type": "application/json" } }),
+    });
+    await expect(invalidConflictTransport.request(conflictEnvelope)).rejects.toMatchObject({ statusCode: 409 });
   });
 });
 

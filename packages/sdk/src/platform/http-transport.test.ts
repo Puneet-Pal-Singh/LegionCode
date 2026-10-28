@@ -219,9 +219,11 @@ describe("createPlatformHttpTransport", () => {
 
   it("maps protocol error envelopes to typed errors", async () => {
     let responseIndex = 0;
+    const appServerCalls: RequestInit[] = [];
     const transport = createPlatformHttpTransport({
       baseUrl: "https://control-plane.test",
-      fetchImpl: vi.fn(async () => {
+      fetchImpl: vi.fn(async (_input, init) => {
+        appServerCalls.push(init ?? {});
         responseIndex += 1;
         if (responseIndex === 1) {
           return createJsonResponse(
@@ -273,6 +275,26 @@ describe("createPlatformHttpTransport", () => {
             retryable: true,
           },
         }, 408);
+        if (responseIndex === 7) return createJsonResponse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "thread/input/enqueue",
+          ok: true,
+          result: { status: "conflict", code: "queue_item_changed", message: "Queue item changed" },
+        }, 409);
+        if (responseIndex === 8) return createJsonResponse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "thread/input/enqueue",
+          ok: true,
+          result: { status: "pending", clientInputId: "input-1", itemId: "123e4567-e89b-42d3-a456-426614174222", order: 1, version: 1, revision: 1 },
+        }, 409);
+        if (responseIndex === 9) return createJsonResponse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "thread/input/enqueue",
+          ok: false,
+          error: { code: "conflict", message: "Ordinary conflict error", statusCode: 409 },
+        }, 409);
+        if (responseIndex === 10) return new Response("{", { status: 409, headers: { "Content-Type": "application/json" } });
+        if (responseIndex === 11) return new Response("conflict", { status: 409, headers: { "Content-Type": "text/plain" } });
         const protocolError = {
           code: "conflict",
           message: "Lifecycle request conflicted",
@@ -328,6 +350,39 @@ describe("createPlatformHttpTransport", () => {
       retryable: false,
       statusCode: 408,
     });
+    const enqueueCommand = {
+      operation: "thread.input.enqueue" as const,
+      threadId: TEST_IDS.threadId,
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      clientInputId: "input-1",
+      content: { text: "hello", images: [] },
+      configuration: {},
+    };
+    await expect(client.enqueueThreadInput(enqueueCommand)).resolves.toMatchObject({
+      status: "conflict",
+      code: "queue_item_changed",
+    });
+    await expect(client.enqueueThreadInput(enqueueCommand)).rejects.toMatchObject({
+      code: "INVALID_ERROR_RESPONSE",
+      retryable: false,
+      statusCode: 409,
+    });
+    await expect(client.enqueueThreadInput(enqueueCommand)).rejects.toMatchObject({
+      code: "INVALID_ERROR_RESPONSE",
+      retryable: false,
+      statusCode: 409,
+    });
+    await expect(client.enqueueThreadInput(enqueueCommand)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE_FORMAT",
+      retryable: false,
+      statusCode: 502,
+    });
+    await expect(client.enqueueThreadInput(enqueueCommand)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE_FORMAT",
+      retryable: false,
+      statusCode: 502,
+    });
+    expect(new Headers(appServerCalls[6]?.headers).get("X-LegionCode-AppServer-Method")).toBe("thread/input/enqueue");
   });
 
   it("constructs approval and run resource endpoints", async () => {

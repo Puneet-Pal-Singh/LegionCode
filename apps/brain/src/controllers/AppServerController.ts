@@ -9,6 +9,7 @@ import { composeHostedConversationHistory } from "../integration/app-server/Host
 import { composeHostedTurnScope } from "../integration/app-server/HostedTurnScope";
 import { composeHostedLifecycleOperations } from "../integration/app-server/HostedLifecycleOperations";
 import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnCommands";
+import { composeHostedThreadInputOperations } from "../integration/app-server/HostedThreadInputOperations";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
@@ -17,23 +18,50 @@ import { getCorsHeaders } from "../lib/cors";
 import type { Env } from "../types/ai";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
+const LARGE_THREAD_INPUT_METHODS = new Set([
+  "turn/steer",
+  "thread/input/enqueue",
+  "thread/input/update",
+]);
 
 export const AppServerController = {
-  async request(request: Request, env: Env): Promise<Response> {
+  async request(request: Request, env: Env, executionContext?: ExecutionContext): Promise<Response> {
     // Visibility lists were uncapped on the existing authenticated BYOK route.
     // A routing hint permits that one body shape only after cookie validation;
     // the parsed method must match before dispatch. Other requests stay bounded.
-    const preferenceUpdate = request.headers.get("X-LegionCode-AppServer-Method") === "provider/preferences/update";
+    const methodHint = request.headers.get("X-LegionCode-AppServer-Method");
+    const preferenceUpdate = methodHint === "provider/preferences/update";
+    const largeThreadInput = methodHint !== null && LARGE_THREAD_INPUT_METHODS.has(methodHint);
+    const authenticatedLargeBody = preferenceUpdate || largeThreadInput;
     let earlyAuth: Awaited<ReturnType<typeof getAuthenticatedUserSession>> | undefined;
-    if (preferenceUpdate) {
+    if (authenticatedLargeBody) {
       try {
         earlyAuth = await getAuthenticatedUserSession(request, env);
-        if (!earlyAuth) return json(env, request, 401, { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/preferences/update", ok: false, error: { code: "unauthorized", message: "Unauthorized" } });
+        if (!earlyAuth) return json(env, request, 401, {
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: methodHint,
+          ok: false,
+          error: {
+            code: "unauthorized",
+            message: "Unauthorized",
+            ...(largeThreadInput ? { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false } : {}),
+          },
+        });
       } catch (error) {
-        return json(env, request, isSessionStoreUnavailableError(error) ? 503 : 500, { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "provider/preferences/update", ok: false, error: { code: "server_unavailable", message: "Authentication is unavailable" } });
+        const statusCode = largeThreadInput ? 500 : isSessionStoreUnavailableError(error) ? 503 : 500;
+        return json(env, request, statusCode, {
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: methodHint,
+          ok: false,
+          error: {
+            code: "server_unavailable",
+            message: largeThreadInput ? "Thread input operation failed" : "Authentication is unavailable",
+            ...(largeThreadInput ? { statusCode, operationCode: "THREAD_INPUT_FAILED", retryable: true } : {}),
+          },
+        });
       }
     }
-    const body = await readBoundedBody(request, preferenceUpdate ? null : MAX_REQUEST_BYTES);
+    const body = await readBoundedBody(request, authenticatedLargeBody ? null : MAX_REQUEST_BYTES);
     if (body.oversized) {
       return json(env, request, 413, {
         code: "invalid_request",
@@ -51,12 +79,14 @@ export const AppServerController = {
     let hostedSessionPullRequestService: ReturnType<typeof composeHostedSessionPullRequests> | undefined;
     let hostedTurnScopeService: ReturnType<typeof composeHostedTurnScope> | undefined;
     let hostedTurnCommandsService: ReturnType<typeof composeHostedTurnCommands> | undefined;
+    let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
-    if (preferenceUpdate && (!parsed.success || parsed.data.method !== "provider/preferences/update")) {
+    if ((preferenceUpdate || largeThreadInput) &&
+      (!parsed.success || parsed.data.method !== methodHint)) {
       return json(env, request, 400, { code: "invalid_request", message: "App Server method does not match the request routing hint" });
     }
     if (parsed.success && parsed.data.method !== "initialize") {
@@ -64,7 +94,7 @@ export const AppServerController = {
         const auth = earlyAuth ?? await getAuthenticatedUserSession(request, env);
         if (!auth) return json(env, request, 401, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
-          ok: false, error: { code: "unauthorized", message: "Unauthorized", ...turnAuthFailureDetails(parsed.data.method, 401) },
+          ok: false, error: { code: "unauthorized", message: "Unauthorized", ...threadInputAuthFailureDetails(parsed.data.method, 401), ...turnAuthFailureDetails(parsed.data.method, 401) },
         });
         hostedProviderCredentialService = composeHostedProviderCredentials(request, env, auth.userId);
         hostedProviderPreferenceService = composeHostedProviderPreferences(request, env, auth.userId);
@@ -75,17 +105,26 @@ export const AppServerController = {
         hostedSessionPullRequestService = composeHostedSessionPullRequests(request, env, auth.userId);
         hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
         hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
+        hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
       } catch (error) {
+        const inputMethod = isThreadInputMethod(parsed.data.method);
         const sessionStoreUnavailable = isSessionStoreUnavailableError(error);
-        const statusCode = sessionStoreUnavailable ? 503 : 500;
-        const message = isArtifactReadMethod(parsed.data.method) && sessionStoreUnavailable
-          ? error.message
-          : "Authentication is unavailable";
+        const statusCode = inputMethod ? 500 : sessionStoreUnavailable ? 503 : 500;
+        const message = inputMethod
+          ? "Thread input operation failed"
+          : isArtifactReadMethod(parsed.data.method) && sessionStoreUnavailable
+            ? error.message
+            : "Authentication is unavailable";
         return json(env, request, statusCode, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
-          ok: false, error: { code: "server_unavailable", message, ...turnAuthFailureDetails(parsed.data.method, statusCode) },
+          ok: false, error: {
+            code: "server_unavailable",
+            ...(inputMethod ? { statusCode, operationCode: "THREAD_INPUT_FAILED", retryable: true } : {}),
+            message,
+            ...turnAuthFailureDetails(parsed.data.method, statusCode),
+          },
         });
       }
     }
@@ -110,6 +149,7 @@ export const AppServerController = {
         hostedSessionPullRequestService,
         hostedTurnScopeService,
         hostedTurnCommandsService,
+        hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
       },
@@ -142,6 +182,20 @@ function turnAuthFailureDetails(method: string, statusCode: number) {
     statusCode,
     operationCode: statusCode === 401 ? "AUTH_FAILED" : "AUTH_SESSION_STORE_UNAVAILABLE",
     retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+  };
+}
+
+function isThreadInputMethod(method: string): boolean {
+  return method === "turn/steer" || method === "turn/resume" ||
+    method.startsWith("thread/input/");
+}
+
+function threadInputAuthFailureDetails(method: string, statusCode: number) {
+  if (!isThreadInputMethod(method)) return {};
+  return {
+    statusCode,
+    operationCode: statusCode === 401 ? "AUTH_FAILED" : "THREAD_INPUT_FAILED",
+    retryable: statusCode >= 500,
   };
 }
 

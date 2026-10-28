@@ -2,6 +2,7 @@ import type { AppServerRequest, AppServerTransport } from "./app-server-client.j
 import {
   AppServerErrorSchema,
   AppServerFailureResponseSchema,
+  AppServerResponseSchema,
 } from "@legioncode/app-server/protocol";
 
 export type AppServerHttpTransportOptions = {
@@ -18,6 +19,8 @@ export type AppServerHttpTransportOptions = {
   requestHeaders?: (
     envelope: AppServerRequest,
   ) => Record<string, string> | Promise<Record<string, string>>;
+  /** Allows only schema-valid conflict receipts at HTTP 409 for thread input commands. */
+  acceptThreadInputConflict?: boolean;
 };
 
 const MAX_RESPONSE_BYTES = 1_048_576;
@@ -87,7 +90,7 @@ export function createAppServerHttpTransport(
         }
         const { payload, preview } = result;
         const isJson = response.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false;
-        if (!isJson && isHostedLifecycleMethod(envelope.method)) {
+        if (!isJson && (isHostedLifecycleMethod(envelope.method) || isThreadInputMethod(envelope.method))) {
           throw new AppServerTransportError(
             "invalid_response",
             response.ok ? "Expected JSON response" : "Unexpected non-JSON error response",
@@ -110,6 +113,15 @@ export function createAppServerHttpTransport(
           );
         }
         if (!response.ok) {
+          if (
+            response.status === 409 &&
+            options.acceptThreadInputConflict &&
+            isThreadInputMethod(envelope.method) &&
+            envelope.method !== "thread/input/list" &&
+            isValidThreadInputConflict(payload, envelope)
+          ) {
+            return payload;
+          }
           const failure = AppServerFailureResponseSchema.safeParse(payload);
           if (
             failure.success &&
@@ -157,6 +169,18 @@ export function createAppServerHttpTransport(
 function isHostedLifecycleMethod(method: AppServerRequest["method"]): boolean {
   return method === "turn/interrupt" || method === "turn/lifecycleEvents" || method === "turn/diff" ||
     method === "turn/approval" || method === "turn/compact";
+}
+
+function isThreadInputMethod(method: AppServerRequest["method"]): boolean {
+  return method === "turn/steer" || method === "turn/resume" ||
+    method.startsWith("thread/input/");
+}
+
+function isValidThreadInputConflict(payload: unknown, envelope: AppServerRequest): boolean {
+  const parsed = AppServerResponseSchema.safeParse(payload);
+  if (!parsed.success || !parsed.data.ok || parsed.data.method !== envelope.method) return false;
+  return typeof parsed.data.result === "object" && parsed.data.result !== null &&
+    "status" in parsed.data.result && parsed.data.result.status === "conflict";
 }
 
 async function readBoundedJson(
