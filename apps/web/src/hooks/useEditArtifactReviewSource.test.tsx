@@ -22,7 +22,7 @@ const IDENTITY = {
   workspaceId: "workspace-1",
 };
 
-vi.mock("../lib/edit-artifacts-client.js", () => ({
+vi.mock("../services/api/artifactReads.js", () => ({
   getLatestEditArtifactReviewSource: (input: unknown) =>
     mockGetLatestEditArtifactReviewSource(input),
   getEditArtifactReviewSourceByMessage: (input: unknown) =>
