@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LifecycleEventSchema } from "./lifecycle.js";
 import {
   RunAttemptIdSchema,
   RunIdSchema,
@@ -73,3 +74,12 @@ export type InterruptTurnIdentity = z.infer<
   typeof InterruptTurnIdentitySchema
 >;
 export type InterruptTurnRequest = z.infer<typeof InterruptTurnRequestSchema>;
+
+export const InterruptTurnResponseSchema = z.object({
+  runId: RunIdSchema,
+  accepted: z.boolean(),
+  status: z.enum(["interrupt_requested", "settled"]).nullable(),
+  terminalEvent: LifecycleEventSchema.nullable().optional(),
+}).strict();
+
+export type InterruptTurnResponse = z.infer<typeof InterruptTurnResponseSchema>;

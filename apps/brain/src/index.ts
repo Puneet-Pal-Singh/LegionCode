@@ -160,7 +160,6 @@ function createRouter(): Router {
   router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
-  router.add(/^\/api\/run\/interrupt$/, RunController.interrupt, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
   router.add(
     /^\/api\/edit-artifacts\/latest$/,

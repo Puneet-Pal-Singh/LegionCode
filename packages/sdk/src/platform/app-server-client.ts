@@ -27,6 +27,9 @@ import {
   type Thread,
   type TurnScopeBootstrap,
   type TurnScopeReadQuery,
+  InterruptTurnRequestSchema,
+  type InterruptTurnRequest,
+  type InterruptTurnResponse,
   type ReplayLifecycleEventsRequest,
   type ReplayLifecycleEventsResponse,
   type GetTurnDiffRequest,
@@ -102,6 +105,7 @@ export type AppServerClient = {
   getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
   reserveTurnScope(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
   getTurnScope(params: TurnScopeReadQuery): Promise<TurnScopeBootstrap | null>;
+  interruptTurn(params: InterruptTurnRequest): Promise<InterruptTurnResponse>;
   replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
   getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
@@ -179,6 +183,10 @@ export function createAppServerClient(
         throw error;
       }
     },
+    interruptTurn: (params) => request(options, {
+      method: "turn/interrupt",
+      params: InterruptTurnRequestSchema.parse(params),
+    }, AppServerResultSchemas["turn/interrupt"]),
     replayLifecycleEvents: async (params) => request(options, {
       method: "turn/lifecycleEvents", params,
     }, AppServerResultSchemas["turn/lifecycleEvents"]),

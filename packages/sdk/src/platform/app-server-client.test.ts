@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+import { InterruptTurnRequestSchema } from "@repo/platform-protocol";
 import {
   AppServerClientError,
   createAppServerClient,
@@ -9,13 +10,25 @@ import {
 
 describe("AppServerClient", () => {
   it("sends a validated versioned envelope and returns a validated result", async () => {
-    let sent: AppServerRequest | undefined;
+    const sent: AppServerRequest[] = [];
     const client = createAppServerClient({
       clientId: "desktop",
       clientVersion: "0.1.0",
       transport: {
         request: async (envelope) => {
-          sent = envelope;
+          sent.push(envelope);
+          if (envelope.method === "turn/interrupt") {
+            return {
+              protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+              method: "turn/interrupt",
+              ok: true,
+              result: {
+                runId: "run_123456",
+                accepted: true,
+                status: "interrupt_requested",
+              },
+            };
+          }
           return {
             protocolVersion: APP_SERVER_PROTOCOL_VERSION,
             method: "initialize",
@@ -34,7 +47,7 @@ describe("AppServerClient", () => {
 
     const response = await client.initialize(["workspace-selection-v1"]);
 
-    expect(sent).toEqual({
+    expect(sent[0]).toEqual({
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
       method: "initialize",
       params: {
@@ -43,6 +56,25 @@ describe("AppServerClient", () => {
       },
     });
     expect(response.environment).toBe("local");
+
+    const interruptRequest = InterruptTurnRequestSchema.parse({
+      runId: "run_123456",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      sessionId: "session-123456",
+      threadId: "thr_123456",
+      turnId: "trn_123456",
+      runAttemptId: "attempt_123456",
+      reason: "User stopped the turn.",
+    });
+    await expect(client.interruptTurn(interruptRequest)).resolves.toMatchObject({
+      accepted: true,
+      status: "interrupt_requested",
+    });
+    expect(sent[1]).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "turn/interrupt",
+      params: interruptRequest,
+    });
   });
 
   it("acknowledges a canonical terminal turn through the typed session operation", async () => {

@@ -9,7 +9,6 @@ import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
-import { RunInterruptRequestSchema } from "../runtime/RunInterruptContract";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import { mapRunEventRecordsToCanonicalEvents } from "../services/runs/RunEventRecordMapper";
 import {
@@ -32,9 +31,6 @@ const RuntimeOrchestratorBackendSchema = z.enum([
   "execution-engine-v1",
   "cloudflare_agents",
 ]);
-const InterruptRunRequestSchema = RunInterruptRequestSchema.extend({
-  orchestratorBackend: RuntimeOrchestratorBackendSchema.optional(),
-});
 const ApproveRunRequestSchema = z.object({
   runId: z.string().trim().min(1),
   requestId: z.string().trim().min(1),
@@ -105,60 +101,6 @@ export class RunController {
         req,
         env,
         error instanceof Error ? error.message : "Failed to fetch run summary",
-        500,
-      );
-    }
-  }
-
-  static async interrupt(req: Request, env: Env): Promise<Response> {
-    try {
-      const parsed = InterruptRunRequestSchema.safeParse(
-        await req.json().catch(() => null),
-      );
-      if (!parsed.success) {
-        return errorResponse(req, env, "Invalid interrupt payload", 400);
-      }
-      const payload = parsed.data;
-      const requestedBackend =
-        payload.orchestratorBackend ?? "execution-engine-v1";
-
-      const auth = await getAuthenticatedUserSession(req, env);
-      if (!auth) {
-        return errorResponse(req, env, "Unauthorized", 401);
-      }
-
-      const ownsRun = await verifyRunIdentity(env, payload, auth.userId);
-      if (!ownsRun) {
-        return errorResponse(req, env, "Run not found", 404);
-      }
-
-      const response = await fetchRunInterruptFromRuntime(
-        env,
-        payload,
-        requestedBackend,
-      );
-      if (!response.ok) {
-        const details = await readErrorPreview(response);
-        const suffix = details ? `: ${details}` : "";
-        return errorResponse(
-          req,
-          env,
-          `Failed to interrupt run${suffix}`,
-          response.status,
-        );
-      }
-
-      const responsePayload = (await response.json()) as unknown;
-      return jsonResponse(req, env, responsePayload);
-    } catch (error) {
-      if (isSessionStoreUnavailableError(error)) {
-        return errorResponse(req, env, error.message, 503);
-      }
-      console.error("[RunController:interrupt] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to interrupt run",
         500,
       );
     }
@@ -490,36 +432,6 @@ async function verifyRunOwnership(
   return await withRunRepository(env, async (repo) => {
     const run = await repo.getRun(runId, userId);
     return run !== null;
-  });
-}
-
-async function verifyRunIdentity(
-  env: Env,
-  payload: z.infer<typeof InterruptRunRequestSchema>,
-  userId: string,
-): Promise<boolean> {
-  return await withRunRepository(env, async (repo) => {
-    const run = await repo.getRun(payload.runId, userId);
-    return Boolean(
-      run &&
-        run.sessionId === payload.sessionId &&
-        run.workspaceId === payload.workspaceId,
-    );
-  });
-}
-
-async function fetchRunInterruptFromRuntime(
-  env: Env,
-  payload: z.infer<typeof InterruptRunRequestSchema>,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<Response> {
-  return fetchRunRuntimeRoute(env, payload.runId, requestedBackend, {
-    method: "POST",
-    path: "/interrupt",
-    body: JSON.stringify(payload),
-    headers: {
-      "Content-Type": "application/json",
-    },
   });
 }
 

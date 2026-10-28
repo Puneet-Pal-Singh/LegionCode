@@ -8,6 +8,7 @@ import { composeHostedSessionMetadata } from "../integration/app-server/HostedSe
 import { composeHostedConversationHistory } from "../integration/app-server/HostedConversationHistory";
 import { composeHostedTurnScope } from "../integration/app-server/HostedTurnScope";
 import { composeHostedLifecycleOperations } from "../integration/app-server/HostedLifecycleOperations";
+import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnCommands";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
@@ -48,6 +49,7 @@ export const AppServerController = {
     let sessionMetadataService: ReturnType<typeof composeHostedSessionMetadata> | undefined;
     let hostedSessionPullRequestService: ReturnType<typeof composeHostedSessionPullRequests> | undefined;
     let hostedTurnScopeService: ReturnType<typeof composeHostedTurnScope> | undefined;
+    let hostedTurnCommandsService: ReturnType<typeof composeHostedTurnCommands> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
@@ -70,6 +72,7 @@ export const AppServerController = {
         sessionMetadataService = composeHostedSessionMetadata(env, auth.userId);
         hostedSessionPullRequestService = composeHostedSessionPullRequests(request, env, auth.userId);
         hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
+        hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
       } catch (error) {
         const statusCode = isSessionStoreUnavailableError(error) ? 503 : 500;
@@ -99,6 +102,7 @@ export const AppServerController = {
         sessionMetadataService,
         hostedSessionPullRequestService,
         hostedTurnScopeService,
+        hostedTurnCommandsService,
         hostedLifecycleOperationsService,
       },
     );
@@ -107,7 +111,7 @@ export const AppServerController = {
 };
 
 function turnAuthFailureDetails(method: string, statusCode: number) {
-  if (method === "turn/lifecycleEvents" || method === "turn/diff" || method === "turn/approval" || method === "turn/compact") {
+  if (method === "turn/lifecycleEvents" || method === "turn/diff" || method === "turn/approval" || method === "turn/compact" || method === "turn/interrupt") {
     return {
       statusCode,
       operationCode: "API_ERROR",

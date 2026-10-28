@@ -170,10 +170,17 @@ describe("createPlatformHttpTransport", () => {
         if (String(input).endsWith("/turns")) {
           return createJsonResponse({ run: createRun(), turn: createTurn() });
         }
-        return appServerResult("turn/lifecycleEvents", {
-          events: [createLifecycleEvent(1)],
-          nextSequence: 1,
-        });
+        const envelope = JSON.parse(String(init?.body)) as { method: string };
+        return envelope.method === "turn/interrupt"
+          ? appServerResult("turn/interrupt", {
+              runId: TEST_IDS.runId,
+              accepted: true,
+              status: "interrupt_requested",
+            })
+          : appServerResult("turn/lifecycleEvents", {
+              events: [createLifecycleEvent(1)],
+              nextSequence: 1,
+            });
       }),
     });
     const client = createPlatformClient(transport);
@@ -183,14 +190,31 @@ describe("createPlatformHttpTransport", () => {
       afterSequence: 4,
       limit: 25,
     });
+    const interruptSignal = new AbortController().signal;
+    await client.interruptTurn({
+      runId: TEST_IDS.runId,
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      sessionId: "session-123456",
+      threadId: TEST_IDS.threadId,
+      turnId: TEST_IDS.turnId,
+      runAttemptId: TEST_IDS.runAttemptId,
+      reason: "User stopped the turn.",
+    }, { signal: interruptSignal });
     expect(calls.map((call) => call.url)).toEqual([
       "https://control-plane.test/turns",
+      "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
     ]);
     expect(JSON.parse(String(calls[1]?.init.body))).toMatchObject({
       method: "turn/lifecycleEvents",
       params: { turnId: TEST_IDS.turnId, afterSequence: 4, limit: 25 },
     });
+    expect(JSON.parse(String(calls[2]?.init.body))).toMatchObject({
+      method: "turn/interrupt",
+      params: { runId: TEST_IDS.runId, turnId: TEST_IDS.turnId },
+    });
+    expect(calls[2]?.init.signal).toBeDefined();
+    expect(calls[2]?.init.signal?.aborted).toBe(false);
   });
 
   it("maps protocol error envelopes to typed errors", async () => {
@@ -237,6 +261,18 @@ describe("createPlatformHttpTransport", () => {
             retryable: false,
           },
         }, 502);
+        if (responseIndex === 6) return createJsonResponse({
+          protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+          method: "turn/interrupt",
+          ok: false,
+          error: {
+            code: "invalid_request",
+            message: "Failed to interrupt run: runtime preview",
+            statusCode: 408,
+            operationCode: "API_ERROR",
+            retryable: true,
+          },
+        }, 408);
         const protocolError = {
           code: "conflict",
           message: "Lifecycle request conflicted",
@@ -277,6 +313,20 @@ describe("createPlatformHttpTransport", () => {
       name: "PlatformClientContractError",
       phase: "response",
       operation: "getTurnDiff",
+    });
+    await expect(client.interruptTurn({
+      runId: TEST_IDS.runId,
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      sessionId: "session-123456",
+      threadId: TEST_IDS.threadId,
+      turnId: TEST_IDS.turnId,
+      runAttemptId: TEST_IDS.runAttemptId,
+      reason: "User stopped the turn.",
+    })).rejects.toMatchObject({
+      code: "API_ERROR",
+      message: "HTTP 408",
+      retryable: false,
+      statusCode: 408,
     });
   });
 

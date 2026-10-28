@@ -1,14 +1,13 @@
 import { z } from "zod";
 import {
   InterruptTurnRequestSchema,
-  LifecycleEventSchema,
+  InterruptTurnResponseSchema,
   JsonRecordSchema,
   ModelIdSchema,
   PermissionProfileIdSchema,
   ProviderIdSchema,
   RunModeSchema,
   RunSchema,
-  RunIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
   TurnSchema,
@@ -21,6 +20,7 @@ import {
   type CompactTurnResponse,
   type Run,
   type Turn,
+  type InterruptTurnResponse,
 } from "@repo/platform-protocol";
 import {
   FollowLifecycleRequestSchema,
@@ -102,11 +102,5 @@ export { InterruptTurnIdentitySchema, type InterruptTurnIdentity };
 
 export { InterruptTurnRequestSchema };
 export type { InterruptTurnRequest } from "@repo/platform-protocol";
-
-export const InterruptTurnResponseSchema = z.object({
-  runId: RunIdSchema,
-  accepted: z.boolean(),
-  status: z.enum(["interrupt_requested", "settled"]).nullable(),
-  terminalEvent: LifecycleEventSchema.nullable().optional(),
-}).strict();
-export type InterruptTurnResponse = z.infer<typeof InterruptTurnResponseSchema>;
+export { InterruptTurnResponseSchema };
+export type { InterruptTurnResponse };
