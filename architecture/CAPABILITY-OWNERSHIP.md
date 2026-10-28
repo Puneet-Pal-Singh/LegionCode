@@ -252,6 +252,20 @@ and unstaged presentation values are preserved. Terminal failed_runtime display
 wording stays presentation-local; no canonical settlement is derived there.
 No live Git fallback or artifact transport is introduced.
 
+## Plan 058.3A — Saved immutable artifact review reads
+
+| Responsibility | Canonical owner | Active consumers |
+| --- | --- | --- |
+| Saved review source lookup and immutable patch integrity | Brain `EditArtifactReviewService`, composed through authenticated App Server and public SDK | Web `useEditArtifactReviewSource`, `useEditArtifactDiff`, and `useChangedFilesController` use `artifact/reviewLatest`, `artifact/reviewByMessage`, and `artifact/diff`. |
+
+The review service remains the sole repository, R2, identity, SHA and patch-parser
+owner. The SDK carries lookup source plus its inner 200/204 status; the hosted
+binding uses the verified principal and preserves existing error classifications.
+The Web direct client, three URL builders, and four legacy routes (including the
+uncalled files route) are removed after a whole-repository caller audit. No live
+Git fallback or fourth files operation is added; lookup misses remain bodyless
+204 at the old HTTP boundary and successful review bytes stay immutable.
+
 ### Plan 058 conversation view host bindings
 
 Web `ChatInterface` supplies image URL resolution, cold-storage loading and the
