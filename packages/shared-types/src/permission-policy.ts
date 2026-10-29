@@ -3,8 +3,6 @@ import { PRODUCT_MODES, type ProductMode } from "@repo/platform-protocol";
 import {
   WORKFLOW_INTENTS,
   WORKFLOW_ENTRYPOINTS,
-  WorkflowIntentSchema,
-  WorkflowEntrypointSchema,
   type WorkflowIntent,
   type WorkflowEntrypoint,
 } from "@repo/platform-protocol";
