@@ -37,7 +37,10 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
-import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+import {
+  RunEngineRequestHandler,
+  type RunEngineRequestLock,
+} from "./RunEngineRequestHandler";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
@@ -60,6 +63,14 @@ const CredentialLabelMutationRequestSchema = z.object({
 
 export class RunEngineRuntime extends DurableObject {
   private readonly executionLock = new RunExecutionLock();
+  private readonly withExecutionLock: RunEngineRequestLock = Object.assign(
+    <T>(runId: string, operation: () => Promise<T>) =>
+      this.executionLock.run(runId, operation),
+    {
+      hasQueuedOrActiveRun: (runId: string) =>
+        this.executionLock.hasQueuedOrActiveRun(runId),
+    },
+  );
   private readonly interruptRegistry = new InMemoryRunInterruptRegistry();
   private readonly approvalResolutionRegistry =
     new InMemoryRunApprovalResolutionRegistry();
@@ -483,18 +494,11 @@ export class RunEngineRuntime extends DurableObject {
     );
   }
 
-  private async withExecutionLock<T>(
-    runId: string,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    return await this.executionLock.run(runId, operation);
-  }
-
   private createRequestHandler(): RunEngineRequestHandler {
     return new RunEngineRequestHandler(
       this.ctx,
       this.env as Env,
-      this.withExecutionLock.bind(this),
+      this.withExecutionLock,
       undefined,
       {
         interruptRegistry: this.interruptRegistry,

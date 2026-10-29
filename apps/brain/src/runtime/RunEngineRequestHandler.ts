@@ -1,7 +1,10 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
-import type { LifecycleEventStore } from "@repo/persistence";
+import type {
+  LifecycleEventStore,
+  TurnAdmissionRecord,
+} from "@repo/persistence";
 import {
   ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,
@@ -164,6 +167,7 @@ const RuntimeThreadInputRequestSchema = z.object({
 });
 export interface RunEngineRequestLock {
   <T>(runId: string, operation: () => Promise<T>): Promise<T>;
+  hasQueuedOrActiveRun: (runId: string) => boolean;
 }
 
 export interface CanonicalRunEventSink {
@@ -436,22 +440,69 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const settled = await settleOrphanStop({
-      store,
-      admission,
-      identity: {
-        turnId: payload.turnId,
-        runAttemptId: payload.runAttemptId,
-        threadId: payload.threadId,
-        workspaceId: workspaceIdFromExternalId(payload.workspaceId),
-        ...(admission.revisionOfTurnId
-          ? {
-              revisionOfTurnId: TurnIdSchema.parse(admission.revisionOfTurnId),
-            }
-          : {}),
-      },
-      admittedWorkspaceId: payload.workspaceId,
-      reason: payload.reason,
+    if (this.withExecutionLock.hasQueuedOrActiveRun(payload.runId)) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Turn is no longer interruptible",
+        409,
+      );
+    }
+
+    const settled = await this.withExecutionLock(payload.runId, async () => {
+      const currentAdmission = await withTurnAdmissionRepository(
+        this.env,
+        (repository) => repository.getByTurnId(payload.turnId),
+      );
+      if (!sameAdmissionIdentity(admission, currentAdmission)) {
+        return { status: "not_recovery_orphan" } as const;
+      }
+
+      const currentHistory = await readAllLifecycleEvents(store, payload.turnId);
+      const currentTerminalEvent = currentHistory.find(isTerminalLifecycleEvent);
+      if (currentTerminalEvent) {
+        return {
+          status: "terminal_exists",
+          terminalEvent: currentTerminalEvent,
+        } as const;
+      }
+
+      if (
+        this.interruptRegistry.hasActiveOwner(payload.turnId) ||
+        this.approvalResolutionRegistry.has(payload.turnId)
+      ) {
+        return { status: "not_recovery_orphan" } as const;
+      }
+
+      return await settleOrphanStop({
+        store,
+        admission: currentAdmission,
+        identity: {
+          turnId: payload.turnId,
+          runAttemptId: payload.runAttemptId,
+          threadId: payload.threadId,
+          workspaceId: workspaceIdFromExternalId(payload.workspaceId),
+          ...(currentAdmission.revisionOfTurnId
+            ? {
+                revisionOfTurnId: TurnIdSchema.parse(
+                  currentAdmission.revisionOfTurnId,
+                ),
+              }
+            : {}),
+          ...(currentAdmission.continuationOfTurnId
+            ? {
+                continuationOfTurnId: TurnIdSchema.parse(
+                  currentAdmission.continuationOfTurnId,
+                ),
+              }
+            : {}),
+          ...(currentAdmission.originalPromptId
+            ? { originalPromptId: currentAdmission.originalPromptId }
+            : {}),
+        },
+        admittedWorkspaceId: payload.workspaceId,
+        reason: payload.reason,
+      });
     });
     if (settled.status === "settled" || settled.status === "terminal_exists") {
       return runEngineJsonResponse(request, this.env, {
@@ -1187,6 +1238,7 @@ export class RunEngineRequestHandler {
 
   async handleExecuteRequest(request: Request): Promise<Response> {
     let executionClaim: { turnId: TurnId; claimId: string } | null = null;
+    let startupInterruptReason: string | null = null;
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1476,10 +1528,12 @@ export class RunEngineRequestHandler {
           const pendingInterruptReason = this.interruptRegistry.register(
             turnId,
             async (reason) => {
+              startupInterruptReason = reason;
               await runtimeRunner.interrupt(turnId, reason);
             },
           );
           if (pendingInterruptReason) {
+            startupInterruptReason = pendingInterruptReason;
             await runtimeRunner.interrupt(turnId, pendingInterruptReason);
           }
           this.approvalResolutionRegistry.register(
@@ -1611,6 +1665,9 @@ export class RunEngineRequestHandler {
           }
           throw error;
         } finally {
+          startupInterruptReason =
+            this.interruptRegistry.takePendingRequest(turnId) ??
+            startupInterruptReason;
           this.interruptRegistry.unregister(turnId);
           this.approvalResolutionRegistry.unregister(turnId);
           this.contextCompactionRegistry.unregister(turnId);
@@ -1619,28 +1676,18 @@ export class RunEngineRequestHandler {
         }
       });
     } catch (error: unknown) {
-      if (executionClaim) {
-        try {
-          await withTurnAdmissionRepository(this.env, (repository) =>
-            repository.markRecoveryRequired(executionClaim!),
-          );
-        } catch (recoveryError) {
-          console.error("Failed to record interrupted execution claim", recoveryError);
-        }
-      }
       const domainError = mapRunExecutionErrorToDomain(
         error,
         payload.correlationId,
       );
-      let startupInterruptReason: string | null = null;
       const claimedExecution = executionClaim as {
         turnId: TurnId;
         claimId: string;
       } | null;
       if (claimedExecution) {
-        startupInterruptReason = this.interruptRegistry.takePendingRequest(
-          claimedExecution.turnId,
-        );
+        startupInterruptReason =
+          this.interruptRegistry.takePendingRequest(claimedExecution.turnId) ??
+          startupInterruptReason;
         this.interruptRegistry.unregister(claimedExecution.turnId);
         try {
           const identity = payload.identity;
@@ -1656,6 +1703,12 @@ export class RunEngineRequestHandler {
                 admittedWorkspaceId: identity.workspaceId,
                 ...(identity.revisionOfTurnId
                   ? { revisionOfTurnId: identity.revisionOfTurnId }
+                  : {}),
+                ...(identity.continuationOfTurnId
+                  ? { continuationOfTurnId: identity.continuationOfTurnId }
+                  : {}),
+                ...(identity.originalPromptId
+                  ? { originalPromptId: identity.originalPromptId }
                   : {}),
                 userId: payload.userId,
                 sessionId: payload.sessionId,
@@ -1835,6 +1888,28 @@ export class RunEngineRequestHandler {
       },
     });
   }
+}
+
+function sameAdmissionIdentity(
+  original: TurnAdmissionRecord,
+  current: TurnAdmissionRecord | null,
+): current is TurnAdmissionRecord {
+  return Boolean(
+    current &&
+      current.userId === original.userId &&
+      current.sessionId === original.sessionId &&
+      current.clientMessageId === original.clientMessageId &&
+      current.threadId === original.threadId &&
+      current.turnId === original.turnId &&
+      current.runAttemptId === original.runAttemptId &&
+      current.runId === original.runId &&
+      current.workspaceId === original.workspaceId &&
+      current.revisionOfTurnId === original.revisionOfTurnId &&
+      current.continuationOfTurnId === original.continuationOfTurnId &&
+      current.originalPromptId === original.originalPromptId &&
+      current.continuationTerminalSequence ===
+        original.continuationTerminalSequence,
+  );
 }
 
 function toStartupLifecycleFailure(

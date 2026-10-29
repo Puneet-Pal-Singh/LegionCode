@@ -35,6 +35,7 @@ import type { Env } from "../types/ai";
 import {
   RunEngineRequestHandler,
   type CanonicalRunEventSink,
+  type RunEngineRequestLock,
 } from "./RunEngineRequestHandler";
 import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
@@ -976,6 +977,9 @@ describe("RunEngineRequestHandler", () => {
       runId: identity.runId,
       workspaceId: identity.workspaceId,
       revisionOfTurnId: null,
+      continuationOfTurnId: null,
+      originalPromptId: null,
+      continuationTerminalSequence: null,
       state: "admitted",
       executionState: "running",
     };
@@ -1045,6 +1049,9 @@ describe("RunEngineRequestHandler", () => {
       runId: identity.runId,
       workspaceId: identity.workspaceId,
       revisionOfTurnId: null,
+      continuationOfTurnId: null,
+      originalPromptId: null,
+      continuationTerminalSequence: null,
       state: "admitted",
       executionState: "recovery_required",
     };
@@ -1230,7 +1237,9 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
 
-    const withExecutionLock = vi.fn(runImmediately);
+    const withExecutionLock = Object.assign(vi.fn(runImmediately), {
+      hasQueuedOrActiveRun: runImmediately.hasQueuedOrActiveRun,
+    });
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {
@@ -1797,12 +1806,10 @@ describe("RunEngineRequestHandler", () => {
   });
 });
 
-async function runImmediately<T>(
-  _runId: string,
-  operation: () => Promise<T>,
-): Promise<T> {
-  return await operation();
-}
+const runImmediately: RunEngineRequestLock = Object.assign(
+  async <T>(_runId: string, operation: () => Promise<T>) => await operation(),
+  { hasQueuedOrActiveRun: () => false },
+);
 
 const durableThreadsBySession = new Map<string, string>();
 const durableTurnsByClientMessage = new Map<string, string>();
