@@ -81,13 +81,6 @@ export class EditArtifactReviewService {
     return artifact ? this.toReviewSource(artifact) : null;
   }
 
-  async getArtifactFiles(
-    input: ArtifactLookupInput,
-  ): Promise<EditArtifactReviewFile[]> {
-    const artifact = await this.loadUserArtifact(input);
-    return this.toReviewFiles(artifact);
-  }
-
   async getArtifactDiff(
     input: ArtifactDiffInput,
   ): Promise<EditArtifactDiffResponse> {

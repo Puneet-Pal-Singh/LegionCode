@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffContent, EditArtifactIdentity } from "@repo/shared-types";
-import { getEditArtifactDiff } from "../lib/edit-artifacts-client.js";
+import { getEditArtifactDiff } from "../services/api/artifactReads.js";
 
 export interface UseEditArtifactDiffResult {
   diff: DiffContent | null;

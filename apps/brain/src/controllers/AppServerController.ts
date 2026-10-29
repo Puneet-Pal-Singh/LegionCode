@@ -11,6 +11,7 @@ import { composeHostedLifecycleOperations } from "../integration/app-server/Host
 import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnCommands";
 import { composeHostedThreadInputOperations } from "../integration/app-server/HostedThreadInputOperations";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
+import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
 import { getCorsHeaders } from "../lib/cors";
@@ -80,6 +81,7 @@ export const AppServerController = {
     let hostedTurnCommandsService: ReturnType<typeof composeHostedTurnCommands> | undefined;
     let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
+    let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
@@ -105,15 +107,22 @@ export const AppServerController = {
         hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
         hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
+        hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
       } catch (error) {
         const inputMethod = isThreadInputMethod(parsed.data.method);
-        const statusCode = inputMethod ? 500 : isSessionStoreUnavailableError(error) ? 503 : 500;
+        const sessionStoreUnavailable = isSessionStoreUnavailableError(error);
+        const statusCode = inputMethod ? 500 : sessionStoreUnavailable ? 503 : 500;
+        const message = inputMethod
+          ? "Thread input operation failed"
+          : isArtifactReadMethod(parsed.data.method) && sessionStoreUnavailable
+            ? error.message
+            : "Authentication is unavailable";
         return json(env, request, statusCode, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
           ok: false, error: {
             code: "server_unavailable",
-            message: inputMethod ? "Thread input operation failed" : "Authentication is unavailable",
             ...(inputMethod ? { statusCode, operationCode: "THREAD_INPUT_FAILED", retryable: true } : {}),
+            message,
             ...turnAuthFailureDetails(parsed.data.method, statusCode),
           },
         });
@@ -142,13 +151,25 @@ export const AppServerController = {
         hostedTurnCommandsService,
         hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
+        hostedEditArtifactReadsService,
       },
     );
     return json(env, request, result.statusCode, result.payload);
   },
 };
 
+function isArtifactReadMethod(method: string): boolean {
+  return method === "artifact/reviewLatest" || method === "artifact/reviewByMessage" || method === "artifact/diff";
+}
+
 function turnAuthFailureDetails(method: string, statusCode: number) {
+  if (isArtifactReadMethod(method)) {
+    return {
+      statusCode,
+      operationCode: statusCode === 401 ? "AUTH_FAILED" : "API_ERROR",
+      retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+    };
+  }
   if (method === "turn/lifecycleEvents" || method === "turn/diff" || method === "turn/approval" || method === "turn/compact" || method === "turn/interrupt") {
     return {
       statusCode,

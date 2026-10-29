@@ -10,6 +10,7 @@ export {
   type AppServerClientOptions,
   type AppServerTransport,
   type WorkspaceGrantSource,
+  type ArtifactReviewLookupResult,
 } from "./platform/app-server-client.js";
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
 export type { ConversationScope } from "./platform/conversation-scope.js";
@@ -27,6 +28,11 @@ export type {
   SubmissionOutcome,
 } from "./platform/submission-attempt-registry.js";
 export { hasCanonicalLifecycleEvidence } from "./platform/submission-evidence.js";
+export {
+  submitConversationMessage,
+  type ConversationSubmissionBindings,
+  type ConversationSubmissionDispatch,
+} from "./platform/conversation-submission.js";
 export {
   AppServerTransportError,
   createAppServerHttpTransport,

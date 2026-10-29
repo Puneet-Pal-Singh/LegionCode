@@ -12,7 +12,7 @@ import { isTerminalRunStatus } from "../../../lib/run-status.js";
 import {
   getEditArtifactDiff,
   getEditArtifactReviewSourceByMessageWithStatus,
-} from "../../../lib/edit-artifacts-client.js";
+} from "../../../services/api/artifactReads.js";
 import {
   areFileStatusListsEqual,
   buildArtifactChangedFileDiffCacheKey,
