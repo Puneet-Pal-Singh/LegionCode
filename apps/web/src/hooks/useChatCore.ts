@@ -147,7 +147,6 @@ export function useChatCore(
   onServerProjectionAvailable?: () => void,
   onRunIdChange?: (runId: string) => void,
   workspaceContext?: HostedSessionWorkspaceContext | null,
-  conversationMessages: Message[] = [],
 ): UseChatCoreResult {
   const isWorkspaceExecutionAllowed = Boolean(
     workspaceContext?.sessionId === sessionId &&
@@ -600,12 +599,9 @@ export function useChatCore(
         modelId: requestBody.modelId,
       });
       try {
-        const priorMessages = conversationMessages.filter(
-          (existing) => existing.id !== message.id,
-        );
         const submissionParams = {
           ...requestBody,
-          messages: [...priorMessages, message],
+          messages: [message],
         };
         const acknowledgement = await lifecycleClient.submitHostedChat(submissionParams, {
           signal: controller.signal,
@@ -676,7 +672,7 @@ export function useChatCore(
         }
       }
     },
-    [conversationMessages, lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
+    [lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
   );
 
   const appendWithResolution = useCallback(
