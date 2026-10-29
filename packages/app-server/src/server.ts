@@ -5,6 +5,8 @@ import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorks
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import type {
+  ChatRequestBody,
+  HostedChatSubmissionResult,
   CompactTurnRequest,
   CompactTurnResponse,
   InterruptTurnResponse,
@@ -85,6 +87,9 @@ export type AppServerComposition = {
     reserve(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
     read(params: Extract<AppServerRequest, { method: "turn/scope" }>['params']): Promise<TurnScopeBootstrap>;
   };
+  hostedChatSubmissionService?: {
+    execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult>;
+  };
   hostedTurnCommandsService?: {
     interruptTurn(params: Extract<AppServerRequest, { method: "turn/interrupt" }>["params"]): Promise<InterruptTurnResponse>;
   };
@@ -115,7 +120,7 @@ export class AppServerOperationError extends Error {
 /** Internal composition result for operations whose existing HTTP status is meaningful. */
 export class AppServerMethodOutcome {
   constructor(
-    readonly statusCode: 200 | 201 | 202 | 409,
+    readonly statusCode: number,
     readonly result: unknown,
   ) {}
 }
@@ -279,6 +284,11 @@ async function dispatch(
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
       return composition.hostedTurnScopeService.reserve(request.params);
+    }
+    case "turn/submit": {
+      if (!composition.hostedChatSubmissionService) throw new Error("unsupported");
+      const result = await composition.hostedChatSubmissionService.execute(request.params);
+      return new AppServerMethodOutcome(result.runtimeStatus, result);
     }
     case "turn/scope": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
