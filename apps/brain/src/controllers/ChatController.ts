@@ -96,7 +96,7 @@ export class ChatController {
     return errorResponse(
       req,
       env,
-      "Legacy chat route '/api/chat' is no longer supported. Use '/chat'.",
+      "Legacy chat route '/api/chat' is no longer supported. Use App Server 'turn/submit'.",
       410,
       "LEGACY_CHAT_ROUTE_REMOVED",
     );

@@ -42,6 +42,31 @@ vi.mock("../services/api/platformClient", () => ({
       terminalEvent: terminalEvent(),
     })),
     startTurn: vi.fn(),
+    submitHostedChat: async (params: Record<string, unknown>, options?: {
+      beforeSendHostedChatEnvelope?: (serialized: string) => string;
+      signal?: AbortSignal;
+      onChatSubmissionResponse?: (response: { httpStatus: number; runtimeStatus: number; runId: string | null; threadId: string | null; turnId: string | null; runAttemptId: string | null }) => void;
+    }) => {
+      const candidate = JSON.stringify({ protocolVersion: "1.0.0", method: "turn/submit", params });
+      const body = options?.beforeSendHostedChatEnvelope?.(candidate) ?? candidate;
+      const response = await fetch("https://brain.local/app-server/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-LegionCode-AppServer-Method": "turn/submit" },
+        body,
+        signal: options?.signal,
+      });
+      options?.onChatSubmissionResponse?.({
+        httpStatus: response.status,
+        runtimeStatus: response.status,
+        runId: response.headers.get("X-Run-Id"),
+        threadId: response.headers.get("X-Thread-Id"),
+        turnId: response.headers.get("X-Turn-Id"),
+        runAttemptId: response.headers.get("X-Run-Attempt-Id"),
+      });
+      const envelope = await response.json() as { ok: boolean; result?: Record<string, unknown>; error?: { message?: string } };
+      if (!response.ok || !envelope.ok) throw new Error(`HTTP ${response.status}: ${envelope.error?.message ?? "request failed"}`);
+      return { ...envelope.result, httpStatus: response.status };
+    },
   }),
 }));
 
@@ -105,10 +130,44 @@ function installServer(
         });
       }
     }
-    if (url.endsWith("/chat")) return chat(input, init);
+    if (url.endsWith("/app-server/request") && body) {
+      const request = JSON.parse(body) as { method: string; params?: unknown };
+      if (request.method === "turn/submit") {
+        const runtimeResponse = await chat(input, { ...init, body: JSON.stringify(request.params) });
+        await runtimeResponse.arrayBuffer();
+        const headers = new Headers({ "Content-Type": "application/json" });
+        for (const name of ["X-Run-Id", "X-Thread-Id", "X-Turn-Id", "X-Run-Attempt-Id"]) {
+          const value = runtimeResponse.headers.get(name);
+          if (value !== null) headers.set(name, value);
+        }
+        if (!runtimeResponse.ok) {
+          return Response.json({
+            protocolVersion: "1.0.0", method: "turn/submit", ok: false,
+            error: { code: runtimeResponse.status >= 500 ? "server_unavailable" : "invalid_request", message: `HTTP ${runtimeResponse.status}`, statusCode: runtimeResponse.status, operationCode: "CHAT_REQUEST_FAILED", retryable: runtimeResponse.status >= 500 },
+          }, { status: runtimeResponse.status, headers });
+        }
+        return Response.json({
+          protocolVersion: "1.0.0", method: "turn/submit", ok: true,
+          result: {
+            runtimeStatus: runtimeResponse.status,
+            runId: headers.get("X-Run-Id"), threadId: headers.get("X-Thread-Id"),
+            turnId: headers.get("X-Turn-Id"), runAttemptId: headers.get("X-Run-Attempt-Id"),
+          },
+        }, { status: runtimeResponse.status, headers });
+      }
+    }
     throw new Error(`Unexpected request: ${method} ${url}`);
   }));
   return requests;
+}
+
+function isSubmissionRequest(record: { url: string; method: string; body: string | null }): boolean {
+  if (!record.url.endsWith("/app-server/request") || !record.body) return false;
+  try {
+    return (JSON.parse(record.body) as { method?: string }).method === "turn/submit";
+  } catch {
+    return false;
+  }
 }
 
 function reservations(requests: Array<{ url: string; body: string | null }>) {
@@ -184,15 +243,15 @@ describe("useChatCore installed SDK request outcomes", () => {
     await act(async () => { submitted = await result.current.handleSubmit(); });
 
     expect(reservations(requests)).toHaveLength(1);
-    expect(requests.some(({ url, method }) => url.endsWith("/chat") && method === "POST")).toBe(true);
+    expect(requests.some(({ url, method, body }) => isSubmissionRequest({ url, method, body }) && method === "POST")).toBe(true);
     expect(submitted).toBe(false);
     expect(result.current.error).toMatch(/503/);
     expect(result.current.input).toBe("Keep this intent");
     expect(result.current.isLoading).toBe(false);
 
-    const firstWire = requests.find(({ url }) => url.endsWith("/chat"))?.body;
+    const firstWire = requests.find(isSubmissionRequest)?.body;
     await act(async () => { submitted = await result.current.handleSubmit(); });
-    const chatRequests = requests.filter(({ url }) => url.endsWith("/chat"));
+    const chatRequests = requests.filter(isSubmissionRequest);
     expect(submitted).toBe(false);
     expect(result.current.input).toBe("Keep this intent");
     expect(result.current.isLoading).toBe(false);
@@ -206,10 +265,10 @@ describe("useChatCore installed SDK request outcomes", () => {
     const { result, rerender } = renderCore();
     const original = { role: "user" as const, content: "same payload", id: "client_msg_retry_transport01" };
     const first = await append(result, original);
-    const firstWire = requests.find(({ url }) => url.endsWith("/chat"))?.body;
+    const firstWire = requests.find(isSubmissionRequest)?.body;
     rerender({ currentRunId: "run_transport_changed02" });
     const second = await append(result, original);
-    const chatRequests = requests.filter(({ url }) => url.endsWith("/chat"));
+    const chatRequests = requests.filter(isSubmissionRequest);
     const starts = reservations(requests);
 
     expect(first.status).toBe("unconfirmed");
@@ -246,14 +305,14 @@ describe("useChatCore installed SDK request outcomes", () => {
     const original = { content: "retry lost reservation", id: "client_msg_lost_reservation01" };
     const firstCore = renderCore("run_before_reservation_loss01");
     expect((await append(firstCore.result, original)).status).toBe("unconfirmed");
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(0);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(0);
     firstCore.unmount();
     const retryCore = renderCore("run_after_reservation_remount02");
     expect((await append(retryCore.result, original)).status).toBe("accepted");
     const starts = reservations(requests);
     expect(starts).toHaveLength(2);
     expect(starts[1]?.body).toBe(starts[0]?.body);
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(1);
     expect(retryCore.result.current.error).toBeNull();
     expect(retryCore.result.current.scope?.runId).toBe("run_before_reservation_loss01");
     expect(retryCore.result.current.serverTurnId).toBe(FIXTURE.turnId);
@@ -271,10 +330,10 @@ describe("useChatCore installed SDK request outcomes", () => {
     const changed = await append(result, { id: suppliedId, content: "changed setup intent" });
     const retry = await append(result, { id: suppliedId, content: "changed setup intent" });
     const starts = reservations(requests);
-    const chatRequests = requests.filter(({ url }) => url.endsWith("/chat"));
+    const chatRequests = requests.filter(isSubmissionRequest);
     const cids = chatRequests.map(({ body }) => {
-      const parsed = body ? JSON.parse(body) as { clientMessageId: string } : null;
-      return parsed?.clientMessageId;
+      const parsed = body ? JSON.parse(body) as { params?: { clientMessageId?: string } } : null;
+      return parsed?.params?.clientMessageId;
     });
 
     expect(first.status).toBe("unconfirmed");

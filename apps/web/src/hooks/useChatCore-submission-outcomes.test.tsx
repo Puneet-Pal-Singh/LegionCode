@@ -78,12 +78,36 @@ vi.mock("../services/api/platformClient", () => ({
     })),
     interruptTurn: state.interruptTurn,
     startTurn: vi.fn(),
+    submitHostedChat: async (params: Record<string, unknown>, options?: {
+      beforeSendHostedChatEnvelope?: (serialized: string) => string;
+      signal?: AbortSignal;
+      onChatSubmissionResponse?: (response: { httpStatus: number; runtimeStatus: number; runId: string | null; threadId: string | null; turnId: string | null; runAttemptId: string | null }) => void;
+    }) => {
+      const candidate = JSON.stringify({ protocolVersion: "1.0.0", method: "turn/submit", params });
+      const body = options?.beforeSendHostedChatEnvelope?.(candidate) ?? candidate;
+      const response = await fetch("https://brain.local/app-server/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-LegionCode-AppServer-Method": "turn/submit" },
+        body,
+        signal: options?.signal,
+      });
+      options?.onChatSubmissionResponse?.({
+        httpStatus: response.status, runtimeStatus: response.status,
+        runId: response.headers.get("X-Run-Id"), threadId: response.headers.get("X-Thread-Id"),
+        turnId: response.headers.get("X-Turn-Id"), runAttemptId: response.headers.get("X-Run-Attempt-Id"),
+      });
+      await Promise.resolve();
+      if (options?.signal?.aborted) throw new DOMException("Aborted after acknowledgement", "AbortError");
+      const envelope = await response.json() as { ok: boolean; result?: Record<string, unknown>; error?: { message?: string } };
+      if (!response.ok || !envelope.ok) throw new Error(`HTTP ${response.status}: ${envelope.error?.message ?? "request failed"}`);
+      return { ...envelope.result, httpStatus: response.status };
+    },
   }),
 }));
 
 vi.mock("../lib/client-logger.js", () => ({
   logClientEvent: vi.fn((category: string, eventName: string) => {
-    if (category === "chat/stream" && eventName === "response") {
+    if (category === "chat/submit" && eventName === "response") {
       state.onResponseObserved?.();
     }
   }),
@@ -167,6 +191,20 @@ function responseHeaders(
 
 type RequestRecord = { url: string; method: string; body: string | null };
 
+function isSubmissionRequest(record: RequestRecord): boolean {
+  if (!record.url.endsWith("/app-server/request") || !record.body) return false;
+  try {
+    return (JSON.parse(record.body) as { method?: string }).method === "turn/submit";
+  } catch {
+    return false;
+  }
+}
+
+function submissionParams(record: RequestRecord): Record<string, unknown> {
+  const parsed = record.body ? JSON.parse(record.body) as { params?: Record<string, unknown> } : {};
+  return parsed.params ?? {};
+}
+
 function installServer(
   chat: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   turnStart: (
@@ -179,6 +217,7 @@ function installServer(
       turnId: state.fixture!.turnId,
       runAttemptId: state.fixture!.runAttemptId,
     }),
+  brokenSubmissionBody = false,
 ) {
   const requests: RequestRecord[] = [];
   vi.stubGlobal(
@@ -210,7 +249,33 @@ function installServer(
           });
         }
       }
-      if (url.endsWith("/chat")) return chat(input, init);
+      if (url.endsWith("/app-server/request") && body && (JSON.parse(body) as { method?: string }).method === "turn/submit") {
+        const request = JSON.parse(body) as { params: unknown };
+        const runtimeResponse = await chat(input, { ...init, body: JSON.stringify(request.params) });
+        const headers = new Headers({ "Content-Type": "application/json" });
+        for (const name of ["X-Run-Id", "X-Thread-Id", "X-Turn-Id", "X-Run-Attempt-Id"]) {
+          const value = runtimeResponse.headers.get(name);
+          if (value !== null) headers.set(name, value);
+        }
+        if (brokenSubmissionBody) {
+          return new Response(runtimeResponse.body, { status: runtimeResponse.status, headers });
+        }
+        if (!runtimeResponse.ok) {
+          await runtimeResponse.clone().arrayBuffer().catch(() => undefined);
+          return Response.json({
+            protocolVersion: "1.0.0", method: "turn/submit", ok: false,
+            error: { code: runtimeResponse.status >= 500 ? "server_unavailable" : "invalid_request", message: `HTTP ${runtimeResponse.status}`, statusCode: runtimeResponse.status, operationCode: "CHAT_REQUEST_FAILED", retryable: runtimeResponse.status >= 500 },
+          }, { status: runtimeResponse.status, headers });
+        }
+        return Response.json({
+          protocolVersion: "1.0.0", method: "turn/submit", ok: true,
+          result: {
+            runtimeStatus: runtimeResponse.status,
+            runId: headers.get("X-Run-Id"), threadId: headers.get("X-Thread-Id"),
+            turnId: headers.get("X-Turn-Id"), runAttemptId: headers.get("X-Run-Attempt-Id"),
+          },
+        }, { status: runtimeResponse.status, headers });
+      }
       throw new Error(`Unexpected request: ${method} ${url}`);
     }),
   );
@@ -315,7 +380,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
       retry = await result.current.handleSubmit();
     });
     expect(retry).toBe(false);
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(2);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(2);
     expect(
       requests.filter(({ url, body }) => url.endsWith("/app-server/request") && JSON.parse(body ?? "{}").method === "turn/reserve"),
     ).toHaveLength(1);
@@ -331,10 +396,8 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
       result,
       "canonical acceptance survives transport loss",
     );
-    const chat = requests.find(({ url }) => url.endsWith("/chat"));
-    const body = chat?.body
-      ? (JSON.parse(chat.body) as Record<string, unknown>)
-      : {};
+    const chat = requests.find(isSubmissionRequest);
+    const body = chat ? submissionParams(chat) : {};
     const identity = body.identity as Record<string, unknown>;
 
     expect(outcome.status).toBe("accepted");
@@ -344,7 +407,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
       turnId: state.fixture!.turnId,
       runAttemptId: state.fixture!.runAttemptId,
     });
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(1);
   });
 
   it("keeps a network rejection unconfirmed when exact canonical evidence is absent", async () => {
@@ -358,7 +421,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
     );
 
     expect(outcome.status).toBe("unconfirmed");
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(1);
   });
 
   it("accepts a successful HTTP response only when all response tuple headers match", async () => {
@@ -445,7 +508,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
         content: "uncertain then stopped",
       });
       await until(
-        () => requests.some(({ url }) => url.endsWith("/chat")),
+        () => requests.some(isSubmissionRequest),
         "chat dispatch",
       );
       result.current.stop();
@@ -454,10 +517,8 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
     await act(async () => {
       outcome = await outcomePromise;
     });
-    const chatRequest = requests.find(({ url }) => url.endsWith("/chat"));
-    const requestBody = chatRequest?.body
-      ? (JSON.parse(chatRequest.body) as Record<string, unknown>)
-      : {};
+    const chatRequest = requests.find(isSubmissionRequest);
+    const requestBody = chatRequest ? submissionParams(chatRequest) : {};
     const identity = requestBody.identity as Record<string, unknown>;
 
     expect(outcome).toMatchObject({
@@ -474,7 +535,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(1);
   });
 
   it("cancels a reservation stopped before chat dispatch without sending or interrupting", async () => {
@@ -515,7 +576,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
       admission: "not-dispatched",
     });
     expect(result.current.isLoading).toBe(false);
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(0);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(0);
     expect(state.interruptTurn).not.toHaveBeenCalled();
   });
 
@@ -559,10 +620,8 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
     await act(async () => {
       outcome = await outcomePromise;
     });
-    const chatRequest = requests.find(({ url }) => url.endsWith("/chat"));
-    const body = chatRequest?.body
-      ? (JSON.parse(chatRequest.body) as Record<string, unknown>)
-      : {};
+    const chatRequest = requests.find(isSubmissionRequest);
+    const body = chatRequest ? submissionParams(chatRequest) : {};
     const identity = body.identity as Record<string, unknown>;
 
     expect(outcome).toMatchObject({
@@ -579,7 +638,7 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(requests.filter(({ url }) => url.endsWith("/chat"))).toHaveLength(1);
+    expect(requests.filter(isSubmissionRequest)).toHaveLength(1);
   });
 
   it("does not infer acceptance from a broken response body without an exact acknowledgement or canonical event", async () => {
@@ -594,6 +653,8 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
           }),
           { status: 200, headers: { "X-Run-Id": state.fixture!.runId } },
         ),
+      undefined,
+      true,
     );
     const { result } = renderCore();
     const outcome = await append(result, "broken unacknowledged response");
@@ -615,6 +676,8 @@ describe("useChatCore submission outcomes through the installed AI SDK", () => {
           }),
           { status: 200, headers: responseHeaders() },
         ),
+      undefined,
+      true,
     );
     const { result } = renderCore();
     const outcome = await append(

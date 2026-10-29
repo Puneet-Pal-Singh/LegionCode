@@ -122,6 +122,7 @@ export function useChat(
     onServerProjectionAvailable,
     onRunIdChange,
     workspaceContext,
+    verifiedMessages,
   );
 
   const messages = useMemo(() => {
