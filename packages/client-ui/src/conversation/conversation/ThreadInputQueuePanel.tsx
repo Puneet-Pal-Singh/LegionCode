@@ -90,7 +90,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
           {props.error}
         </p>
       ) : null}
-      <ol className="space-y-2">
+      <ol className="max-h-36 space-y-2 overflow-y-auto">
         {items.map((item) => (
           <li
             key={item.itemId}
