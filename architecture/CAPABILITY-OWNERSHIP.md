@@ -634,7 +634,14 @@ namespace. The existing Secure Session owner exposes only an internal-authentica
 borrow of that exact persisted, unexpired session/lease/token. The borrower
 executes through the existing `git.execute` path and fails closed for missing,
 expired, mismatched or dead state; it never invokes session recovery, lease
-replacement or release.
+replacement or release. A borrowed request must not boot plugins, create a
+physical container, recreate a missing checkout root, or destroy/release the
+original lease. It must recheck the original expiry after serialized-workspace
+queue waits and immediately before plugin execution. If the existing sandbox
+execution boundary cannot invoke against an already-running physical container
+without its normal auto-start behavior, borrowed execution must fail closed
+until that owner exposes such a path; a `getState()` preflight followed by a
+normal auto-starting operation is not sufficient.
 
 ## Verification and limits
 
