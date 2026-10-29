@@ -41,9 +41,16 @@ export async function resolveAuthorizedProviderScope(
   env: Env,
   correlationId: string,
   validatedRunId?: RunId,
+  verifiedPrincipal?: { userId: string; session: UserSessionRecord },
 ): Promise<AuthorizedProviderScope> {
   const { runId } = parseProviderAuthScopeIdentity(request, correlationId, validatedRunId);
-  const claims = await loadSessionClaims(request, env, correlationId);
+  const claims = verifiedPrincipal
+    ? buildSessionClaims(
+        verifiedPrincipal.userId,
+        verifiedPrincipal.session,
+        correlationId,
+      )
+    : await loadSessionClaims(request, env, correlationId);
   const requestedUserId = parseRequestedProviderUserId(request, correlationId);
 
   if (requestedUserId && requestedUserId !== claims.userId) {

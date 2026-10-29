@@ -25,7 +25,10 @@ import {
 } from "../domain/errors";
 import type { SerializableToolDefinition } from "../types/tools";
 import { parseOptionalScopeIdentifier } from "./chat-request-helpers";
-import { extractSessionToken } from "../services/AuthService";
+import {
+  extractSessionToken,
+  type UserSessionRecord,
+} from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
 import { createTraceContext, formatTraceparent } from "@repo/observability";
 
@@ -145,9 +148,10 @@ export async function resolveExecutionScope(
   env: Env,
   runId: string,
   correlationId: string,
+  verifiedPrincipal?: { userId: string; session: UserSessionRecord },
 ): Promise<ExecutionScope> {
   const sessionToken = extractSessionToken(req);
-  if (!sessionToken) {
+  if (!sessionToken && !verifiedPrincipal) {
     throw new DomainError(
       "AUTH_FAILED",
       "Unauthorized: missing authentication token.",
@@ -173,6 +177,8 @@ export async function resolveExecutionScope(
       scopedRequest,
       env,
       correlationId,
+      undefined,
+      verifiedPrincipal,
     );
     return {
       userId: scope.userId,

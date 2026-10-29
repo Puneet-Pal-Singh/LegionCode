@@ -15,6 +15,7 @@ import {
   type ChatRequestBody,
 } from "@repo/platform-protocol";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
+import type { UserSessionRecord } from "../services/AuthService";
 
 export interface AuthenticatedChatRequest extends ExecutionScope {
   body: ChatRequestBody;
@@ -31,8 +32,24 @@ export async function parseAuthenticatedChatRequest(
   env: Env,
   correlationId: string,
 ): Promise<AuthenticatedChatRequest> {
-  const body = validateWithSchema<ChatRequestBody>(
+  return bindAuthenticatedChatRequest(
+    req,
+    env,
     await parseRequestBody(req, correlationId),
+    correlationId,
+  );
+}
+
+/** Validates a parsed chat body and binds it to the actual authorized request scope. */
+export async function bindAuthenticatedChatRequest(
+  req: Request,
+  env: Env,
+  input: unknown,
+  correlationId: string,
+  verifiedPrincipal?: { userId: string; session: UserSessionRecord },
+): Promise<AuthenticatedChatRequest> {
+  const body = validateWithSchema<ChatRequestBody>(
+    input,
     ChatRequestBodySchema,
     correlationId,
   );
@@ -58,6 +75,7 @@ export async function parseAuthenticatedChatRequest(
     env,
     runId,
     correlationId,
+    verifiedPrincipal,
   );
   if (body.identity.workspaceId !== executionScope.workspaceId) {
     throw new DomainError(
