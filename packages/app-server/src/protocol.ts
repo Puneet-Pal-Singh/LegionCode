@@ -103,7 +103,7 @@ const GitPullRequestResultSchema = z.object({ success: z.literal(true), pullRequ
 }).strict() }).strict();
 const GitCommitRequestSchema = z.object({
   message: z.string().min(1), files: z.array(z.string().min(1)).min(1),
-  authorName: z.string().optional(), authorEmail: z.string().optional(),
+  authorName: z.string().min(1).optional(), authorEmail: z.string().email().optional(),
 }).strict().superRefine((value, context) => {
   if ((value.authorName === undefined) !== (value.authorEmail === undefined)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "authorName and authorEmail must be provided together" });

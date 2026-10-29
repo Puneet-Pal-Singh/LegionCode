@@ -145,6 +145,10 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
     const { lease } = input;
+    // A serialized mutation can wait behind earlier work. The initial check
+    // in executeTask() is therefore insufficient: validate the exact lease
+    // again after the queue wait and immediately before dispatching the plugin.
+    if (!this.isActiveLease(lease)) return this.leaseFailure(input);
     const startedAt = Date.now();
     let resolveQuiescence!: () => void;
     const quiescence = new Promise<void>((resolve) => {
@@ -219,7 +223,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       }
       const normalized = normalizeError(error);
       if (isSandboxUnavailable(error, normalized)) {
-        await this.releaseLease(lease.leaseId);
+        if (!input.borrowedLease) await this.releaseLease(lease.leaseId);
         return {
           taskId: input.taskId,
           leaseId: lease.leaseId,
@@ -350,6 +354,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       }
       const pluginContext: PluginExecutionContext = {
         workspaceScope: input.lease.workspaceScope,
+        ...(input.borrowedLease ? { borrowedLease: true } : {}),
       };
       let logDrain = Promise.resolve();
       const result = await plugin.execute(
