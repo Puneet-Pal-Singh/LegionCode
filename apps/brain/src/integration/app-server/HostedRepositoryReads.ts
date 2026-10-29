@@ -30,19 +30,19 @@ export function composeHostedRepositoryReads(
 ) {
   return {
     list: (params: RepositoryListRequest) =>
-      withGitHubClient(request, env, userId, (client) =>
+      withGitHubClient(request, env, userId, "Failed to list repositories", (client) =>
         listRepositories(client, params),
       ),
     branches: (params: RepositoryBranchesRequest) =>
-      withGitHubClient(request, env, userId, (client) =>
+      withGitHubClient(request, env, userId, "Failed to list branches", (client) =>
         listRepositoryBranches(client, params),
       ),
     tree: (params: RepositoryTreeRequest) =>
-      withGitHubClient(request, env, userId, (client) =>
+      withGitHubClient(request, env, userId, "Failed to get tree", (client) =>
         readRepositoryTree(client, params),
       ),
     contents: (params: RepositoryContentsRequest) =>
-      withGitHubClient(request, env, userId, (client) =>
+      withGitHubClient(request, env, userId, "Failed to get contents", (client) =>
         readRepositoryContents(client, params),
       ),
   };
@@ -52,6 +52,7 @@ async function withGitHubClient<T>(
   request: Request,
   env: Env,
   userId: string,
+  fallbackMessage: string,
   operation: (client: GitHubAPIClient) => Promise<T>,
 ): Promise<T> {
   try {
@@ -61,11 +62,14 @@ async function withGitHubClient<T>(
     }
     return await operation(auth.client);
   } catch (error) {
-    throw mapRepositoryReadError(error);
+    throw mapRepositoryReadError(error, fallbackMessage);
   }
 }
 
-function mapRepositoryReadError(error: unknown): AppServerOperationError {
+function mapRepositoryReadError(
+  error: unknown,
+  fallbackMessage: string,
+): AppServerOperationError {
   if (error instanceof AppServerOperationError) {
     return error;
   }
@@ -78,56 +82,20 @@ function mapRepositoryReadError(error: unknown): AppServerOperationError {
       true,
     );
   }
-  if (error instanceof GitHubAPIError) {
-    if (error.rateLimited) {
-      return new AppServerOperationError(
-        429,
-        "server_unavailable",
-        "GitHub rate limit reached. Please retry.",
-        "GITHUB_RATE_LIMITED",
-        true,
-      );
-    }
+  if (error instanceof GitHubAPIError || error instanceof ZodError) {
     return new AppServerOperationError(
-      error.status,
-      statusCategory(error.status),
-      error.message,
-      "GITHUB_API_ERROR",
-      error.status >= 500 || error.status === 408,
-    );
-  }
-  if (error instanceof ZodError) {
-    return new AppServerOperationError(
-      502,
+      500,
       "server_unavailable",
-      "GitHub returned an invalid repository response",
-      "INVALID_RESPONSE_CONTRACT",
-      false,
+      error.message,
+      error instanceof GitHubAPIError ? "GITHUB_API_ERROR" : "INVALID_RESPONSE_CONTRACT",
+      true,
     );
   }
   return new AppServerOperationError(
-    503,
+    500,
     "server_unavailable",
-    "GitHub repository data is unavailable",
+    error instanceof Error ? error.message : fallbackMessage,
     "GITHUB_API_ERROR",
     true,
   );
-}
-
-function statusCategory(
-  status: number,
-):
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "invalid_request"
-  | "server_unavailable" {
-  if (status === 401) return "unauthorized";
-  if (status === 403) return "forbidden";
-  if (status === 404) return "not_found";
-  if (status === 409) return "conflict";
-  if (status >= 500 || status === 408 || status === 429)
-    return "server_unavailable";
-  return "invalid_request";
 }
