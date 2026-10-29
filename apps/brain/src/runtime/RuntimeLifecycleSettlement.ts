@@ -16,6 +16,8 @@ export interface RuntimeLifecycleSettlementIdentity {
   readonly threadId: ThreadId;
   readonly workspaceId: WorkspaceId;
   readonly revisionOfTurnId?: TurnId;
+  readonly continuationOfTurnId?: TurnId;
+  readonly originalPromptId?: string;
 }
 
 export interface OwnedStartupFailureIdentity extends RuntimeLifecycleSettlementIdentity {
@@ -66,7 +68,10 @@ export async function settleOwnedStartupFailure(input: {
     admission.runAttemptId !== input.identity.runAttemptId ||
     admission.threadId !== input.identity.threadId ||
     admission.workspaceId !== input.identity.admittedWorkspaceId ||
-    admission.revisionOfTurnId !== (input.identity.revisionOfTurnId ?? null)
+    admission.revisionOfTurnId !== (input.identity.revisionOfTurnId ?? null) ||
+    admission.continuationOfTurnId !==
+      (input.identity.continuationOfTurnId ?? null) ||
+    admission.originalPromptId !== (input.identity.originalPromptId ?? null)
   ) {
     return { status: "not_owned" };
   }
@@ -80,6 +85,12 @@ export async function settleOwnedStartupFailure(input: {
       workspaceId: input.identity.workspaceId,
       ...(input.identity.revisionOfTurnId
         ? { revisionOfTurnId: input.identity.revisionOfTurnId }
+        : {}),
+      ...(input.identity.continuationOfTurnId
+        ? { continuationOfTurnId: input.identity.continuationOfTurnId }
+        : {}),
+      ...(input.identity.originalPromptId
+        ? { originalPromptId: input.identity.originalPromptId }
         : {}),
     },
     outcome: input.interruptReason
@@ -111,7 +122,11 @@ export async function settleOrphanStop(input: {
     input.admission.threadId !== input.identity.threadId ||
     input.admission.workspaceId !== input.admittedWorkspaceId ||
     input.admission.revisionOfTurnId !==
-      (input.identity.revisionOfTurnId ?? null)
+      (input.identity.revisionOfTurnId ?? null) ||
+    input.admission.continuationOfTurnId !==
+      (input.identity.continuationOfTurnId ?? null) ||
+    input.admission.originalPromptId !==
+      (input.identity.originalPromptId ?? null)
   ) {
     return { status: "not_recovery_orphan" };
   }
@@ -124,9 +139,6 @@ export async function settleOrphanStop(input: {
     return { status: "terminal_exists", terminalEvent };
   }
   if (history.length === 0) {
-    if (input.admission.executionState !== "recovery_required") {
-      return { status: "not_recovery_orphan" };
-    }
     return await settleEmptyRuntimeLifecycle({
       store: input.store,
       identity: input.identity,
