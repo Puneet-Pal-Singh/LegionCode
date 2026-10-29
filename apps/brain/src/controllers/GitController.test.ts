@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GitController, type OwnedGitExecution } from "./GitController";
+import {
+  GitExecutionService,
+  type OwnedGitExecution,
+} from "../services/git/GitExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "../services/gitExecutionTimeouts";
 
-describe("GitController", () => {
+describe("GitExecutionService", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -35,18 +38,12 @@ describe("GitController", () => {
         ),
       );
 
-    const response = await GitController.getStatus(
-      new Request(
-        "https://brain.local/api/git/status?runId=run_git_01&sessionId=session-1",
-      ),
-      {
-        ...createTestEnv(fetchMock),
-      },
+    const status = await new GitExecutionService(
+      createTestEnv(fetchMock),
       createOwnedExecution("run_git_01"),
-    );
+    ).status({ runId: "run_git_01", sessionId: "session-1" });
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(status).toMatchObject({
       branch: "main",
       gitAvailable: true,
     });
@@ -98,22 +95,12 @@ describe("GitController", () => {
         ),
       );
 
-    const response = await GitController.stageFiles(
-      new Request("https://brain.local/api/git/stage", {
-        method: "POST",
-        body: JSON.stringify({
-          runId: "run_unstage",
-          files: ["src/app.ts"],
-          unstage: true,
-        }),
-      }),
-      {
-        ...createTestEnv(fetchMock),
-      },
+    const result = await new GitExecutionService(
+      createTestEnv(fetchMock),
       createOwnedExecution("run_unstage"),
-    );
+    ).stage({ runId: "run_unstage", files: ["src/app.ts"], unstage: true });
 
-    expect(response.status).toBe(200);
+    expect(result).toEqual({ success: true });
     const executeInit = fetchMock.mock.calls[0]?.[1];
     expect(JSON.parse(String(executeInit?.body))).toMatchObject({
       action: "git.execute",
@@ -137,16 +124,11 @@ describe("GitController", () => {
         ),
       );
 
-    const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run_git_01"),
-      {
-        ...createTestEnv(fetchMock),
-      },
+    await expect(new GitExecutionService(
+      createTestEnv(fetchMock),
       createOwnedExecution("run_git_01"),
-    );
-
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toMatchObject({
+    ).status({ runId: "run_git_01" })).rejects.toMatchObject({
+      status: 502,
       code: "GIT_EXECUTION_CONTRACT_ERROR",
       retryable: true,
     });
@@ -168,18 +150,10 @@ describe("GitController", () => {
         ),
       );
 
-    const response = await GitController.getDiff(
-      new Request(
-        "https://brain.local/api/git/diff?runId=run_git_01&sessionId=session-1&path=src%2Fmain.ts",
-      ),
-      {
-        ...createTestEnv(fetchMock),
-      },
+    await expect(new GitExecutionService(
+      createTestEnv(fetchMock),
       createOwnedExecution("run_git_01"),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    ).diff({ runId: "run_git_01", sessionId: "session-1", path: "src/main.ts" })).resolves.toMatchObject({
       oldPath: "",
       newPath: "",
       hunks: [],
@@ -215,16 +189,10 @@ describe("GitController", () => {
         ),
       );
 
-    const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run_retry_1"),
-      {
-        ...createTestEnv(fetchMock),
-      },
+    await expect(new GitExecutionService(
+      createTestEnv(fetchMock),
       createOwnedExecution("run_retry_1"),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    ).status({ runId: "run_retry_1" })).resolves.toMatchObject({
       branch: "main",
       gitAvailable: true,
     });
@@ -258,18 +226,10 @@ describe("GitController", () => {
         ),
       );
 
-    const response = await GitController.getStatus(
-      new Request(
-        "https://brain.local/api/git/status?runId=run_retry_local_dev",
-      ),
-      {
-        ...createTestEnv(fetchMock),
-      },
+    await expect(new GitExecutionService(
+      createTestEnv(fetchMock),
       createOwnedExecution("run_retry_local_dev"),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    ).status({ runId: "run_retry_local_dev" })).resolves.toMatchObject({
       branch: "main",
       gitAvailable: true,
     });
