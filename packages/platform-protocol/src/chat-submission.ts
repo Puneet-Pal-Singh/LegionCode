@@ -5,7 +5,7 @@ import {
   WorkflowIntentSchema,
   ReasoningEffortSchema,
 } from "@repo/shared-types";
-import { TurnScopeBootstrapSchema } from "@repo/platform-protocol";
+import { TurnScopeBootstrapSchema } from "./turn-scope-bootstrap.js";
 import { z } from "zod";
 
 const SerializableToolDefinitionSchema = z.object({

@@ -97,6 +97,10 @@ export {
   type InterruptTurnRequest,
   type InterruptTurnResponse,
 } from "./turn-scope-bootstrap.js";
+export {
+  ChatRequestBodySchema,
+  type ChatRequestBody,
+} from "./chat-submission.js";
 export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
 export {
   FollowLifecycleRequestSchema,

@@ -13,7 +13,7 @@ import {
 import {
   ChatRequestBodySchema,
   type ChatRequestBody,
-} from "./chat-request-schema";
+} from "@repo/platform-protocol";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
 
 export interface AuthenticatedChatRequest extends ExecutionScope {
