@@ -479,6 +479,7 @@ export {
 export {
   RepositoryBranchesRequestSchema,
   RepositoryBranchesResponseSchema,
+  RepositoryContentsResultSchema,
   RepositoryContentsResponseSchema,
   RepositoryContentsRequestSchema,
   RepositoryListRequestSchema,
@@ -493,6 +494,7 @@ export {
   type RepositoryBranchesRequest,
   type RepositoryBranchesResponse,
   type RepositoryContentsResponse,
+  type RepositoryContentsResult,
   type RepositoryContentsRequest,
   type RepositoryListRequest,
   type RepositoryListResponse,

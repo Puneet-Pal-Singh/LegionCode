@@ -68,6 +68,7 @@ export const RepositoryListRequestSchema = z
   .object({
     type: z.enum(["all", "owner", "member"]).optional(),
     sort: z.enum(["created", "updated", "pushed", "full_name"]).optional(),
+    perPage: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -75,6 +76,7 @@ export const RepositoryBranchesRequestSchema = z
   .object({
     owner: z.string().min(1),
     repo: z.string().min(1),
+    perPage: z.number().int().positive().max(100).optional(),
   })
   .strict();
 
@@ -95,15 +97,28 @@ export const RepositoryContentsRequestSchema = z
   })
   .strict();
 
-export const RepositoryListResponseSchema = z.array(
-  RepositoryReadRepositorySchema,
-);
-export const RepositoryBranchesResponseSchema = z.array(
-  RepositoryReadBranchSchema,
-);
-export const RepositoryTreeResponseSchema = z.array(
-  RepositoryReadTreeEntrySchema,
-);
+export const RepositoryListResponseSchema = z
+  .object({
+    repositories: z.array(RepositoryReadRepositorySchema),
+  })
+  .strict();
+export const RepositoryBranchesResponseSchema = z
+  .object({
+    branches: z.array(RepositoryReadBranchSchema),
+  })
+  .strict();
+export const RepositoryTreeResponseSchema = z
+  .object({
+    tree: z.array(RepositoryReadTreeEntrySchema),
+    requestedRefUnavailable: z.boolean().optional(),
+    resolvedRef: z.string().optional(),
+  })
+  .passthrough();
+export const RepositoryContentsResultSchema = z
+  .object({
+    contents: RepositoryContentsResponseSchema,
+  })
+  .strict();
 
 export type RepositoryReadRepository = z.infer<
   typeof RepositoryReadRepositorySchema
@@ -117,6 +132,9 @@ export type RepositoryReadContents = z.infer<
 >;
 export type RepositoryContentsResponse = z.infer<
   typeof RepositoryContentsResponseSchema
+>;
+export type RepositoryContentsResult = z.infer<
+  typeof RepositoryContentsResultSchema
 >;
 export type RepositoryListRequest = z.infer<typeof RepositoryListRequestSchema>;
 export type RepositoryBranchesRequest = z.infer<
