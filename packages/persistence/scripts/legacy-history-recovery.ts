@@ -17,7 +17,7 @@ const APPROVED_LOCAL_NAMESPACE = "shadowbox-api-AgentRuntime";
 const MIGRATION_ID = "0034_legacy_history_import_receipts";
 
 interface FrozenInventory {
-  version: 1;
+  version: 2;
   sourceEnvironment: string;
   sourceNamespace: string;
   inventoryCutoff: string;
@@ -26,6 +26,7 @@ interface FrozenInventory {
     sourceKind: "local_wrangler_sqlite";
     sourceDoId: null;
     sourceInstance: string;
+    sourceConversationId: string | null;
     sourceStorageKey: string;
     sourceSha256: string;
     sourceSizeBytes: number;
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
           sourceKind: record.sourceKind,
           sourceDoId: record.sourceDoId,
           sourceInstance: record.sourceInstance,
+          sourceConversationId: record.sourceConversationId,
           sourceStorageKey: record.sourceStorageKey,
           sourceSha256: record.sourceSha256,
           sourceCreatedAt: record.sourceCreatedAt ? new Date(record.sourceCreatedAt) : null,
@@ -155,6 +157,7 @@ function scanLocalWranglerInventory(
         sourceKind: "local_wrangler_sqlite",
         sourceDoId: null,
         sourceInstance,
+        sourceConversationId: projection.sourceConversationId,
         sourceStorageKey: row.key,
         sourceSha256: rawSha256,
         sourceSizeBytes: sourceRaw.byteLength,
@@ -181,7 +184,7 @@ function scanLocalWranglerInventory(
     left.sourceStorageKey.localeCompare(right.sourceStorageKey),
   );
   const body = {
-    version: 1 as const,
+    version: 2 as const,
     sourceEnvironment,
     sourceNamespace: namespace,
     inventoryCutoff: cutoff.toISOString(),
@@ -273,9 +276,11 @@ function projectMessages(
 ): {
   messages: LegacyHistoryImportMessage[];
   sourceCreatedAt: Date | null;
+  sourceConversationId: string | null;
 } {
   const values = Array.isArray(value) ? value : [value];
-  const timestamp = readKeyTimestamp(sourceStorageKey);
+  const sourceIdentity = readSourceKeyIdentity(sourceStorageKey);
+  const timestamp = sourceIdentity.createdAt;
   const messages: LegacyHistoryImportMessage[] = [];
   for (const entry of values) {
     if (!isRecord(entry) || !isRole(entry.role)) continue;
@@ -394,7 +399,11 @@ function projectMessages(
     }
     messages.push({ role: entry.role, sourceMessageId, createdAt: timestamp, parts });
   }
-  return { messages, sourceCreatedAt: timestamp };
+  return {
+    messages,
+    sourceCreatedAt: timestamp,
+    sourceConversationId: sourceIdentity.conversationId,
+  };
 }
 
 function countR2References(value: unknown): number {
@@ -404,18 +413,25 @@ function countR2References(value: unknown): number {
   return own + Object.values(value).reduce((count, item) => count + countR2References(item), 0);
 }
 
-function readKeyTimestamp(key: string): Date | null {
-  if (!key.startsWith("chat:")) return null;
-  const match = /^chat:[^:]+:(\d{15})(?:-[a-z0-9]+)?$/.exec(key);
-  if (!match?.[1]) return null;
-  const value = Number(match[1]);
-  return Number.isSafeInteger(value) && value > 0 ? new Date(value) : null;
+function readSourceKeyIdentity(key: string): { conversationId: string | null; createdAt: Date | null } {
+  const chat = /^chat:([^:]+):(\d{15})(?:-[a-z0-9]+)?$/.exec(key);
+  const incrementalHistory = /^history:([^:]+):(\d{15})$/.exec(key);
+  const historyBlob = /^history:([^:]+)$/.exec(key);
+  const match = chat ?? incrementalHistory;
+  const conversationId = match?.[1] ?? historyBlob?.[1] ?? null;
+  const timestamp = match?.[2];
+  if (!timestamp) return { conversationId, createdAt: null };
+  const value = Number(timestamp);
+  return {
+    conversationId,
+    createdAt: Number.isSafeInteger(value) && value > 0 ? new Date(value) : null,
+  };
 }
 
 function readFrozenInventory(path: string): FrozenInventory {
   const inventory = JSON.parse(readFileSync(path, "utf8")) as FrozenInventory;
   if (
-    inventory.version !== 1 ||
+    inventory.version !== 2 ||
     inventory.sourceNamespace !== APPROVED_LOCAL_NAMESPACE ||
     inventory.githubSubject !== APPROVED_GITHUB_SUBJECT ||
     !Array.isArray(inventory.records) ||
@@ -432,6 +448,7 @@ function readFrozenInventory(path: string): FrozenInventory {
       record.sourceKind !== "local_wrangler_sqlite" ||
       record.sourceDoId !== null ||
       !/^[a-f0-9]{64}\.sqlite$/.test(record.sourceInstance) ||
+      (record.sourceConversationId !== null && !record.sourceConversationId.trim()) ||
       typeof record.sourceStorageKey !== "string" ||
       !Number.isSafeInteger(record.sourceSizeBytes) ||
       record.sourceSizeBytes < 0 ||
@@ -475,6 +492,7 @@ async function requireImportMigration(client: PgSqlClient): Promise<void> {
 
 function summarizeInventory(inventory: FrozenInventory): Record<string, unknown> {
   const roleCounts: Record<string, number> = {};
+  const sourceConversationBuckets = new Set<string>();
   let messages = 0;
   let messagesWithSourceTimestamp = 0;
   let parts = 0;
@@ -485,6 +503,11 @@ function summarizeInventory(inventory: FrozenInventory): Record<string, unknown>
   let codeArtifactInlineContent = 0;
   let codeArtifactR2References = 0;
   for (const record of inventory.records) {
+    sourceConversationBuckets.add(
+      record.sourceConversationId === null
+        ? `unknown-row:${record.sourceInstance}\u0000${record.sourceStorageKey}`
+        : `${record.sourceInstance}\u0000${record.sourceConversationId}`,
+    );
     rawBytes += Buffer.from(record.sourceRawBase64, "base64").byteLength;
     messages += record.messages.length;
     for (const message of record.messages) {
@@ -510,6 +533,7 @@ function summarizeInventory(inventory: FrozenInventory): Record<string, unknown>
     logicalDoId: "unknown",
     githubSubject: inventory.githubSubject,
     records: inventory.records.length,
+    sourceConversationBuckets: sourceConversationBuckets.size,
     messages,
     messagesWithSourceTimestamp,
     parts,

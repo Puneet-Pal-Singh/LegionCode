@@ -161,6 +161,7 @@ export interface LegacyHistoryImportRecord {
   sourceKind: "durable_object_export" | "local_wrangler_sqlite";
   sourceDoId: string | null;
   sourceInstance: string;
+  sourceConversationId: string | null;
   sourceStorageKey: string;
   sourceSha256: string;
   sourceCreatedAt: Date | null;
@@ -184,7 +185,12 @@ export interface LegacyHistoryImportResult {
   duplicateRecords: number;
   importedMessages: number;
   importedParts: number;
-  sessions: Array<{ sourceKind: LegacyHistoryImportRecord["sourceKind"]; sourceInstance: string; sessionId: string }>;
+  sessions: Array<{
+    sourceKind: LegacyHistoryImportRecord["sourceKind"];
+    sourceInstance: string;
+    sourceConversationId: string | null;
+    sessionId: string;
+  }>;
 }
 
 export interface ListTranscriptInput {
