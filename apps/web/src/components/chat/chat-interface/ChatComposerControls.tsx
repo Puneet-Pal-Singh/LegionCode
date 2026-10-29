@@ -76,13 +76,13 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
   return (
     <>
       {props.error ? (
-        <div className="mb-4">
+        <div className="mb-4 max-h-28 overflow-y-auto">
           <ChatErrorNotice {...props.error} />
         </div>
       ) : null}
       {props.continuation ? (
         <div
-          className="mb-4 flex items-center justify-between gap-3 rounded border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100"
+          className="mb-4 flex max-h-24 items-center justify-between gap-3 overflow-y-auto rounded border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100"
           role="status"
         >
           <span>
@@ -101,6 +101,16 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           ) : null}
         </div>
       ) : null}
+      {props.resumeUnavailableMessage ? (
+        <p role="alert" className="mb-3 text-right text-xs text-amber-200/90">
+          {props.resumeUnavailableMessage}
+        </p>
+      ) : null}
+      {props.queuePanel ? (
+        <div className="mb-3 max-h-40 min-h-0 overflow-y-auto overscroll-contain">
+          {props.queuePanel}
+        </div>
+      ) : null}
       {props.approval.pending ? (
         <ApprovalDock
           pendingApproval={props.approval.pending}
@@ -113,41 +123,38 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           canStop={props.canStop}
         />
       ) : null}
-      {props.resumeUnavailableMessage ? (
-        <p role="alert" className="mb-3 text-right text-xs text-amber-200/90">
-          {props.resumeUnavailableMessage}
-        </p>
-      ) : null}
-      {props.queuePanel}
-      <ChatInputBar
-        input={props.input}
-        onChange={props.onInputChange}
-        onSubmit={props.onSubmit}
-        onFollowUpSubmit={props.onFollowUpSubmit}
-        canResume={props.canResume}
-        onResume={props.onResume}
-        reviewComments={props.reviewComments}
-        onRemoveReviewComment={props.onRemoveReviewComment}
-        reviewCommentError={props.reviewCommentError}
-        onStop={props.approval.pending ? undefined : props.onStop}
-        canStop={props.canStop}
-        isLoading={props.isLoading}
-        sessionId={props.sessionId}
-        runId={props.runId}
-        mode={props.mode}
-        onModeChange={props.onModeChange}
-        hasMessages={props.hasMessages}
-        onModelSelect={props.onModelSelect}
-        repoTree={props.repoTree}
-        isLoadingRepoTree={props.isLoadingRepoTree}
-        layout={props.layout}
-        contextBudget={props.contextBudget}
-        usage={props.usage}
-        onCompact={props.onCompact}
-        onContextOpen={props.onContextOpen}
-        permissionMode={props.permissionMode}
-        onPermissionModeChange={props.onPermissionModeChange}
-      />
+      <div hidden={Boolean(props.approval.pending)}>
+        <ChatInputBar
+          isHidden={Boolean(props.approval.pending)}
+          input={props.input}
+          onChange={props.onInputChange}
+          onSubmit={props.onSubmit}
+          onFollowUpSubmit={props.onFollowUpSubmit}
+          canResume={props.canResume}
+          onResume={props.onResume}
+          reviewComments={props.reviewComments}
+          onRemoveReviewComment={props.onRemoveReviewComment}
+          reviewCommentError={props.reviewCommentError}
+          onStop={props.approval.pending ? undefined : props.onStop}
+          canStop={props.canStop}
+          isLoading={props.isLoading}
+          sessionId={props.sessionId}
+          runId={props.runId}
+          mode={props.mode}
+          onModeChange={props.onModeChange}
+          hasMessages={props.hasMessages}
+          onModelSelect={props.onModelSelect}
+          repoTree={props.repoTree}
+          isLoadingRepoTree={props.isLoadingRepoTree}
+          layout={props.layout}
+          contextBudget={props.contextBudget}
+          usage={props.usage}
+          onCompact={props.onCompact}
+          onContextOpen={props.onContextOpen}
+          permissionMode={props.permissionMode}
+          onPermissionModeChange={props.onPermissionModeChange}
+        />
+      </div>
     </>
   );
 }

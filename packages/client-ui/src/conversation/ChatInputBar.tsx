@@ -54,6 +54,7 @@ const PLAN_PLACEHOLDER =
 
 export interface ChatInputBarProps {
   composerPreferences?: ComposerPreferences;
+  isHidden?: boolean;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
   providerNotice?: ReactNode;
   providerQuota?: ReactNode;
@@ -109,6 +110,7 @@ export function ChatInputBar({
   onFollowUpSubmit,
   canResume = false,
   onResume,
+  isHidden = false,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -230,7 +232,7 @@ export function ChatInputBar({
       const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
       textareaRef.current.style.height = newHeight + "px";
     }
-  }, [input, hasInput]);
+  }, [hasInput, input, isHidden]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
