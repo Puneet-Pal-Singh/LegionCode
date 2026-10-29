@@ -1,4 +1,5 @@
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
+import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMutationErrorMetadata, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -100,6 +101,44 @@ export class AppServerClientError extends Error {
   }
 }
 
+export class GitMutationError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: GitMutationErrorCode,
+    public readonly metadata?: GitMutationErrorMetadata,
+  ) {
+    super(message);
+    this.name = "GitMutationError";
+  }
+}
+
+const GitMutationErrorCodeSchema = z.enum([
+  "COMMIT_IDENTITY_REQUIRED",
+  "COMMIT_IDENTITY_INCOMPLETE",
+  "COMMIT_IDENTITY_WRITE_FAILED",
+  "BRANCH_CREATION_FAILED",
+  "PUSH_FAILED",
+  "PR_CREATION_FAILED",
+]);
+const GitMutationMetadataSchema = z.object({
+  commitIdentity: z.union([
+    z.object({
+      state: z.literal("ready"),
+      identity: z.object({
+        authorName: z.string(), authorEmail: z.string(),
+        source: z.enum(["workspace_git_config", "github_profile", "user_input"]),
+        verified: z.boolean(),
+      }).strict(),
+    }).strict(),
+    z.object({
+      state: z.literal("requires_input"),
+      reason: z.enum(["missing_identity", "missing_name", "missing_email"]),
+      suggestedAuthorName: z.string(),
+      suggestedAuthorEmail: z.string(),
+    }).strict(),
+  ]).optional(),
+}).strict();
+
 export type AppServerClient = {
   initialize(
     requestedCapabilities?: readonly string[],
@@ -135,6 +174,13 @@ export type AppServerClient = {
   getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
+  getGitStatus(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
+  getGitDiff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
+  stageGitFiles(params: Extract<AppServerRequest, { method: "git/stage" }>['params']): Promise<{ success: true }>;
+  commitGitChanges(params: Extract<AppServerRequest, { method: "git/commit" }>['params']): Promise<{ success: true }>;
+  createGitBranch(params: Extract<AppServerRequest, { method: "git/branch" }>['params']): Promise<GitBranchMutationResult>;
+  pushGitBranch(params: Extract<AppServerRequest, { method: "git/push" }>['params']): Promise<GitPushMutationResult>;
+  createGitPullRequest(params: Extract<AppServerRequest, { method: "git/pullRequest" }>['params']): Promise<GitPullRequestMutationResult>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
@@ -260,6 +306,27 @@ export function createAppServerClient(
       method: "artifact/diff",
       params: { artifactId, path, ...identity },
     }, AppServerResultSchemas["artifact/diff"]),
+    getGitStatus: (params) => request(options, {
+      method: "git/status", params,
+    }, AppServerResultSchemas["git/status"]),
+    getGitDiff: (params) => request(options, {
+      method: "git/diff", params,
+    }, AppServerResultSchemas["git/diff"]),
+    stageGitFiles: (params) => requestGitMutation(options, {
+      method: "git/stage", params,
+    }, AppServerResultSchemas["git/stage"]),
+    commitGitChanges: (params) => requestGitMutation(options, {
+      method: "git/commit", params,
+    }, AppServerResultSchemas["git/commit"]),
+    createGitBranch: (params) => requestGitMutation(options, {
+      method: "git/branch", params,
+    }, AppServerResultSchemas["git/branch"]),
+    pushGitBranch: (params) => requestGitMutation(options, {
+      method: "git/push", params,
+    }, AppServerResultSchemas["git/push"]),
+    createGitPullRequest: (params) => requestGitMutation(options, {
+      method: "git/pullRequest", params,
+    }, AppServerResultSchemas["git/pullRequest"]),
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
     getWorkspaceGrant: async () => {
@@ -414,6 +481,34 @@ async function turnScopeRequest<Schema extends z.ZodTypeAny>(
       if (cause !== undefined) throw cause;
     }
     throw error;
+  }
+}
+
+async function requestGitMutation<Schema extends z.ZodTypeAny>(
+  options: AppServerClientOptions,
+  requestInput: Omit<AppServerRequest, "protocolVersion">,
+  resultSchema: Schema,
+): Promise<z.output<Schema>> {
+  try {
+    return await request(options, requestInput, resultSchema);
+  } catch (error) {
+    if (!(error instanceof AppServerClientError) || error.code !== "server_error" || !error.serverError) {
+      throw error;
+    }
+    const operationCode = "operationCode" in error.serverError
+      ? error.serverError.operationCode
+      : undefined;
+    const code = GitMutationErrorCodeSchema.safeParse(operationCode);
+    if (!code.success) throw error;
+    const rawMetadata = "metadata" in error.serverError
+      ? error.serverError.metadata
+      : undefined;
+    const metadata = GitMutationMetadataSchema.safeParse(rawMetadata);
+    throw new GitMutationError(
+      error.message,
+      code.data,
+      metadata.success ? metadata.data : undefined,
+    );
   }
 }
 
