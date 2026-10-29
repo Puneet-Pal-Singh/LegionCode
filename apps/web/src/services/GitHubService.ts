@@ -4,20 +4,12 @@
  * Handles authentication state, repository listing, and GitHub API calls
  */
 
-import {
-  getBrainHttpBase,
-  githubPullsPath,
-} from "../lib/platform-endpoints.js";
-import type {
-  CreatePullRequestPayload,
-  GitCommitIdentityState,
-  GitPullRequestMutationResult,
-} from "@repo/shared-types";
+import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+import type { GitCommitIdentityState } from "@repo/shared-types";
 import type {
   RepositoryReadBranch,
   RepositoryReadRepository,
 } from "@repo/platform-protocol";
-import { GitMutationError } from "../lib/git-client.js";
 import { z } from "zod";
 
 export interface GitHubUser {
@@ -39,28 +31,6 @@ export type GitHubSessionResponse =
 
 export type Repository = RepositoryReadRepository;
 export type Branch = RepositoryReadBranch;
-
-export interface PullRequestSummary {
-  number: number;
-  title: string;
-  url: string;
-  state: "open" | "closed";
-  head: string;
-  base: string;
-}
-
-const PullRequestSchema = z.object({
-  number: z.number(),
-  title: z.string(),
-  state: z.enum(["open", "closed"]),
-  html_url: z.string().url(),
-  head: z.object({ ref: z.string() }),
-  base: z.object({ ref: z.string() }),
-});
-
-const PullRequestListSchema = z.object({
-  pullRequests: z.array(PullRequestSchema),
-});
 
 const GitCommitIdentitySchema = z.object({
   authorName: z.string(),
@@ -161,60 +131,6 @@ export async function getSession(): Promise<GitHubSessionResponse> {
   }
 
   return result.data;
-}
-
-export async function createPullRequest(
-  payload: CreatePullRequestPayload,
-): Promise<PullRequestSummary> {
-  const response = await fetch(
-    githubPullsPath(),
-    getFetchOptions({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
-  );
-
-  if (!response.ok) {
-    throw await readGitHubMutationError(
-      response,
-      `Failed to create pull request: HTTP ${response.status}`,
-      "PR_CREATION_FAILED",
-    );
-  }
-
-  const data = (await response.json()) as GitPullRequestMutationResult;
-  return data.pullRequest;
-}
-
-export async function listOpenPullRequests(
-  owner: string,
-  repo: string,
-  branch: string,
-): Promise<PullRequestSummary[]> {
-  const query = new URLSearchParams({
-    owner,
-    repo,
-    state: "open",
-    head: branch,
-  });
-  const response = await fetch(
-    `${githubPullsPath()}?${query.toString()}`,
-    getFetchOptions(),
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to list pull requests: HTTP ${response.status}`);
-  }
-
-  const data = PullRequestListSchema.parse(await response.json());
-  return data.pullRequests.map((pullRequest) => ({
-    number: pullRequest.number,
-    title: pullRequest.title,
-    url: pullRequest.html_url,
-    state: pullRequest.state,
-    head: pullRequest.head.ref,
-    base: pullRequest.base.ref,
-  }));
 }
 
 /**
@@ -404,29 +320,6 @@ async function readGitHubErrorMessage(response: Response): Promise<string> {
   } catch {
     return `Failed to fetch tree: HTTP ${response.status}`;
   }
-}
-
-async function readGitHubMutationError(
-  response: Response,
-  fallbackMessage: string,
-  fallbackCode: "PR_CREATION_FAILED",
-): Promise<Error> {
-  try {
-    const payload = (await response.json()) as {
-      error?: string;
-      code?: string;
-    };
-    if (typeof payload.error === "string" && payload.error.trim().length > 0) {
-      return new GitMutationError(
-        payload.error,
-        (payload.code as "PR_CREATION_FAILED" | undefined) ?? fallbackCode,
-      );
-    }
-  } catch {
-    // Fall through to the generic error below.
-  }
-
-  return new GitMutationError(fallbackMessage, fallbackCode);
 }
 
 function readFreshCache<T>(
