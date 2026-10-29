@@ -29,6 +29,7 @@ import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
 import { cn } from "@legioncode/client-ui";
 import { BranchSelectorPanel } from "../../github/BranchSelector";
 import type { SavedChatSourcesProjection } from "../../../lib/saved-chat-sources";
+import { useAuth } from "../../../contexts/AuthContext";
 
 export interface EnvironmentSummaryMenuProps {
   repo: Repository | null;
@@ -57,11 +58,12 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
     branchTriggerRef,
     branchPanelRef,
   );
+  const { user } = useAuth();
   const close = useCallback(() => {
     setIsOpen(false);
     setIsBranchOpen(false);
   }, []);
-  const { branches, loading } = useBranches(props.repo);
+  const { branches, loading } = useBranches(props.repo, user?.id ?? null);
   useOutsideDismiss(rootRef, isOpen || isBranchOpen, close);
   useEffect(() => {
     if (!isOpen && !isBranchOpen) return;
@@ -571,7 +573,7 @@ function useViewportPopoverPosition(
   return position;
 }
 
-function useBranches(repo: Repository | null): {
+function useBranches(repo: Repository | null, accountId: string | null): {
   branches: Branch[];
   loading: boolean;
 } {
@@ -586,7 +588,7 @@ function useBranches(repo: Repository | null): {
     }
     let cancelled = false;
     setLoading(true);
-    void listBranches(repo.owner.login, repo.name)
+    void listBranches(repo.owner.login, repo.name, accountId)
       .then((items) => {
         if (!cancelled) setBranches(items);
       })
@@ -599,6 +601,6 @@ function useBranches(repo: Repository | null): {
     return () => {
       cancelled = true;
     };
-  }, [repo]);
+  }, [accountId, repo]);
   return { branches, loading };
 }

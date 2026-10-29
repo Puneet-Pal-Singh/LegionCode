@@ -95,6 +95,11 @@ export function useFileLoader({
           branch,
         );
 
+        if (Array.isArray(fileData) || typeof fileData.content !== "string") {
+          setContentError("The selected GitHub path is not a file.");
+          return;
+        }
+
         // GitHub API returns base64 encoded content
         if (fileData.encoding === "base64") {
           const decoded = atob(fileData.content);

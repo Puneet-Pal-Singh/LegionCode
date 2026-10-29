@@ -16,6 +16,7 @@ import {
 import type { Branch, Repository } from "../../services/GitHubService";
 import * as GitHubService from "../../services/GitHubService";
 import { sortBranchesForRepoPicker } from "./sortBranchesForRepoPicker";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface AuthorizedRepositoryPickerProps {
   onRepoSelect: (repo: Repository, branch: string) => void | Promise<void>;
@@ -29,6 +30,7 @@ export function AuthorizedRepositoryPicker({
   onClose,
 }: AuthorizedRepositoryPickerProps) {
   const searchRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
   const [repos, setRepos] = useState<Repository[]>([]);
   const [query, setQuery] = useState("");
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
@@ -88,6 +90,7 @@ export function AuthorizedRepositoryPicker({
       const branchList = await GitHubService.listBranches(
         repo.owner.login,
         repo.name,
+        user?.id ?? null,
       );
       setBranches(sortBranchesForRepoPicker(branchList, repo.default_branch));
       setBranchState("ready");

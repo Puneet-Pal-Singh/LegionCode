@@ -13,6 +13,10 @@ vi.mock("../../../services/GitHubService", () => ({
   getRepositoryTree: (...args: unknown[]) => mockGetRepositoryTree(...args),
 }));
 
+vi.mock("../../../contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "user-1" } }),
+}));
+
 describe("useGitHubTree", () => {
   beforeEach(() => {
     vi.clearAllMocks();

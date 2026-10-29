@@ -14,6 +14,7 @@ import { useGitHub } from "../github/GitHubContextProvider";
 import { useRunContext } from "../../hooks/useRunContext";
 import { listBranches, Branch } from "../../services/GitHubService";
 import { selectWorkspace } from "../../services/api/workspaceSelection";
+import { useAuth } from "../../contexts/AuthContext";
 
 /**
  * ChatBranchSelector Component
@@ -32,6 +33,7 @@ export function ChatBranchSelector({
   onBranchSelect?: (branch: string) => void | Promise<void>;
 }) {
   const { repo, branch, switchBranch } = useGitHub();
+  const { user } = useAuth();
   const { sessionId } = useRunContext();
   const repoFullNameRef = useRef(repo?.full_name ?? null);
   const sessionIdRef = useRef(sessionId);
@@ -57,7 +59,7 @@ export function ChatBranchSelector({
       setIsLoading(true);
 
       try {
-        const branchList = await listBranches(repo.owner.login, repo.name);
+        const branchList = await listBranches(repo.owner.login, repo.name, user?.id ?? null);
         setBranches(branchList);
       } catch (err) {
         console.error("Failed to fetch branches:", err);
@@ -68,7 +70,7 @@ export function ChatBranchSelector({
     };
 
     fetchBranches();
-  }, [repo]);
+  }, [repo, user?.id]);
 
   // Don't render if no repo is selected
   if (!repo) {

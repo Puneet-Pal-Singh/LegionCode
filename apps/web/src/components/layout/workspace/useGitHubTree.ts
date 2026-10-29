@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { getRepositoryTree } from "../../../services/GitHubService";
 import { useGitHub } from "../../github/GitHubContextProvider";
 import { doesRepositorySelectionMatch } from "../../../lib/repository-context-match";
+import { useAuth } from "../../../contexts/AuthContext";
 
 export function useGitHubTree(expectedRepo?: string) {
   const { repo, branch, switchBranch, isLoaded: isGitHubLoaded } = useGitHub();
+  const { user } = useAuth();
   const [repoTree, setRepoTree] = useState<
     Array<{ path: string; type: string; sha: string }>
   >([]);
@@ -36,6 +38,7 @@ export function useGitHubTree(expectedRepo?: string) {
           repo.owner.login,
           repo.name,
           branch,
+          user?.id ?? null,
         );
         setRepoTree(tree);
       } catch (error) {
@@ -47,7 +50,7 @@ export function useGitHubTree(expectedRepo?: string) {
     };
 
     fetchTree();
-  }, [repo, branch, isGitHubLoaded, expectedRepo, isContextMismatch]);
+  }, [repo, branch, isGitHubLoaded, expectedRepo, isContextMismatch, user?.id]);
 
   return {
     repoTree,
