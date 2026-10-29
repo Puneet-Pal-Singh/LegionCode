@@ -1238,6 +1238,7 @@ export class RunEngineRequestHandler {
 
   async handleExecuteRequest(request: Request): Promise<Response> {
     let executionClaim: { turnId: TurnId; claimId: string } | null = null;
+    let startupInterruptReason: string | null = null;
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1527,10 +1528,12 @@ export class RunEngineRequestHandler {
           const pendingInterruptReason = this.interruptRegistry.register(
             turnId,
             async (reason) => {
+              startupInterruptReason = reason;
               await runtimeRunner.interrupt(turnId, reason);
             },
           );
           if (pendingInterruptReason) {
+            startupInterruptReason = pendingInterruptReason;
             await runtimeRunner.interrupt(turnId, pendingInterruptReason);
           }
           this.approvalResolutionRegistry.register(
@@ -1662,6 +1665,9 @@ export class RunEngineRequestHandler {
           }
           throw error;
         } finally {
+          startupInterruptReason =
+            this.interruptRegistry.takePendingRequest(turnId) ??
+            startupInterruptReason;
           this.interruptRegistry.unregister(turnId);
           this.approvalResolutionRegistry.unregister(turnId);
           this.contextCompactionRegistry.unregister(turnId);
@@ -1674,15 +1680,14 @@ export class RunEngineRequestHandler {
         error,
         payload.correlationId,
       );
-      let startupInterruptReason: string | null = null;
       const claimedExecution = executionClaim as {
         turnId: TurnId;
         claimId: string;
       } | null;
       if (claimedExecution) {
-        startupInterruptReason = this.interruptRegistry.takePendingRequest(
-          claimedExecution.turnId,
-        );
+        startupInterruptReason =
+          this.interruptRegistry.takePendingRequest(claimedExecution.turnId) ??
+          startupInterruptReason;
         this.interruptRegistry.unregister(claimedExecution.turnId);
         try {
           const identity = payload.identity;
