@@ -1,11 +1,11 @@
+import { ReasoningEffortSchema } from "./capabilities.js";
+import { ProductModeSchema } from "./permissions.js";
+import { TurnScopeBootstrapSchema } from "./turn-scope-bootstrap.js";
+import { ChatRunModeSchema } from "./run-mode.js";
 import {
-  ProductModeSchema,
-  RunModeSchema,
   WorkflowEntrypointSchema,
   WorkflowIntentSchema,
-  ReasoningEffortSchema,
-} from "@repo/shared-types";
-import { TurnScopeBootstrapSchema } from "./turn-scope-bootstrap.js";
+} from "./workflow.js";
 import { z } from "zod";
 
 const SerializableToolDefinitionSchema = z.object({
@@ -26,7 +26,7 @@ export const ChatRequestBodySchema = z.object({
   agentId: z.string().optional(),
   runId: z.string().optional(),
   identity: TurnScopeBootstrapSchema.optional(),
-  mode: RunModeSchema.optional(),
+  mode: ChatRunModeSchema.optional(),
   providerId: z.string().optional(),
   modelId: z.string().optional(),
   harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
