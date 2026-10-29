@@ -1,6 +1,6 @@
 import type { JsonValue } from "@repo/shared-types";
 
-export type SqlValue = string | number | boolean | null | Date | JsonValue;
+export type SqlValue = string | number | boolean | null | Date | Uint8Array | JsonValue;
 export type SqlRow = Record<string, unknown>;
 
 export interface SqlQueryResult<Row extends SqlRow = SqlRow> {

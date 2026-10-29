@@ -13,6 +13,7 @@
     "check-types": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "legacy-history:recover": "vite-node scripts/legacy-history-recovery.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "vitest": "^1.0.0",
+    "vite-node": "1.6.1"
   }
 }

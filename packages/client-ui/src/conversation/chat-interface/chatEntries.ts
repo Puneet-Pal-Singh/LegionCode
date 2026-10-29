@@ -1,6 +1,7 @@
 import type { Message } from "@ai-sdk/react";
 import { buildConversationTurns, readCanonicalTurnId } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
+import type { ConversationHistoryDisplayRecord } from "@legioncode/sdk";
 
 export type ChatInterfaceEntry =
   | {
@@ -19,12 +20,18 @@ export type ChatInterfaceEntry =
       assistantMessage?: Message;
       workflowHistory?: Extract<ChatInterfaceEntry, { kind: "workflow" }>[];
       historyStatus?: "revised" | "edited";
+    }
+  | {
+      kind: "history-record";
+      key: string;
+      record: ConversationHistoryDisplayRecord;
     };
 
 export function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns<Message>>,
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>> = {},
   activeTurnId?: string | null,
+  historyDisplayRecords: readonly ConversationHistoryDisplayRecord[] = [],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
   const emittedWorkflowTurnIds = new Set<string>();
@@ -211,7 +218,79 @@ export function buildChatEntries(
   ) {
     entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
-  return entries;
+  const inspectableRecords = historyDisplayRecords
+    .filter((record) =>
+      record.source.role === "system" ||
+      record.source.role === "tool" ||
+      record.inspectable,
+    )
+    .map((record): ChatInterfaceEntry => ({
+      kind: "history-record",
+      key: `history:${record.sourceOrder}:${record.source.role}:${record.source.id}`,
+      record,
+    }));
+  return mergeHistoryRecords(entries, inspectableRecords);
+}
+
+function mergeHistoryRecords(
+  canonicalEntries: ChatInterfaceEntry[],
+  historyEntries: Extract<ChatInterfaceEntry, { kind: "history-record" }>[],
+): ChatInterfaceEntry[] {
+  const orderedHistory = [...historyEntries].sort(
+    (left, right) => left.record.sourceOrder - right.record.sourceOrder,
+  );
+  const merged: ChatInterfaceEntry[] = [];
+  let historyIndex = 0;
+  canonicalEntries.forEach((entry, index) => {
+    const sourceOrder = canonicalEntrySourceOrder(entry, canonicalEntries, index);
+    while (
+      historyIndex < orderedHistory.length &&
+      orderedHistory[historyIndex]!.record.sourceOrder < sourceOrder
+    ) {
+      merged.push(orderedHistory[historyIndex]!);
+      historyIndex += 1;
+    }
+    merged.push(entry);
+  });
+  merged.push(...orderedHistory.slice(historyIndex));
+  return merged;
+}
+
+function canonicalEntrySourceOrder(
+  entry: ChatInterfaceEntry,
+  entries: readonly ChatInterfaceEntry[],
+  index: number,
+): number {
+  const message = entry.kind === "message" ? entry.message : entry.assistantMessage;
+  const metadata = message ? readMessageMetadata(message) : null;
+  const order = metadata?.conversationHistoryOrder;
+  if (typeof order === "number" && Number.isSafeInteger(order)) return order;
+  if (entry.kind !== "workflow") return Number.MAX_SAFE_INTEGER;
+
+  const promptId = entry.projection.originalPromptId;
+  const prompt = promptId
+    ? entries.find(
+        (candidate): candidate is Extract<ChatInterfaceEntry, { kind: "message" }> =>
+          candidate.kind === "message" &&
+          candidate.message.role === "user" &&
+          candidate.message.id === promptId,
+      )
+    : undefined;
+  const promptOrder = prompt ? messageSourceOrder(prompt.message) : null;
+  if (promptOrder !== null) return promptOrder + 0.5;
+
+  for (let previous = index - 1; previous >= 0; previous -= 1) {
+    const candidate = entries[previous];
+    if (candidate?.kind !== "message" || candidate.message.role !== "user") continue;
+    const previousPromptOrder = messageSourceOrder(candidate.message);
+    if (previousPromptOrder !== null) return previousPromptOrder + 0.5;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function messageSourceOrder(message: Message): number | null {
+  const order = readMessageMetadata(message)?.conversationHistoryOrder;
+  return typeof order === "number" && Number.isSafeInteger(order) ? order : null;
 }
 
 function markRevisedHistory<T extends ChatInterfaceEntry>(
@@ -219,8 +298,11 @@ function markRevisedHistory<T extends ChatInterfaceEntry>(
   promptId: string,
   revisedPromptIds: ReadonlySet<string>,
 ): T {
+  const projection = entry.kind === "message" || entry.kind === "workflow"
+    ? entry.projection
+    : undefined;
   const revisedEntry = isTurnInRevisedBranch(
-    entry.projection?.originalPromptId ?? promptId,
+    projection?.originalPromptId ?? promptId,
     revisedPromptIds,
   )
     ? { ...entry, historyStatus: "revised" as const }

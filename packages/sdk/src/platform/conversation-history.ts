@@ -2,6 +2,155 @@ import {
   ConversationHistoryResponseSchema,
   type ConversationHistoryMessage,
 } from "@repo/platform-protocol";
+import type { JsonValue } from "@repo/shared-types";
+
+export type ConversationHistoryPartKind = "text" | "tool_call" | "tool_result" | "raw";
+
+/** A source-preserving classification for display; it carries no execution state. */
+export interface ConversationHistoryContentPart {
+  kind: ConversationHistoryPartKind;
+  source: JsonValue;
+  inspectable?: boolean;
+  text?: string;
+  toolCallId?: string;
+  toolName?: string;
+  args?: JsonValue;
+}
+
+/** Keeps the exact protocol message and read order for a verified history snapshot. */
+export interface ConversationHistoryDisplayRecord {
+  sourceOrder: number;
+  source: ConversationHistoryMessage;
+  parts: ConversationHistoryContentPart[];
+  inspectable: boolean;
+}
+
+/** Classifies source content once while retaining every original role and JSON value. */
+export function projectConversationHistoryMessages(
+  messages: readonly ConversationHistoryMessage[],
+): ConversationHistoryDisplayRecord[] {
+  return messages.map((source, sourceOrder) => {
+    const parts = projectConversationHistoryContent(source);
+    return {
+      sourceOrder,
+      source,
+      parts,
+      inspectable:
+        parts.length === 0 ||
+        (typeof source.content === "string" && source.content.length === 0) ||
+        parts.some((part) => part.kind !== "text" || part.inspectable) ||
+        Boolean(source.data?.metadata),
+    };
+  });
+}
+
+function projectConversationHistoryContent(
+  message: ConversationHistoryMessage,
+): ConversationHistoryContentPart[] {
+  if (typeof message.content === "string") {
+    const toolCallId = message.role === "tool" ? readToolCallId(message.content) : null;
+    return [{
+      kind: message.role === "tool" ? "tool_result" : "text",
+      source: message.content,
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(message.role !== "tool" ? { text: message.content } : {}),
+    }];
+  }
+  return message.content.map((source) => projectConversationHistoryPart(source, message.role));
+}
+
+function projectConversationHistoryPart(
+  source: JsonValue,
+  role: ConversationHistoryMessage["role"],
+): ConversationHistoryContentPart {
+  if (!isRecord(source)) {
+    return { kind: role === "tool" ? "tool_result" : "raw", source };
+  }
+  if (source.type === "text" && typeof source.text === "string") {
+    const hasAdditionalFields = Object.keys(source).some((key) => key !== "type" && key !== "text");
+    return {
+      kind: "text",
+      source,
+      text: source.text,
+      ...(hasAdditionalFields ? { inspectable: true } : {}),
+    };
+  }
+  const functionValue = isRecord(source.function) ? source.function : null;
+  const toolCall =
+    source.type === "tool-call" ||
+    source.type === "tool_use" ||
+    source.type === "function_call" ||
+    (source.type === "function" && functionValue !== null);
+  if (toolCall) {
+    const toolCallId = readString(source, "toolCallId") ?? readString(source, "id");
+    const toolName =
+      readString(source, "toolName") ??
+      readString(source, "name") ??
+      (functionValue ? readString(functionValue, "name") : null);
+    const args = readToolArguments(source, functionValue);
+    return {
+      kind: "tool_call",
+      source,
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(toolName ? { toolName } : {}),
+      ...(args !== null ? { args } : {}),
+    };
+  }
+  if (role === "tool" || source.type === "tool-result" || source.type === "tool_result") {
+    const toolCallId =
+      readString(source, "toolCallId") ??
+      readString(source, "tool_call_id") ??
+      readString(source, "callID");
+    return { kind: "tool_result", source, ...(toolCallId ? { toolCallId } : {}) };
+  }
+  return { kind: "raw", source };
+}
+
+function readToolArguments(
+  source: Record<string, JsonValue>,
+  functionValue: Record<string, JsonValue> | null,
+): JsonValue | null {
+  const direct = source.args ?? source.input ?? source.arguments;
+  if (direct !== undefined) {
+    if (typeof direct === "string") {
+      try {
+        return JSON.parse(direct) as JsonValue;
+      } catch {
+        return null;
+      }
+    }
+    return direct;
+  }
+  const nested = functionValue?.arguments;
+  if (typeof nested === "string") {
+    try {
+      return JSON.parse(nested) as JsonValue;
+    } catch {
+      return null;
+    }
+  }
+  return nested ?? null;
+}
+
+function readToolCallId(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return isRecord(parsed)
+      ? readString(parsed, "tool_call_id") ?? readString(parsed, "toolCallId")
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readString(value: Record<string, JsonValue>, key: string): string | null {
+  const candidate = value[key];
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
+}
+
+function isRecord(value: unknown): value is Record<string, JsonValue> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 /**
  * Session transcript replay shared by clients. Cursor and snapshot are decimal
