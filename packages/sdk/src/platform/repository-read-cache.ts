@@ -8,6 +8,13 @@ import type { AppServerClient } from "./app-server-client.js";
 
 const REQUEST_CACHE_TTL_MS = 15_000;
 
+export class RepositoryReadAccountChangedError extends Error {
+  constructor() {
+    super("The authenticated account changed while loading repository data.");
+    this.name = "RepositoryReadAccountChangedError";
+  }
+}
+
 interface CacheEntry<T> {
   value: T;
   timestamp: number;
@@ -90,7 +97,14 @@ class RepositoryReadCache {
     key: string,
     load: () => Promise<T>,
   ): Promise<T> {
-    if (accountId === null) return load();
+    if (accountId === null) {
+      return load().then((value) => {
+        if (generation !== this.generation || accountId !== this.accountId) {
+          throw new RepositoryReadAccountChangedError();
+        }
+        return value;
+      });
+    }
 
     const cached = cache.get(key);
     if (cached && Date.now() - cached.timestamp <= REQUEST_CACHE_TTL_MS) {
@@ -103,9 +117,10 @@ class RepositoryReadCache {
 
     const request = load()
       .then((value) => {
-        if (generation === this.generation && accountId === this.accountId) {
-          cache.set(key, { value, timestamp: Date.now() });
+        if (generation !== this.generation || accountId !== this.accountId) {
+          throw new RepositoryReadAccountChangedError();
         }
+        cache.set(key, { value, timestamp: Date.now() });
         return value;
       })
       .finally(() => {
