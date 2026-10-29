@@ -30,6 +30,8 @@ export function AuthorizedRepositoryPicker({
   onClose,
 }: AuthorizedRepositoryPickerProps) {
   const searchRef = useRef<HTMLInputElement>(null);
+  const repositoryRequestRef = useRef(0);
+  const branchRequestRef = useRef(0);
   const { user } = useAuth();
   const [repos, setRepos] = useState<Repository[]>([]);
   const [query, setQuery] = useState("");
@@ -40,47 +42,69 @@ export function AuthorizedRepositoryPicker({
   const [branchState, setBranchState] = useState<LoadState>("ready");
   const [isOpening, setIsOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
+  const currentAccountId = user?.id ?? null;
+  const [repositoryAccountId, setRepositoryAccountId] = useState(currentAccountId);
+  const accountDataIsCurrent = repositoryAccountId === currentAccountId;
+  const visibleRepos = useMemo(
+    () => (accountDataIsCurrent ? repos : []),
+    [accountDataIsCurrent, repos],
+  );
+  const visibleSelectedRepo = accountDataIsCurrent ? selectedRepo : null;
+  const visibleRepoState = accountDataIsCurrent ? repoState : "loading";
 
   const loadRepositories = async () => {
+    const requestId = ++repositoryRequestRef.current;
     setRepoState("loading");
     try {
       const nextRepos = await GitHubService.listRepositories("all", "updated");
+      if (requestId !== repositoryRequestRef.current) return;
+      setRepositoryAccountId(currentAccountId);
       setRepos(nextRepos);
       setRepoState("ready");
       requestAnimationFrame(() => searchRef.current?.focus());
     } catch {
-      setRepoState("error");
+      if (requestId === repositoryRequestRef.current) setRepoState("error");
     }
   };
 
   useEffect(() => {
-    let cancelled = false;
+    const requestId = ++repositoryRequestRef.current;
+    branchRequestRef.current += 1;
     void GitHubService.listRepositories("all", "updated")
       .then((nextRepos) => {
-        if (cancelled) return;
+        if (requestId !== repositoryRequestRef.current) return;
+        setRepositoryAccountId(currentAccountId);
+        setSelectedRepo(null);
+        setSelectedBranch("");
+        setBranches([]);
+        setBranchState("ready");
         setRepos(nextRepos);
         setRepoState("ready");
         requestAnimationFrame(() => searchRef.current?.focus());
       })
       .catch(() => {
-        if (!cancelled) setRepoState("error");
+        if (requestId === repositoryRequestRef.current) setRepoState("error");
       });
     return () => {
-      cancelled = true;
+      if (repositoryRequestRef.current === requestId) {
+        repositoryRequestRef.current += 1;
+      }
+      branchRequestRef.current += 1;
     };
-  }, []);
+  }, [currentAccountId]);
 
   const filteredRepos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return repos;
-    return repos.filter((repo) =>
+    if (!normalized) return visibleRepos;
+    return visibleRepos.filter((repo) =>
       `${repo.full_name} ${repo.description ?? ""} ${repo.language ?? ""}`
         .toLowerCase()
         .includes(normalized),
     );
-  }, [query, repos]);
+  }, [query, visibleRepos]);
 
   const selectRepository = async (repo: Repository) => {
+    const requestId = ++branchRequestRef.current;
     setSelectedRepo(repo);
     setSelectedBranch(repo.default_branch);
     setBranches([]);
@@ -92,10 +116,11 @@ export function AuthorizedRepositoryPicker({
         repo.name,
         user?.id ?? null,
       );
+      if (requestId !== branchRequestRef.current) return;
       setBranches(sortBranchesForRepoPicker(branchList, repo.default_branch));
       setBranchState("ready");
     } catch {
-      setBranchState("error");
+      if (requestId === branchRequestRef.current) setBranchState("error");
     }
   };
 
@@ -157,9 +182,9 @@ export function AuthorizedRepositoryPicker({
         </div>
 
         <div className="mt-4 min-h-0 flex-1 overflow-hidden border-y border-[#282c34]">
-          {repoState === "loading" ? (
+          {visibleRepoState === "loading" ? (
             <StatusRow icon={<LoaderCircle className="animate-spin" size={17} />} label="Loading authorized repositories…" />
-          ) : repoState === "error" ? (
+          ) : visibleRepoState === "error" ? (
             <StatusRow icon={<AlertCircle size={17} />} label="Repository access could not be loaded." action="Retry" onAction={() => void loadRepositories()} />
           ) : filteredRepos.length === 0 ? (
             <div className="flex h-full min-h-56 flex-col items-center justify-center px-4 text-center">
@@ -173,7 +198,7 @@ export function AuthorizedRepositoryPicker({
           ) : (
             <div className="h-full max-h-[384px] overflow-y-auto">
               {filteredRepos.map((repo) => {
-                const selected = selectedRepo?.id === repo.id;
+                const selected = visibleSelectedRepo?.id === repo.id;
                 return (
                   <button key={repo.id} type="button" onClick={() => void selectRepository(repo)} aria-pressed={selected} className={`grid min-h-[64px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[#20242b] px-3 text-left transition last:border-b-0 hover:bg-[#171a20] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#65b8ff] sm:px-4 ${selected ? "bg-[#171a20]" : "bg-[#111318]"}`}>
                     <div className="min-w-0">
@@ -194,20 +219,20 @@ export function AuthorizedRepositoryPicker({
         </div>
 
         <div className="shrink-0 pt-5">
-          {selectedRepo ? (
+          {visibleSelectedRepo ? (
             <div className="mb-4 flex flex-col gap-3 border-l border-[#65b8ff] pl-4 sm:flex-row sm:items-end sm:justify-between">
               <div className="min-w-0 flex-1">
                 <label htmlFor="repository-branch" className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#969daa]">Starting branch</label>
-                {branchState === "loading" ? <div className="flex h-10 items-center gap-2 text-xs text-[#969daa]"><LoaderCircle className="animate-spin" size={14} /> Loading branches…</div> : branchState === "error" ? <button type="button" onClick={() => void selectRepository(selectedRepo)} className="flex h-10 items-center gap-2 text-xs text-[#e3a95c]"><RefreshCw size={13} /> Retry branch access</button> : <div className="relative"><GitBranch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#969daa]" size={14} /><select id="repository-branch" value={selectedBranch} onChange={(event) => setSelectedBranch(event.target.value)} className="h-10 w-full appearance-none rounded-md border border-[#343943] bg-[#111318] pl-9 pr-8 font-mono text-xs text-white focus:border-[#65b8ff] focus:outline-none sm:max-w-sm">{branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.name === selectedRepo.default_branch ? " · default" : ""}</option>)}</select></div>}
+                {branchState === "loading" ? <div className="flex h-10 items-center gap-2 text-xs text-[#969daa]"><LoaderCircle className="animate-spin" size={14} /> Loading branches…</div> : branchState === "error" ? <button type="button" onClick={() => void selectRepository(visibleSelectedRepo)} className="flex h-10 items-center gap-2 text-xs text-[#e3a95c]"><RefreshCw size={13} /> Retry branch access</button> : <div className="relative"><GitBranch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#969daa]" size={14} /><select id="repository-branch" value={selectedBranch} onChange={(event) => setSelectedBranch(event.target.value)} className="h-10 w-full appearance-none rounded-md border border-[#343943] bg-[#111318] pl-9 pr-8 font-mono text-xs text-white focus:border-[#65b8ff] focus:outline-none sm:max-w-sm">{branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.name === visibleSelectedRepo.default_branch ? " · default" : ""}</option>)}</select></div>}
               </div>
               <button type="button" onClick={() => void openWorkspace()} disabled={!selectedBranch || branchState !== "ready" || isOpening} className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#f2f4f7] px-5 text-sm font-semibold text-[#090a0c] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40">
-                {isOpening ? <LoaderCircle className="animate-spin" size={15} /> : null} Open {selectedRepo.full_name}
+                {isOpening ? <LoaderCircle className="animate-spin" size={15} /> : null} Open {visibleSelectedRepo.full_name}
               </button>
             </div>
           ) : null}
           {openError ? <p role="alert" className="mb-3 text-xs text-[#f06a6a]">{openError}</p> : null}
           <div className="flex items-center justify-between text-xs">
-            {repoState === "ready" && repos.length > 0 ? (
+            {visibleRepoState === "ready" && visibleRepos.length > 0 ? (
               <button type="button" onClick={GitHubService.initiateGitHubReauthorization} className="inline-flex items-center gap-1.5 text-[#969daa] hover:text-white"><Github size={13} /> Manage GitHub access</button>
             ) : <span />}
             {onClose ? <button type="button" onClick={onClose} className="inline-flex items-center gap-1.5 text-[#969daa] hover:text-white"><ArrowLeft size={13} /> Back to workspace</button> : null}

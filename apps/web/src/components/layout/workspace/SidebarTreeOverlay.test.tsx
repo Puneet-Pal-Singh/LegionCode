@@ -50,6 +50,8 @@ const baseProps = {
   isGitHubLoaded: false,
   repoTree: [],
   isLoadingTree: false,
+  repoTreeError: null,
+  retryRepoTree: vi.fn(),
   branch: "main",
   explorerRef: { current: null },
   sandboxId: "session-1",

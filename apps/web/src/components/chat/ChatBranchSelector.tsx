@@ -40,8 +40,17 @@ export function ChatBranchSelector({
   const isMountedRef = useRef(true);
   repoFullNameRef.current = repo?.full_name ?? null;
   sessionIdRef.current = sessionId;
+  const currentBranchesKey = JSON.stringify([
+    user?.id ?? null,
+    repo?.full_name ?? null,
+  ]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchesKey, setBranchesKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const visibleBranches = branchesKey === currentBranchesKey ? branches : [];
+  const visibleLoadError = branchesKey === currentBranchesKey ? loadError : null;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -50,27 +59,39 @@ export function ChatBranchSelector({
 
   // Fetch branches when repo changes
   useEffect(() => {
+    let active = true;
     if (!repo) {
       setBranches([]);
+      setLoadError(null);
+      setIsLoading(false);
       return;
     }
 
     const fetchBranches = async () => {
+      setBranches([]);
+      setLoadError(null);
       setIsLoading(true);
 
       try {
         const branchList = await listBranches(repo.owner.login, repo.name, user?.id ?? null);
+        if (!active) return;
         setBranches(branchList);
+        setBranchesKey(currentBranchesKey);
       } catch (err) {
+        if (!active) return;
         console.error("Failed to fetch branches:", err);
-        setBranches([]);
+        setLoadError("Branches could not be loaded.");
+        setBranchesKey(currentBranchesKey);
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
 
-    fetchBranches();
-  }, [repo, user?.id]);
+    void fetchBranches();
+    return () => {
+      active = false;
+    };
+  }, [repo, retryCount, user?.id, currentBranchesKey]);
 
   // Don't render if no repo is selected
   if (!repo) {
@@ -80,8 +101,10 @@ export function ChatBranchSelector({
   return (
     <BranchSelector
       currentBranch={branch}
-      branches={branches}
-      isLoading={isLoading}
+      branches={visibleBranches}
+      isLoading={isLoading || branchesKey !== currentBranchesKey}
+      loadError={visibleLoadError}
+      onRetry={() => setRetryCount((count) => count + 1)}
       onBranchSelect={(selectedBranch) => {
         if (onBranchSelect) {
           void Promise.resolve(onBranchSelect(selectedBranch)).catch((error: unknown) => {

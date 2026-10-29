@@ -15,6 +15,8 @@ interface SidebarTreeOverlayProps {
   isGitHubLoaded: boolean;
   repoTree: Array<{ path: string; type: string; sha: string }>;
   isLoadingTree: boolean;
+  repoTreeError: string | null;
+  retryRepoTree: () => void;
   branch: string;
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
@@ -100,6 +102,8 @@ export interface WorkspaceFilesTreeProps {
   branch: string;
   repoTree: Array<{ path: string; type: string; sha: string }>;
   isLoadingTree: boolean;
+  repoTreeError: string | null;
+  retryRepoTree: () => void;
   onGitHubFileSelect: (path: string) => void;
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
@@ -113,6 +117,8 @@ export function WorkspaceFilesTree({
   branch,
   repoTree,
   isLoadingTree,
+  repoTreeError,
+  retryRepoTree,
   onGitHubFileSelect,
   explorerRef,
   sandboxId,
@@ -128,6 +134,8 @@ export function WorkspaceFilesTree({
       branch={branch}
       tree={repoTree}
       isLoading={isLoadingTree}
+      loadError={repoTreeError}
+      onRetry={retryRepoTree}
       filterQuery={query}
       onFileSelect={onGitHubFileSelect}
     />

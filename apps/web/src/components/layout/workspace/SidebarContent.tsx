@@ -31,6 +31,8 @@ interface SidebarContentProps {
   isGitHubLoaded: boolean;
   repoTree: Array<{ path: string; type: string; sha: string }>;
   isLoadingTree: boolean;
+  repoTreeError: string | null;
+  retryRepoTree: () => void;
   branch: string;
 
   // Handlers
@@ -61,6 +63,8 @@ export function SidebarContent({
   isGitHubLoaded,
   repoTree,
   isLoadingTree,
+  repoTreeError,
+  retryRepoTree,
   branch,
   handleGitHubFileSelect,
   handleFileClick,
@@ -107,6 +111,8 @@ export function SidebarContent({
       isGitHubLoaded={isGitHubLoaded}
       repoTree={repoTree}
       isLoadingTree={isLoadingTree}
+      repoTreeError={repoTreeError}
+      retryRepoTree={retryRepoTree}
       branch={branch}
       explorerRef={explorerRef}
       sandboxId={sandboxId}

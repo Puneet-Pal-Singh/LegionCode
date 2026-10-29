@@ -49,6 +49,7 @@ describe("useGitHubTree", () => {
       "Puneet-Pal-Singh",
       "career-crew",
       "main",
+      "user-1",
     );
     expect(result.current.isLoadingTree).toBe(false);
     expect(result.current.isContextMismatch).toBe(false);
