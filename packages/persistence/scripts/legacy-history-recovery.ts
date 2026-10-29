@@ -406,7 +406,7 @@ function countR2References(value: unknown): number {
 
 function readKeyTimestamp(key: string): Date | null {
   if (!key.startsWith("chat:")) return null;
-  const match = /^chat:[^:]+:(\d{15})-/.exec(key);
+  const match = /^chat:[^:]+:(\d{15})(?:-[a-z0-9]+)?$/.exec(key);
   if (!match?.[1]) return null;
   const value = Number(match[1]);
   return Number.isSafeInteger(value) && value > 0 ? new Date(value) : null;
@@ -476,6 +476,7 @@ async function requireImportMigration(client: PgSqlClient): Promise<void> {
 function summarizeInventory(inventory: FrozenInventory): Record<string, unknown> {
   const roleCounts: Record<string, number> = {};
   let messages = 0;
+  let messagesWithSourceTimestamp = 0;
   let parts = 0;
   let rawBytes = 0;
   let toolCalls = 0;
@@ -488,6 +489,7 @@ function summarizeInventory(inventory: FrozenInventory): Record<string, unknown>
     messages += record.messages.length;
     for (const message of record.messages) {
       roleCounts[message.role] = (roleCounts[message.role] ?? 0) + 1;
+      if (message.createdAt !== null) messagesWithSourceTimestamp += 1;
       parts += message.parts.length;
       toolCalls += message.parts.filter((part) => part.type === "tool_call").length;
       rawParts += message.parts.filter((part) => part.type === "raw").length;
@@ -509,6 +511,7 @@ function summarizeInventory(inventory: FrozenInventory): Record<string, unknown>
     githubSubject: inventory.githubSubject,
     records: inventory.records.length,
     messages,
+    messagesWithSourceTimestamp,
     parts,
     toolCalls,
     rawParts,
