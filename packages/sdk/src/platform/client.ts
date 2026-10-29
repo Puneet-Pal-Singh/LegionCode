@@ -144,9 +144,21 @@ export class DefaultPlatformClient implements PlatformClient {
       throw new PlatformClientContractError("response", "submitHostedChat", "Missing App Server acknowledgement metadata");
     }
     const record = result as Record<string, unknown>;
+    const httpStatus = parseResponse(
+      record.httpStatus,
+      z.number().int().min(100).max(599),
+      "submitHostedChat",
+    );
+    const acknowledgement = {
+      runtimeStatus: record.runtimeStatus,
+      runId: record.runId,
+      threadId: record.threadId,
+      turnId: record.turnId,
+      runAttemptId: record.runAttemptId,
+    };
     return {
-      ...parseResponse(record, HostedChatSubmissionResultSchema, "submitHostedChat"),
-      httpStatus: typeof record.httpStatus === "number" ? record.httpStatus : 0,
+      ...parseResponse(acknowledgement, HostedChatSubmissionResultSchema, "submitHostedChat"),
+      httpStatus,
     };
   }
 

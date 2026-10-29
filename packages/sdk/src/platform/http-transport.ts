@@ -29,7 +29,7 @@ import type {
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
-type HostedLifecycleMethod = "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
+type HostedLifecycleMethod = "turn/submit" | "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
 type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
 type HostedThreadInputMethod = "turn/steer" | "turn/resume" |
   "thread/input/enqueue" | "thread/input/list" | "thread/input/update" |
@@ -149,11 +149,15 @@ export function createPlatformHttpTransport(
           }),
         }),
       });
-      return client.submitHostedChat(
-        payload,
-        operationOptions?.beforeSendHostedChatEnvelope ?? ((serializedEnvelope) => serializedEnvelope),
-        operationOptions?.onChatSubmissionResponse,
-      );
+      try {
+        return await client.submitHostedChat(
+          payload,
+          operationOptions?.beforeSendHostedChatEnvelope ?? ((serializedEnvelope) => serializedEnvelope),
+          operationOptions?.onChatSubmissionResponse,
+        );
+      } catch (error) {
+        throw mapHostedLifecycleError(error, "turn/submit");
+      }
     },
     createThread: (payload, options) =>
       request.json("POST", "/threads", payload, options),
@@ -732,15 +736,15 @@ function mapAppServerError(
 }
 
 function hostedResponseContractError(method: HostedLifecycleMethod): PlatformClientContractError {
-  const operation = method === "turn/interrupt"
-    ? "interruptTurn"
-    : method === "turn/lifecycleEvents"
-      ? "replayLifecycleEvents"
-      : method === "turn/diff"
-        ? "getTurnDiff"
-        : method === "turn/approval"
-          ? "submitLifecycleApproval"
-          : "compactTurn";
+  const operationByMethod: Record<HostedLifecycleMethod, string> = {
+    "turn/submit": "submitHostedChat",
+    "turn/interrupt": "interruptTurn",
+    "turn/lifecycleEvents": "replayLifecycleEvents",
+    "turn/diff": "getTurnDiff",
+    "turn/approval": "submitLifecycleApproval",
+    "turn/compact": "compactTurn",
+  };
+  const operation = operationByMethod[method];
   return new PlatformClientContractError(
     "response",
     operation,
