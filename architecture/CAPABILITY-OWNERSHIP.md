@@ -626,6 +626,16 @@ The replaced Web `git-client` transport, endpoint builders/routes, and
 per-command checkout/session creation are deleted only after every active
 caller uses the typed SDK/App Server path.
 
+The App Server contract remains seven operation-specific methods:
+`git/status`, `git/diff`, `git/stage`, `git/commit`, `git/branch`, `git/push`,
+and `git/pullRequest`. Brain derives the owned run/session and checkout scope
+from authenticated server records; client IDs cannot select the Secure Agent
+namespace. The existing Secure Session owner exposes only an internal-authenticated
+borrow of that exact persisted, unexpired session/lease/token. The borrower
+executes through the existing `git.execute` path and fails closed for missing,
+expired, mismatched or dead state; it never invokes session recovery, lease
+replacement or release.
+
 ## Verification and limits
 
 - `ChatImageDelivery.integration.test.ts` exercises authenticated admission,
