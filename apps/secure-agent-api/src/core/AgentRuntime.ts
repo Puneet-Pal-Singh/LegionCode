@@ -412,6 +412,10 @@ export class AgentRuntime extends DurableObject {
 
         await this.markSandboxCleanupInProgress(cleanupCandidates);
         await this.cleanupSandbox(sandboxId, cleanupCandidates, now);
+        // A Durable Object alarm has a bounded callback lifetime. Keep each
+        // callback to one physical destroy; scheduling below immediately
+        // continues with any other eligible sandbox groups.
+        break;
       }
 
       await this.scheduleExecutionSessionAlarm();
@@ -473,33 +477,50 @@ export class AgentRuntime extends DurableObject {
 
     const now = Date.now();
     let nextAlarm = Number.POSITIVE_INFINITY;
+    const bySandbox = new Map<string, RuntimeSessionRecord[]>();
     for (const [, session] of sessions) {
-      if (session.cleanupInProgress) {
-        nextAlarm = Math.min(
-          nextAlarm,
-          Math.max(session.cleanupRetryAt ?? now + 1, now + 1),
-        );
-        continue;
-      }
-      if (session.lease.expiresAt > now) {
-        nextAlarm = Math.min(nextAlarm, session.lease.expiresAt);
-        continue;
-      }
-      const protectedUntil = sessions
-        .map(([, other]) => other)
+      const group = bySandbox.get(session.lease.sandboxId) ?? [];
+      group.push(session);
+      bySandbox.set(session.lease.sandboxId, group);
+    }
+
+    for (const group of bySandbox.values()) {
+      const liveExpirations = group
         .filter(
-          (other) =>
-            other.lease.sandboxId === session.lease.sandboxId &&
-            other.lease.expiresAt > now,
+          (session) =>
+            !session.cleanupInProgress && session.lease.expiresAt > now,
         )
-        .reduce(
-          (earliest, other) => Math.min(earliest, other.lease.expiresAt),
+        .map((session) => session.lease.expiresAt);
+      if (liveExpirations.length > 0) {
+        // Protected cleanup waits until the earliest live reference can be
+        // reconsidered, without retrying every millisecond while it remains.
+        const earliestLiveExpiry = liveExpirations.reduce(
+          (earliest, expiresAt) => Math.min(earliest, expiresAt),
           Number.POSITIVE_INFINITY,
         );
-      const nextEligible = Number.isFinite(protectedUntil)
-        ? Math.max(protectedUntil, session.cleanupRetryAt ?? now)
-        : Math.max(session.cleanupRetryAt ?? now, now + 1);
-      nextAlarm = Math.min(nextAlarm, nextEligible);
+        nextAlarm = Math.min(nextAlarm, earliestLiveExpiry);
+        continue;
+      }
+
+      const cleanupCandidates = group.filter(
+        (session) =>
+          session.cleanupInProgress || session.lease.expiresAt <= now,
+      );
+      if (cleanupCandidates.length > 0) {
+        const nextAttempt = cleanupCandidates.reduce(
+          (earliest, session) =>
+            Math.min(earliest, session.cleanupRetryAt ?? now),
+          Number.POSITIVE_INFINITY,
+        );
+        nextAlarm = Math.min(nextAlarm, Math.max(nextAttempt, now + 1));
+        continue;
+      }
+
+      const earliestExpiry = group.reduce(
+        (earliest, session) => Math.min(earliest, session.lease.expiresAt),
+        Number.POSITIVE_INFINITY,
+      );
+      nextAlarm = Math.min(nextAlarm, earliestExpiry);
     }
     await this.ctx.storage.setAlarm(nextAlarm);
   }
