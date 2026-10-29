@@ -196,7 +196,7 @@ send canonical run, session, client-message and optional revision identifiers.
 | --- | --- | --- |
 | Submitted transcript and terminal state | Existing Brain admission, transcript and lifecycle append owners | Web reads verified session history independently of execution scope and renders SDK lifecycle projections, including partial replies. |
 | Browser authentication snapshot and session availability | Brain cookie-backed session endpoint; Web `GitHubService` and `AuthContext` | Only a validated session response can change auth state. A transient or invalid response preserves the last verified user; initial unknown state offers Retry before sign-in, and confirmed logout invalidates pending refresh writes. |
-| Request acknowledgement and explicit delivery retry | Existing server admission identity and SDK `submission-attempt-registry` / `submission-evidence`; Web `submissionTransport` binds the observed authenticated fetch | useChatCore and queued setup intent retain the exact reserved tuple, client message identity and serialized payload; only bound acknowledgements or exact canonical evidence confirm admission. |
+| Request acknowledgement and explicit delivery retry | Existing server admission identity and SDK `conversation-submission` over `submission-attempt-registry` / `submission-evidence`; Web `submissionTransport` binds the observed authenticated fetch | useChatCore supplies the synchronous reservation binding, captured provider configuration, request builder and dispatch callback; the SDK sequence retains one attempt, the exact reserved tuple, client message identity and serialized payload. Only bound acknowledgements or exact canonical evidence confirm admission. |
 | Mounted conversation and history recovery presentation | Web SessionConversationSurface and useChatHydration | Setup/workspace share one useChat owner for the selected session; partial/failed reads preserve verified rows, and stale reads cannot replace another session. |
 
 The run-filtered message identity/visibility helpers and the component-local
@@ -211,6 +211,20 @@ transport moves through authenticated App Server in 058.3A. Shared conversation
 composition remains pending 058.2E. The earlier baseline entries' pending
 browser binding is fulfilled here, without claiming completion of hosted
 routing or final browser acceptance.
+
+### Plan 058 conversation submission orchestration
+
+`packages/sdk/src/platform/conversation-submission.ts` owns the existing
+non-React submission sequence moved out of Web `useChatCore`: one attempt for
+the exact session/intent/client-message/generation, provider capture before
+reservation, reservation reuse and retry identity, synchronous reservation
+binding, dispatch, acknowledgement/evidence classification and one registry
+settlement. `onReserved(scope)` is synchronous and precedes dispatch; a stale
+binding settles inactive without sending. Web retains React state, optimistic
+rendering, composer readiness, provider/repository selection, the request
+builder and current dispatch callback, the observed authenticated fetch, the
+scope-ready event and Stop/loading/error bindings. No route, transport, runtime
+owner or Desktop capability changes.
 
 ## Plan 058.1 — Lifecycle projection composition and selection
 
