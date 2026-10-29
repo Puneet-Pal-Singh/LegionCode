@@ -150,6 +150,18 @@ existing owners until the command slices.
 | Authorized session transcript pages and committed snapshot watermark | Existing persistence TranscriptRepository and Brain TranscriptController | Web ChatHydrationService reads the same session-scoped contract, independent of execution-run filtering. |
 | Validated complete/partial paginated reads | `sdk/src/platform/conversation-history.ts` | Web ChatHydrationService retains verified pages, rejects invalid identity/timestamp/cursor data, and no longer fabricates message identities or truncates after ten pages. |
 
+### Fixed-inventory legacy transcript recovery
+
+| Responsibility | Canonical owner | Active consumers and boundary |
+| --- | --- | --- |
+| Operator import of the approved fixed legacy inventory and its immutable provenance | Existing `PostgresTranscriptRepository` import method plus one `legacy_history_import_receipts` table | One operator-only dry-run-by-default command resolves GitHub subject `46601256` against target `accounts/users`, imports transcript and receipt atomically, and retains raw source bytes. Normal session/message APIs cannot write provenance; Secure Durable Object/R2 records remain untouched. |
+
+The receipt is provenance, not a transcript projection, ownership grant, or
+runtime lifecycle record. Import coverage is limited to the exact frozen
+environment/namespace/DO/key manifest. Original records are idempotent only
+when bytes, ownership, mapping, and manifest digest match; any mismatch aborts
+for review. No public preview-key reader is retired by this import slice.
+
 This adopts only the pinned session-history portion of the incoming durability
 fix from main. Existing browser hydration scope/live binding remains pending the
 session-surface/admission adoption; it is not counted as completed saved-history
