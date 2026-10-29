@@ -123,6 +123,38 @@ export function createPlatformHttpTransport(
   };
 
   return {
+    submitHostedChat: async (payload, operationOptions) => {
+      const suppliedHeaders = new Headers(options.getHeaders?.() ?? {});
+      const authorization = suppliedHeaders.get("authorization");
+      const client = createAppServerClient({
+        clientId: "legioncode-platform",
+        clientVersion: "0.1.0",
+        transport: createAppServerHttpTransport({
+          baseUrl: options.baseUrl,
+          credentials: options.credentials ?? "include",
+          fetchImpl: async (input, init) => {
+            const headers = new Headers(init?.headers);
+            if (authorization !== null) headers.set("Authorization", authorization);
+            return (options.fetchImpl ?? globalThis.fetch.bind(globalThis))(input, { ...init, headers });
+          },
+          timeoutMs: null,
+          maxResponseBytes: null,
+          responsePreviewLimit: options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT,
+          signal: operationOptions?.signal,
+          requestHeaders: (envelope) => ({
+            ...Object.fromEntries(suppliedHeaders),
+            ...(envelope.method === "turn/submit"
+              ? { "X-LegionCode-AppServer-Method": envelope.method }
+              : {}),
+          }),
+        }),
+      });
+      return client.submitHostedChat(
+        payload,
+        operationOptions?.beforeSendHostedChatEnvelope ?? ((serializedEnvelope) => serializedEnvelope),
+        operationOptions?.onChatSubmissionResponse,
+      );
+    },
     createThread: (payload, options) =>
       request.json("POST", "/threads", payload, options),
     createRun: (payload, options) =>

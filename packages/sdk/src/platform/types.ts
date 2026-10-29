@@ -42,6 +42,8 @@ import {
   type WorkspaceManifest,
   type CompactTurnRequest,
   type CompactTurnResponse,
+  type ChatRequestBody,
+  type HostedChatSubmissionResult,
 } from "@repo/platform-protocol";
 import type {
   FollowLifecycleRequest,
@@ -151,12 +153,20 @@ export type SubmitApprovalRequest = z.infer<typeof SubmitApprovalRequestSchema>;
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
+  beforeSendHostedChatEnvelope?: (serializedEnvelope: string) => string;
+  onChatSubmissionResponse?: (acknowledgement: HostedChatSubmissionResult & {
+    httpStatus: number;
+  }) => void;
   onLifecycleContinuationStatus?: (
     status: "replaying" | "following" | "reconnecting",
   ) => void;
 }
 
 export interface PlatformClientTransport {
+  submitHostedChat(
+    request: ChatRequestBody,
+    options?: PlatformClientOperationOptions,
+  ): Promise<HostedChatSubmissionResult & { httpStatus: number }>;
   createThread(
     request: CreateThreadRequest,
     options?: PlatformClientOperationOptions,
@@ -232,6 +242,10 @@ export interface PlatformClientTransport {
 }
 
 export interface PlatformClient {
+  submitHostedChat(
+    request: ChatRequestBody,
+    options?: PlatformClientOperationOptions,
+  ): Promise<HostedChatSubmissionResult & { httpStatus: number }>;
   createThread(
     request: CreateThreadRequest,
     options?: PlatformClientOperationOptions,

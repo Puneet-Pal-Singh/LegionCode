@@ -35,6 +35,17 @@ export function hostedChatSubmissionResult(
   };
 }
 
+export function hostedChatSubmissionAckHeaders(
+  response: Response,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const name of ["X-Run-Id", "X-Thread-Id", "X-Turn-Id", "X-Run-Attempt-Id"]) {
+    const value = response.headers.get(name);
+    if (value !== null) headers[name] = value;
+  }
+  return headers;
+}
+
 /** Keep the runtime response's unused body branch owned after App Server ACK dispatch. */
 export function scheduleHostedChatResponseDrain(
   response: Response,

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  ChatRequestBodySchema,
+  HostedChatSubmissionResultSchema,
   ArtifactIdSchema,
   ArtifactMetadataSchema,
   LifecycleEventSchema,
@@ -128,6 +130,24 @@ export class DefaultPlatformClient implements PlatformClient {
       this.transport.startTurn(normalizedRequest, options),
     );
     return parseResponse(payload, StartTurnResponseSchema, "startTurn");
+  }
+
+  async submitHostedChat(
+    request: import("@repo/platform-protocol").ChatRequestBody,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(request, ChatRequestBodySchema, "submitHostedChat");
+    const result = await this.invoke("submitHostedChat", () =>
+      this.transport.submitHostedChat(normalizedRequest, options),
+    );
+    if (!result || typeof result !== "object" || !("httpStatus" in result)) {
+      throw new PlatformClientContractError("response", "submitHostedChat", "Missing App Server acknowledgement metadata");
+    }
+    const record = result as Record<string, unknown>;
+    return {
+      ...parseResponse(record, HostedChatSubmissionResultSchema, "submitHostedChat"),
+      httpStatus: typeof record.httpStatus === "number" ? record.httpStatus : 0,
+    };
   }
 
   async getThread(threadId: string, options?: PlatformClientOperationOptions) {

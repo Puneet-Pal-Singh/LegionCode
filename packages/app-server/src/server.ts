@@ -125,6 +125,7 @@ export class AppServerOperationError extends Error {
     readonly retryable?: boolean,
     readonly correlationId?: string,
     readonly metadata?: Record<string, unknown>,
+    readonly responseHeaders?: Record<string, string>,
   ) { super(message); }
 }
 
@@ -228,7 +229,8 @@ export async function handleAppServerHttpRequest(
       return methodError(request.method, error.statusCode, error.code, error.message,
         error.operationCode || error.retryable !== undefined || error.correlationId || error.metadata
           ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}), ...(error.correlationId ? { correlationId: error.correlationId } : {}), ...(error.metadata ? { metadata: error.metadata } : {}) }
-          : undefined);
+          : undefined,
+        error.responseHeaders);
     }
     if (error instanceof LocalPersistenceError) {
       return methodError(
@@ -537,6 +539,7 @@ function methodError(
   code: AppServerError["code"],
   message: string,
   details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable" | "correlationId" | "metadata">,
+  responseHeaders?: Record<string, string>,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({
     protocolVersion: APP_SERVER_PROTOCOL_VERSION,
@@ -544,7 +547,7 @@ function methodError(
     ok: false,
     error: AppServerErrorSchema.parse({ code, message, ...details }),
   });
-  return { statusCode, headers: JSON_HEADERS, payload: response };
+  return { statusCode, headers: { ...JSON_HEADERS, ...responseHeaders }, payload: response };
 }
 
 function genericError(

@@ -9,6 +9,7 @@ export {
   type AppServerClient,
   type AppServerClientOptions,
   type AppServerTransport,
+  type HostedChatSubmissionAcknowledgement,
   type WorkspaceGrantSource,
   type ArtifactReviewLookupResult,
 } from "./platform/app-server-client.js";
@@ -19,6 +20,7 @@ export {
   findSubmissionAttempt,
   finishSubmissionAttempt,
   freezeSubmissionWireBody,
+  observeSubmissionAcknowledgement,
   retainSubmissionReservation,
   retireSessionSubmissionAttempts,
   retireSubmissionIntent,

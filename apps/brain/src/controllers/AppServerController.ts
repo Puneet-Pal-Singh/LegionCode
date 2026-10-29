@@ -17,6 +17,7 @@ import type { AppServerError, ChatRequestBody, HostedChatSubmissionResult } from
 import { bindAuthenticatedChatRequest } from "./ChatRequestBoundary";
 import {
   hostedChatSubmissionResult,
+  hostedChatSubmissionAckHeaders,
   scheduleHostedChatResponseDrain,
   submitHostedChat,
 } from "../integration/app-server/HostedChatSubmission";
@@ -147,6 +148,7 @@ export const AppServerController = {
                   statusCode >= 500 || statusCode === 408 || statusCode === 429,
                   correlationId,
                   failure.metadata,
+                  hostedChatSubmissionAckHeaders(runtimeResponse),
                 );
               }
               const result = hostedChatSubmissionResult(runtimeResponse);
@@ -223,7 +225,10 @@ export const AppServerController = {
     const submissionAck = parsed.success && parsed.data.method === "turn/submit"
       ? readSubmissionAck(result.payload)
       : undefined;
-    return json(env, request, result.statusCode, result.payload, submissionAck);
+    return json(env, request, result.statusCode, result.payload, {
+      ...result.headers,
+      ...submissionAck,
+    });
   },
 };
 
