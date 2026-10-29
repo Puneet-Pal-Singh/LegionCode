@@ -16,11 +16,11 @@ vi.mock("./useRunContext", () => ({
   }),
 }));
 
-vi.mock("../lib/git-client.js", () => ({
+vi.mock("../services/api/gitOperations.js", () => ({
   getGitStatus: vi.fn(),
 }));
 
-import { getGitStatus } from "../lib/git-client.js";
+import { getGitStatus } from "../services/api/gitOperations.js";
 
 describe("useGitStatus", () => {
   beforeEach(() => {

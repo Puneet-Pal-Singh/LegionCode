@@ -13,7 +13,7 @@ import type {
   GitCommitIdentityState,
   GitPullRequestMutationResult,
 } from "@repo/shared-types";
-import { GitMutationError } from "../lib/git-client.js";
+import { GitMutationError } from "@legioncode/sdk";
 import { z } from "zod";
 
 export interface GitHubUser {
