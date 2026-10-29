@@ -3,11 +3,6 @@ import { composeHostedProviderCredentials } from "../integration/app-server/Host
 import { composeHostedProviderDiscovery } from "../integration/app-server/HostedProviderDiscovery";
 import { composeHostedWorkspaceSelection } from "../integration/app-server/HostedWorkspaceSelection";
 import { APP_SERVER_PROTOCOL_VERSION, AppServerRequestSchema } from "@legioncode/app-server/protocol";
-import type { AppServerError } from "@repo/platform-protocol";
-import type {
-  ChatRequestBody,
-  HostedChatSubmissionResult,
-} from "@repo/platform-protocol";
 import { getAuthenticatedUserSession, isSessionStoreUnavailableError } from "../services/AuthService";
 import { composeHostedSessionMetadata } from "../integration/app-server/HostedSessionMetadata";
 import { composeHostedConversationHistory } from "../integration/app-server/HostedConversationHistory";
@@ -16,7 +11,9 @@ import { composeHostedLifecycleOperations } from "../integration/app-server/Host
 import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnCommands";
 import { composeHostedThreadInputOperations } from "../integration/app-server/HostedThreadInputOperations";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
+import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
 import { AppServerOperationError, handleAppServerHttpRequest } from "@legioncode/app-server/server";
+import type { AppServerError, ChatRequestBody, HostedChatSubmissionResult } from "@repo/platform-protocol";
 import { bindAuthenticatedChatRequest } from "./ChatRequestBoundary";
 import {
   hostedChatSubmissionResult,
@@ -81,11 +78,7 @@ export const AppServerController = {
     }
     const body = await readBoundedBody(
       request,
-      chatSubmission
-        ? MAX_CHAT_SUBMISSION_BYTES
-        : authenticatedLargeBody
-          ? null
-          : MAX_REQUEST_BYTES,
+      chatSubmission ? MAX_CHAT_SUBMISSION_BYTES : authenticatedLargeBody ? null : MAX_REQUEST_BYTES,
     );
     if (body.oversized) {
       return json(env, request, 413, {
@@ -106,6 +99,7 @@ export const AppServerController = {
     let hostedTurnCommandsService: ReturnType<typeof composeHostedTurnCommands> | undefined;
     let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
+    let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
     let hostedChatSubmissionService:
       | { execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult> }
       | undefined;
@@ -134,30 +128,17 @@ export const AppServerController = {
         hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
         hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
+        hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
         hostedChatSubmissionService = {
           execute: async (params) => {
             const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
             try {
-              const chatRequest = await bindAuthenticatedChatRequest(
-                request,
-                env,
-                params,
-                correlationId,
-                auth,
-              );
-              const runtimeResponse = await submitHostedChat(
-                request,
-                chatRequest,
-                env,
-                undefined,
-                executionContext,
-              );
+              const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth);
+              const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext);
               if (!runtimeResponse.ok) {
                 const failure = await readHostedChatError(runtimeResponse);
                 await drainHostedChatRuntimeResponse(runtimeResponse, executionContext);
-                const statusCode = runtimeResponse.status >= 400
-                  ? runtimeResponse.status
-                  : 502;
+                const statusCode = runtimeResponse.status >= 400 ? runtimeResponse.status : 502;
                 throw new AppServerOperationError(
                   statusCode,
                   appServerErrorCode(statusCode),
@@ -185,32 +166,28 @@ export const AppServerController = {
                   mapped.metadata,
                 );
               }
-              reportBrainError(env, {
-                request,
-                operation: "chat.request.execute",
-                error,
-                context: { correlationId },
-              });
+              reportBrainError(env, { request, operation: "chat.request.execute", error, context: { correlationId } });
               throw new AppServerOperationError(
-                500,
-                "server_unavailable",
-                "Internal Server Error",
-                "CHAT_REQUEST_FAILED",
-                false,
-                correlationId,
+                500, "server_unavailable", "Internal Server Error", "CHAT_REQUEST_FAILED", false, correlationId,
               );
             }
           },
         };
       } catch (error) {
         const inputMethod = isThreadInputMethod(parsed.data.method);
-        const statusCode = inputMethod ? 500 : isSessionStoreUnavailableError(error) ? 503 : 500;
+        const sessionStoreUnavailable = isSessionStoreUnavailableError(error);
+        const statusCode = inputMethod ? 500 : sessionStoreUnavailable ? 503 : 500;
+        const message = inputMethod
+          ? "Thread input operation failed"
+          : isArtifactReadMethod(parsed.data.method) && sessionStoreUnavailable
+            ? error.message
+            : "Authentication is unavailable";
         return json(env, request, statusCode, {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
           ok: false, error: {
             code: "server_unavailable",
-            message: inputMethod ? "Thread input operation failed" : "Authentication is unavailable",
             ...(inputMethod ? { statusCode, operationCode: "THREAD_INPUT_FAILED", retryable: true } : {}),
+            message,
             ...turnAuthFailureDetails(parsed.data.method, statusCode),
           },
         });
@@ -239,6 +216,7 @@ export const AppServerController = {
         hostedTurnCommandsService,
         hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
+        hostedEditArtifactReadsService,
         hostedChatSubmissionService,
       },
     );
@@ -249,23 +227,29 @@ export const AppServerController = {
   },
 };
 
+function isArtifactReadMethod(method: string): boolean {
+  return method === "artifact/reviewLatest" || method === "artifact/reviewByMessage" || method === "artifact/diff";
+}
+
 function turnAuthFailureDetails(method: string, statusCode: number) {
+  if (method === "turn/submit") {
+    return {
+      statusCode,
+      operationCode: statusCode === 401 ? "AUTH_FAILED" : statusCode === 503 ? "PROVIDER_UNAVAILABLE" : "CHAT_REQUEST_FAILED",
+      retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+    };
+  }
+  if (isArtifactReadMethod(method)) {
+    return {
+      statusCode,
+      operationCode: statusCode === 401 ? "AUTH_FAILED" : "API_ERROR",
+      retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+    };
+  }
   if (method === "turn/lifecycleEvents" || method === "turn/diff" || method === "turn/approval" || method === "turn/compact" || method === "turn/interrupt") {
     return {
       statusCode,
       operationCode: "API_ERROR",
-      retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
-    };
-  }
-  if (method === "turn/submit") {
-    return {
-      statusCode,
-      operationCode:
-        statusCode === 401
-          ? "AUTH_FAILED"
-          : statusCode === 503
-            ? "PROVIDER_UNAVAILABLE"
-            : "CHAT_REQUEST_FAILED",
       retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
     };
   }
@@ -275,6 +259,56 @@ function turnAuthFailureDetails(method: string, statusCode: number) {
     operationCode: statusCode === 401 ? "AUTH_FAILED" : "AUTH_SESSION_STORE_UNAVAILABLE",
     retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
   };
+}
+
+function isThreadInputMethod(method: string): boolean {
+  return method === "turn/steer" || method === "turn/resume" ||
+    method.startsWith("thread/input/");
+}
+
+function threadInputAuthFailureDetails(method: string, statusCode: number) {
+  if (!isThreadInputMethod(method)) return {};
+  return {
+    statusCode,
+    operationCode: statusCode === 401 ? "AUTH_FAILED" : "THREAD_INPUT_FAILED",
+    retryable: statusCode >= 500,
+  };
+}
+
+async function readBoundedBody(
+  request: Request,
+  maxBytes: number | null,
+): Promise<{ value: string; oversized: boolean }> {
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (maxBytes !== null && Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await request.body?.cancel();
+    return { value: "", oversized: true };
+  }
+  if (!request.body) return { value: "", oversized: false };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (maxBytes !== null && size > maxBytes) {
+      await reader.cancel();
+      return { value: "", oversized: true };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return { value: new TextDecoder("utf-8", { fatal: true }).decode(bytes), oversized: false };
+  } catch {
+    return { value: "\u0000", oversized: false };
+  }
 }
 
 function appServerErrorCode(statusCode: number): AppServerError["code"] {
@@ -328,54 +362,19 @@ async function drainHostedChatRuntimeResponse(
   });
 }
 
-function isThreadInputMethod(method: string): boolean {
-  return method === "turn/steer" || method === "turn/resume" ||
-    method.startsWith("thread/input/");
-}
-
-function threadInputAuthFailureDetails(method: string, statusCode: number) {
-  if (!isThreadInputMethod(method)) return {};
+function readSubmissionAck(payload: unknown): Record<string, string> | undefined {
+  if (!payload || typeof payload !== "object" || !("ok" in payload) || payload.ok !== true || !("result" in payload)) {
+    return undefined;
+  }
+  const result = payload.result;
+  if (!result || typeof result !== "object") return undefined;
+  const record = result as Partial<HostedChatSubmissionResult>;
   return {
-    statusCode,
-    operationCode: statusCode === 401 ? "AUTH_FAILED" : "THREAD_INPUT_FAILED",
-    retryable: statusCode >= 500,
+    ...(record.runId !== undefined && record.runId !== null ? { "X-Run-Id": record.runId } : {}),
+    ...(record.threadId !== undefined && record.threadId !== null ? { "X-Thread-Id": record.threadId } : {}),
+    ...(record.turnId !== undefined && record.turnId !== null ? { "X-Turn-Id": record.turnId } : {}),
+    ...(record.runAttemptId !== undefined && record.runAttemptId !== null ? { "X-Run-Attempt-Id": record.runAttemptId } : {}),
   };
-}
-
-async function readBoundedBody(
-  request: Request,
-  maxBytes: number | null,
-): Promise<{ value: string; oversized: boolean }> {
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (maxBytes !== null && Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-    await request.body?.cancel();
-    return { value: "", oversized: true };
-  }
-  if (!request.body) return { value: "", oversized: false };
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (maxBytes !== null && size > maxBytes) {
-      await reader.cancel();
-      return { value: "", oversized: true };
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return { value: new TextDecoder("utf-8", { fatal: true }).decode(bytes), oversized: false };
-  } catch {
-    return { value: "\u0000", oversized: false };
-  }
 }
 
 function json(
@@ -393,19 +392,4 @@ function json(
       ...extraHeaders,
     },
   });
-}
-
-function readSubmissionAck(payload: unknown): Record<string, string> | undefined {
-  if (!payload || typeof payload !== "object" || !("ok" in payload) || payload.ok !== true || !("result" in payload)) {
-    return undefined;
-  }
-  const result = payload.result;
-  if (!result || typeof result !== "object") return undefined;
-  const record = result as Partial<HostedChatSubmissionResult>;
-  return {
-    ...(record.runId !== undefined && record.runId !== null ? { "X-Run-Id": record.runId } : {}),
-    ...(record.threadId !== undefined && record.threadId !== null ? { "X-Thread-Id": record.threadId } : {}),
-    ...(record.turnId !== undefined && record.turnId !== null ? { "X-Turn-Id": record.turnId } : {}),
-    ...(record.runAttemptId !== undefined && record.runAttemptId !== null ? { "X-Run-Attempt-Id": record.runAttemptId } : {}),
-  };
 }

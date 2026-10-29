@@ -34,6 +34,7 @@ import { initializeAppServer } from "./handshake.js";
 import type { LocalThreadService } from "./local-threads.js";
 import type { LocalWorkspaceService } from "./local-workspace.js";
 import type { LocalProviderService, ProviderConfiguration } from "./local-providers.js";
+import type { EditArtifactDiffResponse, PromptArtifactReviewSource } from "@repo/shared-types";
 
 export type AppServerComposition = {
   environment: "local" | "hosted";
@@ -102,6 +103,16 @@ export type AppServerComposition = {
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
     compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   };
+  hostedEditArtifactReadsService?: {
+    reviewLatest(params: Extract<AppServerRequest, { method: "artifact/reviewLatest" }>["params"]): Promise<ArtifactReviewLookupResult>;
+    reviewByMessage(params: Extract<AppServerRequest, { method: "artifact/reviewByMessage" }>["params"]): Promise<ArtifactReviewLookupResult>;
+    diff(params: Extract<AppServerRequest, { method: "artifact/diff" }>["params"]): Promise<EditArtifactDiffResponse>;
+  };
+};
+
+export type ArtifactReviewLookupResult = {
+  source: PromptArtifactReviewSource | null;
+  status: 200 | 204;
 };
 
 /** A composed owner can preserve an explicit domain failure at the validated boundary. */
@@ -324,6 +335,18 @@ async function dispatch(
     case "turn/compact": {
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.compactTurn(request.params);
+    }
+    case "artifact/reviewLatest": {
+      if (!composition.hostedEditArtifactReadsService) throw new Error("unsupported");
+      return composition.hostedEditArtifactReadsService.reviewLatest(request.params);
+    }
+    case "artifact/reviewByMessage": {
+      if (!composition.hostedEditArtifactReadsService) throw new Error("unsupported");
+      return composition.hostedEditArtifactReadsService.reviewByMessage(request.params);
+    }
+    case "artifact/diff": {
+      if (!composition.hostedEditArtifactReadsService) throw new Error("unsupported");
+      return composition.hostedEditArtifactReadsService.diff(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");

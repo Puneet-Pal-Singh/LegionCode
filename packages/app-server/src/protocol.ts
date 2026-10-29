@@ -52,6 +52,11 @@ import {
   NormalizedProviderErrorSchema,
   ProviderRegistryEntrySchema,
 } from "@repo/shared-types";
+import {
+  EditArtifactDiffResponseSchema,
+  EditArtifactIdentitySchema,
+  PromptArtifactReviewSourceSchema,
+} from "@repo/shared-types";
 import { z } from "zod";
 
 export { APP_SERVER_PROTOCOL_VERSION, AppServerErrorSchema };
@@ -93,6 +98,25 @@ const HostedTurnScopeReadParamsSchema = TurnScopeReadQuerySchema.strict();
 const HostedTurnInterruptParamsSchema = InterruptTurnRequestSchema.extend({
   orchestratorBackend: z.enum(["execution-engine-v1", "cloudflare_agents"]).optional(),
 }).strict();
+const ArtifactReviewLatestParamsSchema = EditArtifactIdentitySchema.extend({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+}).strict();
+const ArtifactReviewByMessageParamsSchema = EditArtifactIdentitySchema.extend({
+  runId: z.string().min(1),
+  assistantMessageId: z.string().min(1),
+}).strict();
+const ArtifactDiffParamsSchema = EditArtifactIdentitySchema.extend({
+  artifactId: z.string().uuid(),
+  path: z.string().min(1),
+}).strict();
+const ArtifactReviewLookupResultSchema = z.object({
+  source: PromptArtifactReviewSourceSchema.nullable(),
+  status: z.union([z.literal(200), z.literal(204)]),
+}).strict().refine(
+  (result) => (result.status === 200) === (result.source !== null),
+  "Artifact review lookup status must match its source",
+);
 
 export const AppServerMethodSchema = z.enum([
   "initialize",
@@ -125,6 +149,9 @@ export const AppServerMethodSchema = z.enum([
   "turn/diff",
   "turn/approval",
   "turn/compact",
+  "artifact/reviewLatest",
+  "artifact/reviewByMessage",
+  "artifact/diff",
 
   "workspace/list",
   "workspace/select",
@@ -190,6 +217,9 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("turn/diff"), params: GetTurnDiffRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/approval"), params: SubmitLifecycleApprovalRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/compact"), params: CompactTurnRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewLatest"), params: ArtifactReviewLatestParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewByMessage"), params: ArtifactReviewByMessageParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("artifact/diff"), params: ArtifactDiffParamsSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -251,6 +281,9 @@ export const AppServerResultSchemas = {
   "turn/diff": GetTurnDiffResponseSchema,
   "turn/approval": LifecycleEventSchema,
   "turn/compact": CompactTurnResponseSchema,
+  "artifact/reviewLatest": ArtifactReviewLookupResultSchema,
+  "artifact/reviewByMessage": ArtifactReviewLookupResultSchema,
+  "artifact/diff": EditArtifactDiffResponseSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -312,6 +345,9 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("turn/diff", AppServerResultSchemas["turn/diff"]),
   success("turn/approval", AppServerResultSchemas["turn/approval"]),
   success("turn/compact", AppServerResultSchemas["turn/compact"]),
+  success("artifact/reviewLatest", AppServerResultSchemas["artifact/reviewLatest"]),
+  success("artifact/reviewByMessage", AppServerResultSchemas["artifact/reviewByMessage"]),
+  success("artifact/diff", AppServerResultSchemas["artifact/diff"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),

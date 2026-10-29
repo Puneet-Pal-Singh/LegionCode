@@ -6,7 +6,7 @@ import type {
 import {
   getEditArtifactReviewSourceByMessage,
   getLatestEditArtifactReviewSource,
-} from "../lib/edit-artifacts-client.js";
+} from "../services/api/artifactReads.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
