@@ -13,6 +13,10 @@ import type {
   GitCommitIdentityState,
   GitPullRequestMutationResult,
 } from "@repo/shared-types";
+import type {
+  RepositoryReadBranch,
+  RepositoryReadRepository,
+} from "@repo/platform-protocol";
 import { GitMutationError } from "../lib/git-client.js";
 import { z } from "zod";
 
@@ -33,32 +37,8 @@ export type GitHubSessionResponse =
   | { authenticated: true; user: GitHubUser }
   | { authenticated: false; user?: undefined };
 
-export interface Repository {
-  id: number;
-  name: string;
-  full_name: string;
-  owner: {
-    login: string;
-    avatar_url: string;
-  };
-  description: string | null;
-  private: boolean;
-  html_url: string;
-  clone_url: string;
-  default_branch: string;
-  stargazers_count: number;
-  language: string | null;
-  updated_at: string;
-}
-
-export interface Branch {
-  name: string;
-  commit: {
-    sha: string;
-    url: string;
-  };
-  protected: boolean;
-}
+export type Repository = RepositoryReadRepository;
+export type Branch = RepositoryReadBranch;
 
 export interface PullRequestSummary {
   number: number;
