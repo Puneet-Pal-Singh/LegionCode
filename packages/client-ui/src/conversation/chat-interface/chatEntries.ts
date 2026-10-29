@@ -1,8 +1,5 @@
 import type { Message } from "@ai-sdk/react";
-import {
-  buildConversationTurns,
-  readCanonicalTurnId,
-} from "@legioncode/sdk";
+import { buildConversationTurns, readCanonicalTurnId } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
 
 export type ChatInterfaceEntry =
@@ -20,6 +17,7 @@ export type ChatInterfaceEntry =
       turnId: string;
       projection: LifecycleProjection;
       assistantMessage?: Message;
+      workflowHistory?: Extract<ChatInterfaceEntry, { kind: "workflow" }>[];
       historyStatus?: "revised" | "edited";
     };
 
@@ -148,40 +146,60 @@ export function buildChatEntries(
           : entry,
     );
     if (isContinuation) continue;
-    const latestContinuation = conversationTurn.userMessage
-      ? latestContinuationByPromptId.get(conversationTurn.userMessage.id)
+    const promptId = conversationTurn.userMessage?.id;
+    const latestContinuation = promptId
+      ? latestContinuationByPromptId.get(promptId)
       : undefined;
-    if (latestContinuation) {
+    const continuationEntries = promptId
+      ? continuationEntriesByPromptId.get(promptId)
+      : undefined;
+    if (latestContinuation && continuationEntries) {
+      const allEntries = [...turnEntries, ...continuationEntries];
+      const groupedEntries = groupWorkflowContinuations(
+        allEntries,
+        latestContinuation.turnId,
+      );
       entries.push(
-        ...turnEntries.map((entry) =>
-          entry.kind === "message" && entry.message.role === "user"
+        ...groupedEntries.map((entry) => {
+          const revisedEntry = markRevisedHistory(
+            entry,
+            promptId ?? latestContinuation.originalPromptId ?? "",
+            revisedPromptIds,
+          );
+          if (revisedEntry.kind !== "message") return revisedEntry;
+          return revisedEntry.message.role === "user"
             ? {
-                ...entry,
+                ...revisedEntry,
                 editTargetTurnId: latestContinuation.turnId,
                 editTargetTerminal: Boolean(latestContinuation.terminal),
               }
-            : entry,
-        ),
+            : revisedEntry;
+        }),
       );
     } else {
       entries.push(...turnEntries);
+      if (continuationEntries) {
+        entries.push(
+          ...continuationEntries.map((entry) =>
+            isTurnInRevisedBranch(promptId, revisedPromptIds)
+              ? { ...entry, historyStatus: "revised" as const }
+              : entry,
+          ),
+        );
+      }
     }
-    const promptId = conversationTurn.userMessage?.id;
-    if (!promptId) continue;
-    const continuationEntries = continuationEntriesByPromptId.get(promptId);
-    if (continuationEntries) {
-      entries.push(
-        ...continuationEntries.map((entry) =>
-          isTurnInRevisedBranch(promptId, revisedPromptIds)
-            ? { ...entry, historyStatus: "revised" as const }
-            : entry,
-        ),
-      );
-      continuationEntriesByPromptId.delete(promptId);
-    }
+    if (promptId) continuationEntriesByPromptId.delete(promptId);
   }
-  for (const remaining of continuationEntriesByPromptId.values()) {
-    entries.push(...remaining);
+  for (const [promptId, remaining] of continuationEntriesByPromptId) {
+    const latestContinuation = latestContinuationByPromptId.get(promptId);
+    const groupedEntries = latestContinuation
+      ? groupWorkflowContinuations(remaining, latestContinuation.turnId)
+      : remaining;
+    entries.push(
+      ...groupedEntries.map((entry) =>
+        markRevisedHistory(entry, promptId, revisedPromptIds),
+      ),
+    );
   }
   const orphanedActiveProjection = activeTurnId
     ? projectionsByTurnId[activeTurnId]
@@ -194,6 +212,50 @@ export function buildChatEntries(
     entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
   return entries;
+}
+
+function markRevisedHistory<T extends ChatInterfaceEntry>(
+  entry: T,
+  promptId: string,
+  revisedPromptIds: ReadonlySet<string>,
+): T {
+  const revisedEntry = isTurnInRevisedBranch(
+    entry.projection?.originalPromptId ?? promptId,
+    revisedPromptIds,
+  )
+    ? { ...entry, historyStatus: "revised" as const }
+    : entry;
+  if (revisedEntry.kind !== "workflow" || !revisedEntry.workflowHistory) {
+    return revisedEntry as T;
+  }
+  return {
+    ...revisedEntry,
+    workflowHistory: revisedEntry.workflowHistory.map((historicalEntry) =>
+      markRevisedHistory(historicalEntry, promptId, revisedPromptIds),
+    ),
+  } as T;
+}
+
+function groupWorkflowContinuations(
+  entries: ChatInterfaceEntry[],
+  latestTurnId: string,
+): ChatInterfaceEntry[] {
+  const latestWorkflowExists = entries.some(
+    (entry) => entry.kind === "workflow" && entry.turnId === latestTurnId,
+  );
+  if (!latestWorkflowExists) return entries;
+
+  const workflowHistory = entries.filter(
+    (entry): entry is Extract<ChatInterfaceEntry, { kind: "workflow" }> =>
+      entry.kind === "workflow" && entry.turnId !== latestTurnId,
+  );
+  return entries
+    .filter(
+      (entry) => entry.kind !== "workflow" || entry.turnId === latestTurnId,
+    )
+    .map((entry) =>
+      entry.kind === "workflow" ? { ...entry, workflowHistory } : entry,
+    );
 }
 
 function findRevisedPromptIds(

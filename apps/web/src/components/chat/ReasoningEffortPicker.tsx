@@ -30,7 +30,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
     selected === "default" || props.efforts.includes(selected)
       ? selected
       : "default";
-  const open = openKey === selectionKey;
+  const open = openKey === selectionKey && !props.disabled;
   const options: ReasoningEffortSelection[] = ["default", ...props.efforts];
   const [menuStyle, setMenuStyle] = useState<{
     bottom: number;
@@ -49,6 +49,12 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
       ),
     });
   }, []);
+
+  useEffect(() => {
+    if (!props.disabled) return;
+    const frame = requestAnimationFrame(() => setOpenKey(null));
+    return () => cancelAnimationFrame(frame);
+  }, [props.disabled]);
 
   useEffect(() => {
     if (!open) return;
