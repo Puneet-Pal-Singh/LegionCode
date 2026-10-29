@@ -29,11 +29,13 @@ export function WebChatInputBar({
     hasMessages,
     onModelSelect,
     isComposerActiveRun: Boolean(props.isLoading || props.canStop),
+    isComposerAvailable: !props.isHidden,
   });
   return (
     <ChatInputBar
       {...props}
       {...providerControls}
+      providerDialog={props.isHidden ? null : providerControls.providerDialog}
       composerPreferences={preferences}
       showContextWindowUsage={preferences.showContextWindowUsage}
     />

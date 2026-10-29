@@ -196,7 +196,7 @@ export function ChatInterface({
   // RunEvent and persisted activity backfills are deliberately not rendered.
   const awaitingCanonicalLifecycle =
     activeTurn.isTransportPending ||
-    (activeTurn.hasCanonicalTurn && !activeTurn.isReplayReady) ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
     (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
@@ -513,20 +513,22 @@ export function ChatInterface({
         ) ?? null
       }
       canResume={Boolean(
+        !activeRunLoading &&
         conversationScope &&
         activeTurn.projection?.terminal?.state === "interrupted" &&
         activeTurn.projection.workspaceSnapshotState === "captured" &&
         activeTurn.projection.resumeSnapshotAvailable === true,
       )}
-      onResume={() => {
+      onResume={async () => {
         const projection = activeTurn.projection;
         if (
           projection?.terminal?.state === "interrupted" &&
           projection.workspaceSnapshotState === "captured" &&
           projection.resumeSnapshotAvailable === true
         ) {
-          void chatProps.resumeInterruptedTurn(projection.lastSequence);
+          return chatProps.resumeInterruptedTurn(projection.lastSequence);
         }
+        return false;
       }}
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}

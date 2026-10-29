@@ -53,6 +53,7 @@ const PLAN_PLACEHOLDER =
 
 export interface ChatInputBarProps {
   composerPreferences?: ComposerPreferences;
+  isHidden?: boolean;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
   providerNotice?: ReactNode;
   providerQuota?: ReactNode;
@@ -68,6 +69,8 @@ export interface ChatInputBarProps {
     attachments: ChatSubmitAttachments | undefined,
     delivery: ComposerDelivery,
   ) => boolean | void | Promise<boolean | void>;
+  canResume?: boolean;
+  onResume?: () => Promise<boolean>;
   reviewComments?: ReviewCommentDraft[];
   onRemoveReviewComment?: (commentId: string) => void;
   reviewCommentError?: string | null;
@@ -106,6 +109,9 @@ export function ChatInputBar({
   onChange,
   onSubmit,
   onFollowUpSubmit,
+  canResume = false,
+  onResume,
+  isHidden = false,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -131,7 +137,7 @@ export function ChatInputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const imageDraft = useChatImageAttachmentDraft();
+  const imageDraft = useChatImageAttachmentDraft(!isHidden);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<
@@ -229,7 +235,7 @@ export function ChatInputBar({
       const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
       textareaRef.current.style.height = newHeight + "px";
     }
-  }, [input, hasInput]);
+  }, [hasInput, input, isHidden]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -802,7 +808,7 @@ export function ChatInputBar({
               <ChatComposerPermissionControl
                 value={permissionMode}
                 onChange={onPermissionModeChange}
-                disabled={isComposerActiveRun}
+                disabled={isComposerActiveRun || isHidden}
               />
 
               {providerQuota}
@@ -820,6 +826,8 @@ export function ChatInputBar({
               ) : null}
               <ComposerSubmitControls
                 isActive={isComposerActiveRun}
+                canResume={canResume && !canSubmit}
+                onResume={onResume}
                 canSubmit={canSubmit}
                 canSendMessage={canSendMessage}
                 canStop={shouldShowStop}
