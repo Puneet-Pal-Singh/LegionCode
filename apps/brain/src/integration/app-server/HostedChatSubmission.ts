@@ -35,6 +35,20 @@ export function hostedChatSubmissionResult(
   };
 }
 
+/** Keep the runtime response's unused body branch owned after App Server ACK dispatch. */
+export function scheduleHostedChatResponseDrain(
+  response: Response,
+  executionContext: ExecutionContext,
+): void {
+  executionContext.waitUntil(
+    response.arrayBuffer().catch((error: unknown) => {
+      console.error("[chat/runtime] App Server response drain failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }),
+  );
+}
+
 /** Runs the existing authorized chat submission through its canonical admission and runtime owners. */
 export async function submitHostedChat(
   req: Request,
