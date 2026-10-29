@@ -244,6 +244,13 @@ export function ChatInterface({
     },
     [chatProps, input, refreshQueue],
   );
+  const resolveQueueImageSource = useCallback(
+    (attachmentId: string) =>
+      resolveHydratedChatImageSource(
+        `/api/chat/media/${encodeURIComponent(attachmentId)}?session=${encodeURIComponent(sessionId)}`,
+      ),
+    [sessionId],
+  );
   const continuationRecovery =
     activeTurn.continuationStatus === "reconnecting" ||
     activeTurn.continuationStatus === "stopped"
@@ -488,6 +495,7 @@ export function ChatInterface({
           snapshot={queue.snapshot}
           error={queue.error}
           active={activeRunLoading}
+          resolveImageSource={resolveQueueImageSource}
           onUpdate={queue.update}
           onRemove={queue.remove}
           onSteer={queue.steer}
