@@ -205,6 +205,9 @@ function Transcript(props: ChatInterfaceViewProps) {
   return (
     <>
       {props.chatEntries.map((entry) => {
+        if (entry.kind === "history-record") {
+          return <ReadOnlyHistoryRecord key={entry.key} record={entry.record} />;
+        }
         if (entry.kind === "workflow") {
           return (
             <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
@@ -231,6 +234,50 @@ function Transcript(props: ChatInterfaceViewProps) {
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
+  );
+}
+
+function ReadOnlyHistoryRecord({
+  record,
+}: {
+  record: Extract<ChatInterfaceEntry, { kind: "history-record" }>['record'];
+}) {
+  const { source } = record;
+  const sourceContent = source.role === "tool" || source.role === "system"
+    ? source.content
+    : {
+        content: typeof source.content === "string"
+          ? source.content
+          : record.parts
+              .filter((part) => part.kind !== "text" || part.inspectable)
+              .map((part) => part.source),
+        ...(source.data ? { data: source.data } : {}),
+      };
+  const roleLabel = source.role === "tool"
+    ? "Tool result"
+    : source.role === "system"
+      ? "System message"
+      : `${source.role} source parts`;
+  const visibleContent = typeof sourceContent === "string"
+    ? sourceContent
+    : JSON.stringify(sourceContent, null, 2);
+  return (
+    <div className="group flex w-full gap-4" data-history-record-role={source.role}>
+      <div className="max-w-4xl flex-1 rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          <span>{roleLabel}</span>
+          <span className="normal-case tracking-normal">Source record {source.id}</span>
+        </div>
+        <details className="min-w-0 text-sm text-zinc-300">
+          <summary className="cursor-pointer select-none rounded text-zinc-400 hover:text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400">
+            Inspect original content
+          </summary>
+          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-zinc-800 bg-black/50 p-3 font-mono text-xs leading-relaxed text-zinc-200">
+            {visibleContent}
+          </pre>
+        </details>
+      </div>
+    </div>
   );
 }
 

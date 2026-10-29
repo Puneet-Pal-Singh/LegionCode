@@ -4,6 +4,7 @@ import {
   readCanonicalTurnId,
 } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
+import type { ConversationHistoryDisplayRecord } from "@legioncode/sdk";
 
 export type ChatInterfaceEntry =
   | {
@@ -21,12 +22,18 @@ export type ChatInterfaceEntry =
       projection: LifecycleProjection;
       assistantMessage?: Message;
       historyStatus?: "revised" | "edited";
+    }
+  | {
+      kind: "history-record";
+      key: string;
+      record: ConversationHistoryDisplayRecord;
     };
 
 export function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns<Message>>,
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>> = {},
   activeTurnId?: string | null,
+  historyDisplayRecords: readonly ConversationHistoryDisplayRecord[] = [],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
   const emittedWorkflowTurnIds = new Set<string>();
@@ -193,7 +200,30 @@ export function buildChatEntries(
   ) {
     entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
-  return entries;
+  const inspectableRecords = historyDisplayRecords
+    .filter((record) =>
+      record.source.role === "system" ||
+      record.source.role === "tool" ||
+      record.inspectable,
+    )
+    .map((record): ChatInterfaceEntry => ({
+      kind: "history-record",
+      key: `history:${record.sourceOrder}:${record.source.role}:${record.source.id}`,
+      record,
+    }));
+  return [...entries, ...inspectableRecords].sort(
+    (left, right) => entrySourceOrder(left) - entrySourceOrder(right),
+  );
+}
+
+function entrySourceOrder(entry: ChatInterfaceEntry): number {
+  if (entry.kind === "history-record") return entry.record.sourceOrder;
+  const message = entry.kind === "message" ? entry.message : entry.assistantMessage;
+  const metadata = message ? readMessageMetadata(message) : null;
+  const order = metadata?.conversationHistoryOrder;
+  return typeof order === "number" && Number.isSafeInteger(order)
+    ? order
+    : Number.MAX_SAFE_INTEGER;
 }
 
 function findRevisedPromptIds(

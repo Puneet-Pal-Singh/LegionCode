@@ -2,38 +2,20 @@ import type { Message } from "@ai-sdk/react";
 import {
   ConversationHistoryReadError,
   AppServerClientError,
+  projectConversationHistoryMessages,
   readConversationHistory,
+  type ConversationHistoryDisplayRecord,
   type ConversationHistoryPage,
 } from "@legioncode/sdk";
+import type { ConversationHistoryMessage } from "@repo/platform-protocol";
 import { createHostedAppServerClient } from "./api/appServerClient";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
-
-interface CorePart {
-  type: "text" | "tool-call";
-  text?: string;
-  toolName?: string;
-  toolCallId?: string;
-  args?: unknown;
-}
-
-type ServerMessagePart = CorePart | { type: string; [key: string]: unknown };
-
-type MessageWithMetadataData = Message & {
-  data: { metadata?: Record<string, unknown> };
-};
-
-interface ServerMessage {
-  id: string;
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | ServerMessagePart[];
-  createdAt: string;
-  data?: { metadata?: Record<string, unknown> };
-}
+type MessageWithMetadata = Message & { data?: { metadata?: Record<string, unknown> } };
 
 interface HistoryPagePayload {
-  messages: ServerMessage[];
+  messages: ConversationHistoryMessage[];
   nextCursor: string | null;
   snapshot: string;
 }
@@ -49,6 +31,7 @@ export type HydrationStatus =
 export interface HydrationResult {
   status: HydrationStatus;
   messages: Message[];
+  displayRecords: ConversationHistoryDisplayRecord[];
   snapshot?: string;
   nextCursor?: string;
   error?: string;
@@ -64,12 +47,13 @@ export class ChatHydrationService {
     logClientEvent("chat/hydration-service", "started", { requestId, sessionId });
 
     try {
-      const result = await readConversationHistory<ServerMessage>(
+      const result = await readConversationHistory<ConversationHistoryMessage>(
         async (cursor, snapshot, pageSignal) =>
           this.fetchHistoryPage(sessionId, cursor, snapshot, pageSignal),
         { signal },
       );
-      const messages = convertServerMessages(result.messages);
+      const displayRecords = projectConversationHistoryMessages(result.messages);
+      const messages = convertServerMessages(displayRecords);
       logClientEvent("chat/hydration-service", "completed", {
         requestId,
         sessionId,
@@ -78,19 +62,23 @@ export class ChatHydrationService {
         durationMs: Date.now() - startedAt,
       });
       return {
-        status: messages.length ? "readable" : "empty",
+        status: messages.length || displayRecords.length ? "readable" : "empty",
         messages,
+        displayRecords,
         snapshot: result.snapshot,
       };
     } catch (error) {
       const readError = error instanceof ConversationHistoryReadError
         ? error
         : new ConversationHistoryReadError(error instanceof Error ? error.message : String(error));
-      const messages = convertServerMessages(readError.messages as ServerMessage[]);
+      const displayRecords = projectConversationHistoryMessages(
+        readError.messages as ConversationHistoryMessage[],
+      );
+      const messages = convertServerMessages(displayRecords);
       const cancelled = signal?.aborted || readError.message.includes("cancelled");
       const status: HydrationStatus = cancelled
         ? "cancelled"
-        : messages.length
+        : messages.length || displayRecords.length
           ? "partial"
           : readError.message.startsWith("History fetch failed: 404")
             ? "recovery-required"
@@ -105,6 +93,7 @@ export class ChatHydrationService {
       return {
         status,
         messages,
+        displayRecords,
         ...(readError.snapshot ? { snapshot: readError.snapshot } : {}),
         error: cancelled ? undefined : readError.message,
       };
@@ -116,7 +105,7 @@ export class ChatHydrationService {
     cursor: string | null,
     snapshot: string | null,
     signal?: AbortSignal,
-  ): Promise<ConversationHistoryPage<ServerMessage>> {
+  ): Promise<ConversationHistoryPage<ConversationHistoryMessage>> {
     const pageRequestId = crypto.randomUUID();
     logClientEvent("chat/history", "page-requested", {
       requestId: pageRequestId,
@@ -150,54 +139,54 @@ export class ChatHydrationService {
   }
 }
 
-function convertServerMessages(history: ServerMessage[]): Message[] {
-  return history
-    .filter((msg) => msg.role !== "tool")
-    .map((msg, index) => {
-      let content = "";
-      const toolInvocations: ToolInvocation[] = [];
-      const metadata = msg.data?.metadata;
-
-      if (typeof msg.content === "string") {
-        content = msg.content;
-      } else if (Array.isArray(msg.content)) {
-        msg.content.forEach((part) => {
-          if (isCoreTextPart(part)) {
-            content += part.text;
-          } else if (isToolCallPart(part)) {
-            toolInvocations.push({
-              state: "result",
-              toolCallId: part.toolCallId || `history-tool-${index}`,
-              toolName: part.toolName || "unknown",
-              args: part.args || {},
-              result: null,
-            });
-          }
-        });
+function convertServerMessages(records: ConversationHistoryDisplayRecord[]): Message[] {
+  return records.flatMap((record) => {
+    const source = record.source;
+    if (source.role !== "user" && source.role !== "assistant") return [];
+    const content = record.parts
+      .filter((part) => part.kind === "text")
+      .map((part) => part.text ?? "")
+      .join("");
+    const toolInvocations: ToolInvocation[] = record.parts.flatMap((part) => {
+      if (
+        source.role !== "assistant" ||
+        part.kind !== "tool_call" ||
+        part.toolName !== "create_code_artifact" ||
+        !part.toolCallId ||
+        part.args === undefined
+      ) {
+        return [];
       }
-      const converted: Message = {
-        id: msg.id,
-        role: msg.role as "system" | "user" | "assistant",
-        content,
-        createdAt: new Date(msg.createdAt),
-      };
-      if (toolInvocations.length > 0) converted.toolInvocations = toolInvocations;
-      return metadata ? attachMessageData(converted, metadata) : converted;
+      return [{
+        state: "result" as const,
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        args: part.args,
+        result: null,
+      }];
     });
+    const metadata = {
+      ...(source.data?.metadata ?? {}),
+      conversationHistoryOrder: record.sourceOrder,
+    };
+    const converted: Message = {
+      id: source.id,
+      role: source.role,
+      content,
+      createdAt: new Date(source.createdAt),
+    };
+    if (toolInvocations.length > 0) converted.toolInvocations = toolInvocations;
+    return [attachMessageMetadata(converted, metadata)];
+  });
 }
 
-function summarizeServerMessages(messages: ServerMessage[]): string {
+function attachMessageMetadata(
+  message: Message,
+  metadata: Record<string, unknown>,
+): MessageWithMetadata {
+  return { ...message, data: { metadata } } as MessageWithMetadata;
+}
+
+function summarizeServerMessages(messages: ConversationHistoryMessage[]): string {
   return messages.map((message) => `${message.role}:${message.id ?? "missing"}`).join(",");
-}
-
-function isCoreTextPart(value: ServerMessagePart): value is CorePart & { type: "text"; text: string } {
-  return value.type === "text" && "text" in value && typeof value.text === "string" && value.text.length > 0;
-}
-
-function isToolCallPart(value: ServerMessagePart): value is CorePart & { type: "tool-call" } {
-  return value.type === "tool-call";
-}
-
-function attachMessageData(message: Message, metadata: Record<string, unknown>): Message {
-  return { ...message, data: { metadata } } as MessageWithMetadataData;
 }

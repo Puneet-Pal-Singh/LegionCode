@@ -14,9 +14,12 @@ import type { ConversationScopeHttpError } from "@legioncode/sdk";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
+import type { ConversationHistoryDisplayRecord } from "@legioncode/sdk";
+import type { VerifiedTranscriptSnapshot } from "./useChatHydration";
 
 export interface UseChatResult {
   messages: Message[];
+  historyDisplayRecords: ConversationHistoryDisplayRecord[];
   restoredUserMessageIds: ReadonlySet<string>;
   optimisticUserMessageId: string | null;
   input: string;
@@ -80,14 +83,29 @@ export function useChat(
   const [transcriptState, setTranscriptState] = useState<{
     sessionId: string;
     messages: Message[];
-  }>(() => ({ sessionId, messages: [] }));
+    displayRecords: ConversationHistoryDisplayRecord[];
+  }>(() => ({ sessionId, messages: [], displayRecords: [] }));
   const verifiedMessages = useMemo(
     () =>
       transcriptState.sessionId === sessionId ? transcriptState.messages : [],
     [sessionId, transcriptState.messages, transcriptState.sessionId],
   );
+  const verifiedDisplayRecords = useMemo(
+    () =>
+      transcriptState.sessionId === sessionId ? transcriptState.displayRecords : [],
+    [sessionId, transcriptState.displayRecords, transcriptState.sessionId],
+  );
   const setVerifiedMessages = useCallback(
-    (messages: Message[]) => setTranscriptState({ sessionId, messages }),
+    (messages: Message[]) =>
+      setTranscriptState((current) => ({
+        sessionId,
+        messages,
+        displayRecords: current.sessionId === sessionId ? current.displayRecords : [],
+      })),
+    [sessionId],
+  );
+  const setVerifiedSnapshot = useCallback(
+    (snapshot: VerifiedTranscriptSnapshot) => setTranscriptState({ sessionId, ...snapshot }),
     [sessionId],
   );
   const {
@@ -161,6 +179,8 @@ export function useChat(
         ? `${activeRunId}:${activeTurnProjection.turnId}:started`
         : `${activeRunId}:initial`,
     isSessionPersistenceReady,
+    verifiedDisplayRecords,
+    setVerifiedSnapshot,
   );
   const reviseTurnAfterAcceptance = useCallback(
     async (turnId: string, content: string) => {
@@ -185,6 +205,7 @@ export function useChat(
 
   return {
     messages,
+    historyDisplayRecords: verifiedDisplayRecords,
     restoredUserMessageIds,
     optimisticUserMessageId,
     input,
