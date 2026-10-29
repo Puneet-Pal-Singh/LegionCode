@@ -10,6 +10,8 @@ import {
   APP_SERVER_PROTOCOL_VERSION,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
+  CodeArtifactContentRequestSchema,
+  CodeArtifactContentResponseSchema,
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
   LocalWorkspaceGrantResponseSchema,
@@ -149,6 +151,7 @@ export const AppServerMethodSchema = z.enum([
   "artifact/reviewLatest",
   "artifact/reviewByMessage",
   "artifact/diff",
+  "artifact/codeContent",
 
   "workspace/list",
   "workspace/select",
@@ -216,6 +219,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewLatest"), params: ArtifactReviewLatestParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewByMessage"), params: ArtifactReviewByMessageParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/diff"), params: ArtifactDiffParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("artifact/codeContent"), params: CodeArtifactContentRequestSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -279,6 +283,7 @@ export const AppServerResultSchemas = {
   "artifact/reviewLatest": ArtifactReviewLookupResultSchema,
   "artifact/reviewByMessage": ArtifactReviewLookupResultSchema,
   "artifact/diff": EditArtifactDiffResponseSchema,
+  "artifact/codeContent": CodeArtifactContentResponseSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -342,6 +347,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("artifact/reviewLatest", AppServerResultSchemas["artifact/reviewLatest"]),
   success("artifact/reviewByMessage", AppServerResultSchemas["artifact/reviewByMessage"]),
   success("artifact/diff", AppServerResultSchemas["artifact/diff"]),
+  success("artifact/codeContent", AppServerResultSchemas["artifact/codeContent"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),

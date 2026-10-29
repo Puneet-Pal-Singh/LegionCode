@@ -148,6 +148,12 @@ export {
   type ConversationHistoryResponse,
 } from "./conversation-history.js";
 export {
+  CodeArtifactContentRequestSchema,
+  CodeArtifactContentResponseSchema,
+  type CodeArtifactContentRequest,
+  type CodeArtifactContentResponse,
+} from "./code-artifact-content.js";
+export {
   TurnStartedPayloadSchema,
   type TurnStartedPayload,
 } from "./lifecycle.js";
