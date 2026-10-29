@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   check,
+  customType,
   foreignKey,
   index,
   jsonb,
@@ -114,6 +115,7 @@ export const sessions = pgTable(
     uniqueIndex("sessions_thread_id_unique_idx")
       .on(table.threadId)
       .where(sql`${table.threadId} IS NOT NULL`),
+    uniqueIndex("sessions_id_user_id_unique_idx").on(table.id, table.userId),
     index("sessions_user_archived_updated_idx").on(
       table.userId,
       table.archivedAt,
@@ -124,6 +126,45 @@ export const sessions = pgTable(
     index("sessions_task_idx").on(table.taskId),
     index("sessions_workspace_idx").on(table.workspaceId),
     index("sessions_thread_id_idx").on(table.threadId),
+  ],
+);
+
+const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
+  dataType: () => "bytea",
+});
+
+export const legacyHistoryImportReceipts = pgTable(
+  "legacy_history_import_receipts",
+  {
+    sourceEnvironment: text("source_environment").notNull(),
+    sourceNamespace: text("source_namespace").notNull(),
+    sourceDoId: text("source_do_id").notNull(),
+    sourceStorageKey: text("source_storage_key").notNull(),
+    inventorySha256: text("inventory_sha256").notNull(),
+    inventoryCutoff: timestamp("inventory_cutoff", { withTimezone: true }).notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    githubSubject: text("github_subject").notNull(),
+    userId: uuid("user_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    destinationRefs: jsonb("destination_refs").notNull(),
+    sourceCreatedAt: timestamp("source_created_at", { withTimezone: true }),
+    sourceRaw: bytea("source_raw").notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("legacy_history_import_receipts_source_idx").on(
+      table.sourceEnvironment,
+      table.sourceNamespace,
+      table.sourceDoId,
+      table.sourceStorageKey,
+    ),
+    foreignKey({
+      columns: [table.sessionId, table.userId],
+      foreignColumns: [sessions.id, sessions.userId],
+      name: "legacy_history_import_receipts_owned_session_fk",
+    }).onDelete("restrict"),
   ],
 );
 

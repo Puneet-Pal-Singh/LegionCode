@@ -33,6 +33,7 @@ import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
 import { threadTitleReadReceiptsMigration } from "./0023-thread-title-read-receipts.js";
 import { sessionReadReceiptsMigration } from "./0033-session-read-receipts.js";
 import { threadInputsAndContinuationsMigration } from "./0033-thread-inputs-and-continuations.js";
+import { legacyHistoryImportReceiptsMigration } from "./0034-legacy-history-import-receipts.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -110,4 +111,5 @@ export const persistenceMigrations = [
   chatDurabilityMigration,
   sessionReadReceiptsMigration,
   threadInputsAndContinuationsMigration,
+  legacyHistoryImportReceiptsMigration,
 ] as const;
