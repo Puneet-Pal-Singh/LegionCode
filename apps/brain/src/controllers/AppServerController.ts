@@ -12,6 +12,7 @@ import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnC
 import { composeHostedThreadInputOperations } from "../integration/app-server/HostedThreadInputOperations";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
+import { composeHostedRepositoryReads } from "../integration/app-server/HostedRepositoryReads";
 import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
 
 import { getCorsHeaders } from "../lib/cors";
@@ -82,6 +83,7 @@ export const AppServerController = {
     let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
+    let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
@@ -108,6 +110,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
+        hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
       } catch (error) {
         const inputMethod = isThreadInputMethod(parsed.data.method);
         const sessionStoreUnavailable = isSessionStoreUnavailableError(error);
@@ -152,6 +155,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
+        hostedRepositoryReadService,
       },
     );
     return json(env, request, result.statusCode, result.payload);
