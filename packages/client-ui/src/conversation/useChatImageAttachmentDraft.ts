@@ -164,23 +164,24 @@ export function useChatImageAttachmentDraft(enabled = true) {
   );
 
   useEffect(() => {
-    if (!enabled) return;
-
     const handleWindowDragOver = (event: DragEvent) => {
-      if (!enabledRef.current || !event.dataTransfer?.types.includes("Files"))
-        return;
+      if (!event.dataTransfer?.types.includes("Files")) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
-      setIsDraggingImages(true);
+      if (enabledRef.current) setIsDraggingImages(true);
     };
     const handleWindowDrop = (event: DragEvent) => {
-      if (!enabledRef.current || !event.dataTransfer?.types.includes("Files"))
-        return;
-      // A drop on the composer already ran the scoped handler. The window
-      // listener only owns drops over the surrounding chat surface.
-      if (event.defaultPrevented) return;
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      const alreadyHandled = event.defaultPrevented;
+      // Always prevent the browser from opening dropped files. When the
+      // composer is hidden, the approval dock owns the visible footer and
+      // dropped files must not be captured into the hidden draft.
       event.preventDefault();
       setIsDraggingImages(false);
+      if (!enabledRef.current) return;
+      // A drop on the composer already ran the scoped handler. The window
+      // listener only owns drops over the surrounding chat surface.
+      if (alreadyHandled) return;
       void addFiles(Array.from(event.dataTransfer.files), "upload");
     };
     const clearWindowDragState = () => setIsDraggingImages(false);
@@ -199,7 +200,7 @@ export function useChatImageAttachmentDraft(enabled = true) {
       window.removeEventListener("dragleave", handleWindowDragLeave);
       if (!enabledRef.current) setIsDraggingImages(false);
     };
-  }, [addFiles, enabled]);
+  }, [addFiles]);
 
   useEffect(() => {
     const detachedAttachments = detachedAttachmentsRef.current;
