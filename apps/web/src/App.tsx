@@ -936,7 +936,7 @@ function AppContent() {
       >
 
         {/* Main Workspace Layer */}
-        <div className="flex-1 flex overflow-hidden relative bg-black">
+        <div className="flex min-h-0 flex-1 overflow-hidden relative bg-black">
           <AnimatePresence initial={false} mode="wait">
             {activeSessionId && activeSession ? (
               <SessionConversationSurface
