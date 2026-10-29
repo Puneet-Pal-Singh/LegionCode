@@ -155,27 +155,10 @@ export function buildChatEntries(
       : undefined;
     if (latestContinuation && continuationEntries) {
       const allEntries = [...turnEntries, ...continuationEntries];
-      const latestWorkflow = allEntries.find(
-        (entry): entry is Extract<ChatInterfaceEntry, { kind: "workflow" }> =>
-          entry.kind === "workflow" &&
-          entry.turnId === latestContinuation.turnId,
+      const groupedEntries = groupWorkflowContinuations(
+        allEntries,
+        latestContinuation.turnId,
       );
-      const workflowHistory = allEntries.filter(
-        (entry): entry is Extract<ChatInterfaceEntry, { kind: "workflow" }> =>
-          entry.kind === "workflow" &&
-          entry.turnId !== latestContinuation.turnId,
-      );
-      const groupedEntries = latestWorkflow
-        ? allEntries
-            .filter(
-              (entry) =>
-                entry.kind !== "workflow" ||
-                entry.turnId === latestContinuation.turnId,
-            )
-            .map((entry) =>
-              entry.kind === "workflow" ? { ...entry, workflowHistory } : entry,
-            )
-        : allEntries;
       entries.push(
         ...groupedEntries.map((entry) => {
           if (entry.kind !== "message") return entry;
@@ -208,8 +191,13 @@ export function buildChatEntries(
     }
     if (promptId) continuationEntriesByPromptId.delete(promptId);
   }
-  for (const remaining of continuationEntriesByPromptId.values()) {
-    entries.push(...remaining);
+  for (const [promptId, remaining] of continuationEntriesByPromptId) {
+    const latestContinuation = latestContinuationByPromptId.get(promptId);
+    entries.push(
+      ...(latestContinuation
+        ? groupWorkflowContinuations(remaining, latestContinuation.turnId)
+        : remaining),
+    );
   }
   const orphanedActiveProjection = activeTurnId
     ? projectionsByTurnId[activeTurnId]
@@ -222,6 +210,28 @@ export function buildChatEntries(
     entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
   return entries;
+}
+
+function groupWorkflowContinuations(
+  entries: ChatInterfaceEntry[],
+  latestTurnId: string,
+): ChatInterfaceEntry[] {
+  const latestWorkflowExists = entries.some(
+    (entry) => entry.kind === "workflow" && entry.turnId === latestTurnId,
+  );
+  if (!latestWorkflowExists) return entries;
+
+  const workflowHistory = entries.filter(
+    (entry): entry is Extract<ChatInterfaceEntry, { kind: "workflow" }> =>
+      entry.kind === "workflow" && entry.turnId !== latestTurnId,
+  );
+  return entries
+    .filter(
+      (entry) => entry.kind !== "workflow" || entry.turnId === latestTurnId,
+    )
+    .map((entry) =>
+      entry.kind === "workflow" ? { ...entry, workflowHistory } : entry,
+    );
 }
 
 function findRevisedPromptIds(

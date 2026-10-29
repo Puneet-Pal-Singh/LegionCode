@@ -22,12 +22,14 @@ export function useWebComposerProviderControls({
   onModelSelect,
   hasMessages = false,
   isComposerActiveRun,
+  isComposerAvailable = true,
 }: {
   runId?: string;
   sessionId: string;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   hasMessages?: boolean;
   isComposerActiveRun: boolean;
+  isComposerAvailable?: boolean;
 }) {
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
@@ -39,6 +41,16 @@ export function useWebComposerProviderControls({
   const [providerDialogVariant, setProviderDialogVariant] = useState<
     "full" | "connect-only" | "manage-models-only"
   >("full");
+  useEffect(() => {
+    if (isComposerAvailable) return;
+    const frame = requestAnimationFrame(() => {
+      setShowProviderDialog(false);
+      setProviderDialogInitialTab(undefined);
+      setProviderDialogInitialView("default");
+      setProviderDialogVariant("full");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isComposerAvailable]);
   const {
     catalog,
     credentials,

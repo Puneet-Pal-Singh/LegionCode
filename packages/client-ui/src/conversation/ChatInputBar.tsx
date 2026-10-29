@@ -133,7 +133,7 @@ export function ChatInputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const imageDraft = useChatImageAttachmentDraft();
+  const imageDraft = useChatImageAttachmentDraft(!isHidden);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<
@@ -795,7 +795,7 @@ export function ChatInputBar({
               <ChatComposerPermissionControl
                 value={permissionMode}
                 onChange={onPermissionModeChange}
-                disabled={isComposerActiveRun}
+                disabled={isComposerActiveRun || isHidden}
               />
 
               {providerQuota}

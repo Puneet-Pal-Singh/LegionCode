@@ -7,7 +7,9 @@ import {
 
 type AttachmentSource = "paste" | "upload";
 
-export function useChatImageAttachmentDraft() {
+export function useChatImageAttachmentDraft(enabled = true) {
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const attachmentsRef = useRef<ChatImageAttachment[]>([]);
   const detachedAttachmentsRef = useRef(new Map<string, ChatImageAttachment>());
   const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
@@ -161,49 +163,56 @@ export function useChatImageAttachmentDraft() {
     [addFiles],
   );
 
-  useEffect(
-    () => {
-      const detachedAttachments = detachedAttachmentsRef.current;
-      const handleWindowDragOver = (event: DragEvent) => {
-        if (!event.dataTransfer?.types.includes("Files")) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        setIsDraggingImages(true);
-      };
-      const handleWindowDrop = (event: DragEvent) => {
-        if (!event.dataTransfer?.types.includes("Files")) return;
-        // A drop on the composer already ran the scoped handler. The window
-        // listener only owns drops over the surrounding chat surface.
-        if (event.defaultPrevented) return;
-        event.preventDefault();
-        setIsDraggingImages(false);
-        void addFiles(Array.from(event.dataTransfer.files), "upload");
-      };
-      const clearWindowDragState = () => setIsDraggingImages(false);
-      const handleWindowDragLeave = (event: DragEvent) => {
-        if (event.relatedTarget === null) clearWindowDragState();
-      };
+  useEffect(() => {
+    if (!enabled) return;
 
-      window.addEventListener("dragover", handleWindowDragOver);
-      window.addEventListener("drop", handleWindowDrop);
-      window.addEventListener("dragend", clearWindowDragState);
-      window.addEventListener("dragleave", handleWindowDragLeave);
-      return () => {
-        window.removeEventListener("dragover", handleWindowDragOver);
-        window.removeEventListener("drop", handleWindowDrop);
-        window.removeEventListener("dragend", clearWindowDragState);
-        window.removeEventListener("dragleave", handleWindowDragLeave);
-        for (const attachment of attachmentsRef.current) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-        for (const attachment of detachedAttachments.values()) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-        detachedAttachments.clear();
-      };
-    },
-    [addFiles],
-  );
+    const handleWindowDragOver = (event: DragEvent) => {
+      if (!enabledRef.current || !event.dataTransfer?.types.includes("Files"))
+        return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setIsDraggingImages(true);
+    };
+    const handleWindowDrop = (event: DragEvent) => {
+      if (!enabledRef.current || !event.dataTransfer?.types.includes("Files"))
+        return;
+      // A drop on the composer already ran the scoped handler. The window
+      // listener only owns drops over the surrounding chat surface.
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      setIsDraggingImages(false);
+      void addFiles(Array.from(event.dataTransfer.files), "upload");
+    };
+    const clearWindowDragState = () => setIsDraggingImages(false);
+    const handleWindowDragLeave = (event: DragEvent) => {
+      if (event.relatedTarget === null) clearWindowDragState();
+    };
+
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("drop", handleWindowDrop);
+    window.addEventListener("dragend", clearWindowDragState);
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("drop", handleWindowDrop);
+      window.removeEventListener("dragend", clearWindowDragState);
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      if (!enabledRef.current) setIsDraggingImages(false);
+    };
+  }, [addFiles, enabled]);
+
+  useEffect(() => {
+    const detachedAttachments = detachedAttachmentsRef.current;
+    return () => {
+      for (const attachment of attachmentsRef.current) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+      for (const attachment of detachedAttachments.values()) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+      detachedAttachments.clear();
+    };
+  }, []);
 
   return {
     attachments,
