@@ -82,15 +82,19 @@ binary/no-line-change, known-stat preservation and hunk context behavior remain.
 
 | Responsibility | Canonical owner | Active consumers |
 | --- | --- | --- |
-| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and cold-storage loader. |
+| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and session-bound artifact content loader. |
 | Artifact-open callback types | `client-ui/src/conversation/artifactOpen.ts` | Shared message/artifact UI and Web workflow/conversation callers use the same type. |
 | Hosted hydrated-image URL binding | Web `chatMessageImagePresentation.ts` | Existing scoped-path validation and Brain base resolution supplied explicitly to ChatMessage. |
-| Existing cold-storage artifact transport | Web `services/ArtifactService.ts` until 058.3E | Existing Muscle artifact fetch supplied as callback; move required typed operation to SDK/App Server during the artifact operation slice, then delete this Web transport. |
+| Existing code-artifact preview reads | Brain `HostedCodeArtifactReads` composed after authenticated App Server dispatch; SDK `artifact/codeContent` is the typed client boundary | Web ChatInterface captures the authenticated session and supplies a cancellable loader; shared ArtifactPreview/MessageArtifacts display inline strings and exact persisted `r2_ref` values, opening resolved content. Brain authorizes only exact genuine persisted `create_code_artifact.args.content` membership in that principal's pinned transcript pages, then reads the unchanged object through Secure's internal service binding. Receipt-backed imported history uses its server-verified provenance mapping. |
 
 Replaced Web message/rendering/helpers are deleted. Only active host URL/HTTP
-bindings remain, with the artifact transport deletion trigger above. Existing
-message integration safeguards stay at the Web boundary to cover its bindings.
-No product HTTP/storage authority or Web imports enter shared presentation.
+bindings remain. The old `loadColdStorageArtifact` Web transport and public
+key-only `/artifact` reader are removed only after real consumers and every
+known inventoried preview reference have replacement coverage. Existing
+ArtifactService state methods remain. Every inventoried R2 object, DO record,
+key, and byte stays preserved; unmatched objects receive no key-prefix or
+first-viewer authorization, and the local inventory does not establish cloud
+coverage. Shared preview presentation owns no fetch/auth/SDK composition.
 
 ## Plan 058.2D — Full diff and review renderers
 
