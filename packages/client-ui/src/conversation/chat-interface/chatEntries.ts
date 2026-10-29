@@ -161,13 +161,12 @@ export function buildChatEntries(
       );
       entries.push(
         ...groupedEntries.map((entry) => {
-          if (entry.kind !== "message") return entry;
-          const revisedEntry = isTurnInRevisedBranch(
-            entry.projection?.originalPromptId ?? promptId,
+          const revisedEntry = markRevisedHistory(
+            entry,
+            promptId ?? latestContinuation.originalPromptId ?? "",
             revisedPromptIds,
-          )
-            ? { ...entry, historyStatus: "revised" as const }
-            : entry;
+          );
+          if (revisedEntry.kind !== "message") return revisedEntry;
           return revisedEntry.message.role === "user"
             ? {
                 ...revisedEntry,
@@ -193,10 +192,13 @@ export function buildChatEntries(
   }
   for (const [promptId, remaining] of continuationEntriesByPromptId) {
     const latestContinuation = latestContinuationByPromptId.get(promptId);
+    const groupedEntries = latestContinuation
+      ? groupWorkflowContinuations(remaining, latestContinuation.turnId)
+      : remaining;
     entries.push(
-      ...(latestContinuation
-        ? groupWorkflowContinuations(remaining, latestContinuation.turnId)
-        : remaining),
+      ...groupedEntries.map((entry) =>
+        markRevisedHistory(entry, promptId, revisedPromptIds),
+      ),
     );
   }
   const orphanedActiveProjection = activeTurnId
@@ -210,6 +212,28 @@ export function buildChatEntries(
     entries.push(createWorkflowEntry(orphanedActiveProjection));
   }
   return entries;
+}
+
+function markRevisedHistory<T extends ChatInterfaceEntry>(
+  entry: T,
+  promptId: string,
+  revisedPromptIds: ReadonlySet<string>,
+): T {
+  const revisedEntry = isTurnInRevisedBranch(
+    entry.projection?.originalPromptId ?? promptId,
+    revisedPromptIds,
+  )
+    ? { ...entry, historyStatus: "revised" as const }
+    : entry;
+  if (revisedEntry.kind !== "workflow" || !revisedEntry.workflowHistory) {
+    return revisedEntry as T;
+  }
+  return {
+    ...revisedEntry,
+    workflowHistory: revisedEntry.workflowHistory.map((historicalEntry) =>
+      markRevisedHistory(historicalEntry, promptId, revisedPromptIds),
+    ),
+  } as T;
 }
 
 function groupWorkflowContinuations(
