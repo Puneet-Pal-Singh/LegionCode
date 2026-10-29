@@ -167,14 +167,14 @@ export function buildChatEntries(
       );
       const groupedEntries = latestWorkflow
         ? allEntries
-            .map((entry) =>
-              entry.kind === "workflow"
-                ? entry.turnId === latestContinuation.turnId
-                  ? { ...entry, workflowHistory }
-                  : null
-                : entry,
+            .filter(
+              (entry) =>
+                entry.kind !== "workflow" ||
+                entry.turnId === latestContinuation.turnId,
             )
-            .filter((entry): entry is ChatInterfaceEntry => entry !== null)
+            .map((entry) =>
+              entry.kind === "workflow" ? { ...entry, workflowHistory } : entry,
+            )
         : allEntries;
       entries.push(
         ...groupedEntries.map((entry) => {

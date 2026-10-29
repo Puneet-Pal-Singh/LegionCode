@@ -414,7 +414,7 @@ function TerminalMessage(
         className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
       >
         <span className="mt-0.5 text-zinc-500" aria-hidden="true">
-          {terminal.state === "interrupted" ? "■" : "!"}
+          !
         </span>
         <p className="leading-5 text-zinc-300">
           {terminal.content ||

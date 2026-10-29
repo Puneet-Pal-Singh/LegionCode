@@ -4,7 +4,6 @@ import {
   X,
   FileText,
   Folder,
-  Play,
   FileCode2,
   Info,
   TerminalSquare,
