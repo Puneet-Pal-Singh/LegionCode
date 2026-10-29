@@ -625,7 +625,7 @@ export function Workspace({
       >
         <div className="ui-center-surface flex min-h-0 flex-1 overflow-hidden relative">
           {/* Chat Area */}
-          <main className="ui-center-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <main className="ui-center-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-clip">
             {initialPromptSubmission &&
             initialPromptSubmission.status === "failed" ? (
               <div
