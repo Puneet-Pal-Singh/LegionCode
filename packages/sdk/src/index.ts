@@ -28,6 +28,11 @@ export type {
 } from "./platform/submission-attempt-registry.js";
 export { hasCanonicalLifecycleEvidence } from "./platform/submission-evidence.js";
 export {
+  submitConversationMessage,
+  type ConversationSubmissionBindings,
+  type ConversationSubmissionDispatch,
+} from "./platform/conversation-submission.js";
+export {
   AppServerTransportError,
   createAppServerHttpTransport,
   type AppServerHttpTransportOptions,
