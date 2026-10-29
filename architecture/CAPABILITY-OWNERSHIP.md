@@ -443,13 +443,14 @@ and existing-profile data preservation in the later authority slice.
 
 | Responsibility | Canonical owner | Active producers and consumers |
 | --- | --- | --- |
-| GitHub repository list, branch list, tree, and repository file contents | The existing authenticated GitHub client from Brain `getGitHubClient`; hosted repository reads bind the cookie-verified App Server principal and delegate to this client | The existing `GitHubController` behavior remains the source for GitHub query semantics while the four active Web query groups move to SDK/App Server operations. `AuthorizedRepositoryPicker`, `ChatBranchSelector`, `EnvironmentSummaryMenu`, `useGitHubTree`, and `useFileLoader` remain the consumers; the Web session/login/logout/OAuth snapshot flow remains Web host glue. Branch/tree request coalescing is scoped to the verified account and cleared when that account changes. Failures remain explicit rather than becoming cached empty results. |
+| GitHub repository list, branch list, tree, and repository file contents | Brain `RepositoryReadService` over the existing authenticated GitHub client from `getGitHubClient`; hosted reads bind the cookie-verified App Server principal and delegate to this client | `AuthorizedRepositoryPicker`, `ChatBranchSelector`, `EnvironmentSummaryMenu`, `useGitHubTree`, and `useFileLoader` consume the four typed SDK/App Server operations; the Web session/login/logout/OAuth snapshot flow remains Web host glue. Branch/tree request coalescing is scoped to the verified account and cleared when that account changes. Failures remain explicit rather than becoming cached empty results. The replaced `/api/github` query and inactive pull-request routes are retired after caller audit; run-based pull-request mutations remain on their active path. |
 | Mounted workspace file listing and reads | Unresolved; the current Web `FileExplorer` and `useFileLoader` call the legacy `terminalCommandPath` endpoint directly | The current `filesystem.list_files` and `filesystem.read_file` schemas exist for runtime tool execution, but no supported hosted owned-checkout read contract is established by this transport. Keep these mounted consumers and endpoint until a supported owned contract is wired; do not treat repository contents as a replacement for workspace reads. |
 
-The repository query migration removes only replaced Web query routes after all
-five query consumers use the hosted SDK operation and the existing GitHub client
-owner. It does not retire GitHub authentication/session routes or the separately
-active run-based pull-request mutation path.
+The repository query migration retires the replaced Brain `/api/github` query
+routes and inactive pull-request routes after all five Web query consumers use
+the hosted SDK operation and existing GitHub client owner. It does not retire
+GitHub authentication/session routes or the separately active run-based
+pull-request mutation path.
 
 ## Plan 058.3B — Hosted provider discovery
 
