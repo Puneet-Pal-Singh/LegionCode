@@ -54,6 +54,13 @@ export function AuthorizedRepositoryPicker({
 
   const loadRepositories = async () => {
     const requestId = ++repositoryRequestRef.current;
+    setRepositoryAccountId(currentAccountId);
+    setRepos([]);
+    setSelectedRepo(null);
+    setSelectedBranch("");
+    setBranches([]);
+    setBranchState("ready");
+    setOpenError(null);
     setRepoState("loading");
     try {
       const nextRepos = await GitHubService.listRepositories("all", "updated");
@@ -83,7 +90,15 @@ export function AuthorizedRepositoryPicker({
         requestAnimationFrame(() => searchRef.current?.focus());
       })
       .catch(() => {
-        if (requestId === repositoryRequestRef.current) setRepoState("error");
+        if (requestId !== repositoryRequestRef.current) return;
+        setRepos([]);
+        setSelectedRepo(null);
+        setSelectedBranch("");
+        setBranches([]);
+        setBranchState("ready");
+        setOpenError(null);
+        setRepositoryAccountId(currentAccountId);
+        setRepoState("error");
       });
     return () => {
       if (repositoryRequestRef.current === requestId) {
