@@ -249,7 +249,7 @@ export function ChatInputBar({
   }, [input, cursorPosition]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
       return;
     }
 
@@ -299,6 +299,7 @@ export function ChatInputBar({
       shiftKey: e.shiftKey,
       metaKey: e.metaKey,
       ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
       isComposing: e.nativeEvent.isComposing,
       isActive: isComposerActiveRun,
       preferences: composerPreferences,
