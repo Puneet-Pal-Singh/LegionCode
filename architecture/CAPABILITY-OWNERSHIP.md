@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed, interrupted, unsettled, and already-expired paths do not gain a retention window. |
 | Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles the checkout; its existing final release retains only successfully settled completion and releases all other outcomes immediately. |
-| Persisted expiry alarm and physical sandbox cleanup | Existing Secure Agent API `AgentRuntime` Durable Object | Persisted `execution:session:` references schedule the earliest nested lease expiry; cleanup survives DO reload, protects another unexpired reference to the same sandbox, removes a record only after successful release/destruction, and keeps failure evidence with a bounded retry delay. |
+| Persisted expiry alarm and physical sandbox cleanup | Existing Secure Agent API `AgentRuntime` Durable Object | Persisted `execution:session:` references schedule the earliest nested lease expiry; cleanup and immediate release use the persisted exact lease after DO reload, protect another unexpired reference to the same sandbox, and remove records only after successful destruction. A durable cleanup marker blocks same-sandbox reuse while a bounded destroy is outstanding; failures retain their records and retry with bounded backoff. |
 
 This is the approved original-lease retention policy for explicit Current Git
 reads. Retention does not renew or extend the original nested lease, use the

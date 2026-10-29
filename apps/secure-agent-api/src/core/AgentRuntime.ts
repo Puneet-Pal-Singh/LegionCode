@@ -58,6 +58,7 @@ interface RuntimeSessionRecord {
   cleanupAttempts?: number;
   cleanupFailureCode?: "SANDBOX_CLEANUP_FAILED";
   cleanupRetryAt?: number;
+  cleanupInProgress?: boolean;
 }
 
 interface RuntimeSessionLogEntry {
@@ -72,6 +73,7 @@ const EXECUTION_SESSION_KEY_PREFIX = "execution:session:";
 const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
 const CLEANUP_RETRY_BASE_MS = 15_000;
 const CLEANUP_RETRY_MAX_MS = 5 * 60_000;
+const SANDBOX_DESTROY_TIMEOUT_MS = 15_000;
 
 export class AgentRuntime extends DurableObject {
   private readonly workspaceRuntimes = new Map<string, ComposedRuntime>();
@@ -172,7 +174,34 @@ export class AgentRuntime extends DurableObject {
         },
       };
     }
-    const runtime = await this.ensureComposedRuntime(input.lease);
+    const runtime = await this.ctx.blockConcurrencyWhile(async () => {
+      const persisted = await this.ctx.storage.get<RuntimeSessionRecord>(
+        this.getExecutionSessionKey(sessionId),
+      );
+      if (
+        !persisted ||
+        persisted.cleanupInProgress ||
+        persisted.lease.leaseId !== input.lease.leaseId ||
+        persisted.lease.sandboxId !== input.lease.sandboxId ||
+        persisted.lease.generation !== input.lease.generation
+      ) {
+        return null;
+      }
+      return await this.ensureComposedRuntime(input.lease);
+    });
+    if (!runtime) {
+      return {
+        taskId: input.taskId,
+        leaseId: input.lease.leaseId,
+        correlationId: input.lease.correlationId,
+        status: "sandbox_unavailable",
+        retryable: true,
+        error: {
+          code: "SANDBOX_CLEANUP_IN_PROGRESS",
+          message: "The persisted sandbox lease is unavailable for execution",
+        },
+      };
+    }
     const result = await runtime.executionPort.executeTask(
       input.lease.leaseId,
       input,
@@ -183,6 +212,7 @@ export class AgentRuntime extends DurableObject {
       if (!health.healthy) {
         this.workspaceRuntimes.delete(workspaceLeaseKey(input.lease));
       }
+      await this.releaseLease(input.lease.leaseId);
     }
     return result;
   }
@@ -201,14 +231,67 @@ export class AgentRuntime extends DurableObject {
   }
 
   async releaseLease(leaseId: string): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const records = await this.listExecutionSessions();
+      const owned = records.filter(
+        ([, session]) => session.lease.leaseId === leaseId,
+      );
+      if (owned.length === 0) {
+        await this.releaseLoadedLease(leaseId);
+        return;
+      }
+
+      const now = Date.now();
+      const ownedIds = new Set(owned.map(([key]) => key));
+      const sandboxIds = new Set(
+        owned.map(([, session]) => session.lease.sandboxId),
+      );
+      for (const sandboxId of sandboxIds) {
+        const group = records.filter(
+          ([, session]) => session.lease.sandboxId === sandboxId,
+        );
+        const hasOtherLiveReference = group.some(
+          ([key, session]) =>
+            !ownedIds.has(key) &&
+            !session.cleanupInProgress &&
+            session.lease.expiresAt > now,
+        );
+
+        if (hasOtherLiveReference) {
+          await this.releaseLoadedLease(leaseId);
+          continue;
+        }
+
+        await this.markSandboxCleanupInProgress(group);
+        try {
+          await this.releaseLoadedLease(leaseId);
+        } catch {
+          await this.persistSandboxCleanupRetry(group, now);
+          await this.scheduleExecutionSessionAlarm();
+          throw new Error(
+            "Sandbox lease release failed; cleanup will be retried",
+          );
+        }
+
+        const cleaned = await this.cleanupSandbox(sandboxId, group, now);
+        if (!cleaned) {
+          await this.scheduleExecutionSessionAlarm();
+          throw new Error("Sandbox cleanup failed; cleanup will be retried");
+        }
+      }
+      await this.scheduleExecutionSessionAlarm();
+    });
+  }
+
+  private async releaseLoadedLease(leaseId: string): Promise<void> {
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const release = await runtime.executionPort.releaseLease(leaseId);
+      const release = await runtime.executionPort.releaseLease(leaseId, {
+        destroySandbox: false,
+      });
       if (release.sandboxReleased) {
         this.workspaceRuntimes.delete(workspaceKey);
       }
-      if (release.released) {
-        return;
-      }
+      if (release.released) return;
     }
   }
 
@@ -223,6 +306,18 @@ export class AgentRuntime extends DurableObject {
     session: RuntimeSessionRecord,
   ): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
+      const sessions = await this.listExecutionSessions();
+      const sessionKey = this.getExecutionSessionKey(sessionId);
+      if (
+        sessions.some(
+          ([key, existing]) =>
+            existing.cleanupInProgress &&
+            (key === sessionKey ||
+              existing.lease.sandboxId === session.lease.sandboxId),
+        )
+      ) {
+        throw new Error("Sandbox cleanup is in progress for this lease");
+      }
       await this.ctx.storage.put(
         this.getExecutionSessionKey(sessionId),
         session,
@@ -246,10 +341,11 @@ export class AgentRuntime extends DurableObject {
       }
 
       for (const [sandboxId, group] of bySandbox) {
-        const expired = group.filter(
-          ([, session]) => session.lease.expiresAt <= now,
+        const cleanupCandidates = group.filter(
+          ([, session]) =>
+            session.cleanupInProgress || session.lease.expiresAt <= now,
         );
-        const due = expired.filter(
+        const due = cleanupCandidates.filter(
           ([, session]) =>
             session.cleanupRetryAt === undefined ||
             session.cleanupRetryAt <= now,
@@ -257,48 +353,13 @@ export class AgentRuntime extends DurableObject {
         if (due.length === 0) continue;
 
         const hasLiveReference = group.some(
-          ([, session]) => session.lease.expiresAt > now,
+          ([, session]) =>
+            !session.cleanupInProgress && session.lease.expiresAt > now,
         );
         if (hasLiveReference) continue;
 
-        try {
-          // The ID comes from the persisted original lease; this only addresses
-          // that exact sandbox and never issues or replaces a lease.
-          await getSandbox(this.env.Sandbox, sandboxId).destroy();
-          for (const [, session] of expired) {
-            const workspaceKey = workspaceLeaseKey(session.lease);
-            const hasLiveWorkspaceRuntime = records.some(
-              ([, other]) =>
-                workspaceLeaseKey(other.lease) === workspaceKey &&
-                other.lease.expiresAt > now,
-            );
-            if (!hasLiveWorkspaceRuntime) {
-              this.workspaceRuntimes.delete(workspaceKey);
-            }
-          }
-          for (const [key] of expired) {
-            const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
-            await this.deleteExecutionSessionRecord(sessionId);
-          }
-        } catch {
-          for (const [key] of due) {
-            const session = await this.ctx.storage.get<RuntimeSessionRecord>(
-              key,
-            );
-            if (!session) continue;
-            const attempts = (session.cleanupAttempts ?? 0) + 1;
-            const delay = Math.min(
-              CLEANUP_RETRY_BASE_MS * 2 ** (attempts - 1),
-              CLEANUP_RETRY_MAX_MS,
-            );
-            await this.ctx.storage.put(key, {
-              ...session,
-              cleanupAttempts: attempts,
-              cleanupFailureCode: "SANDBOX_CLEANUP_FAILED",
-              cleanupRetryAt: now + delay,
-            });
-          }
-        }
+        await this.markSandboxCleanupInProgress(cleanupCandidates);
+        await this.cleanupSandbox(sandboxId, cleanupCandidates, now);
       }
 
       await this.scheduleExecutionSessionAlarm();
@@ -311,7 +372,7 @@ export class AgentRuntime extends DurableObject {
     const session = await this.ctx.storage.get<RuntimeSessionRecord>(
       this.getExecutionSessionKey(sessionId),
     );
-    return session ?? null;
+    return session && !session.cleanupInProgress ? session : null;
   }
 
   async appendExecutionLog(
@@ -343,7 +404,19 @@ export class AgentRuntime extends DurableObject {
   }
 
   async deleteExecutionSession(sessionId: string): Promise<void> {
+    const existing = await this.ctx.storage.get<RuntimeSessionRecord>(
+      this.getExecutionSessionKey(sessionId),
+    );
+    if (existing) {
+      await this.releaseLease(existing.lease.leaseId);
+    }
     await this.ctx.blockConcurrencyWhile(async () => {
+      const session = await this.ctx.storage.get<RuntimeSessionRecord>(
+        this.getExecutionSessionKey(sessionId),
+      );
+      if (session?.cleanupInProgress) {
+        throw new Error("Sandbox cleanup is pending for this session");
+      }
       await this.deleteExecutionSessionRecord(sessionId);
       await this.scheduleExecutionSessionAlarm();
     });
@@ -368,6 +441,13 @@ export class AgentRuntime extends DurableObject {
     const now = Date.now();
     let nextAlarm = Number.POSITIVE_INFINITY;
     for (const [, session] of sessions) {
+      if (session.cleanupInProgress) {
+        nextAlarm = Math.min(
+          nextAlarm,
+          Math.max(session.cleanupRetryAt ?? now + 1, now + 1),
+        );
+        continue;
+      }
       if (session.lease.expiresAt > now) {
         nextAlarm = Math.min(nextAlarm, session.lease.expiresAt);
         continue;
@@ -389,6 +469,63 @@ export class AgentRuntime extends DurableObject {
       nextAlarm = Math.min(nextAlarm, nextEligible);
     }
     await this.ctx.storage.setAlarm(nextAlarm);
+  }
+
+  private async markSandboxCleanupInProgress(
+    group: Array<[string, RuntimeSessionRecord]>,
+  ): Promise<void> {
+    for (const [key] of group) {
+      const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
+      if (!session) continue;
+      await this.ctx.storage.put(key, { ...session, cleanupInProgress: true });
+    }
+  }
+
+  private async persistSandboxCleanupRetry(
+    group: Array<[string, RuntimeSessionRecord]>,
+    now: number,
+  ): Promise<void> {
+    for (const [key] of group) {
+      const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
+      if (!session) continue;
+      const attempts = (session.cleanupAttempts ?? 0) + 1;
+      const delay = Math.min(
+        CLEANUP_RETRY_BASE_MS * 2 ** (attempts - 1),
+        CLEANUP_RETRY_MAX_MS,
+      );
+      await this.ctx.storage.put(key, {
+        ...session,
+        cleanupInProgress: true,
+        cleanupAttempts: attempts,
+        cleanupFailureCode: "SANDBOX_CLEANUP_FAILED",
+        cleanupRetryAt: now + delay,
+      });
+    }
+  }
+
+  private async cleanupSandbox(
+    sandboxId: string,
+    group: Array<[string, RuntimeSessionRecord]>,
+    now: number,
+  ): Promise<boolean> {
+    try {
+      // The ID comes from persisted leases; no replacement lease is issued.
+      await destroySandboxWithTimeout(
+        getSandbox(this.env.Sandbox, sandboxId),
+        SANDBOX_DESTROY_TIMEOUT_MS,
+      );
+      for (const [, session] of group) {
+        this.workspaceRuntimes.delete(workspaceLeaseKey(session.lease));
+      }
+      for (const [key] of group) {
+        const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
+        await this.deleteExecutionSessionRecord(sessionId);
+      }
+      return true;
+    } catch {
+      await this.persistSandboxCleanupRetry(group, now);
+      return false;
+    }
   }
 
   private async deleteExecutionSessionRecord(sessionId: string): Promise<void> {
@@ -596,5 +733,25 @@ export class AgentRuntime extends DurableObject {
 
   async getArtifact(key: string): Promise<string | null> {
     return await this.storageService.getArtifact(key);
+  }
+}
+
+async function destroySandboxWithTimeout(
+  sandbox: Sandbox,
+  timeoutMs: number,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sandbox.destroy(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Sandbox cleanup timed out")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
