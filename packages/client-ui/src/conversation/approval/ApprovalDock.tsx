@@ -31,7 +31,7 @@ export function ApprovalDock({
     <div className="mx-auto mb-3 w-full max-w-4xl">
       <div
         data-testid="lifecycle-approval"
-        className="flex max-h-[min(65vh,28rem)] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-sm text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+        className="flex max-h-[min(45vh,28rem)] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-sm text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-4 py-2.5 text-zinc-400">
           <span className="font-medium text-zinc-200">
