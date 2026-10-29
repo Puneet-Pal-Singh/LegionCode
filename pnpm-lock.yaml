@@ -520,6 +520,9 @@ importers:
       vitest:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
+      vite-node:
+        specifier: 1.6.1
+        version: 1.6.1(@types/node@20.19.30)(lightningcss@1.30.2)
 
   packages/artifact-store:
     dependencies:
