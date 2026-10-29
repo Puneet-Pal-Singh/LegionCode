@@ -28,6 +28,10 @@ import {
 } from "./errors.js";
 import { isThreadInputConflictResponse } from "./http-transport.js";
 import { followLifecycleEvents } from "./lifecycle-continuation.js";
+
+const HostedChatSubmissionAcknowledgementSchema = HostedChatSubmissionResultSchema
+  .extend({ httpStatus: z.number().int().min(200).max(599) })
+  .strict();
 import {
   FollowLifecycleRequestSchema,
   GetTurnDiffRequestSchema,
@@ -144,22 +148,11 @@ export class DefaultPlatformClient implements PlatformClient {
       throw new PlatformClientContractError("response", "submitHostedChat", "Missing App Server acknowledgement metadata");
     }
     const record = result as Record<string, unknown>;
-    const httpStatus = parseResponse(
-      record.httpStatus,
-      z.number().int().min(100).max(599),
+    return parseResponse(
+      record,
+      HostedChatSubmissionAcknowledgementSchema,
       "submitHostedChat",
     );
-    const acknowledgement = {
-      runtimeStatus: record.runtimeStatus,
-      runId: record.runId,
-      threadId: record.threadId,
-      turnId: record.turnId,
-      runAttemptId: record.runAttemptId,
-    };
-    return {
-      ...parseResponse(acknowledgement, HostedChatSubmissionResultSchema, "submitHostedChat"),
-      httpStatus,
-    };
   }
 
   async getThread(threadId: string, options?: PlatformClientOperationOptions) {
