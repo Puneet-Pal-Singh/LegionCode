@@ -17,7 +17,10 @@ import type { TurnDiffPayload } from "@legioncode/sdk";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import { buildLifecycleTerminalViewModel } from "./LifecycleTerminalViewModel.js";
-import { useCompletedTurnReview, type CompletedTurnReview } from "./useCompletedTurnReview.js";
+import {
+  useCompletedTurnReview,
+  type CompletedTurnReview,
+} from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage.js";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
@@ -106,7 +109,7 @@ export const ChatInterfaceView = forwardRef<
 >(function ChatInterfaceView(props, scrollRef) {
   return (
     <div
-      className="flex h-full flex-col bg-black"
+      className="flex min-h-0 flex-1 flex-col bg-black"
       data-thread-surface={props.threadId ?? undefined}
     >
       {props.lifecycleProjection ? (
@@ -116,7 +119,7 @@ export const ChatInterfaceView = forwardRef<
       ) : null}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
       >
         {props.showHeroComposer ? (
           <HeroComposer
@@ -191,7 +194,7 @@ export const ChatInterfaceView = forwardRef<
         )}
       </div>
       {props.showHeroComposer || props.showSessionPlaceholder ? null : (
-        <div className="px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
+        <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}
           </div>
@@ -345,6 +348,22 @@ function TurnWorkflowEntry({
         projection={entry.projection}
         onArtifactOpen={props.onArtifactOpen}
       />
+      {entry.workflowHistory?.length ? (
+        <details className="rounded-lg border border-zinc-800/70 px-3 py-2">
+          <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
+            Earlier workflow activity ({entry.workflowHistory.length})
+          </summary>
+          <div className="mt-3 max-h-80 space-y-5 overflow-y-auto">
+            {entry.workflowHistory.map((historicalEntry) => (
+              <TurnWorkflowEntry
+                key={historicalEntry.key}
+                entry={historicalEntry}
+                props={props}
+              />
+            ))}
+          </div>
+        </details>
+      ) : null}
       {terminal?.state !== "completed" &&
       entry.projection.assistantText.trim() ? (
         <ChatMessage
@@ -433,6 +452,8 @@ function TerminalMessage(
   const completedTurnReview = useCompletedTurnReview(props.projection, null);
   if (!terminal) return null;
 
+  if (terminal.state === "interrupted") return null;
+
   if (terminal.state !== "completed") {
     return (
       <div
@@ -440,7 +461,7 @@ function TerminalMessage(
         className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
       >
         <span className="mt-0.5 text-zinc-500" aria-hidden="true">
-          {terminal.state === "interrupted" ? "■" : "!"}
+          !
         </span>
         <p className="leading-5 text-zinc-300">
           {terminal.content ||

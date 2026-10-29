@@ -47,7 +47,7 @@ interface ChatComposerControlsProps {
     delivery: ComposerDelivery,
   ) => Promise<boolean>;
   canResume?: boolean;
-  onResume?: () => void;
+  onResume?: () => Promise<boolean>;
   resumeUnavailableMessage?: string | null;
   queuePanel?: ReactNode;
   reviewComments: ReviewCommentDraft[];
@@ -73,90 +73,103 @@ interface ChatComposerControlsProps {
 }
 
 export function ChatComposerControls(props: ChatComposerControlsProps) {
+  const hasAuxiliaryContent = Boolean(
+    props.error ||
+    props.continuation ||
+    props.resumeUnavailableMessage ||
+    props.queuePanel,
+  );
   return (
-    <>
-      {props.error ? (
-        <div className="mb-4">
-          <ChatErrorNotice {...props.error} />
-        </div>
-      ) : null}
-      {props.continuation ? (
-        <div
-          className="mb-4 flex items-center justify-between gap-3 rounded border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100"
-          role="status"
-        >
-          <span>
-            {props.continuation.status === "reconnecting"
-              ? "Reconnecting to live updates…"
-              : `Live updates stopped${props.continuation.error ? `: ${props.continuation.error}` : "."}`}
-          </span>
-          {props.continuation.status === "stopped" ? (
-            <button
-              type="button"
-              className="rounded border border-amber-200/40 px-2 py-1 text-xs hover:bg-amber-900/40"
-              onClick={props.continuation.onRetry}
+    <div className="flex max-h-[min(50vh,28rem)] min-h-0 flex-col">
+      {hasAuxiliaryContent ? (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {props.error ? (
+            <div className="mb-4 max-h-28 overflow-y-auto">
+              <ChatErrorNotice {...props.error} />
+            </div>
+          ) : null}
+          {props.continuation ? (
+            <div
+              className="mb-4 flex max-h-24 items-center justify-between gap-3 overflow-y-auto rounded border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100"
+              role="status"
             >
-              Retry updates
-            </button>
+              <span>
+                {props.continuation.status === "reconnecting"
+                  ? "Reconnecting to live updates…"
+                  : `Live updates stopped${props.continuation.error ? `: ${props.continuation.error}` : "."}`}
+              </span>
+              {props.continuation.status === "stopped" ? (
+                <button
+                  type="button"
+                  className="rounded border border-amber-200/40 px-2 py-1 text-xs hover:bg-amber-900/40"
+                  onClick={props.continuation.onRetry}
+                >
+                  Retry updates
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {props.resumeUnavailableMessage ? (
+            <p
+              role="alert"
+              className="mb-3 text-right text-xs text-amber-200/90"
+            >
+              {props.resumeUnavailableMessage}
+            </p>
+          ) : null}
+          {props.queuePanel ? (
+            <div className="mb-3 min-h-0 overflow-y-auto overscroll-contain">
+              {props.queuePanel}
+            </div>
           ) : null}
         </div>
       ) : null}
-      {props.approval.pending ? (
-        <ApprovalDock
-          pendingApproval={props.approval.pending}
-          matchingInChatOption={props.approval.matchingInChatOption}
-          decisions={props.approval.decisions}
-          busyDecision={props.approval.busyDecision}
-          error={props.approval.error}
-          onResolve={props.approval.onResolve}
-          onStop={props.onStop}
-          canStop={props.canStop}
-        />
-      ) : null}
-      {props.canResume && props.onResume ? (
-        <div className="mb-3 flex justify-end">
-          <button
-            type="button"
-            className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/15"
-            onClick={props.onResume}
-          >
-            Resume interrupted turn
-          </button>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {props.approval.pending ? (
+          <ApprovalDock
+            pendingApproval={props.approval.pending}
+            matchingInChatOption={props.approval.matchingInChatOption}
+            decisions={props.approval.decisions}
+            busyDecision={props.approval.busyDecision}
+            error={props.approval.error}
+            onResolve={props.approval.onResolve}
+            onStop={props.onStop}
+            canStop={props.canStop}
+          />
+        ) : null}
+        <div hidden={Boolean(props.approval.pending)}>
+          <ChatInputBar
+            isHidden={Boolean(props.approval.pending)}
+            input={props.input}
+            onChange={props.onInputChange}
+            onSubmit={props.onSubmit}
+            onFollowUpSubmit={props.onFollowUpSubmit}
+            canResume={props.canResume}
+            onResume={props.onResume}
+            reviewComments={props.reviewComments}
+            onRemoveReviewComment={props.onRemoveReviewComment}
+            reviewCommentError={props.reviewCommentError}
+            onStop={props.approval.pending ? undefined : props.onStop}
+            canStop={props.canStop}
+            isLoading={props.isLoading}
+            sessionId={props.sessionId}
+            runId={props.runId}
+            mode={props.mode}
+            onModeChange={props.onModeChange}
+            hasMessages={props.hasMessages}
+            onModelSelect={props.onModelSelect}
+            repoTree={props.repoTree}
+            isLoadingRepoTree={props.isLoadingRepoTree}
+            layout={props.layout}
+            contextBudget={props.contextBudget}
+            usage={props.usage}
+            onCompact={props.onCompact}
+            onContextOpen={props.onContextOpen}
+            permissionMode={props.permissionMode}
+            onPermissionModeChange={props.onPermissionModeChange}
+          />
         </div>
-      ) : null}
-      {props.resumeUnavailableMessage ? (
-        <p role="alert" className="mb-3 text-right text-xs text-amber-200/90">
-          {props.resumeUnavailableMessage}
-        </p>
-      ) : null}
-      {props.queuePanel}
-      <ChatInputBar
-        input={props.input}
-        onChange={props.onInputChange}
-        onSubmit={props.onSubmit}
-        onFollowUpSubmit={props.onFollowUpSubmit}
-        reviewComments={props.reviewComments}
-        onRemoveReviewComment={props.onRemoveReviewComment}
-        reviewCommentError={props.reviewCommentError}
-        onStop={props.approval.pending ? undefined : props.onStop}
-        canStop={props.canStop}
-        isLoading={props.isLoading}
-        sessionId={props.sessionId}
-        runId={props.runId}
-        mode={props.mode}
-        onModeChange={props.onModeChange}
-        hasMessages={props.hasMessages}
-        onModelSelect={props.onModelSelect}
-        repoTree={props.repoTree}
-        isLoadingRepoTree={props.isLoadingRepoTree}
-        layout={props.layout}
-        contextBudget={props.contextBudget}
-        usage={props.usage}
-        onCompact={props.onCompact}
-        onContextOpen={props.onContextOpen}
-        permissionMode={props.permissionMode}
-        onPermissionModeChange={props.onPermissionModeChange}
-      />
-    </>
+      </div>
+    </div>
   );
 }
