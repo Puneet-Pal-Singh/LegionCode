@@ -154,13 +154,14 @@ existing owners until the command slices.
 
 | Responsibility | Canonical owner | Active consumers and boundary |
 | --- | --- | --- |
-| Operator import of the approved fixed legacy inventory and its immutable provenance | Existing `PostgresTranscriptRepository` import method plus one `legacy_history_import_receipts` table | One operator-only dry-run-by-default command resolves GitHub subject `46601256` against target `accounts/users`, imports transcript and receipt atomically, and retains raw source bytes. Normal session/message APIs cannot write provenance; Secure Durable Object/R2 records remain untouched. |
+| Operator import of the approved fixed legacy inventory and its immutable provenance | Existing `PostgresTranscriptRepository` import method plus one `legacy_history_import_receipts` table | One operator-only dry-run-by-default command resolves GitHub subject `46601256` against target `accounts/users`, imports transcript and receipt atomically, and retains raw source bytes. Durable Object exports keep the actual logical DO ID; local Wrangler SQLite uses `source_kind` plus the frozen source-instance locator and leaves `source_do_id` null. Normal session/message APIs cannot write provenance; Secure Durable Object/R2 records remain untouched. |
 
 The receipt is provenance, not a transcript projection, ownership grant, or
 runtime lifecycle record. Import coverage is limited to the exact frozen
-environment/namespace/DO/key manifest. Original records are idempotent only
-when bytes, ownership, mapping, and manifest digest match; any mismatch aborts
-for review. No public preview-key reader is retired by this import slice.
+environment/namespace/source-instance/key manifest. A local SQLite filename is
+never presented as a logical Durable Object ID. Original records are idempotent
+only when bytes, ownership, mapping, and manifest digest match; any mismatch
+aborts for review. No public preview-key reader is retired by this import slice.
 
 This adopts only the pinned session-history portion of the incoming durability
 fix from main. Existing browser hydration scope/live binding remains pending the
