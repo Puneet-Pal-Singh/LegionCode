@@ -8,6 +8,9 @@ import type {
   ListSessionsResult,
   ListTranscriptInput,
   ListTranscriptResult,
+  LegacyHistoryImportInput,
+  LegacyHistoryImportMessage,
+  LegacyHistoryImportResult,
   SessionRecord,
   TaskRecord,
   TranscriptMessagePartRecord,
@@ -73,6 +76,17 @@ interface TranscriptRow extends SqlRow {
   canonical_run_attempt_id?: string | null;
   canonical_item_id?: string | null;
   canonical_phase?: string | null;
+}
+
+interface LegacyReceiptRow extends TranscriptRow {
+  source_sha256?: string;
+  inventory_sha256?: string;
+  inventory_cutoff?: string | Date;
+  github_subject?: string;
+  user_id?: string;
+  session_id?: string;
+  destination_refs?: JsonValue | string;
+  source_raw?: Uint8Array;
 }
 
 const systemClock: Clock = {
@@ -245,6 +259,127 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     });
   }
 
+  /** Operator-only path for one reviewed, fixed legacy inventory. */
+  async importLegacyHistoryInventory(
+    input: LegacyHistoryImportInput,
+  ): Promise<LegacyHistoryImportResult> {
+    validateLegacyImport(input);
+    for (const record of input.records) {
+      if (await hashBytes(record.sourceRaw) !== record.sourceSha256) {
+        throw new Error(`Legacy history source hash does not match original bytes: ${record.sourceStorageKey}`);
+      }
+    }
+    return await this.client.transaction(async (tx) => {
+      await assertLegacyGitHubOwner(tx, input.githubSubject, input.userId);
+      const result: LegacyHistoryImportResult = {
+        importedRecords: 0,
+        duplicateRecords: 0,
+        importedMessages: 0,
+        importedParts: 0,
+        sessions: [],
+      };
+      const sessionByDoId = new Map<string, string>();
+      const destinationByDoId = new Map<string, string>();
+
+      for (const record of input.records) {
+        const projectionSha256 = await hashBytes(
+          new TextEncoder().encode(JSON.stringify(record.messages)),
+        );
+        const existing = await tx.query<LegacyReceiptRow>(
+          FIND_LEGACY_RECEIPT_SQL,
+          [
+            input.sourceEnvironment,
+            input.sourceNamespace,
+            record.sourceDoId,
+            record.sourceStorageKey,
+          ],
+        );
+        const receipt = existing.rows[0];
+        if (receipt) {
+          const sameRaw = bytesEqual(receipt.source_raw, record.sourceRaw);
+          const refs = readJsonRecord(receipt.destination_refs);
+          if (
+            !sameRaw ||
+            receipt.source_sha256 !== record.sourceSha256 ||
+            receipt.inventory_sha256 !== input.inventorySha256 ||
+            !sameInstant(receipt.inventory_cutoff, input.inventoryCutoff) ||
+            receipt.github_subject !== input.githubSubject ||
+            receipt.user_id !== input.userId ||
+            refs?.sourceProjectionSha256 !== projectionSha256
+          ) {
+            throw new Error(
+              `Legacy history receipt conflict for ${record.sourceDoId}/${record.sourceStorageKey}`,
+            );
+          }
+          const sessionId = requireString(receipt.session_id, "legacy receipt session_id");
+          const mappedSessionId = sessionByDoId.get(record.sourceDoId);
+          if (mappedSessionId && mappedSessionId !== sessionId) {
+            throw new Error(`Legacy history rows map to conflicting sessions for DO ${record.sourceDoId}`);
+          }
+          sessionByDoId.set(record.sourceDoId, sessionId);
+          destinationByDoId.set(record.sourceDoId, sessionId);
+          result.duplicateRecords += 1;
+          continue;
+        }
+
+        let sessionId = sessionByDoId.get(record.sourceDoId);
+        if (!sessionId) {
+          sessionId = crypto.randomUUID();
+          await createLegacyRecoverySession(tx, {
+            sessionId,
+            userId: input.userId,
+            title: input.sessionTitle,
+            now: this.clock.now(),
+          });
+          sessionByDoId.set(record.sourceDoId, sessionId);
+        }
+
+        const destinationRefs = await insertLegacyMessages(tx, {
+          sessionId,
+          sourceDoId: record.sourceDoId,
+          sourceStorageKey: record.sourceStorageKey,
+          messages: record.messages,
+          now: this.clock.now(),
+        });
+        const receiptRefs = {
+          sourceProjectionSha256: projectionSha256,
+          messages: destinationRefs,
+        };
+        await tx.query(
+          INSERT_LEGACY_RECEIPT_SQL,
+          [
+            input.sourceEnvironment,
+            input.sourceNamespace,
+            record.sourceDoId,
+            record.sourceStorageKey,
+            input.inventorySha256,
+            input.inventoryCutoff,
+            record.sourceSha256,
+            input.githubSubject,
+            input.userId,
+            sessionId,
+            JSON.stringify(receiptRefs),
+            record.sourceCreatedAt,
+            record.sourceRaw,
+          ],
+        );
+        result.importedRecords += 1;
+        result.importedMessages += record.messages.length;
+        result.importedParts += destinationRefs.reduce(
+          (total, message) => total + message.parts.length,
+          0,
+        );
+        destinationByDoId.set(record.sourceDoId, sessionId);
+      }
+
+      result.sessions = Array.from(destinationByDoId, ([sourceDoId, sessionId]) => ({
+        sourceDoId,
+        sessionId,
+      }));
+      return result;
+    });
+  }
+
   async listTranscript(
     input: ListTranscriptInput,
   ): Promise<ListTranscriptResult> {
@@ -341,6 +476,215 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     });
   }
 }
+
+function validateLegacyImport(input: LegacyHistoryImportInput): void {
+  assertNonEmpty(input.sourceEnvironment, "sourceEnvironment");
+  assertNonEmpty(input.sourceNamespace, "sourceNamespace");
+  assertNonEmpty(input.sessionTitle, "sessionTitle");
+  assertNonEmpty(input.userId, "userId");
+  if (input.githubSubject !== "46601256") {
+    throw new Error("Legacy history import is approved only for GitHub subject 46601256");
+  }
+  assertSha256(input.inventorySha256, "inventorySha256");
+  if (!(input.inventoryCutoff instanceof Date) || !Number.isFinite(input.inventoryCutoff.getTime())) {
+    throw new Error("inventoryCutoff must be a valid Date");
+  }
+  if (input.records.length === 0) {
+    throw new Error("Legacy history import requires a non-empty frozen inventory");
+  }
+  const sourceIdentities = new Set<string>();
+  for (const record of input.records) {
+    assertNonEmpty(record.sourceDoId, "sourceDoId");
+    assertNonEmpty(record.sourceStorageKey, "sourceStorageKey");
+    assertSha256(record.sourceSha256, "sourceSha256");
+    if (!(record.sourceRaw instanceof Uint8Array)) {
+      throw new Error("Legacy history sourceRaw must be original bytes");
+    }
+    if (record.sourceRaw.byteLength === 0) {
+      throw new Error(`Legacy history source is empty: ${record.sourceStorageKey}`);
+    }
+    if (record.sourceCreatedAt !== null && !Number.isFinite(record.sourceCreatedAt.getTime())) {
+      throw new Error(`Legacy history source timestamp is invalid: ${record.sourceStorageKey}`);
+    }
+    if (!record.messages.length) {
+      throw new Error(`Legacy history record has no visible messages: ${record.sourceStorageKey}`);
+    }
+    const sourceIdentity = `${record.sourceDoId}\u0000${record.sourceStorageKey}`;
+    if (sourceIdentities.has(sourceIdentity)) {
+      throw new Error(`Duplicate legacy source identity: ${record.sourceStorageKey}`);
+    }
+    sourceIdentities.add(sourceIdentity);
+    for (const message of record.messages) {
+      if (!isTranscriptRole(message.role) || !message.parts.length) {
+        throw new Error(`Legacy message has an unsupported role or no inspectable parts: ${record.sourceStorageKey}`);
+      }
+      if (message.createdAt !== null && !Number.isFinite(message.createdAt.getTime())) {
+        throw new Error(`Legacy message timestamp is invalid: ${record.sourceStorageKey}`);
+      }
+      for (const part of message.parts) {
+        if (!isTranscriptPartType(part.type)) {
+          throw new Error(`Legacy message has an unsupported part type: ${record.sourceStorageKey}`);
+        }
+      }
+    }
+  }
+}
+
+async function assertLegacyGitHubOwner(
+  client: SqlClient,
+  githubSubject: string,
+  userId: string,
+): Promise<void> {
+  const result = await client.query<TranscriptRow>(
+    `SELECT accounts.user_id FROM accounts
+      JOIN users ON users.id = accounts.user_id
+      WHERE accounts.provider = 'github'
+        AND accounts.provider_account_id = $1
+      LIMIT 1`,
+    [githubSubject],
+  );
+  if (result.rows[0]?.user_id !== userId) {
+    throw new Error("GitHub subject 46601256 does not resolve to the selected target user");
+  }
+}
+
+async function createLegacyRecoverySession(
+  client: SqlClient,
+  input: { sessionId: string; userId: string; title: string; now: Date },
+): Promise<void> {
+  await client.query(
+    `INSERT INTO tasks (id, user_id, workspace_id, title, status, created_at, updated_at)
+      VALUES ($1, $2, NULL, $3, 'active', $4, $4)`,
+    [input.sessionId, input.userId, input.title, input.now],
+  );
+  await client.query(
+    `INSERT INTO sessions (
+        id, user_id, workspace_id, thread_id, thread_binding_source, task_id,
+        title, title_source, title_status, repository, active_run_id, mode,
+        status, last_sequence, created_at, updated_at
+      ) VALUES ($1, $2, NULL, NULL, 'legacy_recovery', $1, $3,
+        'preview', 'ready', NULL, NULL, 'build', 'idle', 0, $4, $4)`,
+    [input.sessionId, input.userId, input.title, input.now],
+  );
+}
+
+async function insertLegacyMessages(
+  client: SqlClient,
+  input: {
+    sessionId: string;
+    sourceDoId: string;
+    sourceStorageKey: string;
+    messages: LegacyHistoryImportMessage[];
+    now: Date;
+  },
+): Promise<Array<{ sourceMessageId: string | null; messageId: string; parts: Array<{
+  sourcePartId: string | null;
+  sourceToolCallId: string | null;
+  partId: string;
+}> }>> {
+  const refs: Array<{ sourceMessageId: string | null; messageId: string; parts: Array<{
+    sourcePartId: string | null;
+    sourceToolCallId: string | null;
+    partId: string;
+  }> }> = [];
+  for (const [messageIndex, message] of input.messages.entries()) {
+    const createdAt = message.createdAt ?? input.now;
+    const dedupeKey = `legacy:${await hashBytes(
+      new TextEncoder().encode(`${input.sourceDoId}\u0000${input.sourceStorageKey}\u0000${messageIndex}`),
+    )}`;
+    const inserted = await client.query<TranscriptRow>(
+      `INSERT INTO messages (session_id, run_id, role, client_message_id, dedupe_key, created_at)
+        VALUES ($1, NULL, $2, $3, $4, $5) RETURNING id AS message_id`,
+      [input.sessionId, message.role, message.sourceMessageId, dedupeKey, createdAt],
+    );
+    const messageId = requireString(inserted.rows[0]?.message_id, "imported message id");
+    const lastSequence = await incrementSessionSequence(
+      client,
+      input.sessionId,
+      message.parts.length,
+      input.now,
+    );
+    const first = lastSequence - message.parts.length + 1;
+    const parts: Array<{ sourcePartId: string | null; sourceToolCallId: string | null; partId: string }> = [];
+    for (const [partIndex, part] of message.parts.entries()) {
+      const created = await client.query<TranscriptRow>(
+        `INSERT INTO message_parts (
+            session_id, message_id, run_id, part_type, session_sequence, content_json, created_at
+          ) VALUES ($1, $2, NULL, $3, $4, $5::jsonb, $6) RETURNING id AS part_id`,
+        [input.sessionId, messageId, part.type, first + partIndex, JSON.stringify(part.content), createdAt],
+      );
+      parts.push({
+        sourcePartId: part.sourcePartId,
+        sourceToolCallId: part.sourceToolCallId,
+        partId: requireString(created.rows[0]?.part_id, "imported part id"),
+      });
+    }
+    refs.push({ sourceMessageId: message.sourceMessageId, messageId, parts });
+  }
+  return refs;
+}
+
+function isTranscriptRole(value: string): value is TranscriptMessageRole {
+  return value === "system" || value === "user" || value === "assistant" || value === "tool";
+}
+
+function isTranscriptPartType(value: string): value is TranscriptMessagePartType {
+  return value === "text" || value === "tool_call" || value === "tool_result" ||
+    value === "activity" || value === "compaction_summary" || value === "raw";
+}
+
+function assertNonEmpty(value: string, field: string): void {
+  if (!value.trim()) throw new Error(`${field} must not be empty`);
+}
+
+function assertSha256(value: string, field: string): void {
+  if (!/^[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${field} must be 64 lowercase hexadecimal characters`);
+  }
+}
+
+async function hashBytes(value: Uint8Array): Promise<string> {
+  const input = new ArrayBuffer(value.byteLength);
+  new Uint8Array(input).set(value);
+  const digest = await crypto.subtle.digest("SHA-256", input);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesEqual(left: unknown, right: Uint8Array): boolean {
+  if (!(left instanceof Uint8Array) || left.byteLength !== right.byteLength) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function readJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try { value = JSON.parse(value) as unknown; } catch { return null; }
+  }
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function sameInstant(value: string | Date | undefined, expected: Date): boolean {
+  const actual = value instanceof Date ? value : value ? new Date(value) : null;
+  return Boolean(actual && Number.isFinite(actual.getTime()) && actual.getTime() === expected.getTime());
+}
+
+const FIND_LEGACY_RECEIPT_SQL = `
+  SELECT inventory_sha256, inventory_cutoff, source_sha256, github_subject,
+    user_id::text AS user_id, session_id::text AS session_id,
+    destination_refs, source_raw
+  FROM legacy_history_import_receipts
+  WHERE source_environment = $1 AND source_namespace = $2
+    AND source_do_id = $3 AND source_storage_key = $4
+`;
+
+const INSERT_LEGACY_RECEIPT_SQL = `
+  INSERT INTO legacy_history_import_receipts (
+    source_environment, source_namespace, source_do_id, source_storage_key,
+    inventory_sha256, inventory_cutoff, source_sha256, github_subject,
+    user_id, session_id, destination_refs, source_created_at, source_raw
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+`;
 
 async function deleteArchivedSessionWithClient(
   client: SqlClient,

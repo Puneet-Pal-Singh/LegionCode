@@ -165,6 +165,18 @@ export const legacyHistoryImportReceipts = pgTable(
       foreignColumns: [sessions.id, sessions.userId],
       name: "legacy_history_import_receipts_owned_session_fk",
     }).onDelete("restrict"),
+    check(
+      "legacy_history_import_receipts_inventory_sha256_check",
+      sql`${table.inventorySha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "legacy_history_import_receipts_source_sha256_check",
+      sql`${table.sourceSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "legacy_history_import_receipts_github_subject_check",
+      sql`${table.githubSubject} = '46601256'`,
+    ),
   ],
 );
 

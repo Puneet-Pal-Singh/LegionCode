@@ -145,6 +145,46 @@ export interface AppendExistingTranscriptMessageInput {
   }>;
 }
 
+export interface LegacyHistoryImportMessage {
+  role: TranscriptMessageRole;
+  sourceMessageId: string | null;
+  createdAt: Date | null;
+  parts: Array<{
+    type: TranscriptMessagePartType;
+    content: JsonValue;
+    sourcePartId: string | null;
+    sourceToolCallId: string | null;
+  }>;
+}
+
+export interface LegacyHistoryImportRecord {
+  sourceDoId: string;
+  sourceStorageKey: string;
+  sourceSha256: string;
+  sourceCreatedAt: Date | null;
+  sourceRaw: Uint8Array;
+  messages: LegacyHistoryImportMessage[];
+}
+
+export interface LegacyHistoryImportInput {
+  sourceEnvironment: string;
+  sourceNamespace: string;
+  inventorySha256: string;
+  inventoryCutoff: Date;
+  githubSubject: string;
+  userId: string;
+  sessionTitle: string;
+  records: LegacyHistoryImportRecord[];
+}
+
+export interface LegacyHistoryImportResult {
+  importedRecords: number;
+  duplicateRecords: number;
+  importedMessages: number;
+  importedParts: number;
+  sessions: Array<{ sourceDoId: string; sessionId: string }>;
+}
+
 export interface ListTranscriptInput {
   sessionId: string;
   userId?: string | null;
