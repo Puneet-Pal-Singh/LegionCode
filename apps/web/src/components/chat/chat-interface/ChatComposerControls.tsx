@@ -124,7 +124,7 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           ) : null}
         </div>
       ) : null}
-      <div className="min-h-0 shrink-0">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {props.approval.pending ? (
           <ApprovalDock
             pendingApproval={props.approval.pending}
