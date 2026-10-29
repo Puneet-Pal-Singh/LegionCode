@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
 import {
+  RunIdSchema,
   type ResumeWorkspaceSnapshotRef,
   TurnScopeBootstrapSchema,
   type TurnScopeBootstrap,
@@ -161,24 +162,14 @@ export async function resolveExecutionScope(
     );
   }
 
-  const scopeHeaders = new Headers(req.headers);
-  scopeHeaders.set("X-Run-Id", runId);
-  const scopeUrl = new URL(req.url);
-  scopeUrl.searchParams.delete("runId");
-  scopeUrl.searchParams.delete("userId");
-  scopeUrl.searchParams.delete("workspaceId");
-  const scopedRequest = new Request(scopeUrl, {
-    method: req.method,
-    headers: scopeHeaders,
-  });
-
   try {
     const scope = await resolveAuthorizedProviderScope(
-      scopedRequest,
+      req,
       env,
       correlationId,
-      undefined,
+      RunIdSchema.parse(runId),
       verifiedPrincipal,
+      { ignoreLegacyQueryScope: true },
     );
     return {
       userId: scope.userId,
