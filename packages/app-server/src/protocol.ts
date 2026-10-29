@@ -58,8 +58,8 @@ import {
 import { z } from "zod";
 
 const GitRequestContextSchema = z.object({
-  runId: z.string().trim().min(1),
-  sessionId: z.string().trim().min(1).optional(),
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
 }).strict();
 const GitFileStatusSchema = z.object({
   path: z.string(),
@@ -102,8 +102,8 @@ const GitPullRequestResultSchema = z.object({ success: z.literal(true), pullRequ
   number: z.number(), title: z.string(), url: z.string(), state: z.enum(["open", "closed"]), head: z.string(), base: z.string(),
 }).strict() }).strict();
 const GitCommitRequestSchema = z.object({
-  message: z.string().min(1), files: z.array(z.string().min(1)),
-  authorName: z.string().optional(), authorEmail: z.string().email().optional(),
+  message: z.string().min(1), files: z.array(z.string().min(1)).min(1),
+  authorName: z.string().optional(), authorEmail: z.string().optional(),
 }).strict().superRefine((value, context) => {
   if ((value.authorName === undefined) !== (value.authorEmail === undefined)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "authorName and authorEmail must be provided together" });
