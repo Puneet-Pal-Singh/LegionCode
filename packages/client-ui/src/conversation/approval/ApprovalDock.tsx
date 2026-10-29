@@ -31,7 +31,7 @@ export function ApprovalDock({
     <div className="mx-auto mb-3 w-full max-w-4xl">
       <div
         data-testid="lifecycle-approval"
-        className="flex max-h-[45vh] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-sm text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+        className="flex max-h-[min(65vh,28rem)] min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-sm text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-4 py-2.5 text-zinc-400">
           <span className="font-medium text-zinc-200">
@@ -39,7 +39,14 @@ export function ApprovalDock({
           </span>
           <span>Approval required</span>
         </div>
-        <div className="min-h-0 max-h-40 shrink overflow-y-auto px-4 py-3">
+        <div className="min-h-0 max-h-40 flex-1 overflow-y-auto px-4 py-3">
+          {error ? (
+            <div role="alert" className="mb-2">
+              <p className="max-h-16 overflow-y-auto break-words text-xs text-red-300">
+                {error}
+              </p>
+            </div>
+          ) : null}
           <div>
             <p className="font-medium text-zinc-50">
               {buildApprovalQuestion(pendingApproval)}
@@ -48,6 +55,11 @@ export function ApprovalDock({
               {pendingApproval.title}
             </p>
           </div>
+          {matchingInChatOption?.description ? (
+            <p className="mt-2 max-h-16 overflow-y-auto break-words text-xs text-zinc-400">
+              {matchingInChatOption.description}
+            </p>
+          ) : null}
           {pendingApproval.command ? (
             <pre className="mt-2 max-h-24 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2 font-mono leading-relaxed text-zinc-300">
               <code>{pendingApproval.command}</code>
@@ -61,18 +73,6 @@ export function ApprovalDock({
             onResolve={onResolve}
             matchingInChatOption={matchingInChatOption}
           />
-          {matchingInChatOption?.description ? (
-            <p className="mt-2 max-h-16 overflow-y-auto break-words text-xs text-zinc-400">
-              {matchingInChatOption.description}
-            </p>
-          ) : null}
-          {error ? (
-            <div role="alert">
-              <p className="mt-3 max-h-16 overflow-y-auto break-words text-xs text-red-300">
-                {error}
-              </p>
-            </div>
-          ) : null}
           <div className="mt-2 flex justify-end border-t border-zinc-800 pt-2">
             <button
               type="button"
