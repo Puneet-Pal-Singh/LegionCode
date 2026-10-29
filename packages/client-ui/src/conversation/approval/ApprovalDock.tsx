@@ -39,7 +39,7 @@ export function ApprovalDock({
           </span>
           <span>Approval required</span>
         </div>
-        <div className="min-h-0 max-h-40 flex-1 overflow-y-auto px-4 py-3">
+        <div className="max-h-40 shrink-0 overflow-y-auto px-4 py-3">
           {error ? (
             <div role="alert" className="mb-2">
               <p className="max-h-16 overflow-y-auto break-words text-xs text-red-300">
