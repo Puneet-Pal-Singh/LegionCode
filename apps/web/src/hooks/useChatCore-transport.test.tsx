@@ -31,44 +31,23 @@ vi.mock("./useProviderStore.js", () => ({
   }),
 }));
 
-vi.mock("../services/api/platformClient", () => ({
-  createWebPlatformClient: () => ({
-    followTurnLifecycle,
-    replayLifecycleEvents: vi.fn(async () => ({ events: [], nextSequence: null })),
-    interruptTurn: vi.fn(async () => ({
-      runId: FIXTURE.runId,
-      accepted: true,
-      status: "interrupt_requested",
-      terminalEvent: terminalEvent(),
-    })),
-    startTurn: vi.fn(),
-    submitHostedChat: async (params: Record<string, unknown>, options?: {
-      beforeSendHostedChatEnvelope?: (serialized: string) => string;
-      signal?: AbortSignal;
-      onChatSubmissionResponse?: (response: { httpStatus: number; runtimeStatus: number; runId: string | null; threadId: string | null; turnId: string | null; runAttemptId: string | null }) => void;
-    }) => {
-      const candidate = JSON.stringify({ protocolVersion: "1.0.0", method: "turn/submit", params });
-      const body = options?.beforeSendHostedChatEnvelope?.(candidate) ?? candidate;
-      const response = await fetch("https://brain.local/app-server/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-LegionCode-AppServer-Method": "turn/submit" },
-        body,
-        signal: options?.signal,
-      });
-      options?.onChatSubmissionResponse?.({
-        httpStatus: response.status,
-        runtimeStatus: response.status,
-        runId: response.headers.get("X-Run-Id"),
-        threadId: response.headers.get("X-Thread-Id"),
-        turnId: response.headers.get("X-Turn-Id"),
-        runAttemptId: response.headers.get("X-Run-Attempt-Id"),
-      });
-      const envelope = await response.json() as { ok: boolean; result?: Record<string, unknown>; error?: { message?: string } };
-      if (!response.ok || !envelope.ok) throw new Error(`HTTP ${response.status}: ${envelope.error?.message ?? "request failed"}`);
-      return { ...envelope.result, httpStatus: response.status };
-    },
-  }),
-}));
+vi.mock("../services/api/platformClient", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/api/platformClient")>();
+  return {
+    ...actual,
+    createWebPlatformClient: () => Object.assign(actual.createWebPlatformClient(), {
+      followTurnLifecycle,
+      replayLifecycleEvents: vi.fn(async () => ({ events: [], nextSequence: null })),
+      interruptTurn: vi.fn(async () => ({
+        runId: FIXTURE.runId,
+        accepted: true,
+        status: "interrupt_requested" as const,
+        terminalEvent: terminalEvent(),
+      })),
+      startTurn: vi.fn(),
+    }),
+  };
+});
 
 // Transport tests use the actual SDK and real projection/loading logic. Only
 // canonical projection fetching is held empty for these transport outcomes.
