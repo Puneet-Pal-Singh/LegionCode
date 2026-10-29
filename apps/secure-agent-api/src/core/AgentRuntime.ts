@@ -56,7 +56,7 @@ interface RuntimeSessionRecord {
   };
   lease: SandboxExecutionLease;
   cleanupAttempts?: number;
-  cleanupFailureCode?: "SANDBOX_DESTROY_FAILED";
+  cleanupFailureCode?: "SANDBOX_CLEANUP_FAILED";
   cleanupRetryAt?: number;
 }
 
@@ -265,9 +265,7 @@ export class AgentRuntime extends DurableObject {
           // The ID comes from the persisted original lease; this only addresses
           // that exact sandbox and never issues or replaces a lease.
           await getSandbox(this.env.Sandbox, sandboxId).destroy();
-          for (const [key, session] of expired) {
-            const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
-            await this.deleteExecutionSessionRecord(sessionId);
+          for (const [, session] of expired) {
             const workspaceKey = workspaceLeaseKey(session.lease);
             const hasLiveWorkspaceRuntime = records.some(
               ([, other]) =>
@@ -278,8 +276,16 @@ export class AgentRuntime extends DurableObject {
               this.workspaceRuntimes.delete(workspaceKey);
             }
           }
+          for (const [key] of expired) {
+            const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
+            await this.deleteExecutionSessionRecord(sessionId);
+          }
         } catch {
-          for (const [key, session] of due) {
+          for (const [key] of due) {
+            const session = await this.ctx.storage.get<RuntimeSessionRecord>(
+              key,
+            );
+            if (!session) continue;
             const attempts = (session.cleanupAttempts ?? 0) + 1;
             const delay = Math.min(
               CLEANUP_RETRY_BASE_MS * 2 ** (attempts - 1),
@@ -288,7 +294,7 @@ export class AgentRuntime extends DurableObject {
             await this.ctx.storage.put(key, {
               ...session,
               cleanupAttempts: attempts,
-              cleanupFailureCode: "SANDBOX_DESTROY_FAILED",
+              cleanupFailureCode: "SANDBOX_CLEANUP_FAILED",
               cleanupRetryAt: now + delay,
             });
           }
