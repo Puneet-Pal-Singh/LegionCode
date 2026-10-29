@@ -9,7 +9,9 @@ export const legacyHistoryImportReceiptsMigration: SqlMigration = {
     `CREATE TABLE IF NOT EXISTS legacy_history_import_receipts (
       source_environment TEXT NOT NULL,
       source_namespace TEXT NOT NULL,
-      source_do_id TEXT NOT NULL,
+      source_kind TEXT NOT NULL CHECK (source_kind IN ('durable_object_export', 'local_wrangler_sqlite')),
+      source_do_id TEXT,
+      source_instance TEXT NOT NULL,
       source_storage_key TEXT NOT NULL,
       inventory_sha256 TEXT NOT NULL CHECK (inventory_sha256 ~ '^[0-9a-f]{64}$'),
       inventory_cutoff TIMESTAMPTZ NOT NULL,
@@ -21,10 +23,19 @@ export const legacyHistoryImportReceiptsMigration: SqlMigration = {
       source_created_at TIMESTAMPTZ,
       source_raw BYTEA NOT NULL,
       imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT legacy_history_import_receipts_source_unique
-        UNIQUE (source_environment, source_namespace, source_do_id, source_storage_key),
       CONSTRAINT legacy_history_import_receipts_owned_session_fk
-        FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT
+        FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT,
+      CONSTRAINT legacy_history_import_receipts_source_identity_check
+        CHECK (
+          (source_kind = 'durable_object_export' AND source_do_id IS NOT NULL AND source_do_id <> '' AND source_instance = source_do_id)
+          OR (source_kind = 'local_wrangler_sqlite' AND source_do_id IS NULL AND source_instance <> '')
+        )
     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS legacy_history_import_receipts_do_source_idx
+      ON legacy_history_import_receipts (source_environment, source_namespace, source_do_id, source_storage_key)
+      WHERE source_kind = 'durable_object_export'`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS legacy_history_import_receipts_local_source_idx
+      ON legacy_history_import_receipts (source_environment, source_namespace, source_instance, source_storage_key)
+      WHERE source_kind = 'local_wrangler_sqlite'`,
   ],
 };

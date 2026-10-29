@@ -79,6 +79,9 @@ interface TranscriptRow extends SqlRow {
 }
 
 interface LegacyReceiptRow extends TranscriptRow {
+  source_kind?: string;
+  source_do_id?: string | null;
+  source_instance?: string;
   source_sha256?: string;
   inventory_sha256?: string;
   inventory_cutoff?: string | Date;
@@ -278,8 +281,8 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
         importedParts: 0,
         sessions: [],
       };
-      const sessionByDoId = new Map<string, string>();
-      const destinationByDoId = new Map<string, string>();
+      const sessionBySourceInstance = new Map<string, string>();
+      const destinationBySourceInstance = new Map<string, string>();
 
       for (const record of input.records) {
         const projectionSha256 = await hashBytes(
@@ -290,7 +293,8 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
           [
             input.sourceEnvironment,
             input.sourceNamespace,
-            record.sourceDoId,
+            record.sourceKind,
+            record.sourceInstance,
             record.sourceStorageKey,
           ],
         );
@@ -300,6 +304,9 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
           const refs = readJsonRecord(receipt.destination_refs);
           if (
             !sameRaw ||
+            receipt.source_kind !== record.sourceKind ||
+            receipt.source_do_id !== record.sourceDoId ||
+            receipt.source_instance !== record.sourceInstance ||
             receipt.source_sha256 !== record.sourceSha256 ||
             receipt.inventory_sha256 !== input.inventorySha256 ||
             !sameInstant(receipt.inventory_cutoff, input.inventoryCutoff) ||
@@ -312,17 +319,19 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
             );
           }
           const sessionId = requireString(receipt.session_id, "legacy receipt session_id");
-          const mappedSessionId = sessionByDoId.get(record.sourceDoId);
+          const sourceInstanceKey = `${record.sourceKind}\u0000${record.sourceInstance}`;
+          const mappedSessionId = sessionBySourceInstance.get(sourceInstanceKey);
           if (mappedSessionId && mappedSessionId !== sessionId) {
-            throw new Error(`Legacy history rows map to conflicting sessions for DO ${record.sourceDoId}`);
+            throw new Error(`Legacy history rows map to conflicting sessions for source ${record.sourceInstance}`);
           }
-          sessionByDoId.set(record.sourceDoId, sessionId);
-          destinationByDoId.set(record.sourceDoId, sessionId);
+          sessionBySourceInstance.set(sourceInstanceKey, sessionId);
+          destinationBySourceInstance.set(sourceInstanceKey, sessionId);
           result.duplicateRecords += 1;
           continue;
         }
 
-        let sessionId = sessionByDoId.get(record.sourceDoId);
+        const sourceInstanceKey = `${record.sourceKind}\u0000${record.sourceInstance}`;
+        let sessionId = sessionBySourceInstance.get(sourceInstanceKey);
         if (!sessionId) {
           sessionId = crypto.randomUUID();
           await createLegacyRecoverySession(tx, {
@@ -331,18 +340,19 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
             title: input.sessionTitle,
             now: this.clock.now(),
           });
-          sessionByDoId.set(record.sourceDoId, sessionId);
+          sessionBySourceInstance.set(sourceInstanceKey, sessionId);
         }
 
         const destinationRefs = await insertLegacyMessages(tx, {
           sessionId,
-          sourceDoId: record.sourceDoId,
+          sourceInstance: record.sourceInstance,
           sourceStorageKey: record.sourceStorageKey,
           messages: record.messages,
           now: this.clock.now(),
         });
         const receiptRefs = {
           sourceProjectionSha256: projectionSha256,
+          sourceAssociation: record.sourceKind === "local_wrangler_sqlite" ? "unknown" : "legacy_do",
           messages: destinationRefs,
         };
         await tx.query(
@@ -351,6 +361,8 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
             input.sourceEnvironment,
             input.sourceNamespace,
             record.sourceDoId,
+            record.sourceKind,
+            record.sourceInstance,
             record.sourceStorageKey,
             input.inventorySha256,
             input.inventoryCutoff,
@@ -369,13 +381,16 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
           (total, message) => total + message.parts.length,
           0,
         );
-        destinationByDoId.set(record.sourceDoId, sessionId);
+        destinationBySourceInstance.set(sourceInstanceKey, sessionId);
       }
 
-      result.sessions = Array.from(destinationByDoId, ([sourceDoId, sessionId]) => ({
-        sourceDoId,
-        sessionId,
-      }));
+      result.sessions = Array.from(destinationBySourceInstance, ([identity, sessionId]) => {
+        const [sourceKind, sourceInstance] = identity.split("\u0000");
+        if (sourceKind !== "durable_object_export" && sourceKind !== "local_wrangler_sqlite") {
+          throw new Error("Legacy import generated an invalid source identity");
+        }
+        return { sourceKind, sourceInstance: sourceInstance ?? "", sessionId };
+      });
       return result;
     });
   }
@@ -494,7 +509,18 @@ function validateLegacyImport(input: LegacyHistoryImportInput): void {
   }
   const sourceIdentities = new Set<string>();
   for (const record of input.records) {
-    assertNonEmpty(record.sourceDoId, "sourceDoId");
+    assertNonEmpty(record.sourceInstance, "sourceInstance");
+    if (record.sourceKind === "durable_object_export") {
+      if (!record.sourceDoId?.trim() || record.sourceInstance !== record.sourceDoId) {
+        throw new Error("Durable Object exports require the actual DO ID as sourceDoId and sourceInstance");
+      }
+    } else if (record.sourceKind === "local_wrangler_sqlite") {
+      if (record.sourceDoId !== null) {
+        throw new Error("Local Wrangler SQLite records must leave the logical sourceDoId unknown");
+      }
+    } else {
+      throw new Error("Unsupported legacy history source kind");
+    }
     assertNonEmpty(record.sourceStorageKey, "sourceStorageKey");
     assertSha256(record.sourceSha256, "sourceSha256");
     if (!(record.sourceRaw instanceof Uint8Array)) {
@@ -509,7 +535,7 @@ function validateLegacyImport(input: LegacyHistoryImportInput): void {
     if (!record.messages.length) {
       throw new Error(`Legacy history record has no visible messages: ${record.sourceStorageKey}`);
     }
-    const sourceIdentity = `${record.sourceDoId}\u0000${record.sourceStorageKey}`;
+    const sourceIdentity = `${record.sourceKind}\u0000${record.sourceInstance}\u0000${record.sourceStorageKey}`;
     if (sourceIdentities.has(sourceIdentity)) {
       throw new Error(`Duplicate legacy source identity: ${record.sourceStorageKey}`);
     }
@@ -540,11 +566,11 @@ async function assertLegacyGitHubOwner(
       JOIN users ON users.id = accounts.user_id
       WHERE accounts.provider = 'github'
         AND accounts.provider_account_id = $1
-      LIMIT 1`,
+      LIMIT 2`,
     [githubSubject],
   );
-  if (result.rows[0]?.user_id !== userId) {
-    throw new Error("GitHub subject 46601256 does not resolve to the selected target user");
+  if (result.rows.length !== 1 || result.rows[0]?.user_id !== userId) {
+    throw new Error("GitHub subject 46601256 must resolve to exactly one selected target user");
   }
 }
 
@@ -572,7 +598,7 @@ async function insertLegacyMessages(
   client: SqlClient,
   input: {
     sessionId: string;
-    sourceDoId: string;
+    sourceInstance: string;
     sourceStorageKey: string;
     messages: LegacyHistoryImportMessage[];
     now: Date;
@@ -590,7 +616,7 @@ async function insertLegacyMessages(
   for (const [messageIndex, message] of input.messages.entries()) {
     const createdAt = message.createdAt ?? input.now;
     const dedupeKey = `legacy:${await hashBytes(
-      new TextEncoder().encode(`${input.sourceDoId}\u0000${input.sourceStorageKey}\u0000${messageIndex}`),
+      new TextEncoder().encode(`${input.sourceInstance}\u0000${input.sourceStorageKey}\u0000${messageIndex}`),
     )}`;
     const inserted = await client.query<TranscriptRow>(
       `INSERT INTO messages (session_id, run_id, role, client_message_id, dedupe_key, created_at)
@@ -670,20 +696,22 @@ function sameInstant(value: string | Date | undefined, expected: Date): boolean 
 }
 
 const FIND_LEGACY_RECEIPT_SQL = `
-  SELECT inventory_sha256, inventory_cutoff, source_sha256, github_subject,
+  SELECT source_kind, source_do_id, source_instance, inventory_sha256, inventory_cutoff,
+    source_sha256, github_subject,
     user_id::text AS user_id, session_id::text AS session_id,
     destination_refs, source_raw
   FROM legacy_history_import_receipts
-  WHERE source_environment = $1 AND source_namespace = $2
-    AND source_do_id = $3 AND source_storage_key = $4
+  WHERE source_environment = $1 AND source_namespace = $2 AND source_kind = $3
+    AND source_instance = $4 AND source_storage_key = $5
 `;
 
 const INSERT_LEGACY_RECEIPT_SQL = `
   INSERT INTO legacy_history_import_receipts (
-    source_environment, source_namespace, source_do_id, source_storage_key,
+    source_environment, source_namespace, source_do_id, source_kind,
+    source_instance, source_storage_key,
     inventory_sha256, inventory_cutoff, source_sha256, github_subject,
     user_id, session_id, destination_refs, source_created_at, source_raw
-  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
 `;
 
 async function deleteArchivedSessionWithClient(

@@ -138,7 +138,9 @@ export const legacyHistoryImportReceipts = pgTable(
   {
     sourceEnvironment: text("source_environment").notNull(),
     sourceNamespace: text("source_namespace").notNull(),
-    sourceDoId: text("source_do_id").notNull(),
+    sourceKind: text("source_kind").notNull(),
+    sourceDoId: text("source_do_id"),
+    sourceInstance: text("source_instance").notNull(),
     sourceStorageKey: text("source_storage_key").notNull(),
     inventorySha256: text("inventory_sha256").notNull(),
     inventoryCutoff: timestamp("inventory_cutoff", { withTimezone: true }).notNull(),
@@ -154,12 +156,22 @@ export const legacyHistoryImportReceipts = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("legacy_history_import_receipts_source_idx").on(
+    uniqueIndex("legacy_history_import_receipts_do_source_idx")
+      .on(
       table.sourceEnvironment,
       table.sourceNamespace,
       table.sourceDoId,
       table.sourceStorageKey,
-    ),
+      )
+      .where(sql`${table.sourceKind} = 'durable_object_export'`),
+    uniqueIndex("legacy_history_import_receipts_local_source_idx")
+      .on(
+        table.sourceEnvironment,
+        table.sourceNamespace,
+        table.sourceInstance,
+        table.sourceStorageKey,
+      )
+      .where(sql`${table.sourceKind} = 'local_wrangler_sqlite'`),
     foreignKey({
       columns: [table.sessionId, table.userId],
       foreignColumns: [sessions.id, sessions.userId],
@@ -176,6 +188,10 @@ export const legacyHistoryImportReceipts = pgTable(
     check(
       "legacy_history_import_receipts_github_subject_check",
       sql`${table.githubSubject} = '46601256'`,
+    ),
+    check(
+      "legacy_history_import_receipts_source_identity_check",
+      sql`(${table.sourceKind} = 'durable_object_export' AND ${table.sourceDoId} IS NOT NULL AND ${table.sourceDoId} <> '' AND ${table.sourceInstance} = ${table.sourceDoId}) OR (${table.sourceKind} = 'local_wrangler_sqlite' AND ${table.sourceDoId} IS NULL AND ${table.sourceInstance} <> '')`,
     ),
   ],
 );
