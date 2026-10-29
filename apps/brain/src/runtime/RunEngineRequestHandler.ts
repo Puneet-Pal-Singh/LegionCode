@@ -1,7 +1,10 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
-import type { LifecycleEventStore } from "@repo/persistence";
+import type {
+  LifecycleEventStore,
+  TurnAdmissionRecord,
+} from "@repo/persistence";
 import {
   ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,
@@ -164,6 +167,7 @@ const RuntimeThreadInputRequestSchema = z.object({
 });
 export interface RunEngineRequestLock {
   <T>(runId: string, operation: () => Promise<T>): Promise<T>;
+  hasQueuedOrActiveRun: (runId: string) => boolean;
 }
 
 export interface CanonicalRunEventSink {
@@ -436,22 +440,69 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const settled = await settleOrphanStop({
-      store,
-      admission,
-      identity: {
-        turnId: payload.turnId,
-        runAttemptId: payload.runAttemptId,
-        threadId: payload.threadId,
-        workspaceId: workspaceIdFromExternalId(payload.workspaceId),
-        ...(admission.revisionOfTurnId
-          ? {
-              revisionOfTurnId: TurnIdSchema.parse(admission.revisionOfTurnId),
-            }
-          : {}),
-      },
-      admittedWorkspaceId: payload.workspaceId,
-      reason: payload.reason,
+    if (this.withExecutionLock.hasQueuedOrActiveRun(payload.runId)) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Turn is no longer interruptible",
+        409,
+      );
+    }
+
+    const settled = await this.withExecutionLock(payload.runId, async () => {
+      const currentAdmission = await withTurnAdmissionRepository(
+        this.env,
+        (repository) => repository.getByTurnId(payload.turnId),
+      );
+      if (!sameAdmissionIdentity(admission, currentAdmission)) {
+        return { status: "not_recovery_orphan" } as const;
+      }
+
+      const currentHistory = await readAllLifecycleEvents(store, payload.turnId);
+      const currentTerminalEvent = currentHistory.find(isTerminalLifecycleEvent);
+      if (currentTerminalEvent) {
+        return {
+          status: "terminal_exists",
+          terminalEvent: currentTerminalEvent,
+        } as const;
+      }
+
+      if (
+        this.interruptRegistry.hasActiveOwner(payload.turnId) ||
+        this.approvalResolutionRegistry.has(payload.turnId)
+      ) {
+        return { status: "not_recovery_orphan" } as const;
+      }
+
+      return await settleOrphanStop({
+        store,
+        admission: currentAdmission,
+        identity: {
+          turnId: payload.turnId,
+          runAttemptId: payload.runAttemptId,
+          threadId: payload.threadId,
+          workspaceId: workspaceIdFromExternalId(payload.workspaceId),
+          ...(currentAdmission.revisionOfTurnId
+            ? {
+                revisionOfTurnId: TurnIdSchema.parse(
+                  currentAdmission.revisionOfTurnId,
+                ),
+              }
+            : {}),
+          ...(currentAdmission.continuationOfTurnId
+            ? {
+                continuationOfTurnId: TurnIdSchema.parse(
+                  currentAdmission.continuationOfTurnId,
+                ),
+              }
+            : {}),
+          ...(currentAdmission.originalPromptId
+            ? { originalPromptId: currentAdmission.originalPromptId }
+            : {}),
+        },
+        admittedWorkspaceId: payload.workspaceId,
+        reason: payload.reason,
+      });
     });
     if (settled.status === "settled" || settled.status === "terminal_exists") {
       return runEngineJsonResponse(request, this.env, {
@@ -1657,6 +1708,12 @@ export class RunEngineRequestHandler {
                 ...(identity.revisionOfTurnId
                   ? { revisionOfTurnId: identity.revisionOfTurnId }
                   : {}),
+                ...(identity.continuationOfTurnId
+                  ? { continuationOfTurnId: identity.continuationOfTurnId }
+                  : {}),
+                ...(identity.originalPromptId
+                  ? { originalPromptId: identity.originalPromptId }
+                  : {}),
                 userId: payload.userId,
                 sessionId: payload.sessionId,
                 runId: payload.runId,
@@ -1835,6 +1892,28 @@ export class RunEngineRequestHandler {
       },
     });
   }
+}
+
+function sameAdmissionIdentity(
+  original: TurnAdmissionRecord,
+  current: TurnAdmissionRecord | null,
+): current is TurnAdmissionRecord {
+  return Boolean(
+    current &&
+      current.userId === original.userId &&
+      current.sessionId === original.sessionId &&
+      current.clientMessageId === original.clientMessageId &&
+      current.threadId === original.threadId &&
+      current.turnId === original.turnId &&
+      current.runAttemptId === original.runAttemptId &&
+      current.runId === original.runId &&
+      current.workspaceId === original.workspaceId &&
+      current.revisionOfTurnId === original.revisionOfTurnId &&
+      current.continuationOfTurnId === original.continuationOfTurnId &&
+      current.originalPromptId === original.originalPromptId &&
+      current.continuationTerminalSequence ===
+        original.continuationTerminalSequence,
+  );
 }
 
 function toStartupLifecycleFailure(
