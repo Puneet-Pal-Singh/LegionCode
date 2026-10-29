@@ -21,6 +21,19 @@ import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { ThreadInputCommandService } from "../../services/thread-inputs/ThreadInputCommandService";
 import type { AuthenticatedChatRequest } from "../../controllers/ChatRequestBoundary";
 import type { BackgroundTaskOwner } from "../../services/thread-titles";
+import type { HostedChatSubmissionResult } from "@repo/platform-protocol";
+
+export function hostedChatSubmissionResult(
+  response: Response,
+): HostedChatSubmissionResult {
+  return {
+    runtimeStatus: response.status,
+    runId: response.headers.get("X-Run-Id"),
+    threadId: response.headers.get("X-Thread-Id"),
+    turnId: response.headers.get("X-Turn-Id"),
+    runAttemptId: response.headers.get("X-Run-Attempt-Id"),
+  };
+}
 
 /** Runs the existing authorized chat submission through its canonical admission and runtime owners. */
 export async function submitHostedChat(

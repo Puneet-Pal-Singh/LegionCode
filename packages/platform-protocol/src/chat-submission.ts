@@ -49,3 +49,18 @@ export const ChatRequestBodySchema = z.object({
 }).strict();
 
 export type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
+
+/** The actual runtime response status and nullable admission acknowledgement headers. */
+export const HostedChatSubmissionResultSchema = z
+  .object({
+    runtimeStatus: z.number().int().min(200).max(599),
+    runId: z.string().nullable(),
+    threadId: z.string().nullable(),
+    turnId: z.string().nullable(),
+    runAttemptId: z.string().nullable(),
+  })
+  .strict();
+
+export type HostedChatSubmissionResult = z.infer<
+  typeof HostedChatSubmissionResultSchema
+>;

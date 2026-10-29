@@ -100,6 +100,8 @@ export {
 export {
   ChatRequestBodySchema,
   type ChatRequestBody,
+  HostedChatSubmissionResultSchema,
+  type HostedChatSubmissionResult,
 } from "./chat-submission.js";
 export {
   ChatRunModeSchema,
