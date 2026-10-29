@@ -157,6 +157,7 @@ import {
   getEmergencyShutoffMode,
 } from "./services/LaunchSafetyService";
 import { InternalRuntimeEventClient } from "./services/runtime-events/InternalRuntimeEventClient";
+import { StorageService } from "./services/StorageService";
 
 export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 
@@ -386,6 +387,28 @@ export default {
               } else {
                 response = new Response("Method Not Allowed", { status: 405 });
               }
+            }
+          }
+        } else if (
+          url.pathname === "/api/v1/internal/artifact/content" &&
+          request.method === "POST"
+        ) {
+          const gateResponse = enforceInternalServiceBinding(request, env);
+          if (gateResponse) {
+            response = gateResponse;
+          } else {
+            const body: unknown = await request.json().catch(() => null);
+            const key =
+              body && typeof body === "object" && "key" in body
+                ? body.key
+                : undefined;
+            if (typeof key !== "string" || key.length === 0 || key.length > 4_096) {
+              response = Response.json({ error: "Invalid artifact key" }, { status: 400 });
+            } else {
+              const content = await new StorageService(env.ARTIFACTS).getArtifact(key);
+              response = content === null
+                ? Response.json({ error: "Artifact not found" }, { status: 404 })
+                : Response.json({ content });
             }
           }
         } else if (url.pathname === "/artifact") {

@@ -210,6 +210,14 @@ export interface TranscriptRepository {
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord>;
   listTranscript(input: ListTranscriptInput): Promise<ListTranscriptResult>;
+  /** Verifies an imported transcript part against its immutable server receipt. */
+  hasLegacyHistoryArtifactReference?(input: {
+    sessionId: string;
+    userId: string;
+    messageId: string;
+    partId: string;
+    toolCallId: string;
+  }): Promise<boolean>;
   getCanonicalAssistantMessageId?(input: {
     sessionId: string;
     userId: string;
