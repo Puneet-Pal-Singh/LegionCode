@@ -173,7 +173,7 @@ export class AgentRuntime extends DurableObject {
       input,
       hooks,
     );
-    if (result.status === "sandbox_unavailable") {
+    if (result.status === "sandbox_unavailable" && !input.borrowedLease) {
       const health = await runtime.executionPort.getHealth(input.lease.leaseId);
       if (!health.healthy) {
         this.workspaceRuntimes.delete(workspaceLeaseKey(input.lease));
