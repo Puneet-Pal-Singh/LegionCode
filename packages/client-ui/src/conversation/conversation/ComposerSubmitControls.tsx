@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Play, Square } from "lucide-react";
 import type { ComposerPreferences } from "./composer-keyboard.js";
 import type { ComposerDelivery } from "./composer-keyboard.js";
 
 interface ComposerSubmitControlsProps {
   readonly isActive: boolean;
+  readonly canResume: boolean;
+  readonly onResume?: () => Promise<boolean>;
   readonly canSubmit: boolean;
   readonly canSendMessage: boolean;
   readonly canStop: boolean;
@@ -21,6 +24,8 @@ interface ComposerSubmitControlsProps {
 
 export function ComposerSubmitControls({
   isActive,
+  canResume,
+  onResume,
   canSubmit,
   canSendMessage,
   canStop,
@@ -31,6 +36,7 @@ export function ComposerSubmitControls({
   onFollowUp,
   onStop,
 }: ComposerSubmitControlsProps) {
+  const [resumePending, setResumePending] = useState(false);
   if (isActive) {
     const behavior = preferences.followUpBehavior;
     const label =
@@ -74,22 +80,39 @@ export function ComposerSubmitControls({
     );
   }
 
+  const resumeInSendSlot = canResume && onResume !== undefined;
+  const enabled = resumeInSendSlot
+    ? !resumePending
+    : canSendMessage;
+
   return (
     <motion.button
       type="button"
-      onClick={onSend}
-      disabled={!canSendMessage}
-      aria-label="Send message"
-      title={`Send message · ${preferences.sendShortcut === "enter" ? "Enter" : modifierShortcutLabel}`}
-      whileHover={{ scale: canSendMessage ? 1.05 : 1 }}
-      whileTap={{ scale: canSendMessage ? 0.95 : 1 }}
+      onClick={() => {
+        if (resumeInSendSlot) {
+          if (resumePending) return;
+          setResumePending(true);
+          void onResume().finally(() => setResumePending(false));
+          return;
+        }
+        onSend();
+      }}
+      disabled={!enabled}
+      aria-label={resumeInSendSlot ? "Resume interrupted turn" : "Send message"}
+      title={
+        resumeInSendSlot
+          ? "Resume interrupted turn"
+          : `Send message · ${preferences.sendShortcut === "enter" ? "Enter" : modifierShortcutLabel}`
+      }
+      whileHover={{ scale: enabled ? 1.05 : 1 }}
+      whileTap={{ scale: enabled ? 0.95 : 1 }}
       className={`p-1.5 rounded-full transition-all ${
-        canSendMessage
+        enabled
           ? "bg-white text-black hover:bg-zinc-200"
           : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
       }`}
     >
-      <ArrowUp size={16} />
+      {resumeInSendSlot ? <Play size={16} fill="currentColor" /> : <ArrowUp size={16} />}
     </motion.button>
   );
 }

@@ -22,12 +22,14 @@ export function useWebComposerProviderControls({
   onModelSelect,
   hasMessages = false,
   isComposerActiveRun,
+  isComposerAvailable = true,
 }: {
   runId?: string;
   sessionId: string;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   hasMessages?: boolean;
   isComposerActiveRun: boolean;
+  isComposerAvailable?: boolean;
 }) {
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
@@ -39,6 +41,16 @@ export function useWebComposerProviderControls({
   const [providerDialogVariant, setProviderDialogVariant] = useState<
     "full" | "connect-only" | "manage-models-only"
   >("full");
+  useEffect(() => {
+    if (isComposerAvailable) return;
+    const frame = requestAnimationFrame(() => {
+      setShowProviderDialog(false);
+      setProviderDialogInitialTab(undefined);
+      setProviderDialogInitialView("default");
+      setProviderDialogVariant("full");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isComposerAvailable]);
   const {
     catalog,
     credentials,
@@ -130,92 +142,93 @@ export function useWebComposerProviderControls({
   ]);
 
   return {
-    renderModelPicker: (onModelSwitchWarning: () => void) => (
-      <>
-        <ModelPickerPopover
-          catalog={catalog}
-          credentials={credentials}
-          providerModels={providerModels}
-          visibleModelIds={visibleModelIds}
-          selectedProviderId={selectedProviderId}
-          selectedModelId={selectedModelId}
-          selectedModelView={selectedModelView}
-          selectedProviderMetadata={
-            selectedProviderId
-              ? (providerModelsMetadata[selectedProviderId] ?? null)
-              : null
-          }
-          hasMoreSelectedProviderModels={
-            selectedProviderId
-              ? (providerModelsPage[selectedProviderId]?.hasMore ?? false)
-              : false
-          }
-          isLoadingMoreSelectedProviderModels={
-            selectedProviderId !== null &&
-            loadingModelsForProviderId === selectedProviderId
-          }
-          isRefreshingSelectedProviderModels={
-            selectedProviderId !== null &&
-            refreshingModelsForProviderId === selectedProviderId
-          }
-          onSelectModel={async (providerId, modelId) => {
-            // Model selection is scoped to the next turn. The current
-            // run was already admitted with its own model and must not
-            // be interrupted or rewritten when the picker changes.
-            const credential = findCredentialByProviderId(
-              credentials,
-              providerId,
-            );
-            if (!credential) {
+    renderModelPicker: (onModelSwitchWarning: () => void) =>
+      isComposerAvailable ? (
+        <>
+          <ModelPickerPopover
+            catalog={catalog}
+            credentials={credentials}
+            providerModels={providerModels}
+            visibleModelIds={visibleModelIds}
+            selectedProviderId={selectedProviderId}
+            selectedModelId={selectedModelId}
+            selectedModelView={selectedModelView}
+            selectedProviderMetadata={
+              selectedProviderId
+                ? (providerModelsMetadata[selectedProviderId] ?? null)
+                : null
+            }
+            hasMoreSelectedProviderModels={
+              selectedProviderId
+                ? (providerModelsPage[selectedProviderId]?.hasMore ?? false)
+                : false
+            }
+            isLoadingMoreSelectedProviderModels={
+              selectedProviderId !== null &&
+              loadingModelsForProviderId === selectedProviderId
+            }
+            isRefreshingSelectedProviderModels={
+              selectedProviderId !== null &&
+              refreshingModelsForProviderId === selectedProviderId
+            }
+            onSelectModel={async (providerId, modelId) => {
+              // Model selection is scoped to the next turn. The current
+              // run was already admitted with its own model and must not
+              // be interrupted or rewritten when the picker changes.
+              const credential = findCredentialByProviderId(
+                credentials,
+                providerId,
+              );
+              if (!credential) {
+                setProviderDialogInitialTab("available");
+                setProviderDialogInitialView("default");
+                setProviderDialogVariant("connect-only");
+                setShowProviderDialog(true);
+                return;
+              }
+              if (hasMessages && !isComposerActiveRun) {
+                onModelSwitchWarning();
+              }
+              await applySessionSelection({
+                providerId,
+                credentialId: credential.credentialId,
+                modelId,
+              });
+            }}
+            onSelectModelView={setModelView}
+            onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+            onEnsureSelectedProviderModels={(providerId) =>
+              ensureProviderModelsFresh(providerId)
+            }
+            onRefreshSelectedProviderModels={refreshProviderModels}
+            onConnectProvider={() => {
               setProviderDialogInitialTab("available");
               setProviderDialogInitialView("default");
               setProviderDialogVariant("connect-only");
               setShowProviderDialog(true);
-              return;
-            }
-            if (hasMessages && !isComposerActiveRun) {
-              onModelSwitchWarning();
-            }
-            await applySessionSelection({
-              providerId,
-              credentialId: credential.credentialId,
-              modelId,
-            });
-          }}
-          onSelectModelView={setModelView}
-          onLoadMoreSelectedProviderModels={loadMoreProviderModels}
-          onEnsureSelectedProviderModels={(providerId) =>
-            ensureProviderModelsFresh(providerId)
-          }
-          onRefreshSelectedProviderModels={refreshProviderModels}
-          onConnectProvider={() => {
-            setProviderDialogInitialTab("available");
-            setProviderDialogInitialView("default");
-            setProviderDialogVariant("connect-only");
-            setShowProviderDialog(true);
-          }}
-          onManageModels={() => {
-            setProviderDialogInitialTab("connected");
-            setProviderDialogInitialView("manage-models");
-            setProviderDialogVariant("manage-models-only");
-            setShowProviderDialog(true);
-          }}
-          isLoading={isModelPickerLoading}
-          isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
-        />
-
-        {selectedProviderId &&
-        selectedModelId &&
-        selectedModel?.capabilities?.reasoningEfforts?.length ? (
-          <ReasoningEffortPicker
-            providerId={selectedProviderId}
-            modelId={selectedModelId}
-            efforts={selectedModel.capabilities.reasoningEfforts}
-            disabled={isComposerActiveRun}
+            }}
+            onManageModels={() => {
+              setProviderDialogInitialTab("connected");
+              setProviderDialogInitialView("manage-models");
+              setProviderDialogVariant("manage-models-only");
+              setShowProviderDialog(true);
+            }}
+            isLoading={isModelPickerLoading}
+            isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
           />
-        ) : null}
-      </>
-    ),
+
+          {selectedProviderId &&
+          selectedModelId &&
+          selectedModel?.capabilities?.reasoningEfforts?.length ? (
+            <ReasoningEffortPicker
+              providerId={selectedProviderId}
+              modelId={selectedModelId}
+              efforts={selectedModel.capabilities.reasoningEfforts}
+              disabled={isComposerActiveRun}
+            />
+          ) : null}
+        </>
+      ) : null,
     providerNotice: (
       <>
         {providerStoreError?.startsWith("Your selected") ? (

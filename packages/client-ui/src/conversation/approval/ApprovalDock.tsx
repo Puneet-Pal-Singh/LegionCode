@@ -28,50 +28,52 @@ export function ApprovalDock({
   canStop,
 }: ApprovalDockProps) {
   return (
-    <div className="mx-auto mb-3 w-full max-w-3xl">
+    <div className="mx-auto mb-3 w-full max-w-4xl">
       <div
         data-testid="lifecycle-approval"
-        className="overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-sm text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+        className="flex max-h-[min(45vh,28rem)] min-h-0 flex-col overflow-y-auto rounded-xl border border-zinc-700/80 bg-[#18181b] text-sm text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
       >
-        <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3 text-zinc-400">
+        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-4 py-2.5 text-zinc-400">
           <span className="font-medium text-zinc-200">
             {buildApprovalCategoryLabel(pendingApproval)}
           </span>
           <span>Approval required</span>
         </div>
-        <div className="space-y-3 px-4 py-4">
+        <div className="max-h-40 shrink-0 overflow-y-auto px-4 py-3">
+          {error ? (
+            <div role="alert" className="mb-2">
+              <p className="max-h-16 overflow-y-auto break-words text-xs text-red-300">
+                {error}
+              </p>
+            </div>
+          ) : null}
           <div>
             <p className="font-medium text-zinc-50">
               {buildApprovalQuestion(pendingApproval)}
             </p>
-            <p className="mt-1 text-zinc-400">
+            <p className="mt-1 break-words text-zinc-400">
               {pendingApproval.title}
             </p>
           </div>
+          {matchingInChatOption?.description ? (
+            <p className="mt-2 max-h-16 overflow-y-auto break-words text-xs text-zinc-400">
+              {matchingInChatOption.description}
+            </p>
+          ) : null}
           {pendingApproval.command ? (
-            <pre className="max-h-32 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2.5 font-mono leading-relaxed text-zinc-300">
+            <pre className="mt-2 max-h-24 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2 font-mono leading-relaxed text-zinc-300">
               <code>{pendingApproval.command}</code>
             </pre>
           ) : null}
         </div>
-        <div className="border-t border-zinc-800 px-4 py-3">
+        <div className="shrink-0 border-t border-zinc-800 px-4 py-2.5">
           <ApprovalActions
             decisions={decisions}
             busyDecision={busyDecision}
             onResolve={onResolve}
             matchingInChatOption={matchingInChatOption}
           />
-          {matchingInChatOption?.description ? (
-            <p className="mt-2 text-xs text-zinc-400">
-              {matchingInChatOption.description}
-            </p>
-          ) : null}
-          {error ? (
-            <div role="alert">
-              <p className="mt-3 text-xs text-red-300">{error}</p>
-            </div>
-          ) : null}
-          <div className="mt-3 flex justify-end border-t border-zinc-800 pt-3">
+          <div className="mt-2 flex justify-end border-t border-zinc-800 pt-2">
             <button
               type="button"
               aria-label="Stop generation"
