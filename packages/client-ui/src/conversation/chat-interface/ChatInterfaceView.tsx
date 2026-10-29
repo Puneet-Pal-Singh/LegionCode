@@ -280,7 +280,9 @@ function TurnWorkflowEntry({
       data-workspace-id={props.workspaceId ?? undefined}
       data-turn-id={turnId}
       data-run-attempt-id={
-        surfaceId && isCurrentTurn ? (props.runAttemptId ?? undefined) : undefined
+        surfaceId && isCurrentTurn
+          ? (props.runAttemptId ?? undefined)
+          : undefined
       }
       className="space-y-3"
     >
@@ -302,6 +304,9 @@ function TurnWorkflowEntry({
           aria-label={`Earlier workflow activity (${entry.workflowHistory.length} attempts)`}
           className="space-y-5"
         >
+          <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Earlier workflow activity
+          </p>
           {entry.workflowHistory.map((historicalEntry) => (
             <TurnWorkflowEntry
               key={historicalEntry.key}

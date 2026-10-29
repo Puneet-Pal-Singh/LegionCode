@@ -18,10 +18,7 @@ export function resolveComposerKeyboardAction(input: {
   readonly altKey?: boolean;
   readonly isComposing: boolean;
   readonly isActive: boolean;
-  readonly preferences: Pick<
-    ComposerPreferences,
-    "sendShortcut" | "followUpBehavior"
-  >;
+  readonly preferences: Pick<ComposerPreferences, "sendShortcut">;
 }): ComposerKeyboardAction {
   if (
     input.key !== "Enter" ||
@@ -41,9 +38,7 @@ export function resolveComposerKeyboardAction(input: {
   }
 
   const shouldSubmit =
-    input.preferences.sendShortcut === "enter"
-      ? true
-      : modifierPressed;
+    input.preferences.sendShortcut === "enter" ? true : modifierPressed;
   if (!shouldSubmit) {
     return { type: "ignore" };
   }
