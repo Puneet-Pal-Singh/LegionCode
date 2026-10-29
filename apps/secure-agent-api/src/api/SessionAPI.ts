@@ -90,12 +90,11 @@ interface RuntimeSessionStore {
     since?: number,
     taskId?: string,
   ) => Promise<SessionLogEntry[]>;
-  deleteExecutionSession: (sessionId: string) => Promise<void>;
+  deleteExecutionSession: (
+    sessionId: string,
+    expectedLease: SandboxExecutionLease,
+  ) => Promise<void>;
 }
-
-type LeaseRuntime = RuntimeStub & {
-  releaseLease?: (leaseId: string) => Promise<void>;
-};
 
 function generateSessionId(): string {
   const randomBytes = new Uint8Array(8);
@@ -223,11 +222,7 @@ async function getActiveSession(
   }
 
   if (Date.now() > session.expiresAt) {
-    const releaseLease = (runtime as LeaseRuntime).releaseLease;
-    if (typeof releaseLease === "function") {
-      await releaseLease(session.lease.leaseId);
-    }
-    await sessionStore.deleteExecutionSession(sessionId);
+    await sessionStore.deleteExecutionSession(sessionId, session.lease);
     return null;
   }
 
@@ -899,11 +894,7 @@ export async function handleDeleteSession(
       );
     }
 
-    const releaseLease = (runtime as LeaseRuntime).releaseLease;
-    if (typeof releaseLease === "function") {
-      await releaseLease(auth.session.lease.leaseId);
-    }
-    await sessionStore.deleteExecutionSession(sessionId);
+    await sessionStore.deleteExecutionSession(sessionId, auth.session.lease);
     console.log(
       `[api/delete-session] Session deleted: ${sessionId.substring(0, 8)}...`,
     );

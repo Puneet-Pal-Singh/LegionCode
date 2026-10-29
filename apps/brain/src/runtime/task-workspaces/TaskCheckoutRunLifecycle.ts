@@ -15,6 +15,7 @@ export type TaskCheckoutTerminalOutcome =
  */
 export class TaskCheckoutRunLifecycle {
   private settled = false;
+  private retainedUntilLeaseExpiry = false;
 
   constructor(
     private readonly checkoutId: TaskCheckout["checkoutId"],
@@ -35,10 +36,13 @@ export class TaskCheckoutRunLifecycle {
       outcome,
     );
     this.settled = true;
+    this.retainedUntilLeaseExpiry =
+      outcome.status === "settled" && checkout.status === "settled";
     return checkout;
   }
 
   async release(): Promise<void> {
+    if (this.settled && this.retainedUntilLeaseExpiry) return;
     await this.executionSession.release();
   }
 }
