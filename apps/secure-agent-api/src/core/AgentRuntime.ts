@@ -55,6 +55,9 @@ interface RuntimeSessionRecord {
     root: string;
   };
   lease: SandboxExecutionLease;
+  cleanupAttempts?: number;
+  cleanupFailureCode?: "SANDBOX_DESTROY_FAILED";
+  cleanupRetryAt?: number;
 }
 
 interface RuntimeSessionLogEntry {
@@ -67,6 +70,8 @@ interface RuntimeSessionLogEntry {
 
 const EXECUTION_SESSION_KEY_PREFIX = "execution:session:";
 const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
+const CLEANUP_RETRY_BASE_MS = 15_000;
+const CLEANUP_RETRY_MAX_MS = 5 * 60_000;
 
 export class AgentRuntime extends DurableObject {
   private readonly workspaceRuntimes = new Map<string, ComposedRuntime>();
@@ -218,11 +223,85 @@ export class AgentRuntime extends DurableObject {
     session: RuntimeSessionRecord,
   ): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
-      await this.ctx.storage.put(this.getExecutionSessionKey(sessionId), session);
+      await this.ctx.storage.put(
+        this.getExecutionSessionKey(sessionId),
+        session,
+      );
+      await this.scheduleExecutionSessionAlarm();
     });
   }
 
-  async getExecutionSession(sessionId: string): Promise<RuntimeSessionRecord | null> {
+  async alarm(): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const records = await this.listExecutionSessions();
+      const now = Date.now();
+      const bySandbox = new Map<
+        string,
+        Array<[string, RuntimeSessionRecord]>
+      >();
+      for (const entry of records) {
+        const group = bySandbox.get(entry[1].lease.sandboxId) ?? [];
+        group.push(entry);
+        bySandbox.set(entry[1].lease.sandboxId, group);
+      }
+
+      for (const [sandboxId, group] of bySandbox) {
+        const expired = group.filter(
+          ([, session]) => session.lease.expiresAt <= now,
+        );
+        const due = expired.filter(
+          ([, session]) =>
+            session.cleanupRetryAt === undefined ||
+            session.cleanupRetryAt <= now,
+        );
+        if (due.length === 0) continue;
+
+        const hasLiveReference = group.some(
+          ([, session]) => session.lease.expiresAt > now,
+        );
+        if (hasLiveReference) continue;
+
+        try {
+          // The ID comes from the persisted original lease; this only addresses
+          // that exact sandbox and never issues or replaces a lease.
+          await getSandbox(this.env.Sandbox, sandboxId).destroy();
+          for (const [key, session] of expired) {
+            const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
+            await this.deleteExecutionSessionRecord(sessionId);
+            const workspaceKey = workspaceLeaseKey(session.lease);
+            const hasLiveWorkspaceRuntime = records.some(
+              ([, other]) =>
+                workspaceLeaseKey(other.lease) === workspaceKey &&
+                other.lease.expiresAt > now,
+            );
+            if (!hasLiveWorkspaceRuntime) {
+              this.workspaceRuntimes.delete(workspaceKey);
+            }
+          }
+        } catch {
+          for (const [key, session] of due) {
+            const attempts = (session.cleanupAttempts ?? 0) + 1;
+            const delay = Math.min(
+              CLEANUP_RETRY_BASE_MS * 2 ** (attempts - 1),
+              CLEANUP_RETRY_MAX_MS,
+            );
+            await this.ctx.storage.put(key, {
+              ...session,
+              cleanupAttempts: attempts,
+              cleanupFailureCode: "SANDBOX_DESTROY_FAILED",
+              cleanupRetryAt: now + delay,
+            });
+          }
+        }
+      }
+
+      await this.scheduleExecutionSessionAlarm();
+    });
+  }
+
+  async getExecutionSession(
+    sessionId: string,
+  ): Promise<RuntimeSessionRecord | null> {
     const session = await this.ctx.storage.get<RuntimeSessionRecord>(
       this.getExecutionSessionKey(sessionId),
     );
@@ -259,19 +338,62 @@ export class AgentRuntime extends DurableObject {
 
   async deleteExecutionSession(sessionId: string): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
-      const logs = await this.ctx.storage.list({
-        prefix: this.getExecutionLogPrefix(sessionId),
-      });
-      const logKeys = Array.from(logs.keys());
-      const keysToDelete = [
-        this.getExecutionSessionKey(sessionId),
-        ...logKeys,
-      ];
-      for (let i = 0; i < keysToDelete.length; i += 128) {
-        const chunk = keysToDelete.slice(i, i + 128);
-        await this.ctx.storage.delete(chunk);
-      }
+      await this.deleteExecutionSessionRecord(sessionId);
+      await this.scheduleExecutionSessionAlarm();
     });
+  }
+
+  private async listExecutionSessions(): Promise<
+    Array<[string, RuntimeSessionRecord]>
+  > {
+    const sessions = await this.ctx.storage.list<RuntimeSessionRecord>({
+      prefix: EXECUTION_SESSION_KEY_PREFIX,
+    });
+    return Array.from(sessions.entries());
+  }
+
+  private async scheduleExecutionSessionAlarm(): Promise<void> {
+    const sessions = await this.listExecutionSessions();
+    if (sessions.length === 0) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+
+    const now = Date.now();
+    let nextAlarm = Number.POSITIVE_INFINITY;
+    for (const [, session] of sessions) {
+      if (session.lease.expiresAt > now) {
+        nextAlarm = Math.min(nextAlarm, session.lease.expiresAt);
+        continue;
+      }
+      const protectedUntil = sessions
+        .map(([, other]) => other)
+        .filter(
+          (other) =>
+            other.lease.sandboxId === session.lease.sandboxId &&
+            other.lease.expiresAt > now,
+        )
+        .reduce(
+          (earliest, other) => Math.min(earliest, other.lease.expiresAt),
+          Number.POSITIVE_INFINITY,
+        );
+      const nextEligible = Number.isFinite(protectedUntil)
+        ? Math.max(protectedUntil, session.cleanupRetryAt ?? now)
+        : Math.max(session.cleanupRetryAt ?? now, now + 1);
+      nextAlarm = Math.min(nextAlarm, nextEligible);
+    }
+    await this.ctx.storage.setAlarm(nextAlarm);
+  }
+
+  private async deleteExecutionSessionRecord(sessionId: string): Promise<void> {
+    const logs = await this.ctx.storage.list({
+      prefix: this.getExecutionLogPrefix(sessionId),
+    });
+    const logKeys = Array.from(logs.keys());
+    const keysToDelete = [this.getExecutionSessionKey(sessionId), ...logKeys];
+    for (let i = 0; i < keysToDelete.length; i += 128) {
+      await this.ctx.storage.delete(keysToDelete.slice(i, i + 128));
+    }
   }
 
   private getExecutionSessionKey(sessionId: string): string {
