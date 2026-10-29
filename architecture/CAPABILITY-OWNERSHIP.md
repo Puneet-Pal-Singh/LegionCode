@@ -608,6 +608,24 @@ This ledger records the active wiring for image-bearing conversation context.
 | Context token estimates                  | Runtime context budgeting; measured usage belongs to the provider | Context assembly, compaction, provider usage reconciliation, lifecycle budget projection                                                                                                     | Image encoding is excluded from text estimates and receives a separate visual-input allowance labeled as an estimate. Provider-reported usage supersedes estimates. Retained tools and images remain included in post-compaction estimates.                              |
 | Compaction settlement and continuation   | Runtime kernel through the canonical lifecycle append path        | Manual and automatic compaction, provider continuation, lifecycle replay                                                                                                                     | The complete summary obeys the protocol size limit and excludes structured image bytes. Provider usage updates preserve the active compacted context. Summaries are bounded excerpts, not model-generated visual descriptions.                                           |
 
+## Plan 058 — Owned current Git operations
+
+| Responsibility | Canonical owner | Active producers and consumers |
+| --- | --- | --- |
+| Git reads and mutations against an execution checkout | Existing `packages/git-service` execution owner, reached through authenticated Brain composition and the existing Secure Agent API execution path | The seven existing Web operations (status, diff, stage/unstage, commit, branch, push, and pull-request creation) will use the typed SDK/App Server path; Web retains only action state and explicit live-review selection. |
+| Checkout retention and physical expiry | Existing task-checkout lifecycle keeps only the original successfully completed and settled lease through its original nested `lease.expiresAt`; existing secure `AgentRuntime` Durable Object owns persisted-session alarm cleanup and physical sandbox destruction | Git borrows the exact persisted session/lease identity and does not create, renew, recover, replace, or release it. Failed, interrupted, unsettled, expired, missing, mismatched, or dead checkout access is explicitly unavailable; saved completed review remains immutable. |
+
+This records the approved bounded retention and ownership decision before code
+changes. The retention/alarm implementation is in the separately reviewed
+checkout-retention change and must be present on `dev` before this operation is
+complete. The hosted operation must validate authenticated ownership of the
+original run/session/workspace/turn/attempt/root and exact unexpired secure
+session, token, lease, sandbox and generation before borrowing. It preserves
+existing Git mutation semantics, path confinement and serialized Git ownership.
+The replaced Web `git-client` transport, endpoint builders/routes, and
+per-command checkout/session creation are deleted only after every active
+caller uses the typed SDK/App Server path.
+
 ## Verification and limits
 
 - `ChatImageDelivery.integration.test.ts` exercises authenticated admission,
