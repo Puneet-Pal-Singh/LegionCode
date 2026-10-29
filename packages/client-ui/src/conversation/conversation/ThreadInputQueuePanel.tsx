@@ -227,7 +227,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                         >
                           Remove
                         </button>
-                        <details className="relative">
+                        <details className="flex flex-col items-end">
                           <summary
                             aria-label="More queued follow-up actions"
                             className="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded text-zinc-400 hover:bg-white/5 hover:text-zinc-200 [&::-webkit-details-marker]:hidden"
@@ -235,7 +235,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                           >
                             <MoreHorizontal size={16} aria-hidden="true" />
                           </summary>
-                          <div className="ui-surface-popover absolute right-0 top-full z-20 mt-1 min-w-28 p-1">
+                          <div className="ui-surface-popover mt-1 min-w-28 p-1">
                             <button
                               type="button"
                               className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-200 hover:bg-white/5"
