@@ -109,7 +109,7 @@ export const ChatInterfaceView = forwardRef<
 >(function ChatInterfaceView(props, scrollRef) {
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-black"
+      className="flex min-h-0 flex-1 flex-col bg-black"
       data-thread-surface={props.threadId ?? undefined}
     >
       {props.lifecycleProjection ? (
