@@ -13,7 +13,6 @@ import type {
 } from "@repo/shared-types";
 import { decryptToken } from "@legioncode/github-bridge";
 import { z } from "zod";
-import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import {
@@ -35,20 +34,9 @@ import {
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
 import {
-  fetchRunEngineWorkspaceScope,
-  RuntimeWorkspaceScopeResponseSchema,
-  toSecureExecutionWorkspaceScope,
   type SecureExecutionWorkspaceScope,
 } from "../runtime/RuntimeWorkspaceScope";
-
-const GitBootstrapRequestBodySchema = z.object({
-  runId: z.string(),
-  sessionId: z.string().optional(),
-  repositoryOwner: z.string(),
-  repositoryName: z.string(),
-  repositoryBranch: z.string().optional(),
-  repositoryBaseUrl: z.string().optional(),
-});
+import type { SecureExecutionSessionHandle } from "../services/secure-execution/SecureExecutionSessionClient";
 
 const GitCommitRequestBodySchema = z
   .object({
@@ -94,34 +82,30 @@ const GitCreatePullRequestRequestBodySchema = z.object({
   base: z.string().min(1).optional(),
 });
 
-type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
-type GitBootstrapResult = Awaited<
-  ReturnType<WorkspaceBootstrapService["bootstrap"]>
->;
-const bootstrapRequestsByRun = new Map<string, Promise<GitBootstrapResult>>();
 const ERROR_LOG_WINDOW_MS = 30_000;
-const GIT_SESSION_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_ATTEMPTS = 3;
 const GIT_STATUS_RETRY_DELAY_MS = 250;
 type SecureApiFetch = Env["SECURE_API"]["fetch"];
 type SecureApiResponse = Awaited<ReturnType<SecureApiFetch>>;
 type SecureApiRequestInit = Parameters<SecureApiFetch>[1];
 
-interface SecureMuscleSession {
-  sessionId: string;
-  token: string;
+export interface OwnedGitExecution {
+  readonly runId: string;
+  readonly brainSessionId: string;
+  readonly workspaceScope: SecureExecutionWorkspaceScope;
+  readonly session: SecureExecutionSessionHandle;
 }
 
-class GitWorkspaceScopeRequiredError extends Error {
-  constructor(readonly action: GitControllerAction) {
-    super(`Git ${action} requires a server-issued turn workspace scope`);
-    this.name = "GitWorkspaceScopeRequiredError";
+class GitCheckoutUnavailableError extends Error {
+  constructor() {
+    super("The original task checkout is unavailable for current Git operations.");
+    this.name = "GitCheckoutUnavailableError";
   }
 }
 
 interface CanonicalExecutionResponse {
   taskId: string;
-  status: "success" | "failure" | "timeout" | "cancelled";
+  status: "success" | "failure" | "timeout" | "cancelled" | "sandbox_unavailable";
   output?: string;
   error?: {
     code: string;
@@ -150,7 +134,7 @@ export class GitController {
   /**
    * Get git status for a run's worktree
    */
-  static async getStatus(req: Request, env: Env): Promise<Response> {
+  static async getStatus(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
@@ -159,8 +143,7 @@ export class GitController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      const muscleSession = resolveMuscleSessionId(runId);
-      const data = await getCurrentGitStatus(env, muscleSession, runId);
+      const data = await getCurrentGitStatus(env, execution);
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -174,7 +157,7 @@ export class GitController {
   /**
    * Get diff for specific file or entire worktree
    */
-  static async getDiff(req: Request, env: Env): Promise<Response> {
+  static async getDiff(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
@@ -185,11 +168,9 @@ export class GitController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      const muscleSession = resolveMuscleSessionId(runId);
       const rawPayload = await executeGitViaCanonicalApi(
         env,
-        muscleSession,
-        runId,
+        execution,
         "diff",
         {
           path: filePath,
@@ -211,7 +192,7 @@ export class GitController {
   /**
    * Stage files for commit
    */
-  static async stageFiles(req: Request, env: Env): Promise<Response> {
+  static async stageFiles(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const body = (await req.json()) as StageFilesRequest & {
         runId: string;
@@ -228,11 +209,9 @@ export class GitController {
         );
       }
 
-      const muscleSession = resolveMuscleSessionId(runId);
       const rawPayload = await executeGitViaCanonicalApi(
         env,
-        muscleSession,
-        runId,
+        execution,
         unstage ? "unstage" : "stage",
         { files },
         MUSCLE_GIT_TIMEOUT_MS,
@@ -248,7 +227,7 @@ export class GitController {
   /**
    * Commit staged changes
    */
-  static async commit(req: Request, env: Env): Promise<Response> {
+  static async commit(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const body = GitCommitRequestBodySchema.parse(await req.json());
       const { runId, message, files, authorName, authorEmail } = body;
@@ -259,11 +238,9 @@ export class GitController {
         { authorName, authorEmail },
       );
 
-      const muscleSession = resolveMuscleSessionId(runId);
       const rawPayload = await executeGitViaCanonicalApi(
         env,
-        muscleSession,
-        runId,
+        execution,
         "commit",
         {
           message,
@@ -284,16 +261,14 @@ export class GitController {
   /**
    * Create or switch to a branch for a run's worktree.
    */
-  static async createBranch(req: Request, env: Env): Promise<Response> {
+  static async createBranch(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const body = GitCreateBranchRequestBodySchema.parse(await req.json());
       const { runId, branch } = body;
-      const muscleSession = resolveMuscleSessionId(runId);
       const normalizedBranch = branch.trim();
       const currentBranch = await getCurrentGitBranch(
         env,
-        muscleSession,
-        runId,
+        execution,
       );
 
       if (currentBranch === normalizedBranch) {
@@ -303,11 +278,10 @@ export class GitController {
         } satisfies GitBranchMutationResult);
       }
 
-      await ensureLocalBranch(env, muscleSession, runId, normalizedBranch);
+      await ensureLocalBranch(env, execution, normalizedBranch);
       const resolvedBranch = await getCurrentGitBranch(
         env,
-        muscleSession,
-        runId,
+        execution,
       );
 
       return corsJsonResponse(req, env, {
@@ -322,7 +296,7 @@ export class GitController {
   /**
    * Push the active branch for a run's worktree using the authenticated GitHub token.
    */
-  static async push(req: Request, env: Env): Promise<Response> {
+  static async push(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const body = GitPushRequestBodySchema.parse(await req.json());
       const { runId } = body;
@@ -344,12 +318,10 @@ export class GitController {
         authenticatedSession.session.encryptedToken,
         env.GITHUB_TOKEN_ENCRYPTION_KEY,
       );
-      const muscleSession = resolveMuscleSessionId(runId);
       const branch = body.branch.trim();
       const rawPayload = await executeGitViaCanonicalApi(
         env,
-        muscleSession,
-        runId,
+        execution,
         "push",
         {
           remote,
@@ -373,7 +345,7 @@ export class GitController {
   /**
    * Create a pull request from authoritative run/worktree git state.
    */
-  static async createPullRequest(req: Request, env: Env): Promise<Response> {
+  static async createPullRequest(req: Request, env: Env, execution: OwnedGitExecution): Promise<Response> {
     try {
       const body = GitCreatePullRequestRequestBodySchema.parse(
         await req.json(),
@@ -391,8 +363,7 @@ export class GitController {
         );
       }
 
-      const muscleSession = resolveMuscleSessionId(body.runId);
-      const status = await getCurrentGitStatus(env, muscleSession, body.runId);
+      const status = await getCurrentGitStatus(env, execution);
       assertPullRequestWorkspaceBinding(status, body.owner, body.repo);
       const head = status.branch.trim();
       if (head.length === 0) {
@@ -433,127 +404,11 @@ export class GitController {
     }
   }
 
-  /**
-   * Bootstrap git workspace for a run before first chat turn.
-   * Enables git status/diff/changes tab in newly-created tasks.
-   */
-  static async bootstrap(req: Request, env: Env): Promise<Response> {
-    try {
-      const body = await parseGitBootstrapRequestBody(req, env);
-      if (!body) {
-        return errorResponse(
-          req,
-          env,
-          "Invalid git bootstrap request body",
-          400,
-        );
-      }
-      const {
-        runId,
-        repositoryOwner,
-        repositoryName,
-        repositoryBranch,
-        repositoryBaseUrl,
-      } = body;
-
-      const normalizedRunId = runId?.trim();
-      const owner = repositoryOwner?.trim();
-      const repo = repositoryName?.trim();
-      const branch = repositoryBranch?.trim() || "main";
-      const baseUrl = repositoryBaseUrl?.trim();
-
-      if (!normalizedRunId || !owner || !repo) {
-        return errorResponse(
-          req,
-          env,
-          "runId, repositoryOwner, and repositoryName are required",
-          400,
-        );
-      }
-
-      const muscleSession = resolveMuscleSessionId(normalizedRunId);
-      const existingRequest = bootstrapRequestsByRun.get(normalizedRunId);
-      if (existingRequest) {
-        const result = await existingRequest;
-        return corsJsonResponse(req, env, result);
-      }
-
-      const bootstrapper = WorkspaceBootstrapService.fromEnv(
-        env,
-        muscleSession,
-        normalizedRunId,
-        undefined,
-        await resolveGitWorkspaceScope(env, normalizedRunId, "status"),
-      );
-      const bootstrapRequest = bootstrapper.bootstrap({
-        runId: normalizedRunId,
-        mode: "mutation",
-        repositoryContext: {
-          owner,
-          repo,
-          branch,
-          baseUrl,
-        },
-      });
-      bootstrapRequestsByRun.set(normalizedRunId, bootstrapRequest);
-
-      let result: GitBootstrapResult;
-      try {
-        result = await bootstrapRequest;
-      } finally {
-        if (bootstrapRequestsByRun.get(normalizedRunId) === bootstrapRequest) {
-          bootstrapRequestsByRun.delete(normalizedRunId);
-        }
-      }
-
-      return corsJsonResponse(req, env, result);
-    } catch (error) {
-      return handleGitControllerError(req, env, error, "bootstrap");
-    }
-  }
-}
-
-async function parseGitBootstrapRequestBody(
-  req: Request,
-  env: Env,
-): Promise<GitBootstrapRequestBody | null> {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch (error) {
-    logWarnRateLimited(
-      "GitController:bootstrap:invalid-json",
-      "[GitController:bootstrap] Invalid JSON body",
-      { error: sanitizeUnknownError(error) },
-      ERROR_LOG_WINDOW_MS,
-    );
-    return null;
-  }
-
-  const parsedBody = GitBootstrapRequestBodySchema.safeParse(body);
-  if (!parsedBody.success) {
-    logWarnRateLimited(
-      "GitController:bootstrap:validation-failed",
-      "[GitController:bootstrap] Body validation failed",
-      {
-        issues: parsedBody.error.issues,
-        environment: env.NODE_ENV,
-      },
-      ERROR_LOG_WINDOW_MS,
-    );
-    return null;
-  }
-
-  return parsedBody.data;
 }
 
 interface PluginSuccessPayload {
   success: true;
   output?: unknown;
-}
-
-function resolveMuscleSessionId(runId: string): string {
-  return runId;
 }
 
 interface PluginErrorPayload {
@@ -563,39 +418,34 @@ interface PluginErrorPayload {
 
 async function executeGitViaCanonicalApi(
   env: Env,
-  muscleSession: string,
-  runId: string,
+  execution: OwnedGitExecution,
   action: GitControllerAction,
   payload: Record<string, unknown>,
   timeoutMs: number,
 ): Promise<PluginSuccessPayload | PluginErrorPayload> {
-  const workspaceScope = await resolveGitWorkspaceScope(env, runId, action);
-  const secureSession = await createSecureMuscleSession(
-    env.SECURE_API,
-    muscleSession,
-    runId,
-    action,
-    workspaceScope,
-  );
-
   const response = await fetchSecureApiWithTimeout(
     env.SECURE_API,
-    buildSecureApiUrl(muscleSession, "/api/v1/execute"),
+    buildSecureApiUrl(execution.brainSessionId, "/api/v1/execute"),
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${secureSession.token}`,
+        Authorization: `Bearer ${execution.session.token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sessionId: secureSession.sessionId,
+        sessionId: execution.session.sessionId,
         taskId: createGitTaskId(action),
         action: "git.execute",
+        borrowedLease: {
+          leaseId: execution.session.lease.leaseId,
+          sandboxId: execution.session.lease.sandboxId,
+          generation: execution.session.lease.generation,
+        },
         params: {
           action: toCanonicalGitExecutionAction(action),
           ...payload,
-          runId,
-          workspaceScope,
+          runId: execution.runId,
+          workspaceScope: execution.workspaceScope,
         },
         timeout: timeoutMs,
       }),
@@ -612,28 +462,24 @@ async function executeGitViaCanonicalApi(
 
 async function getCurrentGitStatus(
   env: Env,
-  muscleSession: string,
-  runId: string,
+  execution: OwnedGitExecution,
 ): Promise<GitStatusResponse> {
   const rawPayload = await executeGitStatusViaCanonicalApiWithRetry(
     env,
-    muscleSession,
-    runId,
+    execution,
   );
   return parseGitPayload<GitStatusResponse>(rawPayload, "status");
 }
 
 async function executeGitStatusViaCanonicalApiWithRetry(
   env: Env,
-  muscleSession: string,
-  runId: string,
+  execution: OwnedGitExecution,
 ): Promise<PluginSuccessPayload | PluginErrorPayload> {
   for (let attempt = 1; attempt <= GIT_STATUS_MAX_ATTEMPTS; attempt += 1) {
     try {
       const payload = await executeGitViaCanonicalApi(
         env,
-        muscleSession,
-        runId,
+        execution,
         "status",
         {},
         MUSCLE_STATUS_TIMEOUT_MS,
@@ -644,7 +490,7 @@ async function executeGitStatusViaCanonicalApiWithRetry(
       ) {
         const delayMs = GIT_STATUS_RETRY_DELAY_MS * attempt;
         logWarnRateLimited(
-          `GitController:getStatus:retry-payload:${runId}`,
+          `GitController:getStatus:retry-payload:${execution.runId}`,
           `[GitController:getStatus] Retrying transient git status plugin failure (attempt ${attempt + 1}/${GIT_STATUS_MAX_ATTEMPTS})`,
           undefined,
           ERROR_LOG_WINDOW_MS,
@@ -666,7 +512,7 @@ async function executeGitStatusViaCanonicalApiWithRetry(
 
       const delayMs = GIT_STATUS_RETRY_DELAY_MS * attempt;
       logWarnRateLimited(
-        `GitController:getStatus:retry-throw:${runId}`,
+        `GitController:getStatus:retry-throw:${execution.runId}`,
         `[GitController:getStatus] Retrying transient git status error (attempt ${attempt + 1}/${GIT_STATUS_MAX_ATTEMPTS})`,
         { error: sanitizeUnknownError(error) },
         ERROR_LOG_WINDOW_MS,
@@ -680,10 +526,9 @@ async function executeGitStatusViaCanonicalApiWithRetry(
 
 async function getCurrentGitBranch(
   env: Env,
-  muscleSession: string,
-  runId: string,
+  execution: OwnedGitExecution,
 ): Promise<string> {
-  const status = await getCurrentGitStatus(env, muscleSession, runId);
+  const status = await getCurrentGitStatus(env, execution);
   const branch = status.branch.trim();
   if (branch.length === 0) {
     throw new Error("Git status did not return an active branch");
@@ -693,14 +538,12 @@ async function getCurrentGitBranch(
 
 async function ensureLocalBranch(
   env: Env,
-  muscleSession: string,
-  runId: string,
+  execution: OwnedGitExecution,
   branch: CreateBranchPayload["branch"],
 ): Promise<void> {
   const switchPayload = await executeGitViaCanonicalApi(
     env,
-    muscleSession,
-    runId,
+    execution,
     "git_branch_switch",
     { branch },
     MUSCLE_GIT_TIMEOUT_MS,
@@ -717,8 +560,7 @@ async function ensureLocalBranch(
   try {
     await executeGitViaCanonicalApi(
       env,
-      muscleSession,
-      runId,
+      execution,
       "git_fetch",
       { remote: "origin" },
       MUSCLE_GIT_TIMEOUT_MS,
@@ -729,8 +571,7 @@ async function ensureLocalBranch(
 
   const retrySwitchPayload = await executeGitViaCanonicalApi(
     env,
-    muscleSession,
-    runId,
+    execution,
     "git_branch_switch",
     { branch },
     MUSCLE_GIT_TIMEOUT_MS,
@@ -741,8 +582,7 @@ async function ensureLocalBranch(
 
   const createPayload = await executeGitViaCanonicalApi(
     env,
-    muscleSession,
-    runId,
+    execution,
     "git_branch_create",
     { branch },
     MUSCLE_GIT_TIMEOUT_MS,
@@ -750,94 +590,9 @@ async function ensureLocalBranch(
   assertPluginResultSuccess(createPayload, "createBranch");
 }
 
-async function createSecureMuscleSession(
-  service: Env["SECURE_API"],
-  muscleSession: string,
-  runId: string,
-  action: string,
-  workspaceScope: SecureExecutionWorkspaceScope,
-): Promise<SecureMuscleSession> {
-  const response = await fetchSecureApiWithTimeout(
-    service,
-    buildSecureApiUrl(muscleSession, "/api/v1/session"),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        runId,
-        taskId: `git-${action}-${runId}`,
-        repoPath: ".",
-        workspaceScope,
-      }),
-    },
-    GIT_SESSION_TIMEOUT_MS,
-  );
-
-  if (!response.ok) {
-    const details = await readErrorPreview(response);
-    const suffix = details ? `: ${details}` : "";
-    throw new Error(
-      `Git ${action} failed to create execution session with HTTP ${response.status}${suffix}`,
-    );
-  }
-
-  const payload = (await response.json()) as unknown;
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Git execution session returned an invalid response");
-  }
-
-  const candidate = payload as {
-    sessionId?: unknown;
-    token?: unknown;
-  };
-  if (
-    typeof candidate.sessionId !== "string" ||
-    typeof candidate.token !== "string"
-  ) {
-    throw new Error("Git execution session response is missing credentials");
-  }
-
-  return {
-    sessionId: candidate.sessionId,
-    token: candidate.token,
-  };
-}
-
-async function resolveGitWorkspaceScope(
-  env: Env,
-  runId: string,
-  action: GitControllerAction,
-): Promise<SecureExecutionWorkspaceScope> {
-  let response: Response;
-  try {
-    response = await fetchRunEngineWorkspaceScope(env, runId);
-  } catch {
-    throw new GitWorkspaceScopeRequiredError(action);
-  }
-
-  if (!response.ok) {
-    throw new GitWorkspaceScopeRequiredError(action);
-  }
-
-  let parsed: ReturnType<typeof RuntimeWorkspaceScopeResponseSchema.safeParse>;
-  try {
-    parsed = RuntimeWorkspaceScopeResponseSchema.safeParse(
-      await response.json(),
-    );
-  } catch {
-    throw new GitWorkspaceScopeRequiredError(action);
-  }
-  if (!parsed.success) {
-    throw new GitWorkspaceScopeRequiredError(action);
-  }
-  return toSecureExecutionWorkspaceScope(parsed.data);
-}
-
-function buildSecureApiUrl(muscleSession: string, pathname: string): string {
+function buildSecureApiUrl(sessionNamespace: string, pathname: string): string {
   const url = new URL(pathname, "http://internal/");
-  url.searchParams.set("session", muscleSession);
+  url.searchParams.set("session", sessionNamespace);
   return url.toString();
 }
 
@@ -859,7 +614,8 @@ function parseCanonicalExecutionResponse(
     (candidate.status !== "success" &&
       candidate.status !== "failure" &&
       candidate.status !== "timeout" &&
-      candidate.status !== "cancelled")
+      candidate.status !== "cancelled" &&
+      candidate.status !== "sandbox_unavailable")
   ) {
     throw new Error("Git execution returned an invalid canonical response");
   }
@@ -902,6 +658,9 @@ function parseCanonicalExecutionError(
 function normalizeCanonicalGitResponse(
   payload: CanonicalExecutionResponse,
 ): PluginSuccessPayload | PluginErrorPayload {
+  if (payload.status === "sandbox_unavailable") {
+    throw new GitCheckoutUnavailableError();
+  }
   if (payload.status === "success") {
     return {
       success: true,
@@ -1082,8 +841,7 @@ function handleGitControllerError(
     | "commit"
     | "createBranch"
     | "createPullRequest"
-    | "push"
-    | "bootstrap",
+    | "push",
 ): Response {
   const mapped = mapGitControllerError(error, operation);
   const logMessage = `[GitController:${operation}] ${mapped.code}: ${mapped.message}`;
@@ -1125,8 +883,7 @@ function mapGitControllerError(
     | "commit"
     | "createBranch"
     | "createPullRequest"
-    | "push"
-    | "bootstrap",
+    | "push",
 ): {
   status: number;
   code: string;
@@ -1143,13 +900,12 @@ function mapGitControllerError(
     };
   }
 
-  if (error instanceof GitWorkspaceScopeRequiredError) {
+  if (error instanceof GitCheckoutUnavailableError) {
     return {
-      status: 428,
-      code: "GIT_WORKSPACE_SCOPE_REQUIRED",
-      message:
-        "A server-issued turn workspace scope is required before Git execution. Start or resume the turn, then retry.",
-      retryable: true,
+      status: 503,
+      code: "GIT_CHECKOUT_UNAVAILABLE",
+      message: error.message,
+      retryable: false,
     };
   }
 
@@ -1225,7 +981,7 @@ function mapGitControllerError(
       status: 502,
       code: "GIT_EXECUTION_CONTRACT_ERROR",
       message:
-        "Git workspace bootstrap failed because Brain and the secure runtime disagreed on the git execution contract. Refresh and retry.",
+        "Brain and the secure runtime disagreed on the git execution contract. Refresh and retry.",
       retryable: true,
       metadata: undefined,
     };
@@ -1291,8 +1047,7 @@ function getDefaultOperationError(
     | "commit"
     | "createBranch"
     | "createPullRequest"
-    | "push"
-    | "bootstrap",
+    | "push",
 ): string {
   switch (operation) {
     case "getStatus":
@@ -1309,8 +1064,6 @@ function getDefaultOperationError(
       return "Failed to push branch";
     case "createPullRequest":
       return "Failed to create pull request";
-    case "bootstrap":
-      return "Failed to bootstrap git workspace";
   }
 }
 
@@ -1379,11 +1132,36 @@ async function assertMuscleResponseOk(
   if (response.ok) {
     return;
   }
+  const payload = await readSecureErrorPayload(response);
+  if (
+    payload?.code === "SESSION_BORROW_UNAVAILABLE" ||
+    payload?.code === "SESSION_NOT_FOUND" ||
+    payload?.code === "SANDBOX_RECOVERY_EXHAUSTED" ||
+    payload?.status === "sandbox_unavailable"
+  ) {
+    throw new GitCheckoutUnavailableError();
+  }
   const details = await readErrorPreview(response);
   const suffix = details ? `: ${details}` : "";
   throw new Error(
     `Git ${operation} failed with HTTP ${response.status}${suffix}`,
   );
+}
+
+async function readSecureErrorPayload(
+  response: SecureApiResponse,
+): Promise<{ code?: string; status?: string } | null> {
+  try {
+    const value: unknown = await response.clone().json();
+    if (!value || typeof value !== "object") return null;
+    const candidate = value as { code?: unknown; status?: unknown };
+    return {
+      ...(typeof candidate.code === "string" ? { code: candidate.code } : {}),
+      ...(typeof candidate.status === "string" ? { status: candidate.status } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function assertPluginResultSuccess(

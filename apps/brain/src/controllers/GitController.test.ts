@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GitController } from "./GitController";
+import { GitController, type OwnedGitExecution } from "./GitController";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "../services/gitExecutionTimeouts";
 
@@ -16,16 +16,6 @@ describe("GitController", () => {
 
   it("routes git status through a run-scoped canonical session", async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            sessionId: "sess-git-1",
-            token: "tok-git-1",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
-        ),
-      )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -52,6 +42,7 @@ describe("GitController", () => {
       {
         ...createTestEnv(fetchMock),
       },
+      createOwnedExecution("run_git_01"),
     );
 
     expect(response.status).toBe(200);
@@ -60,30 +51,11 @@ describe("GitController", () => {
       gitAvailable: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
-    expect(sessionUrl).toBe(
-      "http://internal/api/v1/session?session=run_git_01",
-    );
-    expect(sessionInit?.method).toBe("POST");
-    expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
-      runId: "run_git_01",
-      taskId: "git-status-run_git_01",
-      repoPath: ".",
-      workspaceScope: {
-        runId: "run_git_01",
-        threadId: "thr_git_test",
-        turnId: "trn_git_test",
-        runAttemptId: "attempt_git_test",
-        workspaceId: "wrk_00000000-0000-0000-0000-000000000001",
-        root: "/home/sandbox/checkouts/checkout_run_git_01",
-      },
-    });
-
-    const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
+    const [executeUrl, executeInit] = fetchMock.mock.calls[0]!;
     expect(executeUrl).toBe(
-      "http://internal/api/v1/execute?session=run_git_01",
+      "http://internal/api/v1/execute?session=session-1",
     );
     expect(executeInit?.headers).toMatchObject({
       Authorization: "Bearer tok-git-1",
@@ -92,6 +64,11 @@ describe("GitController", () => {
     expect(JSON.parse(String(executeInit?.body))).toMatchObject({
       sessionId: "sess-git-1",
       action: "git.execute",
+      borrowedLease: {
+        leaseId: "lease_git_test",
+        sandboxId: "sandbox_git_test",
+        generation: 2,
+      },
       params: {
         action: "git_status",
         runId: "run_git_01",
@@ -110,16 +87,6 @@ describe("GitController", () => {
 
   it("maps the unstage API operation to canonical git_unstage execution", async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            sessionId: "sess-git-unstage",
-            token: "tok-git-unstage",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
-        ),
-      )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -143,10 +110,11 @@ describe("GitController", () => {
       {
         ...createTestEnv(fetchMock),
       },
+      createOwnedExecution("run_unstage"),
     );
 
     expect(response.status).toBe(200);
-    const executeInit = fetchMock.mock.calls[1]?.[1];
+    const executeInit = fetchMock.mock.calls[0]?.[1];
     expect(JSON.parse(String(executeInit?.body))).toMatchObject({
       action: "git.execute",
       params: {
@@ -162,16 +130,6 @@ describe("GitController", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            sessionId: "sess-git-2",
-            token: "tok-git-2",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
             error:
               "Validation failed: action invalid enum value, received 'git.execute'",
           }),
@@ -184,6 +142,7 @@ describe("GitController", () => {
       {
         ...createTestEnv(fetchMock),
       },
+      createOwnedExecution("run_git_01"),
     );
 
     expect(response.status).toBe(502);
@@ -195,16 +154,6 @@ describe("GitController", () => {
 
   it("returns an empty diff while workspace bootstrap is still preparing git", async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            sessionId: "sess-git-diff",
-            token: "tok-git-diff",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
-        ),
-      )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -226,6 +175,7 @@ describe("GitController", () => {
       {
         ...createTestEnv(fetchMock),
       },
+      createOwnedExecution("run_git_01"),
     );
 
     expect(response.status).toBe(200);
@@ -241,29 +191,9 @@ describe("GitController", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            sessionId: "sess-git-retry-1",
-            token: "tok-git-retry-1",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
             error: "SandboxError: HTTP error! status: 500",
           }),
           { status: 500, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            sessionId: "sess-git-retry-2",
-            token: "tok-git-retry-2",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
         ),
       )
       .mockResolvedValueOnce(
@@ -290,6 +220,7 @@ describe("GitController", () => {
       {
         ...createTestEnv(fetchMock),
       },
+      createOwnedExecution("run_retry_1"),
     );
 
     expect(response.status).toBe(200);
@@ -297,7 +228,7 @@ describe("GitController", () => {
       branch: "main",
       gitAvailable: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("retries local-dev-session proxy misses and eventually succeeds", async () => {
@@ -306,16 +237,6 @@ describe("GitController", () => {
         new Response(
           'Couldn\'t find a local dev session for the "default" entrypoint of service "legioncode-api" to proxy to',
           { status: 503, headers: { "Content-Type": "text/plain" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            sessionId: "sess-git-retry-local-dev",
-            token: "tok-git-retry-local-dev",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
         ),
       )
       .mockResolvedValueOnce(
@@ -344,6 +265,7 @@ describe("GitController", () => {
       {
         ...createTestEnv(fetchMock),
       },
+      createOwnedExecution("run_retry_local_dev"),
     );
 
     expect(response.status).toBe(200);
@@ -351,61 +273,40 @@ describe("GitController", () => {
       branch: "main",
       gitAvailable: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-
-  it("fails before secure session creation when the turn scope is unavailable", async () => {
-    const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run_git_01"),
-      createTestEnv(fetchMock, false),
-    );
-
-    expect(response.status).toBe(428);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "GIT_WORKSPACE_SCOPE_REQUIRED",
-      retryable: true,
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
 function createTestEnv(
   fetchMock: ReturnType<typeof vi.fn>,
-  scopeAvailable = true,
 ): Env {
-  const runtime = {
-    idFromName: vi.fn(() => "runtime-id"),
-    get: vi.fn(() => ({
-      fetch: vi.fn(async (request: Request | string) => {
-        if (!scopeAvailable) {
-          return new Response(JSON.stringify({ code: "TURN_SCOPE_REQUIRED" }), {
-            status: 428,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        const requestUrl = typeof request === "string" ? request : request.url;
-        const runId =
-          new URL(requestUrl).searchParams.get("runId") ?? "run_git_01";
-        return new Response(
-          JSON.stringify({
-            runId,
-            workspaceId: "00000000-0000-0000-0000-000000000001",
-            sessionId: "session-1",
-            threadId: "thr_git_test",
-            turnId: "trn_git_test",
-            runAttemptId: "attempt_git_test",
-            root: `/home/sandbox/checkouts/checkout_${runId}`,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }),
-    })),
-  } as unknown as Env["RUN_ENGINE_RUNTIME"];
-
   return {
     SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-    RUN_ENGINE_RUNTIME: runtime,
     NODE_ENV: "test",
   } as Env;
+}
+
+function createOwnedExecution(runId: string): OwnedGitExecution {
+  return {
+    runId,
+    brainSessionId: "session-1",
+    workspaceScope: {
+      runId,
+      threadId: "thr_git_test",
+      turnId: "trn_git_test",
+      runAttemptId: "attempt_git_test",
+      workspaceId: "wrk_00000000-0000-0000-0000-000000000001",
+      root: `/home/sandbox/checkouts/checkout_${runId}`,
+    },
+    session: {
+      sessionId: "sess-git-1",
+      token: "tok-git-1",
+      expiresAt: Date.now() + 60_000,
+      lease: {
+        leaseId: "lease_git_test",
+        sandboxId: "sandbox_git_test",
+        generation: 2,
+      },
+    },
+  } as unknown as OwnedGitExecution;
 }

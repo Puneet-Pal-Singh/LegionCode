@@ -2,7 +2,6 @@
 import { ChatController } from "./controllers/ChatController";
 import { AuthController } from "./controllers/AuthController";
 import { GitHubController } from "./controllers/GitHubController";
-import { GitController } from "./controllers/GitController";
 import { RunController } from "./controllers/RunController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
@@ -133,19 +132,6 @@ function createRouter(): Router {
     /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
     HookDefinitionController.delete,
     "DELETE",
-  );
-  // Git local routes (for sidebar)
-  router.add(/\/api\/git\/status/, GitController.getStatus);
-  router.add(/\/api\/git\/diff/, GitController.getDiff);
-  router.add(/\/api\/git\/bootstrap/, GitController.bootstrap, "POST");
-  router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
-  router.add(/\/api\/git\/commit/, GitController.commit, "POST");
-  router.add(/\/api\/git\/branch/, GitController.createBranch, "POST");
-  router.add(/\/api\/git\/push/, GitController.push, "POST");
-  router.add(
-    /\/api\/git\/pull-request/,
-    GitController.createPullRequest,
-    "POST",
   );
   router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
