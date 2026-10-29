@@ -231,56 +231,108 @@ export class AgentRuntime extends DurableObject {
   }
 
   async releaseLease(leaseId: string): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const records = await this.listExecutionSessions();
-      const owned = records.filter(
-        ([, session]) => session.lease.leaseId === leaseId,
+    await this.ctx.blockConcurrencyWhile(() =>
+      this.releaseLeaseInLock(leaseId),
+    );
+  }
+
+  private async releaseLeaseInLock(leaseId: string): Promise<void> {
+    const records = await this.listExecutionSessions();
+    const owned = records.filter(
+      ([, session]) => session.lease.leaseId === leaseId,
+    );
+    if (owned.length === 0) {
+      await this.releaseLoadedLease(leaseId);
+      return;
+    }
+
+    const now = Date.now();
+    const ownedIds = new Set(owned.map(([key]) => key));
+    const sandboxIds = new Set(
+      owned.map(([, session]) => session.lease.sandboxId),
+    );
+    for (const sandboxId of sandboxIds) {
+      const group = records.filter(
+        ([, session]) => session.lease.sandboxId === sandboxId,
       );
-      if (owned.length === 0) {
+      const hasOtherLiveReference = group.some(
+        ([key, session]) =>
+          !ownedIds.has(key) &&
+          !session.cleanupInProgress &&
+          session.lease.expiresAt > now,
+      );
+
+      if (hasOtherLiveReference) {
         await this.releaseLoadedLease(leaseId);
+        continue;
+      }
+
+      await this.markSandboxCleanupInProgress(group);
+      try {
+        await this.releaseLoadedLease(leaseId);
+      } catch {
+        await this.persistSandboxCleanupRetry(group, now);
+        await this.scheduleExecutionSessionAlarm();
+        throw new Error(
+          "Sandbox lease release failed; cleanup will be retried",
+        );
+      }
+
+      const cleaned = await this.cleanupSandbox(sandboxId, group, now);
+      if (!cleaned) {
+        await this.scheduleExecutionSessionAlarm();
+        throw new Error("Sandbox cleanup failed; cleanup will be retried");
+      }
+    }
+    await this.scheduleExecutionSessionAlarm();
+  }
+
+  async deleteExecutionSession(
+    sessionId: string,
+    expectedLease: SandboxExecutionLease,
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const key = this.getExecutionSessionKey(sessionId);
+      const existing = await this.ctx.storage.get<RuntimeSessionRecord>(key);
+      if (!existing || !this.matchesLease(existing.lease, expectedLease)) {
         return;
       }
 
-      const now = Date.now();
-      const ownedIds = new Set(owned.map(([key]) => key));
-      const sandboxIds = new Set(
-        owned.map(([, session]) => session.lease.sandboxId),
-      );
-      for (const sandboxId of sandboxIds) {
-        const group = records.filter(
-          ([, session]) => session.lease.sandboxId === sandboxId,
-        );
-        const hasOtherLiveReference = group.some(
-          ([key, session]) =>
-            !ownedIds.has(key) &&
-            !session.cleanupInProgress &&
-            session.lease.expiresAt > now,
-        );
+      await this.releaseLeaseInLock(expectedLease.leaseId);
 
-        if (hasOtherLiveReference) {
-          await this.releaseLoadedLease(leaseId);
-          continue;
-        }
-
-        await this.markSandboxCleanupInProgress(group);
-        try {
-          await this.releaseLoadedLease(leaseId);
-        } catch {
-          await this.persistSandboxCleanupRetry(group, now);
-          await this.scheduleExecutionSessionAlarm();
-          throw new Error(
-            "Sandbox lease release failed; cleanup will be retried",
-          );
-        }
-
-        const cleaned = await this.cleanupSandbox(sandboxId, group, now);
-        if (!cleaned) {
-          await this.scheduleExecutionSessionAlarm();
-          throw new Error("Sandbox cleanup failed; cleanup will be retried");
-        }
+      const current = await this.ctx.storage.get<RuntimeSessionRecord>(key);
+      if (!current || !this.matchesLease(current.lease, expectedLease)) {
+        return;
       }
+      if (current.cleanupInProgress) {
+        throw new Error("Sandbox cleanup is pending for this session");
+      }
+      await this.deleteExecutionSessionRecord(sessionId);
       await this.scheduleExecutionSessionAlarm();
     });
+  }
+
+  private matchesLease(
+    actual: SandboxExecutionLease,
+    expected: SandboxExecutionLease,
+  ): boolean {
+    const scope = actual.workspaceScope;
+    const expectedScope = expected.workspaceScope;
+    return (
+      actual.leaseId === expected.leaseId &&
+      actual.sandboxId === expected.sandboxId &&
+      actual.owner === expected.owner &&
+      actual.correlationId === expected.correlationId &&
+      actual.expiresAt === expected.expiresAt &&
+      actual.generation === expected.generation &&
+      actual.mutationMode === expected.mutationMode &&
+      scope.runId === expectedScope.runId &&
+      scope.threadId === expectedScope.threadId &&
+      scope.turnId === expectedScope.turnId &&
+      scope.runAttemptId === expectedScope.runAttemptId &&
+      scope.workspaceId === expectedScope.workspaceId &&
+      scope.root === expectedScope.root
+    );
   }
 
   private async releaseLoadedLease(leaseId: string): Promise<void> {
@@ -400,25 +452,6 @@ export class AgentRuntime extends DurableObject {
       const matchesSince = since === undefined || entry.timestamp > since;
       const matchesTask = taskId === undefined || entry.taskId === taskId;
       return matchesSince && matchesTask;
-    });
-  }
-
-  async deleteExecutionSession(sessionId: string): Promise<void> {
-    const existing = await this.ctx.storage.get<RuntimeSessionRecord>(
-      this.getExecutionSessionKey(sessionId),
-    );
-    if (existing) {
-      await this.releaseLease(existing.lease.leaseId);
-    }
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const session = await this.ctx.storage.get<RuntimeSessionRecord>(
-        this.getExecutionSessionKey(sessionId),
-      );
-      if (session?.cleanupInProgress) {
-        throw new Error("Sandbox cleanup is pending for this session");
-      }
-      await this.deleteExecutionSessionRecord(sessionId);
-      await this.scheduleExecutionSessionAlarm();
     });
   }
 
