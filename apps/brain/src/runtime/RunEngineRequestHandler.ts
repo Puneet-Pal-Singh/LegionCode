@@ -1670,15 +1670,6 @@ export class RunEngineRequestHandler {
         }
       });
     } catch (error: unknown) {
-      if (executionClaim) {
-        try {
-          await withTurnAdmissionRepository(this.env, (repository) =>
-            repository.markRecoveryRequired(executionClaim!),
-          );
-        } catch (recoveryError) {
-          console.error("Failed to record interrupted execution claim", recoveryError);
-        }
-      }
       const domainError = mapRunExecutionErrorToDomain(
         error,
         payload.correlationId,
