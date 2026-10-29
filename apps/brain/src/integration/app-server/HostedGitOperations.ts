@@ -123,12 +123,13 @@ async function resolveOwnedGitExecution(
   const expectedWorkspaceId = workspaceIdFromExternalId(scope.workspaceId);
   if (
     !checkout ||
+    (checkout.status === "active" && run.status !== "running") ||
+    (checkout.status === "settled" && (run.status !== "completed" || !checkout.settledAt)) ||
     (checkout.status !== "active" && checkout.status !== "settled") ||
     checkout.workspaceId !== expectedWorkspaceId ||
     checkout.threadId !== admission.threadId ||
     checkout.turnId !== admission.turnId ||
-    checkout.runAttemptId !== runAttemptId ||
-    (checkout.status === "settled" && (run.status !== "completed" || !checkout.settledAt))
+    checkout.runAttemptId !== runAttemptId
   ) {
     throw unavailable("The original task checkout is unavailable for current Git operations.");
   }
