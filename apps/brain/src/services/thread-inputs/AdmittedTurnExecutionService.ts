@@ -268,6 +268,12 @@ export async function settleUnclaimedStartupFailure(input: {
         ...(input.identity.revisionOfTurnId
           ? { revisionOfTurnId: input.identity.revisionOfTurnId }
           : {}),
+        ...(input.identity.continuationOfTurnId
+          ? { continuationOfTurnId: input.identity.continuationOfTurnId }
+          : {}),
+        ...(input.identity.originalPromptId
+          ? { originalPromptId: input.identity.originalPromptId }
+          : {}),
       },
       markRecoveryRequired: (executionClaim) =>
         withTurnAdmissionRepository(input.env, (repository) =>

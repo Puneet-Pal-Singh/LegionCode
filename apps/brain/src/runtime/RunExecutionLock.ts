@@ -21,6 +21,10 @@ export class RunExecutionLock {
     }
   }
 
+  hasQueuedOrActiveRun(runId: string): boolean {
+    return this.queues.has(runId);
+  }
+
   pendingRunCount(): number {
     return this.queues.size;
   }
