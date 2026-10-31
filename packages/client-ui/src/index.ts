@@ -34,6 +34,7 @@ export {
 export { ChangedFilesCard } from "./conversation/chat-message/ChangedFilesCard.js";
 export type { ChangedFilesSummary } from "./conversation/chat-message/changed-files-types.js";
 export { ChatMessage, type ChatMessageProps } from "./conversation/ChatMessage.js";
+export { MessageArtifacts, type StoredCodeArtifactCall } from "./conversation/chat-message/MessageArtifacts.js";
 export type { ArtifactOpenHandler, ArtifactOpenOptions } from "./conversation/artifactOpen.js";
 export { DiffViewer, ChangesList, ChangeItem, DiffLine } from "./review/index.js";
 export { ReviewScopeDropdown } from "./review/ReviewScopeDropdown.js";

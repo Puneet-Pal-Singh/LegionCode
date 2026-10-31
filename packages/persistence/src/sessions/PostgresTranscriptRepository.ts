@@ -294,6 +294,20 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     };
   }
 
+  async hasLegacyHistoryArtifactReference(input: {
+    sessionId: string;
+    userId: string;
+    messageId: string;
+    partId: string;
+    toolCallId: string;
+  }): Promise<boolean> {
+    const result = await this.client.query<TranscriptRow>(
+      HAS_LEGACY_HISTORY_ARTIFACT_REFERENCE_SQL,
+      [input.userId, input.sessionId, input.messageId, input.partId, input.toolCallId],
+    );
+    return result.rows.length > 0;
+  }
+
   async getCanonicalAssistantMessageId(input: {
     sessionId: string;
     userId: string;
@@ -1288,4 +1302,17 @@ const LIST_ARCHIVED_SESSIONS_SQL = `
   WHERE s.user_id = $1
     AND s.archived_at IS NOT NULL
   ORDER BY s.archived_at DESC
+`;
+
+const HAS_LEGACY_HISTORY_ARTIFACT_REFERENCE_SQL = `
+  SELECT 1
+  FROM legacy_history_import_receipts receipt,
+    LATERAL jsonb_array_elements(receipt.destination_refs->'messages') destination_message,
+    LATERAL jsonb_array_elements(destination_message->'parts') destination_part
+  WHERE receipt.user_id = $1
+    AND receipt.session_id = $2
+    AND destination_message->>'messageId' = $3
+    AND destination_part->>'partId' = $4
+    AND destination_part->>'sourceToolCallId' = $5
+  LIMIT 1
 `;
