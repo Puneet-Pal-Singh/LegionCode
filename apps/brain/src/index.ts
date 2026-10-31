@@ -1,7 +1,6 @@
 // apps/brain/src/index.ts
 import { ChatController } from "./controllers/ChatController";
 import { AuthController } from "./controllers/AuthController";
-import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
 import { RunController } from "./controllers/RunController";
 import { RuntimeController } from "./controllers/RuntimeController";
@@ -105,18 +104,6 @@ function createRouter(): Router {
   router.add(/\/auth\/session/, AuthController.handleGetSession);
   router.add(/\/auth\/logout/, AuthController.handleLogout, "POST");
 
-  // GitHub API routes
-  router.add(/\/api\/github\/repos/, GitHubController.listRepositories);
-  router.add(/\/api\/github\/branches/, GitHubController.listBranches);
-  router.add(/\/api\/github\/contents/, GitHubController.getContents);
-  router.add(/\/api\/github\/tree/, GitHubController.getTree);
-  router.add(/\/api\/github\/pulls$/, GitHubController.listPullRequests, "GET");
-  router.add(/\/api\/github\/pulls\//, GitHubController.getPullRequest, "GET");
-  router.add(
-    /\/api\/github\/pulls$/,
-    GitHubController.createPullRequest,
-    "POST",
-  );
   router.add(
     /^\/api\/workspaces\/[^/]+\/hooks$/,
     HookDefinitionController.list,

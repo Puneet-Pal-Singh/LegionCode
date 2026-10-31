@@ -13,6 +13,10 @@ vi.mock("../../../services/GitHubService", () => ({
   getRepositoryTree: (...args: unknown[]) => mockGetRepositoryTree(...args),
 }));
 
+vi.mock("../../../contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "user-1" } }),
+}));
+
 describe("useGitHubTree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,6 +49,7 @@ describe("useGitHubTree", () => {
       "Puneet-Pal-Singh",
       "career-crew",
       "main",
+      "user-1",
     );
     expect(result.current.isLoadingTree).toBe(false);
     expect(result.current.isContextMismatch).toBe(false);

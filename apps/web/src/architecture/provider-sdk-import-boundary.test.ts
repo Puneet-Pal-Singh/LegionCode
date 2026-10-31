@@ -13,6 +13,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "services/ChatPersistenceService.ts",
   "services/api/providerClient.ts",
   "services/api/platformClient.ts",
+  "services/GitHubService.ts",
   "services/settings/HookSettingsViewModel.ts",
   "components/chat/ChatInterface.tsx",
   "components/chat/chat-interface/useReviewCommentSubmission.ts",

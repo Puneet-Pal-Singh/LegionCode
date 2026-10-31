@@ -83,6 +83,8 @@ export interface ChatInputBarProps {
   onModeChange?: (mode: RunMode) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  repoTreeError?: string | null;
+  retryRepoTree?: () => void;
   layout?: "docked" | "hero";
   contextBudget?: ContextBudgetSnapshot | null;
   usage?: UsageCostSnapshot | null;
@@ -122,6 +124,8 @@ export function ChatInputBar({
   onModeChange,
   repoTree = [],
   isLoadingRepoTree = false,
+  repoTreeError = null,
+  retryRepoTree,
   layout = "docked",
   contextBudget = null,
   usage = null,
@@ -522,6 +526,15 @@ export function ChatInputBar({
               {isLoadingRepoTree ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
                   Loading repository files...
+                </div>
+              ) : repoTreeError ? (
+                <div className="flex items-center justify-between gap-3 px-3 py-4 text-[11px] text-amber-200" role="alert">
+                  <span>{repoTreeError}</span>
+                  {retryRepoTree ? (
+                    <button type="button" onClick={retryRepoTree} className="shrink-0 text-blue-300 hover:text-blue-200">
+                      Retry
+                    </button>
+                  ) : null}
                 </div>
               ) : suggestedEntries.length === 0 ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">

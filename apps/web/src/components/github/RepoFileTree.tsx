@@ -43,6 +43,8 @@ interface RepoFileTreeProps {
   tree: Array<{ path: string; type: string; sha: string }>;
   /** Loading state */
   isLoading?: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
   /** Callback when a file is selected */
   onFileSelect: (path: string) => void;
   /** Optional className for styling */
@@ -141,6 +143,8 @@ export function RepoFileTree({
   branch,
   tree,
   isLoading = false,
+  loadError = null,
+  onRetry,
   onFileSelect,
   className,
   filterQuery = "",
@@ -205,6 +209,21 @@ export function RepoFileTree({
                 <div className="h-3 bg-zinc-800 rounded animate-pulse" style={{ width: `${40 + (i * 10) % 40}%` }} />
               </div>
             ))}
+          </motion.div>
+        ) : loadError ? (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center gap-2 py-8 text-zinc-400"
+          >
+            <span role="alert" className="text-sm">{loadError}</span>
+            {onRetry ? (
+              <button type="button" onClick={onRetry} className="text-sm text-blue-400 hover:text-blue-300">
+                Retry
+              </button>
+            ) : null}
           </motion.div>
         ) : treeItems.length === 0 ? (
           <motion.div

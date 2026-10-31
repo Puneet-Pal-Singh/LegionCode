@@ -12,6 +12,7 @@ import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnC
 import { composeHostedThreadInputOperations } from "../integration/app-server/HostedThreadInputOperations";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
+import { composeHostedRepositoryReads } from "../integration/app-server/HostedRepositoryReads";
 import { AppServerOperationError, handleAppServerHttpRequest } from "@legioncode/app-server/server";
 import type { AppServerError, ChatRequestBody, HostedChatSubmissionResult } from "@repo/platform-protocol";
 import { bindAuthenticatedChatRequest } from "./ChatRequestBoundary";
@@ -101,6 +102,7 @@ export const AppServerController = {
     let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
+    let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
     let hostedChatSubmissionService:
       | { execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult> }
       | undefined;
@@ -130,6 +132,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
+        hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
         hostedChatSubmissionService = {
           execute: async (params) => {
             const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
@@ -219,6 +222,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
+        hostedRepositoryReadService,
         hostedChatSubmissionService,
       },
     );

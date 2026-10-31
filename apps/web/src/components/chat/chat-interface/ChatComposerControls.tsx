@@ -64,6 +64,8 @@ interface ChatComposerControlsProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree: boolean;
+  repoTreeError?: string | null;
+  retryRepoTree?: () => void;
   permissionMode?: ProductMode;
   onPermissionModeChange?: (mode: ProductMode) => void;
   contextBudget?: ContextBudgetSnapshot | null;
@@ -160,6 +162,8 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
             onModelSelect={props.onModelSelect}
             repoTree={props.repoTree}
             isLoadingRepoTree={props.isLoadingRepoTree}
+            repoTreeError={props.repoTreeError}
+            retryRepoTree={props.retryRepoTree}
             layout={props.layout}
             contextBudget={props.contextBudget}
             usage={props.usage}
