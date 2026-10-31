@@ -98,6 +98,9 @@ export {
   type TurnScopeReadQuery,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
+  type RepositoryContentsResponse,
+  type RepositoryReadBranch,
+  type RepositoryReadRepository,
 } from "@repo/platform-protocol";
 export {
   turnIdFromRunId,

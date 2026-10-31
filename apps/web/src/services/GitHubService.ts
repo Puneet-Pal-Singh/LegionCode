@@ -10,7 +10,7 @@ import type {
   RepositoryContentsResponse,
   RepositoryReadBranch,
   RepositoryReadRepository,
-} from "@repo/platform-protocol";
+} from "@legioncode/sdk";
 import {
   getRepositoryTree as getCachedRepositoryTree,
   listRepositoryBranches as listCachedRepositoryBranches,
