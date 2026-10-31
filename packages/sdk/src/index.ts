@@ -82,6 +82,7 @@ export {
   TurnScopeBootstrapRequestSchema,
   TurnScopeBootstrapSchema,
   TurnScopeReadQuerySchema,
+  ChatRequestBodySchema,
   WorkspaceIdSchema,
   ContextBudgetSnapshotSchema,
   UsageCostSnapshotSchema,
@@ -98,6 +99,7 @@ export {
   type TurnId,
   type TurnScopeBootstrap,
   type TurnScopeReadQuery,
+  type ChatRequestBody,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
 } from "@repo/platform-protocol";

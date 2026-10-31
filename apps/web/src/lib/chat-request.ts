@@ -1,4 +1,7 @@
-import { ChatRequestBodySchema as PlatformChatRequestBodySchema, TurnScopeBootstrapSchema } from "@repo/platform-protocol";
+import {
+  ChatRequestBodySchema as PlatformChatRequestBodySchema,
+  TurnScopeBootstrapSchema,
+} from "@legioncode/sdk";
 import { z } from "zod";
 
 export const RuntimeHarnessIdSchema = z.enum([
