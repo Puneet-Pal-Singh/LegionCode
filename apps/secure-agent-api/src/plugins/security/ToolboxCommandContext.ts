@@ -4,6 +4,7 @@ export interface ToolboxCommandContext {
   callId?: string;
   runId?: string;
   toolName?: string;
+  borrowedLease?: boolean;
 }
 
 export function readToolboxCommandContext(
@@ -37,6 +38,7 @@ export function withToolboxCommandContext(
     callId: spec.callId ?? context.callId,
     runId: spec.runId ?? context.runId,
     toolName: spec.toolName ?? toolName ?? context.toolName,
+    borrowedLease: spec.borrowedLease ?? context.borrowedLease,
   };
 }
 

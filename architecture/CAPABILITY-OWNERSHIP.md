@@ -608,6 +608,55 @@ This ledger records the active wiring for image-bearing conversation context.
 | Context token estimates                  | Runtime context budgeting; measured usage belongs to the provider | Context assembly, compaction, provider usage reconciliation, lifecycle budget projection                                                                                                     | Image encoding is excluded from text estimates and receives a separate visual-input allowance labeled as an estimate. Provider-reported usage supersedes estimates. Retained tools and images remain included in post-compaction estimates.                              |
 | Compaction settlement and continuation   | Runtime kernel through the canonical lifecycle append path        | Manual and automatic compaction, provider continuation, lifecycle replay                                                                                                                     | The complete summary obeys the protocol size limit and excludes structured image bytes. Provider usage updates preserve the active compacted context. Summaries are bounded excerpts, not model-generated visual descriptions.                                           |
 
+## Plan 058 — Owned current Git operations
+
+| Responsibility | Canonical owner | Active producers and consumers |
+| --- | --- | --- |
+| Git reads and mutations against an execution checkout | Existing `packages/git-service` execution owner, reached through authenticated Brain composition and the existing Secure Agent API execution path | The seven existing Web operations (status, diff, stage/unstage, commit, branch, push, and pull-request creation) will use the typed SDK/App Server path; Web retains only action state and explicit live-review selection. |
+| Checkout retention and physical expiry | Existing task-checkout lifecycle keeps only the original successfully completed and settled lease through its original nested `lease.expiresAt`; existing secure `AgentRuntime` Durable Object owns persisted-session alarm cleanup and physical sandbox destruction | Git borrows the exact persisted session/lease identity and does not create, renew, recover, replace, or release it. Failed, interrupted, unsettled, expired, missing, mismatched, or dead checkout access is explicitly unavailable; saved completed review remains immutable. |
+
+This records the approved bounded retention and ownership decision before code
+changes. The retention/alarm implementation is in the separately reviewed
+checkout-retention change and must be present on `dev` before this operation is
+complete. The hosted operation must validate authenticated ownership of the
+original run/session/workspace/turn/attempt/root and exact unexpired secure
+session, token, lease, sandbox and generation before borrowing. It preserves
+existing Git mutation semantics, path confinement and serialized Git ownership.
+The replaced Web `git-client` transport, endpoint builders/routes, and
+per-command checkout/session creation are deleted only after every active
+caller uses the typed SDK/App Server path.
+
+The App Server contract remains seven operation-specific methods:
+`git/status`, `git/diff`, `git/stage`, `git/commit`, `git/branch`, `git/push`,
+and `git/pullRequest`. Brain derives the owned run/session and checkout scope
+from authenticated server records; client IDs cannot select the Secure Agent
+namespace. The existing Secure Session owner exposes only an internal-authenticated
+borrow of that exact persisted, unexpired session/lease/token. The borrower
+executes through the existing `git.execute` path and fails closed for missing,
+expired, mismatched or dead state; it never invokes session recovery, lease
+replacement or release. A borrowed request must not boot plugins, create a
+physical container, recreate a missing checkout root, or destroy/release the
+original lease. It must recheck the original expiry after serialized-workspace
+queue waits and immediately before plugin execution. If the existing sandbox
+execution boundary cannot invoke against an already-running physical container
+without its normal auto-start behavior, borrowed execution must fail closed
+until that owner exposes such a path; a `getState()` preflight followed by a
+normal auto-starting operation is not sufficient.
+
+The existing `@cloudflare/sandbox@0.12.3` owner exposes that path through a
+narrow pinned-package patch: `Sandbox.containerFetchIfRunning` checks the
+existing Durable Object container's synchronous `running` state and, only when
+true, forwards the original request through that container's TCP port. The
+borrowed Git adapter uses this explicit operation and a typed `execIfRunning`
+request built by the existing Secure Agent API request/response helpers, with
+zero SDK retry timeout. It never calls the normal auto-starting `containerFetch`
+or `exec`, retries, boots plugins, or creates the checkout root. The lease
+expiry is checked after serialized-workspace queue admission and immediately
+before execution; a stopped physical container or elapsed original lease stays
+explicitly unavailable. The adapter remains an execution-path detail owned by
+Secure Agent API; `packages/git-service`, Brain's authenticated composition and
+the App Server method contract remain the canonical Git owners and consumers.
+
 ## Verification and limits
 
 - `ChatImageDelivery.integration.test.ts` exercises authenticated admission,

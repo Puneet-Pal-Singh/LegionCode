@@ -35,6 +35,7 @@ export interface PluginResult {
  */
 export interface PluginExecutionContext {
   workspaceScope: WorkspaceScope;
+  borrowedLease?: boolean;
 }
 
 // OpenAI Tool Definition Schema

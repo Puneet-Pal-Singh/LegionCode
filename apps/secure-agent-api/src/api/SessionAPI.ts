@@ -6,6 +6,7 @@
 import {
   SessionCreateRequestSchema,
   SessionResumeRequestSchema,
+  SessionBorrowRequestSchema,
   ExecuteTaskRequestSchema,
   CancelTaskRequestSchema,
   ExecuteTaskResponseSchema,
@@ -14,6 +15,7 @@ import {
   errorResponse,
   type ExecuteTaskRequest,
   type ExecuteTaskResponse,
+  type SessionBorrowRequest,
 } from "../schemas/http-api";
 import type {
   SandboxExecutionPort,
@@ -46,6 +48,7 @@ interface SessionRecord {
   workspaceScope: WorkspaceScope;
   lease: SandboxExecutionLease;
   recoveryExhausted?: boolean;
+  cleanupInProgress?: boolean;
 }
 
 interface PublicSessionRecord {
@@ -260,11 +263,15 @@ async function authorizeSessionRequest(
   request: Request,
   runtime: RuntimeStub,
   sessionId: string,
+  preserveExpiredLease = false,
 ): Promise<
   { ok: true; session: SessionRecord } | { ok: false; response: Response }
 > {
-  const session = await getActiveSession(runtime, sessionId);
-  if (!session) {
+  const sessionStore = preserveExpiredLease ? getRuntimeSessionStore(runtime) : null;
+  const session = sessionStore
+    ? await sessionStore.getExecutionSession(sessionId)
+    : await getActiveSession(runtime, sessionId);
+  if (!session || session.expiresAt <= Date.now()) {
     return {
       ok: false,
       response: errorResponse(
@@ -350,6 +357,11 @@ function extractResumedSessionIdFromPath(pathname: string): string | null {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
+function extractBorrowedSessionIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/v1\/session\/([^/]+)\/borrow$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 function parseExecutionResponse(result: unknown): ExecuteTaskResponse | null {
   const parsed = ExecuteTaskResponseSchema.safeParse(result);
   return parsed.success ? parsed.data : null;
@@ -364,6 +376,7 @@ function toTaskExecutionInput(
     params: request.params,
     timeout: request.timeout,
     retryable: request.retryable,
+    borrowedLease: request.borrowedLease !== undefined,
   };
 }
 
@@ -541,6 +554,70 @@ export async function handleCreateSession(
   }
 }
 
+/** Returns an existing bearer only to the internal Brain service binding. */
+export async function handleBorrowSession(
+  request: Request,
+  runtime: RuntimeStub,
+): Promise<Response> {
+  try {
+    const sessionId = extractBorrowedSessionIdFromPath(
+      new URL(request.url).pathname,
+    );
+    if (!sessionId) {
+      return errorResponse("Invalid secure session ID", "INVALID_REQUEST", 400);
+    }
+    const validation = await validateRequestBody(
+      request,
+      SessionBorrowRequestSchema,
+    );
+    if (!validation.valid) {
+      return errorResponse(validation.error, "INVALID_REQUEST", 400);
+    }
+    const sessionStore = getRuntimeSessionStore(runtime);
+    if (!sessionStore) {
+      return errorResponse(
+        "Session storage unavailable",
+        "SESSION_STORAGE_UNAVAILABLE",
+        503,
+      );
+    }
+    const session = await sessionStore.getExecutionSession(sessionId);
+    if (!isExactBorrowableSession(session, validation.data)) {
+      return errorResponse(
+        "The original secure checkout session is unavailable for Git borrowing",
+        "SESSION_BORROW_UNAVAILABLE",
+        503,
+      );
+    }
+    return jsonResponse({
+      sessionId,
+      token: session.token,
+      expiresAt: session.expiresAt,
+      lease: session.lease,
+    }, 200);
+  } catch (error) {
+    const message = sanitizeUnknownError(error);
+    console.error(`[api/session/borrow] Failed: ${sanitizeLogText(message)}`);
+    return errorResponse("The original secure checkout session is unavailable for Git borrowing", "SESSION_BORROW_UNAVAILABLE", 503);
+  }
+}
+
+function isExactBorrowableSession(
+  session: SessionRecord | null,
+  expected: SessionBorrowRequest,
+): session is SessionRecord {
+  if (!session || session.cleanupInProgress || !session.token) return false;
+  const lease = session.lease;
+  return session.runId === expected.runId &&
+    session.expiresAt > Date.now() &&
+    lease.expiresAt > Date.now() &&
+    lease.leaseId === expected.lease.leaseId &&
+    lease.sandboxId === expected.lease.sandboxId &&
+    lease.generation === expected.lease.generation &&
+    workspaceScopesEqual(session.workspaceScope, expected.workspaceScope) &&
+    workspaceScopesEqual(lease.workspaceScope, expected.workspaceScope);
+}
+
 /**
  * Rotates the short-lived bearer for one exact persisted checkout session.
  *
@@ -706,12 +783,40 @@ export async function handleExecuteTask(
     console.log(
       `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=validated`,
     );
-    const auth = await authorizeSessionRequest(request, runtime, sessionId);
+    if (validation.data.borrowedLease && validation.data.action !== "git.execute") {
+      return errorResponse(
+        "Borrowed checkout leases only support server-selected Git execution",
+        "INVALID_REQUEST",
+        400,
+      );
+    }
+    const auth = await authorizeSessionRequest(
+      request,
+      runtime,
+      sessionId,
+      validation.data.borrowedLease !== undefined,
+    );
     if (!auth.ok) {
       console.warn(
         `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
       );
       return auth.response;
+    }
+    const borrowedLease = validation.data.borrowedLease;
+    if (
+      borrowedLease &&
+      (auth.session.expiresAt <= Date.now() ||
+        auth.session.cleanupInProgress ||
+        auth.session.lease.expiresAt <= Date.now() ||
+        auth.session.lease.leaseId !== borrowedLease.leaseId ||
+        auth.session.lease.sandboxId !== borrowedLease.sandboxId ||
+        auth.session.lease.generation !== borrowedLease.generation)
+    ) {
+      return errorResponse(
+        "The borrowed secure checkout lease is unavailable",
+        "SESSION_BORROW_UNAVAILABLE",
+        503,
+      );
     }
     if (!hasMatchingWorkspaceScope(auth.session, validation.data.params)) {
       return errorResponse(
@@ -784,7 +889,7 @@ export async function handleExecuteTask(
       result: executionResult,
     });
 
-    if (executionResult.status === "sandbox_unavailable") {
+    if (executionResult.status === "sandbox_unavailable" && !borrowedLease) {
       await replaceDeadLease(runtime, sessionId, auth.session);
     }
 

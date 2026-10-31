@@ -10,6 +10,7 @@ export interface TaskExecutionInput {
   lease: SandboxExecutionLease;
   timeout?: number;
   retryable?: boolean;
+  borrowedLease?: boolean;
 }
 
 export interface TaskExecutionError {

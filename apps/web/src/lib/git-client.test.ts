@@ -1,167 +1,91 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  commitGitChanges,
-  getGitDiff,
-  getGitStatus,
-  stageGitFiles,
-} from "./git-client.js";
-import { _resetEndpointCache } from "./platform-endpoints.js";
+import { describe, expect, it } from "vitest";
+import { APP_SERVER_PROTOCOL_VERSION, createAppServerClient } from "@legioncode/sdk";
 
-const originalEnv = { ...import.meta.env };
-
-function setEnv(key: string, value: string): void {
-  (import.meta.env as unknown as Record<string, string>)[key] = value;
+function createClient(response: unknown, onRequest?: () => void) {
+  return createAppServerClient({
+    clientId: "web",
+    clientVersion: "0.1.0",
+    transport: {
+      request: async () => {
+        onRequest?.();
+        return response as never;
+      },
+    },
+  });
 }
 
-describe("git-client", () => {
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    _resetEndpointCache();
-    setEnv("VITE_BRAIN_BASE_URL", "https://brain.local");
-    global.fetch = vi.fn();
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    Object.assign(import.meta.env, originalEnv);
-    vi.restoreAllMocks();
-  });
-
-  it("requests git diff through the canonical Brain endpoint", async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          oldPath: "src/main.ts",
-          newPath: "src/main.ts",
-          hunks: [],
-          isBinary: false,
-          isNewFile: false,
-          isDeleted: false,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
-
-    await getGitDiff({
-      runId: "run-123",
-      sessionId: "session-123",
-      path: "src/main.ts",
-      staged: true,
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://brain.local/api/git/diff?runId=run-123&path=src%2Fmain.ts&sessionId=session-123&staged=true",
-    );
-  });
-
+describe("hosted Git operations", () => {
   it("surfaces JSON error payloads for commit failures", async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({ error: "Not Found" }),
-        { status: 404, headers: { "Content-Type": "application/json" } },
-      ),
-    );
-
-    await expect(
-      commitGitChanges({
-        runId: "run-123",
-        sessionId: "session-123",
-        payload: { message: "feat: test", files: ["src/main.ts"] },
-      }),
-    ).rejects.toThrow("Not Found");
-  });
-
-  it("posts stage requests with the unified stage contract", async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ success: true }), { status: 200 }),
-    );
-
-    await stageGitFiles({
-      runId: "run-123",
-      sessionId: "session-123",
-      files: ["src/main.ts"],
-      unstage: true,
+    const client = createClient({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "git/commit",
+      ok: false,
+      error: { code: "not_found", message: "Not Found" },
     });
 
-    const [url, init] = fetchMock.mock.calls[0] as [
-      string,
-      RequestInit,
-    ];
-
-    expect(url).toBe("https://brain.local/api/git/stage");
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({
+    await expect(client.commitGitChanges({
       runId: "run-123",
-      sessionId: "session-123",
-      files: ["src/main.ts"],
-      unstage: true,
-    });
+      payload: { message: "feat: test", files: ["src/main.ts"] },
+    })).rejects.toThrow("Not Found");
   });
 
   it("normalizes not-a-repository status into a recoverable response", async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          success: false,
-          error: "fatal: not a git repository",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    const client = createClient({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "git/status",
+      ok: true,
+      result: {
+        files: [],
+        ahead: 0,
+        behind: 0,
+        branch: "",
+        repoIdentity: null,
+        commitIdentity: null,
+        hasStaged: false,
+        hasUnstaged: false,
+        gitAvailable: false,
+        recoverableCode: "NOT_A_GIT_REPOSITORY",
+      },
+    });
 
-    await expect(
-      getGitStatus({
-        runId: "run-123",
-        sessionId: "session-123",
-      }),
-    ).resolves.toMatchObject({
+    await expect(client.getGitStatus({ runId: "run-123" })).resolves.toMatchObject({
       gitAvailable: false,
       recoverableCode: "NOT_A_GIT_REPOSITORY",
     });
   });
 
   it("fails fast on malformed git status payloads", async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          branch: "main",
-          gitAvailable: true,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    const client = createClient({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "git/status",
+      ok: true,
+      result: { branch: "main", gitAvailable: true },
+    });
 
-    await expect(
-      getGitStatus({
-        runId: "run-123",
-        sessionId: "session-123",
-      }),
-    ).rejects.toThrow("Invalid git status response");
+    await expect(client.getGitStatus({ runId: "run-123" })).rejects.toMatchObject({
+      code: "invalid_response",
+    });
   });
 
   it("validates commit request payloads before posting", async () => {
-    await expect(
-      commitGitChanges({
-        runId: "",
-        sessionId: "session-123",
-        payload: { message: "feat: test", files: ["src/main.ts"] },
-      }),
-    ).rejects.toThrow();
+    let calls = 0;
+    const client = createClient({}, () => { calls += 1; });
+
+    await expect(client.commitGitChanges({
+      runId: "",
+      payload: { message: "feat: test", files: ["src/main.ts"] },
+    })).rejects.toThrow();
+    expect(calls).toBe(0);
   });
 
   it("validates commit files before posting", async () => {
-    await expect(
-      commitGitChanges({
-        runId: "run-123",
-        sessionId: "session-123",
-        payload: { message: "feat: test", files: [] },
-      }),
-    ).rejects.toThrow();
+    let calls = 0;
+    const client = createClient({}, () => { calls += 1; });
+
+    await expect(client.commitGitChanges({
+      runId: "run-123",
+      payload: { message: "feat: test", files: [] },
+    })).rejects.toThrow();
+    expect(calls).toBe(0);
   });
 });

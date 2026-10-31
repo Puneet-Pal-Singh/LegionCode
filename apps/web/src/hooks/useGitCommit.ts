@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { CommitPayload } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
-import { GitMutationError, commitGitChanges } from "../lib/git-client.js";
+import { commitGitChanges } from "../services/api/gitOperations.js";
+import { GitMutationError } from "@legioncode/sdk";
 import type { GitMutationErrorCode, GitMutationErrorMetadata } from "@repo/shared-types";
 
 interface GitCommitErrorState {

@@ -119,6 +119,26 @@ export class AgentRuntime extends DurableObject {
     return runtime;
   }
 
+  private async composeBorrowedRuntime(
+    lease: SandboxExecutionLease,
+  ): Promise<ComposedRuntime> {
+    const existing = this.workspaceRuntimes.get(workspaceLeaseKey(lease));
+    if (existing) {
+      existing.executionPort.registerLease(lease);
+      return existing;
+    }
+
+    const sandbox = getSandbox(this.env.Sandbox, lease.sandboxId);
+    const gitPlugin = new GitPlugin();
+    return composeRuntime({
+      durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
+      sandbox,
+      plugins: new Map([[gitPlugin.name, gitPlugin]]),
+      r2Bucket: this.artifactBucket,
+      executionLease: lease,
+    });
+  }
+
   private async bootPlugins(sandbox: Sandbox, plugins: Map<string, IPlugin>) {
     console.log("[AgentRuntime] Booting plugins for scoped sandbox lease...");
 
@@ -167,13 +187,15 @@ export class AgentRuntime extends DurableObject {
         },
       };
     }
-    const runtime = await this.ensureComposedRuntime(input.lease);
+    const runtime = input.borrowedLease
+      ? await this.composeBorrowedRuntime(input.lease)
+      : await this.ensureComposedRuntime(input.lease);
     const result = await runtime.executionPort.executeTask(
       input.lease.leaseId,
       input,
       hooks,
     );
-    if (result.status === "sandbox_unavailable") {
+    if (result.status === "sandbox_unavailable" && !input.borrowedLease) {
       const health = await runtime.executionPort.getHealth(input.lease.leaseId);
       if (!health.healthy) {
         this.workspaceRuntimes.delete(workspaceLeaseKey(input.lease));

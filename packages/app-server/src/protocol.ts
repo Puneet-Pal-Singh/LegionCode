@@ -57,6 +57,59 @@ import {
 } from "@repo/shared-types";
 import { z } from "zod";
 
+const GitRequestContextSchema = z.object({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+}).strict();
+const GitFileStatusSchema = z.object({
+  path: z.string(),
+  status: z.enum(["modified", "added", "deleted", "renamed", "untracked"]),
+  additions: z.number(),
+  deletions: z.number(),
+  isStaged: z.boolean(),
+}).strict();
+const GitCommitIdentitySchema = z.object({
+  authorName: z.string(),
+  authorEmail: z.string(),
+  source: z.enum(["workspace_git_config", "github_profile", "user_input"]),
+  verified: z.boolean(),
+}).strict();
+const GitStatusResponseSchema = z.union([
+  z.object({
+    files: z.array(GitFileStatusSchema), ahead: z.number(), behind: z.number(),
+    branch: z.string(), repoIdentity: z.string().nullable().optional(),
+    commitIdentity: GitCommitIdentitySchema.nullable().optional(),
+    hasStaged: z.boolean(), hasUnstaged: z.boolean(), gitAvailable: z.literal(true),
+  }).strict(),
+  z.object({
+    files: z.tuple([]), ahead: z.literal(0), behind: z.literal(0), branch: z.literal(""),
+    repoIdentity: z.string().nullable().optional(), commitIdentity: z.null().optional(),
+    hasStaged: z.literal(false), hasUnstaged: z.literal(false), gitAvailable: z.literal(false),
+    recoverableCode: z.literal("NOT_A_GIT_REPOSITORY"),
+  }).strict(),
+]);
+const GitDiffResponseSchema = z.object({
+  oldPath: z.string(), newPath: z.string(), hunks: z.array(z.object({
+    oldStart: z.number(), oldLines: z.number(), newStart: z.number(), newLines: z.number(),
+    lines: z.array(z.object({ type: z.enum(["unchanged", "added", "deleted"]), content: z.string(), oldLineNumber: z.number().optional(), newLineNumber: z.number().optional() }).strict()),
+    header: z.string(),
+  }).strict()), isBinary: z.boolean(), isNewFile: z.boolean(), isDeleted: z.boolean(),
+}).strict();
+const GitMutationSuccessSchema = z.object({ success: z.literal(true) }).strict();
+const GitBranchResultSchema = z.object({ success: z.literal(true), branch: z.string() }).strict();
+const GitPushResultSchema = z.object({ success: z.literal(true), branch: z.string(), remote: z.string() }).strict();
+const GitPullRequestResultSchema = z.object({ success: z.literal(true), pullRequest: z.object({
+  number: z.number(), title: z.string(), url: z.string(), state: z.enum(["open", "closed"]), head: z.string(), base: z.string(),
+}).strict() }).strict();
+const GitCommitRequestSchema = z.object({
+  message: z.string().min(1), files: z.array(z.string().min(1)).min(1),
+  authorName: z.string().min(1).optional(), authorEmail: z.string().email().optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.authorName === undefined) !== (value.authorEmail === undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "authorName and authorEmail must be provided together" });
+  }
+});
+
 export { APP_SERVER_PROTOCOL_VERSION, AppServerErrorSchema };
 
 export const AppServerProviderErrorSchema = NormalizedProviderErrorSchema.extend({
@@ -115,6 +168,30 @@ const ArtifactReviewLookupResultSchema = z.object({
   (result) => (result.status === 200) === (result.source !== null),
   "Artifact review lookup status must match its source",
 );
+const GitStatusParamsSchema = GitRequestContextSchema;
+const GitDiffParamsSchema = GitRequestContextSchema.extend({
+  path: z.string().min(1).optional(),
+  staged: z.boolean().optional(),
+}).strict();
+const GitStageParamsSchema = GitRequestContextSchema.extend({
+  files: z.array(z.string().min(1)),
+  unstage: z.boolean().optional(),
+}).strict();
+const GitCommitParamsSchema = GitRequestContextSchema.extend({
+  payload: GitCommitRequestSchema,
+}).strict();
+const GitBranchParamsSchema = GitRequestContextSchema.extend({
+  payload: z.object({ branch: z.string().min(1) }).strict(),
+}).strict();
+const GitPushParamsSchema = GitRequestContextSchema.extend({
+  payload: z.object({ branch: z.string().min(1), remote: z.string().min(1).optional() }).strict(),
+}).strict();
+const GitPullRequestParamsSchema = GitRequestContextSchema.extend({
+  payload: z.object({
+    owner: z.string().min(1), repo: z.string().min(1), title: z.string().min(1),
+    body: z.string().optional(), base: z.string().min(1).optional(),
+  }).strict(),
+}).strict();
 
 export const AppServerMethodSchema = z.enum([
   "initialize",
@@ -149,6 +226,13 @@ export const AppServerMethodSchema = z.enum([
   "artifact/reviewLatest",
   "artifact/reviewByMessage",
   "artifact/diff",
+  "git/status",
+  "git/diff",
+  "git/stage",
+  "git/commit",
+  "git/branch",
+  "git/push",
+  "git/pullRequest",
 
   "workspace/list",
   "workspace/select",
@@ -216,6 +300,13 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewLatest"), params: ArtifactReviewLatestParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewByMessage"), params: ArtifactReviewByMessageParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/diff"), params: ArtifactDiffParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/status"), params: GitStatusParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/diff"), params: GitDiffParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/stage"), params: GitStageParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/commit"), params: GitCommitParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/branch"), params: GitBranchParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/push"), params: GitPushParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/pullRequest"), params: GitPullRequestParamsSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -279,6 +370,13 @@ export const AppServerResultSchemas = {
   "artifact/reviewLatest": ArtifactReviewLookupResultSchema,
   "artifact/reviewByMessage": ArtifactReviewLookupResultSchema,
   "artifact/diff": EditArtifactDiffResponseSchema,
+  "git/status": GitStatusResponseSchema,
+  "git/diff": GitDiffResponseSchema,
+  "git/stage": GitMutationSuccessSchema,
+  "git/commit": GitMutationSuccessSchema,
+  "git/branch": GitBranchResultSchema,
+  "git/push": GitPushResultSchema,
+  "git/pullRequest": GitPullRequestResultSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -342,6 +440,13 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("artifact/reviewLatest", AppServerResultSchemas["artifact/reviewLatest"]),
   success("artifact/reviewByMessage", AppServerResultSchemas["artifact/reviewByMessage"]),
   success("artifact/diff", AppServerResultSchemas["artifact/diff"]),
+  success("git/status", AppServerResultSchemas["git/status"]),
+  success("git/diff", AppServerResultSchemas["git/diff"]),
+  success("git/stage", AppServerResultSchemas["git/stage"]),
+  success("git/commit", AppServerResultSchemas["git/commit"]),
+  success("git/branch", AppServerResultSchemas["git/branch"]),
+  success("git/push", AppServerResultSchemas["git/push"]),
+  success("git/pullRequest", AppServerResultSchemas["git/pullRequest"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),

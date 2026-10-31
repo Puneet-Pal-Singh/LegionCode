@@ -108,7 +108,7 @@ vi.mock("../../hooks/useGitCommit", () => ({
   }),
 }));
 
-vi.mock("../../lib/git-client.js", () => ({
+vi.mock("../../services/api/gitOperations.js", () => ({
   createGitBranch: vi.fn(async () => ({ branch: "feature/test" })),
   pushGitBranch: vi.fn(async () => ({ branch: "feature/test" })),
   stageGitFiles: vi.fn(async () => undefined),

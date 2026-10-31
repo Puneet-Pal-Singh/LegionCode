@@ -1,4 +1,5 @@
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
+import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
@@ -102,6 +103,15 @@ export type AppServerComposition = {
     reviewLatest(params: Extract<AppServerRequest, { method: "artifact/reviewLatest" }>["params"]): Promise<ArtifactReviewLookupResult>;
     reviewByMessage(params: Extract<AppServerRequest, { method: "artifact/reviewByMessage" }>["params"]): Promise<ArtifactReviewLookupResult>;
     diff(params: Extract<AppServerRequest, { method: "artifact/diff" }>["params"]): Promise<EditArtifactDiffResponse>;
+  };
+  hostedGitOperationsService?: {
+    status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
+    diff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
+    stage(params: Extract<AppServerRequest, { method: "git/stage" }>['params']): Promise<{ success: true }>;
+    commit(params: Extract<AppServerRequest, { method: "git/commit" }>['params']): Promise<{ success: true }>;
+    branch(params: Extract<AppServerRequest, { method: "git/branch" }>['params']): Promise<GitBranchMutationResult>;
+    push(params: Extract<AppServerRequest, { method: "git/push" }>['params']): Promise<GitPushMutationResult>;
+    pullRequest(params: Extract<AppServerRequest, { method: "git/pullRequest" }>['params']): Promise<GitPullRequestMutationResult>;
   };
 };
 
@@ -337,6 +347,34 @@ async function dispatch(
     case "artifact/diff": {
       if (!composition.hostedEditArtifactReadsService) throw new Error("unsupported");
       return composition.hostedEditArtifactReadsService.diff(request.params);
+    }
+    case "git/status": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.status(request.params);
+    }
+    case "git/diff": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.diff(request.params);
+    }
+    case "git/stage": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.stage(request.params);
+    }
+    case "git/commit": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.commit(request.params);
+    }
+    case "git/branch": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.branch(request.params);
+    }
+    case "git/push": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.push(request.params);
+    }
+    case "git/pullRequest": {
+      if (!composition.hostedGitOperationsService) throw new Error("unsupported");
+      return composition.hostedGitOperationsService.pullRequest(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");

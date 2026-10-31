@@ -11,6 +11,7 @@ export interface SafeCommandSpec {
   toolName?: string;
   callId?: string;
   timeoutMs?: number;
+  borrowedLease?: boolean;
 }
 
 interface CommandResult {
@@ -43,6 +44,7 @@ export async function runSafeCommand(
       env: spec.env,
       cwd: spec.cwd,
       timeoutMs: spec.timeoutMs,
+      borrowedLease: spec.borrowedLease,
     },
     allowlist,
   );

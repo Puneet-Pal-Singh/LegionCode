@@ -40,6 +40,7 @@ export class ToolboxSessionService {
         this.adapter.execute(command, {
           cwd: request.cwd,
           env: request.env,
+          borrowedLease: request.borrowedLease,
         }),
         request.timeoutMs,
       );
