@@ -643,6 +643,20 @@ without its normal auto-start behavior, borrowed execution must fail closed
 until that owner exposes such a path; a `getState()` preflight followed by a
 normal auto-starting operation is not sufficient.
 
+The existing `@cloudflare/sandbox@0.12.3` owner exposes that path through a
+narrow pinned-package patch: `Sandbox.containerFetchIfRunning` checks the
+existing Durable Object container's synchronous `running` state and, only when
+true, forwards the original request through that container's TCP port. The
+borrowed Git adapter uses this explicit operation and a typed `execIfRunning`
+request built by the existing Secure Agent API request/response helpers, with
+zero SDK retry timeout. It never calls the normal auto-starting `containerFetch`
+or `exec`, retries, boots plugins, or creates the checkout root. The lease
+expiry is checked after serialized-workspace queue admission and immediately
+before execution; a stopped physical container or elapsed original lease stays
+explicitly unavailable. The adapter remains an execution-path detail owned by
+Secure Agent API; `packages/git-service`, Brain's authenticated composition and
+the App Server method contract remain the canonical Git owners and consumers.
+
 ## Verification and limits
 
 - `ChatImageDelivery.integration.test.ts` exercises authenticated admission,
