@@ -1,0 +1,79 @@
+diff --git a/dist/sandbox-BhIQBik-.d.ts b/dist/sandbox-BhIQBik-.d.ts
+index 04e181e15f45d40e4e6a9f798af007d49455dd2f..e16ccf5cd7afe8be8a006b9c5e194cc105e285ea 100644
+--- a/dist/sandbox-BhIQBik-.d.ts
++++ b/dist/sandbox-BhIQBik-.d.ts
+@@ -1386,6 +1386,7 @@ interface R2BindingMountBucketOptions {
+ type MountBucketOptions = RemoteMountBucketOptions | LocalMountBucketOptions | R2BindingMountBucketOptions;
+ interface ISandbox {
+   exec(command: string, options?: ExecOptions): Promise<ExecResult>;
++  execIfRunning(command: string, options?: ExecOptions): Promise<ExecResult>;
+   startProcess(command: string, options?: ProcessOptions): Promise<Process>;
+   listProcesses(sessionId?: string): Promise<Process[]>;
+   getProcess(id: string, sessionId?: string): Promise<Process | null>;
+@@ -2931,6 +2932,11 @@ declare class Sandbox<Env = unknown> extends Container<Env> implements ISandbox
+    * Automatically starts container with longer timeouts if not running
+    */
+   containerFetch(requestOrUrl: Request | string | URL, portOrInit?: number | RequestInit, portParam?: number): Promise<Response>;
++  /**
++   * Fetch from a container that is already running without starting or retrying it.
++   */
++  containerFetchIfRunning(requestOrUrl: Request | string | URL, portOrInit?: number | RequestInit, portParam?: number): Promise<Response>;
++  execIfRunning(command: string, options?: ExecOptions): Promise<ExecResult>;
+   /**
+    * Helper: Check if error is "no container instance available"
+    * This indicates the container VM is still being provisioned.
+diff --git a/dist/sandbox-DI6suZAc.js b/dist/sandbox-DI6suZAc.js
+index 9d0eddb90a0c5757acf71dc9d275620894c10c93..b1acb0e96a8d28638fb45cd2678d80a4fc2e0e64 100644
+--- a/dist/sandbox-DI6suZAc.js
++++ b/dist/sandbox-DI6suZAc.js
+@@ -6707,6 +6707,7 @@ function getSandbox(ns, id, options) {
+ 	const enhancedMethods = {
+ 		fetch: (request) => stub.fetch(request),
+ 		exec: (command, execOptions) => useDefaultSession ? stub.exec(command, execOptions) : stub.execWithSessionToken(command, DISABLE_SESSION_TOKEN, execOptions),
++		execIfRunning: (command, execOptions) => stub.execIfRunning(command, execOptions),
+ 		startProcess: (command, processOptions) => useDefaultSession || processOptions?.sessionId !== void 0 ? stub.startProcess(command, processOptions) : stub.startProcess(command, {
+ 			...processOptions,
+ 			sessionId: DISABLE_SESSION_TOKEN
+@@ -8056,6 +8057,42 @@ var Sandbox = class Sandbox extends Container {
+ 		return await super.containerFetch(requestOrUrl, portOrInit, portParam);
+ 	}
+ 	/**
++	* Fetch from a container that is already running without starting or retrying it.
++	*/
++	async containerFetchIfRunning(requestOrUrl, portOrInit, portParam) {
++		const { request, port } = this.parseContainerFetchArgs(requestOrUrl, portOrInit, portParam);
++		if (!this.ctx.container?.running) {
++			return new Response(JSON.stringify({
++				code: ErrorCode.INTERNAL_ERROR,
++				message: "Container is not running.",
++				httpStatus: 503,
++				timestamp: (/* @__PURE__ */ new Date()).toISOString()
++			}), {
++				status: 503,
++				headers: { "Content-Type": "application/json" }
++			});
++		}
++		return await this.ctx.container.getTcpPort(port).fetch(request);
++	}
++	/**
++	* Execute a command against the existing sessionless command client without
++	* starting the container or retrying connection setup.
++	*/
++	async execIfRunning(command, options) {
++		if (!this.ctx.container?.running) throw new Error("Container is not running.");
++		const sessionId = DISABLE_SESSION_TOKEN;
++		const requestOptions = this.buildExecutionRequestOptions(sessionId, options);
++		const retryTimeoutMs = this.computeRetryTimeoutMs();
++		const startTime = Date.now();
++		this.client.setRetryTimeoutMs(0);
++		try {
++			const response = await this.client.commands.execute(command, sessionId, requestOptions);
++			return this.mapExecuteResponseToExecResult(response, Date.now() - startTime, this.getPublicExecutionSessionId(sessionId));
++		} finally {
++			this.client.setRetryTimeoutMs(retryTimeoutMs);
++		}
++	}
++	/**
+ 	* Helper: Check if error is "no container instance available"
+ 	* This indicates the container VM is still being provisioned.
+ 	*/

@@ -36,5 +36,10 @@
     "ai": "4.1.0",
     "framer-motion": "^12.30.0",
     "zod": "3.25.1"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@cloudflare/sandbox@0.12.3": "patches/@cloudflare__sandbox@0.12.3.patch"
+    }
   }
 }
