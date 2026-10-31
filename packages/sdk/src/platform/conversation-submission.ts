@@ -14,6 +14,7 @@ export interface ConversationSubmissionDispatch<TConfig> {
   readonly config: TConfig;
   readonly scope: ConversationScope;
   readonly clientMessageId: string;
+  readonly attempt: SubmissionAttempt;
 }
 
 /**
@@ -143,6 +144,7 @@ export async function submitConversationMessage<TConfig>(
         config: providerConfig,
         scope: requestScope,
         clientMessageId: attempt.clientMessageId,
+        attempt,
       });
     } catch (transportError) {
       attempt.transportError ??=

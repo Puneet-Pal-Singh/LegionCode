@@ -23,6 +23,11 @@ export type AppServerHttpTransportOptions = {
   acceptThreadInputConflict?: boolean;
 };
 
+export type AppServerHttpResponseMetadata = {
+  status: number;
+  headers: Headers;
+};
+
 const MAX_RESPONSE_BYTES = 1_048_576;
 
 export class AppServerTransportError extends Error {
@@ -45,8 +50,12 @@ export function createAppServerHttpTransport(
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
-  return {
-    request: async (envelope: AppServerRequest): Promise<unknown> => {
+  const requestWithMetadata = async (
+      envelope: AppServerRequest,
+      serializedEnvelope?: string,
+      onResponse?: (metadata: AppServerHttpResponseMetadata) => void,
+      beforeSend?: (serializedEnvelope: string) => string,
+    ): Promise<{ payload: unknown; metadata: AppServerHttpResponseMetadata }> => {
       const controller = new AbortController();
       let timedOut = false;
       const abort = () => controller.abort();
@@ -68,14 +77,18 @@ export function createAppServerHttpTransport(
         headers.set("Accept", "application/json");
         headers.set("Content-Type", "application/json");
         if (options.credential) headers.set("Authorization", `Bearer ${options.credential}`);
+        const candidateBody = serializedEnvelope ?? JSON.stringify(envelope);
+        const body = beforeSend ? beforeSend(candidateBody) : candidateBody;
         const response = await fetchImpl(`${baseUrl}/app-server/request`, {
           method: "POST",
           headers,
-          body: JSON.stringify(envelope),
+          body,
           redirect: "error",
           credentials: options.credentials,
           signal: controller.signal,
         });
+        const responseMetadata = { status: response.status, headers: response.headers };
+        onResponse?.(responseMetadata);
         const result = await readBoundedJson(
           response,
           options.maxResponseBytes === undefined ? MAX_RESPONSE_BYTES : options.maxResponseBytes,
@@ -120,7 +133,7 @@ export function createAppServerHttpTransport(
             envelope.method !== "thread/input/list" &&
             isValidThreadInputConflict(payload, envelope)
           ) {
-            return payload;
+            return { payload, metadata: responseMetadata };
           }
           const failure = AppServerFailureResponseSchema.safeParse(payload);
           if (
@@ -128,7 +141,7 @@ export function createAppServerHttpTransport(
             failure.data.protocolVersion === envelope.protocolVersion &&
             failure.data.method === envelope.method
           ) {
-            return payload;
+            return { payload, metadata: responseMetadata };
           }
           const genericError = AppServerErrorSchema.safeParse(payload);
           if (genericError.success) {
@@ -148,7 +161,7 @@ export function createAppServerHttpTransport(
             payload,
           );
         }
-        return payload;
+        return { payload, metadata: responseMetadata };
       } catch (error) {
         if (error instanceof AppServerTransportError) throw error;
         if (timedOut) {
@@ -162,7 +175,12 @@ export function createAppServerHttpTransport(
         if (timeout !== null) clearTimeout(timeout);
         options.signal?.removeEventListener("abort", abort);
       }
-    },
+    };
+
+  return {
+    request: async (envelope: AppServerRequest): Promise<unknown> =>
+      (await requestWithMetadata(envelope)).payload,
+    requestWithMetadata,
   };
 }
 

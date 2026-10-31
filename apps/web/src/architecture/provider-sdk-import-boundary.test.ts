@@ -27,7 +27,6 @@ const ALLOWED_IMPORT_FILES = new Set([
   "hooks/useChatPersistence.ts",
   "hooks/chat/useConversationInputCommands.ts",
   "hooks/chat/useThreadInputQueue.ts",
-  "hooks/chat/submissionTransport.ts",
   "hooks/useChat.ts",
   "store/agentStore.ts",
   "App.tsx",

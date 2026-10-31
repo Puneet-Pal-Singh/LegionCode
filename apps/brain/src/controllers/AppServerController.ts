@@ -13,12 +13,25 @@ import { composeHostedThreadInputOperations } from "../integration/app-server/Ho
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
 import { composeHostedRepositoryReads } from "../integration/app-server/HostedRepositoryReads";
-import { handleAppServerHttpRequest } from "@legioncode/app-server/server";
+import { AppServerOperationError, handleAppServerHttpRequest } from "@legioncode/app-server/server";
+import type { AppServerError, ChatRequestBody, HostedChatSubmissionResult } from "@repo/platform-protocol";
+import { bindAuthenticatedChatRequest } from "./ChatRequestBoundary";
+import {
+  hostedChatSubmissionResult,
+  hostedChatSubmissionAckHeaders,
+  scheduleHostedChatResponseDrain,
+  submitHostedChat,
+} from "../integration/app-server/HostedChatSubmission";
+import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
 import { getCorsHeaders } from "../lib/cors";
 import type { Env } from "../types/ai";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
+const MAX_TOTAL_CHAT_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_CHAT_SUBMISSION_BYTES =
+  MAX_REQUEST_BYTES + 4 * Math.ceil(MAX_TOTAL_CHAT_IMAGE_BYTES / 3) + 4 * 256;
 const LARGE_THREAD_INPUT_METHODS = new Set([
   "turn/steer",
   "thread/input/enqueue",
@@ -33,7 +46,8 @@ export const AppServerController = {
     const methodHint = request.headers.get("X-LegionCode-AppServer-Method");
     const preferenceUpdate = methodHint === "provider/preferences/update";
     const largeThreadInput = methodHint !== null && LARGE_THREAD_INPUT_METHODS.has(methodHint);
-    const authenticatedLargeBody = preferenceUpdate || largeThreadInput;
+    const chatSubmission = methodHint === "turn/submit";
+    const authenticatedLargeBody = preferenceUpdate || largeThreadInput || chatSubmission;
     let earlyAuth: Awaited<ReturnType<typeof getAuthenticatedUserSession>> | undefined;
     if (authenticatedLargeBody) {
       try {
@@ -46,6 +60,7 @@ export const AppServerController = {
             code: "unauthorized",
             message: "Unauthorized",
             ...(largeThreadInput ? { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false } : {}),
+            ...(chatSubmission ? turnAuthFailureDetails("turn/submit", 401) : {}),
           },
         });
       } catch (error) {
@@ -58,11 +73,15 @@ export const AppServerController = {
             code: "server_unavailable",
             message: largeThreadInput ? "Thread input operation failed" : "Authentication is unavailable",
             ...(largeThreadInput ? { statusCode, operationCode: "THREAD_INPUT_FAILED", retryable: true } : {}),
+            ...(chatSubmission ? turnAuthFailureDetails("turn/submit", statusCode) : {}),
           },
         });
       }
     }
-    const body = await readBoundedBody(request, authenticatedLargeBody ? null : MAX_REQUEST_BYTES);
+    const body = await readBoundedBody(
+      request,
+      chatSubmission ? MAX_CHAT_SUBMISSION_BYTES : authenticatedLargeBody ? null : MAX_REQUEST_BYTES,
+    );
     if (body.oversized) {
       return json(env, request, 413, {
         code: "invalid_request",
@@ -84,10 +103,13 @@ export const AppServerController = {
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
     let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
+    let hostedChatSubmissionService:
+      | { execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult> }
+      | undefined;
     let envelope: unknown;
     try { envelope = JSON.parse(body.value); } catch { /* Dispatcher validates malformed input. */ }
     const parsed = AppServerRequestSchema.safeParse(envelope);
-    if ((preferenceUpdate || largeThreadInput) &&
+    if ((preferenceUpdate || largeThreadInput || chatSubmission) &&
       (!parsed.success || parsed.data.method !== methodHint)) {
       return json(env, request, 400, { code: "invalid_request", message: "App Server method does not match the request routing hint" });
     }
@@ -111,6 +133,51 @@ export const AppServerController = {
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
         hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
+        hostedChatSubmissionService = {
+          execute: async (params) => {
+            const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
+            try {
+              const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth);
+              const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext);
+              if (!runtimeResponse.ok) {
+                const failure = await readHostedChatError(runtimeResponse);
+                await drainHostedChatRuntimeResponse(runtimeResponse, executionContext);
+                const statusCode = runtimeResponse.status >= 400 ? runtimeResponse.status : 502;
+                throw new AppServerOperationError(
+                  statusCode,
+                  appServerErrorCode(statusCode),
+                  failure.message ?? "Chat request failed",
+                  failure.code,
+                  statusCode >= 500 || statusCode === 408 || statusCode === 429,
+                  correlationId,
+                  failure.metadata,
+                  hostedChatSubmissionAckHeaders(runtimeResponse),
+                );
+              }
+              const result = hostedChatSubmissionResult(runtimeResponse);
+              await drainHostedChatRuntimeResponse(runtimeResponse, executionContext);
+              return result;
+            } catch (error) {
+              if (error instanceof AppServerOperationError) throw error;
+              if (isDomainError(error)) {
+                const mapped = mapDomainErrorToHttp(error);
+                throw new AppServerOperationError(
+                  mapped.status,
+                  appServerErrorCode(mapped.status),
+                  mapped.message,
+                  mapped.code,
+                  error.retryable,
+                  error.correlationId ?? correlationId,
+                  mapped.metadata,
+                );
+              }
+              reportBrainError(env, { request, operation: "chat.request.execute", error, context: { correlationId } });
+              throw new AppServerOperationError(
+                500, "server_unavailable", "Internal Server Error", "CHAT_REQUEST_FAILED", false, correlationId,
+              );
+            }
+          },
+        };
       } catch (error) {
         const inputMethod = isThreadInputMethod(parsed.data.method);
         const sessionStoreUnavailable = isSessionStoreUnavailableError(error);
@@ -156,9 +223,16 @@ export const AppServerController = {
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
         hostedRepositoryReadService,
+        hostedChatSubmissionService,
       },
     );
-    return json(env, request, result.statusCode, result.payload);
+    const submissionAck = parsed.success && parsed.data.method === "turn/submit"
+      ? readSubmissionAck(result.payload)
+      : undefined;
+    return json(env, request, result.statusCode, result.payload, {
+      ...result.headers,
+      ...submissionAck,
+    });
   },
 };
 
@@ -167,6 +241,13 @@ function isArtifactReadMethod(method: string): boolean {
 }
 
 function turnAuthFailureDetails(method: string, statusCode: number) {
+  if (method === "turn/submit") {
+    return {
+      statusCode,
+      operationCode: statusCode === 401 ? "AUTH_FAILED" : statusCode === 503 ? "PROVIDER_UNAVAILABLE" : "CHAT_REQUEST_FAILED",
+      retryable: statusCode >= 500 || statusCode === 408 || statusCode === 429,
+    };
+  }
   if (isArtifactReadMethod(method)) {
     return {
       statusCode,
@@ -239,17 +320,85 @@ async function readBoundedBody(
   }
 }
 
+function appServerErrorCode(statusCode: number): AppServerError["code"] {
+  if (statusCode === 401) return "unauthorized";
+  if (statusCode === 403) return "forbidden";
+  if (statusCode === 404) return "not_found";
+  if (statusCode === 409) return "conflict";
+  if (statusCode >= 500) return "server_unavailable";
+  return "invalid_request";
+}
+
+async function readHostedChatError(response: Response): Promise<{
+  message?: string;
+  code?: string;
+  metadata?: Record<string, unknown>;
+}> {
+  let body: unknown;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return {};
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return {};
+  const record = body as Record<string, unknown>;
+  const metadata = record.metadata;
+  return {
+    ...(typeof record.error === "string"
+      ? { message: record.error }
+      : typeof record.message === "string"
+        ? { message: record.message }
+        : {}),
+    ...(typeof record.code === "string" ? { code: record.code } : {}),
+    ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? { metadata: metadata as Record<string, unknown> }
+      : {}),
+  };
+}
+
+async function drainHostedChatRuntimeResponse(
+  response: Response,
+  executionContext?: ExecutionContext,
+): Promise<void> {
+  if (executionContext) {
+    scheduleHostedChatResponseDrain(response, executionContext);
+    return;
+  }
+  await response.arrayBuffer().catch((error: unknown) => {
+    console.error("[chat/runtime] App Server response drain failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
+
+function readSubmissionAck(payload: unknown): Record<string, string> | undefined {
+  if (!payload || typeof payload !== "object" || !("ok" in payload) || payload.ok !== true || !("result" in payload)) {
+    return undefined;
+  }
+  const result = payload.result;
+  if (!result || typeof result !== "object") return undefined;
+  const record = result as Partial<HostedChatSubmissionResult>;
+  return {
+    ...(record.runId !== undefined && record.runId !== null ? { "X-Run-Id": record.runId } : {}),
+    ...(record.threadId !== undefined && record.threadId !== null ? { "X-Thread-Id": record.threadId } : {}),
+    ...(record.turnId !== undefined && record.turnId !== null ? { "X-Turn-Id": record.turnId } : {}),
+    ...(record.runAttemptId !== undefined && record.runAttemptId !== null ? { "X-Run-Attempt-Id": record.runAttemptId } : {}),
+  };
+}
+
 function json(
   env: Env,
   request: Request,
   status: number,
   payload: unknown,
+  extraHeaders?: Record<string, string>,
 ): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       ...getCorsHeaders(request, env),
       "Content-Type": "application/json",
+      ...extraHeaders,
     },
   });
 }
