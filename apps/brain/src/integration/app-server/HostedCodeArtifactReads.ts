@@ -147,7 +147,8 @@ function readCodeArtifactReference(
     return null;
   }
   const toolCallId = readString(value, "toolCallId") ?? readString(value, "call_id") ?? readString(value, "id");
-  return toolCallId && isExactR2Reference(readFunctionArguments(functionCall.arguments), key)
+  const parsedArguments = readFunctionArguments(functionCall.arguments);
+  return toolCallId && isRecord(parsedArguments) && isExactR2Reference(parsedArguments.content, key)
     ? { toolCallId }
     : null;
 }
