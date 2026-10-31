@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@cloudflare/sandbox@0.12.3':
-    hash: e6hdwsngv2rwwc7qcmw5kpsubq
+    hash: kou5cqnxctf33pijklygufjwry
     path: patches/@cloudflare__sandbox@0.12.3.patch
 
 importers:
@@ -44,6 +44,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^1.1.0
         version: 1.1.0(zod@3.25.1)
+      '@cf-wasm/photon':
+        specifier: 0.4.0
+        version: 0.4.0
       '@legioncode/app-server':
         specifier: workspace:*
         version: link:../../packages/app-server
@@ -59,9 +62,6 @@ importers:
       '@legioncode/orchestrator-core':
         specifier: workspace:*
         version: link:../../packages/orchestrator-core
-      '@cf-wasm/photon':
-        specifier: 0.4.0
-        version: 0.4.0
       '@repo/event-store':
         specifier: workspace:*
         version: link:../../packages/event-store
@@ -336,7 +336,7 @@ importers:
     devDependencies:
       '@cloudflare/sandbox':
         specifier: ^0.12.3
-        version: 0.12.3(patch_hash=e6hdwsngv2rwwc7qcmw5kpsubq)
+        version: 0.12.3(patch_hash=kou5cqnxctf33pijklygufjwry)
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
         version: 4.20260702.1
@@ -7259,7 +7259,7 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.4.2': {}
 
-  '@cloudflare/sandbox@0.12.3(patch_hash=e6hdwsngv2rwwc7qcmw5kpsubq)':
+  '@cloudflare/sandbox@0.12.3(patch_hash=kou5cqnxctf33pijklygufjwry)':
     dependencies:
       '@cloudflare/containers': 0.3.7
       aws4fetch: 1.0.20

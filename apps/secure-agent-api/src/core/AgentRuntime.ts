@@ -57,6 +57,14 @@ interface RuntimeSessionRecord {
   lease: SandboxExecutionLease;
 }
 
+interface WorkspaceRuntimeEntry {
+  readonly composed: ComposedRuntime;
+  readonly sandbox: Sandbox;
+  readonly plugins: Map<string, IPlugin>;
+  pluginsBooted: boolean;
+  pluginBootPromise?: Promise<void>;
+}
+
 interface RuntimeSessionLogEntry {
   taskId?: string;
   timestamp: number;
@@ -69,7 +77,8 @@ const EXECUTION_SESSION_KEY_PREFIX = "execution:session:";
 const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
 
 export class AgentRuntime extends DurableObject {
-  private readonly workspaceRuntimes = new Map<string, ComposedRuntime>();
+  private readonly workspaceRuntimes = new Map<string, WorkspaceRuntimeEntry>();
+  private readonly workspaceRuntimePromises = new Map<string, Promise<WorkspaceRuntimeEntry>>();
   private stream = new StreamHandler();
   private storageService: StorageService;
   private readonly artifactBucket: ComposeRuntimeInput["r2Bucket"];
@@ -95,48 +104,68 @@ export class AgentRuntime extends DurableObject {
     return new Map(plugins.map((plugin) => [plugin.name, plugin]));
   }
 
-  private async ensureComposedRuntime(
+  private async ensureWorkspaceRuntime(
     lease: SandboxExecutionLease,
-  ): Promise<ComposedRuntime> {
+    initializePlugins: boolean,
+  ): Promise<WorkspaceRuntimeEntry> {
     const workspaceKey = workspaceLeaseKey(lease);
-    const existing = this.workspaceRuntimes.get(workspaceKey);
-    if (existing) {
-      existing.executionPort.registerLease(lease);
-      return existing;
+    let entry = this.workspaceRuntimes.get(workspaceKey);
+    if (!entry) {
+      const pending = this.workspaceRuntimePromises.get(workspaceKey);
+      if (pending) {
+        entry = await pending;
+      } else {
+        const creation = this.composeWorkspaceRuntime(lease);
+        this.workspaceRuntimePromises.set(workspaceKey, creation);
+        try {
+          entry = await creation;
+          this.workspaceRuntimes.set(workspaceKey, entry);
+        } finally {
+          if (this.workspaceRuntimePromises.get(workspaceKey) === creation) {
+            this.workspaceRuntimePromises.delete(workspaceKey);
+          }
+        }
+      }
     }
 
+    entry.composed.executionPort.registerLease(lease);
+    if (initializePlugins) await this.ensurePluginsBooted(workspaceKey, entry);
+    return entry;
+  }
+
+  private async composeWorkspaceRuntime(
+    lease: SandboxExecutionLease,
+  ): Promise<WorkspaceRuntimeEntry> {
     const sandbox = getSandbox(this.env.Sandbox, lease.sandboxId);
     const plugins = this.createPluginRegistry();
-    await this.bootPlugins(sandbox, plugins);
-    const runtime = composeRuntime({
+    const composed = composeRuntime({
       durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
       sandbox,
       plugins,
       r2Bucket: this.artifactBucket,
       executionLease: lease,
     });
-    this.workspaceRuntimes.set(workspaceKey, runtime);
-    return runtime;
+    return { composed, sandbox, plugins, pluginsBooted: false };
   }
 
-  private async composeBorrowedRuntime(
-    lease: SandboxExecutionLease,
-  ): Promise<ComposedRuntime> {
-    const existing = this.workspaceRuntimes.get(workspaceLeaseKey(lease));
-    if (existing) {
-      existing.executionPort.registerLease(lease);
-      return existing;
-    }
+  private async ensurePluginsBooted(
+    workspaceKey: string,
+    entry: WorkspaceRuntimeEntry,
+  ): Promise<void> {
+    if (entry.pluginsBooted) return;
+    if (entry.pluginBootPromise) return await entry.pluginBootPromise;
 
-    const sandbox = getSandbox(this.env.Sandbox, lease.sandboxId);
-    const gitPlugin = new GitPlugin();
-    return composeRuntime({
-      durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
-      sandbox,
-      plugins: new Map([[gitPlugin.name, gitPlugin]]),
-      r2Bucket: this.artifactBucket,
-      executionLease: lease,
+    const boot = this.bootPlugins(entry.sandbox, entry.plugins).then(() => {
+      entry.pluginsBooted = true;
     });
+    entry.pluginBootPromise = boot;
+    try {
+      await boot;
+    } finally {
+      if (entry.pluginBootPromise === boot) {
+        entry.pluginBootPromise = undefined;
+      }
+    }
   }
 
   private async bootPlugins(sandbox: Sandbox, plugins: Map<string, IPlugin>) {
@@ -187,16 +216,14 @@ export class AgentRuntime extends DurableObject {
         },
       };
     }
-    const runtime = input.borrowedLease
-      ? await this.composeBorrowedRuntime(input.lease)
-      : await this.ensureComposedRuntime(input.lease);
-    const result = await runtime.executionPort.executeTask(
+    const runtime = await this.ensureWorkspaceRuntime(input.lease, !input.borrowedLease);
+    const result = await runtime.composed.executionPort.executeTask(
       input.lease.leaseId,
       input,
       hooks,
     );
     if (result.status === "sandbox_unavailable" && !input.borrowedLease) {
-      const health = await runtime.executionPort.getHealth(input.lease.leaseId);
+      const health = await runtime.composed.executionPort.getHealth(input.lease.leaseId);
       if (!health.healthy) {
         this.workspaceRuntimes.delete(workspaceLeaseKey(input.lease));
       }
@@ -206,7 +233,7 @@ export class AgentRuntime extends DurableObject {
 
   async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const cancelled = await runtime.executionPort.cancelTask(leaseId, taskId);
+      const cancelled = await runtime.composed.executionPort.cancelTask(leaseId, taskId);
       if (cancelled) {
         return true;
       }
@@ -219,7 +246,7 @@ export class AgentRuntime extends DurableObject {
 
   async releaseLease(leaseId: string): Promise<void> {
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const release = await runtime.executionPort.releaseLease(leaseId);
+      const release = await runtime.composed.executionPort.releaseLease(leaseId);
       if (release.sandboxReleased) {
         this.workspaceRuntimes.delete(workspaceKey);
       }

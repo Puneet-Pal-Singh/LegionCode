@@ -1,5 +1,5 @@
 diff --git a/dist/sandbox-BhIQBik-.d.ts b/dist/sandbox-BhIQBik-.d.ts
-index 04e181e15f45d40e4e6a9f798af007d49455dd2f..e16ccf5cd7afe8be8a006b9c5e194cc105e285ea 100644
+index 04e181e15f45d40e4e6a9f798af007d49455dd2f..7dc537725fb00cca4fd7fa005759fd652b990da5 100644
 --- a/dist/sandbox-BhIQBik-.d.ts
 +++ b/dist/sandbox-BhIQBik-.d.ts
 @@ -1386,6 +1386,7 @@ interface R2BindingMountBucketOptions {
@@ -23,7 +23,7 @@ index 04e181e15f45d40e4e6a9f798af007d49455dd2f..e16ccf5cd7afe8be8a006b9c5e194cc1
     * Helper: Check if error is "no container instance available"
     * This indicates the container VM is still being provisioned.
 diff --git a/dist/sandbox-DI6suZAc.js b/dist/sandbox-DI6suZAc.js
-index 9d0eddb90a0c5757acf71dc9d275620894c10c93..b1acb0e96a8d28638fb45cd2678d80a4fc2e0e64 100644
+index 9d0eddb90a0c5757acf71dc9d275620894c10c93..3f34d9909fa5deb6071c4e04f58acadeb2743c97 100644
 --- a/dist/sandbox-DI6suZAc.js
 +++ b/dist/sandbox-DI6suZAc.js
 @@ -6707,6 +6707,7 @@ function getSandbox(ns, id, options) {
@@ -34,7 +34,7 @@ index 9d0eddb90a0c5757acf71dc9d275620894c10c93..b1acb0e96a8d28638fb45cd2678d80a4
  		startProcess: (command, processOptions) => useDefaultSession || processOptions?.sessionId !== void 0 ? stub.startProcess(command, processOptions) : stub.startProcess(command, {
  			...processOptions,
  			sessionId: DISABLE_SESSION_TOKEN
-@@ -8056,6 +8057,42 @@ var Sandbox = class Sandbox extends Container {
+@@ -8056,6 +8057,45 @@ var Sandbox = class Sandbox extends Container {
  		return await super.containerFetch(requestOrUrl, portOrInit, portParam);
  	}
  	/**
@@ -56,22 +56,25 @@ index 9d0eddb90a0c5757acf71dc9d275620894c10c93..b1acb0e96a8d28638fb45cd2678d80a4
 +		return await this.ctx.container.getTcpPort(port).fetch(request);
 +	}
 +	/**
-+	* Execute a command against the existing sessionless command client without
++	* Execute a command through the SDK command client without
 +	* starting the container or retrying connection setup.
 +	*/
 +	async execIfRunning(command, options) {
 +		if (!this.ctx.container?.running) throw new Error("Container is not running.");
 +		const sessionId = DISABLE_SESSION_TOKEN;
 +		const requestOptions = this.buildExecutionRequestOptions(sessionId, options);
-+		const retryTimeoutMs = this.computeRetryTimeoutMs();
 +		const startTime = Date.now();
-+		this.client.setRetryTimeoutMs(0);
-+		try {
-+			const response = await this.client.commands.execute(command, sessionId, requestOptions);
-+			return this.mapExecuteResponseToExecResult(response, Date.now() - startTime, this.getPublicExecutionSessionId(sessionId));
-+		} finally {
-+			this.client.setRetryTimeoutMs(retryTimeoutMs);
-+		}
++		const commandClient = new CommandClient({
++			logger: this.logger,
++			port: this.defaultPort,
++			stub: {
++				containerFetch: (requestOrUrl, portOrInit, portParam) => this.containerFetchIfRunning(requestOrUrl, portOrInit, portParam)
++			},
++			retryTimeoutMs: 0,
++			defaultHeaders: { "X-Sandbox-Id": this.ctx.id.toString() }
++		});
++		const response = await commandClient.execute(command, sessionId, requestOptions);
++		return this.mapExecuteResponseToExecResult(response, Date.now() - startTime, this.getPublicExecutionSessionId(sessionId));
 +	}
 +	/**
  	* Helper: Check if error is "no container instance available"
