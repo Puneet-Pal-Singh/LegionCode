@@ -653,9 +653,14 @@ zero SDK retry timeout. It never calls the normal auto-starting `containerFetch`
 or `exec`, retries, boots plugins, or creates the checkout root. The lease
 expiry is checked after serialized-workspace queue admission and immediately
 before execution; a stopped physical container or elapsed original lease stays
-explicitly unavailable. The adapter remains an execution-path detail owned by
-Secure Agent API; `packages/git-service`, Brain's authenticated composition and
-the App Server method contract remain the canonical Git owners and consumers.
+explicitly unavailable. Borrowed execution reuses the one existing per-workspace
+runtime entry and serialized executor; after a Durable Object restart, the entry
+is composed with the full plugin registry but setup is deferred until normal
+execution asks for it. This keeps borrowed Git from booting Redis or other plugin
+setup without creating a second mutation queue or weakening normal runtime
+behavior. The adapter remains an execution-path detail owned by Secure Agent
+API; `packages/git-service`, Brain's authenticated composition and the App Server
+method contract remain the canonical Git owners and consumers.
 
 ## Verification and limits
 
