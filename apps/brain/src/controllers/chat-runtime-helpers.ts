@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
 import {
+  RunIdSchema,
   type ResumeWorkspaceSnapshotRef,
   TurnScopeBootstrapSchema,
   type TurnScopeBootstrap,
@@ -25,7 +26,10 @@ import {
 } from "../domain/errors";
 import type { SerializableToolDefinition } from "../types/tools";
 import { parseOptionalScopeIdentifier } from "./chat-request-helpers";
-import { extractSessionToken } from "../services/AuthService";
+import {
+  extractSessionToken,
+  type UserSessionRecord,
+} from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
 import { createTraceContext, formatTraceparent } from "@repo/observability";
 
@@ -145,9 +149,10 @@ export async function resolveExecutionScope(
   env: Env,
   runId: string,
   correlationId: string,
+  verifiedPrincipal?: { userId: string; session: UserSessionRecord },
 ): Promise<ExecutionScope> {
   const sessionToken = extractSessionToken(req);
-  if (!sessionToken) {
+  if (!sessionToken && !verifiedPrincipal) {
     throw new DomainError(
       "AUTH_FAILED",
       "Unauthorized: missing authentication token.",
@@ -157,22 +162,14 @@ export async function resolveExecutionScope(
     );
   }
 
-  const scopeHeaders = new Headers(req.headers);
-  scopeHeaders.set("X-Run-Id", runId);
-  const scopeUrl = new URL(req.url);
-  scopeUrl.searchParams.delete("runId");
-  scopeUrl.searchParams.delete("userId");
-  scopeUrl.searchParams.delete("workspaceId");
-  const scopedRequest = new Request(scopeUrl, {
-    method: req.method,
-    headers: scopeHeaders,
-  });
-
   try {
     const scope = await resolveAuthorizedProviderScope(
-      scopedRequest,
+      req,
       env,
       correlationId,
+      RunIdSchema.parse(runId),
+      verifiedPrincipal,
+      { ignoreLegacyQueryScope: true },
     );
     return {
       userId: scope.userId,

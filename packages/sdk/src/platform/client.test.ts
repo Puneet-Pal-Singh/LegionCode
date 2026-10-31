@@ -26,6 +26,7 @@ function createTransport(
   overrides: Partial<PlatformClientTransport> = {},
 ): PlatformClientTransport {
   const baseTransport: PlatformClientTransport = {
+    submitHostedChat: vi.fn(async () => ({ runtimeStatus: 200, runId: null, threadId: null, turnId: null, runAttemptId: null, httpStatus: 200 })),
     createThread: vi.fn(async () => createThread()),
     createRun: vi.fn(async () => createRun()),
     startTurn: vi.fn(async () => ({ run: createRun(), turn: createTurn() })),

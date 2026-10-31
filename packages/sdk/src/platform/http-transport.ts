@@ -29,7 +29,7 @@ import type {
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
-type HostedLifecycleMethod = "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
+type HostedLifecycleMethod = "turn/submit" | "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
 type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
 type HostedThreadInputMethod = "turn/steer" | "turn/resume" |
   "thread/input/enqueue" | "thread/input/list" | "thread/input/update" |
@@ -123,6 +123,42 @@ export function createPlatformHttpTransport(
   };
 
   return {
+    submitHostedChat: async (payload, operationOptions) => {
+      const suppliedHeaders = new Headers(options.getHeaders?.() ?? {});
+      const authorization = suppliedHeaders.get("authorization");
+      const client = createAppServerClient({
+        clientId: "legioncode-platform",
+        clientVersion: "0.1.0",
+        transport: createAppServerHttpTransport({
+          baseUrl: options.baseUrl,
+          credentials: options.credentials ?? "include",
+          fetchImpl: async (input, init) => {
+            const headers = new Headers(init?.headers);
+            if (authorization !== null) headers.set("Authorization", authorization);
+            return (options.fetchImpl ?? globalThis.fetch.bind(globalThis))(input, { ...init, headers });
+          },
+          timeoutMs: null,
+          maxResponseBytes: null,
+          responsePreviewLimit: options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT,
+          signal: operationOptions?.signal,
+          requestHeaders: (envelope) => ({
+            ...Object.fromEntries(suppliedHeaders),
+            ...(envelope.method === "turn/submit"
+              ? { "X-LegionCode-AppServer-Method": envelope.method }
+              : {}),
+          }),
+        }),
+      });
+      try {
+        return await client.submitHostedChat(
+          payload,
+          operationOptions?.beforeSendHostedChatEnvelope ?? ((serializedEnvelope) => serializedEnvelope),
+          operationOptions?.onChatSubmissionResponse,
+        );
+      } catch (error) {
+        throw mapHostedLifecycleError(error, "turn/submit");
+      }
+    },
     createThread: (payload, options) =>
       request.json("POST", "/threads", payload, options),
     createRun: (payload, options) =>
@@ -700,15 +736,15 @@ function mapAppServerError(
 }
 
 function hostedResponseContractError(method: HostedLifecycleMethod): PlatformClientContractError {
-  const operation = method === "turn/interrupt"
-    ? "interruptTurn"
-    : method === "turn/lifecycleEvents"
-      ? "replayLifecycleEvents"
-      : method === "turn/diff"
-        ? "getTurnDiff"
-        : method === "turn/approval"
-          ? "submitLifecycleApproval"
-          : "compactTurn";
+  const operationByMethod: Record<HostedLifecycleMethod, string> = {
+    "turn/submit": "submitHostedChat",
+    "turn/interrupt": "interruptTurn",
+    "turn/lifecycleEvents": "replayLifecycleEvents",
+    "turn/diff": "getTurnDiff",
+    "turn/approval": "submitLifecycleApproval",
+    "turn/compact": "compactTurn",
+  };
+  const operation = operationByMethod[method];
   return new PlatformClientContractError(
     "response",
     operation,

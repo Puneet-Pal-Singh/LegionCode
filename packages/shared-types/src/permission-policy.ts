@@ -1,9 +1,23 @@
 import { z } from "zod";
 import { PRODUCT_MODES, type ProductMode } from "@repo/platform-protocol";
+import {
+  WORKFLOW_INTENTS,
+  WORKFLOW_ENTRYPOINTS,
+  type WorkflowIntent,
+  type WorkflowEntrypoint,
+} from "@repo/platform-protocol";
 import type { RunMode } from "./run-mode.js";
 
-export { PRODUCT_MODES, ProductModeSchema } from "@repo/platform-protocol";
+export {
+  PRODUCT_MODES,
+  ProductModeSchema,
+  WORKFLOW_INTENTS,
+  WORKFLOW_ENTRYPOINTS,
+  WorkflowIntentSchema,
+  WorkflowEntrypointSchema,
+} from "@repo/platform-protocol";
 export type { ProductMode } from "@repo/platform-protocol";
+export type { WorkflowIntent, WorkflowEntrypoint } from "@repo/platform-protocol";
 
 export const APPROVAL_POLICIES = {
   ASK_ON_REQUEST: "ask_on_request",
@@ -36,42 +50,6 @@ export const ExecutionScopeSchema = z.enum([
 ]);
 
 export type ExecutionScope = z.infer<typeof ExecutionScopeSchema>;
-
-export const WORKFLOW_INTENTS = {
-  EXPLORE: "explore",
-  BUILD: "build",
-  REVIEW: "review",
-  SHIP: "ship",
-} as const;
-
-export const WorkflowIntentSchema = z.enum([
-  WORKFLOW_INTENTS.EXPLORE,
-  WORKFLOW_INTENTS.BUILD,
-  WORKFLOW_INTENTS.REVIEW,
-  WORKFLOW_INTENTS.SHIP,
-]);
-
-export type WorkflowIntent = z.infer<typeof WorkflowIntentSchema>;
-
-export const WORKFLOW_ENTRYPOINTS = {
-  COMPOSER_SUBMIT: "composer_submit",
-  REVIEW_ACTION: "review_action",
-  COMMIT_ACTION: "commit_action",
-  DEPLOY_ACTION: "deploy_action",
-  PROVIDER_CONNECT: "provider_connect",
-  OTHER: "other",
-} as const;
-
-export const WorkflowEntrypointSchema = z.enum([
-  WORKFLOW_ENTRYPOINTS.COMPOSER_SUBMIT,
-  WORKFLOW_ENTRYPOINTS.REVIEW_ACTION,
-  WORKFLOW_ENTRYPOINTS.COMMIT_ACTION,
-  WORKFLOW_ENTRYPOINTS.DEPLOY_ACTION,
-  WORKFLOW_ENTRYPOINTS.PROVIDER_CONNECT,
-  WORKFLOW_ENTRYPOINTS.OTHER,
-]);
-
-export type WorkflowEntrypoint = z.infer<typeof WorkflowEntrypointSchema>;
 
 export interface WorkflowIntentResolverInput {
   runMode: RunMode;

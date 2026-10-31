@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  ChatRequestBodySchema,
+  HostedChatSubmissionResultSchema,
   ArtifactIdSchema,
   ArtifactMetadataSchema,
   LifecycleEventSchema,
@@ -26,6 +28,10 @@ import {
 } from "./errors.js";
 import { isThreadInputConflictResponse } from "./http-transport.js";
 import { followLifecycleEvents } from "./lifecycle-continuation.js";
+
+const HostedChatSubmissionAcknowledgementSchema = HostedChatSubmissionResultSchema
+  .extend({ httpStatus: z.number().int().min(200).max(599) })
+  .strict();
 import {
   FollowLifecycleRequestSchema,
   GetTurnDiffRequestSchema,
@@ -128,6 +134,25 @@ export class DefaultPlatformClient implements PlatformClient {
       this.transport.startTurn(normalizedRequest, options),
     );
     return parseResponse(payload, StartTurnResponseSchema, "startTurn");
+  }
+
+  async submitHostedChat(
+    request: import("@repo/platform-protocol").ChatRequestBody,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(request, ChatRequestBodySchema, "submitHostedChat");
+    const result = await this.invoke("submitHostedChat", () =>
+      this.transport.submitHostedChat(normalizedRequest, options),
+    );
+    if (!result || typeof result !== "object" || !("httpStatus" in result)) {
+      throw new PlatformClientContractError("response", "submitHostedChat", "Missing App Server acknowledgement metadata");
+    }
+    const record = result as Record<string, unknown>;
+    return parseResponse(
+      record,
+      HostedChatSubmissionAcknowledgementSchema,
+      "submitHostedChat",
+    );
   }
 
   async getThread(threadId: string, options?: PlatformClientOperationOptions) {

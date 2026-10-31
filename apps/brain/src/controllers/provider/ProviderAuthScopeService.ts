@@ -41,9 +41,22 @@ export async function resolveAuthorizedProviderScope(
   env: Env,
   correlationId: string,
   validatedRunId?: RunId,
+  verifiedPrincipal?: { userId: string; session: UserSessionRecord },
+  options: { ignoreLegacyQueryScope?: boolean } = {},
 ): Promise<AuthorizedProviderScope> {
-  const { runId } = parseProviderAuthScopeIdentity(request, correlationId, validatedRunId);
-  const claims = await loadSessionClaims(request, env, correlationId);
+  const { runId } = parseProviderAuthScopeIdentity(
+    request,
+    correlationId,
+    validatedRunId,
+    options.ignoreLegacyQueryScope,
+  );
+  const claims = verifiedPrincipal
+    ? buildSessionClaims(
+        verifiedPrincipal.userId,
+        verifiedPrincipal.session,
+        correlationId,
+      )
+    : await loadSessionClaims(request, env, correlationId);
   const requestedUserId = parseRequestedProviderUserId(request, correlationId);
 
   if (requestedUserId && requestedUserId !== claims.userId) {
@@ -80,8 +93,9 @@ function parseProviderAuthScopeIdentity(
   request: Request,
   correlationId: string,
   validatedRunId?: RunId,
+  ignoreLegacyQueryScope = false,
 ): Pick<ParsedProviderAuthScopeRequest, "runId"> {
-  rejectLegacyQueryScope(request, correlationId);
+  if (!ignoreLegacyQueryScope) rejectLegacyQueryScope(request, correlationId);
   return { runId: validatedRunId ?? parseRequiredRunId(request, correlationId) };
 }
 

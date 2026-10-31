@@ -7,7 +7,6 @@ import {
   getBrainHttpBase,
   getMuscleHttpBase,
   getMuscleWsBase,
-  chatStreamPath,
   gitStatusPath,
   gitDiffPath,
   gitStagePath,
@@ -108,10 +107,6 @@ describe("Platform Endpoints", () => {
       setEnv("VITE_BRAIN_BASE_URL", "https://brain.local");
       setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.local");
       setEnv("VITE_MUSCLE_WS_URL", "wss://ws.local");
-    });
-
-    it("should build chat stream path from Brain", () => {
-      expect(chatStreamPath()).toBe("https://brain.local/chat");
     });
 
     it("should build the canonical git status path through Brain", () => {
