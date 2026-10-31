@@ -12,7 +12,6 @@ import {
 } from "@repo/git-service";
 import {
   DefaultPlatformClient,
-  type ChatRequestBody,
   type HostedChatSubmissionAcknowledgement,
   type PlatformClientTransport,
   type ReplayLifecycleEventsResponse,
@@ -370,9 +369,7 @@ class GoldenPlatformTransport implements PlatformClientTransport {
 
   constructor(private readonly deps: GoldenPlatformDependencies) {}
 
-  async submitHostedChat(
-    _request: ChatRequestBody,
-  ): Promise<HostedChatSubmissionAcknowledgement> {
+  async submitHostedChat(): Promise<HostedChatSubmissionAcknowledgement> {
     throw new Error("Golden fixture does not exercise hosted chat submission.");
   }
 
