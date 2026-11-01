@@ -273,6 +273,9 @@ function TurnWorkflowEntry({
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
   const terminal = entry.projection.terminal;
   const terminalViewModel = buildLifecycleTerminalViewModel(entry.projection);
+  const continuationStartedAt = entry.projection.continuationOfTurnId
+    ? parseValidTimestamp(entry.projection.startedAt)
+    : null;
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -314,6 +317,15 @@ function TurnWorkflowEntry({
               props={props}
             />
           ))}
+        </div>
+      ) : null}
+      {continuationStartedAt ? (
+        <div className="my-2 flex items-center justify-center gap-3 text-xs text-zinc-500">
+          <span aria-hidden="true" className="h-px flex-1 bg-zinc-800" />
+          <time dateTime={continuationStartedAt}>
+            {formatContinuationTimestamp(continuationStartedAt)}
+          </time>
+          <span aria-hidden="true" className="h-px flex-1 bg-zinc-800" />
         </div>
       ) : null}
       <CanonicalWorkflowSurface
@@ -373,6 +385,17 @@ function TurnWorkflowEntry({
       ) : null}
     </section>
   );
+}
+
+function parseValidTimestamp(value: string | null): string | null {
+  return value && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function formatContinuationTimestamp(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function resolveMessageChangedFilesSummary(
