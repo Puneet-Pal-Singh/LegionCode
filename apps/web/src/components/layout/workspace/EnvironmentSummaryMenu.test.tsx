@@ -18,6 +18,10 @@ vi.mock("../../../services/GitHubService", async (importOriginal) => ({
   ...serviceMocks,
 }));
 
+vi.mock("../../../contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "user-1" } }),
+}));
+
 const repo: Repository = {
   id: 1,
   name: "legioncode",

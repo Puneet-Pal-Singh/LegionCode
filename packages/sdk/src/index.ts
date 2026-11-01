@@ -102,6 +102,9 @@ export {
   type ChatRequestBody,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
+  type RepositoryContentsResponse,
+  type RepositoryReadBranch,
+  type RepositoryReadRepository,
 } from "@repo/platform-protocol";
 export {
   turnIdFromRunId,

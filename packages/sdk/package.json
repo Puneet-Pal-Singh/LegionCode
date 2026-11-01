@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./platform/client": "./src/platform/client.ts",
     "./platform/app-server-client": "./src/platform/app-server-client.ts",
+    "./platform/repository-read-cache": "./src/platform/repository-read-cache.ts",
     "./platform/app-server-http-transport": "./src/platform/app-server-http-transport.ts",
     "./platform/errors": "./src/platform/errors.ts",
     "./platform/http-transport": "./src/platform/http-transport.ts",
