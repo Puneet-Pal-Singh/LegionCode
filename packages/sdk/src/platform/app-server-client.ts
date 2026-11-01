@@ -11,6 +11,10 @@ import {
 } from "@legioncode/app-server/protocol";
 import {
   type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
+  type RepositoryBranchesRequest, type RepositoryBranchesResponse,
+  type RepositoryContentsRequest, type RepositoryContentsResult,
+  type RepositoryListRequest, type RepositoryListResponse,
+  type RepositoryTreeRequest, type RepositoryTreeResponse,
   type HostedSession,
   type HostedSessionCreateRequest,
   type HostedSessionReadReceipt,
@@ -154,6 +158,10 @@ export type AppServerClient = {
   getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
+  listRepositories(params: RepositoryListRequest): Promise<RepositoryListResponse>;
+  listRepositoryBranches(params: RepositoryBranchesRequest): Promise<RepositoryBranchesResponse>;
+  getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
+  getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
@@ -335,6 +343,18 @@ export function createAppServerClient(
     }, AppServerResultSchemas["artifact/diff"]),
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
+    listRepositories: async (params) => request(options, {
+      method: "repository/list", params,
+    }, AppServerResultSchemas["repository/list"]),
+    listRepositoryBranches: async (params) => request(options, {
+      method: "repository/branches", params,
+    }, AppServerResultSchemas["repository/branches"]),
+    getRepositoryTree: async (params) => request(options, {
+      method: "repository/tree", params,
+    }, AppServerResultSchemas["repository/tree"]),
+    getRepositoryContents: async (params) => request(options, {
+      method: "repository/contents", params,
+    }, AppServerResultSchemas["repository/contents"]),
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",

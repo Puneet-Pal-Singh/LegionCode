@@ -2,6 +2,16 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
+import type {
+  RepositoryBranchesRequest,
+  RepositoryBranchesResponse,
+  RepositoryContentsRequest,
+  RepositoryContentsResult,
+  RepositoryListRequest,
+  RepositoryListResponse,
+  RepositoryTreeRequest,
+  RepositoryTreeResponse,
+} from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import type {
@@ -44,6 +54,12 @@ export type AppServerComposition = {
   hostedWorkspaceService?: {
     list(): Promise<HostedWorkspaceListResponse>;
     select(params: HostedWorkspaceSelectRequest): Promise<{ selection: HostedWorkspaceSelection }>;
+  };
+  hostedRepositoryReadService?: {
+    list(params: RepositoryListRequest): Promise<RepositoryListResponse>;
+    branches(params: RepositoryBranchesRequest): Promise<RepositoryBranchesResponse>;
+    tree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
+    contents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   };
   threadService?: LocalThreadService;
   providerService?: LocalProviderService;
@@ -274,6 +290,22 @@ async function dispatch(
   composition: AppServerComposition,
 ): Promise<unknown> {
   switch (request.method) {
+    case "repository/list": {
+      if (!composition.hostedRepositoryReadService) throw new Error("unsupported");
+      return composition.hostedRepositoryReadService.list(request.params);
+    }
+    case "repository/branches": {
+      if (!composition.hostedRepositoryReadService) throw new Error("unsupported");
+      return composition.hostedRepositoryReadService.branches(request.params);
+    }
+    case "repository/tree": {
+      if (!composition.hostedRepositoryReadService) throw new Error("unsupported");
+      return composition.hostedRepositoryReadService.tree(request.params);
+    }
+    case "repository/contents": {
+      if (!composition.hostedRepositoryReadService) throw new Error("unsupported");
+      return composition.hostedRepositoryReadService.contents(request.params);
+    }
     case "session/list": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
       return composition.sessionMetadataService.list();
