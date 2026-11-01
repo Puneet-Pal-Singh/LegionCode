@@ -12,6 +12,7 @@ import {
 } from "@repo/git-service";
 import {
   DefaultPlatformClient,
+  type HostedChatSubmissionAcknowledgement,
   type PlatformClientTransport,
   type ReplayLifecycleEventsResponse,
 } from "@legioncode/sdk";
@@ -367,6 +368,10 @@ class GoldenPlatformTransport implements PlatformClientTransport {
   private completion: Promise<void> | null = null;
 
   constructor(private readonly deps: GoldenPlatformDependencies) {}
+
+  async submitHostedChat(): Promise<HostedChatSubmissionAcknowledgement> {
+    throw new Error("Golden fixture does not exercise hosted chat submission.");
+  }
 
   async createThread(): Promise<Thread> {
     this.thread = ThreadSchema.parse({
