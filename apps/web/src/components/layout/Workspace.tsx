@@ -208,6 +208,8 @@ export function Workspace({
   const {
     repoTree,
     isLoadingTree,
+    repoTreeError,
+    retryRepoTree,
     repo,
     branch,
     switchBranch,
@@ -683,6 +685,8 @@ export function Workspace({
               onPermissionModeChange={setProductMode}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
+              repoTreeError={repoTreeError}
+              retryRepoTree={retryRepoTree}
               projectName={repository.split("/").filter(Boolean).at(-1)}
               onProjectClick={onOpenRepositoryPicker}
               onPresentationReadyChange={setIsConversationSurfaceReady}
@@ -795,6 +799,8 @@ export function Workspace({
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}
                 isLoadingTree={!!isLoadingTree}
+                repoTreeError={repoTreeError}
+                retryRepoTree={retryRepoTree}
                 branch={branch}
                 handleGitHubFileSelect={handleGitHubFileSelect}
                 handleFileClick={handleFileClick}
@@ -824,6 +830,8 @@ export function Workspace({
                   branch={branch}
                   repoTree={repoTree}
                   isLoadingTree={Boolean(isLoadingTree)}
+                  repoTreeError={repoTreeError}
+                  retryRepoTree={retryRepoTree}
                   onGitHubFileSelect={(path) => {
                     onFileOpened(path);
                     void handleFullscreenGitHubFileSelect(path);

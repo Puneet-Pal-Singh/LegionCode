@@ -9,6 +9,10 @@ vi.mock("../../services/GitHubService", () => ({
   initiateGitHubReauthorization: vi.fn(),
 }));
 
+vi.mock("../../contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "user-1" } }),
+}));
+
 const repository = {
   id: 42,
   name: "legioncode",

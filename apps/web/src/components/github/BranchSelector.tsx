@@ -13,6 +13,8 @@ interface BranchSelectorProps {
   currentBranch: string;
   branches: BranchSelectorBranch[];
   isLoading?: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
   onBranchSelect: (branch: string) => void;
   className?: string;
   placement?: "above" | "below";
@@ -22,6 +24,8 @@ export function BranchSelector({
   currentBranch,
   branches,
   isLoading = false,
+  loadError = null,
+  onRetry,
   onBranchSelect,
   className,
   placement = "below",
@@ -45,6 +49,8 @@ export function BranchSelector({
             currentBranch={currentBranch}
             branches={branches}
             isLoading={isLoading}
+            loadError={loadError}
+            onRetry={onRetry}
             onBranchSelect={(branch) => {
               onBranchSelect(branch);
               close();
@@ -105,6 +111,8 @@ interface BranchSelectorPanelProps {
   currentBranch: string;
   branches: BranchSelectorBranch[];
   isLoading?: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
   onBranchSelect: (branch: string) => void;
   className?: string;
   panelRef?: RefObject<HTMLDivElement | null>;
@@ -115,6 +123,8 @@ export function BranchSelectorPanel({
   currentBranch,
   branches,
   isLoading = false,
+  loadError = null,
+  onRetry,
   onBranchSelect,
   className,
   panelRef,
@@ -165,6 +175,8 @@ export function BranchSelectorPanel({
         branches={visibleBranches}
         currentBranch={currentBranch}
         isLoading={isLoading}
+        loadError={loadError}
+        onRetry={onRetry}
         onSelect={onBranchSelect}
       />
       <div className="border-t border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-600">
@@ -178,17 +190,32 @@ function BranchSelectorList({
   branches,
   currentBranch,
   isLoading,
+  loadError,
+  onRetry,
   onSelect,
 }: {
   branches: BranchSelectorBranch[];
   currentBranch: string;
   isLoading: boolean;
+  loadError: string | null;
+  onRetry?: () => void;
   onSelect: (branch: string) => void;
 }) {
   if (isLoading)
     return (
       <div className="px-4 py-6 text-center text-sm text-zinc-500">
         Loading branches...
+      </div>
+    );
+  if (loadError)
+    return (
+      <div className="px-4 py-6 text-center text-sm text-zinc-400">
+        <p>{loadError}</p>
+        {onRetry ? (
+          <button type="button" onClick={onRetry} className="mt-2 text-blue-400 hover:text-blue-300">
+            Retry
+          </button>
+        ) : null}
       </div>
     );
   if (branches.length === 0)

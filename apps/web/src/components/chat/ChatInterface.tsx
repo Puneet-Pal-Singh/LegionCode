@@ -124,6 +124,8 @@ interface ChatInterfaceProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  repoTreeError?: string | null;
+  retryRepoTree?: () => void;
   projectName?: string;
   onProjectClick?: () => void;
   onPresentationReadyChange?: (ready: boolean) => void;
@@ -144,6 +146,8 @@ export function ChatInterface({
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
+  repoTreeError,
+  retryRepoTree,
   projectName,
   onProjectClick,
   onPresentationReadyChange,
@@ -543,6 +547,8 @@ export function ChatInterface({
       onModelSelect={onModelSelect}
       repoTree={repoTree}
       isLoadingRepoTree={isLoadingRepoTree}
+      repoTreeError={repoTreeError}
+      retryRepoTree={retryRepoTree}
       permissionMode={permissionMode}
       onPermissionModeChange={onPermissionModeChange}
       contextBudget={latestLifecycleProjection?.contextBudget ?? null}

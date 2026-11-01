@@ -251,15 +251,6 @@ export function gitBootstrapPath(): string {
 }
 
 /**
- * Build the GitHub pull request endpoint URL through Brain.
- * Used for creating and listing pull requests via the authenticated GitHub session.
- * Path: /api/github/pulls
- */
-export function githubPullsPath(): string {
-  return `${getBrainHttpBase()}/api/github/pulls`;
-}
-
-/**
  * Build the artifact endpoint URL
  * Used for loading artifact content from Muscle
  * Path: /api/artifacts/:key
