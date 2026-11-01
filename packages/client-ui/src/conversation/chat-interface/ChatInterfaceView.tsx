@@ -269,7 +269,7 @@ function ReadOnlyHistoryRecord({
       <div className="max-w-4xl flex-1 rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3">
         <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
           <span>{roleLabel}</span>
-          <span className="normal-case tracking-normal">Source record {source.id}</span>
+          <span className="normal-case tracking-normal">Saved record {source.id}</span>
         </div>
         <details className="min-w-0 text-sm text-zinc-300">
           <summary className="cursor-pointer select-none rounded text-zinc-400 hover:text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400">
