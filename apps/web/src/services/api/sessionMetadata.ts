@@ -1,4 +1,4 @@
-import { AppServerClientError, type HostedSession, type HostedSessionPullRequestsResponse, type HostedSessionReadReceipt, type HostedSessionWorkspaceContext } from "@legioncode/sdk";
+import { type HostedSession, type HostedSessionPullRequestsResponse, type HostedSessionReadReceipt, type HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { AgentSession, SessionStatus } from "../../types/session";
 import { isCanonicalRunId } from "../../lib/run-id";
 import { normalizeSessionRunMode } from "../sessionRunMode";
@@ -35,14 +35,7 @@ export async function unpinSession(sessionId: string): Promise<AgentSession> {
   return mapped(await client().unpinSession(sessionId));
 }
 export async function archiveSession(sessionId: string): Promise<AgentSession> {
-  try { return mapped(await client().archiveSession(sessionId)); }
-  catch (error) {
-    // Preserve the existing local-only archive retirement classification.
-    if (error instanceof AppServerClientError && error.serverCode === "not_found") {
-      throw new Error("Session archive failed: 404");
-    }
-    throw error;
-  }
+  return mapped(await client().archiveSession(sessionId));
 }
 export async function unarchiveSession(sessionId: string): Promise<AgentSession> {
   return mapped(await client().unarchiveSession(sessionId));

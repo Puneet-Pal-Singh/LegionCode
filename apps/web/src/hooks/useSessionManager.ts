@@ -12,11 +12,18 @@ import * as SessionMetadata from "../services/api/sessionMetadata";
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
-import { createRunId } from "../lib/run-id";
+import { createRunId, isCanonicalRunId } from "../lib/run-id";
 import { mergeServerSessionProjection } from "./session-title-ordering";
 import { usePendingTitleProjectionRefresh } from "./usePendingTitleProjectionRefresh";
+import {
+  loadRepositoryFolderPreferences,
+  setRepositoryFolderHidden,
+  setRepositoryFolderLabel,
+  type RepositoryFolderPreferences,
+} from "../lib/repository-folder-preferences";
 
 export type { AgentSession } from "../types/session";
 export type SessionHydrationStatus = "idle" | "loading" | "ready" | "failed";
@@ -29,16 +36,6 @@ function createSessionsMap(
   sessions: AgentSession[],
 ): Record<string, AgentSession> {
   return Object.fromEntries(sessions.map((session) => [session.id, session]));
-}
-
-function hasSessionUpdates(
-  session: AgentSession,
-  updates: Partial<Omit<AgentSession, "id">>,
-): boolean {
-  const keys = Object.keys(updates) as Array<keyof Omit<AgentSession, "id">>;
-  return keys.some(
-    (key) => updates[key] !== undefined && session[key] !== updates[key],
-  );
 }
 
 function sortSessions(sessions: AgentSession[]): AgentSession[] {
@@ -157,13 +154,6 @@ function findNextVisibleSession(
   );
 }
 
-function isMissingServerSessionArchive(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  return /failed:\s*404\b/.test(error.message);
-}
-
 interface HydrationSessionCreationWindow {
   confirmedSessionIds: Set<string>;
 }
@@ -174,8 +164,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     SessionStateService.loadActiveSessionId(),
   );
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
-    const sessionsMap = SessionStateService.loadSessions();
-    return Object.values(sessionsMap);
+    return [];
   });
   const [sessionHydrationStatus, setSessionHydrationStatus] =
     useState<SessionHydrationStatus>(() =>
@@ -232,19 +221,30 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       const saved = localStorage.getItem("legioncode_repositories");
       const parsed = saved ? JSON.parse(saved) : [];
 
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (repository): repository is string => typeof repository === "string",
+        );
+      }
       return [];
     } catch {
       return [];
     }
   });
-
-  useEffect(() => {
-    localStorage.setItem(
-      "legioncode_repositories",
-      JSON.stringify(repositories),
-    );
-  }, [repositories]);
+  const repositoriesRef = useRef(repositories);
+  const [repositoryFolderPreferences, setRepositoryFolderPreferences] =
+    useState<RepositoryFolderPreferences>(loadRepositoryFolderPreferences);
+  const rememberRepository = useCallback((repository: string) => {
+    if (repositoriesRef.current.includes(repository)) return;
+    const next = [...repositoriesRef.current, repository];
+    repositoriesRef.current = next;
+    setRepositories(next);
+    try {
+      localStorage.setItem("legioncode_repositories", JSON.stringify(next));
+    } catch {
+      // Repository discovery remains available from the canonical session list.
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -297,12 +297,14 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         setActiveSessionId(nextActiveSessionId);
 
         if (nextSessions.length > 0) {
-          setRepositories((current) =>
-            mergeRepositories(
+          setRepositories((current) => {
+            const next = mergeRepositories(
               current,
               nextSessions.map((session) => session.repository),
-            ),
-          );
+            );
+            repositoriesRef.current = next;
+            return next;
+          });
         }
         if (
           hydrationCreationWindowRef.current === currentHydrationCreationWindow
@@ -497,14 +499,6 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     ) => {
       const sessionName = typeof name === "string" ? name : `New Task`;
 
-      // Ensure repository exists in the list
-      setRepositories((prev) => {
-        if (!prev.includes(repository)) {
-          return [...prev, repository];
-        }
-        return prev;
-      });
-
       // Use SessionStateService to create session with proper structure
       const newSession = SessionStateService.createSession(
         sessionName,
@@ -517,7 +511,19 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       // Admission requires the owned conversation to exist before it is visible
       // to setup/submit callers. A failed create must not publish a local session.
       const activeHydrationWindow = hydrationCreationWindowRef.current;
-      await SessionMetadata.persistSession(newSession);
+      const confirmedSession = await SessionMetadata.persistSession(newSession);
+      if (
+        confirmedSession.id !== newSession.id ||
+        confirmedSession.activeRunId !== newSession.activeRunId ||
+        (confirmedSession.workspaceId ?? null) !== (newSession.workspaceId ?? null) ||
+        confirmedSession.repository !== newSession.repository ||
+        confirmedSession.mode !== newSession.mode ||
+        !SessionStateService.validateSession(confirmedSession)
+      ) {
+        throw new Error("Session creation response did not match the request");
+      }
+      rememberRepository(repository);
+      setRepositoryFolderPreferences(setRepositoryFolderHidden(repository, false));
       if (
         activeHydrationWindow &&
         hydrationCreationWindowRef.current === activeHydrationWindow
@@ -526,7 +532,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       }
       const nextSessions = [
         ...sessionsRef.current,
-        { ...newSession, persistenceStatus: "saved" as const },
+        confirmedSession,
       ];
       const sessionsMap = createSessionsMap(nextSessions);
 
@@ -537,9 +543,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       localMutationVersionRef.current += 1;
       setSessions(nextSessions);
       setActiveSessionId(newSession.id);
-    return newSession.id;
+      return confirmedSession.id;
     },
-    [],
+    [rememberRepository],
   );
 
   const retrySessionPersistence = useCallback(
@@ -586,45 +592,16 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   }, []);
 
   const addRepository = useCallback((repository: string) => {
-    setRepositories((prev) => {
-      if (!prev.includes(repository)) {
-        return [...prev, repository];
-      }
-      return prev;
-    });
+    rememberRepository(repository);
+    setRepositoryFolderPreferences(setRepositoryFolderHidden(repository, false));
+  }, [rememberRepository]);
+
+  const removeRepository = useCallback((repository: string) => {
+    setRepositoryFolderPreferences(setRepositoryFolderHidden(repository, true));
   }, []);
 
-  const removeRepository = useCallback(
-    (repository: string) => {
-      setRepositories((prev) => prev.filter((r) => r !== repository));
-      // When removing a repo folder, also remove all its tasks to ensure clean state
-      setSessions((prev) => {
-        const sessionsToRemove = prev.filter(
-          (s) => s.repository === repository,
-        );
-        const remaining = prev.filter((s) => s.repository !== repository);
-
-        // If active session was in this repo, clear active ID
-        if (
-          activeSessionId &&
-          sessionsToRemove.some((s) => s.id === activeSessionId)
-        ) {
-          setActiveSessionId(null);
-        }
-
-        return remaining;
-      });
-    },
-    [activeSessionId],
-  );
-
-  const renameRepository = useCallback((oldName: string, newName: string) => {
-    setRepositories((prev) => prev.map((r) => (r === oldName ? newName : r)));
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.repository === oldName ? { ...s, repository: newName } : s,
-      ),
-    );
+  const renameRepository = useCallback((repositoryId: string, label: string) => {
+    setRepositoryFolderPreferences(setRepositoryFolderLabel(repositoryId, label));
   }, []);
 
   /**
@@ -632,6 +609,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
    */
   const archiveSession = useCallback(async (id: string): Promise<boolean> => {
     const previousSessions = sessionsRef.current;
+    const previousSession = previousSessions.find((session) => session.id === id);
+    if (!previousSession) return false;
+    const activeSessionIdBefore = activeSessionIdRef.current;
     const archivedAt = new Date().toISOString();
     const optimisticSessions = previousSessions.map((session) =>
       session.id === id
@@ -642,12 +622,18 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
     sessionsRef.current = optimisticSessions;
     setSessions(optimisticSessions);
-    if (activeSessionIdRef.current === id) {
+    if (activeSessionIdBefore === id) {
+      activeSessionIdRef.current = nextActive?.id ?? null;
+      activeSelectionChangedRef.current = true;
+      localMutationVersionRef.current += 1;
       setActiveSessionId(nextActive?.id ?? null);
     }
 
     try {
       const serverSession = await SessionMetadata.archiveSession(id);
+      if (serverSession.id !== id) {
+        throw new Error("Session archive response id mismatch");
+      }
       setSessions((current) => {
         const next = replaceSessionById(current, serverSession);
         sessionsRef.current = next;
@@ -655,20 +641,18 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       });
       return true;
     } catch (error) {
-      if (isMissingServerSessionArchive(error)) {
-        console.warn(
-          "[useSessionManager] Archived local-only session; server record was absent:",
-          error,
-        );
-        return true;
-      }
       console.warn("[useSessionManager] Failed to archive session:", error);
-      sessionsRef.current = previousSessions;
-      setSessions(previousSessions);
+      const rolledBackSessions = sessionsRef.current.map((session) =>
+        session.id === id ? previousSession : session,
+      );
+      sessionsRef.current = rolledBackSessions;
+      setSessions(rolledBackSessions);
       if (
-        activeSessionIdRef.current === id ||
+        activeSessionIdBefore === id &&
         activeSessionIdRef.current === (nextActive?.id ?? null)
       ) {
+        activeSessionIdRef.current = id;
+        activeSelectionChangedRef.current = true;
         setActiveSessionId(id);
       }
       return false;
@@ -898,46 +882,92 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     }
   }, []);
 
-  /**
-   * Update session metadata
-   * Validates updates and maintains timestamps
-   * Prevents accidental corruption by disallowing id overwrites
-   */
-  const updateSession = useCallback(
-    (
-      id: string,
-      updates: Partial<Omit<AgentSession, "id">>,
-      options?: { preserveActivityTimestamp?: boolean },
-    ) => {
-      const next = sessionsRef.current.map((s) => {
-        if (s.id !== id) return s;
-        if (!hasSessionUpdates(s, updates)) {
-          return s;
-        }
-        // Merge updates and refresh updatedAt only when values actually changed
-        const updated: AgentSession = {
-          ...s,
-          ...updates,
-          id: s.id, // Preserve original id
-          updatedAt: options?.preserveActivityTimestamp
-            ? s.updatedAt
-            : new Date().toISOString(),
-        };
-        // Validate session invariants
-        if (!SessionStateService.validateSession(updated)) {
-          console.warn(
-            "[useSessionManager] Invalid session update:",
-            id,
-            updates,
-          );
-          return s;
-        }
-        return updated;
-      });
+  const applySessionProjection = useCallback(
+    (id: string, project: (session: AgentSession) => AgentSession) => {
+      const current = sessionsRef.current.find((session) => session.id === id);
+      if (!current) return;
+      const updated = project(current);
+      if (updated === current) return;
+      if (!SessionStateService.validateSession(updated)) {
+        console.warn("[useSessionManager] Rejected invalid session projection:", id);
+        return;
+      }
+      const next = sessionsRef.current.map((session) =>
+        session.id === id ? updated : session,
+      );
       sessionsRef.current = next;
       setSessions(next);
     },
     [],
+  );
+
+  const setSessionMode = useCallback(
+    (id: string, mode: RunMode) => {
+      applySessionProjection(id, (session) =>
+        session.mode === mode ? session : { ...session, mode },
+      );
+    },
+    [applySessionProjection],
+  );
+
+  const recordSessionRun = useCallback(
+    (id: string, runId: string) => {
+      if (!isCanonicalRunId(runId)) return;
+      applySessionProjection(id, (session) => {
+        if (session.activeRunId === runId && session.latestRunId === runId) {
+          return session;
+        }
+        return {
+          ...session,
+          activeRunId: runId,
+          latestRunId: runId,
+          runIds: Array.from(new Set([...session.runIds, runId])),
+        };
+      });
+    },
+    [applySessionProjection],
+  );
+
+  const applyCanonicalSessionStatus = useCallback(
+    (id: string, runId: string, status: AgentSession["status"]) => {
+      if (!isCanonicalRunId(runId)) return;
+      applySessionProjection(id, (session) => {
+        if (
+          session.activeRunId !== runId &&
+          !(session.activeRunId === null && session.latestRunId === runId)
+        ) {
+          return session;
+        }
+        return session.status === status ? session : { ...session, status };
+      });
+    },
+    [applySessionProjection],
+  );
+
+  const applySessionWorkspaceProjection = useCallback(
+    (
+      id: string,
+      projection: Pick<
+        HostedSessionWorkspaceContext,
+        "sessionId" | "workspaceId" | "threadId"
+      >,
+    ) => {
+      if (projection.sessionId !== id) return;
+      applySessionProjection(id, (session) => {
+        if (
+          session.workspaceId === projection.workspaceId &&
+          session.threadId === projection.threadId
+        ) {
+          return session;
+        }
+        return {
+          ...session,
+          workspaceId: projection.workspaceId,
+          threadId: projection.threadId,
+        };
+      });
+    },
+    [applySessionProjection],
   );
 
   return {
@@ -945,6 +975,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     activeSessionId,
     sessionHydrationStatus,
     repositories,
+    repositoryFolderPreferences,
     setActiveSessionId: selectActiveSession,
     createSession,
     retrySessionPersistence,
@@ -956,7 +987,10 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     archiveSession,
     unarchiveSession,
     acknowledgeSession,
-    updateSession,
+    setSessionMode,
+    recordSessionRun,
+    applyCanonicalSessionStatus,
+    applySessionWorkspaceProjection,
     addRepository,
     removeRepository,
     renameRepository,
