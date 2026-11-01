@@ -93,6 +93,40 @@ interface LegacyReceiptRow extends TranscriptRow {
   source_raw?: Uint8Array;
 }
 
+interface LegacyDestinationRow extends SqlRow {
+  message_id?: string;
+  message_session_id?: string;
+  message_role?: string;
+  message_client_message_id?: string | null;
+  message_dedupe_key?: string;
+  message_created_at?: string | Date;
+  part_id?: string | null;
+  part_session_id?: string | null;
+  part_message_id?: string | null;
+  part_type?: string | null;
+  part_session_sequence?: number | string;
+  part_content_json?: JsonValue;
+  part_created_at?: string | Date | null;
+}
+
+interface LegacyDestinationPartRef {
+  sourcePartId: string | null;
+  sourceToolCallId: string | null;
+  partId: string;
+}
+
+interface LegacyDestinationMessageRef {
+  sourceMessageId: string | null;
+  messageId: string;
+  parts: LegacyDestinationPartRef[];
+}
+
+interface LegacyDestinationRefs {
+  sourceProjectionSha256: string;
+  sourceConversationId: string | null;
+  messages: LegacyDestinationMessageRef[];
+}
+
 const systemClock: Clock = {
   now: () => new Date(),
 };
@@ -308,7 +342,7 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
         const receipt = existing.rows[0];
         if (receipt) {
           const sameRaw = bytesEqual(receipt.source_raw, record.sourceRaw);
-          const refs = readJsonRecord(receipt.destination_refs);
+          const refs = readLegacyDestinationRefs(receipt.destination_refs);
           if (
             !sameRaw ||
             receipt.source_kind !== record.sourceKind ||
@@ -327,6 +361,14 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
             );
           }
           const sessionId = requireString(receipt.session_id, "legacy receipt session_id");
+          await assertLegacyDestinationMatches(tx, {
+            sessionId,
+            userId: input.userId,
+            sourceInstance: record.sourceInstance,
+            sourceStorageKey: record.sourceStorageKey,
+            messages: record.messages,
+            refs,
+          });
           const sourceInstanceKey = legacySourceGroupKey(record);
           const mappedSessionId = sessionBySourceInstance.get(sourceInstanceKey);
           if (mappedSessionId && mappedSessionId !== sessionId) {
@@ -713,7 +755,178 @@ function readJsonRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function sameInstant(value: string | Date | undefined, expected: Date): boolean {
+function readLegacyDestinationRefs(value: unknown): LegacyDestinationRefs | null {
+  const refs = readJsonRecord(value);
+  if (
+    !refs ||
+    typeof refs.sourceProjectionSha256 !== "string" ||
+    !(refs.sourceConversationId === null || typeof refs.sourceConversationId === "string") ||
+    !Array.isArray(refs.messages)
+  ) {
+    return null;
+  }
+  const messages: LegacyDestinationMessageRef[] = [];
+  for (const candidate of refs.messages) {
+    const message = readJsonRecord(candidate);
+    if (
+      !message ||
+      !(message.sourceMessageId === null || typeof message.sourceMessageId === "string") ||
+      typeof message.messageId !== "string" ||
+      !Array.isArray(message.parts)
+    ) {
+      return null;
+    }
+    const parts: LegacyDestinationPartRef[] = [];
+    for (const partCandidate of message.parts) {
+      const part = readJsonRecord(partCandidate);
+      if (
+        !part ||
+        !(part.sourcePartId === null || typeof part.sourcePartId === "string") ||
+        !(part.sourceToolCallId === null || typeof part.sourceToolCallId === "string") ||
+        typeof part.partId !== "string"
+      ) {
+        return null;
+      }
+      parts.push({
+        sourcePartId: part.sourcePartId,
+        sourceToolCallId: part.sourceToolCallId,
+        partId: part.partId,
+      });
+    }
+    messages.push({
+      sourceMessageId: message.sourceMessageId,
+      messageId: message.messageId,
+      parts,
+    });
+  }
+  return {
+    sourceProjectionSha256: refs.sourceProjectionSha256,
+    sourceConversationId: refs.sourceConversationId,
+    messages,
+  };
+}
+
+async function assertLegacyDestinationMatches(
+  client: SqlClient,
+  input: {
+    sessionId: string;
+    userId: string;
+    sourceInstance: string;
+    sourceStorageKey: string;
+    messages: LegacyHistoryImportMessage[];
+    refs: LegacyDestinationRefs;
+  },
+): Promise<void> {
+  const messageRefs = input.refs.messages;
+  if (messageRefs.length !== input.messages.length) {
+    throw legacyDestinationConflict(input.sourceStorageKey, "message reference count changed");
+  }
+
+  const messageIds = new Set<string>();
+  const partIds = new Set<string>();
+  for (const [messageIndex, message] of input.messages.entries()) {
+    const ref = messageRefs[messageIndex];
+    if (
+      !ref ||
+      ref.sourceMessageId !== message.sourceMessageId ||
+      !ref.messageId ||
+      messageIds.has(ref.messageId) ||
+      ref.parts.length !== message.parts.length
+    ) {
+      throw legacyDestinationConflict(input.sourceStorageKey, "message references changed");
+    }
+    messageIds.add(ref.messageId);
+    for (const [partIndex, part] of message.parts.entries()) {
+      const partRef = ref.parts[partIndex];
+      if (
+        !partRef ||
+        partRef.sourcePartId !== part.sourcePartId ||
+        partRef.sourceToolCallId !== part.sourceToolCallId ||
+        !partRef.partId ||
+        partIds.has(partRef.partId)
+      ) {
+        throw legacyDestinationConflict(input.sourceStorageKey, "part references changed");
+      }
+      partIds.add(partRef.partId);
+    }
+  }
+
+  const stored = await client.query<LegacyDestinationRow>(
+    READ_LEGACY_DESTINATION_SQL,
+    [Array.from(messageIds)],
+  );
+  const rowsByMessageId = new Map<string, LegacyDestinationRow[]>();
+  for (const row of stored.rows) {
+    const messageId = row.message_id;
+    if (!messageId || !messageIds.has(messageId)) {
+      throw legacyDestinationConflict(input.sourceStorageKey, "unexpected message reference");
+    }
+    rowsByMessageId.set(messageId, [
+      ...(rowsByMessageId.get(messageId) ?? []),
+      row,
+    ]);
+  }
+
+  let previousSequence = -1;
+  for (const [messageIndex, message] of input.messages.entries()) {
+    const ref = messageRefs[messageIndex]!;
+    const rows = rowsByMessageId.get(ref.messageId);
+    if (!rows || rows.length !== message.parts.length) {
+      throw legacyDestinationConflict(input.sourceStorageKey, "stored message or part count changed");
+    }
+    const firstRow = rows[0]!;
+    const expectedDedupeKey = `legacy:${await hashBytes(
+      new TextEncoder().encode(`${input.sourceInstance}\u0000${input.sourceStorageKey}\u0000${messageIndex}`),
+    )}`;
+    if (
+      firstRow.message_session_id !== input.sessionId ||
+      firstRow.message_role !== message.role ||
+      firstRow.message_client_message_id !== message.sourceMessageId ||
+      firstRow.message_dedupe_key !== expectedDedupeKey ||
+      (message.createdAt !== null && !sameInstant(firstRow.message_created_at, message.createdAt))
+    ) {
+      throw legacyDestinationConflict(input.sourceStorageKey, "stored message identity changed");
+    }
+
+    for (const [partIndex, part] of message.parts.entries()) {
+      const partRef = ref.parts[partIndex]!;
+      const row = rows[partIndex]!;
+      const sequence = toNumber(row.part_session_sequence);
+      if (
+        row.part_id !== partRef.partId ||
+        row.part_message_id !== ref.messageId ||
+        row.part_session_id !== input.sessionId ||
+        row.part_type !== part.type ||
+        canonicalJsonStringify(row.part_content_json) !== canonicalJsonStringify(part.content) ||
+        sequence <= previousSequence ||
+        (message.createdAt !== null && !sameInstant(row.part_created_at, message.createdAt))
+      ) {
+        throw legacyDestinationConflict(input.sourceStorageKey, "stored part identity or order changed");
+      }
+      previousSequence = sequence;
+    }
+  }
+}
+
+function legacyDestinationConflict(sourceStorageKey: string, reason: string): Error {
+  return new Error(`Legacy history destination conflict for ${sourceStorageKey}: ${reason}`);
+}
+
+function canonicalJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJsonStringify).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJsonStringify(item)}`).join(",")}}`;
+  }
+  const serialized = JSON.stringify(value);
+  return serialized ?? "undefined";
+}
+
+function sameInstant(value: string | Date | null | undefined, expected: Date): boolean {
   const actual = value instanceof Date ? value : value ? new Date(value) : null;
   return Boolean(actual && Number.isFinite(actual.getTime()) && actual.getTime() === expected.getTime());
 }
@@ -726,6 +939,28 @@ const FIND_LEGACY_RECEIPT_SQL = `
   FROM legacy_history_import_receipts
   WHERE source_environment = $1 AND source_namespace = $2 AND source_kind = $3
     AND source_instance = $4 AND source_storage_key = $5
+`;
+
+const READ_LEGACY_DESTINATION_SQL = `
+  SELECT
+    m.id::text AS message_id,
+    m.session_id::text AS message_session_id,
+    m.role AS message_role,
+    m.client_message_id AS message_client_message_id,
+    m.dedupe_key AS message_dedupe_key,
+    m.created_at AS message_created_at,
+    p.id::text AS part_id,
+    p.session_id::text AS part_session_id,
+    p.message_id::text AS part_message_id,
+    p.part_type AS part_type,
+    p.session_sequence AS part_session_sequence,
+    p.content_json AS part_content_json,
+    p.created_at AS part_created_at
+  FROM messages m
+  JOIN message_parts p ON p.message_id = m.id
+  WHERE m.id::text = ANY($1::text[])
+  ORDER BY p.session_sequence ASC, p.id ASC
+  FOR SHARE OF m, p
 `;
 
 const INSERT_LEGACY_RECEIPT_SQL = `
