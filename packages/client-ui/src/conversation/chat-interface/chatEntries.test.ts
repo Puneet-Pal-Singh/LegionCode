@@ -224,7 +224,11 @@ describe("buildChatEntries", () => {
         { [turnId]: projection },
         turnId,
       ).map((entry) =>
-        entry.kind === "message" ? entry.message.id : entry.turnId,
+        entry.kind === "message"
+          ? entry.message.id
+          : entry.kind === "workflow"
+            ? entry.turnId
+            : entry.key,
       ),
     ).toEqual(["user-1", turnId]);
   });

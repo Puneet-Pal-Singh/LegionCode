@@ -147,7 +147,12 @@ export {
 export {
   ConversationHistoryReadError,
   parseConversationHistoryPage,
+  projectConversationHistoryMessages,
   readConversationHistory,
+  type ConversationHistoryContentPart,
+  type ConversationHistoryDisplayRecord,
+  type ConversationHistoryPartKind,
+  type ConversationHistorySourceMessage,
   type ConversationHistoryPage,
   type ConversationHistoryReadOptions,
   type ConversationHistoryReadResult,

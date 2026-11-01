@@ -224,7 +224,7 @@ export function buildChatEntries(
       record.source.role === "tool" ||
       record.inspectable,
     )
-    .map((record): ChatInterfaceEntry => ({
+    .map((record): Extract<ChatInterfaceEntry, { kind: "history-record" }> => ({
       kind: "history-record",
       key: `history:${record.sourceOrder}:${record.source.role}:${record.source.id}`,
       record,
@@ -261,7 +261,12 @@ function canonicalEntrySourceOrder(
   entries: readonly ChatInterfaceEntry[],
   index: number,
 ): number {
-  const message = entry.kind === "message" ? entry.message : entry.assistantMessage;
+  const message =
+    entry.kind === "message"
+      ? entry.message
+      : entry.kind === "workflow"
+        ? entry.assistantMessage
+        : undefined;
   const metadata = message ? readMessageMetadata(message) : null;
   const order = metadata?.conversationHistoryOrder;
   if (typeof order === "number" && Number.isSafeInteger(order)) return order;

@@ -2,32 +2,44 @@ import {
   ConversationHistoryResponseSchema,
   type ConversationHistoryMessage,
 } from "@repo/platform-protocol";
-import type { JsonValue } from "@repo/shared-types";
 
-export type ConversationHistoryPartKind = "text" | "tool_call" | "tool_result" | "raw";
+export type ConversationHistoryPartKind =
+  | "text"
+  | "tool_call"
+  | "tool_result"
+  | "raw";
 
 /** A source-preserving classification for display; it carries no execution state. */
 export interface ConversationHistoryContentPart {
   kind: ConversationHistoryPartKind;
-  source: JsonValue;
+  source: unknown;
   inspectable?: boolean;
   text?: string;
   toolCallId?: string;
   toolName?: string;
-  args?: JsonValue;
+  args?: unknown;
+}
+
+/** Shallow source shape keeps untrusted stored JSON out of SDK message unions. */
+export interface ConversationHistorySourceMessage {
+  id: string;
+  role: "system" | "user" | "assistant" | "tool";
+  content: unknown;
+  createdAt: string;
+  data?: { metadata?: Record<string, unknown> };
 }
 
 /** Keeps the exact protocol message and read order for a verified history snapshot. */
 export interface ConversationHistoryDisplayRecord {
   sourceOrder: number;
-  source: ConversationHistoryMessage;
+  source: ConversationHistorySourceMessage;
   parts: ConversationHistoryContentPart[];
   inspectable: boolean;
 }
 
 /** Classifies source content once while retaining every original role and JSON value. */
 export function projectConversationHistoryMessages(
-  messages: readonly ConversationHistoryMessage[],
+  messages: readonly ConversationHistorySourceMessage[],
 ): ConversationHistoryDisplayRecord[] {
   return messages.map((source, sourceOrder) => {
     const parts = projectConversationHistoryContent(source);
@@ -45,29 +57,39 @@ export function projectConversationHistoryMessages(
 }
 
 function projectConversationHistoryContent(
-  message: ConversationHistoryMessage,
+  message: ConversationHistorySourceMessage,
 ): ConversationHistoryContentPart[] {
   if (typeof message.content === "string") {
-    const toolCallId = message.role === "tool" ? readToolCallId(message.content) : null;
-    return [{
-      kind: message.role === "tool" ? "tool_result" : "text",
-      source: message.content,
-      ...(toolCallId ? { toolCallId } : {}),
-      ...(message.role !== "tool" ? { text: message.content } : {}),
-    }];
+    const toolCallId =
+      message.role === "tool" ? readToolCallId(message.content) : null;
+    return [
+      {
+        kind: message.role === "tool" ? "tool_result" : "text",
+        source: message.content,
+        ...(toolCallId ? { toolCallId } : {}),
+        ...(message.role !== "tool" ? { text: message.content } : {}),
+      },
+    ];
   }
-  return message.content.map((source) => projectConversationHistoryPart(source, message.role));
+  if (Array.isArray(message.content)) {
+    return message.content.map((source) =>
+      projectConversationHistoryPart(source, message.role),
+    );
+  }
+  return [{ kind: "raw", source: message.content }];
 }
 
 function projectConversationHistoryPart(
-  source: JsonValue,
-  role: ConversationHistoryMessage["role"],
+  source: unknown,
+  role: ConversationHistorySourceMessage["role"],
 ): ConversationHistoryContentPart {
   if (!isRecord(source)) {
     return { kind: role === "tool" ? "tool_result" : "raw", source };
   }
   if (source.type === "text" && typeof source.text === "string") {
-    const hasAdditionalFields = Object.keys(source).some((key) => key !== "type" && key !== "text");
+    const hasAdditionalFields = Object.keys(source).some(
+      (key) => key !== "type" && key !== "text",
+    );
     return {
       kind: "text",
       source,
@@ -82,7 +104,8 @@ function projectConversationHistoryPart(
     source.type === "function_call" ||
     (source.type === "function" && functionValue !== null);
   if (toolCall) {
-    const toolCallId = readString(source, "toolCallId") ?? readString(source, "id");
+    const toolCallId =
+      readString(source, "toolCallId") ?? readString(source, "id");
     const toolName =
       readString(source, "toolName") ??
       readString(source, "name") ??
@@ -96,25 +119,33 @@ function projectConversationHistoryPart(
       ...(args !== null ? { args } : {}),
     };
   }
-  if (role === "tool" || source.type === "tool-result" || source.type === "tool_result") {
+  if (
+    role === "tool" ||
+    source.type === "tool-result" ||
+    source.type === "tool_result"
+  ) {
     const toolCallId =
       readString(source, "toolCallId") ??
       readString(source, "tool_call_id") ??
       readString(source, "callID");
-    return { kind: "tool_result", source, ...(toolCallId ? { toolCallId } : {}) };
+    return {
+      kind: "tool_result",
+      source,
+      ...(toolCallId ? { toolCallId } : {}),
+    };
   }
   return { kind: "raw", source };
 }
 
 function readToolArguments(
-  source: Record<string, JsonValue>,
-  functionValue: Record<string, JsonValue> | null,
-): JsonValue | null {
+  source: Record<string, unknown>,
+  functionValue: Record<string, unknown> | null,
+): unknown | null {
   const direct = source.args ?? source.input ?? source.arguments;
   if (direct !== undefined) {
     if (typeof direct === "string") {
       try {
-        return JSON.parse(direct) as JsonValue;
+        return JSON.parse(direct) as unknown;
       } catch {
         return null;
       }
@@ -124,7 +155,7 @@ function readToolArguments(
   const nested = functionValue?.arguments;
   if (typeof nested === "string") {
     try {
-      return JSON.parse(nested) as JsonValue;
+      return JSON.parse(nested) as unknown;
     } catch {
       return null;
     }
@@ -136,19 +167,24 @@ function readToolCallId(content: string): string | null {
   try {
     const parsed = JSON.parse(content) as unknown;
     return isRecord(parsed)
-      ? readString(parsed, "tool_call_id") ?? readString(parsed, "toolCallId")
+      ? (readString(parsed, "tool_call_id") ?? readString(parsed, "toolCallId"))
       : null;
   } catch {
     return null;
   }
 }
 
-function readString(value: Record<string, JsonValue>, key: string): string | null {
+function readString(
+  value: Record<string, unknown>,
+  key: string,
+): string | null {
   const candidate = value[key];
-  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : null;
 }
 
-function isRecord(value: unknown): value is Record<string, JsonValue> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -163,9 +199,14 @@ export interface ConversationHistoryPage<TMessage> {
 }
 
 /** Validate an untrusted HTTP page against the shared protocol contract. */
-export function parseConversationHistoryPage(value: unknown): ConversationHistoryPage<ConversationHistoryMessage> {
+export function parseConversationHistoryPage(
+  value: unknown,
+): ConversationHistoryPage<ConversationHistoryMessage> {
   const parsed = ConversationHistoryResponseSchema.safeParse(value);
-  if (!parsed.success) throw new Error("History response failed the shared conversation-history contract");
+  if (!parsed.success)
+    throw new Error(
+      "History response failed the shared conversation-history contract",
+    );
   return parsed.data;
 }
 
