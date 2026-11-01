@@ -86,8 +86,6 @@ function createRouter(): Router {
     "POST",
   );
   router.add(/^\/api\/chat\/media\/[^/]+$/, ChatMediaController.get, "GET");
-  router.add(/\/chat/, (request, env, context) =>
-    ChatController.handle(request, env, undefined, context), "POST");
   router.add(
     /^\/api\/debug\/runtime$/,
     RuntimeController.getRuntimeDebug,

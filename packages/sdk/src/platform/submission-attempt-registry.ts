@@ -22,6 +22,7 @@ export interface SubmissionAttempt {
   wireBody: string | null;
   readonly hadPriorDispatch: boolean;
   dispatched: boolean;
+  transportAbortController: AbortController | null;
   stopRequested: boolean;
   responseStatus: number | null;
   responseTupleMatches: boolean;
@@ -136,6 +137,7 @@ export function acquireSubmissionAttempt(input: {
     wireBody: record.wireBody,
     hadPriorDispatch: record.wireBody !== null,
     dispatched: false,
+    transportAbortController: null,
     stopRequested: false,
     responseStatus: null,
     responseTupleMatches: false,
@@ -166,6 +168,27 @@ export function freezeSubmissionWireBody(
   record.wireBody ??= wireBody;
   attempt.wireBody = record.wireBody;
   return record.wireBody;
+}
+
+export function observeSubmissionAcknowledgement(
+  attempt: SubmissionAttempt,
+  response: {
+    httpStatus: number;
+    runId: string | null;
+    threadId: string | null;
+    turnId: string | null;
+    runAttemptId: string | null;
+  },
+): void {
+  attempt.responseStatus = response.httpStatus;
+  const scope = attempt.scope;
+  attempt.responseTupleMatches = Boolean(
+    scope &&
+    response.runId?.trim() === scope.runId &&
+    response.threadId?.trim() === scope.threadId &&
+    response.turnId?.trim() === scope.turnId &&
+    response.runAttemptId?.trim() === scope.runAttemptId,
+  );
 }
 
 export function finishSubmissionAttempt(

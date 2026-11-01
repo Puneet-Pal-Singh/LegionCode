@@ -5,6 +5,8 @@ import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorks
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import type {
+  ChatRequestBody,
+  HostedChatSubmissionResult,
   CompactTurnRequest,
   CompactTurnResponse,
   InterruptTurnResponse,
@@ -86,6 +88,9 @@ export type AppServerComposition = {
     reserve(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
     read(params: Extract<AppServerRequest, { method: "turn/scope" }>['params']): Promise<TurnScopeBootstrap>;
   };
+  hostedChatSubmissionService?: {
+    execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult>;
+  };
   hostedTurnCommandsService?: {
     interruptTurn(params: Extract<AppServerRequest, { method: "turn/interrupt" }>["params"]): Promise<InterruptTurnResponse>;
   };
@@ -120,13 +125,14 @@ export class AppServerOperationError extends Error {
     readonly retryable?: boolean,
     readonly correlationId?: string,
     readonly metadata?: Record<string, unknown>,
+    readonly responseHeaders?: Record<string, string>,
   ) { super(message); }
 }
 
 /** Internal composition result for operations whose existing HTTP status is meaningful. */
 export class AppServerMethodOutcome {
   constructor(
-    readonly statusCode: 200 | 201 | 202 | 409,
+    readonly statusCode: number,
     readonly result: unknown,
   ) {}
 }
@@ -223,7 +229,8 @@ export async function handleAppServerHttpRequest(
       return methodError(request.method, error.statusCode, error.code, error.message,
         error.operationCode || error.retryable !== undefined || error.correlationId || error.metadata
           ? { statusCode: error.statusCode, ...(error.operationCode ? { operationCode: error.operationCode } : {}), ...(error.retryable !== undefined ? { retryable: error.retryable } : {}), ...(error.correlationId ? { correlationId: error.correlationId } : {}), ...(error.metadata ? { metadata: error.metadata } : {}) }
-          : undefined);
+          : undefined,
+        error.responseHeaders);
     }
     if (error instanceof LocalPersistenceError) {
       return methodError(
@@ -290,6 +297,11 @@ async function dispatch(
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
       return composition.hostedTurnScopeService.reserve(request.params);
+    }
+    case "turn/submit": {
+      if (!composition.hostedChatSubmissionService) throw new Error("unsupported");
+      const result = await composition.hostedChatSubmissionService.execute(request.params);
+      return new AppServerMethodOutcome(result.runtimeStatus, result);
     }
     case "turn/scope": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
@@ -527,6 +539,7 @@ function methodError(
   code: AppServerError["code"],
   message: string,
   details?: Pick<AppServerError, "statusCode" | "operationCode" | "retryable" | "correlationId" | "metadata">,
+  responseHeaders?: Record<string, string>,
 ): AppServerHttpResult {
   const response: AppServerResponse = AppServerResponseSchema.parse({
     protocolVersion: APP_SERVER_PROTOCOL_VERSION,
@@ -534,7 +547,7 @@ function methodError(
     ok: false,
     error: AppServerErrorSchema.parse({ code, message, ...details }),
   });
-  return { statusCode, headers: JSON_HEADERS, payload: response };
+  return { statusCode, headers: { ...JSON_HEADERS, ...responseHeaders }, payload: response };
 }
 
 function genericError(
