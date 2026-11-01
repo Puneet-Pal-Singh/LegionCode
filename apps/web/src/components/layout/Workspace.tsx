@@ -64,8 +64,7 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   isWorkspaceContextReady?: boolean;
   sessionPersistenceStatus?: SessionPersistenceStatus;
-  onSessionStatusChange?: (status: SessionStatus) => void;
-  onPromptSubmitted?: (prompt: string) => void;
+  onSessionStatusChange?: (runId: string, status: SessionStatus) => void;
   initialPromptSubmission?: InitialPromptSubmission | null;
   onInitialPromptClaim: (id: InitialPromptSubmissionId) => boolean;
   onInitialPromptStatusChange: (
@@ -109,7 +108,6 @@ export function Workspace({
   isWorkspaceContextReady = true,
   sessionPersistenceStatus,
   onSessionStatusChange,
-  onPromptSubmitted,
   initialPromptSubmission = null,
   onInitialPromptClaim,
   onInitialPromptStatusChange,
@@ -293,10 +291,9 @@ export function Workspace({
   const handleSubmitWhenPersisted = useCallback<typeof handleSubmit>(
     async (...args) => {
       if (!isSessionPersisted) return false;
-      onPromptSubmitted?.(input);
       return handleSubmit(...args);
     },
-    [handleSubmit, input, isSessionPersisted, onPromptSubmitted],
+    [handleSubmit, isSessionPersisted],
   );
   const { submitFollowUp, resumeInterruptedTurn } = chat;
   const submitFollowUpWhenPersisted = useCallback(

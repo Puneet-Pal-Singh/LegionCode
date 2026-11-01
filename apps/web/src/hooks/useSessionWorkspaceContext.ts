@@ -9,10 +9,12 @@ interface UseSessionWorkspaceContextOptions {
   authenticated: boolean;
   sessionId: string | null;
   persistenceReady: boolean;
-  updateSession: (
+  applySessionWorkspaceProjection: (
     sessionId: string,
-    patch: { workspaceId: string | null; threadId: string | null },
-    options?: { preserveActivityTimestamp?: boolean },
+    projection: Pick<
+      HostedSessionWorkspaceContext,
+      "sessionId" | "workspaceId" | "threadId"
+    >,
   ) => void;
 }
 
@@ -20,7 +22,7 @@ export function useSessionWorkspaceContext({
   authenticated,
   sessionId,
   persistenceReady,
-  updateSession,
+  applySessionWorkspaceProjection,
 }: UseSessionWorkspaceContextOptions) {
   const { setContext, clearContext } = useGitHub();
   const [context, setContextState] = useState<HostedSessionWorkspaceContext | null>(null);
@@ -48,10 +50,7 @@ export function useSessionWorkspaceContext({
         } else {
           clearContext();
         }
-        updateSession(sessionId, {
-          workspaceId: resolved.workspaceId,
-          threadId: resolved.threadId,
-        }, { preserveActivityTimestamp: true });
+        applySessionWorkspaceProjection(sessionId, resolved);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -62,7 +61,7 @@ export function useSessionWorkspaceContext({
       });
 
     return () => controller.abort();
-  }, [authenticated, sessionId, persistenceReady, clearContext, setContext, updateSession]);
+  }, [authenticated, sessionId, persistenceReady, clearContext, setContext, applySessionWorkspaceProjection]);
 
   const hasQueryScope = authenticated && Boolean(sessionId) && persistenceReady;
   return {

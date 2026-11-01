@@ -176,14 +176,24 @@ function AppContent() {
     archiveSession,
     unarchiveSession,
     acknowledgeSession,
-    updateSession,
+    setSessionMode,
+    recordSessionRun,
+    applyCanonicalSessionStatus,
+    applySessionWorkspaceProjection,
     repositories,
+    repositoryFolderPreferences,
     removeRepository,
     renameRepository,
   } = useSessionManager({
     hydrateFromServer: isAuthenticated && !isLoading,
   });
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  const hiddenRepositoryIds = new Set(
+    repositoryFolderPreferences.hiddenRepositoryIds,
+  );
+  const visibleRepositories = repositories.filter(
+    (repository) => !hiddenRepositoryIds.has(repository),
+  );
   const activeSourcesKey = activeSessionId
     ? `${user?.id ?? "anonymous-account"}\0${activeSessionId}`
     : null;
@@ -302,7 +312,7 @@ function AppContent() {
     authenticated: isAuthenticated,
     sessionId: activeSession?.id ?? null,
     persistenceReady: Boolean(activeSession && isSessionPersistenceReady(activeSession.persistenceStatus)),
-    updateSession,
+    applySessionWorkspaceProjection,
   });
 
   const openSettingsDialog = useCallback(
@@ -318,10 +328,7 @@ function AppContent() {
       return null;
     }
 
-    return (
-      SessionStateService.loadSetupSession() ??
-      SessionStateService.createSetupSession()
-    );
+    return SessionStateService.loadOrCreateSetupSession();
   }, [isAuthenticated, sessions.length]);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
@@ -392,38 +399,10 @@ function AppContent() {
     }
   }, [activeSessionId, activeSession]);
 
-  const clearSetupSessionState = useCallback(() => {
-    SessionStateService.clearSetupSession();
-  }, []);
-
   useEffect(() => {
-    if (isLoading || !hasVerifiedSession) {
-      return;
-    }
-
-    if (!isAuthenticated) {
-      clearSetupSessionState();
-      resetProviderStore();
-      return;
-    }
-
-    if (sessions.length > 0) {
-      clearSetupSessionState();
-      return;
-    }
-
-    if (setupSession) {
-      SessionStateService.saveSetupSession(setupSession);
-    }
-  }, [
-    clearSetupSessionState,
-    isAuthenticated,
-    hasVerifiedSession,
-    isLoading,
-    resetProviderStore,
-    sessions.length,
-    setupSession,
-  ]);
+    if (isLoading || !hasVerifiedSession || isAuthenticated) return;
+    resetProviderStore();
+  }, [hasVerifiedSession, isAuthenticated, isLoading, resetProviderStore]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const { isCompact, isMobile } = useWorkspaceViewport();
@@ -663,8 +642,6 @@ function AppContent() {
         console.warn("[session/create] Failed to persist session:", error);
         return;
       }
-      clearSetupSessionState();
-
     } else {
       // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
@@ -680,7 +657,6 @@ function AppContent() {
     try {
       await createSession("New Task", "New Project");
       clearContext();
-      clearSetupSessionState();
     } catch (error) {
       console.warn("[session/create] Failed to persist session:", error);
     }
@@ -793,7 +769,6 @@ function AppContent() {
     // Publish setup only after the owned conversation exists.
     const sessionName = `New Task`;
     await createSession(sessionName, selectedRepo.full_name, undefined, selection.workspaceId);
-    clearSetupSessionState();
   };
 
   const isSessionContextLoading = isSessionContextPending({
@@ -847,6 +822,8 @@ function AppContent() {
             <AgentSidebar
               sessions={sessions}
               repositories={repositories}
+              repositoryLabels={repositoryFolderPreferences.labels}
+              hiddenRepositoryIds={repositoryFolderPreferences.hiddenRepositoryIds}
               activeSessionId={activeSessionId}
               hydrationStatus={sessionHydrationStatus}
               onSelect={handleSelectSession}
@@ -956,13 +933,7 @@ function AppContent() {
                 }
                 onSavedSourcesChange={handleSavedSourcesChange}
                 onRunIdChange={(runId) => {
-                  if (!activeSession) return;
-                  updateSession(activeSessionId, {
-                    activeRunId: runId,
-                    runIds: Array.from(
-                      new Set([...activeSession.runIds, runId]),
-                    ),
-                  });
+                  recordSessionRun(activeSessionId, runId);
                 }}
               >
                 {({
@@ -1003,14 +974,10 @@ function AppContent() {
                           activeSession.persistenceStatus
                         }
                         onModeChange={(mode) =>
-                          updateSession(activeSessionId, { mode })
+                          setSessionMode(activeSessionId, mode)
                         }
-                        onSessionStatusChange={(status) => {
-                          updateSession(
-                            activeSessionId,
-                            { status },
-                            { preserveActivityTimestamp: true },
-                          );
+                        onSessionStatusChange={(runId, status) => {
+                          applyCanonicalSessionStatus(activeSessionId, runId, status);
                           if (status === "completed" || status === "failed") {
                             void refreshSessionProjection(activeSessionId);
                           }
@@ -1030,12 +997,6 @@ function AppContent() {
                         onInitialPromptHandled={(id) =>
                           settleInitialPrompt(activeSessionId, id)
                         }
-                        onPromptSubmitted={(prompt) => {
-                          if (prompt.trim())
-                            updateSession(activeSessionId, {
-                              status: "running",
-                            });
-                        }}
                         onHookSettingsContextChange={
                           handleHookSettingsContextChange
                         }
@@ -1076,22 +1037,19 @@ function AppContent() {
                           sessionId={activeSessionId}
                           mode={activeSession.mode}
                           onModeChange={(mode) =>
-                            updateSession(activeSessionId, { mode })
+                            setSessionMode(activeSessionId, mode)
                           }
                           isRightSidebarOpen={isRightSidebarOpen}
                           reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                           onRepoClick={handleOpenRepositoryPicker}
-                          projects={repositories.filter(
+                          projects={visibleRepositories.filter(
                             (repository) => repository !== "New Project",
                           )}
                           onProjectSelect={handleChooseExistingProject}
                           onBranchSelect={handleExplicitBranchSelect}
                           onNoProject={handleChooseNoProject}
                           onStart={(config) => {
-                            updateSession(activeSessionId, {
-                              status: "running",
-                              mode: config.mode,
-                            });
+                            setSessionMode(activeSessionId, config.mode);
                             const submission: InitialPromptSubmission = {
                               id: createInitialPromptSubmissionId(
                                 crypto.randomUUID(),
@@ -1140,7 +1098,7 @@ function AppContent() {
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     requiresRepository
                     onRepoClick={handleOpenRepositoryPicker}
-                    projects={repositories.filter(
+                    projects={visibleRepositories.filter(
                       (repository) => repository !== "New Project",
                     )}
                     onProjectSelect={handleChooseExistingProject}
