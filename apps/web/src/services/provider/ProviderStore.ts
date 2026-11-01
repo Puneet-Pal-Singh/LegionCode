@@ -1,7 +1,6 @@
 import {
   readSessionScopedSelection,
   writeSessionScopedSelection,
-  clearPersistedSessionScopedSelections,
 } from "./ProviderSelectionPreferences.js";
 import {
   deriveSelectionSnapshot,
@@ -1561,7 +1560,6 @@ export class ProviderStore {
     this.activeRunId = null;
     this.activeSessionId = null;
     this.hasExplicitSessionSelection = false;
-    clearPersistedSessionScopedSelections();
     this.state = createInitialStoreState();
     this.emit();
   }
