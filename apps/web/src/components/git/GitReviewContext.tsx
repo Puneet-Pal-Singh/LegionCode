@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { DiffContent, EditArtifactIdentity } from "@repo/shared-types";
 import { useRunContext } from "../../hooks/useRunContext";
-import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import { useReviewSourceState } from "../../hooks/useReviewSourceState";
 import { useGitCommit } from "../../hooks/useGitCommit";
@@ -48,18 +47,6 @@ export function GitReviewProvider({
   const shouldLoadReviewData =
     canonicalTurnReview !== null ||
     (isReviewDataEnabled && (isReviewOpen || isReviewActive));
-  const shouldProbeLiveGit = shouldLoadReviewData && !canonicalTurnReview;
-  const {
-    status,
-    gitAvailable,
-    loading: statusLoading,
-    error: statusError,
-    refetch,
-  } = useGitStatus(
-    runId ?? undefined,
-    sessionId ?? undefined,
-    shouldProbeLiveGit,
-  );
   const {
     diff: liveDiff,
     loading: liveDiffLoading,
@@ -73,16 +60,23 @@ export function GitReviewProvider({
     commit,
   } = useGitCommit(runId ?? undefined, sessionId ?? undefined);
   const [commitMessage, setCommitMessage] = useState("");
-  const liveGitFiles = status?.files ?? EMPTY_FILE_STATUSES;
   const reviewSourceState = useReviewSourceState({
     runId: runId ?? undefined,
     sessionId: sessionId ?? undefined,
-    liveGitFiles,
     canonicalTurnReview,
+    defaultLiveGitEnabled: isReviewDataEnabled && (isReviewOpen || isReviewActive),
+    explicitLiveGitEnabled: isReviewOpen || isReviewActive,
     artifactIdentity,
     enabled: shouldLoadReviewData,
   });
   const {
+    gitStatus: {
+      status,
+      gitAvailable,
+      loading: statusLoading,
+      error: statusError,
+      refetch,
+    },
     artifactDiffState,
     promptArtifactSource,
     reviewScope,
@@ -99,6 +93,7 @@ export function GitReviewProvider({
     error: artifactDiffError,
     fetch: fetchArtifactDiff,
   } = artifactDiffState;
+  const liveGitFiles = status?.files ?? EMPTY_FILE_STATUSES;
   const reviewFiles = useMemo(
     () =>
       reviewSource.kind === "turn_diff"

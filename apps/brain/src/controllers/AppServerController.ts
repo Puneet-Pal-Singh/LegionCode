@@ -12,6 +12,7 @@ import { composeHostedTurnCommands } from "../integration/app-server/HostedTurnC
 import { composeHostedThreadInputOperations } from "../integration/app-server/HostedThreadInputOperations";
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
+import { composeHostedGitOperations } from "../integration/app-server/HostedGitOperations";
 import { composeHostedCodeArtifactReads } from "../integration/app-server/HostedCodeArtifactReads";
 import { composeHostedRepositoryReads } from "../integration/app-server/HostedRepositoryReads";
 import { AppServerOperationError, handleAppServerHttpRequest } from "@legioncode/app-server/server";
@@ -103,6 +104,7 @@ export const AppServerController = {
     let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
+    let hostedGitOperationsService: ReturnType<typeof composeHostedGitOperations> | undefined;
     let hostedCodeArtifactReadsService: ReturnType<typeof composeHostedCodeArtifactReads> | undefined;
     let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
     let hostedChatSubmissionService:
@@ -134,6 +136,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
+        hostedGitOperationsService = composeHostedGitOperations(request, env, auth.userId);
         hostedCodeArtifactReadsService = composeHostedCodeArtifactReads(env, auth.userId);
         hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
         hostedChatSubmissionService = {
@@ -225,6 +228,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
+        hostedGitOperationsService,
         hostedCodeArtifactReadsService,
         hostedRepositoryReadService,
         hostedChatSubmissionService,

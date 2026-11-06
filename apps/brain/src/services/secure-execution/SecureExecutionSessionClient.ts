@@ -109,6 +109,49 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     }
   }
 
+  async borrowOriginal(): Promise<SecureExecutionSessionHandle> {
+    const reference = this.reference;
+    if (!reference) {
+      throw new Error("Git borrowing requires the persisted checkout lease identity");
+    }
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
+      `http://internal/api/v1/session/${encodeURIComponent(reference.secureSessionId)}/borrow?session=${encodeURIComponent(this.brainSessionId)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Runtime-Secret": this.requireInternalSecret(),
+        },
+        body: JSON.stringify({
+          runId: this.runId,
+          workspaceScope: this.workspaceScope,
+          lease: {
+            leaseId: reference.leaseId,
+            sandboxId: reference.sandboxId,
+            generation: reference.generation,
+          },
+        }),
+      },
+      DEFAULT_EXECUTION_TIMEOUT_MS,
+    );
+    if (!response.ok) {
+      throw new Error("The original secure checkout session is unavailable for Git borrowing");
+    }
+    const handle = SecureExecutionSessionResponseSchema.parse(
+      await parseJsonResponse(response),
+    );
+    const exactLease = handle.sessionId === reference.secureSessionId &&
+      handle.lease.leaseId === reference.leaseId &&
+      handle.lease.sandboxId === reference.sandboxId &&
+      handle.lease.generation === reference.generation;
+    const leaseExpiry = (handle.lease as { expiresAt?: unknown }).expiresAt;
+    if (!exactLease || typeof leaseExpiry !== "number" || leaseExpiry <= Date.now()) {
+      throw new Error("The original secure checkout lease is unavailable for Git borrowing");
+    }
+    return handle;
+  }
+
   async recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle> {
     const reference = this.reference;
     if (!reference) {

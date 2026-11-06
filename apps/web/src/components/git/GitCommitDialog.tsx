@@ -6,7 +6,7 @@ import { useGitHub } from "../github/GitHubContextProvider";
 import { useRunContext } from "../../hooks/useRunContext";
 import { selectWorkspace } from "../../services/api/workspaceSelection";
 import { saveSessionBranchPreference } from "../../lib/session-branch-preference";
-import { createGitPullRequest } from "../../lib/git-client";
+import { createGitPullRequest } from "../../services/api/gitOperations";
 import type { GitCommitIdentity } from "@repo/shared-types";
 
 const SIMPLE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
-import { getGitStatus } from "../lib/git-client.js";
+import { getGitStatus } from "../services/api/gitOperations.js";
 import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
-interface UseGitStatusResult {
+export interface UseGitStatusResult {
   status: GitStatusResponse | null;
   gitAvailable: boolean;
   loading: boolean;

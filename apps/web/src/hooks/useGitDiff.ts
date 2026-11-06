@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
-import { getGitDiff } from "../lib/git-client.js";
+import { getGitDiff } from "../services/api/gitOperations.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseGitDiffResult {

@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import type {
   EditArtifactIdentity,
-  FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
+import { useGitStatus } from "./useGitStatus";
+import { EMPTY_FILE_STATUSES } from "../lib/empty-collections";
 import { useEditArtifactDiff } from "./useEditArtifactDiff";
 import { useEditArtifactReviewSource } from "./useEditArtifactReviewSource";
 import type { ReviewScope } from "@legioncode/client-ui";
@@ -16,7 +17,8 @@ import {
 interface UseReviewSourceStateInput {
   runId?: string;
   sessionId?: string;
-  liveGitFiles: FileStatus[];
+  defaultLiveGitEnabled: boolean;
+  explicitLiveGitEnabled: boolean;
   canonicalTurnReview?: CanonicalTurnReviewSource | null;
   enabled?: boolean;
   artifactIdentity?: EditArtifactIdentity | null;
@@ -25,7 +27,8 @@ interface UseReviewSourceStateInput {
 export function useReviewSourceState({
   runId,
   sessionId,
-  liveGitFiles,
+  defaultLiveGitEnabled,
+  explicitLiveGitEnabled,
   canonicalTurnReview = null,
   enabled = true,
   artifactIdentity = null,
@@ -61,6 +64,16 @@ export function useReviewSourceState({
     },
     [reviewTargetKey],
   );
+
+  const gitStatus = useGitStatus(
+    runId,
+    sessionId,
+    requestedScope === "git-changes"
+      ? explicitLiveGitEnabled
+      : defaultLiveGitEnabled && requestedScope === null &&
+        !canonicalTurnReview && !openedArtifact,
+  );
+  const liveGitFiles = gitStatus.status?.files ?? EMPTY_FILE_STATUSES;
 
   const shouldLoadArtifactSource = Boolean(
     enabled &&
@@ -120,6 +133,7 @@ export function useReviewSourceState({
   });
 
   return {
+    gitStatus,
     artifactDiffState,
     promptArtifactSource,
     reviewScope,

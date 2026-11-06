@@ -1,9 +1,14 @@
 import {
   createAppServerClient,
   createAppServerHttpTransport,
+  GitMutationError,
   type AppServerHttpTransportOptions,
 } from "@legioncode/sdk";
 import { getBrainHttpBase } from "../../lib/platform-endpoints";
+
+export function isGitMutationError(error: unknown): error is GitMutationError {
+  return error instanceof GitMutationError;
+}
 
 export function initializeHostedAppServer() {
   return createHostedAppServerClient().initialize();

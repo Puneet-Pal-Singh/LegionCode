@@ -7,10 +7,6 @@ import {
   getBrainHttpBase,
   getMuscleHttpBase,
   getMuscleWsBase,
-  gitStatusPath,
-  gitDiffPath,
-  gitStagePath,
-  gitCommitPath,
   artifactPath,
   terminalConnectPath,
   terminalCommandPath,
@@ -107,33 +103,6 @@ describe("Platform Endpoints", () => {
       setEnv("VITE_BRAIN_BASE_URL", "https://brain.local");
       setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.local");
       setEnv("VITE_MUSCLE_WS_URL", "wss://ws.local");
-    });
-
-    it("should build the canonical git status path through Brain", () => {
-      expect(gitStatusPath("run-456", "session-456")).toBe(
-        "https://brain.local/api/git/status?runId=run-456&sessionId=session-456",
-      );
-    });
-
-    it("should build git stage path (unified contract)", () => {
-      expect(gitStagePath()).toBe("https://brain.local/api/git/stage");
-    });
-
-    it("should build the canonical git diff path through Brain", () => {
-      expect(
-        gitDiffPath({
-          runId: "run-456",
-          sessionId: "session-456",
-          path: "src/main.ts",
-          staged: true,
-        }),
-      ).toBe(
-        "https://brain.local/api/git/diff?runId=run-456&path=src%2Fmain.ts&sessionId=session-456&staged=true",
-      );
-    });
-
-    it("should build the canonical git commit path through Brain", () => {
-      expect(gitCommitPath()).toBe("https://brain.local/api/git/commit");
     });
 
     it("should build artifact path with runId and key", () => {
