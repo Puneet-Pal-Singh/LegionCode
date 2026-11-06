@@ -404,6 +404,14 @@ export class RuntimeKernel {
     }
   }
 
+  getTurnTerminalStatus(turnId: Turn["id"]): RuntimeLifecycleCoordinator["terminalStatus"] {
+    return this.lifecycles.get(turnId)?.terminalStatus ?? null;
+  }
+
+  isTurnTerminal(turnId: Turn["id"]): boolean {
+    return this.getTurnTerminalStatus(turnId) !== null;
+  }
+
   isTurnReady(turnId: Turn["id"]): boolean {
     return this.lifecycles.has(turnId) && this.executions.has(turnId);
   }

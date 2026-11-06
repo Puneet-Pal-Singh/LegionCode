@@ -1,3 +1,4 @@
+import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import {
   createLocalTurnAdmission,
@@ -30,24 +31,37 @@ type KernelPorts = Omit<
 >;
 
 /** One kernel handle per canonical admission; admission persistence stays with the host. */
-export class LocalReadOnlyTurnExecutor {
+export class LocalReadOnlyTurnExecutor<
+  TBinding extends LocalReadOnlyWorkspaceBinding =
+    LocalReadOnlyWorkspaceBinding,
+> {
   private readonly turns = new Map<
     string,
     {
       readonly kernel: Promise<RuntimeKernel>;
       readonly result: Promise<StartTurnResult>;
       readonly identity: LocalTurnAttemptIdentity;
-      settled: boolean;
+      finished: boolean;
+      readonly isTerminal: () => boolean;
+      readonly terminalStatus: () => ReturnType<
+        RuntimeKernel["getTurnTerminalStatus"]
+      >;
+      readonly controller: AbortController;
     }
   >();
 
   constructor(
     private readonly options: {
-      readonly executionService: LocalReadOnlyExecutionService;
+      readonly bindWorkspace: (
+        admission: TurnAdmission,
+        signal: AbortSignal,
+      ) => Promise<TBinding>;
       readonly lifecycleEvents: RuntimeKernelDependencies["lifecycleEvents"];
       readonly producerId: string;
       readonly createKernelPorts: (
         admission: TurnAdmission,
+        binding: TBinding,
+        signal: AbortSignal,
       ) => Promise<KernelPorts>;
     },
   ) {}
@@ -74,21 +88,47 @@ export class LocalReadOnlyTurnExecutor {
       }
       return existing.result;
     }
+    const controller = new AbortController();
+    let workspaceBinding: TBinding | undefined;
+    let kernelOwner: RuntimeKernel | undefined;
+    let preflightStatus: ReturnType<RuntimeKernel["getTurnTerminalStatus"]> =
+      null;
     const kernel = Promise.resolve()
-      .then(() => this.options.createKernelPorts(admission))
-      .then(
-        (ports) =>
-          new RuntimeKernel({
-            ...ports,
-            lifecycleEvents: this.options.lifecycleEvents,
-            producerId: this.options.producerId,
-            artifactCapture: "omitted_read_only",
-            worker: new LocalReadOnlyToolWorker(
-              this.options.executionService,
-              admission.run.threadId,
-            ),
-          }),
-      )
+      .then(async () => {
+        const binding = await this.options.bindWorkspace(
+          admission,
+          controller.signal,
+        );
+        workspaceBinding = binding;
+        await binding.assertCurrent();
+        if (binding.workspace.workspaceId !== admission.run.workspaceId) {
+          throw new RuntimeKernelError(
+            "invalid_turn_identity",
+            "Grant does not match the admitted workspace",
+          );
+        }
+        const signal = AbortSignal.any([controller.signal, binding.signal]);
+        signal.throwIfAborted();
+        const ports = await this.options.createKernelPorts(
+          admission,
+          binding,
+          signal,
+        );
+        kernelOwner = new RuntimeKernel({
+          ...ports,
+          lifecycleEvents: this.options.lifecycleEvents,
+          producerId: this.options.producerId,
+          artifactCapture: "omitted_read_only",
+          signal: ports.signal
+            ? AbortSignal.any([signal, ports.signal])
+            : signal,
+          worker: new LocalReadOnlyToolWorker(
+            new LocalReadOnlyExecutionService({ binding }),
+            admission.run.threadId,
+          ),
+        });
+        return kernelOwner;
+      })
       .catch(async (error: unknown) => {
         // Preflight is runtime work too. Reuse the canonical lifecycle owner, never a transport status write.
         const lifecycle = new RuntimeLifecycleCoordinator({
@@ -103,19 +143,38 @@ export class LocalReadOnlyTurnExecutor {
           executionCapability: admission.run.executionCapability,
         });
         await lifecycle.start();
-        await lifecycle.fail(toProtocolError(error));
+        const stopped = controller.signal.aborted
+          ? controller.signal
+          : workspaceBinding?.signal;
+        if (stopped?.aborted) {
+          const reason =
+            stopped.reason instanceof Error
+              ? stopped.reason.message
+              : "Local execution interrupted";
+          await lifecycle.interrupt(reason);
+        } else {
+          await lifecycle.fail(toProtocolError(error));
+        }
+        preflightStatus = lifecycle.terminalStatus;
         throw error;
       });
     const result = kernel
       .then((owner) => owner.startTurn(admission))
       .finally(() => {
         const owned = this.turns.get(admission.turn.id);
-        if (owned) owned.settled = true;
+        if (owned) owned.finished = true;
       });
     this.turns.set(admission.turn.id, {
       kernel,
       result,
-      settled: false,
+      finished: false,
+      controller,
+      isTerminal: () =>
+        (kernelOwner?.getTurnTerminalStatus(admission.turn.id) ??
+          preflightStatus) !== null,
+      terminalStatus: () =>
+        kernelOwner?.getTurnTerminalStatus(admission.turn.id) ??
+        preflightStatus,
       identity: {
         workspaceId: admission.run.workspaceId,
         threadId: admission.run.threadId,
@@ -159,9 +218,29 @@ export class LocalReadOnlyTurnExecutor {
         "Attempt is not owned by this executor",
       );
     }
-    if (owned.settled) return "already_settled";
-    const kernel = await owned.kernel;
-    if (owned.settled) return "already_settled";
+    if (owned.isTerminal()) return "already_settled";
+    if (owned.finished)
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        "Execution stopped without durable terminal settlement",
+      );
+    owned.controller.abort(new DOMException(reason, "AbortError"));
+    let kernel: RuntimeKernel;
+    try {
+      kernel = await owned.kernel;
+    } catch (error) {
+      if (owned.isTerminal())
+        return owned.terminalStatus() === "interrupted"
+          ? "interrupted"
+          : "already_settled";
+      throw error;
+    }
+    if (owned.isTerminal()) return "already_settled";
+    if (owned.finished)
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        "Execution stopped without durable terminal settlement",
+      );
     if (kernel.isTurnReady(identity.turnId)) {
       await kernel.interruptTurn(identity.turnId, reason);
     } else {
@@ -170,10 +249,21 @@ export class LocalReadOnlyTurnExecutor {
         await owned.result;
       } catch (error) {
         // Execution errors remain on execute(); persistence/settlement loss must reach Stop too.
-        if (error instanceof RuntimeLifecycleSettlementError) throw error;
+        if (
+          error instanceof RuntimeLifecycleSettlementError ||
+          !owned.isTerminal()
+        )
+          throw error;
       }
     }
-    return "interrupted";
+    if (!owned.isTerminal())
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        "Stop has no durable terminal settlement",
+      );
+    return owned.terminalStatus() === "interrupted"
+      ? "interrupted"
+      : "already_settled";
   }
 
   readonly resolveApproval: RuntimeKernel["resolveApproval"] = async (

@@ -17,13 +17,54 @@ import {
 /** Translates the existing registry/gateway result; RuntimeKernel alone appends lifecycle. */
 export class LocalReadOnlyToolWorker implements WorkerProtocolPort {
   readonly executionCapability = "read_only" as const;
+  private readonly operations = new Map<
+    string,
+    Set<Promise<WorkerToolResult>>
+  >();
 
   constructor(
     private readonly executor: LocalReadOnlyExecutionService,
     private readonly threadId: ThreadId,
   ) {}
 
-  async executeTool(
+  executeTool(
+    input: Parameters<WorkerProtocolPort["executeTool"]>[0],
+  ): Promise<WorkerToolResult> {
+    const operation = this.executeReadTool(input);
+    let pending = this.operations.get(input.turnId);
+    if (!pending) {
+      pending = new Set();
+      this.operations.set(input.turnId, pending);
+    }
+    pending.add(operation);
+    const remove = () => {
+      pending.delete(operation);
+      if (pending.size === 0) this.operations.delete(input.turnId);
+    };
+    void operation.then(remove, remove);
+    return operation;
+  }
+
+  async awaitQuiescence(input: {
+    readonly turnId: Parameters<WorkerProtocolPort["executeTool"]>[0]["turnId"];
+    readonly timeoutMs: number;
+  }): Promise<boolean> {
+    const pending = this.operations.get(input.turnId);
+    if (!pending?.size) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        Promise.allSettled([...pending]).then(() => true),
+        new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), input.timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async executeReadTool(
     input: Parameters<WorkerProtocolPort["executeTool"]>[0],
   ): Promise<WorkerToolResult> {
     // This allowlist is a backend capability, independent of approval or model input.

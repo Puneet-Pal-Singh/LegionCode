@@ -1,15 +1,14 @@
-import { constants } from "node:fs";
-import { lstat, open, opendir, realpath } from "node:fs/promises";
+import { openLocalWorkspaceEntry } from "./LocalReadOnlyWorkspaceHandle.js";
+import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { WorkspaceId } from "@repo/platform-protocol";
+import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import {
   codingToolRegistry,
   MAX_TOOL_READ_LINES,
-  MAX_TOOL_SEARCH_RESULTS,
 } from "../tools/CodingToolRegistry.js";
 import type { RuntimeExecutionService } from "../types.js";
 
-export const LOCAL_READ_ONLY_TOOL_IDS = ["read_file", "list_files"] as const;
+export const LOCAL_READ_ONLY_TOOL_IDS = ["read_file"] as const;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 48 * 1024;
 const MAX_LINE_BYTES = 2000;
@@ -18,9 +17,7 @@ const MAX_LINE_BYTES = 2000;
 export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
   constructor(
     private readonly options: {
-      readonly resolveWorkspaceRoot: (
-        workspaceId: WorkspaceId,
-      ) => Promise<string>;
+      readonly binding: LocalReadOnlyWorkspaceBinding;
     },
   ) {}
 
@@ -30,7 +27,12 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
     payload: Record<string, unknown>,
     options?: Parameters<RuntimeExecutionService["execute"]>[3],
   ): Promise<unknown> {
-    options?.signal?.throwIfAborted();
+    const binding = this.options.binding;
+    const assertActive = () => {
+      options?.signal?.throwIfAborted();
+      binding.signal.throwIfAborted();
+    };
+    assertActive();
     const definition = LOCAL_READ_ONLY_TOOL_IDS.map((id) =>
       codingToolRegistry.getDefinition(id),
     ).find(
@@ -42,12 +44,15 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
     const scope = options?.scope;
     if (!scope)
       throw new Error("Local execution requires a canonical workspace scope");
-    // Resolve the persisted grant on every operation, including after revocation.
-    const granted = await this.options.resolveWorkspaceRoot(
-      scope.workspaceId as WorkspaceId,
-    );
+    await binding.assertCurrent();
+    assertActive();
+    const granted = binding.filesystemRoot;
     const root = await realpath(granted);
-    if (root !== granted || resolve(scope.root) !== root) {
+    if (
+      binding.workspace.workspaceId !== scope.workspaceId ||
+      root !== granted ||
+      resolve(scope.root) !== root
+    ) {
       throw new Error("Execution scope does not match the granted workspace");
     }
     const parsed = definition.inputSchema.parse(payload) as Record<
@@ -77,10 +82,10 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
       throw new Error("Workspace path changed during resolution");
     const initial = await lstat(absolute);
     const validateAfterOperation = async () => {
-      options?.signal?.throwIfAborted();
-      const currentRoot = await this.options.resolveWorkspaceRoot(
-        scope.workspaceId as WorkspaceId,
-      );
+      assertActive();
+      await binding.assertCurrent();
+      assertActive();
+      const currentRoot = binding.filesystemRoot;
       const current = await lstat(absolute);
       if (
         currentRoot !== root ||
@@ -92,38 +97,9 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
         throw new Error("Workspace grant or path changed during execution");
       }
     };
-    options?.signal?.throwIfAborted();
-    if (definition.id === "list_files") {
-      if (!initial.isDirectory())
-        throw new Error("Listing requires a workspace directory");
-      const directory = await opendir(absolute);
-      const names: string[] = [];
-      let bytes = 0;
-      let truncated = false;
-      // Directory iteration closes its descriptor even when the bounded loop stops early.
-      for await (const entry of directory) {
-        options?.signal?.throwIfAborted();
-        const name =
-          entry.name.replace(/[\r\n]/g, (character) =>
-            character === "\n" ? "\\n" : "\\r",
-          ) + (entry.isDirectory() ? "/" : "");
-        bytes += Buffer.byteLength(name) + 1;
-        if (
-          names.length === MAX_TOOL_SEARCH_RESULTS ||
-          bytes > MAX_OUTPUT_BYTES
-        ) {
-          truncated = true;
-          break;
-        }
-        names.push(name);
-      }
-      await validateAfterOperation();
-      return { output: names.sort().join("\n"), metadata: { truncated } };
-    }
-    const handle = await open(
-      absolute,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
+    assertActive();
+    const entry = await openLocalWorkspaceEntry(root, local, "file");
+    const handle = entry.handle;
     try {
       const stat = await handle.stat();
       if (stat.dev !== initial.dev || stat.ino !== initial.ino) {
@@ -136,7 +112,7 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
       const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
       let length = 0;
       while (length < buffer.length) {
-        options?.signal?.throwIfAborted();
+        assertActive();
         const read = await handle.read(
           buffer,
           length,
@@ -182,7 +158,7 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
         metadata: { truncated, shortenedLine, nextOffset },
       };
     } finally {
-      await handle.close();
+      await entry.close();
     }
   }
 }

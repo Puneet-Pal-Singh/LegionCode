@@ -1,3 +1,4 @@
+import type { LocalReadOnlyWorkspaceBinding } from "../desktop/LocalReadOnlyWorkspaceBinding.js";
 import { LocalReadOnlyTurnExecutor } from "../desktop/LocalReadOnlyTurnExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { ThreadSchema, ItemIdSchema, ToolCallIdSchema, WorkerIdSchema, PermissionProfileIdSchema, type LifecycleEvent } from "@repo/platform-protocol";
@@ -42,24 +43,25 @@ describe("RuntimeToolGateway", () => {
     const root = await mkdtemp(join(tmpdir(), "legioncode-read-only-"));
     const workspaceId = WorkspaceIdSchema.parse("wrk_local_readonly");
     let granted = true;
-    const executor = new LocalReadOnlyExecutionService({ resolveWorkspaceRoot: async (id) => {
-      if (!granted || id !== workspaceId) throw new Error("Workspace is not granted");
-      return root;
-    } });
+    const binding: LocalReadOnlyWorkspaceBinding = {
+      workspace: { workspaceId }, filesystemRoot: root, signal: new AbortController().signal,
+      assertCurrent: async () => { if (!granted) throw new Error("Workspace is not granted"); },
+    };
+    const executor = new LocalReadOnlyExecutionService({ binding });
     const scope = { root, workspaceId, runId: "run_local_readonly", threadId: "thr_local_readonly", turnId: "trn_local_readonly", runAttemptId: "attempt_local_readonly" };
     try {
       await mkdir(join(root, "src"));
       await writeFile(join(root, "src", "a.txt"), "first\nsecond\nthird\n");
       await symlink(tmpdir(), join(root, "outside"));
       await expect(executor.execute("filesystem", "read_file", { path: "src/a.txt", offset: 1, limit: 1 }, { scope })).resolves.toMatchObject({ output: expect.stringContaining("2: second"), metadata: { truncated: true, nextOffset: 2 } });
-      await expect(executor.execute("filesystem", "list_files", { path: "src" }, { scope })).resolves.toMatchObject({ output: "a.txt" });
+      await expect(executor.execute("filesystem", "list_files", { path: "src" }, { scope })).rejects.toThrow("denies");
       await expect(executor.execute("filesystem", "write_file", { path: "src/a.txt", content: "changed" }, { scope })).rejects.toThrow("denies");
       await expect(executor.execute("bash", "execute", { command: "pwd" }, { scope })).rejects.toThrow("denies");
       await expect(executor.execute("filesystem", "read_file", { path: "../secret" }, { scope })).rejects.toThrow("escapes");
-      await expect(executor.execute("filesystem", "list_files", { path: "outside" }, { scope })).rejects.toThrow("symbolic");
+      await expect(executor.execute("filesystem", "read_file", { path: "outside" }, { scope })).rejects.toThrow("symbolic");
       await expect(executor.execute("filesystem", "read_file", { path: "src/a.txt" }, { scope: { ...scope, root: tmpdir() } })).rejects.toThrow("does not match");
       await expect(executor.execute("filesystem", "read_file", { path: "src/a.txt" }, { scope, signal: AbortSignal.abort() })).rejects.toThrow();
-      await verifyLocalExecutor(root, executor);
+      await verifyLocalExecutor(root, binding);
       granted = false;
       await expect(executor.execute("filesystem", "read_file", { path: "src/a.txt" }, { scope })).rejects.toThrow("not granted");
     } finally {
@@ -303,7 +305,9 @@ function createGateway(
 }
 
 
-async function verifyLocalExecutor(root: string, executionService: LocalReadOnlyExecutionService): Promise<void> {
+async function verifyLocalExecutor(root: string, binding: LocalReadOnlyWorkspaceBinding): Promise<void> {
+  const abort = new AbortController();
+  const activeBinding = { ...binding, signal: abort.signal };
   const events: LifecycleEvent[] = [];
   const lifecycleEvents: RuntimeKernelDependencies["lifecycleEvents"] = {
     append: async (event) => { events.push(event); return event; },
@@ -329,8 +333,9 @@ async function verifyLocalExecutor(root: string, executionService: LocalReadOnly
     return { kind: "complete" as const, itemId: ItemIdSchema.parse("itm_local_final"), output: "Read completed" };
   });
   const executor = new LocalReadOnlyTurnExecutor({
-    executionService, lifecycleEvents, producerId: "local-runtime-test",
-    createKernelPorts: async (admission) => {
+    bindWorkspace: async () => activeBinding, lifecycleEvents, producerId: "local-runtime-test",
+    createKernelPorts: async (admission, attemptBinding) => {
+      expect(attemptBinding).toBe(activeBinding);
       const workspace = {
         runId: admission.run.id, workspaceId: thread.workspaceId, repoOwner: "local", repoName: "fixture",
         repoUrl: "file:///fixture", baseBranch: "dev", workingBranch: "dev", baseSha: "a".repeat(40), headSha: "a".repeat(40),
@@ -361,13 +366,27 @@ async function verifyLocalExecutor(root: string, executionService: LocalReadOnly
   const stoppedAdmission = executor.createAdmission({ ...input, clientRequestId: "local-stop-1" });
   const callsBeforeStop = provider.mock.calls.length;
   const stopped = executor.execute(stoppedAdmission);
+  const stoppedResult = expect(stopped).rejects.toThrow();
   await executor.interrupt(stoppedAdmission.turn.id, "Stop before start");
-  await stopped;
+  await stoppedResult;
   expect(provider.mock.calls.length).toBe(callsBeforeStop);
   expect(events.filter((event) => event.turnId === stoppedAdmission.turn.id && event.type === "turn.interrupted")).toHaveLength(1);
 
+  const runningAdmission = executor.createAdmission({ ...input, clientRequestId: "local-abort-1" });
+  let providerObservedAbort = false;
+  provider.mockImplementationOnce(async (call) => await new Promise<never>((_, reject) => {
+    call.signal?.addEventListener("abort", () => { providerObservedAbort = true; reject(call.signal?.reason); }, { once: true });
+  }));
+  const running = executor.execute(runningAdmission);
+  const interrupted = expect(running).rejects.toThrow();
+  await vi.waitFor(() => expect(provider.mock.calls.length).toBe(callsBeforeStop + 1));
+  abort.abort(new DOMException("Workspace grant revoked", "AbortError"));
+  await interrupted;
+  expect(providerObservedAbort).toBe(true);
+  expect(events.filter((event) => event.turnId === runningAdmission.turn.id && event.type === "turn.interrupted")).toHaveLength(1);
+
   const failedExecutor = new LocalReadOnlyTurnExecutor({
-    executionService, lifecycleEvents, producerId: "local-runtime-test",
+    bindWorkspace: async () => binding, lifecycleEvents, producerId: "local-runtime-test",
     createKernelPorts: async () => { throw new Error("Protected provider preflight failed"); },
   });
   const failedAdmission = failedExecutor.createAdmission({ ...input, clientRequestId: "local-preflight-1" });

@@ -10,10 +10,11 @@ diff or artifact event.
 
 `execution-engine/src/runtime/desktop/LocalReadOnlyTurnExecutor` creates canonical
 initial admission records and owns one kernel handle per admitted attempt.
-`LocalReadOnlyToolWorker` dispatches only `read_file` and `list_files` through the
+`LocalReadOnlyToolWorker` dispatches only `read_file` through the
 existing registry and gateway; `LocalReadOnlyExecutionService` resolves the
-persisted workspace grant for each operation and before returning bounded output.
-`LocalWorkspaceService.resolveRuntimeRoot` is a private runtime port, never a
+same generation-bound grant handle before each operation and before returning bounded output.
+The host's private `LocalWorkspaceService.bindForExecution` owns grant/regrant
+invalidation. Its handle is shared with capture ports for the attempt, never a
 renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
 terminal retries cannot enqueue a later Stop.
 
@@ -22,9 +23,12 @@ integration dependencies owned by workers01/04. Durable admission uses worker02'
 canonical `TurnAdmission` contract; the executor does not own a prompt store.
 The real Desktop acceptance loop is pending that wiring and installed Mac proof.
 
-Source inspected: [OpenCode read tool at 3729fd57068445104ea464a952d41798ed30ea20](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/tool/read.ts)
-uses bounded text reads. Requested Codex/T3 source paths were unavailable (404;
-GitHub tree discovery returned 403); no implementation claim relies on them.
+Sources inspected: [Codex isolated ghost-commit capture](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/git-utils/src/ghost_commits.rs#L302)
+keeps capture indexing isolated; [T3 checkpoint service](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/server/src/orchestration-v2/CheckpointCaptureService.ts#L68)
+checks persisted terminal/checkpoint state before retrying capture.
+[OpenCode read tool at 3729fd57068445104ea464a952d41798ed30ea20](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/tool/read.ts)
+uses bounded text reads. These references support keeping capture ownership and
+local execution behind existing ports; they introduce no external harness driver.
 
 ## Unused Web run-summary reader retirement
 
