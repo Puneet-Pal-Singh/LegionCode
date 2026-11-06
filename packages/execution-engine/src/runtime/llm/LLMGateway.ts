@@ -21,9 +21,9 @@ import type {
 } from "./types.js";
 import {
   LegacyProviderTranscriptPartNormalizer,
-  type ProviderTranscriptPart,
   type TranscriptPartNormalizer,
 } from "./TranscriptPartNormalizer.js";
+import { normalizeProviderTextResponse } from "./ProviderTextResponse.js";
 import { describeLLMFailure } from "./LLMFailureDiagnostic.js";
 
 const TOKEN_CHAR_RATIO = 4;
@@ -35,16 +35,6 @@ const DEFAULT_UNKNOWN_PART_TOKENS = 1;
 const DEFAULT_COMPLETION_TOKENS = 500;
 const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
 
-function extractSafeReasoningSummary(
-  parts: readonly ProviderTranscriptPart[] | undefined,
-): LLMTextResponse["reasoningSummary"] {
-  const summary = parts?.find(
-    (part) =>
-      part.type === "reasoning" && part.displaySafe === true && part.text?.trim(),
-  )?.text?.trim();
-  if (!summary) return undefined;
-  return { text: summary, displaySafe: true };
-}
 const FAST_TASK_TEXT_TIMEOUT_MS = 60_000;
 const STANDARD_TASK_TEXT_TIMEOUT_MS = 90_000;
 const SLOW_TASK_TEXT_TIMEOUT_MS = 150_000;
@@ -230,12 +220,6 @@ export class LLMGateway implements ILLMGateway {
     const pricing = await this.persistCostEvent(requestWithIdempotency, usage);
     const measuredUsage = withResolvedCost(usage, pricing);
 
-    const toolCalls = result.toolCalls?.map((toolCall) => ({
-      id:
-        normalizeProviderToolCallId(toolCall.toolCallId) ?? crypto.randomUUID(),
-      toolName: toolCall.toolName,
-      args: normalizeToolArgs(toolCall.args),
-    }));
     console.log(
       formatRuntimeDiagnosticLogLine("llm/gateway", "text-completed", {
         runId: req.context.runId,
@@ -246,28 +230,19 @@ export class LLMGateway implements ILLMGateway {
         elapsedMs: Date.now() - startedAt,
         responseChars: result.text?.length ?? 0,
         finishReason: result.finishReason ?? null,
-        toolCallCount: toolCalls?.length ?? 0,
+        toolCallCount: result.toolCalls?.length ?? 0,
       }),
     );
 
-    return {
-      parts: this.transcriptPartNormalizer.normalize({
-        runId: req.context.runId,
-        turnId: req.context.turnId ?? req.context.runId,
-        providerId: req.providerId ?? "unknown",
-        providerParts: result.transcriptParts,
-        providerText: result.text,
-        toolCalls,
-        usage: measuredUsage,
-        finishReason: result.finishReason,
-        outputIntent:
-          req.context.phase === "synthesis" ? "final" : "intermediate",
-      }),
-      usage: measuredUsage,
-      finishReason: result.finishReason,
-      toolCalls,
-      reasoningSummary: extractSafeReasoningSummary(result.transcriptParts),
-    };
+    return normalizeProviderTextResponse({
+      result: { ...result, usage: measuredUsage },
+      runId: req.context.runId,
+      turnId: req.context.turnId ?? req.context.runId,
+      providerId: req.providerId ?? "unknown",
+      outputIntent:
+        req.context.phase === "synthesis" ? "final" : "intermediate",
+      normalizer: this.transcriptPartNormalizer,
+    });
   }
 
   async generateStructured<T>(
@@ -760,13 +735,6 @@ export class LLMGateway implements ILLMGateway {
   }
 }
 
-function normalizeProviderToolCallId(
-  value: string | undefined,
-): string | undefined {
-  const normalized = value?.trim();
-  return normalized ? normalized : undefined;
-}
-
 function summarizeCoreMessageRoles(messages: readonly CoreMessage[]): string {
   const counts = new Map<string, number>();
   for (const message of messages) {
@@ -856,13 +824,6 @@ function buildProviderCapabilityErrorMessage(
   const laneSegment = lane ? ` lane=${lane}` : "";
   const reasonSegment = reason ? ` reason=${reason}` : "";
   return `[llm/gateway] ${code} for provider=${providerId} model=${modelId}${laneSegment}.${reasonSegment}`.trim();
-}
-
-function normalizeToolArgs(args: unknown): Record<string, unknown> {
-  if (typeof args !== "object" || args === null || Array.isArray(args)) {
-    return {};
-  }
-  return args as Record<string, unknown>;
 }
 
 function withResolvedCost(
