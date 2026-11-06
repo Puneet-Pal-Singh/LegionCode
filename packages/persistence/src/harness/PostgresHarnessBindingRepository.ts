@@ -334,16 +334,61 @@ async function requireAdmission(
       "admission_required",
       "Harness binding requires a matching claimed admission",
     );
-  const receiptValue=result.rows[0].harness_admission_receipt_json;
-  if(receiptValue==null)throw new HarnessPersistenceError("admission_required","Frozen admission selection receipt is missing");
-  const receipt=(typeof receiptValue==="string"?JSON.parse(receiptValue):receiptValue) as {capture:{environmentId:string;selectionRevision:number;selection:{harness:string;instanceId:string;connectionId:string;modelId:string}|null};authOwnerGeneration:number;binding:unknown};
-  const binding=JSON.parse(selection.selectionJson) as Record<string,unknown>;
-  const chosen=receipt.capture?.selection;
-  if(!chosen || binding.selectionRevision!==receipt.capture.selectionRevision || binding.environmentId!==receipt.capture.environmentId || binding.harness!==chosen.harness || binding.instanceId!==chosen.instanceId || binding.connectionId!==chosen.connectionId || binding.modelId!==chosen.modelId || binding.authOwnerGeneration!==receipt.authOwnerGeneration)
-    throw new HarnessPersistenceError("binding_conflict","Runtime binding differs from admitted selection");
-  if(receipt.binding!=null && createStableEventFingerprint(receipt.binding)!==createStableEventFingerprint(binding))
-    throw new HarnessPersistenceError("binding_conflict","Full admitted binding is immutable");
-  if(receipt.binding==null)await tx.query("UPDATE canonical_turn_admissions SET harness_admission_receipt_json=jsonb_set(harness_admission_receipt_json,'{binding}',$2::jsonb) WHERE turn_id=$1",[selection.turnId,JSON.stringify(binding)]);
+  const receiptValue = result.rows[0].harness_admission_receipt_json;
+  if (receiptValue == null)
+    throw new HarnessPersistenceError(
+      "admission_required",
+      "Frozen admission selection receipt is missing",
+    );
+  const receipt = (
+    typeof receiptValue === "string" ? JSON.parse(receiptValue) : receiptValue
+  ) as {
+    capture: {
+      environmentId: string;
+      selectionRevision: number;
+      selection: {
+        harness: string;
+        instanceId: string;
+        connectionId: string;
+        modelId: string;
+      } | null;
+    };
+    authOwnerGeneration: number;
+    binding: unknown;
+  };
+  const binding = JSON.parse(selection.selectionJson) as Record<
+    string,
+    unknown
+  >;
+  const chosen = receipt.capture?.selection;
+  if (
+    !chosen ||
+    binding.selectionRevision !== receipt.capture.selectionRevision ||
+    binding.environmentId !== receipt.capture.environmentId ||
+    binding.harness !== chosen.harness ||
+    binding.instanceId !== chosen.instanceId ||
+    binding.connectionId !== chosen.connectionId ||
+    binding.modelId !== chosen.modelId ||
+    binding.authOwnerGeneration !== receipt.authOwnerGeneration
+  )
+    throw new HarnessPersistenceError(
+      "binding_conflict",
+      "Runtime binding differs from admitted selection",
+    );
+  if (
+    receipt.binding != null &&
+    createStableEventFingerprint(receipt.binding) !==
+      createStableEventFingerprint(binding)
+  )
+    throw new HarnessPersistenceError(
+      "binding_conflict",
+      "Full admitted binding is immutable",
+    );
+  if (receipt.binding == null)
+    await tx.query(
+      "UPDATE canonical_turn_admissions SET harness_admission_receipt_json=jsonb_set(harness_admission_receipt_json,'{binding}',$2::jsonb) WHERE turn_id=$1",
+      [selection.turnId, JSON.stringify(binding)],
+    );
 }
 async function requiredBinding(
   tx: SqlClient,
