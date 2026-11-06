@@ -14,30 +14,34 @@ export type MacGitCommand = {
 };
 export type MacGitAuthority = {
   /** Borrowed from the existing grant owner; retained until the callback settles. */
-  cwdFd: number;
+  workspaceRootFd: number;
+  writerLeaseFd?: number;
   signal: AbortSignal;
   sandbox: {
+    scope: "single_executable_nofork";
     filesystemRoot: string;
-    runtimeReadRoots: readonly string[];
-    network: "denied";
-    writeScope: "workspace";
   };
 };
-/** Structural view of the canonical 06 primitive, not another OS runner. */
+/** Exact private port at worker06 6b1b0d60. Replace this view with its canonical
+ * exported types when the reviewed package/dependency cut-point is available. */
 export type CanonicalMacGitProcess = (input: {
   executable: string;
   args: readonly string[];
   cwd: string;
-  cwdFd: number;
+  workspaceRootFd: number;
+  writerLeaseFd?: number;
   signal: AbortSignal;
   sandbox: MacGitAuthority["sandbox"];
   processHelperPath: string;
-  environment: Readonly<Record<string, string>>;
-  stdin?: string;
-  timeoutMs: number;
+  trustedGit?: {
+    environment: Readonly<Record<string, string>>;
+    stdin?: string;
+    timeoutMs: number;
+  };
 }) => {
   readonly scope: "single_executable_nofork";
   readonly quiescent: boolean;
+  stop(): void;
   readonly result: Promise<{
     exitCode: number | null;
     stdout: string;
@@ -72,7 +76,7 @@ export type VerifiedMacGitOptions = {
   ): Promise<T>;
 };
 
-const MAX_INPUT_BYTES = 8 * 1024 * 1024;
+const MAX_INPUT_BYTES = 1_000_000;
 const unavailable = (message: string) =>
   new GitServiceError("git_process_containment_unavailable", message);
 
@@ -127,9 +131,9 @@ export async function createVerifiedMacGitExecution(
     return await options.withRootAuthority(request.cwd, async (authority) => {
       if (
         authority.sandbox.filesystemRoot !== request.cwd ||
-        !Number.isSafeInteger(authority.cwdFd) ||
-        authority.cwdFd < 0 ||
-        !fstatSync(authority.cwdFd).isDirectory()
+        !Number.isSafeInteger(authority.workspaceRootFd) ||
+        authority.workspaceRootFd < 3 ||
+        !fstatSync(authority.workspaceRootFd).isDirectory()
       ) {
         throw unavailable("Git requires the current held-root descriptor");
       }
@@ -137,12 +141,15 @@ export async function createVerifiedMacGitExecution(
         executable: options.gitExecutable,
         args: request.args,
         cwd: request.cwd,
-        cwdFd: authority.cwdFd,
+        workspaceRootFd: authority.workspaceRootFd,
+        writerLeaseFd: authority.writerLeaseFd,
         sandbox: authority.sandbox,
         processHelperPath: options.processHelperPath,
-        environment,
-        stdin: request.stdin,
-        timeoutMs: request.timeoutMs,
+        trustedGit: {
+          environment,
+          stdin: request.stdin,
+          timeoutMs: request.timeoutMs,
+        },
         signal: AbortSignal.any([
           authority.signal,
           AbortSignal.timeout(request.timeoutMs),
