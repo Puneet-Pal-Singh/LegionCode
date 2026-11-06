@@ -10,7 +10,8 @@ import {
   type AuthorizeDesktopAuthChallengeInput,
   type RedeemDesktopAuthChallengeInput,
   type DesktopAuthConsentRecord,
-  type DesktopAuthRedeemedSession, type DesktopAuthRedeemResult,
+  type DesktopAuthRedeemedSession,
+  type DesktopAuthRedeemResult,
 } from "./desktop-auth-types.js";
 
 interface ChallengeRow extends SqlRow {
@@ -55,9 +56,7 @@ export class PostgresDesktopAuthChallenges {
         "Desktop authentication challenge already exists",
       );
   }
-  async prepare(
-    input: PrepareDesktopAuthConsentInput,
-  ): Promise<boolean> {
+  async prepare(input: PrepareDesktopAuthConsentInput): Promise<boolean> {
     validateDesktopAuthConsent(input);
     const result = await this.client.query<{ expires_at: string | Date }>(
       `UPDATE desktop_auth_challenges AS c
@@ -81,24 +80,46 @@ export class PostgresDesktopAuthChallenges {
   }
   async authorize(input: AuthorizeDesktopAuthChallengeInput): Promise<boolean> {
     validateDesktopAuthConsent(input);
-    const result = await this.client.query(
-      `UPDATE desktop_auth_challenges AS c
-      SET authorized_source_session_id=s.id,authorized_at=$6
-      FROM auth_sessions AS s
-      WHERE c.challenge_hash=$1 AND s.session_hash=$2 AND c.consent_csrf_hash=$3 AND c.consent_session_id=s.id
-        AND s.revoked_at IS NULL AND s.expires_at>$6 AND c.origin=$4 AND c.intent=$5
-        AND c.expires_at>$6 AND c.consumed_at IS NULL AND c.authorized_at IS NULL
-      RETURNING c.challenge_hash`,
-      [
-        input.challengeIdHash,
-        input.sourceSessionHash,
-        input.csrfHash,
-        input.origin,
-        input.intent,
-        input.now,
-      ],
-    );
-    return result.rows.length === 1;
+    return this.client.transaction(async (tx) => {
+      // Match redemption's lock order: challenge first, then its exact source.
+      const challenge = await tx.query<{ consent_session_id: string }>(
+        `SELECT consent_session_id FROM desktop_auth_challenges
+          WHERE challenge_hash=$1 AND consent_csrf_hash=$2 AND origin=$3 AND intent=$4
+            AND expires_at>$5 AND consumed_at IS NULL AND authorized_at IS NULL
+            AND consent_session_id IS NOT NULL FOR UPDATE`,
+        [
+          input.challengeIdHash,
+          input.csrfHash,
+          input.origin,
+          input.intent,
+          input.now,
+        ],
+      );
+      const prepared = challenge.rows[0];
+      if (!prepared) return false;
+      const source = await tx.query<{ id: string }>(
+        `SELECT id FROM auth_sessions WHERE id=$1 AND session_hash=$2
+          AND revoked_at IS NULL AND expires_at>$3 FOR UPDATE`,
+        [prepared.consent_session_id, input.sourceSessionHash, input.now],
+      );
+      const active = source.rows[0];
+      if (!active) return false;
+      const result = await tx.query(
+        `UPDATE desktop_auth_challenges SET authorized_source_session_id=$2,authorized_at=$3
+          WHERE challenge_hash=$1 AND consent_session_id=$2 AND consent_csrf_hash=$4
+            AND origin=$5 AND intent=$6 AND expires_at>$3
+            AND consumed_at IS NULL AND authorized_at IS NULL RETURNING challenge_hash`,
+        [
+          input.challengeIdHash,
+          active.id,
+          input.now,
+          input.csrfHash,
+          input.origin,
+          input.intent,
+        ],
+      );
+      return result.rows.length === 1;
+    });
   }
   async redeem(
     input: RedeemDesktopAuthChallengeInput,
@@ -119,9 +140,10 @@ export class PostgresDesktopAuthChallenges {
           ],
         );
         const approved = challenge.rows[0];
-        if (!approved) return {status:"invalid"};
-        if (approved.authorized_at === null) return {status:"pending"};
-        if (approved.authorized_source_session_id === null) return {status:"invalid"};
+        if (!approved) return { status: "invalid" };
+        if (approved.authorized_at === null) return { status: "pending" };
+        if (approved.authorized_source_session_id === null)
+          return { status: "invalid" };
         // This exact source-session row stays locked through creation/consume;
         // a concurrent revoke cannot slip between validation and the new session.
         const sourceResult = await tx.query<SourceSessionRow>(
@@ -131,7 +153,7 @@ export class PostgresDesktopAuthChallenges {
         );
         const source = sourceResult.rows[0];
         if (!source || source.session_hash === input.sessionHash)
-          return {status:"invalid"};
+          return { status: "invalid" };
         const expiresAt = new Date(
           Math.min(
             Date.parse(input.sessionExpiresAt),
