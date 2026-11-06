@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { basename } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ProviderIdSchema,
@@ -253,8 +253,16 @@ void app.whenReady().then(() => {
     app.getPath("userData"), app.getAppPath(), process.resourcesPath,
     fileURLToPath(new URL(".", import.meta.url)),
   ].map((path) => realpathSync(path));
+  const helperCandidate = app.isPackaged
+    ? join(process.resourcesPath, "native", "legioncode-fs-helper")
+    : join(app.getAppPath(), "native-bin", "legioncode-fs-helper");
+  let nativeFilesystemHelperPath: string | undefined;
+  try {
+    const helperPath = realpathSync(helperCandidate);
+    if (statSync(helperPath).isFile()) nativeFilesystemHelperPath = helperPath;
+  } catch { /* Missing helper keeps native I/O unavailable. */ }
   void localAppServer.start(app.getVersion(), app.getPath("userData"), {
-    protectedHostRoots: [...new Set(protectedHostRoots)],
+    protectedHostRoots: [...new Set(protectedHostRoots)], nativeFilesystemHelperPath,
   });
   createWindow();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {

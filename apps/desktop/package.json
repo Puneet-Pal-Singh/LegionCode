@@ -16,6 +16,8 @@
     "test:packaged": "playwright test tests/packaged-app.spec.ts --workers=1"
   },
   "dependencies": {
+    "@repo/git-service": "workspace:*",
+    "@repo/permission-policy": "workspace:*",
     "@legioncode/app-server": "workspace:*",
     "@legioncode/client-ui": "workspace:*",
     "@legioncode/sdk": "workspace:*",

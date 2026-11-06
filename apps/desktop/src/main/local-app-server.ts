@@ -1,3 +1,8 @@
+import { createLocalNativeRuntime } from "@legioncode/app-server/local-native-runtime";
+import { createNodeGitExecutor } from "@legioncode/app-server/local-node-git-executor";
+import { DefaultGitService } from "@repo/git-service";
+import { PermissionPolicySchema } from "@repo/permission-policy";
+import { WorkerIdSchema, PermissionProfileIdSchema } from "@repo/platform-protocol";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
@@ -36,7 +41,36 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
+  const helperPath = data.nativeFilesystemHelperPath;
   runLocalAppServerProcess(parentPort, data, {
+    // Mac execution remains unavailable until its real contained Git/OS port is composed.
+    createRuntime: helperPath && process.platform === "linux" ? ({ persistence }) => {
+      const deny = { defaultEffect: "deny", defaultRiskLevel: "high", rules: [] };
+      const permissionPolicy = PermissionPolicySchema.parse({
+        commands: deny, network: deny, git: deny, packageManagers: deny,
+        secrets: deny, externalServices: deny, tools: deny,
+        paths: {
+          ...deny,
+          rules: [
+            { id: "local-read", pattern: "read:*", effect: "allow", riskLevel: "low" },
+            { id: "local-list", pattern: "list:*", effect: "allow", riskLevel: "low" },
+          ],
+        },
+      });
+      return createLocalNativeRuntime({
+        persistence,
+        workerId: WorkerIdSchema.parse("worker_localdesktop_readonly"),
+        permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop_readonly"),
+        permissionPolicy,
+        nativeFilesystemHelperPath: helperPath,
+        resolveRuntimeCredential: (providerId, signal) => runtimeCredentials.resolveRuntimeCredential(providerId, signal),
+        createGitService: (binding, signal) => {
+          binding.assertCurrent();
+          // The canonical adapter owns physical cancellation and process/pipe closure.
+          return new DefaultGitService(createNodeGitExecutor({ signal }));
+        },
+      });
+    } : undefined,
     resolveRuntimeCredential: (providerId, signal) => runtimeCredentials.resolveRuntimeCredential(providerId, signal),
   });
 });
