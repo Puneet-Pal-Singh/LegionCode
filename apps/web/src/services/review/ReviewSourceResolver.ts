@@ -28,6 +28,10 @@ export type ReviewSourceSelection =
       reason: "explicit" | "chat_artifact";
     }
   | {
+      kind: "unavailable_saved_artifact";
+      reason: "explicit" | "chat_artifact";
+    }
+  | {
       kind: "turn_diff";
       turnId: string;
       reason: "canonical_terminal";
@@ -45,6 +49,7 @@ interface ResolveReviewSourceInput {
   liveGitFiles: FileStatus[];
   latestArtifactSource: PromptArtifactReviewSource | null;
   canonicalTurnReview?: CanonicalTurnReviewSource | null;
+  savedArtifactLookup?: "pending" | "available" | "unavailable";
 }
 
 export function resolveReviewSource(
@@ -67,6 +72,9 @@ export function resolveReviewSource(
   }
 
   if (input.openedArtifact) {
+    if (input.savedArtifactLookup === "unavailable") {
+      return { kind: "unavailable_saved_artifact", reason: "chat_artifact" };
+    }
     return {
       kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
@@ -86,6 +94,9 @@ export function resolveReviewSource(
 function resolveExplicitSavedEdit(
   input: ResolveReviewSourceInput,
 ): ReviewSourceSelection {
+  if (input.savedArtifactLookup === "unavailable") {
+    return { kind: "unavailable_saved_artifact", reason: "explicit" };
+  }
   if (input.openedArtifact) {
     return {
       kind: "prompt_artifact",
@@ -100,7 +111,7 @@ function resolveExplicitSavedEdit(
     return toSavedEditSelection(input.latestArtifactSource, "explicit");
   }
 
-  return { kind: "live_git", reason: "empty" };
+  return { kind: "unavailable_saved_artifact", reason: "explicit" };
 }
 
 function toSavedEditSelection(

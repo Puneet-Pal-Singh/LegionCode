@@ -1,12 +1,12 @@
-// apps/brain/src/services/providers/adapters/OpenAIAdapter.ts
+// Shared runtime provider adapter.
 // Phase 3.1: Direct OpenAI provider adapter with standardized usage
 
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import type { LLMUsage } from "../../cost/types.js";
 import {
   OpenAICompatibleAdapter,
   type OpenAICompatibleConfig,
-} from "./OpenAICompatibleAdapter";
+} from "./OpenAICompatibleAdapter.js";
 
 interface OpenAIConfig {
   apiKey: string;

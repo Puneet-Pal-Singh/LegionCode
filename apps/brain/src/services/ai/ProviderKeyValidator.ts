@@ -9,7 +9,7 @@ import {
   GROQ_BASE_URL,
   OPENAI_BASE_URL,
   OPENROUTER_BASE_URL,
-} from "./defaults";
+} from "@legioncode/execution-engine/runtime/provider/ProviderEndpoints";
 import { ProviderRegistryService } from "../providers";
 
 const registryService = new ProviderRegistryService();
