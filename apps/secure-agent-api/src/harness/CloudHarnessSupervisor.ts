@@ -26,6 +26,8 @@ export interface CloudHarnessSupervisorAuthority {
 
 /** Worker-safe sandbox bootstrap. Never imports a Node driver or executes provider commands. */
 export class CloudHarnessSupervisor {
+  // Lifetime cap 128, including failed/ambiguous starts. Never evict merely for
+  // capacity: no canonical settlement/tombstone authority is provided here.
   private readonly statusBoots = new Map<string, Promise<void>>();
   constructor(private readonly authority: CloudHarnessSupervisorAuthority) {}
 
