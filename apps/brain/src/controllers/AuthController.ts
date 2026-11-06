@@ -36,9 +36,12 @@ import {
   hasPrivateAlphaAccess,
 } from "../services/auth/PrivateAlphaAccessPolicy";
 
+import { desktopAuthOrigin } from "./DesktopAuthController";
+
 interface AuthSession {
   state: string;
   createdAt: number;
+  desktopChallengeId?: string;
 }
 
 const SESSION_TTL = 10 * 60 * 1000; // 10 minutes
@@ -75,6 +78,21 @@ export class AuthController {
         );
       }
 
+      const loginUrl = new URL(request.url);
+      const desktopChallengeId = loginUrl.searchParams.get("desktop_challenge");
+      if (
+        desktopChallengeId !== null &&
+        (loginUrl.searchParams.getAll("desktop_challenge").length !== 1 ||
+          !/^[A-Za-z0-9_-]{43}$/.test(desktopChallengeId) ||
+          loginUrl.origin !== desktopAuthOrigin(env))
+      )
+        return errorResponse(
+          request,
+          env,
+          "Desktop authentication request is invalid",
+          400,
+        );
+
       const state = generateState();
       console.log("[auth/login] generated OAuth state");
 
@@ -82,6 +100,7 @@ export class AuthController {
       const session: AuthSession = {
         state,
         createdAt: Date.now(),
+        ...(desktopChallengeId !== null ? { desktopChallengeId } : {}),
       };
 
       await env.SESSIONS.put(
@@ -170,6 +189,19 @@ export class AuthController {
         return errorResponse(request, env, "Invalid or expired session", 400);
       }
 
+      if (
+        session.desktopChallengeId !== undefined &&
+        (typeof session.desktopChallengeId !== "string" ||
+          !/^[A-Za-z0-9_-]{43}$/.test(session.desktopChallengeId) ||
+          new URL(request.url).origin !== desktopAuthOrigin(env))
+      )
+        return errorResponse(
+          request,
+          env,
+          "Desktop authentication request is invalid",
+          400,
+        );
+
       // Check session expiration
       if (Date.now() - session.createdAt > SESSION_TTL) {
         await env.SESSIONS.delete(`oauth_state:${state}`);
@@ -250,7 +282,11 @@ export class AuthController {
       const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
       console.log("[auth/callback] redirecting to frontend");
 
-      const redirectUrl = new URL(frontendUrl);
+      const redirectUrl = session.desktopChallengeId
+        ? new URL("/auth/desktop/authorize", desktopAuthOrigin(env))
+        : new URL(frontendUrl);
+      if (session.desktopChallengeId)
+        redirectUrl.searchParams.set("id", session.desktopChallengeId);
 
       return new Response(null, {
         status: 302,
