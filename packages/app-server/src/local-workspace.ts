@@ -13,6 +13,7 @@ import {
   WorkspaceIdSchema,
   workspaceIdFromExternalId,
   type LocalWorkspaceGrant,
+  type WorkspaceId,
 } from "@repo/platform-protocol";
 import { DefaultGitService, type GitCommandExecutor } from "@repo/git-service";
 
@@ -39,6 +40,27 @@ export class LocalWorkspaceService {
       return null;
     }
     return await this.probeStoredGrant(stored);
+  }
+
+  /** Host-only root resolution. A public workspace id never authorizes a caller path. */
+  async requireExecutionGrant(workspaceId: WorkspaceId): Promise<StoredLocalWorkspaceGrant> {
+    const stored = await this.workspaceGrants.read();
+    if (!stored || stored.grant.workspaceId !== workspaceId) {
+      throw new Error("The local workspace grant is unavailable");
+    }
+    const grant = await this.probeStoredGrant(stored);
+    if (grant.readiness !== "ready") {
+      throw new Error("The local workspace grant is unavailable");
+    }
+    // Git probing yields to other commands. Reject a visible revoke/replacement.
+    // Admission must additionally fence this grant in its durable claim transaction.
+    const current = await this.workspaceGrants.read();
+    if (!current || current.path !== stored.path ||
+        current.grant.workspaceId !== stored.grant.workspaceId ||
+        current.grant.grantedAt !== stored.grant.grantedAt) {
+      throw new Error("The local workspace grant changed during authorization");
+    }
+    return { version: 1, path: stored.path, grant };
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {

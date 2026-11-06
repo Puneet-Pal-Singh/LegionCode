@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GitRepositoryProbeResult } from "@repo/git-service";
 import { LocalPersistence } from "@repo/event-store/local";
+import { WorkspaceIdSchema } from "@repo/platform-protocol";
 
 import { LocalWorkspaceService } from "./local-workspace.js";
 
@@ -38,6 +39,25 @@ describe("LocalWorkspaceService", () => {
         branch: "main",
         readiness: "ready",
       });
+      await expect(service.requireExecutionGrant(granted.workspaceId)).resolves.toMatchObject({
+        path: await realpath(repositoryRoot),
+        grant: { workspaceId: granted.workspaceId, readiness: "ready" },
+      });
+      await expect(service.requireExecutionGrant(WorkspaceIdSchema.parse("wrk_otherworkspace")))
+        .rejects.toThrow("grant is unavailable");
+
+      const revokingService = new LocalWorkspaceService({
+        workspaceGrants: persistence.workspaceGrants,
+        gitService: {
+          probeRepository: async (input) => {
+            await service.revoke();
+            return gitService.probeRepository(input);
+          },
+        },
+      });
+      await expect(revokingService.requireExecutionGrant(granted.workspaceId))
+        .rejects.toThrow("grant changed during authorization");
+      await service.grant({ path: repositoryRoot });
       persistence.close();
       persistence = new LocalPersistence({ storageDirectory });
       const reopened = await new LocalWorkspaceService({
@@ -49,6 +69,8 @@ describe("LocalWorkspaceService", () => {
       const reopenedService = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants });
       await reopenedService.revoke();
       await expect(reopenedService.getCurrent()).resolves.toBeNull();
+      await expect(reopenedService.requireExecutionGrant(granted.workspaceId))
+        .rejects.toThrow("grant is unavailable");
     } finally {
       persistence?.close();
       await rm(storageDirectory, { recursive: true, force: true });
