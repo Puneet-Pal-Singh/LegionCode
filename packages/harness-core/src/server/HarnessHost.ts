@@ -17,6 +17,7 @@ export interface HarnessLaunchPolicy {
   assertEnforced(input: {
     readonly workspaceRoot: string;
     readonly instanceDirectory: string;
+    readonly journalDirectory: string;
     readonly processGeneration: string;
   }): Promise<void>;
   launch(request: ProcessLaunch): Promise<SupervisedProcess>;
@@ -26,6 +27,8 @@ export interface HarnessLaunchPolicy {
 export interface HarnessHost {
   readonly workspaceRoot: string;
   readonly instanceDirectory: string;
+  /** Host-owned delivery files, excluded from provider write grants and snapshots. */
+  readonly journalDirectory: string;
   /** Fresh UUID per supervised host; runtime persists this learned identity before execute. */
   readonly processGeneration: string;
   readonly environment: Readonly<Record<string, string>>;
@@ -43,11 +46,13 @@ export interface HarnessHost {
 export async function createHarnessHost(input: {
   readonly workspaceRoot: string;
   readonly instanceDirectory: string;
+  readonly journalDirectory: string;
   readonly inheritedEnvironment: Readonly<Record<string, string | undefined>>;
   readonly selectedEnvironment: Readonly<Record<string, string>>;
   readonly launchPolicy: HarnessLaunchPolicy;
 }): Promise<HarnessHost> {
   const processGeneration = randomUUID();
+  const launchPolicy = input.launchPolicy;
   const workspaceRoot = await resolveWorkspaceDirectory(
     input.workspaceRoot,
     input.workspaceRoot,
@@ -56,9 +61,16 @@ export async function createHarnessHost(input: {
     workspaceRoot,
     input.instanceDirectory,
   );
-  await input.launchPolicy.assertEnforced({
+  const journalDirectory = await resolveInstanceDirectory(
+    workspaceRoot,
+    input.journalDirectory,
+  );
+  // A provider-config grant must never include the delivery journal, or vice versa.
+  await resolveInstanceDirectory(instanceDirectory, journalDirectory);
+  await launchPolicy.assertEnforced({
     workspaceRoot,
     instanceDirectory,
+    journalDirectory,
     processGeneration,
   });
   const environment = createInstanceEnvironment(
@@ -121,6 +133,7 @@ export async function createHarnessHost(input: {
   return Object.freeze({
     workspaceRoot,
     instanceDirectory,
+    journalDirectory,
     processGeneration,
     environment,
     launch: (request: {
@@ -128,6 +141,10 @@ export async function createHarnessHost(input: {
       readonly args: readonly string[];
     }) => {
       if (fenced) return Promise.reject(new HarnessHostError("stale_session"));
+      const launchRequest = {
+        executable: request.executable,
+        args: [...request.args],
+      };
       const pending = (async () => {
         const cwd = await resolveWorkspaceDirectory(
           workspaceRoot,
@@ -135,16 +152,17 @@ export async function createHarnessHost(input: {
         );
         if (fenced || cwd !== workspaceRoot)
           throw new HarnessHostError("invalid_launch");
-        await input.launchPolicy.assertEnforced({
+        await launchPolicy.assertEnforced({
           workspaceRoot,
           instanceDirectory,
+          journalDirectory,
           processGeneration,
         });
         if (fenced) throw new HarnessHostError("stale_session");
         let child: SupervisedProcess;
         try {
-          child = await input.launchPolicy.launch({
-            ...request,
+          child = await launchPolicy.launch({
+            ...launchRequest,
             cwd,
             env: environment,
             processGeneration,

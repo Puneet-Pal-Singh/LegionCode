@@ -101,16 +101,20 @@ export class ObservationDeliveryJournal<T> {
     this.closed = true;
     this.closing = (async () => {
       await this.queue;
-      const [held, current] = await Promise.all([
-        this.writer.stat(),
-        lstat(`${this.path}.writer`),
-      ]);
-      if (held.dev !== current.dev || held.ino !== current.ino) {
-        await this.writer.close();
+      try {
+        const [held, current] = await Promise.all([
+          this.writer.stat(),
+          lstat(`${this.path}.writer`),
+        ]);
+        if (held.dev !== current.dev || held.ino !== current.ino)
+          throw new HarnessHostError("journal_corrupt");
+        await unlink(`${this.path}.writer`);
+      } catch {
+        this.failed = true;
         throw new HarnessHostError("journal_corrupt");
+      } finally {
+        await this.writer.close();
       }
-      await unlink(`${this.path}.writer`);
-      await this.writer.close();
     })();
     return this.closing;
   }
@@ -178,13 +182,27 @@ export class ObservationDeliveryJournal<T> {
     const result = this.queue
       .then(() => {
         if (this.failed) throw new HarnessHostError("journal_corrupt");
-        return action();
+        return this.assertWriter().then(action);
       })
       .finally(() => {
         this.queuedOperations--;
       });
     this.queue = result.catch(() => undefined);
     return result;
+  }
+
+  private async assertWriter(): Promise<void> {
+    try {
+      const [held, current] = await Promise.all([
+        this.writer.stat(),
+        lstat(`${this.path}.writer`),
+      ]);
+      if (held.dev !== current.dev || held.ino !== current.ino)
+        throw new HarnessHostError("journal_busy");
+    } catch {
+      this.failed = true;
+      throw new HarnessHostError("journal_busy");
+    }
   }
 
   private async persist(next: JournalState<T>): Promise<void> {
