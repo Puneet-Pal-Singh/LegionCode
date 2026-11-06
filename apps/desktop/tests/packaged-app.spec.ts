@@ -10,18 +10,13 @@ const releaseDirectory = fileURLToPath(new URL("../release", import.meta.url));
 const execFile = promisify(execFileCallback);
 
 async function findPackagedExecutable(): Promise<string> {
-  const releaseEntries = await readdir(releaseDirectory, {
-    withFileTypes: true,
-  });
-  const appDirectory = releaseEntries.find(
-    (entry) => entry.isDirectory() && entry.name.startsWith("mac"),
-  );
-  if (!appDirectory) {
-    throw new Error("Packaged macOS application directory was not found");
+  if (process.platform !== "darwin" || !["arm64", "x64"].includes(process.arch)) {
+    throw new Error("Packaged Desktop acceptance requires a supported macOS architecture");
   }
+  const appDirectory = process.arch === "arm64" ? "mac-arm64" : "mac";
   return join(
     releaseDirectory,
-    appDirectory.name,
+    appDirectory,
     "LegionCode Desktop.app",
     "Contents",
     "MacOS",
@@ -54,6 +49,11 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
       page.getByRole("heading", { name: "LegionCode Desktop" }),
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.desktop.getBuildInfo())).toMatchObject({
+      packaged: true,
+      platform: "darwin",
+      arch: process.arch,
+    });
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
     await expect(page.getByText("2 capability slices unavailable", { exact: true })).toBeVisible();
     await openSidebar.click();
