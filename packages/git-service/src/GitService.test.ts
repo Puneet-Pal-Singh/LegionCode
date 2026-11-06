@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunId } from "@repo/platform-protocol";
@@ -319,7 +319,6 @@ describe("DefaultGitService", () => {
 
   it("stages files before committing with an explicit author", async () => {
     const executor = new QueueGitExecutor([
-      { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: "[feat abc123] update\n", stderr: "" },
       { exitCode: 0, stdout: "abc123\n", stderr: "" },
       { exitCode: 0, stdout: "feat/canonical-git\n", stderr: "" },
@@ -339,7 +338,6 @@ describe("DefaultGitService", () => {
       committedPaths: ["src/app.ts"],
     });
     expect(executor.calls.map((call) => call.args)).toEqual([
-      ["--literal-pathspecs", "add", "--", "src/app.ts"],
       ["-c", "user.name=Legion", "-c", "user.email=legion@example.com",
         "--literal-pathspecs", "commit", "--only", "-m", "update app", "--", "src/app.ts"],
       ["rev-parse", "HEAD"],
@@ -363,7 +361,8 @@ describe("DefaultGitService", () => {
       git(["add", "--", "unrelated.txt"]);
       const service = new DefaultGitService({
         async execute(input) {
-          return { exitCode: 0, stdout: git(input.args), stderr: "" };
+          const result = spawnSync("git", [...input.args], { cwd: input.cwd, encoding: "utf8" });
+          return { exitCode: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
         },
       });
       await service.commit({
@@ -376,6 +375,43 @@ describe("DefaultGitService", () => {
       expect(git(["diff", "--name-only"]).trim()).toBe("selected1.txt\nunstaged.txt");
       expect(git(["config", "--local", "--list"])).not.toContain("user.name=");
       expect(git(["config", "--local", "--list"])).not.toContain("user.email=");
+
+      // A rejected commit must preserve the selected path's earlier staging,
+      // not only unrelated index entries. Let Git own its index transaction.
+      writeFileSync(join(root, "selected[1].txt"), "staged prior\n");
+      git(["--literal-pathspecs", "add", "--", "selected[1].txt"]);
+      writeFileSync(join(root, "selected[1].txt"), "worktree later\n");
+      const beforeIndex = git(["ls-files", "--stage", "-z"]);
+      const beforeHead = git(["rev-parse", "HEAD"]);
+      writeFileSync(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      await expect(service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["selected[1].txt"], message: "must reject",
+        author: { name: "Legion", email: "legion@example.com" },
+      })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(git(["ls-files", "--stage", "-z"])).toBe(beforeIndex);
+      expect(git(["rev-parse", "HEAD"])).toBe(beforeHead);
+      expect(readFileSync(join(root, "selected[1].txt"), "utf8")).toBe("worktree later\n");
+      rmSync(join(root, ".git", "hooks", "pre-commit"));
+
+      // Untracked content is never staged as a side effect of a failed commit.
+      writeFileSync(join(root, "new.txt"), "new content\n");
+      await expect(service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["new.txt"], message: "requires explicit staging",
+        author: { name: "Legion", email: "legion@example.com" },
+      })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(git(["ls-files", "--stage", "-z"])).toBe(beforeIndex);
+      expect(git(["rev-parse", "HEAD"])).toBe(beforeHead);
+      git(["add", "--", "new.txt"]);
+      await service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["new.txt"], message: "explicitly staged new file",
+        author: { name: "Legion", email: "legion@example.com" },
+      });
+      expect(git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).trim()).toBe("new.txt");
+      expect(git(["show", ":selected[1].txt"])).toBe("staged prior\n");
+      expect(readFileSync(join(root, "selected[1].txt"), "utf8")).toBe("worktree later\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

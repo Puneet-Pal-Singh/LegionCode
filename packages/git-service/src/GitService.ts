@@ -298,9 +298,6 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const message = validateCommitMessage(input.message);
-    await this.executeRequired(input.workspace, [
-      "--literal-pathspecs", "add", "--", ...paths,
-    ]);
     const args = [
       "-c", `user.name=${input.author.name}`,
       "-c", `user.email=${input.author.email}`,
