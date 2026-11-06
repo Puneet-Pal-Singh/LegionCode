@@ -228,6 +228,16 @@ bindings. The SDK `AppServerClient` owns the network request, complete envelope
 serialization and pre-body ACK observation. Hosted routing is completed by
 Plan 058 PR B; Desktop capability changes are not included.
 
+### Plan 058 resumed activity and steering presentation
+
+| Responsibility | Canonical owner | Active consumers and invariant |
+| --- | --- | --- |
+| Run-attempt lifecycle timestamps, status, and replay | Runtime lifecycle append and SDK workflow projection | Each real resume/attempt keeps its own canonical started/terminal timestamps and existing IDs; Web does not infer clocks or terminal state. |
+| Same-task resumed workflow history | SDK conversation entry projection; shared `client-ui` conversation renderer | Actual prior workflow projections remain visible chronologically with the latest attempt. The original prompt, transcript, artifacts, review identity, and separate revisions remain unchanged. |
+| Queued follow-up and immediate steer presentation | Existing SDK thread-input queue/steer commands; shared `client-ui` composer presentation | Web binds the authenticated image source and existing queue mutations. Enter queues an active-run draft; Cmd/Ctrl+Enter uses the existing direct steer command. Draft text and media remain in the composer until the existing command accepts them. |
+
+No new lifecycle, queue, browser-history, or clock owner is added.
+
 ## Plan 058.1 — Lifecycle projection composition and selection
 
 | Responsibility | Canonical owner | Active consumers |
