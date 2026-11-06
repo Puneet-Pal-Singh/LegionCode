@@ -11,6 +11,7 @@ import {
   TurnWorkspaceSnapshotSchema,
   UserIdSchema,
   WorkspaceIdSchema,
+  type ArtifactId,
   type TurnDiffPayload,
   type TurnWorkspaceSnapshot,
 } from "@repo/platform-protocol";
@@ -31,6 +32,14 @@ const ScopeSchema = z
   })
   .strict();
 export type LocalTurnArtifactScope = z.infer<typeof ScopeSchema>;
+export interface LocalCommitArtifactSource {
+  readonly scope: LocalTurnArtifactScope;
+  readonly artifactId: ArtifactId;
+  readonly terminalSnapshot: TurnWorkspaceSnapshot;
+  readonly expectedTerminalTreeId: string;
+  readonly paths: readonly string[];
+}
+
 const ReferenceSchema = ArtifactMetadataSchema.omit({ eventSequence: true });
 const RecordSchema = z
   .object({
@@ -198,6 +207,35 @@ export function createLocalTurnArtifactStore(
           return record?.payload.role === "diff"
             ? { artifact: record.artifact, diff: record.payload.value }
             : null;
+        },
+        // The admission owner binds scope; the commit service must additionally
+        // authorize terminal lifecycle and the shared execution-grant handle.
+        async getCommitSource(
+          artifactId: string,
+        ): Promise<LocalCommitArtifactSource | null> {
+          const id = ArtifactIdSchema.parse(artifactId);
+          const record = read("diff");
+          if (
+            !record ||
+            record.payload.role !== "diff" ||
+            record.artifact.artifactId !== id
+          )
+            return null;
+          const diff = record.payload.value;
+          const paths = new Set<string>();
+          for (const file of diff.files) {
+            if (file.status === "unchanged") continue;
+            paths.add(file.path);
+            if (file.status === "renamed" && file.previousPath !== null)
+              paths.add(file.previousPath);
+          }
+          return {
+            scope: { ...scope },
+            artifactId: record.artifact.artifactId,
+            terminalSnapshot: diff.terminalSnapshot,
+            expectedTerminalTreeId: diff.terminalSnapshot.treeId,
+            paths: [...paths].sort(),
+          };
         },
       };
     },
