@@ -6,8 +6,9 @@ export function createOpenCodeServerPassword(): string {
 }
 
 /**
- * Input must be the host's already isolated environment, never process.env.
- * The host owns HOME, vault materialization, user identity and filesystem enforcement.
+ * Input is the selected credential/config overlay, never process.env. Pass the result
+ * to createHarnessHost.selectedEnvironment; the host separately preserves actual HOME
+ * and its system allowlist. Vault materialization, user identity and OS enforcement stay host-owned.
  * In stdio launch mode OpenCode removes its password before starting tools.
  */
 export function openCodeServerEnvironment(
