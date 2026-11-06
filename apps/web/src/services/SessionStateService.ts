@@ -114,9 +114,9 @@ export class SessionStateService {
       const parsed = JSON.parse(stored) as Partial<SetupSessionState>;
       if (
         parsed.kind !== "setup" ||
-        !parsed.id ||
-        !parsed.createdAt ||
-        !parsed.updatedAt
+        typeof parsed.id !== "string" || !parsed.id.trim() ||
+        typeof parsed.createdAt !== "string" || !parsed.createdAt.trim() ||
+        typeof parsed.updatedAt !== "string" || !parsed.updatedAt.trim()
       ) {
         return null;
       }
@@ -133,31 +133,9 @@ export class SessionStateService {
     }
   }
 
-  /**
-   * Reuse setup metadata without rewriting its stored bytes. If an unknown or
-   * malformed value already exists, keep it intact and use an ephemeral setup
-   * scope until its recovery policy is decided.
-   */
-  static loadOrCreateSetupSession(): SetupSessionState {
-    let hasStoredValue = false;
-    try {
-      hasStoredValue = localStorage.getItem(SETUP_SESSION_KEY) !== null;
-    } catch {
-      return this.createSetupSession();
-    }
-
-    const saved = this.loadSetupSession();
-    if (saved) return saved;
-
-    const created = this.createSetupSession();
-    if (!hasStoredValue) {
-      try {
-        localStorage.setItem(SETUP_SESSION_KEY, JSON.stringify(created));
-      } catch (e) {
-        console.error("[SessionStateService] Failed to save setup session:", e);
-      }
-    }
-    return created;
+  /** Preserve legacy lookup bytes; new setup uses only a local preference scope. */
+  static loadOrCreateSetupSession(scope?: { userId: string; workspaceId: string }): SetupSessionState {
+    return this.loadSetupSession() ?? this.createSetupSession(scope);
   }
 
   /**
@@ -262,11 +240,13 @@ export class SessionStateService {
   }
 
   /** Create local shell identity before a repo-backed session exists. */
-  static createSetupSession(): SetupSessionState {
+  static createSetupSession(scope?: { userId: string; workspaceId: string }): SetupSessionState {
     const timestamp = new Date().toISOString();
 
     return {
-      id: crypto.randomUUID(),
+      id: scope
+        ? `setup-preferences:${encodeURIComponent(scope.userId)}:${encodeURIComponent(scope.workspaceId)}`
+        : crypto.randomUUID(),
       kind: "setup",
       createdAt: timestamp,
       updatedAt: timestamp,

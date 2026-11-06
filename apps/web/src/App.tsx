@@ -30,9 +30,7 @@ import { RepositoryPickerModal } from "./components/github/RepositoryPickerModal
 import type { Repository } from "./services/GitHubService";
 import * as WorkspaceSelection from "./services/api/workspaceSelection";
 import { Resizer } from "./components/ui/Resizer";
-import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
-import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
 import { ProviderStore } from "./services/provider/ProviderStore";
@@ -42,7 +40,7 @@ import {
 } from "./lib/startup-shell-state";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
-import type { SetupSessionState } from "./types/session";
+import { useSetupPreferenceScope } from "./hooks/useSetupPreferenceScope";
 import { GitHubSignInPage } from "./components/onboarding/GitHubSignInPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import {
@@ -332,13 +330,6 @@ function AppContent() {
     [setSettingsInitialSection, setIsSettingsDialogOpen],
   );
 
-  const setupSession = useMemo<SetupSessionState | null>(() => {
-    if (!isAuthenticated || sessions.length > 0) {
-      return null;
-    }
-
-    return SessionStateService.loadOrCreateSetupSession();
-  }, [isAuthenticated, sessions.length]);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ??
@@ -430,6 +421,11 @@ function AppContent() {
     : workspaceSelectionIsResolved
       ? (ownedWorkspaceSelection?.workspaceId ?? null)
       : undefined;
+  const setupSession = useSetupPreferenceScope(
+    isAuthenticated ? authenticatedUserId : undefined,
+    providerScopeWorkspaceId,
+    sessions.length,
+  );
   const { credentials, reset: resetProviderStore } = useProviderStore(
     isAuthenticated ? providerScopeRunId : undefined,
     isAuthenticated
@@ -480,22 +476,6 @@ function AppContent() {
       ];
     });
   };
-
-  // Sync UI shell store with active session
-  useEffect(() => {
-    if (!activeSessionId) return;
-
-    const storeState = uiShellStore.getState();
-
-    if (storeState.activeSessionId !== activeSessionId) {
-      uiShellStore.setActiveSessionId(activeSessionId);
-    }
-
-    // Keep the selected run in sync when resume or queue admission creates a new run.
-    if (activeSession && storeState.activeRunId !== activeSession.activeRunId) {
-      uiShellStore.setActiveRunId(activeSession.activeRunId);
-    }
-  }, [activeSessionId, activeSession]);
 
   useEffect(() => {
     if (isLoading || !hasVerifiedSession || isAuthenticated) return;
