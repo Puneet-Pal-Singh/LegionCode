@@ -50,6 +50,18 @@ describe("TaskCheckoutRunLifecycle", () => {
     await lifecycle.release();
 
     expect(session.release).toHaveBeenCalledOnce();
+
+    const unsafeSession = executionSession();
+    const settleUnsafe = vi.fn();
+    const unsafe = new TaskCheckoutRunLifecycle(checkout.checkoutId, { settleExecution: settleUnsafe }, unsafeSession);
+    unsafe.beginRuntimeExecution({ turnId: checkout.turnId, runAttemptId: checkout.runAttemptId });
+    unsafe.observeRuntimeSettlement([]);
+    expect(await unsafe.settle({ status: "failed", failureCode: "WORKER_NOT_QUIESCENT" })).toBeNull();
+    await unsafe.release();
+    expect(unsafe.requiresRecovery).toBe(true);
+    expect(unsafe.isSettled).toBe(false);
+    expect(settleUnsafe).not.toHaveBeenCalled();
+    expect(unsafeSession.release).not.toHaveBeenCalled();
   });
 });
 
