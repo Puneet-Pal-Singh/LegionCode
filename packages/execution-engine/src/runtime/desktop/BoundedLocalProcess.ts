@@ -1,4 +1,4 @@
-import { buildSingleProcessMacSandbox, type SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
+import { buildSingleProcessMacSandbox, SingleProcessMacCapabilityError, type SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
@@ -42,7 +42,7 @@ export class BoundedLocalProcess {
     let executable: string;
     let args: readonly string[];
     if ("executable" in input) {
-      if (process.platform !== "darwin") throw new Error("Single-executable no-fork commands require Darwin Seatbelt");
+      if (process.platform !== "darwin") throw new SingleProcessMacCapabilityError("Single-executable no-fork commands require Darwin Seatbelt");
       if (!isAbsolute(input.executable) || input.executable.includes("\0") || Buffer.byteLength(input.executable) > 4_096
         || !isAbsolute(input.cwd) || input.cwd.includes("\0")
         || input.args.length > 255 || input.args.some((arg) => typeof arg !== "string" || arg.includes("\0") || Buffer.byteLength(arg) > 4_096)) {
@@ -52,7 +52,7 @@ export class BoundedLocalProcess {
       const cwd = realpathSync(input.cwd);
       const cwdRelative = relative(input.sandbox.filesystemRoot, cwd);
       if (cwd !== input.cwd || cwdRelative === ".." || cwdRelative.startsWith(`..${sep}`) || isAbsolute(cwdRelative)) {
-        throw new Error("Single-executable cwd must be canonical and inside the granted root");
+        throw new SingleProcessMacCapabilityError("Single-executable cwd must be canonical and inside the granted root");
       }
       executable = "/usr/bin/sandbox-exec";
       args = [...sandbox.parameters, "-p", sandbox.profile, input.executable, ...input.args];
@@ -90,7 +90,7 @@ export class BoundedLocalProcess {
         this.spawned = true;
         if (input.signal.aborted || this.terminationRequested) this.signalProcess("SIGTERM");
       });
-      this.child.once("error", (error) => { failure = error; });
+      this.child.once("error", (error) => { failure = this.singleExecutable ? new SingleProcessMacCapabilityError("Darwin Seatbelt executable could not be launched", error) : error; });
       // Even a successful shell can leave background children holding stdio open.
       this.child.once("exit", () => this.stop());
       this.child.once("close", (exitCode, signal) => {

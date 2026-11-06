@@ -1,5 +1,5 @@
 import type { SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
-export type { SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
+export { SingleProcessMacCapabilityError, type SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 import { BoundedLocalProcess, type LocalProcessOutput } from "./BoundedLocalProcess.js";
 
 export type SingleExecutableProcessInput = {

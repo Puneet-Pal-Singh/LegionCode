@@ -1,6 +1,15 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
+/** Adapter failure code for runtime capability reporting; never infer support from a fallback. */
+export class SingleProcessMacCapabilityError extends Error {
+  readonly code = "single_executable_nofork_unavailable" as const;
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = "SingleProcessMacCapabilityError";
+  }
+}
+
 /** Private runtime authority, never accepted from model/tool input. */
 export type SingleProcessMacSandbox = {
   filesystemRoot: string;
@@ -20,12 +29,17 @@ export function buildSingleProcessMacSandbox(
   if (!sandbox || sandbox.network !== "denied" || sandbox.writeScope !== "workspace"
     || !validPath(sandbox.filesystemRoot) || !Array.isArray(sandbox.runtimeReadRoots)
     || sandbox.runtimeReadRoots.length > 32 || !sandbox.runtimeReadRoots.every(validPath) || !validPath(executable)) {
-    throw new Error("Unsupported single-process sandbox authority");
+    throw new SingleProcessMacCapabilityError("Unsupported single-process sandbox authority");
   }
   // Accept only the canonical paths captured by the trusted grant/runtime
   // owner. An alias to / must never widen a declared subtree to the host.
-  for (const path of [sandbox.filesystemRoot, ...sandbox.runtimeReadRoots]) {
-    if (realpathSync(path) !== path) throw new Error("Sandbox authority paths must be canonical");
+  try {
+    for (const path of [sandbox.filesystemRoot, ...sandbox.runtimeReadRoots]) {
+      if (realpathSync(path) !== path) throw new SingleProcessMacCapabilityError("Sandbox authority paths must be canonical");
+    }
+  } catch (error) {
+    if (error instanceof SingleProcessMacCapabilityError) throw error;
+    throw new SingleProcessMacCapabilityError("Sandbox authority paths are unavailable", error);
   }
   const profile = [
     "(version 1)", "(deny default)", "(allow process-exec)", "(deny process-fork)",
