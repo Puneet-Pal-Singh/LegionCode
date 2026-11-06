@@ -46,3 +46,5 @@ export type {
 } from "./local/harness-bindings.js";
 
 export { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
+
+export { rethrowHarnessCommitFailure } from "./local/harness-bindings.js";

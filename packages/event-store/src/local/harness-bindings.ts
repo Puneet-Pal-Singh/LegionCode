@@ -4,7 +4,7 @@ import {
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
 import { z } from "zod";
-import { LocalPersistenceError } from "../errors.js";
+import { EventStoreError, LocalPersistenceError } from "../errors.js";
 import { createStableEventFingerprint } from "../fingerprint.js";
 
 // Storage envelopes only. selectionJson is produced from the canonical P04
@@ -117,7 +117,8 @@ export class HarnessPersistenceError extends Error {
       | "sequence_gap"
       | "observation_conflict"
       | "admission_required"
-      | "corrupt",
+      | "corrupt"
+      | "commit_outcome_unknown",
     message: string,
   ) {
     super(message);
@@ -787,4 +788,17 @@ export async function fingerprintHarnessObservation(observation: unknown): Promi
   const encoded = new TextEncoder().encode(createStableEventFingerprint(observation));
   const digest = await crypto.subtle.digest("SHA-256", encoded);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** A connection/IO failure cannot prove that COMMIT did not become durable. */
+export function rethrowHarnessCommitFailure(error: unknown): never {
+  if (
+    error instanceof HarnessPersistenceError ||
+    error instanceof EventStoreError
+  )
+    throw error;
+  throw new HarnessPersistenceError(
+    "commit_outcome_unknown",
+    "Observation commit outcome is unknown; fence ingress and restore canonical history before continuing",
+  );
 }

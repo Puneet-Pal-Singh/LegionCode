@@ -245,7 +245,6 @@ describe("LocalPersistence", () => {
         modelId: "pinned",
       }),
     };
-    const started = lifecycle(2, "turn.started");
     const bindings = reopened.harnessBindings;
     expect((await bindings.freezeAndClaim({ selection, claimId: "local-claim", events: [started] })).status).toBe("claimed");
     expect((await bindings.freezeAndClaim({ selection, claimId: "second-claim" })).status).toBe("already_claimed");
