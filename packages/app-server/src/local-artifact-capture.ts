@@ -19,6 +19,9 @@ export function createLocalArtifactCapture(options: {
     readonly signal: AbortSignal;
     assertCurrent(): void;
   };
+  /** Owner proves the same retained root and exact-attempt writer fence.
+   * Must remain valid for final capture after tool/grant revocation. */
+  assertSettlementCurrent(): void | Promise<void>;
   storageDirectory: string;
   scope: {
     workspaceId: string;
@@ -45,10 +48,9 @@ export function createLocalArtifactCapture(options: {
     );
   }
   const binding = options.binding;
-  // The same handle is shared with execution; only its owner decides generation.
-  const assertCurrent = () => {
-    binding.assertCurrent();
-    binding.signal.throwIfAborted();
+  // Capture is retained settlement work, not authority to start a new tool.
+  const assertCaptureCurrent = async () => {
+    await options.assertSettlementCurrent();
   };
   const requireWorkspace = async (workspace: {
     runId: string;
@@ -56,7 +58,7 @@ export function createLocalArtifactCapture(options: {
   }) => {
     if (workspace.runId !== runId)
       throw new Error("Artifact capture run mismatch");
-    assertCurrent();
+    await assertCaptureCurrent();
     if (
       binding.workspace.workspaceId !== workspaceId ||
       binding.workspace.readiness !== "ready"
@@ -66,9 +68,9 @@ export function createLocalArtifactCapture(options: {
       );
     }
     const stats = await lstat(binding.filesystemRoot);
-    assertCurrent();
+    await assertCaptureCurrent();
     const root = await realpath(binding.filesystemRoot);
-    assertCurrent();
+    await assertCaptureCurrent();
     if (
       !stats.isDirectory() ||
       stats.isSymbolicLink() ||
@@ -80,7 +82,7 @@ export function createLocalArtifactCapture(options: {
       );
     }
     const privateRoot = await realpath(storageDirectory);
-    assertCurrent();
+    await assertCaptureCurrent();
     const inside = relative(root, privateRoot);
     if (
       inside === "" ||
@@ -91,7 +93,7 @@ export function createLocalArtifactCapture(options: {
       );
     }
     const probe = await options.git.probeRepository({ workspaceRoot: root });
-    assertCurrent();
+    await assertCaptureCurrent();
     if (
       (await realpath(probe.repositoryRoot)) !== root ||
       probe.repositoryIdentity !== binding.workspace.repositoryIdentity
@@ -100,7 +102,7 @@ export function createLocalArtifactCapture(options: {
         "Granted repository identity changed before artifact capture",
       );
     }
-    assertCurrent();
+    await assertCaptureCurrent();
     return { runId, filesystemRoot: root };
   };
   return {

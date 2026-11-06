@@ -51,7 +51,7 @@ describe("LocalWorkspaceService", () => {
       const binding = { workspace: granted, filesystemRoot: repositoryRoot, signal: controller.signal,
         assertCurrent() { if (this.signal.aborted) throw new Error("Workspace grant changed"); } };
       const capture = createLocalArtifactCapture({
-        binding, storageDirectory,
+        binding, assertSettlementCurrent: () => binding.assertCurrent(), storageDirectory,
         scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
         git: {
           probeRepository: (input) => gitService.probeRepository(input),
@@ -65,7 +65,7 @@ describe("LocalWorkspaceService", () => {
       controller.abort();
       await expect(capture.captureSnapshot(captureInput)).rejects.toThrow("grant changed");
       const unsafe = createLocalArtifactCapture({
-        binding: { ...binding, signal: new AbortController().signal, assertCurrent() {} }, storageDirectory: repositoryRoot,
+        binding: { ...binding, signal: new AbortController().signal, assertCurrent() {} }, assertSettlementCurrent() {}, storageDirectory: repositoryRoot,
         scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
         git: { probeRepository: (input) => gitService.probeRepository(input),
           captureSnapshot: async ({ workspace }) => ({ ...workspace, headSha: "a".repeat(40), treeId: "b".repeat(40) }),
