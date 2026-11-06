@@ -1,48 +1,42 @@
-<div align="center">
-  <img src="apps/web/public/assets/legioncode-logo.png" alt="LegionCode" width="500" />
+# LegionCode
 
-  <p><strong>LegionCode is an open-source AI coding-agent workspace.</strong></p>
+LegionCode is an open-source AI coding-agent workspace. Connect a GitHub repository, choose your model provider, and run coding tasks in isolated cloud workspaces from your browser.
 
-  <p>
-    <a href="https://legioncode.dev/">Website</a> ·
-    <a href="https://legioncode.dev/cloud/">Request private-alpha access</a> ·
-    <a href="https://legioncode.dev/docs/">Documentation</a>
-  </p>
+Describe a change, follow the agent's work, and review the diff. Ask for revisions in the same conversation or leave inline feedback before taking a Git action.
 
-  <p>
-    <img alt="Private Alpha" src="https://img.shields.io/badge/status-private_alpha-f5c451" />
-    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-white" /></a>
-  </p>
-</div>
+Use models from frontier labs or open-weight models such as DeepSeek, GLM, Kimi, and more through OpenRouter, Cloudflare AI Gateway, and other supported providers. Bring your own API keys and choose a model for each task.
 
-Give an agent a task, follow its work, and review the resulting code changes before taking a Git action.
+[Website](https://legioncode.dev/) · [Documentation](https://legioncode.dev/docs/)
 
-## What you can do
+## Why LegionCode?
 
-- Connect a GitHub repository.
-- Choose your model provider.
-- Run coding tasks in isolated cloud workspaces.
-- Follow agent and tool activity.
-- Review changed files and diffs.
-- Leave inline feedback before taking a Git action.
+We’re building LegionCode because we want working with coding agents to feel straightforward: bring your repository, pick a model, and stay close to the code as it changes. Conductor, OpenCode, and Codex inspired us to build a workspace of our own, with cloud execution and a choice of model providers.
 
-![LegionCode completed task with changed files, diff review, and inline feedback](.github/assets/legioncode-agent-review.png)
+LegionCode is open source so you can inspect how it works, run it yourself, and shape it around your own workflow. Local execution is also in development, so you’ll be able to choose where your agents run as well as which models they use.
 
-## Project status
+## Demo
 
-LegionCode is open source. LegionCode Cloud is in private alpha and is not yet intended for production or sensitive repositories. Use a test repository or disposable branch, keep backups, and review every generated change.
+[**Watch the LegionCode demo →**](https://drive.google.com/file/d/19-WzmcB3nmhzkmBg2PpKwjtN7GGTHR8r/view?usp=sharing)
 
-[Request private-alpha access](https://legioncode.dev/cloud/) using the email associated with your GitHub account.
+## Getting started
+
+### Cloud
+
+Try LegionCode Cloud (currently in private alpha) by [requesting access](https://legioncode.dev/cloud/) with the email associated with your GitHub account.
+
+Once approved, follow [Your first task](https://legioncode.dev/docs/quickstart/) to connect a repository and provider, make a small edit, and review it.
+
+### Run from source
+
+Local development is being stabilized. See the [local development guide](https://legioncode.dev/docs/local-development/) for prerequisites, environment variables, Cloudflare bindings, and verification steps.
+
+## Some notes
 
 Desktop and CLI clients for local agent execution are in active development, along with orchestration for agent harnesses such as Codex, OpenCode, and Claude Code.
 
 ## Documentation
 
-Read the [LegionCode documentation](https://legioncode.dev/docs/) for setup, providers, permissions, execution, architecture, deployment, and troubleshooting.
-
-## Run locally
-
-Local development is being stabilized. See the [local development guide](https://legioncode.dev/docs/local-development/) for prerequisites, environment variables, Cloudflare bindings, and verification steps.
+The [documentation](https://legioncode.dev/docs/) covers setup, providers, permissions, troubleshooting, and self-hosting.
 
 ## Contributing
 
