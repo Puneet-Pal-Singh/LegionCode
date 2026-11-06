@@ -1,12 +1,7 @@
-import { useMemo } from "react";
 import { useHostedHarnessScope } from "../harness/HostedHarnessScope";
-import { createHostedAppServerClient } from "../../services/api/appServerClient.js";
+import { HostedHarnessPicker } from "../harness/HostedHarnessPicker";
 import type { ProviderId } from "@repo/shared-types";
-import {
-  ChatInputBar,
-  HarnessSelection,
-  type ChatInputBarProps,
-} from "@legioncode/client-ui";
+import { ChatInputBar, type ChatInputBarProps } from "@legioncode/client-ui";
 import { useComposerPreferences } from "../../lib/composer-preferences";
 import { useWebComposerProviderControls } from "./useWebComposerProviderControls.js";
 
@@ -31,14 +26,9 @@ export function WebChatInputBar({
 }: WebChatInputBarProps) {
   const preferences = useComposerPreferences();
   const hostedScope = useHostedHarnessScope();
-  const harnessSelectionScope =
-    hostedScope.sessionId === props.sessionId
-      ? hostedScope.selectionScope
-      : null;
-  const harnessClient = useMemo(
-    () => createHostedAppServerClient().harness,
-    [],
-  );
+  const isDelegatedSelected =
+    hostedScope.selectionReceipt?.sessionId === props.sessionId &&
+    hostedScope.selectionReceipt.selection !== null;
   const providerControls = useWebComposerProviderControls({
     runId,
     sessionId: props.sessionId,
@@ -53,20 +43,11 @@ export function WebChatInputBar({
       {...providerControls}
       renderModelPicker={(onWarning) => (
         <>
-          {providerControls.renderModelPicker(onWarning)}
-          {!props.isHidden &&
-          hostedScope.sessionId === props.sessionId &&
-          hostedScope.selectionUnavailableReason ? (
-            <p role="status" className="text-xs text-zinc-400">
-              {hostedScope.selectionUnavailableReason}
-            </p>
-          ) : null}
-          {!props.isHidden && harnessSelectionScope ? (
-            <HarnessSelection
-              key={JSON.stringify(harnessSelectionScope)}
-              client={harnessClient}
-              scope={harnessSelectionScope}
-            />
+          {!isDelegatedSelected
+            ? providerControls.renderModelPicker(onWarning)
+            : null}
+          {!props.isHidden ? (
+            <HostedHarnessPicker sessionId={props.sessionId} />
           ) : null}
         </>
       )}

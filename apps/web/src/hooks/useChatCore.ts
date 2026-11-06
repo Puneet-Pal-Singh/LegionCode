@@ -38,7 +38,6 @@ import {
 } from "../lib/chat-provider-config";
 import {
   parseChatRequestBody,
-  resolveRuntimeHarnessId,
   type ChatRequestBody,
 } from "../lib/chat-request";
 import { resolveReasoningEffortForRequest } from "../lib/model-reasoning-preferences";
@@ -59,6 +58,8 @@ import {
 } from "./conversationScope";
 import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/sdk";
 import { createWebPlatformClient } from "../services/api/platformClient";
+import { useHostedHarnessScope } from "../components/harness/HostedHarnessScope";
+import { executionRequestFields, readFrozenChatRequest, type ChatExecutionConfiguration } from "../lib/chat-execution-selection";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
 import {
   useActiveTurnProjection,
@@ -398,7 +399,17 @@ export function useChatCore(
       : undefined;
   const selectedModelEfforts = selectedModel?.capabilities?.reasoningEfforts;
   const hasConnectedCredential = credentials.length > 0;
-  const isModelConfigReady = status === "ready" && hasConnectedCredential;
+  const harnessBinding = useHostedHarnessScope();
+  const isDelegatedSelected = harnessBinding.selectionReceipt?.sessionId === sessionId &&
+    harnessBinding.selectionReceipt.selection !== null;
+  const readHarnessSelection = useCallback(async () => {
+    if (harnessBinding.sessionId !== sessionId) {
+      if (harnessBinding.sessionId !== null || harnessBinding.connectionScope) throw new Error("Conversation selection scope changed. Try again.");
+      return undefined;
+    }
+    return harnessBinding.readAdmissionSelection();
+  }, [harnessBinding.sessionId, harnessBinding.connectionScope, harnessBinding.readAdmissionSelection, sessionId]);
+  const isModelConfigReady = isDelegatedSelected || (status === "ready" && hasConnectedCredential);
   const lifecycleClient = useMemo(() => createWebPlatformClient(), []);
   const { input, handleInputChange: updateInput } = useVercelChat({
     initialMessages: [],
@@ -504,33 +515,19 @@ export function useChatCore(
 
   const buildChatRequestBody = useCallback(
     (
-      config: ResolvedProviderConfig,
+      config: ChatExecutionConfiguration,
       clientMessageId: string,
       identity: ConversationScope,
       repositoryFields: Pick<ChatRequestBody, "repositoryOwner" | "repositoryName" | "repositoryBranch" | "repositoryBaseUrl">,
-    ): ChatRequestBody =>
-      parseChatRequestBody({
+    ): ChatRequestBody => {
+      if (config.strategy === "frozen") return config.request;
+      return parseChatRequestBody({
         sessionId: identity.sessionId,
         runId: identity.runId,
         clientMessageId,
         mode,
         productMode,
-        harnessId: resolveRuntimeHarnessId(sessionId),
-        providerId: config.providerId,
-        modelId: config.modelId,
-        ...(resolveReasoningEffortForRequest(
-          config.providerId,
-          config.modelId,
-          selectedModelEfforts,
-        )
-          ? {
-              reasoningEffort: resolveReasoningEffortForRequest(
-                config.providerId,
-                config.modelId,
-                selectedModelEfforts,
-              ),
-            }
-          : {}),
+        ...executionRequestFields(config, selectedModelEfforts),
         identity: {
           workspaceId: identity.workspaceId,
           threadId: identity.threadId,
@@ -541,7 +538,8 @@ export function useChatCore(
             : {}),
         },
         ...repositoryFields,
-      }),
+      });
+    },
     [mode, productMode, selectedModelEfforts, sessionId],
   );
 
@@ -549,7 +547,7 @@ export function useChatCore(
     (
       message: ChatAppendMessage,
       requestBody: ChatRequestBody,
-      config: ResolvedProviderConfig,
+      config: ChatExecutionConfiguration,
     ) => {
       const text = extractTextContent(message.content);
       pushDebugEvent({
@@ -564,12 +562,10 @@ export function useChatCore(
           imageAttachments:
             message.imageMetadata ??
             toRedactedImageMetadataFromParts(message.content),
-          resolvedConfig: {
-            providerId: config.providerId,
-            modelId: config.modelId,
-            credentialId: config.credentialId,
-            source: config.source,
-          },
+          resolvedConfig: config.strategy === "native" ? {
+            providerId: config.provider.providerId, modelId: config.provider.modelId,
+            credentialId: config.provider.credentialId, source: config.provider.source,
+          } : { source: config.strategy, harnessSelection: requestBody.harnessSelection },
         },
       });
     },
@@ -691,7 +687,7 @@ export function useChatCore(
           message: "This conversation's workspace is unavailable for new work.",
         };
       }
-      if ((!content && !hasImages) || status !== "ready") {
+      if (!content && !hasImages) {
         return {
           status: "unconfirmed",
           message:
@@ -736,7 +732,7 @@ export function useChatCore(
             selectedModelId ?? "",
             selectedModelEfforts,
           ) ?? null,
-        harnessId: resolveRuntimeHarnessId(sessionId),
+        harnessSelection: harnessBinding.selectionReceipt?.sessionId === sessionId ? harnessBinding.selectionReceipt : null,
         repository: repositoryFields,
       });
       const activeAttempt = activeSubmissionAttemptRef.current;
@@ -758,7 +754,7 @@ export function useChatCore(
       let submittedMessage: (ChatAppendMessage & { id: string }) | null = null;
 
       try {
-        const outcome = await submitConversationMessage<ResolvedProviderConfig>({
+        const outcome = await submitConversationMessage<ChatExecutionConfiguration>({
           sessionId,
           runId,
           runScopeGeneration: bootstrapScopeGeneration,
@@ -766,17 +762,15 @@ export function useChatCore(
           intentKey,
           intentFingerprint,
           lifecycleClient,
-          resolveProviderConfig: async () => {
-            const config = await resolveProviderConfigFromApi(bootstrapScopeKey);
-            if (!config) {
-              logClientWarning("chat/submit", "aborted", {
-                runId,
-                sessionId,
-                scopeKey: bootstrapScopeKey,
-                reason: "provider-resolution-unavailable",
-              });
-            }
-            return config;
+          resolveProviderConfig: async (): Promise<ChatExecutionConfiguration | null> => {
+            const frozen = readFrozenChatRequest(submissionBinding.attempt);
+            if (frozen) return { strategy: "frozen", request: frozen };
+            const harnessSelection = await readHarnessSelection();
+            if (!ownsInvocationScope()) return null;
+            if (harnessSelection?.selection) return { strategy: "delegated", harnessSelection };
+            if (status !== "ready") throw new Error("Native model settings are not ready. Check the selected provider and try again.");
+            const provider = await resolveProviderConfigFromApi(bootstrapScopeKey);
+            return provider ? { strategy: "native", provider, harnessSelection } : null;
           },
           onAttemptAcquired: (attempt) => {
             submissionBinding.attempt = attempt;
@@ -886,9 +880,9 @@ export function useChatCore(
               sessionId,
               scopeKey: conversationScopeKey(scope),
               clientMessageId,
-              providerId: config.providerId,
-              modelId: config.modelId,
-              source: config.source,
+              providerId: requestBody.providerId,
+              modelId: requestBody.modelId,
+              source: config.strategy,
             });
             pushChatRequestDebugEvent(dispatchedMessage, requestBody, config);
             dispatchRunSummaryRefresh(runId);
@@ -1018,6 +1012,8 @@ export function useChatCore(
     },
     [
       buildChatRequestBody,
+      readHarnessSelection,
+      harnessBinding.selectionReceipt,
       isWorkspaceExecutionAllowed,
       isActiveRunScope,
       lifecycleClient,
@@ -1064,6 +1060,7 @@ export function useChatCore(
       selectedProviderId,
       selectedModelId,
       selectedModelEfforts,
+      readHarnessSelection,
       lifecycleClient,
       scopeRef: activeConversationScopeRef,
       runScopeRef: activeRunScopeKeyRef,
