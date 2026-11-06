@@ -41,7 +41,7 @@ export const StoredHarnessAttachmentSchema = z
   .object({
     instanceId: text,
     externalSessionId: text,
-    processGeneration: z.number().int().nonnegative().safe(),
+    processGeneration: z.string().uuid(),
     authOwnerGeneration: z.number().int().nonnegative().safe(),
   })
   .strict();
@@ -99,7 +99,7 @@ export interface HarnessBindingRepository {
   attach(input: {
     readonly selection: StoredHarnessSelection;
     readonly origin: StoredHarnessAttachment;
-    readonly expectedProcessGeneration: number | null;
+    readonly expectedProcessGeneration: string | null;
     readonly events?: readonly LifecycleEvent[];
   }): Promise<StoredHarnessBinding>;
   lookupObservation(
@@ -200,13 +200,13 @@ export function validateHarnessObservation(
 export function assertHarnessAttachmentChange(
   binding: StoredHarnessBinding,
   origin: StoredHarnessAttachment,
-  expected: number | null,
+  expected: string | null,
 ): void {
   StoredHarnessAttachmentSchema.parse(origin);
   const current = binding.attachment;
   if (
     (current?.processGeneration ?? null) !== expected ||
-    (current && origin.processGeneration <= current.processGeneration)
+    (current && origin.processGeneration === current.processGeneration)
   ) {
     throw new HarnessPersistenceError(
       "stale_origin",
@@ -228,8 +228,13 @@ CREATE TABLE harness_bindings (
   execution_claim_id TEXT, recovery_required INTEGER NOT NULL DEFAULT 0 CHECK(recovery_required IN (0,1)),
   attachment_json TEXT, external_turn_id TEXT, last_observation_sequence INTEGER NOT NULL DEFAULT 0 CHECK(last_observation_sequence >= 0)
 );
+CREATE TABLE harness_process_generations (
+  turn_id TEXT NOT NULL REFERENCES harness_bindings(turn_id) ON DELETE CASCADE,
+  process_generation TEXT NOT NULL, origin_json TEXT NOT NULL,
+  PRIMARY KEY(turn_id, process_generation)
+);
 CREATE TABLE harness_observation_receipts (
-  turn_id TEXT NOT NULL REFERENCES harness_bindings(turn_id) ON DELETE CASCADE, process_generation INTEGER NOT NULL,
+  turn_id TEXT NOT NULL REFERENCES harness_bindings(turn_id) ON DELETE CASCADE, process_generation TEXT NOT NULL,
   sequence INTEGER NOT NULL CHECK(sequence > 0), observation_fingerprint TEXT NOT NULL,
   event_ids_json TEXT NOT NULL,
   PRIMARY KEY(turn_id, process_generation, sequence)
@@ -246,17 +251,18 @@ export function validateLocalHarnessBindings(
     .get() as { value: string } | undefined;
   const tables = database
     .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('harness_bindings','harness_observation_receipts')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('harness_bindings','harness_process_generations','harness_observation_receipts')",
     )
     .all();
   if (!marker && tables.length === 0) return false;
-  if (marker?.value !== "1" || tables.length !== 2)
+  if (marker?.value !== "1" || tables.length !== 3)
     throw new LocalPersistenceError(
       "corrupt",
       "Local harness schema is incomplete",
     );
   for (const [name, key] of [
     ["harness_bindings", ["turn_id"]],
+    ["harness_process_generations", ["turn_id", "process_generation"]],
     [
       "harness_observation_receipts",
       ["turn_id", "process_generation", "sequence"],
@@ -531,7 +537,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
   async attach(input: {
     selection: StoredHarnessSelection;
     origin: StoredHarnessAttachment;
-    expectedProcessGeneration: number | null;
+    expectedProcessGeneration: string | null;
     events?: readonly LifecycleEvent[];
   }): Promise<StoredHarnessBinding> {
     return this.database
@@ -549,6 +555,9 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           input.origin,
           input.expectedProcessGeneration,
         );
+        const retired = this.database.prepare("SELECT 1 FROM harness_process_generations WHERE turn_id=? AND process_generation=?").get(input.selection.turnId, input.origin.processGeneration);
+        if (retired) throw new HarnessPersistenceError("stale_origin", "A retired process generation cannot be reattached");
+        this.database.prepare("INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES (?,?,?)").run(input.selection.turnId, input.origin.processGeneration, JSON.stringify(input.origin));
         for (const event of input.events ?? []) {
           assertEventScope(input.selection, event);
           this.appendLifecycle(event);

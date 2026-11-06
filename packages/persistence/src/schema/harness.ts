@@ -50,8 +50,17 @@ export const harnessObservationReceipts = pgTable(
     }),
     check(
       "harness_receipt_generation_check",
-      sql`${table.processGeneration} >= 0`,
+      sql`length(${table.processGeneration}) = 36`,
     ),
     check("harness_receipt_sequence_check", sql`${table.sequence} > 0`),
   ],
 );
+
+export const harnessProcessGenerations = pgTable("harness_process_generations", {
+  turnId: text("turn_id").notNull().references(() => harnessBindings.turnId, { onDelete: "cascade" }),
+  processGeneration: text("process_generation").notNull(),
+  originJson: jsonb("origin_json").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.turnId, table.processGeneration] }),
+  check("harness_generation_uuid_check", sql`length(${table.processGeneration}) = 36`),
+]);

@@ -127,7 +127,7 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
   async attach(input: {
     selection: StoredHarnessSelection;
     origin: StoredHarnessAttachment;
-    expectedProcessGeneration: number | null;
+    expectedProcessGeneration: string | null;
     events?: readonly LifecycleEvent[];
   }): Promise<StoredHarnessBinding> {
     return this.client.transaction(async (tx) => {
@@ -140,6 +140,9 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
         input.origin,
         input.expectedProcessGeneration,
       );
+      const retired = await tx.query("SELECT 1 FROM harness_process_generations WHERE turn_id=$1 AND process_generation=$2", [input.selection.turnId, input.origin.processGeneration]);
+      if (retired.rows[0]) throw new HarnessPersistenceError("stale_origin", "A retired process generation cannot be reattached");
+      await tx.query("INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES ($1,$2,$3::jsonb)", [input.selection.turnId, input.origin.processGeneration, JSON.stringify(input.origin)]);
       for (const event of input.events ?? [])
         assertEventScope(input.selection, event);
       await new PostgresLifecycleEventStore(tx).appendBatch(input.events ?? []);
@@ -289,7 +292,7 @@ async function requireAdmission(
   const result = await tx.query(
     `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id=a.session_id
     WHERE a.turn_id=$1 AND a.run_attempt_id=$2 AND a.session_id::text=$3 AND a.run_id=$4 AND a.workspace_id=$5
-      AND a.thread_id=$6 AND s.user_id=$7 AND a.admission_state='admitted' AND a.execution_state='running'
+      AND a.thread_id=$6 AND s.user_id=$7 AND a.admission_state='admitted' AND a.execution_state IN ('running','recovery_required')
       AND a.execution_claim_id IS NOT NULL FOR UPDATE OF a`,
     [
       selection.turnId,

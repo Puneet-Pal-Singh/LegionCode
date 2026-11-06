@@ -134,7 +134,7 @@ describe("LocalPersistence", () => {
     const origin = {
       instanceId: "instance",
       externalSessionId: "external",
-      processGeneration: 1,
+      processGeneration: "11111111-1111-4111-8111-111111111111",
       authOwnerGeneration: 0,
     };
     await bindings.attach({
@@ -196,7 +196,7 @@ describe("LocalPersistence", () => {
       recovered.harnessBindings.appendObservation({
         ...observation,
         sequence: 2,
-        origin: { ...origin, processGeneration: 2 },
+        origin: { ...origin, processGeneration: "22222222-2222-4222-8222-222222222222" },
       }),
     ).rejects.toMatchObject({ code: "stale_origin" });
     const terminalObservation = { ...observation, sequence: 2, observationFingerprint: "c".repeat(64), events: [lifecycle(3, "turn.completed")] };
