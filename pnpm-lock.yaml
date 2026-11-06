@@ -319,6 +319,46 @@ importers:
         specifier: 4.70.0
         version: 4.70.0(@cloudflare/workers-types@4.20260226.1)
 
+  apps/secure-agent-api/harness-host:
+    dependencies:
+      '@repo/harness-claude':
+        specifier: workspace:*
+        version: link:../../../packages/harness-claude
+      '@repo/harness-codex':
+        specifier: workspace:*
+        version: link:../../../packages/harness-codex
+      '@repo/harness-core':
+        specifier: workspace:*
+        version: link:../../../packages/harness-core
+      '@repo/harness-opencode':
+        specifier: workspace:*
+        version: link:../../../packages/harness-opencode
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../../../packages/runtime-kernel
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../../../packages/worker-protocol
+      ws:
+        specifier: 8.19.0
+        version: 8.19.0
+      zod:
+        specifier: 3.25.1
+        version: 3.25.1
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.9
+        version: 24.10.9
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
   apps/secure-agent-api:
     dependencies:
       '@repo/git-service':
@@ -327,9 +367,15 @@ importers:
       '@repo/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../../packages/runtime-kernel
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../../packages/worker-protocol
       zod:
         specifier: ^3.25.1
         version: 3.25.1
@@ -3455,6 +3501,9 @@ packages:
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
@@ -9109,6 +9158,10 @@ snapshots:
   '@types/unist@2.0.11': {}
 
   '@types/unist@3.0.3': {}
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 20.19.30
 
   '@types/yauzl@2.10.3':
     dependencies:

@@ -4,6 +4,9 @@ const imageTag = "legioncode-secure-agent-api:image-gate";
 const imageBudgetBytes = 1_350_000_000;
 const contextPath = "apps/secure-agent-api";
 
+// Docker COPY consumes the separately bundled Node host from its app context.
+run("corepack", ["pnpm", "build:cloud-harness-host"]);
+
 run("docker", [
   "build",
   "--platform",
