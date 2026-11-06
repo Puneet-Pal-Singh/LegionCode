@@ -36,6 +36,10 @@ export interface LocalWorkspaceExecutionBinding {
   readonly generation: number;
   readonly signal: AbortSignal;
   assertCurrent(): void;
+  /** Retained descriptor authority for the same admitted scope after tool revocation.
+   * Capture must separately validate its retained exact-attempt writer fence.
+   */
+  assertSettlementCurrent(): void;
 }
 
 export class LocalWorkspaceService {
@@ -134,6 +138,11 @@ export class LocalWorkspaceService {
       return Object.freeze({
         workspace, filesystemRoot: stored.path, rootDirectory, generation, signal,
         close: () => { closing ??= rootDirectory.close(); return closing; },
+        assertSettlementCurrent: () => {
+          if (closing || rootDirectory.fd < 0) {
+            throw new Error("Retained workspace settlement descriptor is closed");
+          }
+        },
         assertCurrent: () => {
           this.assertGeneration(generation);
           if (closing) throw new Error("Local workspace binding is closed");
