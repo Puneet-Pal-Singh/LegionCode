@@ -19,11 +19,29 @@ export function questionPayload(form: NativeQuestion): JsonRecord {
         true,
       );
     }
+    if (
+      (field.type === "string" &&
+        (field.format !== undefined ||
+          field.minLength !== undefined ||
+          field.maxLength !== undefined ||
+          field.pattern !== undefined ||
+          field.default !== undefined)) ||
+      (field.type === "multiselect" &&
+        (field.minItems !== undefined ||
+          field.maxItems !== undefined ||
+          field.default !== undefined))
+    ) {
+      throw new OpenCodeTransportError(
+        "question constraint capability unavailable",
+        true,
+      );
+    }
     return {
       id: field.key,
       question: field.description ?? field.title ?? form.title,
       header: field.title ?? null,
       multiple: field.type === "multiselect",
+      required: field.required ?? false,
       allowCustom: field.custom ?? false,
       options: (field.options ?? []).map((option) => ({
         id: option.value,

@@ -205,7 +205,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
       };
       const live: HarnessLiveSession = {
         session,
-        execute: (request) => {
+        execute: async (request) => {
           if (
             executing ||
             stopping ||

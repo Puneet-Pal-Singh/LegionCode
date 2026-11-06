@@ -29,6 +29,7 @@ export class OpenCodeServerOwner {
       !password ||
       !/^[A-Za-z0-9_-]{43}$/.test(password) ||
       host.environment.OPENCODE_SERVER_PASSWORD ||
+      host.environment.OPENCODE_PTY_HANDOFF !== undefined ||
       host.environment.OPENCODE_DB !== "opencode.db"
     ) {
       throw new OpenCodeTransportError("private server configuration", false);
