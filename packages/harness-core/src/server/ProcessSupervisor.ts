@@ -53,7 +53,18 @@ export interface SupervisedProcess {
 export class ProcessSupervisor {
   private readonly processes = new Set<SupervisedProcess>();
 
+  constructor(private readonly maxProcesses = 16) {
+    if (
+      !Number.isSafeInteger(maxProcesses) ||
+      maxProcesses < 1 ||
+      maxProcesses > 256
+    )
+      throw new HarnessHostError("invalid_launch");
+  }
+
   launch(spec: ProcessLaunch): SupervisedProcess {
+    if (this.processes.size >= this.maxProcesses)
+      throw new HarnessHostError("session_busy");
     if (process.platform === "win32")
       throw new HarnessHostError("unsupported_platform");
     if (

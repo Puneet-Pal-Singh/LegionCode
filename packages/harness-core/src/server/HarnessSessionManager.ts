@@ -1,5 +1,3 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import {
   HarnessCommitAckSchema,
   HarnessControlCommandSchema,
@@ -32,6 +30,7 @@ interface Attachment {
   opening?: Promise<HarnessSession>;
   host?: HarnessHost;
   live?: HarnessLiveSession;
+  session?: HarnessSession;
   journal?: ObservationDeliveryJournal<HarnessObservation>;
   observe?: Observe;
   execution?: Promise<void>;
@@ -53,6 +52,7 @@ interface Attachment {
 export class HarnessSessionManager {
   private readonly attachments = new Map<string, Attachment>();
   private readonly instanceDirectories = new Set<string>();
+  private readonly journalDirectories = new Set<string>();
 
   constructor(private readonly registry: HarnessRegistry) {}
 
@@ -96,9 +96,13 @@ export class HarnessSessionManager {
           this.beginStop(attachment);
           throw new HarnessHostError("stale_session");
         }
-        if (this.instanceDirectories.has(host.instanceDirectory))
+        if (
+          this.instanceDirectories.has(host.instanceDirectory) ||
+          this.journalDirectories.has(host.journalDirectory)
+        )
           throw new HarnessHostError("session_busy");
         this.instanceDirectories.add(host.instanceDirectory);
+        this.journalDirectories.add(host.journalDirectory);
         const live = await instance.driver.open({
           command,
           host,
@@ -114,8 +118,8 @@ export class HarnessSessionManager {
           throw new HarnessHostError("stale_session");
         }
         attachment.live = live;
-        const directory = join(host.instanceDirectory, ".legioncode-delivery");
-        await mkdir(directory, { recursive: true, mode: 0o700 });
+        attachment.session = session;
+        const directory = host.journalDirectory;
         attachment.journal = await this.openJournal(directory, session);
         if (attachment.stopping) {
           this.beginStop(attachment);
@@ -312,8 +316,10 @@ export class HarnessSessionManager {
     }
     // Keep journal files for commit reconciliation. They contain no command replay.
     this.attachments.delete(session.runAttemptId);
-    if (attachment.host)
+    if (attachment.host) {
       this.instanceDirectories.delete(attachment.host.instanceDirectory);
+      this.journalDirectories.delete(attachment.host.journalDirectory);
+    }
   }
 
   /** Connection revocation prevents both late replies and new instance admissions synchronously. */
@@ -341,8 +347,9 @@ export class HarnessSessionManager {
   private requireSession(raw: HarnessSession): Attachment {
     const session = HarnessSessionSchema.parse(raw);
     const attachment = this.attachments.get(session.runAttemptId);
-    if (!attachment?.live) throw new HarnessHostError("stale_session");
-    assertSession(session, attachment.live.session);
+    if (!attachment?.live || !attachment.session)
+      throw new HarnessHostError("stale_session");
+    assertSession(session, attachment.session);
     return attachment;
   }
 
@@ -354,10 +361,29 @@ export class HarnessSessionManager {
       this.beginStop(attachment);
       return Promise.reject(new HarnessHostError("journal_overflow"));
     }
-    const snapshot = HarnessObservationSchema.parse({ ...input, sequence: 1 });
+    let snapshot: HarnessObservation;
+    try {
+      const encoded = JSON.stringify({ ...input, sequence: 1 });
+      if (Buffer.byteLength(encoded) > 8 * 1024 * 1024)
+        throw new HarnessHostError("journal_overflow");
+      snapshot = HarnessObservationSchema.parse(JSON.parse(encoded));
+    } catch (error) {
+      this.beginStop(attachment);
+      return Promise.reject(
+        error instanceof HarnessHostError
+          ? error
+          : new HarnessHostError("journal_corrupt"),
+      );
+    }
     attachment.pendingObservations++;
     const result = attachment.observationQueue
       .then(() => this.observeNow(attachment, snapshot))
+      .catch((error: unknown) => {
+        this.beginStop(attachment);
+        throw error instanceof HarnessHostError
+          ? error
+          : new HarnessHostError("journal_corrupt");
+      })
       .finally(() => {
         attachment.pendingObservations--;
       });
@@ -369,9 +395,14 @@ export class HarnessSessionManager {
     attachment: Attachment,
     input: Omit<HarnessObservation, "sequence">,
   ): Promise<HarnessCommitAck> {
-    if (!attachment.live || !attachment.journal || !attachment.observe)
+    if (
+      !attachment.session ||
+      !attachment.live ||
+      !attachment.journal ||
+      !attachment.observe
+    )
       throw new HarnessHostError("stale_session");
-    assertSession(attachment.live.session, input.session);
+    assertSession(attachment.session, input.session);
     if (input.externalTurnId !== null) {
       if (
         attachment.externalTurnId !== null &&

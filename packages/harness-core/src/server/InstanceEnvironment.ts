@@ -81,9 +81,11 @@ export async function resolveInstanceDirectory(
     realpath(instanceDirectory),
   ]);
   const child = relative(root, directory);
+  const parent = relative(directory, root);
   if (
     child === "" ||
-    (!child.startsWith(`..${sep}`) && child !== ".." && !isAbsolute(child))
+    (!child.startsWith(`..${sep}`) && child !== ".." && !isAbsolute(child)) ||
+    (!parent.startsWith(`..${sep}`) && parent !== ".." && !isAbsolute(parent))
   ) {
     throw new HarnessHostError("invalid_launch");
   }
