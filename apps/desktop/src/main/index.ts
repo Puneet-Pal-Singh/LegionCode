@@ -118,7 +118,7 @@ handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
   localAppServer.getEnvironment(),
 );
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
-  if (shutdownPromise) throw new Error("Local runtime shutdown is pending");
+  if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
   environmentGeneration += 1;
   pendingWorkspaceSelections.clear();
   await localAppServer.restart(app.getVersion());
