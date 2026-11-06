@@ -543,12 +543,18 @@ importers:
       '@repo/git-service':
         specifier: workspace:*
         version: link:../git-service
+      '@repo/harness-claude':
+        specifier: workspace:*
+        version: link:../harness-claude
       '@repo/harness-codex':
         specifier: workspace:*
         version: link:../harness-codex
       '@repo/harness-core':
         specifier: workspace:*
         version: link:../harness-core
+      '@repo/harness-opencode':
+        specifier: workspace:*
+        version: link:../harness-opencode
       '@repo/persistence':
         specifier: workspace:*
         version: link:../persistence
