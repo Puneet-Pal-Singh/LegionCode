@@ -51,3 +51,4 @@ export {
   type ToolResult,
   type WorkerToolResult,
 } from "./types.js";
+export type { DelegatedHarnessPort, HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";

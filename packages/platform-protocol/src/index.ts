@@ -618,3 +618,4 @@ export {
   type HostedWorkspaceListItem,
   type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";
+export * from "./harness/index.js";
