@@ -30,10 +30,14 @@ The App Server consumer/composition and protected provider resolution remain
 integration dependencies owned by workers01/04. Durable admission uses worker02's
 canonical `TurnAdmission` contract; the executor does not own a prompt store.
 The real Desktop acceptance loop is pending that wiring and installed Mac proof.
-The default Node descriptor reader is Linux-only. Mac must supply the safe native
-reader through the existing `RuntimeExecutionService` port using
-`createReadExecutionService(admission, theSameBinding, signal)`; it never falls
-back to pathname traversal or advertises directory reads.
+The default Node descriptor reader is Linux-only. Mac supplies the actual
+`NativeFilesystemBridge.readFile` bound to the same held-root-FD grant handle via
+`createNativeReadExecutionService({attempt, binding, readFile})`, returned from
+`createReadExecutionService(admission, theSameBinding, signal)`. This read-only
+adapter has no helper-path, framing, file-opening or mutation authority. Both
+backends share `formatLocalReadFile`; no pathname fallback or directory-read
+capability is exposed. Helper compile/package and protected startup path remain
+owned by the native helper/packaging/private host composition.
 
 Sources inspected: [Codex isolated ghost-commit capture](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/git-utils/src/ghost_commits.rs#L302)
 keeps capture indexing isolated; [T3 checkpoint service](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/server/src/orchestration-v2/CheckpointCaptureService.ts#L68)

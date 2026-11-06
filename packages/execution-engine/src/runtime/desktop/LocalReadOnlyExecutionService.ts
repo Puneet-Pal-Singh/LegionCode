@@ -1,17 +1,13 @@
+import { formatLocalReadFile } from "./LocalReadFileOutput.js";
 import { openLocalWorkspaceEntry } from "./LocalReadOnlyWorkspaceHandle.js";
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
-import {
-  codingToolRegistry,
-  MAX_TOOL_READ_LINES,
-} from "../tools/CodingToolRegistry.js";
+import { codingToolRegistry } from "../tools/CodingToolRegistry.js";
 import type { RuntimeExecutionService } from "../types.js";
 
 export const LOCAL_READ_ONLY_TOOL_IDS = ["read_file"] as const;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
-const MAX_OUTPUT_BYTES = 48 * 1024;
-const MAX_LINE_BYTES = 2000;
 
 /** Host-only filesystem backend. It has no shell, mutation, provider or lifecycle port. */
 export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
@@ -154,38 +150,13 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
       if (length > MAX_FILE_BYTES)
         throw new Error("File exceeded the read limit");
       const text = buffer.subarray(0, length).toString("utf8");
-      if (text.includes("\0"))
-        throw new Error("Binary files are unavailable in text reads");
-      const lines = text === "" ? [] : text.replace(/\r\n/g, "\n").split("\n");
-      if (lines.at(-1) === "") lines.pop();
-      const offset = typeof parsed.offset === "number" ? parsed.offset : 0;
-      const limit =
-        typeof parsed.limit === "number" ? parsed.limit : MAX_TOOL_READ_LINES;
-      const selected: string[] = [];
-      let bytes = 0;
-      let shortenedLine = false;
-      for (const line of lines.slice(offset, offset + limit)) {
-        const encoded = Buffer.from(line);
-        const shortened = encoded.length > MAX_LINE_BYTES;
-        const display = shortened
-          ? encoded.subarray(0, MAX_LINE_BYTES).toString("utf8") +
-            " [line truncated]"
-          : line;
-        const numbered = `${offset + selected.length + 1}: ${display}`;
-        const size = Buffer.byteLength(numbered) + 1;
-        if (bytes + size > MAX_OUTPUT_BYTES) break;
-        bytes += size;
-        shortenedLine ||= shortened;
-        selected.push(numbered);
-      }
-      const nextOffset = offset + selected.length;
-      const truncated = nextOffset < lines.length;
-      const header = `[read_file] path=${path} offset=${offset} limit=${limit} returnedLines=${selected.length} totalLines=${lines.length} truncated=${truncated}${truncated ? ` nextOffset=${nextOffset}` : ""}`;
       await validateAfterOperation();
-      return {
-        output: [header, ...selected].join("\n"),
-        metadata: { truncated, shortenedLine, nextOffset },
-      };
+      return formatLocalReadFile({
+        path,
+        content: text,
+        offset: typeof parsed.offset === "number" ? parsed.offset : undefined,
+        limit: typeof parsed.limit === "number" ? parsed.limit : undefined,
+      });
     } finally {
       await entry.close();
     }
