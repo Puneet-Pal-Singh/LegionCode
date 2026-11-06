@@ -818,10 +818,13 @@ Artifact-selected local commits additionally pass trusted terminal/baseline tree
 and HEAD guards to that same transaction. Only saved-diff leaf paths, including
 rename sources and deletions, are compared. A guarded commit uses a separate
 HEAD-based index populated from validated staged entries, so later worktree edits
-cannot retarget the commit. Its per-command empty-hooks policy preserves the
-reviewed artifact exactly; generic hosted commits retain repository hooks.
+cannot retarget the commit. On Linux it delegates configured repository hooks and validates their resulting
+private index before HEAD changes; hook mutations outside the saved artifact are
+typed conflicts. Mac uses the declared no-fork OS backend and does not disable
+repository hooks. Generic hosted commit hooks remain unchanged.
 `LocalGitService` authorizes canonical admission, terminal lifecycle evidence,
-immutable artifact ownership and the retained current workspace lease before
+the existing attempt-bound local artifact store's commit source/start snapshot
+and the retained current workspace lease before
 calling the Git owner. Its App Server/SDK/renderer dispatch remains pending the
 central composition owner; this leaf alone does not complete Desktop 7B.
 

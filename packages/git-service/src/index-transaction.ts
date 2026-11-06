@@ -112,17 +112,27 @@ const { spawn } = require("node:child_process");
       if (installed.exitCode !== 0) throw Object.assign(new Error(installed.stderr), { result: installed });
       // Commit only the validated immutable index. Never re-read live files via --only.
       const separator = input.args.indexOf("--");
-      const hooks = path.join(directory, "empty-hooks");
-      fs.mkdirSync(hooks, { mode: 0o700 });
-      commitArgs = ["-c", "core.hooksPath=" + hooks, ...input.args.slice(0, separator < 0 ? input.args.length : separator).filter(value => value !== "--only")];
+      const hooks = path.join(directory, "guarded-hooks");
+      commitArgs = input.args.slice(0, separator < 0 ? input.args.length : separator).filter(value => value !== "--only");
+      if (process.platform === "linux") {
+        const originalHooks = await required(["rev-parse", "--path-format=absolute", "--git-path", "hooks"]);
+        fs.mkdirSync(hooks, { mode: 0o700 });
+        fs.writeFileSync(path.join(hooks, "package.json"), JSON.stringify({ type: "commonjs" }), { mode: 0o600 });
+        fs.writeFileSync(path.join(hooks, "guard.json"), JSON.stringify({ originalHooks, cwd: input.cwd, index: commitIndex, terminalTree: guard.expectedTerminalTreeId, beforeHead, paths: guard.paths }), { mode: 0o600 });
+        const wrapper = "#!/usr/bin/env node\nconst fs = require(\"node:fs\");\nconst path = require(\"node:path\");\nconst { spawnSync } = require(\"node:child_process\");\nconst config = JSON.parse(fs.readFileSync(path.join(__dirname, \"guard.json\"), \"utf8\"));\nconst name = path.basename(process.argv[1]);\nconst original = path.join(config.originalHooks, name);\nconst fail = (message, code = 1) => {\n  fs.appendFileSync(path.join(__dirname, \"failure\"), name + \": \" + message + \"\\n\");\n  process.stderr.write(\"legion-artifact-guard-conflict: \" + message + \"\\n\");\n  process.exit(code);\n};\ntry {\n  fs.accessSync(original, fs.constants.X_OK);\n  const result = spawnSync(original, process.argv.slice(2), { stdio: \"inherit\", env: process.env });\n  if (result.error || result.status !== 0) fail(\"Repository hook failed\", result.status || 1);\n} catch (error) {\n  if (error.code !== \"ENOENT\" && error.code !== \"EACCES\") fail(\"Repository hook could not be inspected\");\n}\nconst environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith(\"GIT_\")));\nconst currentIndex = path.resolve(process.env.GIT_INDEX_FILE || config.index);\nif (path.dirname(currentIndex) !== path.dirname(config.index)) fail(\"Repository hook received an unexpected index context\");\nenvironment.GIT_INDEX_FILE = currentIndex;\nenvironment.GIT_OPTIONAL_LOCKS = \"0\";\nconst git = args => spawnSync(\"git\", [\"--work-tree=\" + config.cwd, \"-c\", \"core.fsmonitor=false\", ...args], { cwd: config.cwd, env: environment, encoding: \"utf8\", maxBuffer: 16 * 1024 * 1024 });\nconst selected = git([\"--literal-pathspecs\", \"diff\", \"--no-ext-diff\", \"--no-textconv\", \"--cached\", \"--quiet\", config.terminalTree, \"--\", ...config.paths]);\nconst changed = git([\"diff\", \"--no-ext-diff\", \"--no-textconv\", \"--cached\", \"--name-only\", \"-z\", config.beforeHead]);\nif (selected.status !== 0 || changed.status !== 0 || changed.stdout.split(\"\\0\").filter(Boolean).some(value => !config.paths.includes(value))) {\n  fail(\"Repository hook changed immutable artifact content or additional paths\");\n}\n";
+        for (const name of ["pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"]) fs.writeFileSync(path.join(hooks, name), wrapper, { mode: 0o700 });
+        commitArgs = ["-c", "core.hooksPath=" + hooks, ...commitArgs];
+      }
+
     }
     result = await run(commitArgs, commitIndex);
     if (result.exitCode !== 0) {
+      if (guard.expectedTerminalTreeId && result.stderr.includes("legion-artifact-guard-conflict:")) result = { ...result, artifactConflict: true };
       let unchanged = false;
       try { unchanged = (await headState()) === beforeHead; } catch {}
       if (!unchanged) {
         committed = true;
-        result = { ...result, indexPublication: "indeterminate" };
+        result = { ...result, artifactConflict: undefined, indexPublication: "indeterminate" };
       }
     }
     if (result.exitCode === 0) {
@@ -133,6 +143,8 @@ const { spawn } = require("node:child_process");
       if (guard.expectedTerminalTreeId) {
         const verified = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", guard.expectedTerminalTreeId, commitSha, "--", ...guard.paths], undefined, true);
         const changed = await run(["diff", "--name-only", "-z", beforeHead, commitSha], undefined, true);
+        const finalIndex = await run(["diff", "--no-ext-diff", "--no-textconv", "--cached", "--quiet", commitSha], commitIndex, true);
+        if (finalIndex.exitCode !== 0 || fs.existsSync(path.join(directory, "guarded-hooks", "failure"))) throw new Error("Repository hook changed or failed after the artifact commit; inspect outcome");
         if (verified.exitCode !== 0 || changed.exitCode !== 0 || changed.stdout.split("\0").filter(Boolean).some(candidate => !guard.paths.includes(candidate))) {
           throw new Error("Git hooks changed the immutable artifact commit; outcome requires inspection");
         }
