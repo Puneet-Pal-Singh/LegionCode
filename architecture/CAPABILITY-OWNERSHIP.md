@@ -237,6 +237,16 @@ bindings. The SDK `AppServerClient` owns the network request, complete envelope
 serialization and pre-body ACK observation. Hosted routing is completed by
 Plan 058 PR B; Desktop capability changes are not included.
 
+### Plan 058 resumed activity and steering presentation
+
+| Responsibility | Canonical owner | Active consumers and invariant |
+| --- | --- | --- |
+| Run-attempt lifecycle timestamps, status, and replay | Runtime lifecycle append and SDK workflow projection | Each real resume/attempt keeps its own canonical started/terminal timestamps and existing IDs; Web does not infer clocks or terminal state. |
+| Same-task resumed workflow history | SDK conversation entry projection; shared `client-ui` conversation renderer | Actual prior workflow projections remain visible chronologically with the latest attempt. The original prompt, transcript, artifacts, review identity, and separate revisions remain unchanged. |
+| Queued follow-up and immediate steer presentation | Existing SDK thread-input queue/steer commands; shared `client-ui` composer presentation | Web binds the authenticated image source and existing queue mutations. Enter queues an active-run draft; Cmd/Ctrl+Enter uses the existing direct steer command. Draft text and media remain in the composer until the existing command accepts them. |
+
+No new lifecycle, queue, browser-history, or clock owner is added.
+
 ## Plan 058.1 — Lifecycle projection composition and selection
 
 | Responsibility | Canonical owner | Active consumers |
@@ -554,7 +564,7 @@ The hint supplies no identity or permission and does not bypass provider scope.
 
 | Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
 | Turn execution and Stop | Existing native runner and RuntimeKernel | Both capabilities share provider/context/budgeting, canonical lifecycle append, interruption and terminal settlement. `Run.executionCapability` is emitted on the started attempt; no alternate chat transport or fabricated manifest is introduced. |
-| Interrupted continuation | Existing turn admission and ResumeTurnService | Exact owner, thread, turn, attempt, terminal sequence, root prompt and command dedupe remain required. Projectless resume restores conversation history; repository resume additionally validates its captured workspace artifact. SDK replay projects capability for Web Play availability. The empty composer reuses its submit control for Play; typed drafts still send new requests, and active turns retain Stop/Queue/Steer. Interruption and continuation markers render terminal state and canonical start timestamps; accepted user inputs use their persisted message timestamps, including Queue/Steer. Date markers appear only when a later user prompt or continuation starts on a different local calendar day from prior chat activity; initial and same-day prompts omit them. They reuse the chat 12-hour formatter and omit rules. The dev composer retains unavailable-resume messaging and its asynchronous guarded Play control; interrupted terminal messages are not duplicated in the transcript. |
+| Interrupted continuation | Existing turn admission and ResumeTurnService | Exact owner, thread, turn, attempt, terminal sequence, root prompt and command dedupe remain required. Projectless resume restores conversation history; repository resume additionally validates its captured workspace artifact. SDK replay projects capability for Web Play availability. The empty composer reuses its submit control for Play; typed drafts still send new requests, and active turns retain Stop/Queue/Steer. Interruption and continuation markers render terminal state and canonical start timestamps; accepted user inputs use their persisted message timestamps, including Queue/Steer. User-input date markers appear only when a later prompt starts on a different local calendar day from prior chat activity; initial and same-day prompts omit them. They reuse the chat 12-hour formatter and omit rules. Continuation attempts retain dev's chronological workflow history and their own canonical start timestamps, without a duplicate date marker. The dev composer retains unavailable-resume messaging and its asynchronous guarded Play control; interrupted terminal messages are not duplicated in the transcript. |
 
 The unconditional checkout requirement is removed for admitted projectless chats.
 Repository execution retains its Git and artifact requirements. The SDK renders
