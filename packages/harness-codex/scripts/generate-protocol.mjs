@@ -54,7 +54,7 @@ try {
   ) {
     throw new Error("Generated schema does not match the pinned schema");
   }
-  // Copy only the initialize/framing types currently consumed, plus their imports.
+  // Copy only the initialize/session/control types currently consumed, plus their imports.
   const seen = new Set();
   function copy(relative) {
     if (seen.has(relative)) return;
@@ -74,7 +74,17 @@ try {
     // Mechanical NodeNext import spelling; declarations otherwise remain upstream output.
     writeFileSync(output, source.replace(/from "([^"]+)"/g, 'from "$1.js"'));
   }
-  for (const name of ["RequestId", "InitializeParams", "InitializeResponse"])
+  for (const name of [
+    "RequestId",
+    "InitializeParams",
+    "InitializeResponse",
+    "v2/ThreadStartParams",
+    "v2/ThreadResumeParams",
+    "v2/ThreadReadParams",
+    "v2/TurnStartParams",
+    "v2/TurnSteerParams",
+    "v2/TurnInterruptParams",
+  ])
     copy(name + ".ts");
   writeFileSync(
     join(destination, "JSONRPCMessage.schema.json"),
