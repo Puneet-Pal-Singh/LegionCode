@@ -9,7 +9,11 @@ export interface ExactTextEditInput {
 export function replaceExactText(
   content: string,
   input: ExactTextEditInput,
+  options: { maxOutputBytes?: number } = {},
 ): { content: string; count: number } {
+  if (input.oldText.length === 0) {
+    throw new Error("Exact edit requires non-empty oldText");
+  }
   const count = countOccurrences(content, input.oldText);
   if (count === 0) {
     throw new Error(`Exact edit text was not found in ${input.path}`);
@@ -27,9 +31,18 @@ export function replaceExactText(
       `Expected ${input.expectedReplacements} replacement match(es) in ${input.path}, found ${count}`,
     );
   }
+  if (options.maxOutputBytes !== undefined) {
+    const encode = (text: string) => new TextEncoder().encode(text).byteLength;
+    const replacements = input.replaceAll ? count : 1;
+    const bytes =
+      encode(content) +
+      replacements * (encode(input.newText) - encode(input.oldText));
+    if (bytes > options.maxOutputBytes)
+      throw new Error("Exact edit exceeds its supported output byte limit");
+  }
   const nextContent = input.replaceAll
     ? content.split(input.oldText).join(input.newText)
-    : content.replace(input.oldText, input.newText);
+    : content.replace(input.oldText, () => input.newText);
   return { content: nextContent, count: input.replaceAll ? count : 1 };
 }
 
