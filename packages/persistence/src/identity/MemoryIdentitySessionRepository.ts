@@ -1,9 +1,9 @@
 import {
-  DESKTOP_AUTH_INTENT, DesktopAuthChallengeError,
+  DesktopAuthChallengeError,
   validateDesktopAuthCreate, validateDesktopAuthConsent, validateDesktopAuthRedeem,
   type CreateDesktopAuthChallengeInput, type PrepareDesktopAuthConsentInput,
   type AuthorizeDesktopAuthChallengeInput, type RedeemDesktopAuthChallengeInput,
-  type DesktopAuthConsentRecord, type DesktopAuthRedeemedSession, type DesktopAuthRedeemResult, type DesktopAuthChallengeScope,
+  type DesktopAuthRedeemResult, type DesktopAuthChallengeScope,
 } from "./desktop-auth-types.js";
 interface StoredDesktopChallenge extends CreateDesktopAuthChallengeInput {
   consentSessionId: string | null; csrfHash: string | null;
@@ -17,7 +17,10 @@ import type {
 
 interface StoredSession {
   sessionHash: string;
-  record: IdentitySessionRecord;
+  authSessionId: string;
+  userId: string;
+  createdAt: number;
+  expiresAt: string;
   revokedAt: string | null;
 }
 
@@ -36,16 +39,16 @@ export class MemoryIdentitySessionRepository implements IdentitySessionRepositor
     validateDesktopAuthConsent(input);
     const challenge = this.usableDesktopChallenge(input);
     const source = this.sessions.get(input.sourceSessionHash);
-    if (!challenge || challenge.authorizedAt !== null || !isActiveSession(source,input.now) || (challenge.consentSessionId !== null && challenge.consentSessionId !== source.record.authSessionId)) return false;
-    challenge.consentSessionId=source.record.authSessionId; challenge.csrfHash=input.csrfHash;
+    if (!challenge || challenge.authorizedAt !== null || !isActiveSession(source,input.now) || (challenge.consentSessionId !== null && challenge.consentSessionId !== source.authSessionId)) return false;
+    challenge.consentSessionId=source.authSessionId; challenge.csrfHash=input.csrfHash;
     return true;
   }
   async authorizeDesktopAuthChallenge(input: AuthorizeDesktopAuthChallengeInput): Promise<boolean> {
     validateDesktopAuthConsent(input);
     const challenge = this.usableDesktopChallenge(input);
     const source = this.sessions.get(input.sourceSessionHash);
-    if (!challenge || challenge.authorizedAt !== null || !isActiveSession(source,input.now) || challenge.consentSessionId !== source.record.authSessionId || challenge.csrfHash !== input.csrfHash) return false;
-    challenge.authorizedSourceSessionId=source.record.authSessionId; challenge.authorizedAt=input.now;
+    if (!challenge || challenge.authorizedAt !== null || !isActiveSession(source,input.now) || challenge.consentSessionId !== source.authSessionId || challenge.csrfHash !== input.csrfHash) return false;
+    challenge.authorizedSourceSessionId=source.authSessionId; challenge.authorizedAt=input.now;
     return true;
   }
   async redeemDesktopAuthChallenge(input: RedeemDesktopAuthChallengeInput): Promise<DesktopAuthRedeemResult> {
@@ -55,14 +58,16 @@ export class MemoryIdentitySessionRepository implements IdentitySessionRepositor
     if (!challenge || challenge.verifierChallenge !== input.verifierChallenge) return {status:"invalid"};
     if (!challenge.authorizedAt) return {status:"pending"};
     if (challenge.authorizedSourceSessionId !== challenge.consentSessionId) return {status:"invalid"};
-    const source=Array.from(this.sessions.values()).find((value) => value.record.authSessionId === challenge.authorizedSourceSessionId);
+    const source=Array.from(this.sessions.values()).find((value) => value.authSessionId === challenge.authorizedSourceSessionId);
     if (!isActiveSession(source,input.now) || source.sessionHash === input.sessionHash) return {status:"invalid"};
     if (this.sessions.has(input.sessionHash)) throw new DesktopAuthChallengeError("session_hash_conflict", "Desktop authentication session could not be created");
-    const expiresAt = new Date(Math.min(Date.parse(input.sessionExpiresAt),Date.parse(source.record.expiresAt))).toISOString();
-    const record: IdentitySessionRecord={...source.record,authSessionId:crypto.randomUUID(),createdAt:Date.parse(input.now),expiresAt};
-    this.sessions.set(input.sessionHash,{sessionHash:input.sessionHash,record,revokedAt:null});
+    const expiresAt = new Date(Math.min(Date.parse(input.sessionExpiresAt),Date.parse(source.expiresAt))).toISOString();
+    const authSessionId=crypto.randomUUID();
+    // Mint only auth-session metadata. OAuth material remains in the existing
+    // user/account authority and is not read or copied by this exchange.
+    this.sessions.set(input.sessionHash,{sessionHash:input.sessionHash,authSessionId,userId:source.userId,createdAt:Date.parse(input.now),expiresAt,revokedAt:null});
     challenge.consumedAt=input.now;
-    return {status:"issued",authSessionId:record.authSessionId,userId:record.userId,expiresAt};
+    return {status:"issued",authSessionId,userId:source.userId,expiresAt};
   }
   private usableDesktopChallenge(input: DesktopAuthChallengeScope): StoredDesktopChallenge | null {
     const challenge=this.desktopChallenges.get(input.challengeIdHash);
@@ -81,7 +86,10 @@ export class MemoryIdentitySessionRepository implements IdentitySessionRepositor
     const record = buildIdentitySessionRecord(userId, input);
     this.sessions.set(input.sessionHash, {
       sessionHash: input.sessionHash,
-      record,
+      authSessionId: record.authSessionId,
+      userId,
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
       revokedAt: null,
     });
     return record;
@@ -96,7 +104,7 @@ export class MemoryIdentitySessionRepository implements IdentitySessionRepositor
       return null;
     }
 
-    return session.record;
+    return this.recordFor(session);
   }
 
   async findLatestGitHubSessionByUserId(
@@ -106,11 +114,17 @@ export class MemoryIdentitySessionRepository implements IdentitySessionRepositor
     const sessions = Array.from(this.sessions.values())
       .filter(
         (session): session is StoredSession =>
-          session.record.userId === userId && isActiveSession(session, now),
+          session.userId === userId && isActiveSession(session, now),
       )
-      .sort((left, right) => right.record.createdAt - left.record.createdAt);
+      .sort((left, right) => right.createdAt - left.createdAt);
 
-    return sessions[0]?.record ?? null;
+    return sessions[0] ? this.recordFor(sessions[0]) : null;
+  }
+
+  private recordFor(session: StoredSession): IdentitySessionRecord | null {
+    const identity=this.users.get(session.userId);
+    if(!identity)return null;
+    return {...buildIdentitySessionRecord(session.userId,identity),authSessionId:session.authSessionId,createdAt:session.createdAt,expiresAt:session.expiresAt};
   }
 
   async revokeSession(sessionHash: string, now: string): Promise<void> {
@@ -129,7 +143,7 @@ function isActiveSession(
     return false;
   }
 
-  return new Date(session.record.expiresAt).getTime() > new Date(now).getTime();
+  return new Date(session.expiresAt).getTime() > new Date(now).getTime();
 }
 
 function buildIdentitySessionRecord(
