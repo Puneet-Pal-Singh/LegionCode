@@ -1,5 +1,22 @@
 # Capability ownership
 
+## Plans 048/061 — delegated kernel and execution safety
+
+| Responsibility | Canonical owner | Actual wiring and integration status |
+| --- | --- | --- |
+| Immutable admitted harness selection | `platform-protocol/src/harness` | Separate from learned external session/turn identity in private `worker-protocol/src/harness.ts`; driver-native SDK types remain private. |
+| Exclusive native/delegated execution | `RuntimeKernel` with `DelegatedTurnCoordinator` | `StartTurnInput.execution` selects the delegated port before native context/provider/tools/compaction. Existing callers omitting that selection retain native execution. Concrete driver/App Server composition is still an integration gate, not completed by this kernel change. |
+| Private observation validation and canonical translation | `HarnessObservationIngestor` and `RuntimeLifecycleCoordinator` | Hydrate from canonical replay and validated binding facts, then validate exact session/UUID process generation and bounded ingress before staging zero-to-many existing lifecycle events. Ambiguous commits fence further appends until replay recovery. `HarnessObservationCommitPort` requires the persistence owner's atomic ingress/fingerprint plus canonical append transaction; P11 supplies that adapter. No generic event-processor success is treated as commit ACK. |
+| Approval winner and reply fencing | Existing `ApprovalCoordinator` plus delegated coordinator | Freeze one resolution before async persistence; canonical append, waiter result and strict reply conflict handling share that winner. Delegated requests use the existing lifecycle approval schema/coordinator; replies bind origin/request/process/auth generation and require a durable single-use claim before transport delivery. User-input requests/responses use existing canonical request events and JSON payloads. |
+| Stop versus terminal settlement | Existing kernel/lifecycle coordinator | Revalidate cancellation after artifact capture and before serialized terminal append. An uncertain terminal append freezes its chosen outcome for durable recovery. Delegated success requires scoped process-tree/background-work quiescence, never interrupt ACK alone. Foreground provider completion retains its timestamp; only explicitly marked background facts remain admissible until quiescence. |
+| Startup Stop ownership | `RunExecutionStartup` and existing interrupt registry | Run Engine establishes startup ownership before durable claim I/O; a pending Stop transfers to the registered runner. Rejected claims remove only the startup registration they acquired. |
+| Unsafe checkout retention | `TaskCheckoutRunLifecycle` | Once runtime work starts, absent/unknown quiescence or missing committed immutable review retains active checkout ownership and its existing secure lease. The Run Engine observes canonical settlement before closing a checkout; pre-runtime resource failures retain their existing safe cleanup path. |
+
+`architecture/RUNTIME-ARCHITECTURE.md` is restored as the tracked authority from
+the approved local provenance and current owner trace. This records implemented
+kernel/native safety paths; a selected-account driver consumer, durable recovery,
+subscription access and installed Mac proof remain release gates.
+
 ## Unused Web run-summary reader retirement
 
 The unreferenced `useRunSummary` hook, its implementation-only tests and its
@@ -15,8 +32,8 @@ read, rewritten or deleted by this code retirement.
 
 | Responsibility | Canonical owner | Active producer and consumers |
 | --- | --- | --- |
-| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed, interrupted, unsettled, and already-expired paths do not gain a retention window. |
-| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles the checkout; its existing final release retains only successfully settled completion and releases all other outcomes immediately. |
+| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed/interrupted paths with proven immutable runtime settlement release normally. Unknown mutation or artifact state retains existing ownership for recovery; no path gains a renewed lease deadline. |
+| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles a checkout only after committed immutable runtime evidence. Successful settlement retains the original review lease until its deadline; failed/interrupted settlement releases only when that evidence proves safe. Unknown or unreadable evidence retains active ownership for recovery. |
 | Persisted expiry alarm and physical sandbox cleanup | Existing Secure Agent API `AgentRuntime` Durable Object | Persisted `execution:session:` references schedule the earliest nested lease expiry; cleanup and immediate release resolve the exact persisted lease after DO reload and protect another live reference to its sandbox. Before destruction, the existing session record receives a durable cleanup marker; storage for both that session key and sandbox ID is blocked, and flagged leases cannot execute. Destroy waits are bounded; failure retains the marked record and retries with backoff. Successful destroy removes the record and marker, after which the existing generation flow can create a replacement using its distinct sandbox ID. |
 
 This is the approved original-lease retention policy for explicit Current Git
@@ -31,9 +48,9 @@ Upstream source inspection before this semantic change:
 - Codex revision [`6a0c4709ca2154e9f3ebb07e58fb156386630188`](https://github.com/openai/codex/tree/6a0c4709ca2154e9f3ebb07e58fb156386630188): [`agent/status.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/status.rs) represents normal completion as `Completed`; [`agent/control.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/control.rs) releases spawned-thread ownership through explicit shutdown/close paths. This supports keeping terminal completion and resource release distinct, but Codex's local agent registry is not a cloud sandbox lease owner and has no directly reusable expiry/alarm policy.
 - OpenCode revision [`3729fd57068445104ea464a952d41798ed30ea20`](https://github.com/anomalyco/opencode/tree/3729fd57068445104ea464a952d41798ed30ea20): [`session/status.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/session/status.ts) clears volatile status on idle; [`project/instance.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/project/instance.ts) invokes registered instance disposers. Neither is an analogue for persisted Cloudflare sandbox lease cleanup across a Durable Object reload.
 
-The smallest necessary implementation change is to let the existing checkout
-lifecycle retain only its successful settled outcome and extend `AgentRuntime`'s
-existing persisted-session owner with an alarm-driven cleanup path; no new
+Successful review retention uses the original checkout deadline. Execution safety
+additionally retains uncertain runtime ownership until recovery. `AgentRuntime`'s
+existing persisted-session owner keeps its alarm-driven cleanup path; no new
 scheduler, session store, runtime, schema, or replacement lease owner is added.
 
 ## Main integration — shared conversation and continuation

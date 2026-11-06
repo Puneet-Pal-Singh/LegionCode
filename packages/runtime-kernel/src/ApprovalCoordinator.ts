@@ -59,6 +59,7 @@ export class ApprovalCoordinator {
         signal,
       );
       const resolution = await this.settle(request.approvalId, pending, candidate);
+      if (signal?.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped while approval settlement was committing");
       if (resolution.timedOut) {
         throw new RuntimeKernelError(
           "approval_timed_out",
@@ -115,12 +116,18 @@ export class ApprovalCoordinator {
       );
     }
     let resolve!: (resolution: ApprovalResolution) => void;
-    const resolution = new Promise<ApprovalResolution>((accept) => {
+    let reject!: (error: unknown) => void;
+    const resolution = new Promise<ApprovalResolution>((accept, fail) => {
       resolve = accept;
+      reject = fail;
     });
+    // An external decision can fail while request publication is still awaited.
+    // Keep the rejection observed until the execution joins the same promise.
+    void resolution.catch(() => undefined);
     const pending: PendingApprovalResolution = {
       resolution,
       resolve,
+      reject,
       request,
       settlement: null,
       selectedResolution: null,
@@ -172,7 +179,12 @@ export class ApprovalCoordinator {
           ? { grantScope: selected.grantScope } : {}),
       },
     );
-    await pending.settlement;
+    try {
+      await pending.settlement;
+    } catch (error) {
+      pending.reject(error);
+      throw error;
+    }
     pending.resolve(selected);
     return selected;
   }
@@ -181,6 +193,7 @@ export class ApprovalCoordinator {
 interface PendingApprovalResolution {
   readonly resolution: Promise<ApprovalResolution>;
   readonly resolve: (resolution: ApprovalResolution) => void;
+  readonly reject: (error: unknown) => void;
   readonly request: ApprovalRequestedPayload;
   settlement: Promise<void> | null;
   selectedResolution: ApprovalResolution | null;

@@ -266,6 +266,7 @@ export class ToolExecutionCoordinator {
     approval: ApprovalResolution | null,
     signal?: AbortSignal,
   ): Promise<WorkerToolResult> {
+    if (signal?.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped before worker dispatch");
     return await this.worker.executeTool({
       runId: run.id,
       runAttemptId,

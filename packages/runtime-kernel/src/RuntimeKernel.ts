@@ -1,3 +1,6 @@
+import { HarnessSelectionSchema } from "@repo/platform-protocol";
+import { HarnessStartCommandSchema } from "@repo/worker-protocol";
+import { DelegatedTurnCoordinator, type DelegatedExecutionDependencies } from "./harness/DelegatedTurnCoordinator.js";
 import {
   ItemIdSchema,
   RunAttemptIdSchema,
@@ -60,6 +63,7 @@ export interface RuntimeKernelDependencies {
   readonly maxToolCalls?: number;
   readonly clock?: RuntimeKernelClock;
   readonly signal?: AbortSignal;
+  readonly delegated?: DelegatedExecutionDependencies;
 }
 
 interface PreparedTurn {
@@ -70,6 +74,7 @@ interface PreparedTurn {
   readonly lifecycle: RuntimeLifecycleCoordinator;
   readonly artifacts: TurnArtifactSettlementCoordinator | null;
   readonly tools: ToolExecutionCoordinator;
+  readonly delegated: DelegatedTurnCoordinator | null;
   readonly executionSignal: AbortSignal;
   readonly hookTriggerEvents: {
     readonly sessionStart: LifecycleEvent;
@@ -94,6 +99,7 @@ export class RuntimeKernel {
     string,
     Promise<TurnArtifactSettlementResult>
   >();
+  private readonly unsafeWorkspaces = new Set<string>();
   private readonly pendingInterrupts = new Map<string, string>();
   private readonly executions = new Map<string, Promise<StartTurnResult>>();
   private readonly preparedTurns = new Map<string, PreparedTurn>();
@@ -129,6 +135,9 @@ export class RuntimeKernel {
     readonly clientInputId: string;
     readonly transcriptMessageId: string;
   }): Promise<number> {
+    if (this.preparedTurns.get(input.turnId)?.delegated) {
+      throw new RuntimeKernelError("tool_policy_denied", "Delegated steering requires its origin-scoped harness command; native model input is unavailable");
+    }
     const lifecycle = this.lifecycles.get(input.turnId);
     if (!lifecycle || !this.dependencies.provider.enqueueThreadInput) {
       throw new RuntimeKernelError(
@@ -186,6 +195,18 @@ export class RuntimeKernel {
     this.assertTurnAvailable(turn);
     const workspace = run.executionCapability === "conversation"
       ? null : await this.requireWorkspace(run);
+    const delegatedInput = input.execution?.kind === "delegated" ? input.execution : null;
+    if (delegatedInput) {
+      const selection = HarnessSelectionSchema.parse(delegatedInput.selection);
+      if (!workspace || !this.dependencies.delegated || selection.userId !== run.userId ||
+        selection.workspaceId !== run.workspaceId || selection.threadId !== run.threadId ||
+        selection.runId !== run.id || selection.turnId !== turn.id || selection.runAttemptId !== runAttemptId ||
+        selection.modelId !== run.modelId || selection.policyId !== run.permissionProfileId) {
+        throw new RuntimeKernelError("invalid_turn_identity", "Delegated selection does not match admitted execution");
+      }
+      await this.dependencies.delegated.assertActive({ selection, leaseId: delegatedInput.leaseId,
+        filesystemRoot: workspace.filesystemRoot });
+    }
     const artifactSettlement = workspace
       ? this.createArtifactSettlement(run, turn, workspace) : null;
     const startArtifacts = await artifactSettlement?.begin();
@@ -209,12 +230,24 @@ export class RuntimeKernel {
     this.executionControllers.set(turn.id, executionController);
     const lifecycleStart = await lifecycle.start();
     if (startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    const delegated = delegatedInput && this.dependencies.delegated && workspace && startArtifacts
+      ? new DelegatedTurnCoordinator({
+          dependencies: this.dependencies.delegated,
+          command: HarnessStartCommandSchema.parse({
+            commandId: `${runAttemptId}:start`, selection: delegatedInput.selection,
+            leaseId: delegatedInput.leaseId, startSnapshot: startArtifacts.snapshot,
+            filesystemRoot: workspace.filesystemRoot, prompt: delegatedInput.prompt,
+            resumeSession: delegatedInput.resumeSession,
+          }),
+          run, turn, lifecycle, approvals, signal: executionController.signal,
+        }) : null;
     return {
       run,
       turn,
       runAttemptId,
       workspace,
       lifecycle,
+      delegated,
       artifacts: artifactSettlement,
       tools,
       executionSignal: executionController.signal,
@@ -228,8 +261,7 @@ export class RuntimeKernel {
   private async executePreparedTurn(
     prepared: PreparedTurn,
   ): Promise<StartTurnResult> {
-    const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
-      prepared;
+    const { turn, workspace, lifecycle, artifacts } = prepared;
     try {
       if (lifecycle.isTerminal) {
         return {
@@ -240,23 +272,9 @@ export class RuntimeKernel {
         };
       }
       await this.runHooks(prepared);
-      const context = await this.assembleContext(
-        run,
-        turn,
-        workspace,
-        [],
-        prepared.executionSignal,
-      );
-      this.activeContexts.set(turn.id, context);
-      const result = await this.executeLoop(
-        prepared,
-        run,
-        runAttemptId,
-        turn,
-        workspace,
-        context,
-        tools,
-      );
+      const result = prepared.delegated
+        ? { status: "completed" as const, ...await prepared.delegated.execute() }
+        : await this.executeNativePreparedTurn(prepared);
       if (prepared.executionSignal.aborted || lifecycle.isTerminal) {
         throw new LifecycleTransitionError(
           "turn",
@@ -266,7 +284,10 @@ export class RuntimeKernel {
         );
       }
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
-      await lifecycle.complete(result.output, result.finalItemId);
+      // Snapshot capture awaits filesystem/Git work. Stop may have been accepted
+      // during that await; revalidate before entering terminal arbitration.
+      if (prepared.executionSignal.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped during artifact capture");
+      await lifecycle.complete(result.output, result.finalItemId, () => !prepared.executionSignal.aborted);
       return {
         status: result.status,
         output: result.output,
@@ -274,23 +295,27 @@ export class RuntimeKernel {
         workspace,
       };
     } catch (error) {
-      if (!lifecycle.isTerminal) {
+      if (!lifecycle.isTerminalDecided && !lifecycle.requiresHarnessRecovery) {
         if (!isArtifactSettlementError(error)) {
           const interrupted =
             isTurnCancelled(error) || prepared.executionSignal.aborted;
-          const resumeQuiescent =
-            interrupted &&
-            (await this.dependencies.worker.awaitQuiescence?.({
-              turnId: turn.id,
-              timeoutMs: 500,
-            })) === true;
+          let resumeQuiescent = false;
+          if (prepared.delegated) {
+            try {
+              await prepared.delegated.stop();
+              await prepared.delegated.requireQuiescence();
+              resumeQuiescent = true;
+            } catch { /* Unknown quiescence retains checkout ownership for recovery. */ }
+          } else {
+            resumeQuiescent = interrupted && (await this.dependencies.worker.awaitQuiescence?.({ turnId: turn.id, timeoutMs: 500 })) === true;
+          }
           await this.settleArtifacts(
             turn.id,
             lifecycle,
             artifacts,
             true,
             resumeQuiescent,
-            interrupted && !resumeQuiescent
+            (interrupted || prepared.delegated !== null) && !resumeQuiescent
               ? "worker_not_quiescent"
               : undefined,
           );
@@ -313,6 +338,13 @@ export class RuntimeKernel {
       this.automaticCompactions.delete(turn.id);
       this.approvalCoordinators.delete(turn.id);
     }
+  }
+
+  private async executeNativePreparedTurn(prepared: PreparedTurn) {
+    const { run, turn, runAttemptId, workspace, tools } = prepared;
+    const context = await this.assembleContext(run, turn, workspace, [], prepared.executionSignal);
+    this.activeContexts.set(turn.id, context);
+    return this.executeLoop(prepared, run, runAttemptId, turn, workspace, context, tools);
   }
 
   private async runHooks(prepared: PreparedTurn): Promise<void> {
@@ -344,12 +376,14 @@ export class RuntimeKernel {
         `Turn ${turnId} is not owned by this runtime kernel`,
       );
     }
-    if (lifecycle.isTerminal) return;
+    if (lifecycle.isTerminalDecided) return;
 
     this.pendingInterrupts.set(turnId, reason);
     this.executionControllers
       .get(turnId)
       ?.abort(new DOMException(reason, "AbortError"));
+    const delegated = this.preparedTurns.get(turnId)?.delegated;
+    if (delegated) await delegated.stop();
     const execution = this.executions.get(turnId);
     let executionSettled = !execution;
     if (execution) {
@@ -372,12 +406,13 @@ export class RuntimeKernel {
         );
       }
       this.pendingInterrupts.delete(turnId);
-      const quiescent =
-        executionSettled &&
-        (await this.dependencies.worker.awaitQuiescence?.({
-          turnId,
-          timeoutMs: 500,
-        })) === true;
+      let quiescent = false;
+      if (prepared.delegated) {
+        try { await prepared.delegated.requireQuiescence(); quiescent = true; }
+        catch { /* No release or immutable snapshot while mutation may continue. */ }
+      } else {
+        quiescent = executionSettled && (await this.dependencies.worker.awaitQuiescence?.({ turnId, timeoutMs: 500 })) === true;
+      }
       await this.interruptPreparedTurn(prepared, reason, quiescent);
     }
   }
@@ -414,6 +449,17 @@ export class RuntimeKernel {
       );
     }
     await approvals.resolve(approvalId, resolution);
+  }
+
+  async respondUserInput(input: {
+    readonly turnId: Turn["id"];
+    readonly requestId: string;
+    readonly response: import("@repo/platform-protocol").JsonRecord;
+    readonly respondedBy: import("@repo/platform-protocol").UserId | null;
+  }): Promise<void> {
+    const delegated = this.preparedTurns.get(input.turnId)?.delegated;
+    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No active delegated user input owner");
+    await delegated.respondUserInput(input.requestId, input.response, input.respondedBy);
   }
 
   async compactTurn(
@@ -868,6 +914,13 @@ export class RuntimeKernel {
     resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     if (!coordinator) return {};
+    if (resumeUnavailableReason === "worker_not_quiescent") {
+      if (!this.unsafeWorkspaces.has(turnId)) {
+        await lifecycle.markWorkspaceSnapshotUnavailable("worker_not_quiescent");
+        this.unsafeWorkspaces.add(turnId);
+      }
+      return { resumeUnavailableReason };
+    }
     const existing = this.artifactSettlementEmissions.get(turnId);
     if (existing) return await existing;
     const settlement = this.settleArtifactsNow(
