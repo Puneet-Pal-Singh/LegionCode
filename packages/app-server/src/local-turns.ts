@@ -55,36 +55,46 @@ export class LocalTurnService {
     const runtime = this.options.runtime;
     if (!runtime) throw new AppServerOperationError(503, "server_unavailable", "Local turn execution is not configured");
     const binding = await this.options.workspaces.bindForExecution(params.workspaceId);
-    const selection = await this.options.providers.getSelection();
-    if (!selection) throw new AppServerOperationError(409, "conflict", "Select a protected provider and model before starting a turn");
-    const thread = await this.options.threads.get(params.threadId);
-    if (thread.workspaceId !== params.workspaceId || thread.status !== "active") {
-      throw new AppServerOperationError(409, "conflict", "The local thread is not active in this workspace");
-    }
-    const previous = await this.options.persistence.turnAdmissions.findByRequest(thread.id, params.clientRequestId);
-    binding.assertCurrent();
-    const candidate = runtime.createAdmission({
-      workspace: binding.workspace,
-      // Retry the original causal context; the newly persisted prompt is now the active leaf.
-      thread: previous ? { ...thread, activeLeafItemId: previous.userMessage.parentItemId } : thread,
-      prompt: params.prompt,
-      clientRequestId: params.clientRequestId,
-      providerId: selection.providerId, modelId: ModelIdSchema.parse(selection.modelId),
-    });
-    // Construct ports before admission; providers execute only through execute().
-    const executor = runtime.createExecutor(binding);
-    binding.assertCurrent();
-    const { admission, newlyAdmitted } = await this.options.persistence.turnAdmissions.admit(candidate);
-    if (newlyAdmitted) {
-      this.executors.set(admission.turn.id, executor);
-      // Runtime owns preflight failure and terminal settlement. Never infer a terminal here.
-      void executor.execute(admission).catch(() => {
-        console.error("Local runtime execution did not return successfully; canonical replay remains authoritative");
-      }).finally(() => {
-        if (this.executors.get(admission.turn.id) === executor) this.executors.delete(admission.turn.id);
+    let executionOwnsBinding = false;
+    try {
+      const selection = await this.options.providers.getSelection();
+      if (!selection) throw new AppServerOperationError(409, "conflict", "Select a protected provider and model before starting a turn");
+      const thread = await this.options.threads.get(params.threadId);
+      if (thread.workspaceId !== params.workspaceId || thread.status !== "active") {
+        throw new AppServerOperationError(409, "conflict", "The local thread is not active in this workspace");
+      }
+      const previous = await this.options.persistence.turnAdmissions.findByRequest(thread.id, params.clientRequestId);
+      binding.assertCurrent();
+      const candidate = runtime.createAdmission({
+        workspace: binding.workspace,
+        // Retry the original causal context; the newly persisted prompt is now the active leaf.
+        thread: previous ? { ...thread, activeLeafItemId: previous.userMessage.parentItemId } : thread,
+        prompt: params.prompt,
+        clientRequestId: params.clientRequestId,
+        providerId: selection.providerId, modelId: ModelIdSchema.parse(selection.modelId),
       });
+      // Construct ports before admission; providers execute only through execute().
+      const executor = runtime.createExecutor(binding);
+      binding.assertCurrent();
+      const { admission, newlyAdmitted } = await this.options.persistence.turnAdmissions.admit(candidate);
+      if (newlyAdmitted) {
+        this.executors.set(admission.turn.id, executor);
+        // Runtime owns preflight failure and terminal settlement. Never infer a terminal here.
+        const execution = Promise.resolve().then(() => executor.execute(admission));
+        executionOwnsBinding = true;
+        void execution.catch(() => {
+          console.error("Local runtime execution did not return successfully; canonical replay remains authoritative");
+        }).finally(async () => {
+          if (this.executors.get(admission.turn.id) === executor) this.executors.delete(admission.turn.id);
+          await binding.close();
+        }).catch(() => {
+          console.error("Local workspace descriptor cleanup failed");
+        });
+      }
+      return admission;
+    } finally {
+      if (!executionOwnsBinding) await binding.close();
     }
-    return admission;
   }
 
   async getTurn(turnId: TurnId): Promise<TurnAdmission> {

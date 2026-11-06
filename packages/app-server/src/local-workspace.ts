@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 
 import type {
@@ -26,6 +27,9 @@ export type LocalWorkspaceServiceOptions = {
 export interface LocalWorkspaceExecutionBinding {
   readonly workspace: LocalWorkspaceGrant;
   readonly filesystemRoot: string;
+  readonly rootDirectory: FileHandle;
+  /** Call only after all execution/capture children and pipes have quiesced. */
+  close(): Promise<void>;
   readonly generation: number;
   readonly signal: AbortSignal;
   assertCurrent(): void;
@@ -97,16 +101,41 @@ export class LocalWorkspaceService {
     if (!stored || stored.grant.workspaceId !== workspaceId) {
       throw new Error("Workspace is not granted for local execution");
     }
-    const workspace = await this.probeStoredGrant(stored);
-    this.assertGeneration(generation);
-    if (workspace.readiness !== "ready") throw new Error("Workspace is not ready for local execution");
-    return Object.freeze({
-      workspace, filesystemRoot: stored.path, generation, signal,
-      assertCurrent: () => {
-        this.assertGeneration(generation);
-        if (this.transitioning) throw new Error("Local workspace grant is changing");
-      },
-    });
+    const before = await lstat(stored.path);
+    if (!before.isDirectory() || before.isSymbolicLink()) {
+      throw new Error("Local workspace root is no longer a real directory");
+    }
+    const rootDirectory = await open(
+      stored.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    try {
+      const opened = await rootDirectory.stat();
+      if (opened.dev !== before.dev || opened.ino !== before.ino) {
+        throw new Error("Local workspace root changed during binding");
+      }
+      const workspace = await this.probeStoredGrant(stored);
+      this.assertGeneration(generation);
+      const after = await lstat(stored.path);
+      this.assertGeneration(generation);
+      if (!after.isDirectory() || after.isSymbolicLink() ||
+          after.dev !== opened.dev || after.ino !== opened.ino) {
+        throw new Error("Local workspace root changed during binding");
+      }
+      if (workspace.readiness !== "ready") throw new Error("Workspace is not ready for local execution");
+      let closing: Promise<void> | null = null;
+      return Object.freeze({
+        workspace, filesystemRoot: stored.path, rootDirectory, generation, signal,
+        close: () => { closing ??= rootDirectory.close(); return closing; },
+        assertCurrent: () => {
+          this.assertGeneration(generation);
+          if (closing) throw new Error("Local workspace binding is closed");
+          if (this.transitioning) throw new Error("Local workspace grant is changing");
+        },
+      });
+    } catch (error) {
+      await rootDirectory.close();
+      throw error;
+    }
   }
 
   private invalidateExecutionBindings(): number {
