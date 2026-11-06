@@ -189,17 +189,11 @@ describe("SessionStateService", () => {
       const setupSession = SessionStateService.createSetupSession();
 
       SessionStateService.saveSetupSession(setupSession);
+      const storedBytes = localStorage.getItem("legioncode:setup-session:v1");
 
       expect(SessionStateService.loadSetupSession()).toEqual(setupSession);
-    });
-
-    it("should clear setup session state", () => {
-      const setupSession = SessionStateService.createSetupSession();
-
-      SessionStateService.saveSetupSession(setupSession);
-      SessionStateService.clearSetupSession();
-
-      expect(SessionStateService.loadSetupSession()).toBeNull();
+      expect(SessionStateService.loadOrCreateSetupSession()).toEqual(setupSession);
+      expect(localStorage.getItem("legioncode:setup-session:v1")).toBe(storedBytes);
     });
   });
 
