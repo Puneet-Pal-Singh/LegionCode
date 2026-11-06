@@ -1,5 +1,7 @@
 import type {
   InterruptTurnResponse,
+  Run,
+  Turn,
   RunAttemptId,
   RunId,
   ThreadId,
@@ -20,17 +22,20 @@ export type LocalInterruptionRequest = LocalInterruptionIdentity & {
   readonly reason: string;
 };
 
-/** The runtime owns this handle and binds it permanently to one admitted attempt. */
-export type LocalActiveAttempt = {
-  readonly identity: LocalInterruptionIdentity;
-  /** Must reject a retired handle, never redirect cancellation to another attempt. */
-  interrupt(reason: string): Promise<void>;
+export type LocalInterruptionAdmission = {
+  readonly run: Run;
+  readonly turn: Turn;
+  readonly runAttemptId: RunAttemptId;
 };
 
 export type LocalInterruptionServiceOptions = {
-  getActiveAttempt(
-    identity: LocalInterruptionIdentity,
-  ): Promise<LocalActiveAttempt | null>;
+  turnAdmissions: {
+    getByTurn(turnId: TurnId): Promise<LocalInterruptionAdmission | null>;
+  };
+  executor: {
+    /** Reject inactive turns; never queue an interrupt for a later execution. */
+    interrupt(turnId: TurnId, reason: string): Promise<void>;
+  };
 };
 
 /** Command admission only. Runtime append/replay remains terminal truth. */
@@ -47,18 +52,20 @@ export class LocalInterruptionService {
       runAttemptId: request.runAttemptId,
     };
     const reason = request.reason;
-    const attempt = await this.options.getActiveAttempt(identity);
+    const admission = await this.options.turnAdmissions.getByTurn(identity.turnId);
     if (
-      !attempt ||
-      attempt.identity.workspaceId !== identity.workspaceId ||
-      attempt.identity.threadId !== identity.threadId ||
-      attempt.identity.runId !== identity.runId ||
-      attempt.identity.turnId !== identity.turnId ||
-      attempt.identity.runAttemptId !== identity.runAttemptId
+      !admission ||
+      admission.run.workspaceId !== identity.workspaceId ||
+      admission.run.threadId !== identity.threadId ||
+      admission.run.id !== identity.runId ||
+      admission.turn.id !== identity.turnId ||
+      admission.runAttemptId !== identity.runAttemptId ||
+      admission.turn.threadId !== identity.threadId ||
+      admission.turn.runId !== identity.runId
     ) {
       throw new LocalInterruptionAttemptNotActiveError();
     }
-    await attempt.interrupt(reason);
+    await this.options.executor.interrupt(identity.turnId, reason);
     return { runId: identity.runId, accepted: true, status: "interrupt_requested" };
   }
 }
