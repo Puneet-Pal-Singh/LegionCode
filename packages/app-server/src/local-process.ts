@@ -1,12 +1,27 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
+import type { ProviderId, ProviderConnectionConfig } from "@repo/shared-types";
 import { LocalPersistence } from "@repo/event-store/local";
 import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
+import { LocalTurnService, type LocalTurnServiceOptions } from "./local-turns.js";
 import { LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
+
+export type LocalAppServerRuntimeOptions = {
+  createRuntime?(context: {
+    persistence: LocalPersistence;
+    workspaces: LocalWorkspaceService;
+    threads: LocalThreadService;
+    providers: LocalProviderService;
+  }): NonNullable<LocalTurnServiceOptions["runtime"]>;
+  resolveRuntimeCredential(providerId: ProviderId): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null>;
+};
 
 export type LocalAppServerStartConfig = {
   credential: string;
@@ -22,7 +37,7 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig) {
+export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeOptions?: LocalAppServerRuntimeOptions) {
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
     const workspaceService = new LocalWorkspaceService({
@@ -35,8 +50,14 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
     });
+    const localTurnService = new LocalTurnService({
+      persistence, workspaces: workspaceService, threads: threadService, providers: providerService,
+      runtime: runtimeOptions?.createRuntime?.({
+        persistence, workspaces: workspaceService, threads: threadService, providers: providerService,
+      }),
+    });
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, localTurnService);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -50,10 +71,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
+  runtimeOptions?: LocalAppServerRuntimeOptions,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config);
+    server = createLocalAppServer(config, runtimeOptions);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
@@ -84,6 +106,7 @@ async function handleRequest(
   workspaceService: LocalWorkspaceService,
   threadService: LocalThreadService,
   providerService: LocalProviderService,
+  localTurnService: LocalTurnService,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -100,6 +123,7 @@ async function handleRequest(
     credential: config.credential,
     workspaceService,
     threadService,
+    localTurnService,
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {

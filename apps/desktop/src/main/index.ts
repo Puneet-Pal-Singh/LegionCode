@@ -36,14 +36,27 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
+let credentialRevision = 0;
 const localAppServer = new LocalAppServerSupervisor((request) =>
   providerRequestHeaders(request),
+  (providerId) => resolveRuntimeCredential(providerId),
 );
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let environmentGeneration = 0;
+
+async function resolveRuntimeCredential(providerId: Parameters<DesktopCredentialVault["resolveRuntimeCredential"]>[0]) {
+  const vault = credentialVault;
+  const revision = credentialRevision;
+  if (!vault) return null;
+  const credential = await vault.resolveRuntimeCredential(providerId);
+  if (vault !== credentialVault || revision !== credentialRevision) {
+    throw new Error("Protected provider credential changed during delivery");
+  }
+  return credential;
+}
 
 async function providerRequestHeaders(
   request: AppServerRequest,
@@ -93,6 +106,7 @@ handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
   localAppServer.getEnvironment(),
 );
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
+  if (shutdownPromise) throw new Error("Local runtime shutdown is pending");
   environmentGeneration += 1;
   pendingWorkspaceSelections.clear();
   await localAppServer.restart(app.getVersion());
@@ -129,12 +143,18 @@ handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
     if (!provider || !isLaunchSupportedProvider(provider) || !provider.authModes.includes("api_key")) {
       throw new Error("Provider is not available in this Desktop build");
     }
-    await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
+    credentialRevision += 1;
+    try {
+      await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
+    } finally { credentialRevision += 1; }
     return { ok: true } as const;
   }
   if (command.operation === "delete" || command.operation === "status") {
     if (command.operation === "delete") {
-      await credentialVault.deleteCredential(command.providerId);
+      credentialRevision += 1;
+      try {
+        await credentialVault.deleteCredential(command.providerId);
+      } finally { credentialRevision += 1; }
       return { ok: true } as const;
     }
     return { providerId: command.providerId, status: await credentialVault.status(command.providerId) };
@@ -245,9 +265,15 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
-    shutdownPromise = localAppServer.stop().finally(() => {
+    shutdownPromise = localAppServer.stop().then(() => {
       isQuitting = true;
       app.quit();
+    }).catch(() => {
+      shutdownPromise = null;
+      dialog.showErrorBox(
+        "Local runtime is still running",
+        "LegionCode could not confirm that its local runtime stopped. Try quitting again.",
+      );
     });
   }
 });
