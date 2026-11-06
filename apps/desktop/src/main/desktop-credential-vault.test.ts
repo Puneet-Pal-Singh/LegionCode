@@ -26,11 +26,23 @@ describe("DesktopCredentialVault", () => {
     const encrypted = await readFile(join(directory, "provider-credentials", "credentials.enc.json"), "utf8");
     expect(encrypted).not.toContain("fixture-secret");
     expect(await vault.getApiKey(providerId)).toBe("fixture-secret-replaced");
+    expect(await vault.resolveRuntimeCredential(providerId)).toEqual({ apiKey: "fixture-secret-replaced" });
 
+    const configuredProvider = ProviderIdSchema.parse("opencode-zen");
+    await vault.setCredential(configuredProvider, "fixture-configured-secret", { providerId: "opencode-zen" });
+    expect(await vault.resolveRuntimeCredential(configuredProvider)).toEqual({
+      apiKey: "fixture-configured-secret",
+      connectionConfig: { providerId: "opencode-zen" },
+    });
     const restarted = new DesktopCredentialVault(directory, createSafeStorage());
+    expect(await restarted.resolveRuntimeCredential(configuredProvider)).toEqual({
+      apiKey: "fixture-configured-secret",
+      connectionConfig: { providerId: "opencode-zen" },
+    });
     expect(await restarted.status(providerId)).toBe("present");
     await restarted.deleteCredential(providerId);
     expect(await restarted.status(providerId)).toBe("missing");
+    expect(await restarted.resolveRuntimeCredential(providerId)).toBeNull();
   });
 
   it("serializes concurrent provider saves without losing either credential", async () => {
@@ -70,6 +82,7 @@ describe("DesktopCredentialVault", () => {
     const restarted = new DesktopCredentialVault(directory, createSafeStorage());
 
     expect(await restarted.status(providerId)).toBe("unavailable");
+    await expect(restarted.resolveRuntimeCredential(providerId)).rejects.toThrow("Protected provider credentials are unavailable");
     await expect(restarted.setCredential(providerId, "fixture-replacement-secret")).rejects.toThrow(
       "Protected provider credentials are unavailable",
     );
@@ -79,6 +92,7 @@ describe("DesktopCredentialVault", () => {
   it("fails closed when OS-protected encryption is unavailable", async () => {
     const vault = new DesktopCredentialVault(await createDirectory(), createSafeStorage(() => false, false));
     expect(await vault.status(ProviderIdSchema.parse("openai"))).toBe("unavailable");
+    await expect(vault.resolveRuntimeCredential(ProviderIdSchema.parse("openai"))).rejects.toThrow("Protected provider credentials are unavailable");
     await expect(vault.setCredential(ProviderIdSchema.parse("openai"), "fixture-secret")).rejects.toThrow(
       "Protected provider credentials are unavailable",
     );
