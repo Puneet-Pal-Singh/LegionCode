@@ -1098,3 +1098,20 @@ It does not admit or execute turns, fabricate settlement after process loss, or
 advertise `turn-execution-v1`. Atomic admission, native read-only execution,
 protected provider delivery and the renderer binding remain separate integration
 dependencies. The mounted end-to-end Desktop execution path is not yet complete.
+
+
+## Plan 057 — Canonical local turn command contracts
+
+Local start/get/paged thread-history intent uses canonical TurnAdmission records;
+no local identity, lifecycle event or terminal schema is introduced. Local versus
+hosted interruption is explicitly dispatched by environment and existing hosted
+SDK validation remains unchanged. Native composition supplies the local operation
+owner in its integration slice; these contracts do not advertise execution.
+
+SDK createAppServerLifecycleClient adapts an existing AppServerClient to the
+canonical replay/follow port. It reuses cursor ordering, retry classification,
+status delivery and the runtime terminal events. Its bounded IPC read suppresses
+late results after abort without converting transport closure into settlement.
+The existing client case verifies empty initial replay, continuation/resume,
+abort suppression and permanent not-found failure. No renderer polling loop or
+second lifecycle reducer is introduced.
