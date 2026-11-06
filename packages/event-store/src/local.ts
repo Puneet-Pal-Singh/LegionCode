@@ -99,6 +99,7 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly environmentId: string;
   readonly harnessBindings: HarnessBindingRepository;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
@@ -144,16 +145,24 @@ export class LocalPersistence {
       if (existed) {
         this.validateExistingDatabaseBeforeMutation();
         const hasMetadata = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'").get();
-        if (hasMetadata) validateLocalHarnessBindings(this.database);
+        if (hasMetadata) {
+          validateLocalHarnessBindings(this.database);
+          this.readEnvironmentId();
+        }
       }
       this.configureAndAcquireExclusiveLock();
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
       const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
-      this.database.transaction(() => {
+      this.environmentId = this.database.transaction(() => {
         admissions.initialize();
         initializeLocalHarnessBindings(this.database);
+        const existingEnvironmentId = this.readEnvironmentId();
+        if (existingEnvironmentId !== null) return existingEnvironmentId;
+        const environmentId = `env_${randomUUID()}`;
+        this.database.prepare("INSERT INTO metadata(key,value) VALUES ('local_environment_id_v1',?)").run(environmentId);
+        return environmentId;
       }).immediate();
       this.admissions = admissions;
       this.turnAdmissions = {
@@ -599,6 +608,15 @@ export class LocalPersistence {
     this.guardStorage(() => this.database.transaction(() => {
       this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
     }).immediate());
+  }
+
+  private readEnvironmentId(): string | null {
+    const row = this.database.prepare("SELECT value FROM metadata WHERE key='local_environment_id_v1'").get() as { value: string } | undefined;
+    if (!row) return null;
+    if (!/^env_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(row.value)) {
+      throw corruptStore("Stored local environment identity is invalid");
+    }
+    return row.value;
   }
 
   private async guardHarnessStorage<T>(operation: () => Promise<T>): Promise<T> {
