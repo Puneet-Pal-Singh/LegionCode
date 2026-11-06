@@ -366,6 +366,31 @@ export class CodexDriver implements HarnessDriver {
             execution.signal.removeEventListener("abort", fail);
           }
         },
+        observeExisting: async ({ signal: observationSignal }) => {
+          if (stopped || observationSignal.aborted)
+            throw new Error("Codex observation attachment unavailable");
+          // Same-generation recovery joins the original execution and its pending
+          // observation ACKs. The shared host replays its delivery journal first.
+          // A fresh process has no trusted external-turn ID in this API; picking
+          // the latest native turn would attribute another attempt's work.
+          if (!executing)
+            throw new Error(
+              "Codex cold recovery requires canonical external turn binding",
+            );
+          observationSignal.addEventListener("abort", fail, { once: true });
+          try {
+            await turnReady;
+            if (stopped) throw new Error("Codex recovery attachment fenced");
+            if (!terminal) await native.read();
+            await done;
+            await queue;
+          } catch (error) {
+            fail();
+            throw error;
+          } finally {
+            observationSignal.removeEventListener("abort", fail);
+          }
+        },
         control: async (raw) => {
           const control = HarnessControlCommandSchema.parse(raw);
           const target =
