@@ -61,9 +61,13 @@ export class LocalTurnService {
     if (thread.workspaceId !== params.workspaceId || thread.status !== "active") {
       throw new AppServerOperationError(409, "conflict", "The local thread is not active in this workspace");
     }
+    const previous = await this.options.persistence.turnAdmissions.findByRequest(thread.id, params.clientRequestId);
     binding.assertCurrent();
     const candidate = runtime.createAdmission({
-      workspace: binding.workspace, thread, prompt: params.prompt,
+      workspace: binding.workspace,
+      // Retry the original causal context; the newly persisted prompt is now the active leaf.
+      thread: previous ? { ...thread, activeLeafItemId: previous.userMessage.parentItemId } : thread,
+      prompt: params.prompt,
       clientRequestId: params.clientRequestId,
       providerId: selection.providerId, modelId: ModelIdSchema.parse(selection.modelId),
     });

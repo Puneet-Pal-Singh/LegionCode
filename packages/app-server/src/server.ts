@@ -381,10 +381,10 @@ async function dispatch(
     }
     case "turn/interrupt": {
       if (composition.environment === "local") {
-        if (!composition.localTurnService || "sessionId" in request.params) throw new Error("unsupported");
+        if (!composition.localTurnService || typeof request.params.sessionId === "string") throw new Error("unsupported");
         return composition.localTurnService.interruptTurn(request.params);
       }
-      if (!("sessionId" in request.params)) {
+      if (typeof request.params.sessionId !== "string") {
         throw new AppServerOperationError(400, "invalid_request", "Hosted interruption requires its session scope");
       }
       if (!composition.hostedTurnCommandsService) throw new Error("unsupported");
