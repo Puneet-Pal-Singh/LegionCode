@@ -1,4 +1,4 @@
-import type { HarnessCommitAck, HarnessObservation } from "@repo/worker-protocol";
+import { HarnessCommitAckSchema, type HarnessCommitAck, type HarnessObservation } from "@repo/worker-protocol";
 import type { HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";
 import {
   EventIdSchema,
@@ -74,6 +74,7 @@ interface EventFields {
   readonly itemId?: ItemId;
   readonly toolCallId?: ToolCallId;
   readonly approvalId?: ApprovalId;
+  readonly requestId?: string;
   readonly payload: JsonRecord;
 }
 
@@ -108,9 +109,12 @@ export class RuntimeLifecycleCoordinator {
   private readonly toolCallItems: Record<string, ItemId> = {};
   private readonly approvalStatuses: Record<string, ApprovalStatus> = {};
   private readonly approvalItems: Record<string, ItemId> = {};
+  private readonly userInputItems: Record<string, ItemId> = {};
   private readonly approvalParents: Record<string, ItemId> = {};
   private accepted = false;
   private completionReserved = false;
+  private harnessFenced = false;
+  private terminalOutcome: TurnTerminalOutcome["status"] | null = null;
   private readonly acceptedInputSequences = new Map<string, number>();
   private sequence: number;
   private operationQueue: Promise<void> = Promise.resolve();
@@ -129,7 +133,7 @@ export class RuntimeLifecycleCoordinator {
     let acknowledgement: HarnessCommitAck | undefined;
     await this.enqueue(async () => {
       const existing = await persistence.lookup(observation);
-      if (existing) { acknowledgement = existing; return; }
+      if (existing) { acknowledgement = this.validateHarnessAck(existing, observation); return; }
       const events: LifecycleEvent[] = [];
       const draft = new RuntimeLifecycleCoordinator({
         ...this.options,
@@ -137,11 +141,28 @@ export class RuntimeLifecycleCoordinator {
       });
       draft.copyStateFrom(this);
       await apply(draft);
-      acknowledgement = await persistence.commit({ observation, events });
+      try {
+        acknowledgement = this.validateHarnessAck(await persistence.commit({ observation, events }), observation);
+      } catch (error) {
+        // The durable transaction may have committed before transport failed.
+        // No further append may use this coordinator's now-uncertain sequence.
+        this.harnessFenced = true;
+        throw error;
+      }
       this.copyStateFrom(draft);
     });
     if (!acknowledgement) throw new Error("Observation commit returned no acknowledgement");
     return acknowledgement;
+  }
+
+  private validateHarnessAck(input: HarnessCommitAck, observation: HarnessObservation): HarnessCommitAck {
+    const ack = HarnessCommitAckSchema.parse(input);
+    const a = ack.session, b = observation.session;
+    if (ack.committedSequence !== observation.sequence || a.runAttemptId !== b.runAttemptId ||
+      a.instanceId !== b.instanceId || a.externalSessionId !== b.externalSessionId || a.processGeneration !== b.processGeneration) {
+      throw new Error("Canonical observation commit returned a mismatched acknowledgement");
+    }
+    return ack;
   }
 
   private copyStateFrom(source: RuntimeLifecycleCoordinator): void {
@@ -150,13 +171,29 @@ export class RuntimeLifecycleCoordinator {
     this.runAttemptStatus = source.runAttemptStatus;
     this.accepted = source.accepted;
     this.completionReserved = source.completionReserved;
+    this.terminalOutcome = source.terminalOutcome;
+    this.harnessFenced = source.harnessFenced;
     this.sequence = source.sequence;
     for (const key of ["itemStatuses", "itemKinds", "toolCallStatuses", "toolCallNames",
-      "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents"] as const) {
+      "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents", "userInputItems"] as const) {
       Object.assign(this[key], source[key]);
     }
     this.acceptedInputSequences.clear();
     for (const [key, value] of source.acceptedInputSequences) this.acceptedInputSequences.set(key, value);
+  }
+
+  get requiresHarnessRecovery(): boolean { return this.harnessFenced; }
+
+  async restoreHarnessHistory(history: readonly LifecycleEvent[]): Promise<void> {
+    const events = history.map((event) => LifecycleEventSchema.parse(event));
+    // Recovery is the one explicit operation allowed to replace fenced state.
+    const recovery = this.operationQueue.then(async () => {
+      const restored = new RuntimeLifecycleCoordinator({ ...this.options, initialSequence: 0 });
+      restored.restoreApprovalWaitState(events, false);
+      this.copyStateFrom(restored);
+    });
+    this.operationQueue = recovery.catch(() => undefined);
+    await recovery;
   }
 
   static restoreForInterruption(
@@ -180,7 +217,7 @@ export class RuntimeLifecycleCoordinator {
     return coordinator;
   }
 
-  private restoreApprovalWaitState(events: readonly LifecycleEvent[]): void {
+  private restoreApprovalWaitState(events: readonly LifecycleEvent[], requireIsolatedApproval = true): void {
     let previousStatus: TurnStatus = "queued";
     let queued = false;
     let started = false;
@@ -208,7 +245,8 @@ export class RuntimeLifecycleCoordinator {
         event.type !== "turn.queued" &&
         event.type !== "turn.started" &&
         event.type !== "run_attempt.started" &&
-        (!started || this.runAttemptStatus !== "running")
+        (!started || this.runAttemptStatus !== "running") &&
+        (requireIsolatedApproval || !["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type))
       ) {
         throw new LifecycleTransitionError(
           "turn",
@@ -279,7 +317,8 @@ export class RuntimeLifecycleCoordinator {
         );
         if (
           blocking.kind !== "none" &&
-          blocking.kind !== "waiting_for_approval"
+          blocking.kind !== "waiting_for_approval" &&
+          (requireIsolatedApproval || blocking.kind !== "waiting_for_user_input")
         ) {
           throw new LifecycleTransitionError(
             "turn",
@@ -387,6 +426,8 @@ export class RuntimeLifecycleCoordinator {
           "active",
         );
         this.toolCallItems[event.toolCallId] = event.itemId;
+        if (event.payload.toolName) this.toolCallNames[event.toolCallId] = event.payload.toolName;
+        if (event.payload.callBatchId) this.toolCallBatches[event.toolCallId] = event.payload.callBatchId;
       } else if (
         event.type === "tool_call.input_delta" ||
         event.type === "tool_call.output_delta"
@@ -452,13 +493,17 @@ export class RuntimeLifecycleCoordinator {
           current,
           event.payload.status,
         );
-      } else if (
+      } else if (!requireIsolatedApproval && event.type === "user_input.requested") {
+        this.userInputItems[event.requestId] = event.itemId;
+      } else if (!requireIsolatedApproval && event.type === "turn.input.accepted") {
+        this.acceptedInputSequences.set(event.payload.inputId, event.sequence);
+      } else if (requireIsolatedApproval && (
         event.type.startsWith("user_input.") ||
         event.type === "request.resolved" ||
         event.type === "context_compaction.requested" ||
         event.type === "context_compaction.started" ||
         event.type.startsWith("hook.invocation.")
-      ) {
+      )) {
         throw new LifecycleTransitionError(
           "turn",
           event.type,
@@ -467,20 +512,22 @@ export class RuntimeLifecycleCoordinator {
         );
       }
 
-      if (
-        event.type === "turn.completed" ||
-        event.type === "turn.failed" ||
-        event.type === "turn.interrupted"
-      ) {
-        throw new LifecycleTransitionError(
-          "turn",
-          event.type,
-          "awaiting_approval",
-          "terminal history cannot be restored for interruption",
-        );
+      if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "turn.interrupted") {
+        if (requireIsolatedApproval) throw new LifecycleTransitionError("turn", event.type, "awaiting_approval", "terminal history cannot be restored for interruption");
+        const outcome = event.payload.outcome;
+        previousStatus = transitionTurnStatus(previousStatus, outcome.status);
+        this.terminalOutcome = outcome.status;
+        validateTerminalSettlement({ turnStatus: previousStatus, terminalOutcome: outcome,
+          blockingState: this.blockingState, itemStatuses: this.itemStatuses, approvalStatuses: this.approvalStatuses });
       }
       this.sequence = event.sequence;
       lastEvent = event;
+    }
+
+    if (!requireIsolatedApproval) {
+      if (!this.accepted || !started) throw new Error("Harness recovery requires canonical turn/start evidence");
+      this.status = previousStatus;
+      return;
     }
 
     const pendingApprovals = Object.entries(this.approvalStatuses).filter(
@@ -532,6 +579,10 @@ export class RuntimeLifecycleCoordinator {
     }
     this.status = previousStatus;
   }
+
+  /** Terminal append is the linearization point. An ambiguous append keeps this
+   * outcome frozen for durable recovery rather than attempting a conflicting one. */
+  get isTerminalDecided(): boolean { return this.isTerminal || this.terminalOutcome !== null; }
 
   get isTerminal(): boolean {
     return ["completed", "interrupted", "failed"].includes(this.status);
@@ -933,6 +984,30 @@ export class RuntimeLifecycleCoordinator {
     );
   }
 
+  async requestUserInput(itemId: ItemId, requestId: string, payload: JsonRecord): Promise<void> {
+    await this.enqueue(async () => {
+      if (this.userInputItems[requestId] || this.blockingState.kind !== "none") {
+        throw new LifecycleTransitionError("item", "active", "requested", "User input request conflicts with an active request");
+      }
+      await this.startItem(itemId, "user_input_request", {});
+      await this.emit({ type: "user_input.requested", itemId, requestId, payload });
+      this.userInputItems[requestId] = itemId;
+      await this.changeBlocking({ kind: "waiting_for_user_input", itemId, requestId });
+    });
+  }
+
+  async respondUserInput(requestId: string, response: JsonRecord, respondedBy: import("@repo/platform-protocol").UserId | null): Promise<void> {
+    await this.enqueue(async () => {
+      const itemId = this.userInputItems[requestId];
+      if (!itemId || this.itemStatuses[itemId] !== "active" || this.blockingState.kind !== "waiting_for_user_input" || this.blockingState.requestId !== requestId) {
+        throw new LifecycleTransitionError("item", "inactive", "responded", "User input request is no longer pending");
+      }
+      await this.emit({ type: "user_input.responded", itemId, requestId, payload: { response, respondedBy } });
+      await this.settleItem(itemId, "completed", { result: {} });
+      await this.changeBlocking({ kind: "none" });
+    });
+  }
+
   async complete(output: string, itemId: ItemId, canComplete: () => boolean = () => true): Promise<void> {
     await this.enqueue(async () => this.completeNow(output, itemId, canComplete));
   }
@@ -1020,6 +1095,7 @@ export class RuntimeLifecycleCoordinator {
 
   private async failNow(failure: ProtocolError): Promise<void> {
     await this.cancelPendingApprovals("Turn failed before approval resolution");
+    await this.cancelPendingUserInput("Turn failed before user input");
     await this.settleOpenWork("failed", { failure });
     await this.settleTurn({ status: "failed", failure });
   }
@@ -1030,6 +1106,7 @@ export class RuntimeLifecycleCoordinator {
 
   private async interruptNow(reason: string): Promise<void> {
     await this.cancelPendingApprovals(reason);
+    await this.cancelPendingUserInput(reason);
     await this.settleOpenWork("interrupted", { reason });
     await this.settleTurn({ status: "interrupted", reason });
   }
@@ -1099,6 +1176,15 @@ export class RuntimeLifecycleCoordinator {
     }
   }
 
+  private async cancelPendingUserInput(reason: string): Promise<void> {
+    for (const [requestId, itemId] of Object.entries(this.userInputItems)) {
+      if (this.itemStatuses[itemId] === "active") {
+        await this.emit({ type: "request.resolved", itemId, requestId, payload: { status: "cancelled", reason } });
+      }
+    }
+    if (this.blockingState.kind === "waiting_for_user_input") await this.changeBlocking({ kind: "none" });
+  }
+
   private async cancelPendingApprovals(reason: string): Promise<void> {
     for (const [approvalId, status] of Object.entries(this.approvalStatuses)) {
       if (status === "pending") {
@@ -1139,6 +1225,7 @@ export class RuntimeLifecycleCoordinator {
         2,
       ),
     ];
+    this.terminalOutcome = outcome.status;
     await this.appendTerminalBatch(events, outcome.status);
     this.sequence += events.length;
     this.runAttemptStatus = nextAttempt;
@@ -1218,7 +1305,11 @@ export class RuntimeLifecycleCoordinator {
   }
 
   private async enqueue(operation: () => Promise<void>): Promise<void> {
-    const result = this.operationQueue.then(operation, operation);
+    const guarded = async () => {
+      if (this.harnessFenced) throw new Error("Harness lifecycle is fenced pending canonical replay recovery");
+      return operation();
+    };
+    const result = this.operationQueue.then(guarded, guarded);
     this.operationQueue = result.catch(() => undefined);
     await result;
   }

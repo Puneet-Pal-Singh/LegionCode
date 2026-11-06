@@ -99,6 +99,7 @@ export class RuntimeKernel {
     string,
     Promise<TurnArtifactSettlementResult>
   >();
+  private readonly unsafeWorkspaces = new Set<string>();
   private readonly pendingInterrupts = new Map<string, string>();
   private readonly executions = new Map<string, Promise<StartTurnResult>>();
   private readonly preparedTurns = new Map<string, PreparedTurn>();
@@ -134,6 +135,9 @@ export class RuntimeKernel {
     readonly clientInputId: string;
     readonly transcriptMessageId: string;
   }): Promise<number> {
+    if (this.preparedTurns.get(input.turnId)?.delegated) {
+      throw new RuntimeKernelError("tool_policy_denied", "Delegated steering requires its origin-scoped harness command; native model input is unavailable");
+    }
     const lifecycle = this.lifecycles.get(input.turnId);
     if (!lifecycle || !this.dependencies.provider.enqueueThreadInput) {
       throw new RuntimeKernelError(
@@ -257,8 +261,7 @@ export class RuntimeKernel {
   private async executePreparedTurn(
     prepared: PreparedTurn,
   ): Promise<StartTurnResult> {
-    const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
-      prepared;
+    const { turn, workspace, lifecycle, artifacts } = prepared;
     try {
       if (lifecycle.isTerminal) {
         return {
@@ -292,7 +295,7 @@ export class RuntimeKernel {
         workspace,
       };
     } catch (error) {
-      if (!lifecycle.isTerminal) {
+      if (!lifecycle.isTerminalDecided && !lifecycle.requiresHarnessRecovery) {
         if (!isArtifactSettlementError(error)) {
           const interrupted =
             isTurnCancelled(error) || prepared.executionSignal.aborted;
@@ -373,7 +376,7 @@ export class RuntimeKernel {
         `Turn ${turnId} is not owned by this runtime kernel`,
       );
     }
-    if (lifecycle.isTerminal) return;
+    if (lifecycle.isTerminalDecided) return;
 
     this.pendingInterrupts.set(turnId, reason);
     this.executionControllers
@@ -446,6 +449,17 @@ export class RuntimeKernel {
       );
     }
     await approvals.resolve(approvalId, resolution);
+  }
+
+  async respondUserInput(input: {
+    readonly turnId: Turn["id"];
+    readonly requestId: string;
+    readonly response: import("@repo/platform-protocol").JsonRecord;
+    readonly respondedBy: import("@repo/platform-protocol").UserId | null;
+  }): Promise<void> {
+    const delegated = this.preparedTurns.get(input.turnId)?.delegated;
+    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No active delegated user input owner");
+    await delegated.respondUserInput(input.requestId, input.response, input.respondedBy);
   }
 
   async compactTurn(
@@ -900,6 +914,13 @@ export class RuntimeKernel {
     resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     if (!coordinator) return {};
+    if (resumeUnavailableReason === "worker_not_quiescent") {
+      if (!this.unsafeWorkspaces.has(turnId)) {
+        await lifecycle.markWorkspaceSnapshotUnavailable("worker_not_quiescent");
+        this.unsafeWorkspaces.add(turnId);
+      }
+      return { resumeUnavailableReason };
+    }
     const existing = this.artifactSettlementEmissions.get(turnId);
     if (existing) return await existing;
     const settlement = this.settleArtifactsNow(

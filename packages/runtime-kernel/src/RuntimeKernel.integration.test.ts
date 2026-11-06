@@ -69,9 +69,13 @@ describe("runtime kernel integration", () => {
       billingSource: "api_key", runtimeVersion: "0.167.0", protocolVersion: "0.167.0-schema",
       transport: "codex_app_server_stdio",
     });
-    const session: HarnessSession = { runAttemptId, instanceId: selection.instanceId, externalSessionId: "external-session", processGeneration: 3 };
+    const session: HarnessSession = { runAttemptId, instanceId: selection.instanceId, externalSessionId: "external-session", processGeneration: "00000000-0000-4000-8000-000000000003" };
     const ledger = new Map<string, { fingerprint: string; ack: HarnessCommitAck }>();
+    let recoveryEvents = delegatedSink.events;
     const persistence: HarnessObservationCommitPort = {
+      async recover(activeSession) { return { session: activeSession, lifecycleEvents: recoveryEvents,
+        lastSequence: 0, externalTurnId: null, terminal: null, quiescence: null, pendingRequests: [] }; },
+      async claimReply() { return "claimed"; },
       async lookup(observation) {
         const entry = ledger.get(JSON.stringify([observation.session, observation.sequence]));
         if (entry && entry.fingerprint !== JSON.stringify(observation)) throw new Error("ingress fingerprint conflict");
@@ -89,6 +93,7 @@ describe("runtime kernel integration", () => {
     let releaseApproval!: () => void;
     const replyReceived = new Promise<void>((resolve) => { releaseApproval = resolve; });
     const harness: DelegatedHarnessPort = {
+      observeExisting: vi.fn(async () => undefined),
       open: vi.fn(async () => session),
       execute: vi.fn(async ({ observe }) => {
         const fact = (sequence: number, payload: HarnessObservation["payload"]): HarnessObservation => ({ session, sequence, externalTurnId: "external-turn", payload });
@@ -96,13 +101,13 @@ describe("runtime kernel integration", () => {
           content: { toolCallId: "toolcall_runtime001" as import("@repo/platform-protocol").ToolCallId, toolName: "write_file", input: {} } });
         await observe(started);
         await observe(started);
-        await expect(observe({ ...started, session: { ...session, processGeneration: 2 } })).rejects.toMatchObject({ code: "worker_failed" });
+        await expect(observe({ ...started, session: { ...session, processGeneration: "00000000-0000-4000-8000-000000000002" } })).rejects.toMatchObject({ code: "worker_failed" });
         await expect(observe({ ...started, payload: { kind: "usage", usage: {} } } as unknown as HarnessObservation)).rejects.toBeDefined();
         await observe(fact(2, { kind: "approval_requested", parentItemId: finalItemId, request: approvalRequest,
           replyTo: { session, origin: "codex-reverse-rpc", requestId: "native-request-1", authOwnerGeneration: 7 } }));
         await replyReceived;
         await observe(fact(3, { kind: "tool_completed", itemId: finalItemId, output: "Written" }));
-        const terminal = fact(4, { kind: "external_terminal", status: "completed", itemId: "itm_delegatedfinal" as typeof finalItemId, output: "Delegated done", error: null });
+        const terminal = fact(4, { kind: "external_terminal", status: "completed", providerCompletedAt: timestamp, itemId: "itm_delegatedfinal" as typeof finalItemId, output: "Delegated done", error: null });
         await observe(terminal);
         await observe(terminal);
       }),
@@ -129,6 +134,7 @@ describe("runtime kernel integration", () => {
     const stoppedHarness = { ...harness, open: vi.fn(() => new Promise<HarnessSession>((resolve) => { finishOpen = resolve; })),
       execute: vi.fn(async () => undefined), control: vi.fn(async () => ({ accepted: true })) };
     const stopSink = createLifecycleSink();
+    recoveryEvents = stopSink.events;
     const stopKernel = new RuntimeKernel({ lifecycleEvents: stopSink, ...createArtifactPorts(),
       workspaceManifests: await createManifestRepository(), ...createPorts(), producerId: "stop-race",
       delegated: { harness: stoppedHarness, observations: persistence, assertActive: async () => undefined } });
