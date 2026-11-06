@@ -807,6 +807,7 @@ export function ChatInputBar({
                 showSwitchWarning(IDLE_SWITCH_WARNING),
               )}
               <ChatComposerPermissionControl
+                key={sessionId}
                 value={permissionMode}
                 onChange={onPermissionModeChange}
                 disabled={isComposerActiveRun || isHidden}
