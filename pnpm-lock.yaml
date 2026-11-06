@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@cloudflare/sandbox@0.12.3':
-    hash: kou5cqnxctf33pijklygufjwry
+    hash: 6owinh4kce4qf4fgyc4tuyge24
     path: patches/@cloudflare__sandbox@0.12.3.patch
 
 importers:
@@ -336,7 +336,7 @@ importers:
     devDependencies:
       '@cloudflare/sandbox':
         specifier: 0.12.3
-        version: 0.12.3(patch_hash=kou5cqnxctf33pijklygufjwry)
+        version: 0.12.3(patch_hash=6owinh4kce4qf4fgyc4tuyge24)
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
         version: 4.20260702.1
@@ -7262,7 +7262,7 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.4.2': {}
 
-  '@cloudflare/sandbox@0.12.3(patch_hash=kou5cqnxctf33pijklygufjwry)':
+  '@cloudflare/sandbox@0.12.3(patch_hash=6owinh4kce4qf4fgyc4tuyge24)':
     dependencies:
       '@cloudflare/containers': 0.3.7
       aws4fetch: 1.0.20

@@ -831,9 +831,13 @@ true, forwards the original request through that container's TCP port. The
 borrowed Git adapter uses this explicit operation and a typed `execIfRunning`
 request built by the existing Secure Agent API request/response helpers, with
 zero SDK retry timeout. It never calls the normal auto-starting `containerFetch`
-or `exec`, retries, boots plugins, or creates the checkout root. The lease
-expiry is checked after serialized-workspace queue admission and immediately
-before execution; a stopped physical container or elapsed original lease stays
+or `exec`, retries, boots plugins, or creates the checkout root. After its
+synchronous running check, this no-start request uses the existing Container
+inflight/activity accounting, including balanced settlement on transport failure.
+A real borrowed request counts as container activity; it never renews the
+persisted lease or changes its original deadline or the configured idle timeout.
+The lease expiry is checked after serialized-workspace queue admission and
+immediately before execution; a stopped physical container or elapsed original lease stays
 explicitly unavailable. Borrowed execution reuses the one existing per-workspace
 runtime entry and serialized executor; after a Durable Object restart, the entry
 is composed with the full plugin registry but setup is deferred until normal
