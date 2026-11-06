@@ -1,19 +1,24 @@
 import { createHash } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
-import type { LocalPersistence } from "@repo/event-store/local";
 import {
   RunIdSchema,
   WorkspaceIdSchema,
   TurnIdSchema,
   RunAttemptIdSchema,
+  type LocalWorkspaceGrant,
 } from "@repo/platform-protocol";
 import type { DefaultGitService } from "@repo/git-service";
 
-/** Grant-scoped adapter for the existing runtime Git snapshot port. Lease and
- * tool quiescence remain the runtime owner's responsibility. */
+/** Uses the runtime owner's execution-grant handle and existing Git snapshot port.
+ * Tool quiescence remains the runtime owner's responsibility. */
 export function createLocalArtifactCapture(options: {
-  workspaceGrants: LocalPersistence["workspaceGrants"];
+  binding: {
+    readonly workspace: LocalWorkspaceGrant;
+    readonly filesystemRoot: string;
+    readonly signal: AbortSignal;
+    assertCurrent(): void;
+  };
   storageDirectory: string;
   scope: {
     workspaceId: string;
@@ -39,29 +44,35 @@ export function createLocalArtifactCapture(options: {
       "Local artifact storage requires an absolute private directory",
     );
   }
-  let grantIdentity: string | null = null;
+  const binding = options.binding;
+  // The same handle is shared with execution; only its owner decides generation.
+  const assertCurrent = () => {
+    binding.assertCurrent();
+    binding.signal.throwIfAborted();
+  };
   const requireWorkspace = async (workspace: {
     runId: string;
     filesystemRoot: string;
   }) => {
     if (workspace.runId !== runId)
       throw new Error("Artifact capture run mismatch");
-    const stored = await options.workspaceGrants.read();
+    assertCurrent();
     if (
-      !stored ||
-      stored.grant.workspaceId !== workspaceId ||
-      stored.grant.readiness !== "ready"
+      binding.workspace.workspaceId !== workspaceId ||
+      binding.workspace.readiness !== "ready"
     ) {
       throw new Error(
         "Artifact capture requires the current ready workspace grant",
       );
     }
-    const stats = await lstat(stored.path);
-    const root = await realpath(stored.path);
+    const stats = await lstat(binding.filesystemRoot);
+    assertCurrent();
+    const root = await realpath(binding.filesystemRoot);
+    assertCurrent();
     if (
       !stats.isDirectory() ||
       stats.isSymbolicLink() ||
-      root !== stored.path ||
+      root !== binding.filesystemRoot ||
       workspace.filesystemRoot !== root
     ) {
       throw new Error(
@@ -69,6 +80,7 @@ export function createLocalArtifactCapture(options: {
       );
     }
     const privateRoot = await realpath(storageDirectory);
+    assertCurrent();
     const inside = relative(root, privateRoot);
     if (
       inside === "" ||
@@ -79,25 +91,16 @@ export function createLocalArtifactCapture(options: {
       );
     }
     const probe = await options.git.probeRepository({ workspaceRoot: root });
+    assertCurrent();
     if (
       (await realpath(probe.repositoryRoot)) !== root ||
-      probe.repositoryIdentity !== stored.grant.repositoryIdentity
+      probe.repositoryIdentity !== binding.workspace.repositoryIdentity
     ) {
       throw new Error(
         "Granted repository identity changed before artifact capture",
       );
     }
-    const identity = JSON.stringify([
-      root,
-      stored.grant.grantedAt,
-      stored.grant.repositoryIdentity,
-      stats.dev,
-      stats.ino,
-    ]);
-    if (grantIdentity !== null && grantIdentity !== identity) {
-      throw new Error("Workspace grant changed during this capture attempt");
-    }
-    grantIdentity = identity;
+    assertCurrent();
     return { runId, filesystemRoot: root };
   };
   return {

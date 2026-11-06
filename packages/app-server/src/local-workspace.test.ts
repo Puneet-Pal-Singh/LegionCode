@@ -47,8 +47,11 @@ describe("LocalWorkspaceService", () => {
       }).getCurrent();
       expect(reopened).toMatchObject({ workspaceId: granted.workspaceId, readiness: "ready" });
 
+      const controller = new AbortController();
+      const binding = { workspace: granted, filesystemRoot: repositoryRoot, signal: controller.signal,
+        assertCurrent() { if (this.signal.aborted) throw new Error("Workspace grant changed"); } };
       const capture = createLocalArtifactCapture({
-        workspaceGrants: persistence.workspaceGrants, storageDirectory,
+        binding, storageDirectory,
         scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
         git: {
           probeRepository: (input) => gitService.probeRepository(input),
@@ -59,12 +62,10 @@ describe("LocalWorkspaceService", () => {
       const captureInput = { workspace: { runId: "run_capture001", filesystemRoot: repositoryRoot }, snapshotKey: "trn_capture001" };
       await expect(capture.captureSnapshot(captureInput)).resolves.toMatchObject({ treeId: "b".repeat(40) });
       await expect(capture.captureSnapshot({ ...captureInput, workspace: { ...captureInput.workspace, runId: "run_other001" } })).rejects.toThrow("run mismatch");
-      const stored = await persistence.workspaceGrants.read();
-      if (!stored) throw new Error("Missing test grant");
-      await persistence.workspaceGrants.write({ ...stored, grant: { ...stored.grant, grantedAt: "2026-06-16T00:00:00.000Z" } });
+      controller.abort();
       await expect(capture.captureSnapshot(captureInput)).rejects.toThrow("grant changed");
       const unsafe = createLocalArtifactCapture({
-        workspaceGrants: persistence.workspaceGrants, storageDirectory: repositoryRoot,
+        binding: { ...binding, signal: new AbortController().signal, assertCurrent() {} }, storageDirectory: repositoryRoot,
         scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
         git: { probeRepository: (input) => gitService.probeRepository(input),
           captureSnapshot: async ({ workspace }) => ({ ...workspace, headSha: "a".repeat(40), treeId: "b".repeat(40) }),
