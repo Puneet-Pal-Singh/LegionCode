@@ -1,5 +1,6 @@
 import {
   projectHarnessUsage,
+  projectHarnessAttemptElapsedMs,
   type HarnessUsageScope,
   type LifecycleEvent,
 } from "@legioncode/sdk";
@@ -18,6 +19,7 @@ export function HarnessUsage({
 }: HarnessUsageProps): React.JSX.Element {
   const sample = projectHarnessUsage(scope, events);
   const usage = sample?.payload.usage;
+  const elapsedMs = projectHarnessAttemptElapsedMs(scope, events);
   return (
     <section aria-label="Harness usage" className="lc-harness-usage">
       <h3>Account quota</h3>
@@ -62,7 +64,14 @@ export function HarnessUsage({
       ) : (
         <p>No token usage reported for this attempt.</p>
       )}
-      <h3>LegionCode compute and storage</h3>
+      <h3>Attempt elapsed time</h3>
+      <p>
+        {elapsedMs === null
+          ? "Unavailable until start and settlement are recorded."
+          : `${(elapsedMs / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })} seconds`}
+      </p>
+      <p>Recorded start-to-settlement time, including waits.</p>
+      <h3>LegionCode compute and storage charges</h3>
       <p>Unavailable.</p>
     </section>
   );
