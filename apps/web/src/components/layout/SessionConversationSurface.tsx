@@ -29,6 +29,7 @@ interface SessionConversationSurfaceProps {
   runId?: string;
   mode?: RunMode;
   initialProductMode?: ProductMode;
+  onInitialProductModeConsumed: (mode: ProductMode) => void;
   onServerProjectionAvailable?: () => void;
   onSavedSourcesChange?: (projection: SavedChatSourcesProjection) => void;
   onRunIdChange?: (runId: string) => void;
@@ -44,6 +45,7 @@ export function SessionConversationSurface({
   runId,
   mode,
   initialProductMode,
+  onInitialProductModeConsumed,
   onServerProjectionAvailable,
   onSavedSourcesChange,
   onRunIdChange,
@@ -53,6 +55,9 @@ export function SessionConversationSurface({
   children,
 }: SessionConversationSurfaceProps) {
   const { productMode, setProductMode } = useSessionProductMode(sessionId, initialProductMode);
+  useEffect(() => {
+    if (initialProductMode !== undefined) onInitialProductModeConsumed(initialProductMode);
+  }, [initialProductMode, onInitialProductModeConsumed]);
   const [fileCreatedRefresh, setFileCreatedRefresh] = useState<
     (() => void) | null
   >(null);

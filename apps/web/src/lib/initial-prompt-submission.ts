@@ -1,4 +1,3 @@
-import type { ProductMode } from "@repo/shared-types";
 import type { ChatSubmitAttachments } from "@legioncode/client-ui";
 
 declare const initialPromptSubmissionIdBrand: unique symbol;
@@ -13,7 +12,6 @@ export interface InitialPromptSubmission {
   id: InitialPromptSubmissionId;
   prompt: string;
   attachments?: ChatSubmitAttachments;
-  productMode?: ProductMode;
   status: InitialPromptSubmissionStatus;
 }
 

@@ -959,9 +959,11 @@ Legacy session snapshot readers and their preservation checks remain quarantined
   supplies it to both controlled `AgentSetup` and `useChat`/`useChatCore`. Setup
   no longer maintains a second same-session selection that only writes storage.
 - The runless shell owns its own setup choice. Explicit project/draft transfer
-  and first-prompt intent carry that selected `productMode` into the saved
-  session. The session owner applies the handoff before child submission effects,
-  and retains it after the initial intent retires. Browser preference storage is
+  carries that selected `productMode` into the saved session. The session owner
+  applies and consumes that one-shot draft handoff before later chat remounts
+  can reuse it. The existing SDK request capture freezes retry mode separately;
+  an initial-prompt record never reseeds the composer's later choice. The owner
+  retains the selected mode after the initial intent retires. Browser preference storage is
   not an event bus or permission authority.
 - The existing canonical chat request `productMode` and runtime permission policy
   retain their owners. A transition to the conversation cannot substitute the

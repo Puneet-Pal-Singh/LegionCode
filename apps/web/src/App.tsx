@@ -1081,10 +1081,16 @@ function AppContent() {
                   activeSession.activeRunId ?? activeSession.latestRunId ?? ""
                 }
                 mode={activeSession.mode}
-                initialProductMode={
-                  initialPromptSubmissions[activeSessionId]?.productMode ??
-                  setupDrafts[activeSessionId]?.productMode
-                }
+                initialProductMode={setupDrafts[activeSessionId]?.productMode}
+                onInitialProductModeConsumed={(mode) => {
+                  setSetupDrafts((current) => {
+                    const draft = current[activeSessionId];
+                    if (draft?.productMode !== mode) return current;
+                    const consumed = { ...draft };
+                    delete consumed.productMode;
+                    return { ...current, [activeSessionId]: consumed };
+                  });
+                }}
                 workspaceContext={
                   sessionWorkspaceContext?.sessionId === activeSession.id
                     ? sessionWorkspaceContext
@@ -1225,20 +1231,12 @@ function AppContent() {
                           onNoProject={handleChooseNoProject}
                           onStart={(config) => {
                             setSessionMode(activeSessionId, config.mode);
-                            setSetupDrafts((current) => ({
-                              ...current,
-                              [activeSessionId]: {
-                                ...(current[activeSessionId] ?? { task: "", imageAttachments: [] }),
-                                productMode: config.productMode,
-                              },
-                            }));
                             const submission: InitialPromptSubmission = {
                               id: createInitialPromptSubmissionId(
                                 crypto.randomUUID(),
                               ),
                               prompt: config.task,
                               attachments: config.attachments,
-                              productMode: config.productMode,
                               status: "queued",
                             };
                             const previous =
@@ -1309,7 +1307,6 @@ function AppContent() {
                           ),
                           prompt: config.task,
                           attachments: config.attachments,
-                          productMode: config.productMode,
                           status: "queued",
                         },
                       }));

@@ -27,9 +27,9 @@ export function useSessionProductMode(
   const productMode = current.productMode;
   useEffect(() => {
     if (sessionId && initialMode !== undefined) {
-      persistProductMode(sessionId, initialMode);
+      persistProductMode(sessionId, productMode);
     }
-  }, [initialMode, sessionId]);
+  }, [initialMode, productMode, sessionId]);
   const setProductMode = useCallback((mode: ProductMode) => {
     setSelection({ sessionId, productMode: mode, initialMode });
     if (sessionId) persistProductMode(sessionId, mode);

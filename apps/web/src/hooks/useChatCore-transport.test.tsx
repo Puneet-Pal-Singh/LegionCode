@@ -1,5 +1,6 @@
 import { act, fireEvent, render, renderHook } from "@testing-library/react";
-import { useLayoutEffect } from "react";
+import { useLayoutEffect, useState } from "react";
+import { SessionConversationSurface } from "../components/layout/SessionConversationSurface";
 import type { ProductMode } from "@repo/shared-types";
 import { PermissionModeControl } from "@legioncode/client-ui";
 import { useSessionProductMode } from "../components/agent/hooks/useSessionProductMode";
@@ -87,6 +88,10 @@ function installServer(
     requests.push({ url, method, body });
     if (url.endsWith("/app-server/request")) {
       const request = body ? JSON.parse(body) as { method: string } : { method: "" };
+      if (request.method === "session/history") {
+        return Response.json({ protocolVersion: "1.0.0", method: "session/history", ok: true,
+          result: { messages: [], nextCursor: null, snapshot: "0" } });
+      }
       if (request.method === "turn/scope") {
         return Response.json({
           protocolVersion: "1.0.0", method: "turn/scope", ok: false,
@@ -158,12 +163,12 @@ function reservations(requests: Array<{ url: string; body: string | null }>) {
   return requests.filter(({ url, body }) => url.endsWith("/app-server/request") && JSON.parse(body ?? "{}").method === "turn/reserve");
 }
 
-function useFixtureCore(currentRunId: string, productMode?: ProductMode, sessionId = FIXTURE.sessionId) {
-  return useChatCore(sessionId, currentRunId, undefined, productMode, undefined, undefined, {
+function fixtureWorkspaceContext(sessionId: string) {
+  return {
       sessionId,
       workspaceId: FIXTURE.workspaceId,
       threadId: FIXTURE.threadId,
-      workspaceStatus: "active",
+      workspaceStatus: "active" as const,
       repository: {
         id: "repo_transport_fixture01",
         provider: "github",
@@ -178,7 +183,11 @@ function useFixtureCore(currentRunId: string, productMode?: ProductMode, session
       },
       selectedBranch: "main",
       runBranch: null,
-    });
+    };
+}
+
+function useFixtureCore(currentRunId: string, productMode?: ProductMode, sessionId = FIXTURE.sessionId) {
+  return useChatCore(sessionId, currentRunId, undefined, productMode, undefined, undefined, fixtureWorkspaceContext(sessionId));
 }
 
 function renderCore(runId = `${FIXTURE.runId}_${crypto.randomUUID()}`) {
@@ -196,6 +205,51 @@ function PermissionComposer({ runId, sessionId = FIXTURE.sessionId, initialMode,
   const chat = useFixtureCore(runId, productMode, sessionId);
   useLayoutEffect(() => onChat(chat), [chat, onChat]);
   return <PermissionModeControl value={productMode} onChange={setProductMode} />;
+}
+
+type PermissionChat = Pick<ReturnType<typeof useChatCore>, "handleInputChange" | "handleSubmit" | "input" | "isLoading" | "error">;
+
+function ObservedPermissionControl({ chat, productMode, setProductMode, onChat }: {
+  chat: PermissionChat;
+  productMode: ProductMode;
+  setProductMode: (mode: ProductMode) => void;
+  onChat: (chat: PermissionChat) => void;
+}) {
+  useLayoutEffect(() => onChat(chat), [chat, onChat]);
+  return <PermissionModeControl value={productMode} onChange={setProductMode} />;
+}
+
+function RetainedDraftPermissionComposer({ sessionId, runId, onChat }: {
+  sessionId: string;
+  runId: string;
+  onChat: (chat: PermissionChat) => void;
+}) {
+  // Keep the App-owned draft mounted while its keyed conversation is switched out.
+  const [draft, setDraft] = useState(() => copySetupDraft({
+    task: "Original Auto edits intent", imageAttachments: [], productMode: "auto_for_safe",
+  }));
+  const [visible, setVisible] = useState(true);
+  return <>
+    <button onClick={() => setVisible((current) => !current)}>Switch chat</button>
+    {visible ? <SessionConversationSurface
+      sessionId={sessionId}
+      runId={runId}
+      initialProductMode={draft.productMode}
+      onInitialProductModeConsumed={(mode) => setDraft((current) => {
+        if (current.productMode !== mode) return current;
+        const consumed = { ...current };
+        delete consumed.productMode;
+        return consumed;
+      })}
+      workspaceContext={fixtureWorkspaceContext(sessionId)}
+      isSessionPersistenceReady
+      hasQueuedIntent={false}
+    >
+      {({ chat, productMode, setProductMode }) => <ObservedPermissionControl
+        chat={chat} productMode={productMode} setProductMode={setProductMode} onChat={onChat}
+      />}
+    </SessionConversationSurface> : null}
+  </>;
 }
 
 async function append(core: ReturnType<typeof renderCore>["result"], input: {
@@ -236,7 +290,7 @@ describe("useChatCore installed SDK request outcomes", () => {
   it("keeps a 503 unconfirmed and preserves composer input although SDK append resolves", async () => {
     const requests = installServer(async () => new Response("upstream unavailable", { status: 503 }));
     localStorage.removeItem(`legioncode:product-mode:${FIXTURE.sessionId}`);
-    const result = { current: undefined as unknown as ReturnType<typeof useChatCore> };
+    const result = { current: undefined as unknown as PermissionChat };
     const ui = render(<PermissionComposer
       runId={`${FIXTURE.runId}_${crypto.randomUUID()}`}
       onChat={(chat) => { result.current = chat; }}
@@ -271,7 +325,7 @@ describe("useChatCore installed SDK request outcomes", () => {
 
     const newSessionId = crypto.randomUUID();
     const newRunId = `${FIXTURE.runId}_${crypto.randomUUID()}`;
-    const receiveChat = (chat: ReturnType<typeof useChatCore>) => { result.current = chat; };
+    const receiveChat = (chat: PermissionChat) => { result.current = chat; };
     const draft = copySetupDraft({ task: "Transferred supervised intent", imageAttachments: [], productMode: "ask_always" });
     const transferred = render(<PermissionComposer runId={newRunId} sessionId={newSessionId} onChat={receiveChat} />);
     expect(transferred.getByRole("button", { name: "Permission mode" }).textContent).toContain("Auto edits");
@@ -283,6 +337,28 @@ describe("useChatCore installed SDK request outcomes", () => {
     expect(JSON.parse(firstTransferredWire!).params).toMatchObject({ sessionId: newSessionId, productMode: "ask_always" });
     transferred.rerender(<PermissionComposer runId={newRunId} sessionId={newSessionId} onChat={receiveChat} />);
     expect(transferred.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
+    transferred.unmount();
+
+    const retained = render(<RetainedDraftPermissionComposer
+      sessionId={crypto.randomUUID()}
+      runId={`${FIXTURE.runId}_${crypto.randomUUID()}`}
+      onChat={receiveChat}
+    />);
+    expect(retained.getByRole("button", { name: "Permission mode" }).textContent).toContain("Auto edits");
+    act(() => result.current.handleInputChange({ target: { value: "Original Auto edits intent" } } as never));
+    await act(async () => { await result.current.handleSubmit(); });
+    const frozenAutoWire = requests.filter(isSubmissionRequest).at(-1)?.body;
+    expect(JSON.parse(frozenAutoWire!).params.productMode).toBe("auto_for_safe");
+    await act(async () => { await result.current.handleSubmit(); });
+    expect(requests.filter(isSubmissionRequest).at(-1)?.body).toBe(frozenAutoWire);
+    fireEvent.click(retained.getByRole("button", { name: "Permission mode" }));
+    fireEvent.click(retained.getByRole("menuitemradio", { name: /Supervised/ }));
+    fireEvent.click(retained.getByRole("button", { name: "Switch chat" }));
+    fireEvent.click(retained.getByRole("button", { name: "Switch chat" }));
+    expect(retained.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
+    act(() => result.current.handleInputChange({ target: { value: "New supervised intent" } } as never));
+    await act(async () => { await result.current.handleSubmit(); });
+    expect(JSON.parse(requests.filter(isSubmissionRequest).at(-1)!.body!).params.productMode).toBe("ask_always");
   });
 
   it("reuses the reserved scope and exact emitted wire for an unchanged same-CID retry after a run reset", async () => {
