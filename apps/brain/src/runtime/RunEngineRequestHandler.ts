@@ -1,3 +1,5 @@
+import { readRunHarnessAdmission } from "./RunHarnessAdmission";
+import { CloudDelegatedRunPreparation } from "./CloudDelegatedRunPreparation";
 import { executeDelegatedRun, type DelegatedRunPreparationPort } from "./DelegatedRunExecution";
 import { isDelegatedHarnessRoute } from "./HarnessExecutionRoute";
 import { claimExecutionWithStartupInterrupt } from "./RunExecutionStartup";
@@ -1356,11 +1358,17 @@ export class RunEngineRequestHandler {
           );
         }
         const delegatedRoute = isDelegatedHarnessRoute(payload.input);
-        if (delegatedRoute && !this.dependencies.delegatedPreparation) throw new DomainError(
-          "HARNESS_ADMISSION_COMPOSITION_REQUIRED", "The selected harness admission/host is unavailable.", 503, false, payload.correlationId);
-        if (!delegatedRoute && payload.input.harnessSelection) throw new DomainError(
-          "HARNESS_ADMISSION_COMPOSITION_REQUIRED", "The selected native environment has no configured placement resolver.", 503, false, payload.correlationId);
+        await readRunHarnessAdmission(this.env, payload);
         const claimId = crypto.randomUUID();
+        if (delegatedRoute) {
+          executionClaim = { turnId, claimId };
+          this.interruptRegistry.beginStartup(turnId);
+          const response = await executeDelegatedRun({ payload, claimId,
+            preparation: this.dependencies.delegatedPreparation ?? new CloudDelegatedRunPreparation(this.env),
+            lifecycleEvents: this.createLifecycleEventStore(), interrupts: this.interruptRegistry,
+            approvals: this.approvalResolutionRegistry, threadInputs: this.threadInputRegistry });
+          return withRunEngineHeaders(request, this.env, response, { "X-Thread-Id": threadId, "X-Turn-Id": turnId, "X-Run-Attempt-Id": runAttemptId });
+        }
         const claimResult = await claimExecutionWithStartupInterrupt(this.interruptRegistry, turnId, () => withTurnAdmissionRepository(
           this.env,
           (repository) =>
@@ -1392,12 +1400,6 @@ export class RunEngineRequestHandler {
           );
         }
         executionClaim = { turnId, claimId };
-        if (delegatedRoute && this.dependencies.delegatedPreparation) {
-          const response = await executeDelegatedRun({ payload, preparation: this.dependencies.delegatedPreparation,
-            lifecycleEvents: this.createLifecycleEventStore(), interrupts: this.interruptRegistry,
-            approvals: this.approvalResolutionRegistry, threadInputs: this.threadInputRegistry });
-          return withRunEngineHeaders(request, this.env, response, { "X-Thread-Id": threadId, "X-Turn-Id": turnId, "X-Run-Attempt-Id": runAttemptId });
-        }
         const runtimeState = this.createRuntimeState();
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
         const taskCheckoutLifecycle = resources.checkoutLifecycle;

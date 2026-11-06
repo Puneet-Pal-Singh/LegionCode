@@ -59,6 +59,22 @@ export class EditArtifactObjectStore {
     return object ? await object.text() : null;
   }
 
+  /** Immutable runtime snapshot payload, under this existing artifact owner's
+   * scoped namespace. Conditional write plus readback prevents overwrite. */
+  async writeRuntimeSnapshot(input: { userId: string; workspaceId: string; runId: string; artifactId: string; payload: string; sha256: string }): Promise<{ key: string; byteLength: number }> {
+    const key = this.buildPatchKey(input).replace(/diff\.patch$/, "snapshot.json");
+    const bytes = new TextEncoder().encode(input.payload);
+    if (bytes.byteLength > 5_000_000) throw new Error("Runtime snapshot payload exceeds artifact limit");
+    if (!await this.bucket.get(key)) await this.bucket.put(key, bytes, { onlyIf: { etagDoesNotMatch: "*" },
+      httpMetadata: { contentType: "application/json" }, customMetadata: { userId: input.userId, workspaceId: input.workspaceId, runId: input.runId, sha256: input.sha256 } });
+    const object = await this.bucket.get(key);
+    if (!object || object.customMetadata?.userId !== input.userId || object.customMetadata?.workspaceId !== input.workspaceId || object.customMetadata?.runId !== input.runId) throw new Error("Runtime snapshot ownership readback failed");
+    const payload = await object.text();
+    const actual = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload)))].map((value) => value.toString(16).padStart(2, "0")).join("");
+    if (actual !== input.sha256) throw new Error("Runtime snapshot immutable content conflict");
+    return { key, byteLength: bytes.byteLength };
+  }
+
   async deletePatch(key: string): Promise<void> {
     assertPatchKeyScope(key);
     await this.bucket.delete(key);

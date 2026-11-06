@@ -26,7 +26,7 @@ type DelegatedInput = StartTurnInput & {
  * resolves the persisted selection/revision and pinned host, never an API-key
  * provider or native agent. Preparation cannot start external work. */
 export interface DelegatedRunPreparationPort {
-  prepare(input: { readonly payload: ExecuteRunPayload }): Promise<{
+  prepare(input: { readonly payload: ExecuteRunPayload; readonly claimId: string }): Promise<{
     readonly start: DelegatedInput;
     readonly dependencies: Pick<
       RuntimeKernelDependencies,
@@ -47,6 +47,7 @@ export interface DelegatedRunPreparationPort {
  * model/context/tool ports are unavailable and cannot resolve a different payer. */
 export async function executeDelegatedRun(input: {
   readonly payload: ExecuteRunPayload;
+  readonly claimId: string;
   readonly preparation: DelegatedRunPreparationPort;
   readonly lifecycleEvents: LifecycleEventStore;
   readonly interrupts: RunInterruptRegistry;
@@ -68,7 +69,7 @@ export async function executeDelegatedRun(input: {
       false,
       payload.correlationId,
     );
-  const prepared = await input.preparation.prepare({ payload });
+  const prepared = await input.preparation.prepare({ payload, claimId: input.claimId });
   const { start } = prepared;
   const selected = start.execution.selection;
   if (
@@ -103,24 +104,7 @@ export async function executeDelegatedRun(input: {
       payload.correlationId,
     );
   }
-  const nativeUnavailable = async (): Promise<never> => {
-    throw new DomainError(
-      "NATIVE_PORT_UNAVAILABLE",
-      "Native execution is unavailable in this delegated attempt.",
-      409,
-      false,
-      payload.correlationId,
-    );
-  };
-  const kernel = new RuntimeKernel({
-    ...prepared.dependencies,
-    lifecycleEvents: input.lifecycleEvents,
-    producerId: "brain-delegated-run",
-    contextAssembly: { assemble: nativeUnavailable },
-    provider: { generateNext: nativeUnavailable },
-    worker: { executeTool: nativeUnavailable },
-    toolAuthorization: { authorize: nativeUnavailable },
-  });
+  const kernel = new RuntimeKernel({ ...prepared.dependencies, lifecycleEvents: input.lifecycleEvents, producerId: "brain-delegated-run" });
   const turnId = start.turn.id;
   const pending = input.interrupts.register(turnId, async (reason) => {
     if (kernel.isTurnReady(turnId)) await kernel.interruptTurn(turnId, reason);

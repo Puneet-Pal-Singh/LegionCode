@@ -179,6 +179,7 @@ export class RuntimeLifecycleCoordinator {
     this.sequence = source.sequence;
     for (const key of ["itemStatuses", "itemKinds", "toolCallStatuses", "toolCallNames",
       "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents", "userInputItems"] as const) {
+      for (const existing of Object.keys(this[key])) delete this[key][existing];
       Object.assign(this[key], source[key]);
     }
     this.appliedInputs.clear();
