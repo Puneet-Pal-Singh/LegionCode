@@ -24,6 +24,7 @@ import {
 import { createWindowOptions } from "./window-options";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
+import type { RuntimeCredentialLease } from "./runtime-credentials";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
   resolveDesktopAppServerRequest,
@@ -36,8 +37,13 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
-let credentialRevision = 0;
-let credentialMutations = 0;
+type CredentialMutationState = { revision: number; activeMutations: number };
+const credentialStates = new Map<string, CredentialMutationState>();
+function credentialState(providerId: string): CredentialMutationState {
+  let state = credentialStates.get(providerId);
+  if (!state) { state = { revision: 0, activeMutations: 0 }; credentialStates.set(providerId, state); }
+  return state;
+}
 const localAppServer = new LocalAppServerSupervisor((request) =>
   providerRequestHeaders(request),
   (providerId) => resolveRuntimeCredential(providerId),
@@ -48,15 +54,19 @@ let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let environmentGeneration = 0;
 
-async function resolveRuntimeCredential(providerId: Parameters<DesktopCredentialVault["resolveRuntimeCredential"]>[0]) {
+async function resolveRuntimeCredential(
+  providerId: Parameters<DesktopCredentialVault["resolveRuntimeCredential"]>[0],
+): Promise<RuntimeCredentialLease> {
   const vault = credentialVault;
-  const revision = credentialRevision;
-  if (!vault || credentialMutations > 0) return null;
-  const credential = await vault.resolveRuntimeCredential(providerId);
-  if (vault !== credentialVault || credentialMutations > 0 || revision !== credentialRevision) {
-    throw new Error("Protected provider credential changed during delivery");
+  const state = credentialState(providerId);
+  const revision = state.revision;
+  if (!vault || state.activeMutations > 0) {
+    throw new Error("Protected provider credential is being changed or is unavailable");
   }
-  return credential;
+  const credential = await vault.resolveRuntimeCredential(providerId);
+  const isCurrent = () => vault === credentialVault && state.activeMutations === 0 && state.revision === revision;
+  if (!isCurrent()) throw new Error("Protected provider credential changed during delivery");
+  return { credential, isCurrent };
 }
 
 async function providerRequestHeaders(
@@ -144,20 +154,22 @@ handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
     if (!provider || !isLaunchSupportedProvider(provider) || !provider.authModes.includes("api_key")) {
       throw new Error("Provider is not available in this Desktop build");
     }
-    credentialRevision += 1;
-    credentialMutations += 1;
+    const state = credentialState(request.providerId);
+    state.revision += 1;
+    state.activeMutations += 1;
     try {
       await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
-    } finally { credentialMutations -= 1; credentialRevision += 1; }
+    } finally { state.activeMutations -= 1; state.revision += 1; }
     return { ok: true } as const;
   }
   if (command.operation === "delete" || command.operation === "status") {
     if (command.operation === "delete") {
-      credentialRevision += 1;
-      credentialMutations += 1;
+      const state = credentialState(command.providerId);
+      state.revision += 1;
+      state.activeMutations += 1;
       try {
         await credentialVault.deleteCredential(command.providerId);
-      } finally { credentialMutations -= 1; credentialRevision += 1; }
+      } finally { state.activeMutations -= 1; state.revision += 1; }
       return { ok: true } as const;
     }
     return { providerId: command.providerId, status: await credentialVault.status(command.providerId) };
