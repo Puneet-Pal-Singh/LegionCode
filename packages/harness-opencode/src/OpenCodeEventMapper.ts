@@ -76,6 +76,7 @@ export class OpenCodeEventMapper {
     const expected = this.options.session;
     if (
       evidence.status !== "quiescent" ||
+      evidence.observationIntegrity !== "complete" ||
       evidence.session.runAttemptId !== expected.runAttemptId ||
       evidence.session.instanceId !== expected.instanceId ||
       evidence.session.externalSessionId !== expected.externalSessionId ||

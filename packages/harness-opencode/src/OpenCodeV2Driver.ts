@@ -54,7 +54,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
         readonly permissions: NonNullable<SessionCreateInput["permissions"]>;
         readonly externalSessionId: string | null;
       }) => Promise<void>;
-      /** Real enforced scope proof. A process-group receipt cannot implement this callback. */
+      /** Real full-scope and ordered native stream/drain proof. Neither process-group exit nor
+       * foreground completion can attest observationIntegrity. Return unknown if the barrier is unavailable. */
       readonly proveQuiescence: (input: {
         readonly host: HarnessHost;
         readonly session: HarnessSession;
@@ -128,6 +129,22 @@ export class OpenCodeV2Driver implements HarnessDriver {
     let stopping = false;
     let terminalPublished = false;
     let provenQuiescence: HarnessQuiescence | undefined;
+    let observationIntegrityLost = false;
+    let observationIntegritySealed = false;
+    let pendingObservations = 0;
+    const deliver = async (observation: Parameters<typeof observe>[0]) => {
+      pendingObservations++;
+      try {
+        return await observe(observation);
+      } catch {
+        observationIntegrityLost = true;
+        observationIntegritySealed = false;
+        provenQuiescence = undefined;
+        throw new OpenCodeTransportError("observation commit ambiguous", true);
+      } finally {
+        pendingObservations--;
+      }
+    };
     let resolveForeground!: () => void;
     let rejectForeground!: (error: Error) => void;
     const foreground = new Promise<void>((resolve, reject) => {
@@ -145,11 +162,19 @@ export class OpenCodeV2Driver implements HarnessDriver {
           location: { directory: host.workspaceRoot },
         },
         async (event) => {
+          if (observationIntegritySealed) {
+            observationIntegrityLost = true;
+            provenQuiescence = undefined;
+            throw new OpenCodeTransportError(
+              "observation after integrity barrier",
+              true,
+            );
+          }
           if (!mapper || !native || !executing)
             throw new OpenCodeTransportError("work before execute", true);
           for (const payload of mapper.map(event)) {
             // HarnessSessionManager owns journal-before-send and validates the exact commit ACK.
-            await observe({
+            await deliver({
               session,
               externalTurnId: native.externalTurnId,
               payload,
@@ -202,12 +227,22 @@ export class OpenCodeV2Driver implements HarnessDriver {
 
       const capturedMapper = mapper;
       const fingerprint = JSON.stringify(command);
-      void owner.process.exited.then(() =>
-        rejectForeground(new OpenCodeTransportError("process exited", true)),
-      );
-      void owner.transport.disconnected.then(() =>
-        rejectForeground(new OpenCodeTransportError("stream continuity", true)),
-      );
+      void owner.process.exited.then(() => {
+        if (
+          !observationIntegritySealed ||
+          owner.transport.observationIntegrityLost
+        )
+          observationIntegrityLost = true;
+        rejectForeground(new OpenCodeTransportError("process exited", true));
+      });
+      void owner.transport.disconnected.then(() => {
+        if (
+          !observationIntegritySealed ||
+          owner.transport.observationIntegrityLost
+        )
+          observationIntegrityLost = true;
+        rejectForeground(new OpenCodeTransportError("stream continuity", true));
+      });
       const abort = () => {
         stopping = true;
         capturedNative.fence();
@@ -219,7 +254,28 @@ export class OpenCodeV2Driver implements HarnessDriver {
       const checkQuiescence: HarnessLiveSession["awaitQuiescence"] = async ({
         timeoutMs,
       }) => {
-        if (provenQuiescence?.status === "quiescent") return provenQuiescence;
+        if (
+          observationIntegrityLost ||
+          owner.transport.observationIntegrityLost
+        )
+          return {
+            status: "unknown",
+            session,
+            reason: "observation_integrity_lost",
+          };
+        if (
+          provenQuiescence?.status === "quiescent" &&
+          provenQuiescence.observationIntegrity === "complete"
+        )
+          return provenQuiescence;
+        if (owner.transport.continuity !== "ready")
+          return {
+            status: "unknown",
+            session,
+            reason: "observation_integrity_lost",
+          };
+        if (pendingObservations > 0)
+          return { status: "unknown", session, reason: "work_still_running" };
         if (
           !Number.isSafeInteger(timeoutMs) ||
           timeoutMs < 0 ||
@@ -252,23 +308,63 @@ export class OpenCodeV2Driver implements HarnessDriver {
         );
         if (!sameSession(session, evidence.session))
           throw new OpenCodeTransportError("quiescence binding", true);
+        if (
+          evidence.status === "quiescent" &&
+          (evidence.observationIntegrity !== "complete" ||
+            observationIntegrityLost ||
+            owner.transport.observationIntegrityLost ||
+            owner.transport.continuity !== "ready")
+        ) {
+          observationIntegrityLost = true;
+          return {
+            status: "unknown",
+            session,
+            reason: "observation_integrity_lost",
+          };
+        }
+        if (evidence.status === "quiescent" && pendingObservations > 0)
+          return { status: "unknown", session, reason: "work_still_running" };
         if (evidence.status === "quiescent" && !terminalPublished) {
+          // The real proof must include an ordered stream/drain barrier, not just process exit.
+          // Never manufacture observationIntegrity from a zero exit code or foreground completion.
+          if (!owner.transport.sealObservationStream())
+            return { status: "unknown", session, reason: "work_still_running" };
+          observationIntegritySealed = true;
           host.fence();
           capturedNative.fence();
-          if (capturedMapper.foregroundEnded) {
-            await observe({
+          try {
+            if (capturedMapper.foregroundEnded) {
+              await deliver({
+                session,
+                externalTurnId: capturedNative.externalTurnId,
+                payload: capturedMapper.terminalAfterQuiescence(evidence),
+              });
+            }
+            await deliver({
               session,
               externalTurnId: capturedNative.externalTurnId,
-              payload: capturedMapper.terminalAfterQuiescence(evidence),
+              payload: { kind: "quiescence", evidence },
             });
+            if (
+              observationIntegrityLost ||
+              owner.transport.observationIntegrityLost
+            )
+              throw new OpenCodeTransportError(
+                "observation integrity barrier failed",
+                true,
+              );
+            terminalPublished = true;
+            provenQuiescence = evidence;
+          } catch {
+            observationIntegrityLost = true;
+            observationIntegritySealed = false;
+            provenQuiescence = undefined;
+            return {
+              status: "unknown",
+              session,
+              reason: "observation_integrity_lost",
+            };
           }
-          await observe({
-            session,
-            externalTurnId: capturedNative.externalTurnId,
-            payload: { kind: "quiescence", evidence },
-          });
-          terminalPublished = true;
-          provenQuiescence = evidence;
         }
         return evidence;
       };
@@ -389,7 +485,19 @@ export class OpenCodeV2Driver implements HarnessDriver {
             return Promise.reject(
               new OpenCodeTransportError("quiescence deadline", false),
             );
-          if (provenQuiescence?.status === "quiescent")
+          if (
+            observationIntegrityLost ||
+            owner.transport.observationIntegrityLost
+          )
+            return Promise.resolve({
+              status: "unknown",
+              session,
+              reason: "observation_integrity_lost",
+            });
+          if (
+            provenQuiescence?.status === "quiescent" &&
+            provenQuiescence.observationIntegrity === "complete"
+          )
             return Promise.resolve(provenQuiescence);
           if (!quiescenceJob) {
             quiescenceJob = checkQuiescence(request);
