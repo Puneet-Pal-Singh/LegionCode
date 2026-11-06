@@ -1001,6 +1001,17 @@ storage or recovery data and introduces no replacement transport.
   from a previous account cannot replace the current selection. No browser
   persistence, repair write, background retry loop or new product owner is added.
 
+## Explicit provider resolution retry
+
+The SDK/App Server provider resolver remains the current availability authority.
+`ProviderStore` retains successful resolution caching and concurrent request
+deduplication, but no longer caches server/transport failures indefinitely by
+selection. Explicit setup/composer retries revalidate the same provider,
+credential and model through that owner, including after an abort or a repaired
+server/credential failure. Client-known invalid/hidden selections still fail
+before submission. No automatic retries, timeout increase, fallback provider or
+new scope owner is introduced.
+
 ## Setup permission selection and first submission
 
 - The mounted `SessionConversationSurface` owns one permission selection and
