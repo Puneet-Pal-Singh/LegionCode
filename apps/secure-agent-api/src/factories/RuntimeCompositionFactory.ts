@@ -1,3 +1,9 @@
+import { CLOUD_HARNESS_AVAILABILITY } from "../harness/CloudHarnessAvailability";
+import { CloudHarnessExecutionPort } from "../harness/CloudHarnessExecutionPort";
+import {
+  CloudHarnessSupervisor,
+  type CloudHarnessSupervisorAuthority,
+} from "../harness/CloudHarnessSupervisor";
 /**
  * RuntimeCompositionFactory - Compose runtime orchestration from ports.
  *
@@ -64,6 +70,12 @@ export interface ComposedRuntime {
   executionPort: SandboxExecutionPort;
   sessionPort: SessionStatePort;
   artifactPort: ArtifactStorePort;
+  /** Disabled explicitly until the hosted durable authority is supplied. */
+  harness?: {
+    status: typeof CLOUD_HARNESS_AVAILABILITY;
+    execution: CloudHarnessExecutionPort | null;
+    supervisor: CloudHarnessSupervisor | null;
+  };
 }
 
 export interface ComposeRuntimeInput {
@@ -73,6 +85,7 @@ export interface ComposeRuntimeInput {
   r2Bucket: R2BucketCompat;
   executionBackend?: RuntimeExecutionBackend;
   executionLease?: SandboxExecutionLease;
+  harnessAuthority?: CloudHarnessSupervisorAuthority;
 }
 
 /**
@@ -84,9 +97,7 @@ export interface ComposeRuntimeInput {
  * @param input - Composition inputs from AgentRuntime boundary
  * @returns Composed runtime with all ports wired
  */
-export function composeRuntime(
-  input: ComposeRuntimeInput,
-): ComposedRuntime {
+export function composeRuntime(input: ComposeRuntimeInput): ComposedRuntime {
   const adapters = AgentRuntimeAdapterFactory.createAdapters({
     durableObjectState: input.durableObjectState,
     sandbox: input.sandbox,
@@ -100,5 +111,26 @@ export function composeRuntime(
     executionPort: adapters.sandboxExecution,
     sessionPort: adapters.sessionState,
     artifactPort: adapters.artifactStore,
+    harness: input.harnessAuthority
+      ? {
+          status: CLOUD_HARNESS_AVAILABILITY,
+          ...composeCloudHarnessRuntime(input.harnessAuthority),
+        }
+      : {
+          status: CLOUD_HARNESS_AVAILABILITY,
+          execution: null,
+          supervisor: null,
+        },
   };
+}
+
+/** Hosted canonical runtime receives this delegated port through its existing
+ * execution composition. The authority must come from durable admission/leases;
+ * plugin task leases and browser connections cannot substitute for it.
+ */
+export function composeCloudHarnessRuntime(
+  authority: CloudHarnessSupervisorAuthority,
+) {
+  const supervisor = new CloudHarnessSupervisor(authority);
+  return { supervisor, execution: new CloudHarnessExecutionPort(supervisor) };
 }
