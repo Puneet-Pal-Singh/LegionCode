@@ -1,10 +1,11 @@
+import type { ReviewSourceSelection } from "../../services/review/ReviewSourceResolver";
 import { useCallback, useMemo, useState } from "react";
 import type { FileStatus } from "@repo/shared-types";
 
 interface UseReviewFileSelectionInput {
   files: FileStatus[];
   stagedFiles: Set<string>;
-  reviewSourceKind: "live_git" | "prompt_artifact" | "turn_diff";
+  reviewSourceKind: ReviewSourceSelection["kind"];
   fetchLiveDiff: (path: string, staged: boolean) => Promise<void>;
   fetchArtifactDiff: (path: string) => Promise<void>;
   fetchTurnDiff: (path: string) => Promise<void>;
@@ -30,6 +31,7 @@ export function useReviewFileSelection({
 
   const selectFilePath = useCallback(
     async (path: string, staged: boolean): Promise<void> => {
+      if (reviewSourceKind === "unavailable_saved_artifact") return;
       setSelectedFilePath(path);
       if (reviewSourceKind === "prompt_artifact") {
         await fetchArtifactDiff(path);

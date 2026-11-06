@@ -113,12 +113,28 @@ describe("MemoryTranscriptRepository", () => {
       sessionId: "archived-session",
       taskId: "archived-task",
     });
+    await repository.appendMessage({
+      ...createMessageInput("archived-sibling-message", "assistant"),
+      sessionId: "archived-sibling", taskId: "archived-task",
+    });
     markTaskArchived(repository, "archived-task", "2026-05-15T00:00:01.000Z");
 
     const result = await repository.listSessions("user-1");
 
     expect(result.tasks.map((task) => task.id)).toEqual(["session-1"]);
     expect(result.sessions.map((session) => session.id)).toEqual(["session-1"]);
+    const inherited = await repository.listArchivedSessions("user-1");
+    expect(inherited.map((session) => session.id).sort()).toEqual(["archived-session", "archived-sibling"]);
+    expect(inherited.every((session) => session.archivedAt === "2026-05-15T00:00:01.000Z")).toBe(true);
+    expect(await repository.pinSession("user-1", "archived-session")).toBeNull();
+    expect(await repository.unarchiveSession("another-user", "archived-session")).toBeNull();
+    const restored = await repository.unarchiveSession("user-1", "archived-session");
+    expect(restored?.archivedAt).toBeNull();
+    expect((await repository.listSessions("user-1")).sessions.map((session) => session.id).sort()).toEqual(["archived-session", "session-1"]);
+    expect((await repository.listArchivedSessions("user-1")).map((session) => [session.id, session.archivedAt])).toEqual([["archived-sibling", "2026-05-15T00:00:01.000Z"]]);
+    expect((await repository.listTranscript({ sessionId: "archived-session", userId: "user-1" })).messages).toHaveLength(1);
+    expect((await repository.listTranscript({ sessionId: "archived-sibling", userId: "user-1" })).messages).toHaveLength(1);
+
   });
 
   it("archives sessions through the repository contract", async () => {
