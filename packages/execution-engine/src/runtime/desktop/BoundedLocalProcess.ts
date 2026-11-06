@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { isAbsolute } from "node:path";
 
 const OUTPUT_BYTES = 64 * 1024;
 const COMMAND_TIMEOUT_MS = 60_000;
@@ -14,10 +15,18 @@ export type LocalProcessOutput = {
   outputClosed: boolean;
 };
 
-/** POSIX process-group lifetime. A kill request is never evidence of exit. */
+export type BoundedLocalProcessInput = { cwd: string; signal: AbortSignal } & (
+  | { command: string }
+  | { executable: string; args: readonly string[] }
+);
+
+const NO_FORK_PROFILE = "(version 1)(allow default)(deny process-fork)";
+
+/** Group lifetime for legacy bash; single-PID lifetime only under Darwin no-fork. */
 export class BoundedLocalProcess {
   readonly result: Promise<LocalProcessOutput>;
   private readonly child: ChildProcessWithoutNullStreams;
+  private readonly singleExecutable: boolean;
   private closed = false;
   private spawned = false;
   private terminationRequested = false;
@@ -26,10 +35,25 @@ export class BoundedLocalProcess {
   private outputTimer: ReturnType<typeof setTimeout> | undefined;
   private killTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(input: { command: string; cwd: string; signal: AbortSignal }) {
+  constructor(input: BoundedLocalProcessInput) {
     if (process.platform === "win32") throw new Error("Local bash requires a POSIX runtime");
     input.signal.throwIfAborted();
-    this.child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", input.command], {
+    this.singleExecutable = "executable" in input;
+    let executable: string;
+    let args: readonly string[];
+    if ("executable" in input) {
+      if (process.platform !== "darwin") throw new Error("Single-executable no-fork commands require Darwin Seatbelt");
+      if (!isAbsolute(input.executable) || input.executable.includes("\0")
+        || input.args.length > 255 || input.args.some((arg) => typeof arg !== "string" || arg.includes("\0") || Buffer.byteLength(arg) > 4_096)) {
+        throw new Error("Invalid single-executable argv");
+      }
+      executable = "/usr/bin/sandbox-exec";
+      args = ["-p", NO_FORK_PROFILE, input.executable, ...input.args];
+    } else {
+      executable = "/bin/bash";
+      args = ["--noprofile", "--norc", "-c", input.command];
+    }
+    this.child = spawn(executable, args, {
       cwd: input.cwd,
       detached: true,
       // Never inherit provider credentials or shell startup hooks.
@@ -56,7 +80,7 @@ export class BoundedLocalProcess {
       const timeout = setTimeout(() => { timedOut = true; this.stop(); }, COMMAND_TIMEOUT_MS);
       this.child.once("spawn", () => {
         this.spawned = true;
-        if (input.signal.aborted || this.terminationRequested) this.signalGroup("SIGTERM");
+        if (input.signal.aborted || this.terminationRequested) this.signalProcess("SIGTERM");
       });
       this.child.once("error", (error) => { failure = error; });
       // Even a successful shell can leave background children holding stdio open.
@@ -77,8 +101,8 @@ export class BoundedLocalProcess {
   stop(): void {
     if (this.terminationRequested) return;
     this.terminationRequested = true;
-    this.signalGroup("SIGTERM");
-    this.killTimer = setTimeout(() => this.signalGroup("SIGKILL"), KILL_DELAY_MS);
+    this.signalProcess("SIGTERM");
+    this.killTimer = setTimeout(() => this.signalProcess("SIGKILL"), KILL_DELAY_MS);
     // A detached descendant can retain inherited pipes after the shell exits.
     // Bound collection without treating forced pipe closure as quiescence proof.
     this.outputTimer = setTimeout(() => {
@@ -90,7 +114,7 @@ export class BoundedLocalProcess {
   }
 
   get quiescent(): boolean {
-    return this.closed && !this.forcedOutputClose && !this.groupExists();
+    return this.closed && !this.forcedOutputClose && (this.singleExecutable || !this.groupExists());
   }
 
   private groupExists(): boolean {
@@ -101,8 +125,15 @@ export class BoundedLocalProcess {
     }
   }
 
-  private signalGroup(signal: NodeJS.Signals): void {
+  private signalProcess(signal: NodeJS.Signals): void {
     if (!this.child.pid) return;
+    if (this.singleExecutable) {
+      // Seatbelt denies fork/posix_spawn before untrusted exec. Exec retains
+      // this PID, so ChildProcess exit is complete process-lifetime evidence.
+      try { this.child.kill(signal); }
+      catch { /* No exit is inferred; close remains required. */ }
+      return;
+    }
     try { process.kill(-this.child.pid, signal); }
     catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
