@@ -100,7 +100,7 @@ export function GitReviewProvider({
         ? (canonicalTurnReview?.files ?? EMPTY_FILE_STATUSES)
         : reviewSource.kind === "prompt_artifact"
           ? mapArtifactFilesToStatus(promptArtifactSource?.files ?? [])
-          : liveGitFiles,
+          : reviewSource.kind === "unavailable_saved_artifact" ? EMPTY_FILE_STATUSES : liveGitFiles,
     [
       canonicalTurnReview?.files,
       liveGitFiles,
@@ -132,31 +132,31 @@ export function GitReviewProvider({
       ? turnDiff
       : reviewSource.kind === "prompt_artifact"
         ? artifactDiff
-        : liveDiff;
+        : reviewSource.kind === "unavailable_saved_artifact" ? null : liveDiff;
   const activeDiffLoading =
     reviewSource.kind === "turn_diff"
       ? false
       : reviewSource.kind === "prompt_artifact"
         ? artifactDiffLoading
-        : liveDiffLoading;
+        : reviewSource.kind === "unavailable_saved_artifact" ? reviewSourceLoading : liveDiffLoading;
   const activeDiffError =
     reviewSource.kind === "turn_diff"
       ? (canonicalTurnReview?.error ?? null)
       : reviewSource.kind === "prompt_artifact"
         ? artifactDiffError
-        : liveDiffError;
+        : reviewSource.kind === "unavailable_saved_artifact" ? reviewSourceError : liveDiffError;
   const diffLoading =
     reviewSource.kind === "turn_diff"
       ? false
       : reviewSource.kind === "prompt_artifact"
         ? artifactDiffLoading || reviewSourceLoading
-        : liveDiffLoading;
+        : reviewSource.kind === "unavailable_saved_artifact" ? reviewSourceLoading : liveDiffLoading;
   const diffError =
     reviewSource.kind === "turn_diff"
       ? (canonicalTurnReview?.error ?? null)
       : reviewSource.kind === "prompt_artifact"
         ? (artifactDiffError ?? reviewSourceError)
-        : liveDiffError;
+        : reviewSource.kind === "unavailable_saved_artifact" ? reviewSourceError : liveDiffError;
   const stagedFiles = useMemo(
     () => collectStagedFilePaths(status?.files ?? []),
     [status?.files],

@@ -116,7 +116,18 @@ describe("resolveReviewSource", () => {
       latestArtifactSource: null,
     });
 
-    expect(source).toEqual({ kind: "live_git", reason: "empty" });
+    expect(source).toEqual({ kind: "unavailable_saved_artifact", reason: "explicit" });
+    expect(resolveReviewSource({
+      requestedScope: "prompt-artifact",
+      openedArtifact: { artifactId: "artifact-owned", assistantMessageId: "assistant-owned" },
+      liveGitFiles: [buildFileStatus("src/live.ts")],
+      latestArtifactSource: buildArtifactSource(),
+      savedArtifactLookup: "unavailable",
+    })).toEqual({ kind: "unavailable_saved_artifact", reason: "explicit" });
+    expect(resolveReviewSource({
+      requestedScope: "git-changes", openedArtifact: null,
+      liveGitFiles: [], latestArtifactSource: null, savedArtifactLookup: "unavailable",
+    })).toEqual({ kind: "live_git", reason: "explicit" });
   });
 
   it("returns empty live git when all inputs are empty", () => {

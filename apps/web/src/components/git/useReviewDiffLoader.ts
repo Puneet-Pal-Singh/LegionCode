@@ -1,3 +1,4 @@
+import type { ReviewSourceSelection } from "../../services/review/ReviewSourceResolver";
 import { useEffect, useRef } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import { buildAutoFetchDiffKey } from "./reviewDiffKeys";
@@ -10,7 +11,7 @@ interface UseReviewDiffLoaderInput {
   diff: DiffContent | null;
   diffLoading: boolean;
   diffError: string | null;
-  reviewSourceKind: "live_git" | "prompt_artifact" | "turn_diff";
+  reviewSourceKind: ReviewSourceSelection["kind"];
   fetchLiveDiff: (path: string, staged: boolean) => Promise<void>;
   fetchArtifactDiff: (path: string) => Promise<void>;
   fetchTurnDiff: (path: string) => Promise<void>;
@@ -43,6 +44,7 @@ export function useReviewDiffLoader({
     });
     if (
       !enabled ||
+      reviewSourceKind === "unavailable_saved_artifact" ||
       !selectedPath ||
       !autoFetchKey ||
       autoFetchedDiffKeyRef.current === autoFetchKey ||

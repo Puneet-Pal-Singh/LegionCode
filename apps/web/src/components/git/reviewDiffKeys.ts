@@ -13,6 +13,7 @@ export function buildReviewDiffSourceKey({
   if (reviewSource.kind === "turn_diff") {
     return `turn-diff:${reviewSource.turnId}`;
   }
+  if (reviewSource.kind === "unavailable_saved_artifact") return "unavailable-saved-artifact";
   return "live-git";
 }
 
