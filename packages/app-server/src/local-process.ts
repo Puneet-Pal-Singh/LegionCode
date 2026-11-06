@@ -33,6 +33,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
       workspaceService: local.workspaceService,
       threadService: local.threadService,
       providerService: local.providerService,
+      localLifecycleReplayService: local,
     };
     const server = createServer((request, response) => {
       void handleRequest(request, response, composition);

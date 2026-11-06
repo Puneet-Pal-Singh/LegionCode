@@ -1,3 +1,4 @@
+import { effectiveSessionArchive } from "./sessionArchive.js";
 import type {
   AppendExistingTranscriptMessageInput,
   AppendTranscriptMessageInput,
@@ -125,7 +126,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     sessionId: string,
   ): Promise<SessionRecord | null> {
     const session = this.readUserSession(userId, sessionId);
-    if (!session || session.archivedAt) {
+    if (!session || effectiveSessionArchive(session, this.tasks.get(session.taskId))) {
       return null;
     }
     const now = this.clock.now().toISOString();
@@ -153,7 +154,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     sessionId: string,
   ): Promise<SessionRecord | null> {
     const session = this.readUserSession(userId, sessionId);
-    if (!session || session.archivedAt) {
+    if (!session || effectiveSessionArchive(session, this.tasks.get(session.taskId))) {
       return null;
     }
     const now = this.clock.now().toISOString();
@@ -170,10 +171,17 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     sessionId: string,
   ): Promise<SessionRecord | null> {
     const session = this.readUserSession(userId, sessionId);
-    if (!session || !session.archivedAt) {
-      return null;
-    }
+    const task = session ? this.tasks.get(session.taskId) : undefined;
+    if (!session || !task || task.userId !== userId || !effectiveSessionArchive(session, task)) return null;
+    const siblings = Array.from(this.sessions.values()).filter((candidate) => candidate.taskId === task.id);
+    if (siblings.some((candidate) => candidate.userId !== userId)) return null;
     const now = this.clock.now().toISOString();
+    if (task.archivedAt) {
+      for (const sibling of siblings) {
+        if (sibling.id !== sessionId && !sibling.archivedAt) this.storeSession({ ...sibling, archivedAt: task.archivedAt });
+      }
+      this.tasks.set(task.id, { ...task, archivedAt: null, status: "active", updatedAt: now });
+    }
     return this.storeSession({ ...session, archivedAt: null, updatedAt: now });
   }
 
@@ -182,7 +190,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     sessionId: string,
   ): Promise<boolean> {
     const session = this.readUserSession(userId, sessionId);
-    if (!session?.archivedAt) {
+    if (!session || !effectiveSessionArchive(session, this.tasks.get(session.taskId))) {
       return false;
     }
 
@@ -310,6 +318,8 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
   async listArchivedSessions(userId: string): Promise<SessionRecord[]> {
     return Array.from(this.sessions.values())
       .filter((session) => session.userId === userId)
+      .filter((session) => this.tasks.get(session.taskId)?.userId === userId)
+      .map((session) => ({ ...session, archivedAt: effectiveSessionArchive(session, this.tasks.get(session.taskId)) }))
       .filter((session) => session.archivedAt !== null)
       .sort((left, right) =>
         (right.archivedAt ?? "").localeCompare(left.archivedAt ?? ""),

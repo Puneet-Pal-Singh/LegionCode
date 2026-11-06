@@ -1,5 +1,7 @@
 import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
 import Database from "better-sqlite3";
+import { LocalTurnAdmissions } from "./local-turn-admissions.js";
+import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
@@ -98,6 +100,14 @@ export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
   readonly harnessBindings: HarnessBindingRepository;
+  readonly turnAdmissions: {
+    admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
+    findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
+    getByTurn(turnId: string): Promise<TurnAdmission | null>;
+    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number }): Promise<{
+      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+    }>;
+  };
   readonly workspaceGrants: {
     read(): Promise<StoredLocalWorkspaceGrant | null>;
     write(value: StoredLocalWorkspaceGrant): Promise<void>;
@@ -114,6 +124,7 @@ export class LocalPersistence {
   private readonly clock: EventStoreClock;
   private readonly idGenerator: EventStoreIdGenerator;
   private closed = false;
+  private admissions?: LocalTurnAdmissions;
 
   constructor(options: LocalPersistenceOptions) {
     if (!isAbsolute(options.storageDirectory) || options.storageDirectory.includes("\0")) {
@@ -139,7 +150,18 @@ export class LocalPersistence {
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
-      initializeLocalHarnessBindings(this.database);
+      const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
+      this.database.transaction(() => {
+        admissions.initialize();
+        initializeLocalHarnessBindings(this.database);
+      }).immediate();
+      this.admissions = admissions;
+      this.turnAdmissions = {
+        admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
+        findByRequest: async (threadId, requestId) => this.guardStorage(() => admissions.findByRequest(threadId, requestId)),
+        getByTurn: async (turnId) => this.guardStorage(() => admissions.getByTurn(turnId)),
+        listByThread: async (input) => this.guardStorage(() => admissions.listByThread(input)),
+      };
       this.archiveLegacyFilesAfterCommit();
     } catch (error) {
       this.database?.close();
@@ -397,6 +419,7 @@ export class LocalPersistence {
 
   private appendLifecycleWithin(input: LifecycleEvent): LifecycleEvent {
     const event = parseLifecycleEvent(input);
+    this.admissions?.assertLifecycleIdentity(event);
     const fingerprint = createStableEventFingerprint(event);
     const existing = this.database.prepare(`
       SELECT event_json, fingerprint, family, stream_id, sequence, idempotency_key
@@ -471,15 +494,23 @@ export class LocalPersistence {
     const scope = EventScopeSchema.parse(input.scope);
     validateReplayLimit(input.limit);
     const afterCursor = input.afterCursor === null ? null : EventCursorSchema.parse(input.afterCursor);
-    const rows = this.database.prepare(`
-      SELECT event_json FROM events WHERE family = 'platform' AND stream_type = ? AND stream_id = ? ORDER BY sequence
-    `).all(scope.scopeType, scope.scopeId) as { event_json: string }[];
-    const events = rows.map(({ event_json }) => parseStoredPlatformEvent(event_json));
-    const start = afterCursor === null ? 0 : events.findIndex((event) => event.cursor === afterCursor) + 1;
-    if (afterCursor !== null && start === 0) {
-      throw new EventStoreError("cursor_not_found", "Replay cursor does not exist in the requested scope");
+    let afterSequence = 0;
+    if (afterCursor !== null) {
+      const anchor = this.database.prepare(`
+        SELECT sequence FROM events
+        WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND cursor = ?
+      `).get(scope.scopeType, scope.scopeId, afterCursor) as { sequence: number } | undefined;
+      if (!anchor) {
+        throw new EventStoreError("cursor_not_found", "Replay cursor does not exist in the requested scope");
+      }
+      afterSequence = anchor.sequence;
     }
-    const page = events.slice(start, start + input.limit);
+    const rows = this.database.prepare(`
+      SELECT event_json FROM events
+      WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND sequence > ?
+      ORDER BY sequence LIMIT ?
+    `).all(scope.scopeType, scope.scopeId, afterSequence, input.limit) as { event_json: string }[];
+    const page = rows.map(({ event_json }) => parseStoredPlatformEvent(event_json));
     return { events: page, nextCursor: page.at(-1)?.cursor ?? null };
   }
 

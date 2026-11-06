@@ -16,6 +16,9 @@ import { LocalPersistence } from "@repo/event-store/local";
 import { LocalPersistenceError } from "@repo/event-store/errors";
 import {
   EVENT_SCHEMA_VERSION,
+  LifecycleEventSchema,
+  createTurnId,
+  createRunAttemptId,
   LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ThreadSchema,
@@ -66,12 +69,16 @@ describe("local App Server HTTP integration", () => {
       const local = new LocalHarnessComposition(persistence);
       const instanceDirectory = join(storageDirectory, "harness-instance");
       await mkdir(instanceDirectory);
+      const journalDirectory = join(storageDirectory, "harness-journal");
+      await mkdir(journalDirectory);
       let policyCalls = 0;
       const host = await local.createHost(ThreadIdSchema.parse(threadId), {
         instanceDirectory,
+        journalDirectory,
         inheritedEnvironment: { HOME: homedir(), OPENAI_API_KEY: "ambient-secret-sentinel" },
         selectedEnvironment: {},
         launchPolicy: {
+          assertEnforced: async () => undefined,
           launch: async () => {
             policyCalls += 1;
             throw new Error("OS policy denied launch");
@@ -91,13 +98,63 @@ describe("local App Server HTTP integration", () => {
     } finally {
       persistence.close();
     }
+    // Seed persisted runtime envelopes: this check exercises replay, not execution.
+    const turnId = createTurnId();
+    const runAttemptId = createRunAttemptId();
+    const events = (["turn.queued", "turn.started", "turn.completed"] as const).map((type, index) =>
+      LifecycleEventSchema.parse({
+        eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
+        threadId, turnId, runAttemptId, sequence: index + 1,
+        idempotencyKey: `runtime-replay:${index + 1}`,
+        producer: { kind: "runtime_kernel", id: "local-replay-fixture" },
+        schemaVersion: 1, createdAt: new Date().toISOString(), type,
+        payload: type === "turn.completed" ? { outcome: { status: "completed" } } : {},
+      }),
+    );
+    const unfinishedTurnId = createTurnId();
+    const unfinished = LifecycleEventSchema.parse({
+      ...events[0],
+      eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
+      turnId: unfinishedTurnId,
+      runAttemptId: createRunAttemptId(),
+    });
+    const persisted = new LocalPersistence({ storageDirectory });
+    try {
+      await persisted.lifecycleEvents.appendBatch([...events, unfinished]);
+    } finally { persisted.close(); }
     const restarted = await start(storageDirectory);
     const restartedUrl = serverUrl(restarted);
     await expect(send(restartedUrl, "thread/list", {})).resolves.toMatchObject({
       ok: true,
       result: { threads: [{ id: threadId, title: "Renamed", status: "active" }] },
     });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId: unfinishedTurnId })).resolves.toMatchObject({
+      ok: true, result: { events: [unfinished], nextSequence: 1 },
+    });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId, limit: 2 })).resolves.toMatchObject({
+      ok: true, result: { events: events.slice(0, 2), nextSequence: 2 },
+    });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId, afterSequence: 2 })).resolves.toMatchObject({
+      ok: true, result: { events: events.slice(2), nextSequence: 3 },
+    });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId, afterSequence: 3 })).resolves.toMatchObject({
+      ok: true, result: { events: [], nextSequence: null },
+    });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId: createTurnId() })).resolves.toMatchObject({
+      ok: false, error: { code: "not_found" },
+    });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId, backend: "cloudflare_agents" })).resolves.toMatchObject({
+      ok: false, error: { code: "invalid_request" },
+    });
+    const otherWorkspace = await fixture();
+    await send(restartedUrl, "workspace/grant", { path: otherWorkspace.workspacePath });
+    await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId })).resolves.toMatchObject({
+      ok: false, error: { code: "not_found" },
+    });
     await send(restartedUrl, "workspace/revoke", {});
+    const revokedReplay = await send(restartedUrl, "turn/lifecycleEvents", { turnId });
+    expect(revokedReplay.ok).toBe(false);
+    expect(revokedReplay).not.toHaveProperty("result");
     await expect(send(restartedUrl, "workspace/current", {})).resolves.toMatchObject({
       ok: true,
       result: { grant: null },
