@@ -964,6 +964,14 @@ The unused `uiShellStore` writer and persisted shell identity mirror are removed
 
 Legacy session snapshot readers and their preservation checks remain quarantined until the real browser inventory is matched; the downloaded inventory has not yet been reconciled. They are not an active session/history source. No historical browser values are deleted by this slice.
 
+### Unused Web transport retirement
+
+The unreferenced generic Brain/Muscle fetch wrapper and its private error helpers
+are removed after a repository-wide import and symbol audit found no consumers.
+The scoped conversation, workspace, provider and review operations retain their
+existing typed SDK/server owners. This removes no active behavior, routes,
+storage or recovery data and introduces no replacement transport.
+
 ## Runless workspace selection recovery
 
 - `useOwnedWorkspaceSelection` renders the existing authenticated SDK workspace
