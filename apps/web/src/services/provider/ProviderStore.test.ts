@@ -353,9 +353,13 @@ describe("ProviderStore", () => {
       const preferenceKey = `provider:session-scoped-selection:${sessionId}`;
       const persistedSelection = localStorage.getItem(preferenceKey);
       expect(persistedSelection).not.toBeNull();
+      const malformedLocalSelection = '{"futureVersion":2}';
+      localStorage.setItem(preferenceKey, malformedLocalSelection);
+      sessionStorage.setItem(preferenceKey, persistedSelection!);
 
       store.resetAll();
-      expect(localStorage.getItem(preferenceKey)).toBe(persistedSelection);
+      expect(localStorage.getItem(preferenceKey)).toBe(malformedLocalSelection);
+      expect(sessionStorage.getItem(preferenceKey)).toBe(persistedSelection);
 
       const state = store.getState();
       expect(state.catalog).toEqual([]);
@@ -375,6 +379,14 @@ describe("ProviderStore", () => {
       expect(restoredStore.getState().selectedProviderId).toBe("openai");
       expect(restoredStore.getState().selectedCredentialId).toBe(credential1Id);
       expect(restoredStore.getState().selectedModelId).toBe("gpt-4-turbo");
+      await restoredStore.bootstrap();
+      await restoredStore.resolveForChat();
+      expect(localStorage.getItem(preferenceKey)).toBe(malformedLocalSelection);
+      expect(sessionStorage.getItem(preferenceKey)).toBe(persistedSelection);
+
+      restoredStore.setSelection("openai", credential1Id, "gpt-4-turbo");
+      expect(localStorage.getItem(preferenceKey)).toBe(persistedSelection);
+      expect(sessionStorage.getItem(preferenceKey)).toBe(persistedSelection);
     });
   });
 

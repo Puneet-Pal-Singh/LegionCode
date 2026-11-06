@@ -22,6 +22,8 @@ import {
   type HostedSessionPullRequestsResponse,
   type ConversationHistoryRequest,
   type ConversationHistoryResponse,
+  type CodeArtifactContentRequest,
+  type CodeArtifactContentResponse,
   ThreadIdSchema,
   RunIdSchema,
   ProviderIdSchema,
@@ -156,6 +158,7 @@ export type AppServerClient = {
   getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
+  getCodeArtifactContent(params: CodeArtifactContentRequest): Promise<CodeArtifactContentResponse>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
   listRepositories(params: RepositoryListRequest): Promise<RepositoryListResponse>;
@@ -341,6 +344,10 @@ export function createAppServerClient(
       method: "artifact/diff",
       params: { artifactId, path, ...identity },
     }, AppServerResultSchemas["artifact/diff"]),
+    getCodeArtifactContent: async (params) => request(options, {
+      method: "artifact/codeContent",
+      params,
+    }, AppServerResultSchemas["artifact/codeContent"]),
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
     listRepositories: async (params) => request(options, {

@@ -116,15 +116,36 @@ binary/no-line-change, known-stat preservation and hunk context behavior remain.
 
 | Responsibility | Canonical owner | Active consumers |
 | --- | --- | --- |
-| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and cold-storage loader. |
+| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and session-bound artifact content loader. |
 | Artifact-open callback types | `client-ui/src/conversation/artifactOpen.ts` | Shared message/artifact UI and Web workflow/conversation callers use the same type. |
 | Hosted hydrated-image URL binding | Web `chatMessageImagePresentation.ts` | Existing scoped-path validation and Brain base resolution supplied explicitly to ChatMessage. |
-| Existing cold-storage artifact transport | Web `services/ArtifactService.ts` until 058.3E | Existing Muscle artifact fetch supplied as callback; move required typed operation to SDK/App Server during the artifact operation slice, then delete this Web transport. |
+| Existing code-artifact preview reads | Brain `HostedCodeArtifactReads` composed after authenticated App Server dispatch; SDK `artifact/codeContent` is the typed client boundary | Web ChatInterface captures the authenticated session and supplies a cancellable loader; shared ArtifactPreview/MessageArtifacts display inline strings and exact persisted `r2_ref` values, opening resolved content. Brain requires both exact genuine persisted `create_code_artifact.args.content` membership in that principal's pinned transcript pages and the matching trusted import receipt, then reads the unchanged object through Secure's internal service binding. |
+
+The merged legacy-history projection supplies the real consumer: SDK history
+classification retains original message/call IDs and arguments;
+`ChatHydrationService` binds those calls to the existing shared message artifact
+renderer. No unused `storedCalls` interface, fabricated tool call, or runtime
+identity is needed. The existing Web message case covers hydration, the
+session-bound SDK read, resolved-content opening and cancellation on unmount;
+the existing SDK/controller cases cover the typed envelope and unauthenticated
+rejection. These fixtures do not prove live cloud inventory coverage.
+
+Source inspection rechecked the same client/server boundary in
+[Codex App Server](https://github.com/openai/codex/blob/ddd1812a51f4aded35c3ec5446672474d5cb546b/codex-rs/app-server/README.md),
+[OpenCode's shared timeline binding](https://github.com/anomalyco/opencode/blob/21eaa626a37f77d7a8d80fa01997fa7d52506c97/packages/app/src/session/timeline/message-timeline.tsx)
+and [T3 Code's timeline projection](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/web/src/components/chat/MessagesTimeline.logic.ts).
+Their separation of server-owned records, reusable projection and UI actions
+informs this wiring; trusted legacy-reference authorization remains LegionCode's
+own receipt-backed boundary.
 
 Replaced Web message/rendering/helpers are deleted. Only active host URL/HTTP
-bindings remain, with the artifact transport deletion trigger above. Existing
-message integration safeguards stay at the Web boundary to cover its bindings.
-No product HTTP/storage authority or Web imports enter shared presentation.
+bindings remain. The old `loadColdStorageArtifact` Web transport and public
+key-only `/artifact` reader are removed only after real consumers and every
+known inventoried preview reference have replacement coverage. Existing
+ArtifactService state methods remain. Every inventoried R2 object, DO record,
+key, and byte stays preserved; unmatched objects receive no key-prefix or
+first-viewer authorization, and the local inventory does not establish cloud
+coverage. Shared preview presentation owns no fetch/auth/SDK composition.
 
 ## Plan 058.2D — Full diff and review renderers
 
@@ -183,6 +204,25 @@ existing owners until the command slices.
 | --- | --- | --- |
 | Authorized session transcript pages and committed snapshot watermark | Existing persistence TranscriptRepository and Brain TranscriptController | Web ChatHydrationService reads the same session-scoped contract, independent of execution-run filtering. |
 | Validated complete/partial paginated reads | `sdk/src/platform/conversation-history.ts` | Web ChatHydrationService retains verified pages, rejects invalid identity/timestamp/cursor data, and no longer fabricates message identities or truncates after ten pages. |
+| Source-preserving hydrated transcript content | One framework-neutral projection beside `sdk/src/platform/conversation-history.ts` | Web adapts validated SDK transcript records to React; source roles, order, IDs, tool results and JSON parts stay inspectable without becoming AI-SDK messages or lifecycle state. |
+
+`PostgresTranscriptRepository` projects stored JSONB message-part content as SQL
+text before strict JSON parsing, so JSON scalar strings retain their value after
+the PostgreSQL driver decodes JSONB on normal reads. Legacy-import duplicate
+checks compare the driver's decoded JSON values directly.
+
+### Fixed-inventory legacy transcript recovery
+
+| Responsibility | Canonical owner | Active consumers and boundary |
+| --- | --- | --- |
+| Operator import of the approved fixed legacy inventory and its immutable provenance | Existing `PostgresTranscriptRepository` import method plus one `legacy_history_import_receipts` table | One operator-only dry-run-by-default command resolves GitHub subject `46601256` against target `accounts/users`, imports transcript and receipt atomically, and retains raw source bytes. Durable Object exports keep the actual logical DO ID; local Wrangler SQLite uses `source_kind` plus the frozen source-instance locator and leaves `source_do_id` null. Local rows group sessions by the exact original producer conversation bucket retained only in receipt provenance; unknown buckets never merge by physical SQLite file. Normal session/message APIs cannot write provenance; Secure Durable Object/R2 records remain untouched. |
+
+The receipt is provenance, not a transcript projection, ownership grant, or
+runtime lifecycle record. Import coverage is limited to the exact frozen
+environment/namespace/source-instance/key manifest. A local SQLite filename is
+never presented as a logical Durable Object ID. Original records are idempotent
+only when bytes, ownership, mapping, and manifest digest match; any mismatch
+aborts for review. No public preview-key reader is retired by this import slice.
 
 This adopts only the pinned session-history portion of the incoming durability
 fix from main. Existing browser hydration scope/live binding remains pending the
@@ -749,6 +789,8 @@ This ledger records the active wiring for image-bearing conversation context.
 | Repository PR-read reuse                 | RegistryToolAuthorization and canonical approval grants | An explicitly offered grant binds the trusted authenticated user, chat, workspace and normalized repository. Existing lifecycle grant persistence is reused. Writes, shell, other repositories and old exact-input grants cannot consume the new matcher.                                                  |
 | Pre-execution rejection recovery         | BashPlugin validation and native kernel worker          | Structured rejection proves execution did not start. One same-rule correction may return through the existing recoverable tool-result path, with normal validation/approval on every call. Exhaustion settles one canonical failed outcome explaining incomplete work.                                     |
 | Composer provider/model preference       | ProviderStore and its session preference adapter        | ChatInputBar, AgentSetup, ProviderDialog and useChatCore share a stable session choice independently of the execution run. Cache is a browser preference only; submission uses the validated resolver and captures the admitted configuration. Inventory refresh cannot silently replace explicit choices. |
+| Session provider selection restoration   | ProviderSelectionPreferences and ProviderStore          | Restore valid local or legacy session-storage selections without rewriting either key. Malformed and unknown raw bytes remain unchanged until an explicit selection write; current provider records and the authorized scope decide whether a saved choice is usable.                   |
+| Rendered conversation messages           | Canonical transcript history and live lifecycle; Web `useChat` owns only its current render state | The unused `useChatPersistence` -> `ChatPersistenceService` -> `agentStore` mirror is removed; no production path read it. Existing history hydration and live lifecycle remain the only sources for rendered conversation messages. No browser history authority is introduced. |
 
 No lifecycle, grant or chat database migration is required. The old run-keyed
 composer preference cache and direct unvalidated submission shortcut are removed
@@ -773,3 +815,47 @@ never rendered as a successfully verified closed pull request.
 | Chat title mutation | Authenticated session metadata operation and ThreadTitleService | Sidebar and header rename capture the selected session ID, await the server response, and update only that session's canonical title projection. Errors stay visible to the user; run, workspace and status fields are not copied from a stale response. |
 | Saved image source list | Authenticated transcript image references and ChatMediaStore | Web derives references only from restored user messages in the active `SessionConversationSurface`, validates the shared image-reference schema, deduplicates by attachment ID and resolves the existing authenticated image source. Draft and optimistic images are excluded; loading, partial and failed history remain explicit. Presentation reuses `ChatImageGallery`. |
 | Outputs, subagents and background processes | Their separately scoped capabilities | Summary sections remain hidden until their canonical capabilities exist; Web does not infer runtime state or fabricate counts. |
+
+
+## Queued follow-up and resume command identity
+
+- The SDK `createConversationInputCommands` binding retains one captured queue or
+  steer command per explicit intent fingerprint and the current resume command.
+  Canonical request schemas copy content, image bytes and configuration when
+  allocating client identity. A transport failure retains that exact request for
+  explicit retry; a typed server receipt retires it. Each conversation creates
+  its own binding; there is no global product cache or new lifecycle authority.
+- Web `useConversationInputCommands` keeps composer draft/version and active
+  conversation generation checks, resolves current provider/harness settings,
+  presents receipts/errors and applies server-returned scope. The SDK dispatches
+  only through the existing PlatformClient methods; hosted admission, queue
+  ordering, steering and resume settlement retain their server/runtime owners.
+
+## Plan 058 — Portable lifecycle projection continuation
+
+SDK `platform/conversation-lifecycle` composes the existing canonical lifecycle
+replay, continuation and workflow projector. Web's active-Turn hook supplies
+React state callbacks and cancellation; its historical-Turn hook supplies the
+same SDK operation for paged replay and retains unavailable-history diagnostics.
+The Web-only replay/follow reducer loops are removed.
+
+Initial replay publishes one complete snapshot so resolved historical approvals
+cannot flash as pending. Live continuation uses the existing SDK cursor/retry
+path and publishes canonical projections. Historical replay never follows an
+unsettled old Turn. Aborted or replaced hooks cannot publish late results, and
+transport closure never creates terminal state. Runtime append and hosted
+lifecycle storage remain the lifecycle authorities.
+
+## Plan 058 — Portable interruption settlement
+
+The SDK `platform/conversation-interruption` operation owns the existing Stop
+request and bounded wait for the exact thread/Turn/Run Attempt terminal event.
+Web `useChatCore` supplies the captured scope and its accepted-command callback;
+React owns pending/error presentation and transport cleanup. The hosted App
+Server and runtime retain interruption authorization and canonical settlement.
+
+The Web-only helper is removed. A successful command acknowledges cancellation
+admission, not terminal settlement: only a matching completed, failed or
+interrupted lifecycle event finishes the SDK operation. The existing 15-second
+abort, mismatched-attempt rejection and iterator cleanup are preserved, using
+portable timers without a browser global or another lifecycle subscription owner.

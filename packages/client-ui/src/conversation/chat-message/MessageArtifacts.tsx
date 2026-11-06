@@ -5,7 +5,10 @@ import type { ArtifactOpenHandler } from "../artifactOpen.js";
 
 const codeArtifactArgsSchema = z.object({
   path: z.string().optional(),
-  content: z.string().optional(),
+  content: z.union([
+    z.string(),
+    z.object({ type: z.literal("r2_ref"), key: z.string().min(1) }).strict(),
+  ]).optional(),
 });
 
 export function MessageArtifacts({
@@ -13,25 +16,31 @@ export function MessageArtifacts({
   onArtifactOpen,
   loadArtifactContent,
 }: {
-  message: Message;
+  message?: Message;
   onArtifactOpen?: ArtifactOpenHandler;
-  loadArtifactContent?: (key: string) => Promise<string>;
+  loadArtifactContent?: (key: string, signal?: AbortSignal) => Promise<string>;
 }) {
-  return message.toolInvocations
-    ?.filter((invocation) => invocation.toolName === "create_code_artifact")
-    .map((invocation, index) => {
-      const args = toArtifactArgs(invocation.args);
+  const calls = message?.toolInvocations
+      ?.filter((invocation) => invocation.toolName === "create_code_artifact")
+      .map((invocation) => ({
+        toolCallId: invocation.toolCallId,
+        args: invocation.args,
+        status: invocation.state,
+      })) ?? [];
+
+  return calls.map((call, index) => {
+      const args = toArtifactArgs(call.args);
       const path = args.path || "untitled";
-      const content = args.content || "";
-      if (!content) return null;
+      const content = args.content;
+      if (content === undefined || content === "") return null;
       return (
         <ArtifactPreview
-          key={invocation.toolCallId || `tool-${index}`}
+          key={call.toolCallId || `tool-${index}`}
           title={path}
           content={content}
           loadContent={loadArtifactContent}
-          status={invocation.state}
-          onOpen={() => onArtifactOpen?.(path, content)}
+          status={call.status}
+          onOpen={onArtifactOpen ?? (() => undefined)}
         />
       );
     });
@@ -39,7 +48,7 @@ export function MessageArtifacts({
 
 function toArtifactArgs(value: unknown): {
   path?: string;
-  content?: string;
+  content?: string | { type: "r2_ref"; key: string };
 } {
   const parsed = codeArtifactArgsSchema.safeParse(value);
   return parsed.success ? parsed.data : {};

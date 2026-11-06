@@ -985,7 +985,7 @@ describe("useSessionManager", () => {
     });
 
     it("should not leak messages between sessions", async () => {
-      // This test verifies that agentStore properly isolates messages by runId
+      // Each session remains bound to its own active run identifiers.
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId1 = "";

@@ -1,5 +1,5 @@
 import { resolveHydratedChatImageSource } from "./chatMessageImagePresentation";
-import { loadColdStorageArtifact } from "../../services/ArtifactService";
+import { loadCodeArtifactContent } from "../../services/api/codeArtifactReads";
 import { ChatDebugPanel } from "./chat-interface/ChatDebugPanel";
 import { buildConversationTurns } from "@legioncode/sdk";
 import { useRef, useEffect, useMemo, useCallback } from "react";
@@ -152,6 +152,11 @@ export function ChatInterface({
   onPresentationReadyChange,
 }: ChatInterfaceProps) {
   const composerPreferences = useComposerPreferences();
+  const loadArtifactContent = useCallback(
+    (key: string, signal?: AbortSignal) =>
+      loadCodeArtifactContent(sessionId, key, signal),
+    [sessionId],
+  );
   const {
     messages,
     optimisticUserMessageId = null,
@@ -611,7 +616,7 @@ export function ChatInterface({
         showDebugPanel ? <ChatDebugPanel events={debugEvents} /> : null
       }
       resolveHydratedImageSource={resolveHydratedChatImageSource}
-      loadArtifactContent={loadColdStorageArtifact}
+      loadArtifactContent={loadArtifactContent}
       chatEntries={chatEntries}
       hydrationStatus={hydrationStatus}
       hydrationError={hydrationError ?? null}

@@ -64,6 +64,12 @@ export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepos
 export { InvalidTranscriptSnapshotError } from "./sessions/types.js";
 export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepository.js";
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
+export type {
+  LegacyHistoryImportInput,
+  LegacyHistoryImportMessage,
+  LegacyHistoryImportRecord,
+  LegacyHistoryImportResult,
+} from "./sessions/types.js";
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
 export type {
   AdmitContinuationInput,
@@ -104,6 +110,7 @@ export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical
 export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title-read-receipts.js";
 export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
 export { threadInputsAndContinuationsMigration } from "./migrations/0033-thread-inputs-and-continuations.js";
+export { legacyHistoryImportReceiptsMigration } from "./migrations/0034-legacy-history-import-receipts.js";
 export { PostgresThreadInputRepository, ThreadInputConflictError } from "./thread-inputs/PostgresThreadInputRepository.js";
 export type {
   CreateThreadInput,
