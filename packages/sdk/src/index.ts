@@ -9,6 +9,7 @@ export {
   type AppServerClient,
   type AppServerClientOptions,
   type AppServerTransport,
+  type HostedChatSubmissionAcknowledgement,
   type WorkspaceGrantSource,
   type ArtifactReviewLookupResult,
 } from "./platform/app-server-client.js";
@@ -19,6 +20,7 @@ export {
   findSubmissionAttempt,
   finishSubmissionAttempt,
   freezeSubmissionWireBody,
+  observeSubmissionAcknowledgement,
   retainSubmissionReservation,
   retireSessionSubmissionAttempts,
   retireSubmissionIntent,
@@ -80,6 +82,7 @@ export {
   TurnScopeBootstrapRequestSchema,
   TurnScopeBootstrapSchema,
   TurnScopeReadQuerySchema,
+  ChatRequestBodySchema,
   WorkspaceIdSchema,
   ContextBudgetSnapshotSchema,
   UsageCostSnapshotSchema,
@@ -96,8 +99,12 @@ export {
   type TurnId,
   type TurnScopeBootstrap,
   type TurnScopeReadQuery,
+  type ChatRequestBody,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
+  type RepositoryContentsResponse,
+  type RepositoryReadBranch,
+  type RepositoryReadRepository,
 } from "@repo/platform-protocol";
 export {
   turnIdFromRunId,

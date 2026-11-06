@@ -188,6 +188,8 @@ export function AgentSetup({
   const {
     repoTree,
     isLoadingTree,
+    repoTreeError,
+    retryRepoTree,
     repo: githubRepo,
     branch: githubBranch,
     isGitHubLoaded,
@@ -487,6 +489,13 @@ export function AgentSetup({
               {isLoadingTree ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
                   Loading repository files...
+                </div>
+              ) : repoTreeError ? (
+                <div className="flex items-center justify-between gap-3 px-3 py-4 text-[11px] text-amber-200" role="alert">
+                  <span>{repoTreeError}</span>
+                  <button type="button" onClick={retryRepoTree} className="shrink-0 text-blue-300 hover:text-blue-200">
+                    Retry
+                  </button>
                 </div>
               ) : suggestedEntries.length === 0 ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
@@ -917,6 +926,8 @@ export function AgentSetup({
               isGitHubLoaded={isGitHubLoaded}
               repoTree={repoTree}
               isLoadingTree={!!isLoadingTree}
+              repoTreeError={repoTreeError}
+              retryRepoTree={retryRepoTree}
               branch={githubBranch || "main"}
               handleGitHubFileSelect={handleGitHubFileSelect}
               handleFileClick={handleFileClick}

@@ -1,7 +1,7 @@
-import { z } from "zod";
+export {
+  ChatRunModeSchema as RunModeSchema,
+  type ChatRunMode as RunMode,
+} from "@repo/platform-protocol";
+import type { ChatRunMode } from "@repo/platform-protocol";
 
-export const RunModeSchema = z.enum(["build", "plan"]);
-
-export type RunMode = z.infer<typeof RunModeSchema>;
-
-export const DEFAULT_RUN_MODE: RunMode = "build";
+export const DEFAULT_RUN_MODE: ChatRunMode = "build";

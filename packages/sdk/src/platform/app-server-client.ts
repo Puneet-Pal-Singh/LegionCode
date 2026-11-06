@@ -11,6 +11,10 @@ import {
 } from "@legioncode/app-server/protocol";
 import {
   type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
+  type RepositoryBranchesRequest, type RepositoryBranchesResponse,
+  type RepositoryContentsRequest, type RepositoryContentsResult,
+  type RepositoryListRequest, type RepositoryListResponse,
+  type RepositoryTreeRequest, type RepositoryTreeResponse,
   type HostedSession,
   type HostedSessionCreateRequest,
   type HostedSessionReadReceipt,
@@ -42,6 +46,8 @@ import {
   type ThreadInputCommand,
   type ThreadInputQueueSnapshot,
   type ThreadInputReceipt,
+  type ChatRequestBody,
+  type HostedChatSubmissionResult,
 } from "@repo/platform-protocol";
 import type {
   BYOKDiscoveredProviderModelsResponse,
@@ -60,7 +66,17 @@ import { ConversationScopeHttpError } from "./conversation-scope-error.js";
 export type { AppServerRequest } from "@legioncode/app-server/protocol";
 
 export type AppServerTransport = {
-  request(envelope: AppServerRequest): Promise<unknown>;
+  request(envelope: AppServerRequest, serializedEnvelope?: string): Promise<unknown>;
+  requestWithMetadata?(
+    envelope: AppServerRequest,
+    serializedEnvelope?: string,
+    onResponse?: (metadata: { status: number; headers: Headers }) => void,
+    beforeSend?: (serializedEnvelope: string) => string,
+  ): Promise<{ payload: unknown; metadata: { status: number; headers: Headers } }>;
+};
+
+export type HostedChatSubmissionAcknowledgement = HostedChatSubmissionResult & {
+  httpStatus: number;
 };
 
 export type AppServerClientOptions = {
@@ -118,6 +134,11 @@ export type AppServerClient = {
   deleteArchivedSession(sessionId: string): Promise<void>;
   getConversationHistoryPage(params: ConversationHistoryRequest): Promise<ConversationHistoryResponse>;
   reserveTurnScope(params: Extract<AppServerRequest, { method: "turn/reserve" }>['params']): Promise<TurnScopeBootstrap>;
+  submitHostedChat(
+    params: ChatRequestBody,
+    beforeSend: (serializedEnvelope: string) => string,
+    onResponse?: (acknowledgement: HostedChatSubmissionAcknowledgement) => void,
+  ): Promise<HostedChatSubmissionAcknowledgement>;
   getTurnScope(params: TurnScopeReadQuery): Promise<TurnScopeBootstrap | null>;
   interruptTurn(params: InterruptTurnRequest): Promise<InterruptTurnResponse>;
   resumeTurn(params: Extract<ThreadInputCommand, { operation: "turn.resume" }>): Promise<ResumeTurnReceipt>;
@@ -137,6 +158,10 @@ export type AppServerClient = {
   getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
   listHostedWorkspaces(): Promise<HostedWorkspaceListResponse>;
   selectHostedWorkspace(params: HostedWorkspaceSelectRequest): Promise<HostedWorkspaceSelection>;
+  listRepositories(params: RepositoryListRequest): Promise<RepositoryListResponse>;
+  listRepositoryBranches(params: RepositoryBranchesRequest): Promise<RepositoryBranchesResponse>;
+  getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
+  getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
@@ -200,6 +225,62 @@ export function createAppServerClient(
     reserveTurnScope: async (params) => turnScopeRequest(options, {
       method: "turn/reserve", params,
     }, AppServerResultSchemas["turn/reserve"]),
+    submitHostedChat: async (params, beforeSend, onResponse) => {
+      const envelope = AppServerRequestSchema.parse({
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "turn/submit",
+        params,
+      });
+      let payload: unknown;
+      let metadata: { status: number; headers: Headers };
+      try {
+        if (!options.transport.requestWithMetadata) {
+          throw new Error("Hosted chat submission requires response metadata transport support");
+        }
+        const response = await options.transport.requestWithMetadata(
+          envelope,
+          undefined,
+          (responseMetadata) => {
+            // Observe the actual HTTP status and four headers before App Server JSON parsing
+            // or body draining can fail.
+            onResponse?.({
+              ...acknowledgementFromHeaders(responseMetadata.headers),
+              runtimeStatus: responseMetadata.status,
+              httpStatus: responseMetadata.status,
+            });
+          },
+          (candidate) => {
+            const frozen = beforeSend(candidate);
+            let frozenEnvelope: unknown;
+            try {
+              frozenEnvelope = JSON.parse(frozen) as unknown;
+            } catch {
+              throw new TypeError("Frozen chat submission envelope is invalid");
+            }
+            const validatedFrozenEnvelope = AppServerRequestSchema.parse(frozenEnvelope);
+            if (validatedFrozenEnvelope.method !== "turn/submit") {
+              throw new TypeError("Frozen chat submission envelope is not turn/submit");
+            }
+            return frozen;
+          },
+        );
+        payload = response.payload;
+        metadata = response.metadata;
+      } catch (error) {
+        throw new AppServerClientError("transport", "App Server request failed", envelope.method, undefined, undefined, error);
+      }
+      const parsed = AppServerResponseSchema.safeParse(payload);
+      if (!parsed.success || parsed.data.method !== envelope.method) {
+        throw invalidResponse(envelope.method, "App Server returned an invalid response envelope");
+      }
+      if (parsed.data.ok === false) {
+        throw new AppServerClientError("server_error", parsed.data.error.message, envelope.method, parsed.data.error.code, parsed.data.error);
+      }
+      const result = AppServerResultSchemas["turn/submit"].parse(parsed.data.result);
+      const headersAck = acknowledgementFromHeaders(metadata.headers);
+      const acknowledgement = { ...result, ...headersAck, httpStatus: metadata.status };
+      return acknowledgement;
+    },
     getTurnScope: async (params) => {
       try {
         return await turnScopeRequest(options, { method: "turn/scope", params }, AppServerResultSchemas["turn/scope"]);
@@ -262,6 +343,18 @@ export function createAppServerClient(
     }, AppServerResultSchemas["artifact/diff"]),
     listHostedWorkspaces: async () => request(options, { method: "workspace/list", params: {} }, AppServerResultSchemas["workspace/list"]),
     selectHostedWorkspace: async (params) => (await request(options, { method: "workspace/select", params }, AppServerResultSchemas["workspace/select"])).selection,
+    listRepositories: async (params) => request(options, {
+      method: "repository/list", params,
+    }, AppServerResultSchemas["repository/list"]),
+    listRepositoryBranches: async (params) => request(options, {
+      method: "repository/branches", params,
+    }, AppServerResultSchemas["repository/branches"]),
+    getRepositoryTree: async (params) => request(options, {
+      method: "repository/tree", params,
+    }, AppServerResultSchemas["repository/tree"]),
+    getRepositoryContents: async (params) => request(options, {
+      method: "repository/contents", params,
+    }, AppServerResultSchemas["repository/contents"]),
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",
@@ -453,4 +546,15 @@ async function request<Schema extends z.ZodTypeAny>(
 
 function invalidResponse(method: AppServerMethod, message: string) {
   return new AppServerClientError("invalid_response", message, method);
+}
+
+function acknowledgementFromHeaders(
+  headers: Headers,
+): Pick<HostedChatSubmissionAcknowledgement, "runId" | "threadId" | "turnId" | "runAttemptId"> {
+  return {
+    runId: headers.get("X-Run-Id"),
+    threadId: headers.get("X-Thread-Id"),
+    turnId: headers.get("X-Turn-Id"),
+    runAttemptId: headers.get("X-Run-Attempt-Id"),
+  };
 }
