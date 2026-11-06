@@ -9,7 +9,8 @@ export function useDesktopEnvironment(desktop: Pick<
 >) {
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
   const [environment, setEnvironment] = useState<AppServerEnvironmentSnapshot | null>(null);
-  const [error, setError] = useState<Error | null>(null);
+  const [buildError, setBuildError] = useState<Error | null>(null);
+  const [environmentError, setEnvironmentError] = useState<Error | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -17,18 +18,19 @@ export function useDesktopEnvironment(desktop: Pick<
     const unsubscribe = desktop.onEnvironmentStatus((snapshot) => {
       if (!active) return;
       notified = true;
+      setEnvironmentError(null);
       setEnvironment(snapshot);
     });
     void desktop.getBuildInfo().then((info) => {
       if (active) setBuild(info);
     }).catch(() => {
-      if (active) setError(new Error("Desktop build information could not be loaded."));
+      if (active) setBuildError(new Error("Desktop build information could not be loaded."));
     });
     void desktop.getEnvironment().then((snapshot) => {
       if (active && !notified) setEnvironment(snapshot);
     }).catch(() => {
       if (active && !notified) {
-        setError(new Error("Desktop environment status could not be loaded."));
+        setEnvironmentError(new Error("Desktop environment status could not be loaded."));
       }
     });
     return () => {
@@ -37,5 +39,5 @@ export function useDesktopEnvironment(desktop: Pick<
     };
   }, [desktop]);
 
-  return { build, environment, error };
+  return { build, environment, error: buildError ?? environmentError };
 }
