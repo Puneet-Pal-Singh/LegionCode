@@ -153,15 +153,16 @@ async function readRuntimeResponse<Schema extends z.ZodTypeAny>(
   response: Response,
   schema: Schema,
 ): Promise<z.output<Schema>> {
+  const correlationId = crypto.randomUUID();
   const isJson = response.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false;
   if (!isJson) {
-    const preview = response.ok ? "" : await readErrorPreview(response);
     throw new AppServerOperationError(
       response.ok ? 502 : response.status,
       response.ok ? "server_unavailable" : statusCategory(response.status),
-      response.ok ? "Expected JSON response" : `Unexpected non-JSON error response${preview}`,
+      response.ok ? "Expected JSON response" : "Runtime lifecycle request failed",
       response.ok ? "INVALID_RESPONSE_FORMAT" : "INVALID_ERROR_RESPONSE",
       false,
+      correlationId,
     );
   }
   const text = await response.text();
@@ -172,9 +173,10 @@ async function readRuntimeResponse<Schema extends z.ZodTypeAny>(
     throw new AppServerOperationError(
       response.ok ? 502 : response.status,
       response.ok ? "server_unavailable" : statusCategory(response.status),
-      response.ok ? "Expected JSON response" : `Malformed JSON error response${formatErrorPreview(text)}`,
+      response.ok ? "Expected JSON response" : "Runtime lifecycle request failed",
       response.ok ? "INVALID_RESPONSE_FORMAT" : "INVALID_ERROR_RESPONSE",
       false,
+      correlationId,
     );
   }
 
@@ -184,19 +186,6 @@ async function readRuntimeResponse<Schema extends z.ZodTypeAny>(
   } catch {
     throw new AppServerOperationError(502, "server_unavailable", "Invalid lifecycle response", "INVALID_RESPONSE_CONTRACT", false);
   }
-}
-
-async function readErrorPreview(response: Response): Promise<string> {
-  try {
-    return formatErrorPreview(await response.text());
-  } catch {
-    return "";
-  }
-}
-
-function formatErrorPreview(body: string): string {
-  const preview = body.trim().slice(0, 120);
-  return preview ? `: ${preview}` : "";
 }
 
 function runtimeError(status: number, payload: unknown): AppServerOperationError {
