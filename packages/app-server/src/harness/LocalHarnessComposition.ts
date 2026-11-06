@@ -73,6 +73,13 @@ export class LocalHarnessComposition {
           "Local credential, lease, artifact and enforced launch services are not available", "LOCAL_HARNESS_CAPABILITY_UNAVAILABLE", false);
         return this.runtimeServices.resolveBinding(input);
       },
+      recoverExecution: (runtime, input) => this.harnessExecution.reconcilePriorGeneration({
+        ...input,
+        // Never accept a bootstrap-supplied certification callback. The runtime
+        // restores canonical replay and confirms failed/interrupted settlement;
+        // core separately requires the full physical fence and journal ACK drain.
+        resolveObservationIntegrity: (origin) => runtime.resolveObservationIntegrity(origin),
+      }),
       composeRuntime: (binding, prepared) => {
         this.ensureSelectedDriver(binding);
         return this.createRuntime(prepared.dependencies, prepared.execution);

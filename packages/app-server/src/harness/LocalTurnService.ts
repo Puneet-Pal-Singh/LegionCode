@@ -13,7 +13,7 @@ import { RuntimeKernel, RuntimeKernelError, RuntimeLifecycleCoordinator,
   type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { CodexDriver } from "@repo/harness-codex/server";
 import type { OpenCodeV2Driver } from "@repo/harness-opencode/server";
-import type { HarnessInstanceScope, createHarnessHost } from "@repo/harness-core/server";
+import type { HarnessExecutionPort, HarnessInstanceScope, createHarnessHost } from "@repo/harness-core/server";
 import { LocalTurnStartParamsSchema, type LocalTurnStartParams, type LocalTurnInterruptParams, type LocalThreadHistoryParams, type LocalThreadHistoryResult } from "@legioncode/app-server/protocol";
 import { z } from "zod";
 import { AppServerOperationError } from "../server.js";
@@ -45,6 +45,11 @@ export interface LocalHarnessRuntimeBinding {
       readonly leaseId: LeaseId;
       readonly dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">;
       readonly execution: Omit<DelegatedExecutionDependencies, "harness">;
+      /** Existing binding/lease authority prepares the protected old-generation
+       * host, committed observation delivery and durable fence. No provider restart.
+       * Local composition always supplies the canonical integrity resolver itself.
+       */
+      readonly prepareRecovery?: () => Promise<Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity"> | null>;
     }>;
 }
 export interface LocalHarnessRuntimeServices {
@@ -70,6 +75,7 @@ export class LocalTurnService {
     readonly harnessOperations: LocalHarnessOperations;
     readonly resolveBinding: LocalHarnessRuntimeServices["resolveBinding"];
     readonly readDiff: (turnId: TurnId) => Promise<TurnDiffPayload | null>;
+    readonly recoverExecution: (runtime: RuntimeKernel, input: Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity">) => Promise<unknown>;
     readonly composeRuntime: (binding: LocalHarnessRuntimeBinding,
       prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>>) => RuntimeKernel;
   }) {}
@@ -111,7 +117,7 @@ export class LocalTurnService {
     const admission = this.createAdmission(params, thread, binding, saved.selection, {
       environmentId: this.options.persistence.environmentId, selectionRevision: saved.revision, selection: saved.selection,
     });
-    const selection = HarnessSelectionSchema.parse({ ...scope, threadId: thread.id, runId: admission.run.id,
+    const selection = HarnessSelectionSchema.parse({ ...scope, selectionRevision: saved.revision, threadId: thread.id, runId: admission.run.id,
       turnId: admission.turn.id, runAttemptId: admission.runAttemptId, modelId: admission.run.modelId,
       policyId: binding.permissionProfileId, policyRevision: binding.policyRevision, billingSource: binding.billingSource });
     // Revalidate after protected metadata resolution; writer independently validates Thread ownership.
@@ -205,6 +211,7 @@ export class LocalTurnService {
 
   private async run(execution: ActiveExecution, binding: LocalHarnessRuntimeBinding,
     selection: HarnessSelection, grant: StoredLocalWorkspaceGrant): Promise<void> {
+    let prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>> | undefined;
     try {
       const frozen = await this.options.persistence.harnessBindings.freezeAndClaim({
         selection: { userId: selection.userId, sessionId: selection.threadId, runId: selection.runId,
@@ -215,7 +222,7 @@ export class LocalTurnService {
       if (frozen.status !== "claimed") throw new AppServerOperationError(409, "server_unavailable",
         "Local harness execution was already claimed or requires recovery", "LOCAL_RUNTIME_RECOVERY_REQUIRED", false);
       const leaseId = this.options.leases.leaseId(execution.admission);
-      const prepared = await binding.prepare({ admission: execution.admission, selection, grant, leaseId, signal: execution.controller.signal });
+      prepared = await binding.prepare({ admission: execution.admission, selection, grant, leaseId, signal: execution.controller.signal });
       if (prepared.leaseId !== leaseId) throw new Error("Prepared runtime returned a different local checkout lease");
       if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before runtime start", "AbortError");
       const dependencies = { ...prepared.dependencies,
@@ -226,6 +233,15 @@ export class LocalTurnService {
         execution: { kind: "delegated", selection, leaseId: prepared.leaseId,
           prompt: this.prompt(execution.admission), resumeSession: null } });
     } catch (error) {
+      if (execution.runtime && prepared?.prepareRecovery) {
+        const recovery = await prepared.prepareRecovery();
+        if (recovery) {
+          if (JSON.stringify(recovery.command.selection) !== JSON.stringify(selection) ||
+              recovery.command.leaseId !== this.options.leases.leaseId(execution.admission) ||
+              recovery.command.filesystemRoot !== grant.path) throw new Error("Local recovery does not match admitted execution");
+          await this.options.recoverExecution(execution.runtime, recovery);
+        }
+      }
       {
         const history = await this.options.persistence.lifecycleEvents.replay({ turnId: execution.admission.turn.id, afterSequence: null, limit: 1 });
         if (history.events.length === 0) {
@@ -263,7 +279,7 @@ export class LocalTurnService {
     const turnId = createTurnId();
     return TurnAdmissionSchema.parse({ clientRequestId: params.clientRequestId, runAttemptId: createRunAttemptId(),
       run: RunSchema.parse({ id: runId, threadId: thread.id, userId: thread.userId, workspaceId: thread.workspaceId,
-        status: "queued", mode: binding.mode, providerId: binding.providerId, modelId: next.modelId,
+        status: "queued", harnessSelection: intent, mode: binding.mode, providerId: binding.providerId, modelId: next.modelId,
         workerId: binding.workerId, permissionProfileId: binding.permissionProfileId, executionCapability: "repository",
         startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 1 }),
       turn: TurnSchema.parse({ id: turnId, threadId: thread.id, runId, parentTurnId: null, status: "queued",
