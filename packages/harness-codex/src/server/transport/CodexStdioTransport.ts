@@ -81,6 +81,12 @@ export class CodexStdioTransport {
       return Promise.reject(new CodexTransportError("overflow", "rejected"));
     }
     const id = `legioncode:${++this.nextId}`;
+    let bytes: Buffer;
+    try {
+      bytes = this.serialize({ id, method, params });
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => this.fail(new CodexTransportError("timeout")),
@@ -89,7 +95,7 @@ export class CodexStdioTransport {
       timer.unref();
       this.pending.set(idKey(id), { resolve, reject, timer });
       try {
-        this.send({ id, method, params });
+        this.write(bytes);
       } catch (error) {
         this.fail(
           error instanceof CodexTransportError
@@ -110,16 +116,34 @@ export class CodexStdioTransport {
 
   private send(message: unknown): void {
     if (this.closed) throw new CodexTransportError("closed", "rejected");
+    this.write(this.serialize(message));
+  }
+
+  private serialize(message: unknown): Buffer {
     let bytes: Buffer;
     try {
-      bytes = Buffer.from(JSON.stringify(message) + "\n", "utf8");
+      const encoded = JSON.stringify(message);
+      const envelope: unknown = JSON.parse(encoded);
+      if (
+        !isRecord(envelope) ||
+        (!("method" in envelope) &&
+          !("result" in envelope) &&
+          !("error" in envelope))
+      ) {
+        throw new Error("Incomplete RPC envelope");
+      }
+      bytes = Buffer.from(encoded + "\n", "utf8");
     } catch {
       throw new CodexTransportError("invalid_frame", "rejected");
     }
-    if (
-      bytes.length > this.maxFrameBytes ||
-      this.options.input.writableLength + bytes.length > this.maxFrameBytes
-    ) {
+    if (bytes.length > this.maxFrameBytes)
+      throw new CodexTransportError("overflow", "rejected");
+    return bytes;
+  }
+
+  private write(bytes: Buffer): void {
+    if (this.closed) throw new CodexTransportError("closed", "rejected");
+    if (this.options.input.writableLength + bytes.length > this.maxFrameBytes) {
       const error = new CodexTransportError("overflow");
       this.fail(error);
       throw error;
@@ -188,10 +212,12 @@ export class CodexStdioTransport {
       this.replies.add(key);
       let used = false;
       const settle = (payload: Record<string, unknown>): void => {
-        if (used || this.closed || !this.replies.delete(key))
+        if (used || this.closed || !this.replies.has(key))
           throw new CodexTransportError("closed", "rejected");
+        const bytes = this.serialize({ id, ...payload });
         used = true;
-        this.send({ id, ...payload });
+        this.replies.delete(key);
+        this.write(bytes);
       };
       this.options.onRequest(
         Object.freeze({
@@ -249,7 +275,9 @@ export class CodexStdioTransport {
     // Keep error handlers until the host disposes streams; a late EPIPE must be handled.
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
-      entry.reject(error);
+      entry.reject(
+        new CodexTransportError(error.reason, "unknown", error.remoteCode),
+      );
     }
     this.pending.clear();
     this.replies.clear();
