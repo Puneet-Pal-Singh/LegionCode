@@ -41,93 +41,40 @@ describe("SessionStateService", () => {
       });
       localStorage.setItem("legioncode:sessions:v3", snapshot);
 
-      const loaded = SessionStateService.loadSessions();
-      expect(loaded).toEqual(sessions);
-      expect(loaded[session.id]).toBeDefined();
+      const shadowSnapshot = "  {\"version\":3,\"sessions\":{}}\n";
+      localStorage.setItem("shadowbox:sessions:v3", shadowSnapshot);
+      const readSpy = vi.spyOn(Storage.prototype, "getItem");
+      SessionStateService.saveActiveSessionId(session.id, sessions);
+      expect(SessionStateService.loadActiveSessionId()).toBe(session.id);
+      expect(readSpy).not.toHaveBeenCalledWith("legioncode:sessions:v3");
+      expect(readSpy).not.toHaveBeenCalledWith("shadowbox:sessions:v3");
       expect(localStorage.getItem("legioncode:sessions:v3")).toBe(snapshot);
-    });
-
-    it("should return empty object when no sessions exist", () => {
-      const loaded = SessionStateService.loadSessions();
-      expect(loaded).toEqual({});
+      expect(localStorage.getItem("shadowbox:sessions:v3")).toBe(shadowSnapshot);
     });
 
     it("should handle corrupted localStorage gracefully", () => {
+      const legacyValues = {
+        "legioncode:sessions:v3": "unmatched historical bytes",
+        "shadowbox:sessions:v3": "  {\"version\":99,\"sessions\":{}}\n",
+        legioncode_ui_shell: " {\"activeRunId\":\"legacy-only\"} ",
+      };
+      for (const [key, raw] of Object.entries(legacyValues)) {
+        localStorage.setItem(key, raw);
+      }
       const errorSpy = silenceConsoleError();
-      const corruptSnapshot = "invalid json";
-      localStorage.setItem("legioncode:sessions:v3", corruptSnapshot);
-      const loaded = SessionStateService.loadSessions();
-      expect(loaded).toEqual({});
-      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(corruptSnapshot);
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SessionStateService] Failed to load sessions:"),
-        expect.any(SyntaxError),
-      );
-
-      const warnSpy = silenceConsoleWarn();
-      const unknownVersionSnapshot = JSON.stringify({
-        version: 99,
-        sessions: {},
-        activeSessionId: null,
-        lastModified: "legacy",
+      const readSpy = vi.spyOn(Storage.prototype, "getItem");
+      expect(SessionStateService.loadActiveSessionId()).toBeNull();
+      SessionStateService.loadOrCreateSetupSession({
+        userId: "owned-account", workspaceId: "owned-workspace",
       });
-      localStorage.setItem("legioncode:sessions:v3", unknownVersionSnapshot);
-      expect(SessionStateService.loadSessions()).toEqual({});
-      expect(localStorage.getItem("legioncode:sessions:v3")).toBe(unknownVersionSnapshot);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[SessionStateService] Unknown version, returning empty sessions",
-      );
-    });
-
-    it("normalizes legacy error sessions to failed", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-
-      localStorage.setItem(
-        "legioncode:sessions:v3",
-        JSON.stringify({
-          version: 3,
-          sessions: {
-            [session.id]: {
-              ...session,
-              status: "error",
-            },
-          },
-          activeSessionId: session.id,
-          lastModified: new Date().toISOString(),
-        }),
-      );
-
-      const loaded = SessionStateService.loadSessions();
-      expect(loaded[session.id]?.status).toBe("failed");
-    });
-
-    it("rejects sessions with unknown persisted statuses", () => {
-      const warnSpy = silenceConsoleWarn();
-      const session = SessionStateService.createSession("Test", "repo");
-
-      localStorage.setItem(
-        "legioncode:sessions:v3",
-        JSON.stringify({
-          version: 3,
-          sessions: {
-            [session.id]: {
-              ...session,
-              status: "unknown",
-            },
-          },
-          activeSessionId: session.id,
-          lastModified: new Date().toISOString(),
-        }),
-      );
-
-      const loaded = SessionStateService.loadSessions();
-      expect(loaded[session.id]).toBeUndefined();
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[SessionStateService] Validation failed for session",
-        session.id,
-        "Failed checks:",
-        expect.arrayContaining(["status"]),
-      );
+      expect(SessionStateService.loadSessionGitHubContext("unknown")).toBeNull();
+      for (const key of Object.keys(legacyValues)) {
+        expect(readSpy).not.toHaveBeenCalledWith(key);
+      }
+      expect(errorSpy).not.toHaveBeenCalled();
+      for (const [key, raw] of Object.entries(legacyValues)) {
+        expect(localStorage.getItem(key)).toBe(raw);
+      }
     });
   });
 
@@ -296,123 +243,14 @@ describe("SessionStateService", () => {
       );
       expect(session.status).toBe("running");
     });
-
-    it("normalizes missing organization metadata when loading", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-      const { mode, titleSource, pinnedAt, archivedAt, ...storedSession } =
-        session;
-      expect(mode).toBe("build");
-      expect(titleSource).toBe("preview");
-      expect(pinnedAt).toBeNull();
-      expect(archivedAt).toBeNull();
-
-      localStorage.setItem(
-        "legioncode:sessions:v3",
-        JSON.stringify({
-          version: 3,
-          sessions: { [session.id]: storedSession },
-          activeSessionId: session.id,
-          lastModified: new Date().toISOString(),
-        }),
-      );
-
-      const loaded = SessionStateService.loadSessions();
-      expect(loaded[session.id]?.mode).toBe("build");
-      expect(loaded[session.id]?.titleSource).toBe("preview");
-      expect(loaded[session.id]?.pinnedAt).toBeNull();
-      expect(loaded[session.id]?.archivedAt).toBeNull();
-    });
   });
 
   describe("Session Status Updates", () => {
-    it("should update session status", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-02-21T00:00:00.000Z"));
-      const session = SessionStateService.createSession("Test", "repo");
-
-      vi.setSystemTime(new Date("2026-02-21T00:00:00.001Z"));
-      const updated = SessionStateService.updateSessionStatus(
-        session,
-        "running",
-      );
-
-      expect(updated.status).toBe("running");
-      expect(updated.updatedAt).not.toBe(session.updatedAt);
-    });
-
     it("accepts paused as a valid terminal session status", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-      const updated = SessionStateService.updateSessionStatus(
-        session,
-        "paused",
-      );
+      const updated = SessionStateService.createSession("Test", "repo", "paused");
 
       expect(updated.status).toBe("paused");
       expect(SessionStateService.validateSession(updated)).toBe(true);
-    });
-
-    it("should preserve other fields when updating status", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-      const updated = SessionStateService.updateSessionStatus(
-        session,
-        "completed",
-      );
-
-      expect(updated.id).toBe(session.id);
-      expect(updated.name).toBe(session.name);
-      expect(updated.repository).toBe(session.repository);
-    });
-  });
-
-  describe("Run Management", () => {
-    it("should add run to session", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-      const newRunId = "run_123456";
-
-      const updated = SessionStateService.addRunToSession(
-        session,
-        newRunId,
-        true,
-      );
-
-      expect(updated.runIds).toContain(newRunId);
-      expect(updated.activeRunId).toBe(newRunId);
-    });
-
-    it("should add run without making it active", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-      const originalRunId = session.activeRunId;
-      const newRunId = "run_123456";
-
-      const updated = SessionStateService.addRunToSession(
-        session,
-        newRunId,
-        false,
-      );
-
-      expect(updated.runIds).toContain(newRunId);
-      expect(updated.activeRunId).toBe(originalRunId);
-    });
-
-    it("should warn when adding duplicate run", () => {
-      const session = SessionStateService.createSession("Test", "repo");
-      const runId = "run_duplicate";
-      const sessionWithRun = SessionStateService.addRunToSession(
-        session,
-        runId,
-        true,
-      );
-      const originalWarn = globalThis.console.warn;
-      let warnCalled = false;
-
-      globalThis.console.warn = () => {
-        warnCalled = true;
-      };
-
-      SessionStateService.addRunToSession(sessionWithRun, runId, true);
-
-      globalThis.console.warn = originalWarn;
-      expect(warnCalled).toBe(true);
     });
   });
 
@@ -512,7 +350,6 @@ describe("SessionStateService", () => {
       expect(loaded2?.fullName).toBe("user2/repo2");
       expect(loaded1).not.toEqual(loaded2);
     });
-
   });
 });
 

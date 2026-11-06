@@ -114,26 +114,8 @@ export interface SetupSessionState {
 }
 
 /**
- * Storage schema for persisting sessions
- * Used internally by SessionStateService
- */
-export interface SessionStorageSchema {
-  /** Version identifier for migrations */
-  version: 3;
-
-  /** All sessions keyed by session ID */
-  sessions: Record<string, AgentSession>;
-
-  /** Currently active session ID */
-  activeSessionId: string | null;
-
-  /** ISO timestamp of last modification */
-  lastModified: string;
-}
-
-/**
- * GitHub context tied to a session
- * Used to restore per-session GitHub state
+ * Read-only legacy repository/branch preference tied to a session.
+ * A branch applies only after its repository matches the canonical context.
  */
 export interface SessionGitHubContext {
   repoOwner: string;
