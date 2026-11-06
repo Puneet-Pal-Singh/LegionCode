@@ -1227,10 +1227,12 @@ queue-scoped workspace-authorized Thread read and canonical `thread.pinned` /
 the current full Thread metadata, including archived status, and use the actual
 thread-stream sequence for their event key. The queue captures the grant's
 workspace, repository identity and grant timestamp when an action is enqueued;
-metadata reads and appends reject a replaced or revoked grant instead of adopting
-the next selection. Canonical projection applies pin and
+optimistic revalidation after awaited reads rejects a changed selection before
+append. This is not an atomic grant-generation lock. Canonical projection applies pin and
 archive events only to their owned metadata fields, preserving runtime/admission
 active Run, active leaf and terminal identity when admission interleaves. Only
 `thread.created` initializes a full Thread snapshot. No pin store or inferred
-activity status is introduced. The service methods are wired; App Server dispatch, SDK and
-Desktop presentation remain worker01/client integration dependencies.
+activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
+dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
+request/result contract. Hosted dispatch rejects these local commands. Desktop
+sidebar callbacks and visible restart acceptance remain client integration work.
