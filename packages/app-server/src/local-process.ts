@@ -27,12 +27,13 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
     const local = new LocalHarnessComposition(persistence);
     const composition = {
       environment: "local" as const,
-      serverId: "legioncode-local",
+      serverId: local.environmentId,
       serverVersion: config.serverVersion,
       credential: config.credential,
       workspaceService: local.workspaceService,
       threadService: local.threadService,
       providerService: local.providerService,
+      harnessOperations: local.harnessOperations,
       localLifecycleReplayService: local,
     };
     const server = createServer((request, response) => {
