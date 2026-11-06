@@ -111,7 +111,9 @@ export class CodexStdioTransport {
   }
 
   close(): void {
-    this.fail(new CodexTransportError("closed"));
+    this.fail(
+      new CodexTransportError(this.frameBytes > 0 ? "invalid_frame" : "closed"),
+    );
   }
 
   private send(message: unknown): void {
@@ -261,7 +263,9 @@ export class CodexStdioTransport {
   }
 
   private readonly onEnd = (): void =>
-    this.fail(new CodexTransportError("closed"));
+    this.fail(
+      new CodexTransportError(this.frameBytes > 0 ? "invalid_frame" : "closed"),
+    );
   private readonly onError = (): void =>
     this.fail(new CodexTransportError("io"));
 

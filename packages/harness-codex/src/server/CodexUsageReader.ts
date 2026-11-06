@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   UsageCostSnapshotSchema,
@@ -42,6 +43,31 @@ export function codexTurnUsage(
   });
 }
 
+/** Private account-read identity evidence, never route-only or first-observed identity.
+ * The pinned API exposes no API-key identity; those records remain unverifiable.
+ * Connection setup must bind the expected digest before attempt admission.
+ */
+export function codexAccountIdentityFingerprint(raw: unknown): string | null {
+  const identity = z
+    .object({
+      type: z.literal("chatgpt"),
+      email: z.string().min(1),
+      workspaceName: z.string().nullable(),
+    })
+    .safeParse(raw);
+  if (!identity.success) return null;
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        source: "codex-account-read-0.167.0",
+        type: identity.data.type,
+        email: identity.data.email,
+        workspaceName: identity.data.workspaceName,
+      }),
+    )
+    .digest("hex");
+}
+
 /** Private redacted account reader. Login/refresh/token-bearing APIs are deliberately absent. */
 export class CodexUsageReader {
   constructor(private readonly transport: CodexStdioTransport) {}
@@ -49,9 +75,12 @@ export class CodexUsageReader {
   async account(): Promise<{
     route: "api_key" | "subscription" | "unavailable";
     checkedAt: string;
+    identityFingerprint: string | null;
   }> {
     const response = z
-      .object({ account: z.object({ type: z.string() }).nullable() })
+      .object({
+        account: z.object({ type: z.string() }).passthrough().nullable(),
+      })
       .parse(
         await this.transport.request("account/read", { refreshToken: false }),
       );
@@ -62,6 +91,7 @@ export class CodexUsageReader {
           : response.account?.type === "chatgpt"
             ? "subscription"
             : "unavailable",
+      identityFingerprint: codexAccountIdentityFingerprint(response.account),
       checkedAt: new Date().toISOString(),
     };
   }

@@ -34,6 +34,12 @@ export class CodexDriver implements HarnessDriver {
     experimentalQuestions?: boolean;
     modelProvider?: string;
     policy?: Readonly<{ id: string; revision: string }>;
+    accountBinding?: Readonly<{
+      instanceId: string;
+      connectionId: string;
+      authOwnerGeneration: number;
+      identityFingerprint: string;
+    }>;
   }>;
   constructor(
     private readonly executable: string,
@@ -41,10 +47,19 @@ export class CodexDriver implements HarnessDriver {
       experimentalQuestions?: boolean;
       modelProvider?: string;
       policy?: Readonly<{ id: string; revision: string }>;
+      accountBinding?: Readonly<{
+        instanceId: string;
+        connectionId: string;
+        authOwnerGeneration: number;
+        identityFingerprint: string;
+      }>;
     } = {},
   ) {
     this.options = Object.freeze({
       ...options,
+      ...(options.accountBinding
+        ? { accountBinding: Object.freeze({ ...options.accountBinding }) }
+        : {}),
       ...(options.policy
         ? { policy: Object.freeze({ ...options.policy }) }
         : {}),
@@ -57,6 +72,12 @@ export class CodexDriver implements HarnessDriver {
     const { command, host, signal, observe } = input;
     const { selection } = command;
     if (
+      !this.options.accountBinding ||
+      this.options.accountBinding.instanceId !== selection.instanceId ||
+      this.options.accountBinding.connectionId !== selection.connectionId ||
+      this.options.accountBinding.authOwnerGeneration !==
+        selection.authOwnerGeneration ||
+      !/^[a-f0-9]{64}$/.test(this.options.accountBinding.identityFingerprint) ||
       !this.options.policy ||
       this.options.policy.id !== selection.policyId ||
       this.options.policy.revision !== selection.policyRevision ||
@@ -105,6 +126,8 @@ export class CodexDriver implements HarnessDriver {
     let externalTurnId: string | null = null;
     let terminal = false;
     let observationFailure = false;
+    let accountVerified = false;
+    let cleanupInitiated = false;
     let finalOutput = "";
     let executing = false;
     let pendingBytes = 0;
@@ -151,17 +174,26 @@ export class CodexDriver implements HarnessDriver {
       const size = Buffer.byteLength(JSON.stringify(raw));
       if (
         stopped ||
-        ++pendingCount > 256 ||
-        (pendingBytes += size) > 8 * 1024 * 1024
+        pendingCount >= 256 ||
+        pendingBytes + size > 8 * 1024 * 1024
       ) {
+        observationFailure = true;
         fail();
         return;
       }
+      pendingCount++;
+      pendingBytes += size;
       queue = queue
         .then(async () => {
-          if (stopped) return;
+          if (stopped) {
+            observationFailure = true;
+            return;
+          }
           await turnReady;
-          if (stopped) return;
+          if (stopped) {
+            observationFailure = true;
+            return;
+          }
           await action();
         })
         .catch(() => {
@@ -187,7 +219,13 @@ export class CodexDriver implements HarnessDriver {
       await observe({ session, externalTurnId, payload: owned });
     };
     const notification = (method: string, raw: unknown) => {
-      if (method === "model/rerouted") {
+      if (
+        method === "model/rerouted" ||
+        (accountVerified &&
+          (method === "account/updated" ||
+            method === "account/gatewayOAuth/changed"))
+      ) {
+        observationFailure = true;
         fail();
         return;
       }
@@ -340,16 +378,28 @@ export class CodexDriver implements HarnessDriver {
       output: child.child.stdout,
       onNotification: notification,
       onRequest: request,
-      onClose: () => {
-        if (!terminal) fail();
+      onClose: (error) => {
+        // Only our own cleanup's complete EOF is expected. Every other close or
+        // protocol/transport failure may hide facts, even after foreground terminal.
+        if (!(cleanupInitiated && error.reason === "closed"))
+          observationFailure = true;
+        if (!terminal || error.reason !== "closed") fail();
       },
     });
     const native = new CodexNativeSession(transport);
     const accountReader = new CodexUsageReader(transport);
     const verifyPayer = async () => {
       const account = await accountReader.account();
-      if (account.route !== selection.billingSource)
-        throw new Error("Codex reported account does not match selected payer");
+      if (
+        account.route !== selection.billingSource ||
+        account.identityFingerprint === null ||
+        account.identityFingerprint !==
+          this.options.accountBinding?.identityFingerprint
+      )
+        throw new Error(
+          "Codex account identity or payer differs from selected connection",
+        );
+      accountVerified = true;
     };
     void child.exited.then(() => {
       if (!terminal) fail();
@@ -527,6 +577,7 @@ export class CodexDriver implements HarnessDriver {
               reason: "work_still_running",
             };
           signal.removeEventListener("abort", fail);
+          cleanupInitiated = true;
           const results = await host.terminateProcesses({
             graceMs: Math.min(100, timeoutMs),
             killWaitMs: Math.max(0, timeoutMs - 100),
