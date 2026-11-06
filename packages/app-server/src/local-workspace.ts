@@ -13,6 +13,7 @@ import {
   WorkspaceIdSchema,
   workspaceIdFromExternalId,
   type LocalWorkspaceGrant,
+  type WorkspaceId,
 } from "@repo/platform-protocol";
 import { DefaultGitService, type GitCommandExecutor } from "@repo/git-service";
 
@@ -21,7 +22,18 @@ export type LocalWorkspaceServiceOptions = {
   gitService?: Pick<DefaultGitService, "probeRepository">;
 };
 
+/** Trusted runtime handle. This physical root is never returned by App Server. */
+export interface LocalWorkspaceExecutionBinding {
+  readonly workspace: LocalWorkspaceGrant;
+  readonly filesystemRoot: string;
+  readonly generation: number;
+  readonly signal: AbortSignal;
+  assertCurrent(): void;
+}
+
 export class LocalWorkspaceService {
+  private generation = 0;
+  private executionController = new AbortController();
   private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
   private readonly gitService: Pick<
     DefaultGitService,
@@ -34,15 +46,16 @@ export class LocalWorkspaceService {
   }
 
   async getCurrent(): Promise<LocalWorkspaceGrant | null> {
+    const generation = this.generation;
     const stored = await this.workspaceGrants.read();
-    if (!stored) {
-      return null;
-    }
-    return await this.probeStoredGrant(stored);
+    if (!stored || generation !== this.generation) return null;
+    const grant = await this.probeStoredGrant(stored);
+    return generation === this.generation ? grant : null;
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
     const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
+    const generation = this.invalidateExecutionBindings();
     const canonicalPath = await validateSelectedDirectory(path);
     const { repoRoot, probe } = await this.readRepository(canonicalPath);
     if (repoRoot !== canonicalPath) {
@@ -54,12 +67,43 @@ export class LocalWorkspaceService {
       path: repoRoot,
       grant,
     };
+    this.assertGeneration(generation);
     await this.workspaceGrants.write(stored);
+    this.assertGeneration(generation);
     return grant;
   }
 
   async revoke(): Promise<void> {
+    this.invalidateExecutionBindings();
     await this.workspaceGrants.clear();
+  }
+
+  async bindForExecution(workspaceId: WorkspaceId): Promise<LocalWorkspaceExecutionBinding> {
+    const generation = this.generation;
+    const signal = this.executionController.signal;
+    const stored = await this.workspaceGrants.read();
+    this.assertGeneration(generation);
+    if (!stored || stored.grant.workspaceId !== workspaceId) {
+      throw new Error("Workspace is not granted for local execution");
+    }
+    const workspace = await this.probeStoredGrant(stored);
+    this.assertGeneration(generation);
+    if (workspace.readiness !== "ready") throw new Error("Workspace is not ready for local execution");
+    return Object.freeze({
+      workspace, filesystemRoot: stored.path, generation, signal,
+      assertCurrent: () => this.assertGeneration(generation),
+    });
+  }
+
+  private invalidateExecutionBindings(): number {
+    this.generation += 1;
+    this.executionController.abort("Local workspace grant changed");
+    this.executionController = new AbortController();
+    return this.generation;
+  }
+
+  private assertGeneration(generation: number): void {
+    if (generation !== this.generation) throw new Error("Local workspace grant changed during the operation");
   }
 
   private async probeStoredGrant(

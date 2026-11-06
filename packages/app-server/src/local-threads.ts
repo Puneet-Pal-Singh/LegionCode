@@ -153,8 +153,7 @@ export class LocalThreadService {
     const allEvents = await this.eventStore.listAll();
     const events = allEvents
       .filter((event) => event.threadId === threadId)
-      .sort((left, right) => left.sequence - right.sequence)
-      .map((event) => ({ event, projectionSequence: event.sequence }));
+      .map((event, index) => ({ event, projectionSequence: index + 1 }));
     const snapshot = projectThreadEvents(threadId, events);
     if (!snapshot || snapshot.thread.workspaceId !== workspaceId) {
       throw new LocalThreadNotFoundError();
@@ -177,8 +176,7 @@ export class LocalThreadService {
     for (const threadId of threadIds) {
       const threadEvents = events
         .filter((event) => event.threadId === threadId)
-        .sort((left, right) => left.sequence - right.sequence)
-        .map((event) => ({ event, projectionSequence: event.sequence }));
+        .map((event, index) => ({ event, projectionSequence: index + 1 }));
       const snapshot = projectThreadEvents(threadId, threadEvents);
       if (snapshot) threads.push(snapshot.thread);
     }

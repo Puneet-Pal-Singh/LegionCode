@@ -9,9 +9,11 @@ import { LocalPersistence } from "@repo/event-store/local";
 import { LocalWorkspaceService } from "./local-workspace.js";
 
 class FakeGitService {
+  beforeProbe?: () => Promise<void>;
   constructor(private readonly repositoryRoot: string) {}
 
   async probeRepository({ workspaceRoot }: { workspaceRoot: string }): Promise<GitRepositoryProbeResult> {
+    await this.beforeProbe?.();
     return {
       repositoryRoot: this.repositoryRoot,
       repositoryIdentity: "github.com/example/repository",
@@ -38,6 +40,29 @@ describe("LocalWorkspaceService", () => {
         branch: "main",
         readiness: "ready",
       });
+      const binding = await service.bindForExecution(granted.workspaceId);
+      expect(binding.filesystemRoot).toBe(await realpath(repositoryRoot));
+      binding.assertCurrent();
+      const regranted = await service.grant({ path: repositoryRoot });
+      expect(regranted.workspaceId).toBe(granted.workspaceId);
+      expect(binding.signal.aborted).toBe(true);
+      expect(() => binding.assertCurrent()).toThrow("grant changed");
+      const currentBinding = await service.bindForExecution(regranted.workspaceId);
+      expect(currentBinding.signal.aborted).toBe(false);
+      let probeStarted!: () => void;
+      let finishProbe!: () => void;
+      const started = new Promise<void>((resolve) => { probeStarted = resolve; });
+      const blocked = new Promise<void>((resolve) => { finishProbe = resolve; });
+      gitService.beforeProbe = () => { probeStarted(); return blocked; };
+      const staleRead = service.getCurrent();
+      await started;
+      await service.revoke();
+      finishProbe();
+      await expect(staleRead).resolves.toBeNull();
+      expect(currentBinding.signal.aborted).toBe(true);
+      await expect(service.bindForExecution(granted.workspaceId)).rejects.toThrow("not granted");
+      gitService.beforeProbe = undefined;
+      await service.grant({ path: repositoryRoot });
       persistence.close();
       persistence = new LocalPersistence({ storageDirectory });
       const reopened = await new LocalWorkspaceService({
