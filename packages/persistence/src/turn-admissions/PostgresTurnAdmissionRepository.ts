@@ -1,3 +1,4 @@
+import { PostgresHarnessControlPlaneRepository } from "../harness/PostgresHarnessControlPlaneRepository.js";
 import type { SqlClient, SqlRow } from "../sql.js";
 import { PostgresRunRepository } from "../runs/PostgresRunRepository.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
@@ -13,11 +14,12 @@ import type {
   TurnAdmissionRepository,
 } from "./types.js";
 import {
-  ThreadInputQueueItemSchema,
+  ThreadInputQueueItemSchema, HarnessAdmissionSelectionSchema,
   userIdFromExternalId,
 } from "@repo/platform-protocol";
 
 interface AdmissionRow extends SqlRow {
+  harness_admission_receipt_json?: unknown;
   task_id?: string | null;
   task_user_id?: string | null;
   task_workspace_id?: string | null;
@@ -435,6 +437,15 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         existing.continuationOfTurnId !== input.continuationOfTurnId || existing.originalPromptId !== input.originalPromptId ||
         existing.continuationTerminalSequence !== input.continuationTerminalSequence
       ) throw new TurnAdmissionConflictError("Continuation admission identity does not match", "identity_conflict");
+      if(input.harnessSelection){
+        await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx,{
+          scope:{userId:input.userId,workspaceId:input.workspaceId,environmentId:input.harnessSelection.environmentId},
+          sessionId:input.sessionId,threadId:existing.threadId,turnId:existing.turnId,
+          capture:input.harnessSelection,requestFingerprint:input.requestFingerprint,admitted:existing.state==="admitted",
+        });
+      } else if(existing.harnessSelection){
+        throw new TurnAdmissionConflictError("Frozen harness selection cannot be omitted","harness_selection_conflict");
+      }
       if (existing.state === "admitted") {
         if (existing.requestFingerprint !== input.requestFingerprint) throw new TurnAdmissionConflictError("Admitted continuation fingerprint does not match", "fingerprint_conflict");
         const run = await new PostgresRunRepository(tx).getRun(input.runId, input.userId);
@@ -520,6 +531,15 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         existing.workspaceId !== input.workspaceId
       ) {
         throw new TurnAdmissionConflictError("Turn admission identity does not match", "identity_conflict");
+      }
+      if(input.harnessSelection){
+        await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx,{
+          scope:{userId:input.userId,workspaceId:input.workspaceId,environmentId:input.harnessSelection.environmentId},
+          sessionId:input.sessionId,threadId:existing.threadId,turnId:existing.turnId,
+          capture:input.harnessSelection,requestFingerprint:input.requestFingerprint,admitted:existing.state==="admitted",
+        });
+      } else if(existing.harnessSelection){
+        throw new TurnAdmissionConflictError("Frozen harness selection cannot be omitted","harness_selection_conflict");
       }
       if (existing.state === "admitted") {
         if (existing.requestFingerprint !== input.requestFingerprint) {
@@ -661,6 +681,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
 
 function mapAdmission(row: AdmissionRow): TurnAdmissionRecord {
   return {
+    harnessSelection: row.harness_admission_receipt_json == null ? null : HarnessAdmissionSelectionSchema.parse((typeof row.harness_admission_receipt_json==="string" ? JSON.parse(row.harness_admission_receipt_json) : row.harness_admission_receipt_json as {capture:unknown}).capture),
     userId: requiredString(row.owner_user_id, "owner_user_id"),
     sessionId: requiredString(row.session_id, "session_id"),
     clientMessageId: requiredString(row.client_message_id, "client_message_id"),
