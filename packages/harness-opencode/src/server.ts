@@ -14,3 +14,6 @@ export {
   verifyOpenCodeProbe,
   readOpenCodeServerUrl,
 } from "./OpenCodeInstallation.js";
+
+export { OpenCodeV2Driver } from "./OpenCodeV2Driver.js";
+export { OpenCodeServerOwner } from "./OpenCodeServerOwner.js";

@@ -43,7 +43,7 @@ export class OpenCodeSession {
       !input.model?.id ||
       !input.model.providerID ||
       !input.location?.directory ||
-      !input.permissions
+      !input.permissions?.length
     ) {
       throw new Error(
         "OpenCode requires an explicit model, workspace and permission policy.",
