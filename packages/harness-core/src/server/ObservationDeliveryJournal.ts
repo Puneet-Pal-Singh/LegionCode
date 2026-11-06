@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import {
   open,
+  readFile,
   realpath,
   rename,
   stat,
@@ -67,9 +68,22 @@ export class ObservationDeliveryJournal<T> {
     }
     try {
       await writer.writeFile(
-        JSON.stringify({ pid: process.pid, token: randomUUID() }),
+        JSON.stringify({
+          pid: process.pid,
+          token: randomUUID(),
+          unclean: true,
+        }),
       );
       await writer.sync();
+      const priorGeneration = await exists(`${path}.unclean`);
+      if (!priorGeneration)
+        await writeDurableFlag(
+          `${path}.unclean`,
+          directory,
+          "unclean_generation\n",
+        );
+      // Persist the lock and generation entry BEFORE any execute/prompt can be admitted.
+      await syncDirectory(directory);
       const state = await readState(path, input);
       return new ObservationDeliveryJournal(
         path,
@@ -78,7 +92,7 @@ export class ObservationDeliveryJournal<T> {
         input,
         state,
         writer,
-        await hasIntegrityLoss(path),
+        priorGeneration || (await hasIntegrityLoss(path)),
       );
     } catch {
       await writer.close();
@@ -107,7 +121,13 @@ export class ObservationDeliveryJournal<T> {
     input: ObservationJournalOptions<T>,
   ): Promise<void> {
     const { path } = await journalLocation(input);
-    if (await hasIntegrityLoss(path))
+    if (
+      (await hasIntegrityLoss(path)) ||
+      (((await exists(`${path}.unclean`)) ||
+        (await exists(`${path}.writer`)) ||
+        (await exists(path))) &&
+        !(await hasCleanSettlement(path)))
+    )
       throw new HarnessHostError("observation_integrity_lost");
   }
 
@@ -134,6 +154,30 @@ export class ObservationDeliveryJournal<T> {
       await parent.sync();
     } finally {
       await parent.close();
+    }
+  }
+
+  /** Only the canonical post-artifact release path calls this, after full quiescence and ACK drain.
+   * close() alone never certifies a generation clean. Old generations cannot append again. */
+  async markCanonicalSettlement(): Promise<void> {
+    await this.queue;
+    this.assertIntegrity();
+    await this.assertWriter();
+    if (this.failed || this.state.frames.length)
+      throw new HarnessHostError("observation_integrity_lost");
+    if (await hasCleanSettlement(this.path)) {
+      await syncDirectory(this.directory);
+      return;
+    }
+    const temporary = `${this.path}.clean.${randomUUID()}.pending`;
+    try {
+      await writeDurableFlag(temporary, this.directory, "canonical_settled\n");
+      await rename(temporary, `${this.path}.clean`);
+      await syncDirectory(this.directory);
+    } finally {
+      await unlink(temporary).catch((error: unknown) => {
+        if (!isMissing(error)) throw new HarnessHostError("journal_corrupt");
+      });
     }
   }
 
@@ -278,6 +322,46 @@ export class ObservationDeliveryJournal<T> {
       });
     }
   }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw new HarnessHostError("observation_integrity_lost");
+  }
+}
+async function hasCleanSettlement(path: string): Promise<boolean> {
+  try {
+    return (await readFile(`${path}.clean`, "utf8")) === "canonical_settled\n";
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw new HarnessHostError("observation_integrity_lost");
+  }
+}
+async function syncDirectory(directory: string): Promise<void> {
+  const handle = await open(directory, constants.O_RDONLY);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function writeDurableFlag(
+  path: string,
+  directory: string,
+  value: string,
+): Promise<void> {
+  const handle = await open(path, "wx", 0o600);
+  try {
+    await handle.writeFile(value);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await syncDirectory(directory);
 }
 
 async function hasIntegrityLoss(path: string): Promise<boolean> {
