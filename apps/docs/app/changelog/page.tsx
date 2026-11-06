@@ -5,7 +5,7 @@ import { getDocsSearchPages } from "@/lib/docs-content";
 
 export const metadata: Metadata = {
   title: "Changelog",
-  description: "Product updates and release notes for LegionCode.",
+  description: "New features, improvements, and fixes in LegionCode.",
   alternates: { canonical: "/docs/changelog/" },
 };
 

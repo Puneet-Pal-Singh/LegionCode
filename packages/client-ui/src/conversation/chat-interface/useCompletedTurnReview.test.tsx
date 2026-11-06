@@ -42,6 +42,16 @@ describe("useCompletedTurnReview", () => {
 
     expect(result.current.error).toBe("Saved changes are unavailable for this reply.");
     expect(result.current.messageId).toBe("assistant-1");
+
+    const { result: conversationReview } = renderHook(() =>
+      useCompletedTurnReview(
+        { ...projection, executionCapability: "conversation" },
+        "assistant-conversation",
+      ),
+    );
+    expect(conversationReview.current.error).toBeNull();
+    expect(conversationReview.current.turnId).toBeNull();
+    expect(conversationReview.current.files).toEqual([]);
   });
 });
 

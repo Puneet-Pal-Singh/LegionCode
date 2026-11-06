@@ -23,6 +23,15 @@ Remaining Web command/subscription bindings, including input command acknowledge
 and queue refresh, retire in Plan 058.3C/D when all real consumers use the canonical
 SDK/App Server operations. Browser settings remain presentation preferences.
 
+The November main sync keeps explicit project selection and nullable projectless
+sessions on the hosted SDK/App Server session contract. Session creation remains
+awaited before publishing setup or queued prompts. Web transfers only unsent setup
+drafts and provider preferences when a project is chosen; session workspace context
+and branch preferences retain their dev owners. The deleted global selection
+bootstrap and legacy TranscriptController remain retired. New conversation date
+markers and seeded image-draft presentation live in `packages/client-ui`, alongside
+the existing guarded resume controls and approval composer.
+
 ## Plan 058.1 — Canonical turn-patch read model
 
 | Responsibility | Canonical owner | Active producer and consumers |
@@ -200,7 +209,7 @@ send canonical run, session, client-message and optional revision identifiers.
 | --- | --- | --- |
 | Submitted transcript and terminal state | Existing Brain admission, transcript and lifecycle append owners | Web reads verified session history independently of execution scope and renders SDK lifecycle projections, including partial replies. |
 | Browser authentication snapshot and session availability | Brain cookie-backed session endpoint; Web `GitHubService` and `AuthContext` | Only a validated session response can change auth state. A transient or invalid response preserves the last verified user; initial unknown state offers Retry before sign-in, and confirmed logout invalidates pending refresh writes. |
-| Request acknowledgement and explicit delivery retry | Existing server admission identity and SDK `conversation-submission` over `submission-attempt-registry` / `submission-evidence`; Web `submissionTransport` binds the observed authenticated fetch | useChatCore supplies the synchronous reservation binding, captured provider configuration, request builder and dispatch callback; the SDK sequence retains one attempt, the exact reserved tuple, client message identity and serialized payload. Only bound acknowledgements or exact canonical evidence confirm admission. |
+| Request acknowledgement and explicit delivery retry | Existing server admission identity and SDK `conversation-submission` over `submission-attempt-registry` / `submission-evidence`; `AppServerClient` submits `turn/submit` | useChatCore supplies the synchronous reservation binding, captured provider configuration, request builder and dispatch callback. The SDK freezes the complete App Server envelope at HTTP emission and records the actual status and four ACK headers before parsing the response body. Only a bound tuple or exact canonical evidence confirms admission. |
 | Mounted conversation and history recovery presentation | Web SessionConversationSurface and useChatHydration | Setup/workspace share one useChat owner for the selected session; partial/failed reads preserve verified rows, and stale reads cannot replace another session. |
 
 The run-filtered message identity/visibility helpers and the component-local
@@ -209,12 +218,13 @@ keeps a null run identity. Background authentication refresh retains the mounted
 conversation. Existing meaningful transport outcome safeguards are retained,
 including suites removed by the incoming baseline's unrelated test cleanup.
 Browser product caches are preserved; no storage cutover or import is performed.
-SDK owns the reusable attempt registry and canonical evidence probe; Web keeps
-the React orchestration and authenticated observed-fetch binding. History
-transport moves through authenticated App Server in 058.3A. Shared conversation
-composition remains pending 058.2E. The earlier baseline entries' pending
-browser binding is fulfilled here, without claiming completion of hosted
-routing or final browser acceptance.
+SDK owns the reusable attempt registry, complete frozen envelope, response ACK
+observer and canonical evidence probe. Web keeps React orchestration, composer
+input, optimistic rendering, and the per-attempt AbortController binding used by
+Stop and unmount cleanup. History transport moves through authenticated App
+Server in 058.3A. Shared conversation composition remains pending 058.2E. The
+earlier baseline entries' pending browser binding is fulfilled here, without
+claiming completion of final browser acceptance.
 
 ### Plan 058 conversation submission orchestration
 
@@ -226,9 +236,20 @@ binding, dispatch, acknowledgement/evidence classification and one registry
 settlement. `onReserved(scope)` is synchronous and precedes dispatch; a stale
 binding settles inactive without sending. Web retains React state, optimistic
 rendering, composer readiness, provider/repository selection, the request
-builder and current dispatch callback, the observed authenticated fetch, the
-scope-ready event and Stop/loading/error bindings. No route, transport, runtime
-owner or Desktop capability changes.
+builder, SDK operation invocation, scope-ready event, and Stop/loading/error
+bindings. The SDK `AppServerClient` owns the network request, complete envelope
+serialization and pre-body ACK observation. Hosted routing is completed by
+Plan 058 PR B; Desktop capability changes are not included.
+
+### Plan 058 resumed activity and steering presentation
+
+| Responsibility | Canonical owner | Active consumers and invariant |
+| --- | --- | --- |
+| Run-attempt lifecycle timestamps, status, and replay | Runtime lifecycle append and SDK workflow projection | Each real resume/attempt keeps its own canonical started/terminal timestamps and existing IDs; Web does not infer clocks or terminal state. |
+| Same-task resumed workflow history | SDK conversation entry projection; shared `client-ui` conversation renderer | Actual prior workflow projections remain visible chronologically with the latest attempt. The original prompt, transcript, artifacts, review identity, and separate revisions remain unchanged. |
+| Queued follow-up and immediate steer presentation | Existing SDK thread-input queue/steer commands; shared `client-ui` composer presentation | Web binds the authenticated image source and existing queue mutations. Enter queues an active-run draft; Cmd/Ctrl+Enter uses the existing direct steer command. Draft text and media remain in the composer until the existing command accepts them. |
+
+No new lifecycle, queue, browser-history, or clock owner is added.
 
 ## Plan 058.1 — Lifecycle projection composition and selection
 
@@ -443,6 +464,19 @@ Current browser context reconciliation is explicitly not retired by this
 transport cutover; its deletion requires authenticated server reconstruction
 and existing-profile data preservation in the later authority slice.
 
+### Plan 058 authenticated repository reads
+
+| Responsibility | Canonical owner | Active producers and consumers |
+| --- | --- | --- |
+| GitHub repository list, branch list, tree, and repository file contents | Brain `RepositoryReadService` over the existing authenticated GitHub client from `getGitHubClient`; hosted reads bind the cookie-verified App Server principal and delegate to this client | `AuthorizedRepositoryPicker`, `ChatBranchSelector`, `EnvironmentSummaryMenu`, `useGitHubTree`, and `useFileLoader` consume the four typed SDK/App Server operations; the Web session/login/logout/OAuth snapshot flow remains Web host glue. Branch/tree request coalescing is scoped to the verified account and cleared when that account changes. Failures remain explicit rather than becoming cached empty results. The replaced `/api/github` query and inactive pull-request routes are retired after caller audit; run-based pull-request mutations remain on their active path. |
+| Mounted workspace file listing and reads | Unresolved; the current Web `FileExplorer` and `useFileLoader` call the legacy `terminalCommandPath` endpoint directly | The current `filesystem.list_files` and `filesystem.read_file` schemas exist for runtime tool execution, but no supported hosted owned-checkout read contract is established by this transport. Keep these mounted consumers and endpoint until a supported owned contract is wired; do not treat repository contents as a replacement for workspace reads. |
+
+The repository query migration retires the replaced Brain `/api/github` query
+routes and inactive pull-request routes after all five Web query consumers use
+the hosted SDK operation and existing GitHub client owner. It does not retire
+GitHub authentication/session routes or the separately active run-based
+pull-request mutation path.
+
 ## Plan 058.3B — Hosted provider discovery
 
 | Responsibility | Canonical owner | Active producers and consumers |
@@ -523,6 +557,28 @@ The existing uncapped visibility-list request is preserved only for authenticate
 verifies the cookie before reading that body and rejects a mismatched envelope.
 Other methods retain the generic 32 KB request limit and streaming cancellation.
 The hint supplies no identity or permission and does not bypass provider scope.
+## Project selection and projectless chat
+
+| Responsibility | Canonical owner | Active wiring and invariant |
+| --- | --- | --- |
+| Saved session repository | Brain transcript/session repository | Session creation accepts `repository: null`. Migration `0034_projectless_session_repository` normalizes the old `New Project` label. No new sentinel repository is written. |
+| Active chat repository context | Hosted session workspace context, projected by Web | Explicit project selection, SDK-backed session workspace context and session branch preferences supply repository/branch identity. Global browser context restoration and workspace-selection bootstrap are removed; a null repository cannot match a repository context. |
+| Projects and Recents | SDK sidebar projection over saved session metadata | The dev shared ThreadSidebar retains its repository groups and explicit No repository group. Pinning, search, status and archive use the existing canonical session projections. |
+| Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. Sidebar Add project reads the mounted composer through its draft reader port before switching sessions; the composer remains the unsent draft owner. The modal is portaled to the viewport with focus isolation and a light backdrop blur. Home keeps the centered composer and dynamic project/settings island; section expansion is local UI state. Setup uses the same sidebar header/tabs/Close controls as conversation and the shell owns panel width across both surfaces. |
+
+| Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
+| Turn execution and Stop | Existing native runner and RuntimeKernel | Both capabilities share provider/context/budgeting, canonical lifecycle append, interruption and terminal settlement. `Run.executionCapability` is emitted on the started attempt; no alternate chat transport or fabricated manifest is introduced. |
+| Interrupted continuation | Existing turn admission and ResumeTurnService | Exact owner, thread, turn, attempt, terminal sequence, root prompt and command dedupe remain required. Projectless resume restores conversation history; repository resume additionally validates its captured workspace artifact. SDK replay projects capability for Web Play availability. The empty composer reuses its submit control for Play; typed drafts still send new requests, and active turns retain Stop/Queue/Steer. Interruption and continuation markers render terminal state and canonical start timestamps; accepted user inputs use their persisted message timestamps, including Queue/Steer. User-input date markers appear only when a later prompt starts on a different local calendar day from prior chat activity; initial and same-day prompts omit them. They reuse the chat 12-hour formatter and omit rules. Continuation attempts retain dev's chronological workflow history and their own canonical start timestamps, without a duplicate date marker. The dev composer retains unavailable-resume messaging and its asynchronous guarded Play control; interrupted terminal messages are not duplicated in the transcript. |
+
+The unconditional checkout requirement is removed for admitted projectless chats.
+Repository execution retains its Git and artifact requirements. The SDK renders
+runtime capability from lifecycle replay rather than inferring it from the current
+project picker. Completed-turn review uses that same capability: conversations
+have no Git diff and do not display a missing-diff warning; repository turns
+still require their settled canonical diff. ProviderStore carries an unsent composer's model preference into
+the chat created by an explicit project choice or first submission; validation
+at admission remains authoritative.
+
 This entry records the title, workflow display, conversation durability, and
 image-context boundaries changed by this work.
 
@@ -582,7 +638,9 @@ history and its waiting status to appear.
 | Approval denial continuation                             | Runtime kernel approval and tool coordinators    | A durable denial is delivered to the matching active tool call once. Worker/provider refusal, cancellation, timeout, or a missing owner never substitutes for the user's decision; terminal settlement remains a canonical runtime event. |
 | Recovery status and user-facing error presentation      | Authenticated turn-scope reader and thin Web adapter | Recovery does not hide the admitted identity. The client keeps typed delivery/runtime errors actionable and reconciles setup from durable admission and lifecycle state instead of owning session-failed status. |
 | Assistant transcript and terminal status                | Canonical lifecycle append transaction           | Runtime events, assistant transcript parts, and session/run terminal status commit together. History and context assembly consume durable rows. The append path does not rebuild the unused full-turn projection cache. |
-| Delivery confirmation and explicit retry                | Web `useChatCore` and its observed-fetch adapter | The SDK parses transport output. Exact HTTP tuple acknowledgement or canonical lifecycle evidence confirms admission. Unconfirmed retries retain the original client identity and serialized payload.                   |
+| Chat submission contract                                | `@repo/platform-protocol` `ChatRequestBodySchema` | The authenticated App Server `turn/submit` arm validates the strict body. Provider, mode, workflow, and identity schemas are shared with the existing `@repo/shared-types` public exports; the retired Brain `/chat` POST is no longer a submission owner. |
+| Hosted chat execution                                   | Brain `HostedChatSubmission` composed by the authenticated App Server | App Server binds the verified cookie principal and actual request metadata, then reuses existing admission, model/image/reasoning validation, `HandleChatRequest`, and RunEngineDO execution. Web submits only the current user message and its existing text/image parts; Brain's `DurableConversationContextAssembler` remains the sole owner of prior execution history. The real `ExecutionContext` owns terminal reconciliation and the unused runtime-body drain. |
+| Delivery confirmation and explicit retry                | SDK `submitConversationMessage` through `AppServerClient` | The SDK compares the actual runtime HTTP status and four returned ACK header values with its retained reservation, then uses canonical lifecycle evidence when the tuple is absent or mismatched. Explicit retry reuses the complete frozen App Server envelope bytes and original identity. |
 | Hosted replay, diff, approval and compaction routing    | Authenticated Brain App Server composition       | `AppServerController` verifies the cookie principal before dispatch. `HostedLifecycleOperations` checks actual run ownership (reserved matching admission is accepted only for replay), then calls the existing `fetchRunRuntimeRoute` and RunEngineDO operations. SDK keeps the existing operation contracts and bindings; the four public lifecycle routes and their direct SDK URL builders are removed. Runtime owns the underlying replay, diff, approval and compaction behavior. |
 | Hosted Stop/interrupt authorization and routing           | Brain `HostedTurnCommands` composed by the authenticated App Server | `AppServerController` binds the cookie principal; the command requires the principal-owned run and matching session/workspace before calling the existing RunEngineDO `/interrupt` route. SDK sends `turn/interrupt`; Web Stop still waits for the exact tuple's canonical terminal event. Runtime remains the interrupt and terminal lifecycle owner. The old `/api/run/interrupt` route and SDK URL builder are retired. |
 | Hosted inbox, steering and resume commands              | Brain `HostedThreadInputOperations` composed by the authenticated App Server | The verified cookie principal supplies the user ID; each operation resolves the principal-owned session by canonical thread and matching workspace, then reuses the existing repositories, `ThreadInputCommandService`, image policy/storage and runtime route. The internal outcome preserves each legacy 200/201/202/409 status without adding a public receipt field. The SDK maps all eight existing commands through App Server and retains validated conflict receipts and error classifications. `ExecutionContext` remains bound to the real request for enqueue auto-start, queued start and resume. The eight legacy routes and direct SDK URL builders are retired. |

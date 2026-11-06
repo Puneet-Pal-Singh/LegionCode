@@ -65,7 +65,15 @@ describe("TranscriptController", () => {
 
   it("creates and lists authenticated sessions from the transcript repository", async () => {
     const createResponse = await requestHostedSession("session/create",
-      createSessionRequest(),
+      authenticatedRequest("https://brain.local/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: TEST_SESSION_ID,
+          runId: TEST_RUN_ID,
+          title: "Chat",
+          repository: null,
+        }),
+      }),
       env,
     );
 
@@ -91,6 +99,7 @@ describe("TranscriptController", () => {
           id: TEST_SESSION_ID,
           userId: TEST_USER_ID,
           activeRunId: TEST_RUN_ID,
+          repository: null,
         },
       ],
     });

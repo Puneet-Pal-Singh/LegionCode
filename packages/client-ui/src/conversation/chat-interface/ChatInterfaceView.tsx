@@ -5,7 +5,14 @@ import {
 import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
 import type { ChatMessageProps } from "../ChatMessage.js";
 import type { ChatMessageMetadata } from "../chat-message/types.js";
-import { forwardRef, type ReactNode } from "react";
+
+import { conversationDateMarkers } from "./conversationDateMarkers.js";
+import { Fragment, forwardRef, type ReactNode } from "react";
+import {
+  ConversationTimeMarker,
+  ConversationTerminalMarker,
+} from "../workflow/ConversationMarker.js";
+
 import type {
   DiffContent,
   FileStatus,
@@ -32,7 +39,6 @@ import {
 import type { ChatInterfaceEntry } from "./chatEntries.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { ChevronDown, Folder } from "lucide-react";
-import { workspaceSnapshotNotice } from "./workspace-snapshot-status.js";
 
 export interface ChatInterfaceViewProps {
   workspaceId: string | null;
@@ -205,31 +211,40 @@ export const ChatInterfaceView = forwardRef<
 });
 
 function Transcript(props: ChatInterfaceViewProps) {
+  const dateMarkers = conversationDateMarkers(props.chatEntries);
   return (
     <>
       {props.chatEntries.map((entry) => {
         if (entry.kind === "workflow") {
           return (
-            <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
+            <TurnWorkflowEntry
+              key={entry.key}
+              entry={entry}
+              props={props}
+            />
           );
         }
         return (
-          <ChatMessage
-            resolveHydratedImageSource={props.resolveHydratedImageSource}
-            loadArtifactContent={props.loadArtifactContent}
-            key={entry.message.id}
-            message={entry.message}
-            metadata={props.messageMetadataById[entry.message.id]}
-            onArtifactOpen={props.onArtifactOpen}
-            onReviewOpen={props.onReviewOpen}
-            changedFilesSummary={resolveMessageChangedFilesSummary(
-              props,
-              entry.message.id,
-            )}
-            hookAudits={entry.projection?.hookAudits}
-            onEdit={resolveUserMessageEdit(props, entry)}
-            historyStatus={entry.historyStatus}
-          />
+          <Fragment key={entry.message.id}>
+            {dateMarkers.has(entry.message.id) ? (
+              <ConversationTimeMarker at={entry.message.createdAt} />
+            ) : null}
+            <ChatMessage
+              resolveHydratedImageSource={props.resolveHydratedImageSource}
+              loadArtifactContent={props.loadArtifactContent}
+              message={entry.message}
+              metadata={props.messageMetadataById[entry.message.id]}
+              onArtifactOpen={props.onArtifactOpen}
+              onReviewOpen={props.onReviewOpen}
+              changedFilesSummary={resolveMessageChangedFilesSummary(
+                props,
+                entry.message.id,
+              )}
+              hookAudits={entry.projection?.hookAudits}
+              onEdit={resolveUserMessageEdit(props, entry)}
+              historyStatus={entry.historyStatus}
+            />
+          </Fragment>
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
@@ -273,6 +288,9 @@ function TurnWorkflowEntry({
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
   const terminal = entry.projection.terminal;
   const terminalViewModel = buildLifecycleTerminalViewModel(entry.projection);
+  const continuationStartedAt = entry.projection.continuationOfTurnId
+    ? parseValidTimestamp(entry.projection.startedAt)
+    : null;
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -280,7 +298,9 @@ function TurnWorkflowEntry({
       data-workspace-id={props.workspaceId ?? undefined}
       data-turn-id={turnId}
       data-run-attempt-id={
-        surfaceId ? (props.runAttemptId ?? undefined) : undefined
+        surfaceId && isCurrentTurn
+          ? (props.runAttemptId ?? undefined)
+          : undefined
       }
       className="space-y-3"
     >
@@ -289,34 +309,36 @@ function TurnWorkflowEntry({
           Earlier workflow · revised
         </span>
       ) : null}
-      {workspaceSnapshotNotice(entry.projection) ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100/90"
+      {entry.workflowHistory?.length ? (
+        <div
+          aria-label={`Earlier workflow activity (${entry.workflowHistory.length} attempts)`}
+          className="space-y-5"
         >
-          {workspaceSnapshotNotice(entry.projection)}
-        </p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Earlier workflow activity
+          </p>
+          {entry.workflowHistory.map((historicalEntry) => (
+            <TurnWorkflowEntry
+              key={historicalEntry.key}
+              entry={historicalEntry}
+              props={props}
+            />
+          ))}
+        </div>
+      ) : null}
+      {continuationStartedAt ? (
+        <div className="my-2 flex items-center justify-center gap-3 text-xs text-zinc-500">
+          <span aria-hidden="true" className="h-px flex-1 bg-zinc-800" />
+          <time dateTime={continuationStartedAt}>
+            {formatContinuationTimestamp(continuationStartedAt)}
+          </time>
+          <span aria-hidden="true" className="h-px flex-1 bg-zinc-800" />
+        </div>
       ) : null}
       <CanonicalWorkflowSurface
         projection={entry.projection}
         onArtifactOpen={props.onArtifactOpen}
       />
-      {entry.workflowHistory?.length ? (
-        <details className="rounded-lg border border-zinc-800/70 px-3 py-2">
-          <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
-            Earlier workflow activity ({entry.workflowHistory.length})
-          </summary>
-          <div className="mt-3 max-h-80 space-y-5 overflow-y-auto">
-            {entry.workflowHistory.map((historicalEntry) => (
-              <TurnWorkflowEntry
-                key={historicalEntry.key}
-                entry={historicalEntry}
-                props={props}
-              />
-            ))}
-          </div>
-        </details>
-      ) : null}
       {terminal?.state !== "completed" &&
       entry.projection.assistantText.trim() ? (
         <ChatMessage
@@ -372,6 +394,17 @@ function TurnWorkflowEntry({
   );
 }
 
+function parseValidTimestamp(value: string | null): string | null {
+  return value && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function formatContinuationTimestamp(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 function resolveMessageChangedFilesSummary(
   props: ChatInterfaceViewProps,
   messageId: string,
@@ -409,18 +442,10 @@ function TerminalMessage(
 
   if (terminal.state !== "completed") {
     return (
-      <div
-        role="alert"
-        className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
-      >
-        <span className="mt-0.5 text-zinc-500" aria-hidden="true">
-          !
-        </span>
-        <p className="leading-5 text-zinc-300">
-          {terminal.content ||
-            "The run ended before it could return an answer. Retry the request."}
-        </p>
-      </div>
+      <ConversationTerminalMarker
+        interrupted={false}
+        content={terminal.content}
+      />
     );
   }
 

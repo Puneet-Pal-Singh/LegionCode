@@ -245,10 +245,26 @@ function groupWorkflowContinuations(
   );
   if (!latestWorkflowExists) return entries;
 
-  const workflowHistory = entries.filter(
-    (entry): entry is Extract<ChatInterfaceEntry, { kind: "workflow" }> =>
-      entry.kind === "workflow" && entry.turnId !== latestTurnId,
-  );
+  const workflowHistory = entries
+    .filter(
+      (entry): entry is Extract<ChatInterfaceEntry, { kind: "workflow" }> =>
+        entry.kind === "workflow" && entry.turnId !== latestTurnId,
+    )
+    .map((entry, index) => ({
+      entry,
+      index,
+      startedAt: Date.parse(entry.projection.startedAt ?? ""),
+    }))
+    .sort((left, right) => {
+      const leftStart = Number.isNaN(left.startedAt)
+        ? Number.POSITIVE_INFINITY
+        : left.startedAt;
+      const rightStart = Number.isNaN(right.startedAt)
+        ? Number.POSITIVE_INFINITY
+        : right.startedAt;
+      return leftStart - rightStart || left.index - right.index;
+    })
+    .map(({ entry }) => entry);
   return entries
     .filter(
       (entry) => entry.kind !== "workflow" || entry.turnId === latestTurnId,

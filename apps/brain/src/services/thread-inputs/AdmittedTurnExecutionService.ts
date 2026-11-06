@@ -48,7 +48,7 @@ export interface AdmittedTurnExecution {
   };
   readonly modelMetadata?: ChatModelMetadata;
   readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
-  readonly repository: AuthorizedWorkspaceRepositoryContext;
+  readonly repository: AuthorizedWorkspaceRepositoryContext | null;
   readonly onStartupFailure: (error: unknown) => Promise<boolean>;
   readonly onDispatchSettled: () => Promise<void>;
   readonly onTerminal?: (
@@ -125,10 +125,10 @@ export async function dispatchAdmittedTurn(
           modelCapabilities: modelMetadata.capabilities,
           modelInputModalities: modelMetadata.inputModalities,
           repositoryBranch:
-            input.run.branch ?? input.repository.repositoryBranch,
-          repositoryOwner: input.repository.repositoryOwner,
-          repositoryName: input.repository.repositoryName,
-          repositoryBaseUrl: input.repository.repositoryBaseUrl,
+            input.run.branch ?? input.repository?.repositoryBranch,
+          repositoryOwner: input.repository?.repositoryOwner,
+          repositoryName: input.repository?.repositoryName,
+          repositoryBaseUrl: input.repository?.repositoryBaseUrl,
           identity: input.identity,
           preAdmitted: {
             run: input.run,

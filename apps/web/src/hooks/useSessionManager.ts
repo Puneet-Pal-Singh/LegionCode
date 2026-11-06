@@ -232,7 +232,13 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       const saved = localStorage.getItem("legioncode_repositories");
       const parsed = saved ? JSON.parse(saved) : [];
 
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        // Remove the former projectless label from this UI-only project cache.
+        return parsed.filter((repository): repository is string =>
+          typeof repository === "string" &&
+          repository !== "New Project" && repository.trim().length > 0,
+        );
+      }
       return [];
     } catch {
       return [];
@@ -491,7 +497,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const createSession = useCallback(
     async (
       name?: string,
-      repository: string = "New Project",
+      repository: string | null = null,
       mode: RunMode = DEFAULT_RUN_MODE,
       workspaceId?: string,
     ) => {
@@ -499,7 +505,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
       // Ensure repository exists in the list
       setRepositories((prev) => {
-        if (!prev.includes(repository)) {
+        if (repository && !prev.includes(repository)) {
           return [...prev, repository];
         }
         return prev;

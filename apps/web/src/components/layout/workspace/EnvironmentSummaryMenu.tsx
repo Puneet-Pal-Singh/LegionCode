@@ -29,6 +29,7 @@ import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
 import { cn } from "@legioncode/client-ui";
 import { BranchSelectorPanel } from "../../github/BranchSelector";
 import type { SavedChatSourcesProjection } from "../../../lib/saved-chat-sources";
+import { useAuth } from "../../../contexts/AuthContext";
 
 export interface EnvironmentSummaryMenuProps {
   repo: Repository | null;
@@ -57,11 +58,17 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
     branchTriggerRef,
     branchPanelRef,
   );
+  const { user } = useAuth();
   const close = useCallback(() => {
     setIsOpen(false);
     setIsBranchOpen(false);
   }, []);
-  const { branches, loading } = useBranches(props.repo);
+  const {
+    branches,
+    loading,
+    error: branchError,
+    retry: retryBranches,
+  } = useBranches(props.repo, user?.id ?? null);
   useOutsideDismiss(rootRef, isOpen || isBranchOpen, close);
   useEffect(() => {
     if (!isOpen && !isBranchOpen) return;
@@ -112,6 +119,8 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           branches={branches}
           currentBranch={props.branch}
           isLoading={loading}
+          loadError={branchError}
+          onRetry={retryBranches}
           panelRef={branchPanelRef}
           style={branchPanelPosition}
           className="fixed left-0 top-0 z-[130] overflow-y-auto"
@@ -571,34 +580,56 @@ function useViewportPopoverPosition(
   return position;
 }
 
-function useBranches(repo: Repository | null): {
+function useBranches(repo: Repository | null, accountId: string | null): {
   branches: Branch[];
   loading: boolean;
+  error: string | null;
+  retry: () => void;
 } {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [resultKey, setResultKey] = useState<string | null>(null);
+  const currentKey = JSON.stringify([accountId, repo?.full_name ?? null]);
   useEffect(() => {
+    let active = true;
     if (!repo) {
       // Clear data from the previously selected repository.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setBranches([]);
+      setError(null);
+      setLoading(false);
       return;
     }
-    let cancelled = false;
+    setBranches([]);
+    setError(null);
     setLoading(true);
-    void listBranches(repo.owner.login, repo.name)
+    void listBranches(repo.owner.login, repo.name, accountId)
       .then((items) => {
-        if (!cancelled) setBranches(items);
+        if (active) {
+          setBranches(items);
+          setResultKey(currentKey);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setBranches([]);
+      .catch((cause: unknown) => {
+        if (active) {
+          console.error("Failed to fetch branches:", cause);
+          setError("Branches could not be loaded.");
+          setResultKey(currentKey);
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (active) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, [repo]);
-  return { branches, loading };
+  }, [accountId, currentKey, repo, retryCount]);
+  return {
+    branches: resultKey === currentKey ? branches : [],
+    loading: loading || Boolean(repo && resultKey !== currentKey),
+    error: resultKey === currentKey ? error : null,
+    retry: () => setRetryCount((count) => count + 1),
+  };
 }

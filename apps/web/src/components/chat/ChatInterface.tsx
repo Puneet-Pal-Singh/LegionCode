@@ -2,12 +2,7 @@ import { resolveHydratedChatImageSource } from "./chatMessageImagePresentation";
 import { loadCodeArtifactContent } from "../../services/api/codeArtifactReads";
 import { ChatDebugPanel } from "./chat-interface/ChatDebugPanel";
 import { buildConversationTurns } from "@legioncode/sdk";
-import {
-  useRef,
-  useEffect,
-  useMemo,
-  useCallback,
-} from "react";
+import { useRef, useEffect, useMemo, useCallback } from "react";
 import {
   RunIdSchema,
   RunAttemptIdSchema,
@@ -30,9 +25,7 @@ import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
-import {
-  buildChatMessageMetadata,
-} from "@legioncode/client-ui";
+import { buildChatMessageMetadata } from "@legioncode/client-ui";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";
@@ -54,7 +47,12 @@ import type { InitialPromptSubmission } from "../../lib/initial-prompt-submissio
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import { mergeLifecycleProjections } from "@legioncode/sdk";
 import { updateComposerPreferences } from "../../lib/composer-preferences";
-import { type ChatErrorNoticeProps, ThreadInputQueuePanel, type ComposerDelivery, resumeUnavailableMessage } from "@legioncode/client-ui";
+import {
+  type ChatErrorNoticeProps,
+  ThreadInputQueuePanel,
+  type ComposerDelivery,
+  resumeUnavailableMessage,
+} from "@legioncode/client-ui";
 import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { useStableChatLoadingIndicator } from "@legioncode/client-ui";
@@ -122,6 +120,8 @@ interface ChatInterfaceProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  repoTreeError?: string | null;
+  retryRepoTree?: () => void;
   projectName?: string;
   onProjectClick?: () => void;
   onPresentationReadyChange?: (ready: boolean) => void;
@@ -142,6 +142,8 @@ export function ChatInterface({
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
+  repoTreeError,
+  retryRepoTree,
   projectName,
   onProjectClick,
   onPresentationReadyChange,
@@ -248,6 +250,13 @@ export function ChatInterface({
       return accepted;
     },
     [chatProps, input, refreshQueue],
+  );
+  const resolveQueueImageSource = useCallback(
+    (attachmentId: string) =>
+      resolveHydratedChatImageSource(
+        `/api/chat/media/${encodeURIComponent(attachmentId)}?session=${encodeURIComponent(sessionId)}`,
+      ),
+    [sessionId],
   );
   const continuationRecovery =
     activeTurn.continuationStatus === "reconnecting" ||
@@ -489,10 +498,13 @@ export function ChatInterface({
       }
       queuePanel={
         <ThreadInputQueuePanel
-          onDisableQueuing={() => updateComposerPreferences({ followUpBehavior: "steer" })}
+          onDisableQueuing={() =>
+            updateComposerPreferences({ followUpBehavior: "steer" })
+          }
           snapshot={queue.snapshot}
           error={queue.error}
           active={activeRunLoading}
+          resolveImageSource={resolveQueueImageSource}
           onUpdate={queue.update}
           onRemove={queue.remove}
           onSteer={queue.steer}
@@ -507,25 +519,25 @@ export function ChatInterface({
           }}
         />
       }
-      resumeUnavailableMessage={
-        resumeUnavailableMessage(
-          activeTurn.projection,
-          Boolean(conversationScope),
-        ) ?? null
-      }
       canResume={Boolean(
         !activeRunLoading &&
         conversationScope &&
         activeTurn.projection?.terminal?.state === "interrupted" &&
-        activeTurn.projection.workspaceSnapshotState === "captured" &&
-        activeTurn.projection.resumeSnapshotAvailable === true,
+        (activeTurn.projection.executionCapability === "conversation" ||
+          (activeTurn.projection.workspaceSnapshotState === "captured" &&
+            activeTurn.projection.resumeSnapshotAvailable === true)),
+      )}
+      resumeUnavailableMessage={resumeUnavailableMessage(
+        activeTurn.projection,
+        Boolean(conversationScope),
       )}
       onResume={async () => {
         const projection = activeTurn.projection;
         if (
           projection?.terminal?.state === "interrupted" &&
-          projection.workspaceSnapshotState === "captured" &&
-          projection.resumeSnapshotAvailable === true
+          (projection.executionCapability === "conversation" ||
+            (projection.workspaceSnapshotState === "captured" &&
+              projection.resumeSnapshotAvailable === true))
         ) {
           return chatProps.resumeInterruptedTurn(projection.lastSequence);
         }
@@ -545,6 +557,8 @@ export function ChatInterface({
       onModelSelect={onModelSelect}
       repoTree={repoTree}
       isLoadingRepoTree={isLoadingRepoTree}
+      repoTreeError={repoTreeError}
+      retryRepoTree={retryRepoTree}
       permissionMode={permissionMode}
       onPermissionModeChange={onPermissionModeChange}
       contextBudget={latestLifecycleProjection?.contextBudget ?? null}
@@ -593,7 +607,9 @@ export function ChatInterface({
       }
       onStopPendingTurn={stop}
       renderComposer={renderComposerControls}
-      debugPanel={showDebugPanel ? <ChatDebugPanel events={debugEvents} /> : null}
+      debugPanel={
+        showDebugPanel ? <ChatDebugPanel events={debugEvents} /> : null
+      }
       resolveHydratedImageSource={resolveHydratedChatImageSource}
       loadArtifactContent={loadArtifactContent}
       chatEntries={chatEntries}
