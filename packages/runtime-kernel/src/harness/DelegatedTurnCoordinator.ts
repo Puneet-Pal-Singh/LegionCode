@@ -27,6 +27,9 @@ type Quiescent = Extract<HarnessQuiescence, { status: "quiescent" }>;
 export interface DelegatedExecutionDependencies {
   readonly harness: DelegatedHarnessPort;
   readonly observations: HarnessObservationCommitPort;
+  /** Capabilities from the selected/pinned driver's successful probe. Absence
+   * exposes no optional steering capability. */
+  readonly capabilities?: import("@repo/platform-protocol").HarnessCapabilities;
   /** Existing admission/lease authority verifies the frozen selection and held
    * workspace lease. Recheck auth generation/revocation before external commands. */
   readonly assertActive: (input: {
@@ -39,6 +42,9 @@ export interface DelegatedExecutionDependencies {
 /** Delegated execution composes canonical owners, never native ProviderPort/tools. */
 export class DelegatedTurnCoordinator {
   private session: import("@repo/worker-protocol").HarnessSession | null = null;
+  private ingestor: HarnessObservationIngestor | null = null;
+  private steeringFailure: unknown;
+  private readonly steeringOperations = new Set<Promise<void>>();
   private stopRequested = false;
   private interruptSent = false;
   private readonly replies = new Set<string>();
@@ -63,7 +69,16 @@ export class DelegatedTurnCoordinator {
       readonly approvals: ApprovalCoordinator;
       readonly signal: AbortSignal;
     },
-  ) {}
+  ) {
+    if (options.command.mode === "recover_same_attempt") {
+      if (!options.command.resumeSession)
+        throw new RuntimeKernelError(
+          "invalid_turn_identity",
+          "Recovery has no persisted session identity",
+        );
+      this.session = HarnessSessionSchema.parse(options.command.resumeSession);
+    }
+  }
 
   get quiescenceEvidence(): Quiescent | null {
     return this.quiescent;
@@ -78,9 +93,15 @@ export class DelegatedTurnCoordinator {
     this.assertNotStopped();
     await dependencies.assertActive(command);
     this.assertNotStopped();
-    this.session = HarnessSessionSchema.parse(
-      await dependencies.harness.open({ command, signal }),
-    );
+    if (command.mode === "start")
+      this.session = HarnessSessionSchema.parse(
+        await dependencies.harness.open({ command, signal }),
+      );
+    if (!this.session)
+      throw new RuntimeKernelError(
+        "invalid_turn_identity",
+        "Recovery session is unavailable",
+      );
     if (
       this.session.runAttemptId !== command.selection.runAttemptId ||
       this.session.instanceId !== command.selection.instanceId
@@ -111,6 +132,7 @@ export class DelegatedTurnCoordinator {
         void job.finally(() => this.approvalJobs.delete(job));
       },
     });
+    this.ingestor = ingestor;
     await ingestor.ready();
     if (signal.aborted || this.stopRequested) {
       await this.stop();
@@ -136,6 +158,8 @@ export class DelegatedTurnCoordinator {
       });
     }
     await Promise.all(this.approvalJobs);
+    await Promise.all(this.steeringOperations);
+    if (this.steeringFailure) throw this.steeringFailure;
     if (this.approvalFailure) throw this.approvalFailure;
     this.assertNotStopped();
     const terminal = ingestor.terminalObservation;
@@ -152,11 +176,127 @@ export class DelegatedTurnCoordinator {
     }
     await this.requireQuiescence();
     this.assertNotStopped();
+    if (
+      !(await this.options.lifecycle.reserveCompletion(() =>
+        this.options.lifecycle.hasPendingThreadInputs(),
+      ))
+    ) {
+      throw new RuntimeKernelError(
+        "worker_failed",
+        "Steering acceptance has no provider application evidence; recovery is required",
+      );
+    }
     return {
       output: terminal.output,
       finalItemId: terminal.itemId,
       toolCallCount: ingestor.toolCallCount,
     };
+  }
+
+  async acceptThreadInput(input: {
+    readonly accepted: Omit<
+      import("../types.js").AcceptedThreadInput,
+      "acceptedSequence"
+    >;
+    readonly clientInputId: string;
+    readonly transcriptMessageId: string;
+  }): Promise<number> {
+    const delivery = this.deliverSteer(input);
+    const tracked = delivery.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.steeringOperations.add(tracked);
+    void tracked.finally(() => this.steeringOperations.delete(tracked));
+    return delivery;
+  }
+
+  private async deliverSteer(input: {
+    readonly accepted: Omit<
+      import("../types.js").AcceptedThreadInput,
+      "acceptedSequence"
+    >;
+    readonly clientInputId: string;
+    readonly transcriptMessageId: string;
+  }): Promise<number> {
+    this.assertNotStopped();
+    if (this.options.dependencies.capabilities?.steer !== true)
+      throw new RuntimeKernelError(
+        "tool_policy_denied",
+        "Selected harness does not advertise steering",
+      );
+    const session = this.session,
+      ingestor = this.ingestor;
+    if (!session || !ingestor)
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        "Harness has no live steering target",
+      );
+    await ingestor.ready();
+    const target = ingestor.steeringTarget;
+    if (!target)
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        "External turn is not accepting steering",
+      );
+    const message = input.accepted.message;
+    if (
+      message.role !== "user" ||
+      typeof message.content !== "string" ||
+      !message.content.trim()
+    )
+      throw new RuntimeKernelError(
+        "tool_policy_denied",
+        "This harness steering path accepts text user input only",
+      );
+    const text = message.content;
+    const accepted = {
+      inputId: input.accepted.inputId,
+      clientInputId: input.clientInputId,
+      transcriptMessageId: input.transcriptMessageId,
+    };
+    await this.options.dependencies.assertActive(this.options.command);
+    this.assertNotStopped();
+    let newlyAccepted = false;
+    const acceptedSequence = await this.options.lifecycle.acceptThreadInput(
+      accepted,
+      () => {
+        newlyAccepted = true;
+      },
+      () =>
+        !this.stopRequested &&
+        !this.options.signal.aborted &&
+        ingestor.steeringTarget === target,
+      true,
+    );
+    // A duplicate accepted intent never resends a command whose delivery may be ambiguous.
+    if (!newlyAccepted) return acceptedSequence;
+    try {
+      await this.options.dependencies.assertActive(this.options.command);
+      this.assertNotStopped();
+      if (ingestor.steeringTarget !== target)
+        throw new RuntimeKernelError(
+          "turn_not_active",
+          "External turn finished before steering delivery",
+        );
+      const receipt = await this.options.dependencies.harness.control({
+        kind: "steer",
+        commandId: `${this.options.command.commandId}:steer:${acceptedSequence}`,
+        session,
+        expectedExternalTurnId: target,
+        accepted: { ...accepted, acceptedSequence },
+        text,
+      });
+      if (!receipt.accepted)
+        throw new RuntimeKernelError(
+          "worker_failed",
+          "Harness rejected steering; accepted intent requires recovery",
+        );
+    } catch (error) {
+      this.steeringFailure = error;
+      throw error;
+    }
+    return acceptedSequence;
   }
 
   /** Safe before open resolves. The latch prevents any subsequent prompt delivery. */
@@ -247,7 +387,7 @@ export class DelegatedTurnCoordinator {
     this.assertNotStopped();
     await this.options.dependencies.harness.control({
       kind: "user_input_reply",
-      commandId: `${this.options.command.commandId}:reply:${this.replies.size}`,
+      commandId: `user_input:${requestId}`,
       reply: { replyTo: request.replyTo, response },
     });
   }
@@ -311,7 +451,7 @@ export class DelegatedTurnCoordinator {
     this.assertNotStopped();
     await dependencies.harness.control({
       kind: "reply",
-      commandId: `${command.commandId}:reply:${this.replies.size}`,
+      commandId: `approval:${approval.request.approvalId}`,
       reply: {
         replyTo: approval.replyTo,
         decision,

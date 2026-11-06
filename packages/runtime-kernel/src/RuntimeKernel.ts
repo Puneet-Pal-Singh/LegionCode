@@ -1,3 +1,4 @@
+import { bootstrapDelegatedRecovery } from "./harness/DelegatedRecoveryBootstrap.js";
 import { HarnessSelectionSchema } from "@repo/platform-protocol";
 import { HarnessStartCommandSchema } from "@repo/worker-protocol";
 import { DelegatedTurnCoordinator, type DelegatedExecutionDependencies } from "./harness/DelegatedTurnCoordinator.js";
@@ -79,7 +80,7 @@ interface PreparedTurn {
   readonly hookTriggerEvents: {
     readonly sessionStart: LifecycleEvent;
     readonly userPromptSubmit: LifecycleEvent;
-  };
+  } | null;
 }
 
 export class RuntimeKernel {
@@ -135,9 +136,8 @@ export class RuntimeKernel {
     readonly clientInputId: string;
     readonly transcriptMessageId: string;
   }): Promise<number> {
-    if (this.preparedTurns.get(input.turnId)?.delegated) {
-      throw new RuntimeKernelError("tool_policy_denied", "Delegated steering requires its origin-scoped harness command; native model input is unavailable");
-    }
+    const delegated = this.preparedTurns.get(input.turnId)?.delegated;
+    if (delegated) return delegated.acceptThreadInput(input);
     const lifecycle = this.lifecycles.get(input.turnId);
     if (!lifecycle || !this.dependencies.provider.enqueueThreadInput) {
       throw new RuntimeKernelError(
@@ -166,7 +166,12 @@ export class RuntimeKernel {
     const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
     if (pendingReason) {
       this.pendingInterrupts.delete(prepared.turn.id);
-      await this.interruptPreparedTurn(prepared, pendingReason, true);
+      let quiescent = true;
+      if (prepared.delegated && input.execution?.kind === "delegated" && input.execution.recovery === "same_attempt" && !prepared.lifecycle.isTerminalDecided) {
+        try { await prepared.delegated.stop(); await prepared.delegated.requireQuiescence(); }
+        catch { quiescent = false; }
+      }
+      if (!prepared.lifecycle.isTerminalDecided) await this.interruptPreparedTurn(prepared, pendingReason, quiescent);
       this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
       return {
@@ -193,9 +198,12 @@ export class RuntimeKernel {
     const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
     this.assertTurnIdentity(run, turn);
     this.assertTurnAvailable(turn);
+    const recoveryRequested = input.execution?.kind === "delegated" && input.execution.recovery === "same_attempt";
+    if (turn.lastEventSequence > 0 && !recoveryRequested) throw new RuntimeKernelError("turn_already_owned", "Existing attempt history requires explicit same-attempt recovery");
     const workspace = run.executionCapability === "conversation"
       ? null : await this.requireWorkspace(run);
     const delegatedInput = input.execution?.kind === "delegated" ? input.execution : null;
+    if (!delegatedInput && run.harnessSelection?.selection != null) throw new RuntimeKernelError("invalid_turn_identity", "Admitted delegated selection requires its resolved delegated execution strategy");
     if (delegatedInput) {
       const selection = HarnessSelectionSchema.parse(delegatedInput.selection);
       if (!workspace || !this.dependencies.delegated || selection.userId !== run.userId ||
@@ -204,13 +212,37 @@ export class RuntimeKernel {
         selection.modelId !== run.modelId || selection.policyId !== run.permissionProfileId) {
         throw new RuntimeKernelError("invalid_turn_identity", "Delegated selection does not match admitted execution");
       }
+      const admittedSelection = run.harnessSelection;
+      if (admittedSelection && (admittedSelection.environmentId !== selection.environmentId ||
+        admittedSelection.selectionRevision !== selection.selectionRevision || admittedSelection.selection === null ||
+        admittedSelection.selection.harness !== selection.harness || admittedSelection.selection.instanceId !== selection.instanceId ||
+        admittedSelection.selection.connectionId !== selection.connectionId || admittedSelection.selection.modelId !== selection.modelId)) {
+        throw new RuntimeKernelError("invalid_turn_identity", "Resolved harness binding differs from frozen admitted selection");
+      }
       await this.dependencies.delegated.assertActive({ selection, leaseId: delegatedInput.leaseId,
         filesystemRoot: workspace.filesystemRoot });
     }
     const artifactSettlement = workspace
       ? this.createArtifactSettlement(run, turn, workspace) : null;
-    const startArtifacts = await artifactSettlement?.begin();
+    const recoverySession = recoveryRequested ? delegatedInput?.resumeSession : null;
+    if (recoveryRequested && (!recoverySession || recoverySession.runAttemptId !== runAttemptId || recoverySession.instanceId !== delegatedInput?.selection.instanceId)) {
+      throw new RuntimeKernelError("invalid_turn_identity", "Same-attempt recovery requires its exact persisted session");
+    }
+    const restored = recoverySession && this.dependencies.delegated
+      ? await bootstrapDelegatedRecovery({ persistence: this.dependencies.delegated.observations,
+          session: recoverySession, turnId: turn.id, minimumSequence: turn.lastEventSequence }) : null;
     const lifecycle = this.createLifecycle(run, turn, runAttemptId, input);
+    let startArtifacts: Awaited<ReturnType<TurnArtifactSettlementCoordinator["begin"]>> | undefined;
+    try {
+      if (restored) {
+        await lifecycle.restoreHarnessHistory(restored.recovery.lifecycleEvents);
+        artifactSettlement?.restoreCommittedStart(restored.start);
+        startArtifacts = restored.start;
+      } else startArtifacts = await artifactSettlement?.begin();
+    } catch (error) {
+      this.lifecycles.delete(turn.id);
+      throw error;
+    }
     if (artifactSettlement) this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
       this.dependencies.approvals,
@@ -228,12 +260,13 @@ export class RuntimeKernel {
       executionController.abort(this.dependencies.signal.reason);
     }
     this.executionControllers.set(turn.id, executionController);
-    const lifecycleStart = await lifecycle.start();
-    if (startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    const lifecycleStart = restored ? null : await lifecycle.start();
+    if (!restored && startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
     const delegated = delegatedInput && this.dependencies.delegated && workspace && startArtifacts
       ? new DelegatedTurnCoordinator({
           dependencies: this.dependencies.delegated,
           command: HarnessStartCommandSchema.parse({
+            mode: restored ? "recover_same_attempt" : "start",
             commandId: `${runAttemptId}:start`, selection: delegatedInput.selection,
             leaseId: delegatedInput.leaseId, startSnapshot: startArtifacts.snapshot,
             filesystemRoot: workspace.filesystemRoot, prompt: delegatedInput.prompt,
@@ -251,10 +284,10 @@ export class RuntimeKernel {
       artifacts: artifactSettlement,
       tools,
       executionSignal: executionController.signal,
-      hookTriggerEvents: {
+      hookTriggerEvents: lifecycleStart ? {
         sessionStart: lifecycleStart.turnStarted,
         userPromptSubmit: lifecycleStart.runAttemptStarted,
-      },
+      } : null,
     };
   }
 
@@ -349,7 +382,7 @@ export class RuntimeKernel {
 
   private async runHooks(prepared: PreparedTurn): Promise<void> {
     const hooks = this.dependencies.hooks;
-    if (!hooks || !prepared.workspace) return;
+    if (!hooks || !prepared.workspace || !prepared.hookTriggerEvents) return;
 
     const base = {
       run: prepared.run,

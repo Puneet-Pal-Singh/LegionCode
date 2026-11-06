@@ -1352,6 +1352,14 @@ export class RunEngineRequestHandler {
             "RUN_SCOPE_MISMATCH",
           );
         }
+        // Explicit pre-admission placement cannot be discarded by the native
+        // runner. P09/P13 composition must resolve the durable selection/binding
+        // before this path can execute it; never infer a host from a model name.
+        if (payload.input.harnessSelection) throw new DomainError(
+          "HARNESS_ADMISSION_COMPOSITION_REQUIRED",
+          "The selected execution environment is unavailable until its canonical harness admission is configured.",
+          503, false, payload.correlationId,
+        );
         const claimId = crypto.randomUUID();
         const claimResult = await claimExecutionWithStartupInterrupt(this.interruptRegistry, turnId, () => withTurnAdmissionRepository(
           this.env,

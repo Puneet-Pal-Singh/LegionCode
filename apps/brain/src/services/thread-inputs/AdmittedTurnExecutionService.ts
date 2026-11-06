@@ -45,6 +45,7 @@ export interface AdmittedTurnExecution {
     readonly reasoningEffort?: import("@repo/shared-types").ReasoningEffort;
     readonly productMode?: import("@repo/shared-types").ProductMode;
     readonly harnessId?: "cloudflare-sandbox" | "local-sandbox";
+    readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   };
   readonly modelMetadata?: ChatModelMetadata;
   readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
@@ -117,6 +118,7 @@ export async function dispatchAdmittedTurn(
           modelId:
             input.configuration.modelId ?? input.run.modelId ?? undefined,
           harnessId: input.configuration.harnessId,
+          harnessSelection: input.configuration.harnessSelection,
           productMode: input.configuration.productMode,
           reasoningEffort: input.configuration.reasoningEffort,
           contextWindowTokens: modelMetadata.contextWindow,
