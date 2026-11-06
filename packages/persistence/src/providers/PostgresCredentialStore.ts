@@ -92,6 +92,22 @@ export class PostgresCredentialStore
     input: SetCredentialInput,
   ): Promise<ProviderCredentialRecord> {
     this.authorize(input.userId);
+    return this.client.transaction(async (client) => {
+      await this.lockDefault(client, input.providerId);
+      return new PostgresCredentialStore(
+        client,
+        this.userId,
+        this.workspaceId,
+        this.masterKey,
+        this.keyVersion,
+        this.previousMasterKey,
+      ).setCredentialLocked(input);
+    });
+  }
+  private async setCredentialLocked(
+    input: SetCredentialInput,
+  ): Promise<ProviderCredentialRecord> {
+    this.authorize(input.userId);
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
     const existing = await this.getCredential(input.providerId);
@@ -236,12 +252,40 @@ export class PostgresCredentialStore
     return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;
   }
   async deleteCredential(providerId: ProviderId): Promise<void> {
-    const record = await this.getCredential(providerId);
-    if (record) await this.revokeConnection(acquisition(record));
+    await this.client.transaction(async (client) => {
+      await this.lockDefault(client, providerId);
+      const store = new PostgresCredentialStore(
+        client,
+        this.userId,
+        this.workspaceId,
+        this.masterKey,
+        this.keyVersion,
+        this.previousMasterKey,
+      );
+      const record = await store.getCredential(providerId);
+      if (record) await store.revokeConnection(acquisition(record));
+    });
+  }
+  private async lockDefault(
+    client: SqlClient,
+    providerId: ProviderId,
+  ): Promise<void> {
+    // Acquired before even an absent-row lookup and held through encryption/insert.
+    // Delete shares the lock, so it cannot miss an in-flight initial creation.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [
+        JSON.stringify([
+          "legioncode-provider-default-v1",
+          this.userId,
+          providerId,
+        ]),
+      ],
+    );
   }
   async listCredentialProviders(): Promise<ProviderId[]> {
     const result = await this.client.query<{ provider_id: string }>(
-      "SELECT DISTINCT provider_id FROM provider_credentials WHERE user_id = $1 AND is_default = TRUE AND status = 'connected' AND deleted_at IS NULL ORDER BY provider_id",
+      "SELECT DISTINCT provider_id FROM provider_credentials WHERE user_id = $1 AND status = 'connected' AND deleted_at IS NULL ORDER BY provider_id",
       [this.userId],
     );
     return result.rows.map((row) => row.provider_id);
@@ -258,9 +302,15 @@ export class PostgresCredentialStore
       "status = $7, last_validated_at = $8, last_error_code = $9, last_error_message = $10",
       [
         updates.status ?? record.status,
-        updates.lastValidatedAt ?? record.lastValidatedAt,
-        updates.lastErrorCode ?? record.lastErrorCode,
-        updates.lastErrorMessage ?? record.lastErrorMessage,
+        updates.lastValidatedAt !== undefined
+          ? updates.lastValidatedAt
+          : record.lastValidatedAt,
+        updates.lastErrorCode !== undefined
+          ? updates.lastErrorCode
+          : record.lastErrorCode,
+        updates.lastErrorMessage !== undefined
+          ? updates.lastErrorMessage
+          : record.lastErrorMessage,
       ],
     );
   }
