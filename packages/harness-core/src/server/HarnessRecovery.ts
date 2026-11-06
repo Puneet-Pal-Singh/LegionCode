@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { LifecycleEventSchema } from "@repo/platform-protocol";
+import type { HarnessObservationRecovery } from "@repo/runtime-kernel";
 import {
   HarnessCommitAckSchema,
   HarnessObservationSchema,
@@ -20,6 +22,12 @@ export interface HarnessRecoveryInput {
   readonly observe: (
     observation: HarnessObservation,
   ) => Promise<HarnessCommitAck>;
+  /** Only canonical failed/interrupted settlement may retire an integrity-lost stream. Never synthesize success or repair a missing frame. */
+  readonly resolveObservationIntegrity?: (input: {
+    readonly command: HarnessStartCommand;
+    readonly session: HarnessSession;
+    readonly signal: AbortSignal;
+  }) => Promise<HarnessObservationRecovery>;
   /** Canonical owner durably fences old commands/replies and proves the full old execution boundary stopped. */
   readonly fenceAndQuiesce: (input: {
     readonly command: HarnessStartCommand;
@@ -29,9 +37,10 @@ export interface HarnessRecoveryInput {
   }) => Promise<HarnessQuiescence>;
 }
 interface LiveWriter {
+  assertIntegrity(): void;
   beforeReplay(): Promise<void>;
   acknowledge(sequence: number): Promise<void>;
-  finish(): Promise<void>;
+  finish(canonicalFailureSettled: boolean): Promise<void>;
 }
 
 /** Host-side ordering only. Canonical owners provide the durable fence and append transaction. */
@@ -96,7 +105,49 @@ export class HarnessRecovery {
             throw new HarnessHostError("journal_corrupt");
           await live.acknowledge(ack.committedSequence);
         }
-        await live.finish();
+        let canonicalFailureSettled = false;
+        try {
+          live.assertIntegrity();
+          await ObservationDeliveryJournal.assertPersistedIntegrity({
+            directory: input.host.journalDirectory,
+            streamKey: JSON.stringify(session),
+            maxBytes: 8 * 1024 * 1024,
+            maxFrames: 256,
+            codec: {
+              parse: (value: unknown) => HarnessObservationSchema.parse(value),
+              sequence: (observation: HarnessObservation) =>
+                observation.sequence,
+            },
+          });
+        } catch (error) {
+          if (
+            !(error instanceof HarnessHostError) ||
+            error.code !== "observation_integrity_lost" ||
+            !input.resolveObservationIntegrity
+          )
+            throw error;
+          const recovered = await input.resolveObservationIntegrity({
+            command: input.command,
+            session,
+            signal: controller.signal,
+          });
+          controller.signal.throwIfAborted();
+          assertSession(session, recovered.session);
+          const settled = recovered.lifecycleEvents
+            .map((event) => LifecycleEventSchema.parse(event))
+            .some(
+              (event) =>
+                event.runAttemptId === session.runAttemptId &&
+                event.turnId === input.command.selection.turnId &&
+                event.threadId === input.command.selection.threadId &&
+                (event.type === "turn.failed" ||
+                  event.type === "turn.interrupted"),
+            );
+          if (!settled)
+            throw new HarnessHostError("observation_integrity_lost");
+          canonicalFailureSettled = true;
+        }
+        await live.finish(canonicalFailureSettled);
         return evidence;
       },
     );
@@ -119,9 +170,9 @@ export class HarnessRecovery {
     this.jobs.set(key, result);
     // Do not begin another reconciliation while a timed-out callback is still running.
     void work.then(
-      (evidence) => {
-        if (evidence.status !== "quiescent" || controller.signal.aborted)
-          this.jobs.delete(key);
+      () => {
+        // Completed work is never an activation token. Retry re-queries the canonical fence/commit authority.
+        this.jobs.delete(key);
       },
       () => {
         this.jobs.delete(key);

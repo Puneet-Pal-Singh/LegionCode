@@ -51,6 +51,7 @@ export class ObservationDeliveryJournal<T> {
     },
     private state: JournalState<T>,
     private readonly writer: FileHandle,
+    private integrityLost: boolean,
   ) {}
 
   static async open<T>(
@@ -77,6 +78,7 @@ export class ObservationDeliveryJournal<T> {
         input,
         state,
         writer,
+        await hasIntegrityLoss(path),
       );
     } catch {
       await writer.close();
@@ -93,6 +95,46 @@ export class ObservationDeliveryJournal<T> {
   ): Promise<readonly T[]> {
     const { path } = await journalLocation(input);
     return (await readState(path, input)).frames;
+  }
+
+  /** Loss is not a lifecycle event or fabricated sequence gap. Only canonical recovery may resolve it. */
+  assertIntegrity(): void {
+    if (this.integrityLost)
+      throw new HarnessHostError("observation_integrity_lost");
+  }
+
+  static async assertPersistedIntegrity<T>(
+    input: ObservationJournalOptions<T>,
+  ): Promise<void> {
+    const { path } = await journalLocation(input);
+    if (await hasIntegrityLoss(path))
+      throw new HarnessHostError("observation_integrity_lost");
+  }
+
+  /** Latch synchronously, then persist before returning the failed observation receipt. Never auto-clear. */
+  async markIntegrityLost(): Promise<void> {
+    this.integrityLost = true;
+    await this.assertWriter();
+    let marker: FileHandle;
+    try {
+      marker = await open(`${this.path}.integrity`, "wx", 0o600);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EEXIST")
+        return;
+      throw new HarnessHostError("observation_integrity_lost");
+    }
+    try {
+      await marker.writeFile("recovery_required\n");
+      await marker.sync();
+    } finally {
+      await marker.close();
+    }
+    const parent = await open(this.directory, constants.O_RDONLY);
+    try {
+      await parent.sync();
+    } finally {
+      await parent.close();
+    }
   }
 
   /** Drain accepted writes before releasing this exact writer's ownership. */
@@ -122,6 +164,7 @@ export class ObservationDeliveryJournal<T> {
   /** Allocate and persist the sequence before the frame can be sent. */
   append(create: (sequence: number) => T): Promise<T> {
     return this.serialize(async () => {
+      this.assertIntegrity();
       const sequence = this.state.nextSequence;
       if (!Number.isSafeInteger(sequence + 1))
         throw new HarnessHostError("journal_overflow");
@@ -234,6 +277,16 @@ export class ObservationDeliveryJournal<T> {
         if (!isMissing(error)) this.failed = true;
       });
     }
+  }
+}
+
+async function hasIntegrityLoss(path: string): Promise<boolean> {
+  try {
+    await lstat(`${path}.integrity`);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw new HarnessHostError("observation_integrity_lost");
   }
 }
 
