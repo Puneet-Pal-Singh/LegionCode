@@ -1,6 +1,6 @@
 /* Trusted POSIX lifetime guardian. Not a lifecycle/event producer.
  *
- * CLI: --timeout-ms N [--term-grace-ms N] [--cwd-fd 5]
+ * CLI: --timeout-ms N [--term-grace-ms N] [--cwd-fd 5] [--cwd-relative PATH]
  *      [--lease-fd 6] --profile TRUSTED_SEATBELT_PROFILE -- /absolute/executable [argv...]
  * Lock-only CLI: --acquire-lease-fd 6 (FD4 receipt; no target fork).
  * FD3: G releases the stopped child after its started receipt; C/other bytes
@@ -157,7 +157,52 @@ static void signal_child(pid_t child, int value) {
   while (kill(child, value) != 0 && errno == EINTR) {}
 }
 
-static void child_exec(char **arguments, bool use_root, long descriptor_limit) {
+static bool valid_relative_directory(const char *relative) {
+  const char *component = relative;
+  if (relative == NULL || relative[0] == '\0' || relative[0] == '/' ||
+      strlen(relative) > 4096 || strchr(relative, '\\') != NULL) return false;
+  for (const char *cursor = relative;; ++cursor) {
+    if (*cursor == '/' || *cursor == '\0') {
+      size_t size = (size_t)(cursor - component);
+      if (size == 0 || size > 255 ||
+          (size == 1 && component[0] == '.') ||
+          (size == 2 && component[0] == '.' && component[1] == '.')) return false;
+      if (*cursor == '\0') return true;
+      component = cursor + 1;
+    }
+  }
+}
+
+/* Anchor every component to the inherited directory; never reopen its pathname. */
+static bool enter_root(const char *relative) {
+  int current = ROOT_FD;
+  const char *cursor = relative;
+  if (relative != NULL) {
+    while (*cursor != '\0') {
+      char component[256];
+      const char *end = strchr(cursor, '/');
+      size_t size = end == NULL ? strlen(cursor) : (size_t)(end - cursor);
+      int next;
+      memcpy(component, cursor, size);
+      component[size] = '\0';
+      do { next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC); }
+      while (next < 0 && errno == EINTR);
+      if (current != ROOT_FD) (void)close(current);
+      if (next < 0) return false;
+      current = next;
+      cursor += size;
+      if (*cursor == '/') ++cursor;
+    }
+  }
+  {
+    bool entered = fchdir(current) == 0;
+    if (current != ROOT_FD) (void)close(current);
+    return entered;
+  }
+}
+
+static void child_exec(char **arguments, bool use_root, const char *relative,
+                       long descriptor_limit) {
   sigset_t empty;
   if (!set_handler(SIGPIPE, SIG_DFL) || !set_handler(SIGTERM, SIG_DFL) ||
       !set_handler(SIGINT, SIG_DFL) || !set_handler(SIGHUP, SIG_DFL) ||
@@ -165,9 +210,9 @@ static void child_exec(char **arguments, bool use_root, long descriptor_limit) {
       sigprocmask(SIG_SETMASK, &empty, NULL) != 0) _exit(126);
   (void)close(CONTROL_FD);
   (void)close(STATUS_FD);
-  if (use_root && fchdir(ROOT_FD) != 0) _exit(126);
-  (void)close(ROOT_FD);
   (void)close(LEASE_FD);
+  if (use_root && !enter_root(relative)) _exit(126);
+  (void)close(ROOT_FD);
   for (long descriptor = LEASE_FD + 1; descriptor < descriptor_limit; ++descriptor)
     (void)close((int)descriptor);
   /* No untrusted execution until the guardian observes this exact stop. */
@@ -178,7 +223,7 @@ static void child_exec(char **arguments, bool use_root, long descriptor_limit) {
 
 int main(int argc, char **argv) {
   uint64_t timeout = 0, grace = 250, now = 0, deadline, kill_at = 0;
-  const char *profile = NULL, *reason = NULL;
+  const char *profile = NULL, *reason = NULL, *cwd_relative = NULL;
   bool use_root = false, use_lease = false, grace_seen = false;
   bool stopped = false, announced = false, go = false, resumed = false;
   bool terminating = false, killed = false, status_ok = true;
@@ -202,6 +247,8 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[index], "--cwd-fd") == 0 && !use_root) {
       if (strcmp(argv[++index], "5") != 0) return 64;
       use_root = true;
+    } else if (strcmp(argv[index], "--cwd-relative") == 0 && cwd_relative == NULL) {
+      cwd_relative = argv[++index];
     } else if (strcmp(argv[index], "--lease-fd") == 0 && !use_lease) {
       if (strcmp(argv[++index], "6") != 0) return 64;
       use_lease = true;
@@ -211,7 +258,8 @@ int main(int argc, char **argv) {
   }
   if (timeout == 0 || profile == NULL || profile[0] == '\0' ||
       strlen(profile) > 65536 || target <= 0 || target >= argc ||
-      argv[target][0] != '/') return 64;
+      argv[target][0] != '/' ||
+      (cwd_relative != NULL && (!use_root || !valid_relative_directory(cwd_relative)))) return 64;
   if (!configure_pipe(CONTROL_FD, false) || !configure_pipe(STATUS_FD, true)) return 64;
   if (use_root) {
     struct stat directory;
@@ -237,7 +285,7 @@ int main(int argc, char **argv) {
 
   child = fork();
   if (child < 0) { free(arguments); return 71; }
-  if (child == 0) child_exec(arguments, use_root, descriptor_limit);
+  if (child == 0) child_exec(arguments, use_root, cwd_relative, descriptor_limit);
   free(arguments);
   (void)close(ROOT_FD);
 
