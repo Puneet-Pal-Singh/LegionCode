@@ -1019,7 +1019,7 @@ async function ensureSessionWithClient(
     input.sessionId,
     input.userId,
     input.workspaceId ?? null,
-    input.threadId ?? null,
+    input.threadId !== undefined ? input.threadId : input.initialThreadId ?? null,
     task.id,
     input.title ?? task.title,
     input.repository ?? null,
