@@ -22,7 +22,7 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { ProviderIcon, HarnessConnectionSettings } from "@legioncode/client-ui";
-import type { HarnessStatusRequest } from "@legioncode/sdk";
+import { useHostedHarnessScope } from "../harness/HostedHarnessScope";
 import { createHostedAppServerClient } from "../../services/api/appServerClient.js";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
 import { Switch } from "../ui/Switch.js";
@@ -38,7 +38,6 @@ const DISCONNECT_TOAST_DURATION_MS = 4_000;
 
 interface SettingsDialogProps {
   isOpen: boolean;
-  harnessScope?: HarnessStatusRequest;
   runId?: string;
   workspaceId?: string | null;
   hookAudits?: readonly HookSettingsAuditReadModel[];
@@ -62,7 +61,6 @@ interface ConnectedProviderRow {
 
 export function SettingsDialog({
   isOpen,
-  harnessScope,
   runId,
   workspaceId = null,
   hookAudits = [],
@@ -70,6 +68,13 @@ export function SettingsDialog({
   onUnarchiveSession = async () => undefined,
   onClose,
 }: SettingsDialogProps): React.ReactElement | null {
+  const harnessSelectionScope = useHostedHarnessScope();
+  const harnessScope = harnessSelectionScope
+    ? {
+        workspaceId: harnessSelectionScope.workspaceId,
+        environmentId: harnessSelectionScope.environmentId,
+      }
+    : null;
   const harnessClient = useMemo(
     () => createHostedAppServerClient().harness,
     [],

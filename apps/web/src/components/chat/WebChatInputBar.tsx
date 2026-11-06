@@ -1,8 +1,5 @@
 import { useMemo } from "react";
-import type {
-  HarnessSelectionReadRequest,
-  HarnessSelectionResponse,
-} from "@legioncode/sdk";
+import { useHostedHarnessScope } from "../harness/HostedHarnessScope";
 import { createHostedAppServerClient } from "../../services/api/appServerClient.js";
 import type { ProviderId } from "@repo/shared-types";
 import {
@@ -21,8 +18,6 @@ type WebChatInputBarProps = Omit<
   | "providerDialog"
   | "showContextWindowUsage"
 > & {
-  harnessSelectionScope?: HarnessSelectionReadRequest;
-  onHarnessSelectionChange?: (selection: HarnessSelectionResponse) => void;
   runId?: string;
   hasMessages?: boolean;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
@@ -30,13 +25,14 @@ type WebChatInputBarProps = Omit<
 
 export function WebChatInputBar({
   runId,
-  harnessSelectionScope,
-  onHarnessSelectionChange,
   hasMessages,
   onModelSelect,
   ...props
 }: WebChatInputBarProps) {
   const preferences = useComposerPreferences();
+  const hostedScope = useHostedHarnessScope();
+  const harnessSelectionScope =
+    hostedScope?.sessionId === props.sessionId ? hostedScope : null;
   const harnessClient = useMemo(
     () => createHostedAppServerClient().harness,
     [],
@@ -61,7 +57,6 @@ export function WebChatInputBar({
               key={JSON.stringify(harnessSelectionScope)}
               client={harnessClient}
               scope={harnessSelectionScope}
-              onSelectionChange={onHarnessSelectionChange}
             />
           ) : null}
         </>
