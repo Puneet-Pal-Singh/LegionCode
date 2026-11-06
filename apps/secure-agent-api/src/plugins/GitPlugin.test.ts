@@ -4,9 +4,22 @@ import { GitPlugin } from "./GitPlugin";
 import { runSafeCommand } from "./security/SafeCommand";
 import { pluginTestExecutionContext } from "./test-support/PluginExecutionContext";
 
-vi.mock("./security/SafeCommand", () => ({
-  runSafeCommand: vi.fn(),
-}));
+vi.mock("./security/SafeCommand", () => {
+  const logicalCommand = vi.fn();
+  return { runSafeCommand: new Proxy(logicalCommand, {
+    apply(target, receiver, argumentsList) {
+      const [sandbox, spec] = argumentsList as [unknown, { command: string; args?: string[]; env?: Record<string, string> }];
+      if (spec.command !== "node") return Reflect.apply(target, receiver, argumentsList);
+      const request = JSON.parse(spec.args![2]!) as { args: string[]; environment?: Record<string, string>; indexTransaction?: unknown };
+      // Keep the existing logical Git fixtures/assertions while adapting only the
+      // host transport envelope. Atomic-commit fixtures already use that envelope.
+      if (request.indexTransaction) return Reflect.apply(target, receiver, argumentsList);
+      const logicalSpec = { ...spec, command: "git", args: request.args, env: { ...spec.env, ...request.environment } };
+      return Promise.resolve(Reflect.apply(target, receiver, [sandbox, logicalSpec, ["git"]]))
+        .then(result => ({ exitCode: 0, stdout: JSON.stringify(result), stderr: "" }));
+    },
+  }) };
+});
 
 interface SafeCommandResult {
   exitCode: number;
