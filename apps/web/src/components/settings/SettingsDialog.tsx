@@ -21,7 +21,9 @@ import {
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
-import { ProviderIcon } from "@legioncode/client-ui";
+import { ProviderIcon, HarnessConnectionSettings } from "@legioncode/client-ui";
+import type { HarnessStatusRequest } from "@legioncode/sdk";
+import { createHostedAppServerClient } from "../../services/api/appServerClient.js";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
 import { Switch } from "../ui/Switch.js";
 import { ComposerSettingsSection } from "./ComposerSettingsSection.js";
@@ -36,6 +38,7 @@ const DISCONNECT_TOAST_DURATION_MS = 4_000;
 
 interface SettingsDialogProps {
   isOpen: boolean;
+  harnessScope?: HarnessStatusRequest;
   runId?: string;
   workspaceId?: string | null;
   hookAudits?: readonly HookSettingsAuditReadModel[];
@@ -59,6 +62,7 @@ interface ConnectedProviderRow {
 
 export function SettingsDialog({
   isOpen,
+  harnessScope,
   runId,
   workspaceId = null,
   hookAudits = [],
@@ -66,6 +70,10 @@ export function SettingsDialog({
   onUnarchiveSession = async () => undefined,
   onClose,
 }: SettingsDialogProps): React.ReactElement | null {
+  const harnessClient = useMemo(
+    () => createHostedAppServerClient().harness,
+    [],
+  );
   const {
     status,
     error,
@@ -403,22 +411,31 @@ export function SettingsDialog({
               ) : null}
 
               {activeSection === "connect" ? (
-                <SettingsConnectPanel
-                  connectView={connectView}
-                  connectError={connectError}
-                  connectSuccess={connectSuccess}
-                  catalog={catalog}
-                  connectedProviders={connectedProviders}
-                  disconnectingCredentialId={disconnectingCredentialId}
-                  availableProviders={availableProviders}
-                  isConnecting={isConnecting}
-                  selectedProviderIdForConnect={selectedProviderIdForConnect}
-                  onOpenConnectView={openConnectView}
-                  onBackToOverview={handleBackToConnectOverview}
-                  onConnect={handleConnect}
-                  onDisconnect={handleDisconnect}
-                  onClearConnectError={() => setConnectError(null)}
-                />
+                <>
+                  {harnessScope ? (
+                    <HarnessConnectionSettings
+                      key={JSON.stringify(harnessScope)}
+                      client={harnessClient}
+                      scope={harnessScope}
+                    />
+                  ) : null}
+                  <SettingsConnectPanel
+                    connectView={connectView}
+                    connectError={connectError}
+                    connectSuccess={connectSuccess}
+                    catalog={catalog}
+                    connectedProviders={connectedProviders}
+                    disconnectingCredentialId={disconnectingCredentialId}
+                    availableProviders={availableProviders}
+                    isConnecting={isConnecting}
+                    selectedProviderIdForConnect={selectedProviderIdForConnect}
+                    onOpenConnectView={openConnectView}
+                    onBackToOverview={handleBackToConnectOverview}
+                    onConnect={handleConnect}
+                    onDisconnect={handleDisconnect}
+                    onClearConnectError={() => setConnectError(null)}
+                  />
+                </>
               ) : null}
 
               {activeSection === "models" ? (
