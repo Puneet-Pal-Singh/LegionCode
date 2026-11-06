@@ -42,8 +42,8 @@ export function useEditArtifactReviewSource(
       requestIdRef.current += 1;
       setSource(null);
       setLoading(false);
-      setError(null);
-      setResolved(false);
+      setError(input.enabled ? "Saved review is unavailable for this turn." : null);
+      setResolved(input.enabled);
       return;
     }
 

@@ -77,7 +77,6 @@ export function useReviewSourceState({
 
   const shouldLoadArtifactSource = Boolean(
     enabled &&
-    runId &&
     requestedScope !== "git-changes" &&
     requestedScope !== "turn-diff" &&
     (requestedScope === "prompt-artifact" || openedArtifact),

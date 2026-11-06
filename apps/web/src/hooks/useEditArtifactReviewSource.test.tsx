@@ -72,16 +72,16 @@ describe("useEditArtifactReviewSource", () => {
   });
 
   it("clears cached misses when the run target changes", async () => {
-    const { rerender } = renderHook(
-      ({ runId }) =>
+    const { result, rerender } = renderHook(
+      ({ runId, identity, enabled }) =>
         useEditArtifactReviewSource({
           runId,
           sessionId: "session-1",
-          identity: IDENTITY,
-          enabled: true,
+          identity,
+          enabled,
         }),
       {
-        initialProps: { runId: "run-1" },
+        initialProps: { runId: "run-1" as string | undefined, identity: IDENTITY as typeof IDENTITY | null, enabled: true },
       },
     );
 
@@ -89,11 +89,27 @@ describe("useEditArtifactReviewSource", () => {
       expect(mockGetLatestEditArtifactReviewSource).toHaveBeenCalledTimes(1);
     });
 
-    rerender({ runId: "run-2" });
+    rerender({ runId: "run-2", identity: IDENTITY, enabled: true });
 
     await waitFor(() => {
       expect(mockGetLatestEditArtifactReviewSource).toHaveBeenCalledTimes(2);
     });
+
+    for (const target of [
+      { runId: "run-2", identity: null, enabled: true },
+      { runId: undefined, identity: IDENTITY, enabled: true },
+    ]) {
+      rerender(target);
+      await waitFor(() => expect(result.current.resolved).toBe(true));
+      expect(result.current.loading).toBe(false);
+      expect(result.current.source).toBeNull();
+      expect(result.current.error).toBe("Saved review is unavailable for this turn.");
+      expect(mockGetLatestEditArtifactReviewSource).toHaveBeenCalledTimes(2);
+    }
+    rerender({ runId: undefined, identity: null, enabled: false });
+    await waitFor(() => expect(result.current.resolved).toBe(false));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 });
 
