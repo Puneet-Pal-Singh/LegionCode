@@ -39,6 +39,79 @@ test("rejects forbidden app imports", async (context) => {
     (await validateArchitecture(root)).join("\n"),
     /@legioncode\/web must not import @repo\/runtime-kernel/,
   );
+
+  for (const [path, source, message] of [
+    [
+      "apps/web/src/index.ts",
+      'import "@repo/harness-codex/server";',
+      /private Node harness entry/,
+    ],
+    [
+      "packages/sdk/src/index.ts",
+      'export * from "@repo/harness-claude/server";',
+      /private Node harness entry/,
+    ],
+    [
+      "apps/brain/src/index.ts",
+      'import { query } from "@anthropic-ai/claude-agent-sdk";',
+      /must not load agent SDKs/,
+    ],
+    [
+      "apps/desktop/src/renderer/index.ts",
+      'import { createClient } from "@opencode/client/promise";',
+      /must not load agent SDKs/,
+    ],
+    [
+      "packages/harness-core/src/client.ts",
+      'export * from "./server.js";',
+      /must not expose private harness server code/,
+    ],
+    [
+      "packages/harness-codex/src/client.ts",
+      'import { spawn } from "node:child_process";',
+      /public harness metadata must not import Node/,
+    ],
+    [
+      "apps/secure-agent-api/src/index.ts",
+      'import "../harness-host/main.js";',
+      /outside the Worker import graph/,
+    ],
+    [
+      "packages/app-server/src/server.ts",
+      'export * from "./harness/LocalHarnessComposition.js";',
+      /private to the local App Server process entry/,
+    ],
+    [
+      "packages/harness-opencode/src/server/OpenCodeClient.ts",
+      'import { createOpencodeClient } from "@opencode-ai/sdk";',
+      /OpenCode v1 SDK imports are forbidden/,
+    ],
+  ]) {
+    await writeSource(root, path, source);
+    assert.match((await validateArchitecture(root)).join("\n"), message);
+    await writeSource(root, path, "");
+  }
+  await writeSource(
+    root,
+    "packages/sdk/src/index.ts",
+    'import "@repo/harness-codex/client";',
+  );
+  await writeSource(
+    root,
+    "packages/app-server/src/harness/LocalHarnessComposition.ts",
+    'import "@repo/harness-codex/server";',
+  );
+  await writeSource(
+    root,
+    "apps/secure-agent-api/harness-host/main.ts",
+    'import { ClaudeDriver } from "@repo/harness-claude/server";',
+  );
+  await writeSource(
+    root,
+    "packages/harness-claude/src/server/ClaudeSession.ts",
+    'import { query } from "@anthropic-ai/claude-agent-sdk";',
+  );
+  assert.deepEqual(await validateArchitecture(root), []);
 });
 
 test("keeps local persistence imports inside App Server composition", async (context) => {
