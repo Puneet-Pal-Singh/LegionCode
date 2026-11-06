@@ -1,3 +1,4 @@
+import { requireAdmittedHarnessSelection, assertHostedChatEnvironment } from "../../services/chat/ChatExecutionStrategy";
 import type { HarnessOperations } from "@legioncode/app-server/server";
 import {
   HarnessAdmissionSelectionSchema,
@@ -28,6 +29,7 @@ export async function verifyHostedHarnessAdmission(input: {
   correlationId: string;
 }): Promise<HarnessAdmissionSelection> {
   const { capture, correlationId } = input;
+  assertHostedChatEnvironment(capture, input.env.APP_SERVER_ENVIRONMENT_ID, correlationId);
   const admission = await withTurnAdmissionRepository(input.env, (repository) => repository.getByTurnId(input.identity.turnId));
   if (admission) {
     if (admission.userId !== input.userId || admission.workspaceId !== input.workspaceId ||
@@ -38,7 +40,7 @@ export async function verifyHostedHarnessAdmission(input: {
     // Exact retries use the existing immutable admission/fingerprint and binding.
     // A later settings change cannot retarget that attempt. Changed content must
     // still be rejected by canonical admission, never repaired here from settings.
-    if (admission.state === "admitted") return capture;
+    if (admission.state === "admitted") return requireAdmittedHarnessSelection(capture, admission, correlationId)!;
   }
   const operations = input.operations;
   if (!operations) throw new DomainError("HARNESS_ADMISSION_COMPOSITION_REQUIRED", "Harness admission is unavailable in this environment", 503, false, correlationId);

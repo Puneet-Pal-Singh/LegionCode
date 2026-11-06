@@ -1,5 +1,6 @@
-import { isDelegatedChat, assertHostedChatEnvironment } from "../../services/chat/ChatExecutionStrategy";
-import { HarnessAdmissionSelectionSchema, type HarnessAdmissionSelection } from "@repo/platform-protocol";
+import { settleUnclaimedStartupFailure } from "../../services/thread-inputs/AdmittedTurnStartupFailure";
+import { isDelegatedChat, assertHostedChatEnvironment, requireAdmittedHarnessSelection } from "../../services/chat/ChatExecutionStrategy";
+import { type HarnessAdmissionSelection } from "@repo/platform-protocol";
 /**
  * HandleChatRequest Use-Case
  * Single Responsibility: Orchestrate chat request processing
@@ -96,6 +97,7 @@ export interface HandleChatRequestInput {
   preAdmitted?: {
     readonly run: RunRecord;
     readonly promptMessageId: string;
+    readonly harnessSelection?: HarnessAdmissionSelection | null;
     readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
   };
   backgroundTaskOwner?: BackgroundTaskOwner;
@@ -182,6 +184,7 @@ export class HandleChatRequest {
     const runtimeSelections = this.resolveRuntimeSelections(input);
     if (delegated) runtimeSelections.harnessMode = "delegated";
     const mode = input.mode ?? DEFAULT_RUN_MODE;
+    let persistedRun: RunRecord | undefined;
 
     try {
       const lastUserMessage = validateSubmittedMessages(
@@ -208,7 +211,6 @@ export class HandleChatRequest {
         input.providerRuntimeRoute ?? resolveProviderRuntimeRoute(input.providerId, input.modelId),
       );
 
-      let persistedRun: RunRecord | undefined;
       if (!userId) {
         throw new ValidationError(
           "Authenticated ownership is required before turn admission.",
@@ -227,9 +229,11 @@ export class HandleChatRequest {
         }),
       );
       let persistedUserMessageId: string;
+      let admittedHarnessSelection: HarnessAdmissionSelection | undefined;
       if (input.preAdmitted) {
         persistedRun = input.preAdmitted.run;
         persistedUserMessageId = input.preAdmitted.promptMessageId;
+        admittedHarnessSelection = requireAdmittedHarnessSelection(input.harnessSelection, input.preAdmitted, correlationId);
       } else {
         const admittedTurn = await this.persistenceService.admitUserTurn({
           sessionId,
@@ -247,6 +251,7 @@ export class HandleChatRequest {
         });
         persistedRun = admittedTurn.run;
         persistedUserMessageId = admittedTurn.id;
+        admittedHarnessSelection = requireAdmittedHarnessSelection(input.harnessSelection, admittedTurn, correlationId);
       }
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
@@ -305,7 +310,7 @@ export class HandleChatRequest {
           modelId: delegated ? undefined : input.modelId,
           ...normalizedProviderRuntimeRoute,
           harnessId: input.harnessId,
-          ...(input.harnessSelection ? { harnessSelection: HarnessAdmissionSelectionSchema.parse(input.harnessSelection) } : {}),
+          ...(admittedHarnessSelection ? { harnessSelection: admittedHarnessSelection } : {}),
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
           harnessMode: runtimeSelections.harnessMode,
@@ -378,6 +383,10 @@ export class HandleChatRequest {
         executionPayload,
       };
     } catch (error) {
+      if (persistedRun && userId && !input.preAdmitted) {
+        await settleUnclaimedStartupFailure({ env: this.env, userId, sessionId, workspaceId: identity.workspaceId,
+          run: persistedRun, identity, correlationId, error });
+      }
       console.error(`[chat/usecase] ${correlationId}: Error:`, error);
       throw error;
     }

@@ -31,3 +31,25 @@ export function assertHostedChatEnvironment(
     throw new DomainError("HARNESS_ENVIRONMENT_UNAVAILABLE", "Selected execution environment is unavailable", 503, false, correlationId);
   }
 }
+
+/** Reads only canonical admission receipts; never repairs a missing capture from
+ * the submitted request or mutable Settings. Legacy Native receipts may omit it. */
+export function readAdmittedHarnessSelection(admission: unknown): HarnessAdmissionSelection | undefined {
+  if (!admission || typeof admission !== "object" || !("harnessSelection" in admission) || admission.harnessSelection == null) return undefined;
+  const parsed = HarnessAdmissionSelectionSchema.safeParse(admission.harnessSelection);
+  if (!parsed.success) throw new DomainError("HARNESS_BINDING_INVALID", "Persisted harness selection is invalid", 503, false);
+  return parsed.data;
+}
+
+export function requireAdmittedHarnessSelection(
+  expected: HarnessAdmissionSelection | undefined,
+  admission: unknown,
+  correlationId?: string,
+): HarnessAdmissionSelection | undefined {
+  const actual = readAdmittedHarnessSelection(admission);
+  const canonicalExpected = expected ? HarnessAdmissionSelectionSchema.parse(expected) : undefined;
+  if (JSON.stringify(actual) !== JSON.stringify(canonicalExpected)) {
+    throw new DomainError("HARNESS_BINDING_CONFLICT", "Admitted harness selection is missing or differs from the verified capture", 409, false, correlationId);
+  }
+  return actual;
+}

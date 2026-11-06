@@ -138,7 +138,7 @@ export const AppServerController = {
         hostedSessionPullRequestService = composeHostedSessionPullRequests(request, env, auth.userId);
         hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
         hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
-        hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
+        hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext, harnessOperations);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
         hostedCheckoutReadsService = composeHostedCheckoutReads(request, env, auth.userId);
@@ -150,7 +150,7 @@ export const AppServerController = {
             const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
             try {
               const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth, harnessOperations);
-              const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext);
+              const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext, harnessOperations);
               if (!runtimeResponse.ok) {
                 const failure = await readHostedChatError(runtimeResponse);
                 await drainHostedChatRuntimeResponse(runtimeResponse, executionContext);

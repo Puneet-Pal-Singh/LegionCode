@@ -18,6 +18,7 @@ describe("HandleChatRequest", () => {
     vi.spyOn(PersistenceService.prototype, "admitUserTurn").mockImplementation(
       async (input) => ({
         id: "message-admitted",
+        harnessSelection: input.harnessSelection,
         run: {
           id: input.runId,
           providerId: input.providerId ?? null,

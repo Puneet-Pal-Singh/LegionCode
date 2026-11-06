@@ -1,3 +1,4 @@
+import { readAdmittedHarnessSelection } from "./chat/ChatExecutionStrategy";
 import { HarnessAdmissionSelectionSchema, type HarnessAdmissionSelection } from "@repo/platform-protocol";
 import type { CoreMessage } from "ai";
 import type { ChatImageAttachmentRef, JsonValue } from "@repo/shared-types";
@@ -224,7 +225,7 @@ export class PersistenceService {
     modelId?: string | null;
     branch?: string | null;
     harnessSelection?: HarnessAdmissionSelection;
-  }): Promise<{ id: string; run: RunRecord }> {
+  }): Promise<{ id: string; run: RunRecord; harnessSelection?: HarnessAdmissionSelection }> {
     const clientMessageId = readClientMessageId(input.message);
     if (!clientMessageId) {
       throw new ValidationError(
@@ -286,7 +287,7 @@ export class PersistenceService {
             ),
           },
         });
-        return { id: result.promptMessageId, run: result.run };
+        return { id: result.promptMessageId, run: result.run, harnessSelection: readAdmittedHarnessSelection(result.admission) };
       },
     );
   }
