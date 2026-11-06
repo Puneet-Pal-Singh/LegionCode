@@ -72,3 +72,13 @@ export { type ComposerDelivery } from "./conversation/conversation/composer-keyb
 export { resumeUnavailableMessage } from "./conversation/chat-interface/workspace-snapshot-status.js";
 
 export { resolveComposerKeyboardAction } from "./conversation/conversation/composer-keyboard.js";
+
+export {
+  SharedFileExplorer,
+  type SharedFileExplorerProps,
+  type FileExplorerHandle,
+  type FileExplorerReadPort,
+  type FileExplorerCursor,
+  type FileExplorerEntry,
+  type FileExplorerPage,
+} from "./files/FileExplorer.js";
