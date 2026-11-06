@@ -23,39 +23,39 @@ export function loadRepositoryFolderPreferences(): RepositoryFolderPreferences {
 }
 
 export function setRepositoryFolderHidden(
+  preferences: RepositoryFolderPreferences,
   repositoryId: string,
   hidden: boolean,
 ): RepositoryFolderPreferences {
-  const preferences = loadRepositoryFolderPreferences();
   const hiddenIds = new Set(preferences.hiddenRepositoryIds);
   if (hidden) hiddenIds.add(repositoryId);
   else hiddenIds.delete(repositoryId);
-  return saveRepositoryFolderPreferences({
+  return {
     ...preferences,
     hiddenRepositoryIds: Array.from(hiddenIds),
-  });
+  };
 }
 
 export function setRepositoryFolderLabel(
+  preferences: RepositoryFolderPreferences,
   repositoryId: string,
   label: string,
 ): RepositoryFolderPreferences {
-  const preferences = loadRepositoryFolderPreferences();
   const labels = { ...preferences.labels };
   const normalizedLabel = label.trim();
   if (normalizedLabel.length === 0) delete labels[repositoryId];
   else labels[repositoryId] = normalizedLabel;
-  return saveRepositoryFolderPreferences({ ...preferences, labels });
+  return { ...preferences, labels };
 }
 
-function saveRepositoryFolderPreferences(
+export function persistRepositoryFolderPreferences(
   preferences: RepositoryFolderPreferences,
-): RepositoryFolderPreferences {
+): void {
   try {
     const existing = localStorage.getItem(STORAGE_KEY);
     if (existing) {
       const parsed: unknown = JSON.parse(existing);
-      if (!isRepositoryFolderPreferences(parsed)) return preferences;
+      if (!isRepositoryFolderPreferences(parsed)) return;
     }
     localStorage.setItem(
       STORAGE_KEY,
@@ -68,7 +68,6 @@ function saveRepositoryFolderPreferences(
   } catch {
     // Keep the current UI preference in memory if browser storage is unavailable.
   }
-  return preferences;
 }
 
 function isRepositoryFolderPreferences(

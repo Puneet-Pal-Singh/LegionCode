@@ -20,6 +20,7 @@ import { mergeServerSessionProjection } from "./session-title-ordering";
 import { usePendingTitleProjectionRefresh } from "./usePendingTitleProjectionRefresh";
 import {
   loadRepositoryFolderPreferences,
+  persistRepositoryFolderPreferences,
   setRepositoryFolderHidden,
   setRepositoryFolderLabel,
   type RepositoryFolderPreferences,
@@ -234,6 +235,16 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const repositoriesRef = useRef(repositories);
   const [repositoryFolderPreferences, setRepositoryFolderPreferences] =
     useState<RepositoryFolderPreferences>(loadRepositoryFolderPreferences);
+  const repositoryFolderPreferencesRef = useRef(repositoryFolderPreferences);
+  const updateRepositoryFolderPreferences = useCallback(
+    (update: (preferences: RepositoryFolderPreferences) => RepositoryFolderPreferences) => {
+      const next = update(repositoryFolderPreferencesRef.current);
+      repositoryFolderPreferencesRef.current = next;
+      setRepositoryFolderPreferences(next);
+      persistRepositoryFolderPreferences(next);
+    },
+    [],
+  );
   const rememberRepository = useCallback((repository: string) => {
     if (repositoriesRef.current.includes(repository)) return;
     const next = [...repositoriesRef.current, repository];
@@ -523,7 +534,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         throw new Error("Session creation response did not match the request");
       }
       rememberRepository(repository);
-      setRepositoryFolderPreferences(setRepositoryFolderHidden(repository, false));
+      updateRepositoryFolderPreferences((preferences) =>
+        setRepositoryFolderHidden(preferences, repository, false),
+      );
       if (
         activeHydrationWindow &&
         hydrationCreationWindowRef.current === activeHydrationWindow
@@ -545,7 +558,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       setActiveSessionId(newSession.id);
       return confirmedSession.id;
     },
-    [rememberRepository],
+    [rememberRepository, updateRepositoryFolderPreferences],
   );
 
   const retrySessionPersistence = useCallback(
@@ -593,16 +606,22 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
   const addRepository = useCallback((repository: string) => {
     rememberRepository(repository);
-    setRepositoryFolderPreferences(setRepositoryFolderHidden(repository, false));
-  }, [rememberRepository]);
+    updateRepositoryFolderPreferences((preferences) =>
+      setRepositoryFolderHidden(preferences, repository, false),
+    );
+  }, [rememberRepository, updateRepositoryFolderPreferences]);
 
   const removeRepository = useCallback((repository: string) => {
-    setRepositoryFolderPreferences(setRepositoryFolderHidden(repository, true));
-  }, []);
+    updateRepositoryFolderPreferences((preferences) =>
+      setRepositoryFolderHidden(preferences, repository, true),
+    );
+  }, [updateRepositoryFolderPreferences]);
 
   const renameRepository = useCallback((repositoryId: string, label: string) => {
-    setRepositoryFolderPreferences(setRepositoryFolderLabel(repositoryId, label));
-  }, []);
+    updateRepositoryFolderPreferences((preferences) =>
+      setRepositoryFolderLabel(preferences, repositoryId, label),
+    );
+  }, [updateRepositoryFolderPreferences]);
 
   /**
    * Archive a session so it leaves normal navigation without deleting run state.
