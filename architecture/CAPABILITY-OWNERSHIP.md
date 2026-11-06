@@ -1123,3 +1123,16 @@ new scope owner is introduced.
   still prevents execution until canonical binding/lease/driver composition is
   supplied. Persistence must retain and recover the exact admitted selection;
   UI defaults or current provider preferences cannot repair a missing binding.
+
+
+## Hosted harness admission preflight
+
+`AppServerController` passes its authenticated P12-backed harness operations into
+`ChatRequestBoundary`. `HostedHarnessAdmission` reads the canonical saved
+selection, compares the captured revision/references, and checks the selected
+instance/connection and model through those same scoped service methods. It
+returns the canonical capture, never a payer inferred from quota or Native
+provider preferences. Exact already-admitted retries retain canonical
+identity/fingerprint/binding checks rather than consulting mutable Settings.
+This preflight does not replace atomic revision/account/policy/runtime freeze,
+execution claim, credential fencing or delegated composition in their owners.
