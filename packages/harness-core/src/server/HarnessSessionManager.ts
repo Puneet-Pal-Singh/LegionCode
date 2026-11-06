@@ -455,6 +455,8 @@ export class HarnessSessionManager {
     if (attachment.journal) {
       if ((await attachment.journal.pending()).length)
         throw new HarnessHostError("journal_corrupt");
+      if (!attachment.quiescence)
+        throw new HarnessHostError("process_not_quiescent");
       attachment.retired = true;
       await attachment.journal.markCanonicalSettlement();
       await attachment.journal.close();
