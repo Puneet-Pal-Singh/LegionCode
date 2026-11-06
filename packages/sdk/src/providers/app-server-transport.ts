@@ -11,7 +11,7 @@ import { AppServerProviderErrorSchema } from "@legioncode/app-server/protocol";
 import { BYOKDiscoveredProviderModelsQuerySchema } from "./types.js";
 import {
   createOperationErrorFromResponse,
-  resolveCanonicalRunId,
+  resolveOptionalCanonicalRunId,
 } from "./transport-support.js";
 import {
   ProviderClientOperationError,
@@ -25,7 +25,7 @@ import type {
 
 export interface ProviderAppServerTransportOptions {
   appServerBaseUrl: string;
-  getRunId: () => string | null;
+  getRunId: () => string | null | undefined;
   getHeaders?: () => Record<string, string>;
   fetchImpl?: typeof fetch;
   credentials?: RequestCredentials;
@@ -40,10 +40,10 @@ export function createProviderAppServerTransport(
     operationOptions: ProviderClientOperationOptions | undefined,
     action: (
       client: ReturnType<typeof createAppServerClient>,
-      runId: string,
+      runId: string | undefined,
     ) => Promise<T>,
   ): Promise<T> => {
-    const runId = resolveCanonicalRunId(options.getRunId);
+    const runId = resolveOptionalCanonicalRunId(options.getRunId);
     const suppliedHeaders = new Headers(options.getHeaders?.() ?? {});
     const client = createAppServerClient({
       clientId: "legioncode-provider",
@@ -56,7 +56,8 @@ export function createProviderAppServerTransport(
           // The generic App Server transport keeps its protected-header policy.
           const headers = new Headers(init?.headers);
           const authorization = suppliedHeaders.get("authorization");
-          if (authorization !== null) headers.set("Authorization", authorization);
+          if (authorization !== null)
+            headers.set("Authorization", authorization);
           const response = await (options.fetchImpl ?? globalThis.fetch)(
             input,
             { ...init, headers },
@@ -93,7 +94,8 @@ export function createProviderAppServerTransport(
         signal: operationOptions?.signal,
         requestHeaders: (envelope) => {
           const headers = new Headers(suppliedHeaders);
-          headers.set("X-Run-Id", runId);
+          headers.delete("X-Run-Id");
+          if (runId !== undefined) headers.set("X-Run-Id", runId);
           // Preserve the existing large visibility-list contract for this one
           // authenticated hosted operation. Caller hints cannot select a method.
           headers.delete("X-LegionCode-AppServer-Method");

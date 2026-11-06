@@ -6,17 +6,11 @@ import {
   parseProviderOperationErrorCode,
 } from "./errors.js";
 
-export function resolveCanonicalRunId(getRunId: () => string | null): RunId {
+export function resolveOptionalCanonicalRunId(
+  getRunId: () => string | null | undefined,
+): RunId | undefined {
   const runId = getRunId();
-  if (!runId) {
-    throw new ProviderClientOperationError(
-      "MISSING_RUN_ID",
-      "Run ID is required for provider requests",
-      false,
-      undefined,
-      400,
-    );
-  }
+  if (runId === null || runId === undefined) return undefined;
 
   const parsed = RunIdSchema.safeParse(runId);
   if (!parsed.success) {
@@ -64,9 +58,14 @@ export async function createOperationErrorFromResponse(
       correlationId = fallback.correlationId;
       retryable =
         retryable ||
-        isRetryableProviderClientErrorCode(parseProviderOperationErrorCode(code));
+        isRetryableProviderClientErrorCode(
+          parseProviderOperationErrorCode(code),
+        );
     } catch (error) {
-      const preview = await readResponsePreview(previewResponse, responsePreviewLimit);
+      const preview = await readResponsePreview(
+        previewResponse,
+        responsePreviewLimit,
+      );
       code = "INVALID_ERROR_RESPONSE";
       message = preview
         ? `Malformed JSON error response: ${preview}`

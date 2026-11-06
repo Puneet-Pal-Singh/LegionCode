@@ -64,21 +64,21 @@ export type AppServerComposition = {
   threadService?: LocalThreadService;
   providerService?: LocalProviderService;
   hostedProviderDiscoveryService?: {
-    catalog(runId: string): Promise<{ providers: ProviderRegistryEntry[] }>;
-    models(runId: string, providerId: string, query?: BYOKDiscoveredProviderModelsQuery): Promise<BYOKDiscoveredProviderModelsResponse>;
-    refresh(runId: string, providerId: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
+    catalog(runId?: string): Promise<{ providers: ProviderRegistryEntry[] }>;
+    models(runId: string | undefined, providerId: string, query?: BYOKDiscoveredProviderModelsQuery): Promise<BYOKDiscoveredProviderModelsResponse>;
+    refresh(runId: string | undefined, providerId: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   };
   hostedProviderCredentialService?: {
-    list(runId: string): Promise<BYOKCredential[]>;
-    connect(runId: string, request: BYOKCredentialConnectRequest): Promise<BYOKCredential>;
-    update(runId: string, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
-    disconnect(runId: string, credentialId: string): Promise<void>;
-    validate(runId: string, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
+    list(runId: string | undefined): Promise<BYOKCredential[]>;
+    connect(runId: string | undefined, request: BYOKCredentialConnectRequest): Promise<BYOKCredential>;
+    update(runId: string | undefined, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
+    disconnect(runId: string | undefined, credentialId: string): Promise<void>;
+    validate(runId: string | undefined, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
   };
   hostedProviderPreferenceService?: {
-    read(runId: string): Promise<BYOKPreference>;
-    update(runId: string, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
-    resolve(runId: string, request: BYOKResolveRequest): Promise<BYOKResolution>;
+    read(runId: string | undefined): Promise<BYOKPreference>;
+    update(runId: string | undefined, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
+    resolve(runId: string | undefined, request: BYOKResolveRequest): Promise<BYOKResolution>;
   };
   providerConfiguration?: ProviderConfiguration;
   sessionMetadataService?: {
