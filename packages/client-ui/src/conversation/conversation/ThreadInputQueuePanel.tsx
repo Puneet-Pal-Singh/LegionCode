@@ -295,6 +295,30 @@ function QueueActionsMenu({
   const updateMenuPosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
+    const outsideViewport =
+      rect.bottom <= 0 ||
+      rect.top >= window.innerHeight ||
+      rect.right <= 0 ||
+      rect.left >= window.innerWidth;
+    let clippedByScrollContainer = false;
+    let ancestor = triggerRef.current?.parentElement ?? null;
+    while (ancestor && ancestor !== document.body) {
+      const overflowY = window.getComputedStyle(ancestor).overflowY;
+      if (/(auto|scroll|hidden|clip)/.test(overflowY)) {
+        const ancestorRect = ancestor.getBoundingClientRect();
+        if (rect.bottom <= ancestorRect.top || rect.top >= ancestorRect.bottom) {
+          clippedByScrollContainer = true;
+          break;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (outsideViewport || clippedByScrollContainer) {
+      pendingInitialFocusRef.current = false;
+      setMenuStyle(null);
+      setIsOpen(false);
+      return;
+    }
     const viewportPadding = 8;
     const gap = 4;
     const width = Math.min(192, window.innerWidth - viewportPadding * 2);
