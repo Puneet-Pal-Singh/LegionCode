@@ -24,6 +24,10 @@ import {
   LocalWorkspaceGrantResponseSchema,
   ProviderIdSchema,
   ThreadIdSchema,
+  WorkspaceIdSchema,
+  EventCursorSchema,
+  EventIdempotencyKeySchema,
+  TurnAdmissionSchema,
   ThreadSchema,
   RunIdSchema,
   TurnIdSchema,
@@ -150,6 +154,39 @@ export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
   .strict();
 
+/** Local operations carry intent; the runtime supplies canonical admission records. */
+export const LocalTurnStartParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  clientRequestId: EventIdempotencyKeySchema,
+  prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
+}).strict();
+export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
+export const LocalThreadHistoryParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  afterCursor: EventCursorSchema.nullable().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+export type LocalThreadHistoryParams = z.infer<typeof LocalThreadHistoryParamsSchema>;
+export const LocalThreadHistoryResultSchema = z.object({
+  admissions: z.array(TurnAdmissionSchema),
+  nextCursor: EventCursorSchema.nullable(),
+}).strict();
+export type LocalThreadHistoryResult = z.infer<typeof LocalThreadHistoryResultSchema>;
+export const LocalTurnInterruptParamsSchema = z.object({
+  // These hosted-only fields are never accepted on a local command.
+  sessionId: z.never().optional(),
+  orchestratorBackend: z.never().optional(),
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  runId: RunIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+  reason: z.string().trim().min(1).max(2_000),
+}).strict();
+export type LocalTurnInterruptParams = z.infer<typeof LocalTurnInterruptParamsSchema>;
+
 export const HostedTurnScopeReserveParamsSchema = TurnScopeBootstrapRequestSchema.pick({
   runId: true,
   sessionId: true,
@@ -253,6 +290,9 @@ export const AppServerMethodSchema = z.enum([
   "session/readReceipt",
   "session/workspaceContext",
   "session/pullRequests",
+  "turn/start",
+  "turn/get",
+  "thread/history",
   "turn/reserve",
   "turn/submit",
   "turn/scope",
@@ -345,10 +385,13 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/readReceipt"), params: HostedSessionReadReceiptRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/workspaceContext"), params: HostedSessionWorkspaceContextRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/pullRequests"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/start"), params: LocalTurnStartParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/get"), params: z.object({ turnId: TurnIdSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("thread/history"), params: LocalThreadHistoryParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/reserve"), params: HostedTurnScopeReserveParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/submit"), params: ChatRequestBodySchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/scope"), params: HostedTurnScopeReadParamsSchema }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("turn/interrupt"), params: HostedTurnInterruptParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/interrupt"), params: z.union([HostedTurnInterruptParamsSchema, LocalTurnInterruptParamsSchema]) }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/steer"), params: SteerTurnCommandSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/resume"), params: ResumeTurnCommandSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/input/enqueue"), params: EnqueueThreadInputCommandSchema }).strict(),
@@ -429,6 +472,9 @@ export const AppServerResultSchemas = {
   "session/readReceipt": HostedSessionReadReceiptSchema,
   "session/workspaceContext": HostedSessionWorkspaceContextSchema,
   "session/pullRequests": HostedSessionPullRequestsResponseSchema,
+  "turn/start": z.object({ admission: TurnAdmissionSchema }).strict(),
+  "turn/get": z.object({ admission: TurnAdmissionSchema }).strict(),
+  "thread/history": LocalThreadHistoryResultSchema,
   "turn/reserve": TurnScopeBootstrapSchema,
   "turn/submit": HostedChatSubmissionResultSchema,
   "turn/scope": TurnScopeBootstrapSchema,
@@ -513,6 +559,9 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/readReceipt", AppServerResultSchemas["session/readReceipt"]),
   success("session/workspaceContext", AppServerResultSchemas["session/workspaceContext"]),
   success("session/pullRequests", AppServerResultSchemas["session/pullRequests"]),
+  success("turn/start", AppServerResultSchemas["turn/start"]),
+  success("turn/get", AppServerResultSchemas["turn/get"]),
+  success("thread/history", AppServerResultSchemas["thread/history"]),
   success("turn/reserve", AppServerResultSchemas["turn/reserve"]),
   success("turn/submit", AppServerResultSchemas["turn/submit"]),
   success("turn/scope", AppServerResultSchemas["turn/scope"]),

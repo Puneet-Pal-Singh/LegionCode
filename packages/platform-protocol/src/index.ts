@@ -200,6 +200,8 @@ export {
   ToolCallItemContentSchema,
   TurnSchema,
   TurnStatusSchema,
+  TurnAdmissionSchema,
+  type TurnAdmission,
   type ArtifactReferenceItemContent,
   type Run,
   type RunItem,
