@@ -17,7 +17,7 @@ type SafeStoragePort = {
 };
 
 type VaultFile = { version: 1; credentials: Record<string, string> };
-type CredentialValue = {
+export type DesktopRuntimeCredential = {
   apiKey: string;
   connectionConfig?: ProviderConnectionConfig;
 };
@@ -77,7 +77,7 @@ export class DesktopCredentialVault implements CredentialVault {
       throw unavailable();
     }
     await this.mutate(async (current) => {
-      const value: CredentialValue = {
+      const value: DesktopRuntimeCredential = {
         apiKey,
         ...(parsedConfig ? { connectionConfig: parsedConfig.data } : {}),
       };
@@ -95,14 +95,14 @@ export class DesktopCredentialVault implements CredentialVault {
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
-    const value = await this.readCredential(providerId);
+    const value = await this.resolveRuntimeCredential(providerId);
     return value?.apiKey ?? null;
   }
 
   async getConnectionConfig(
     providerId: ProviderId,
   ): Promise<ProviderConnectionConfig | undefined> {
-    return (await this.readCredential(providerId))?.connectionConfig;
+    return (await this.resolveRuntimeCredential(providerId))?.connectionConfig;
   }
 
   async deleteCredential(providerId: ProviderId): Promise<void> {
@@ -122,14 +122,19 @@ export class DesktopCredentialVault implements CredentialVault {
     return providerId in file.credentials;
   }
 
-  private async readCredential(providerId: ProviderId): Promise<CredentialValue | null> {
+  /** Trusted main-process read: key and endpoint configuration come from one encrypted value.
+   * Never expose this result through renderer IPC, SDK responses or HTTP headers.
+   */
+  async resolveRuntimeCredential(providerId: ProviderId): Promise<DesktopRuntimeCredential | null> {
+    const parsedProviderId = ProviderIdSchema.safeParse(providerId);
+    if (!parsedProviderId.success) throw unavailable();
     const file = await this.load();
-    const encoded = file.credentials[providerId];
+    const encoded = Object.hasOwn(file.credentials, providerId) ? file.credentials[providerId] : undefined;
     if (encoded === undefined) return null;
     try {
       const plaintext = this.safeStorage.decryptString(Buffer.from(encoded, "base64"));
       const value: unknown = JSON.parse(plaintext);
-      if (!isCredentialValue(value, providerId)) throw unavailable();
+      if (!isDesktopRuntimeCredential(value, providerId)) throw unavailable();
       return value;
     } catch {
       throw unavailable();
@@ -151,7 +156,7 @@ export class DesktopCredentialVault implements CredentialVault {
           if (!providerId.success) throw unavailable();
           const plaintext = this.safeStorage.decryptString(Buffer.from(encoded, "base64"));
           const credential: unknown = JSON.parse(plaintext);
-          if (!isCredentialValue(credential, providerId.data)) throw unavailable();
+          if (!isDesktopRuntimeCredential(credential, providerId.data)) throw unavailable();
         }
         this.loaded = parsed;
         return parsed;
@@ -212,7 +217,7 @@ function isVaultFile(value: unknown): value is VaultFile {
   );
 }
 
-function isCredentialValue(value: unknown, providerId: ProviderId): value is CredentialValue {
+function isDesktopRuntimeCredential(value: unknown, providerId: ProviderId): value is DesktopRuntimeCredential {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.apiKey !== "string" || candidate.apiKey.length < 1 || candidate.apiKey.length > MAX_CREDENTIAL_BYTES) return false;
