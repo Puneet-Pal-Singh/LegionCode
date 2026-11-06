@@ -1140,3 +1140,15 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+
+## Plan 057 — Local Thread pin metadata
+
+`LocalThreadService` owns one per-thread metadata mutation queue shared by rename,
+archive, unarchive, pin and unpin. Its composed `LocalThreadPinService` reuses the
+existing workspace-authorized Thread read and canonical `thread.pinned` /
+`thread.unpinned` events. Matching actions append nothing; changed actions preserve
+the current full Thread metadata, including archived status, and use the actual
+thread-stream sequence for their event key. No pin store or inferred activity
+status is introduced. The service methods are wired; App Server dispatch, SDK and
+Desktop presentation remain worker01/client integration dependencies.

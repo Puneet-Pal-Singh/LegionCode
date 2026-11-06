@@ -1,5 +1,6 @@
 import type { LocalPersistence } from "@repo/event-store/local";
 import { projectThreadEvents } from "@repo/persistence";
+import { LocalThreadPinService } from "./local-thread-pins.js";
 import { ThreadCreateParamsSchema, ThreadRenameParamsSchema } from "./protocol.js";
 import {
   EVENT_SCHEMA_VERSION,
@@ -24,10 +25,17 @@ export type LocalThreadServiceOptions = {
 export class LocalThreadService {
   private readonly eventStore: LocalThreadServiceOptions["events"];
   private readonly getWorkspace: LocalThreadServiceOptions["getWorkspace"];
+  private readonly metadataMutations = new Map<ThreadId, Promise<void>>();
+  private readonly pins: LocalThreadPinService;
 
   constructor(options: LocalThreadServiceOptions) {
     this.eventStore = options.events;
     this.getWorkspace = options.getWorkspace;
+    this.pins = new LocalThreadPinService({
+      events: this.eventStore,
+      getAuthorizedThread: (threadId) => this.get(threadId),
+      serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(threadId, mutation),
+    });
   }
 
   async list(): Promise<Thread[]> {
@@ -80,7 +88,20 @@ export class LocalThreadService {
     return await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
   }
 
-  async rename(threadId: string, input: unknown): Promise<Thread> {
+  rename(threadId: string, input: unknown): Promise<Thread> {
+    const id = ThreadIdSchema.parse(threadId);
+    return this.serializeMetadataMutation(id, () => this.renameCurrent(id, input));
+  }
+
+  pin(threadId: string): Promise<Thread> {
+    return this.pins.pin(threadId);
+  }
+
+  unpin(threadId: string): Promise<Thread> {
+    return this.pins.unpin(threadId);
+  }
+
+  private async renameCurrent(threadId: ThreadId, input: unknown): Promise<Thread> {
     const workspace = await this.requireWorkspace();
     const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
     const request = ThreadRenameParamsSchema.parse({
@@ -122,17 +143,26 @@ export class LocalThreadService {
     return await this.setArchived(threadId, false);
   }
 
-  private async setArchived(threadId: string, archived: boolean): Promise<Thread> {
+  private setArchived(threadId: string, archived: boolean): Promise<Thread> {
+    const id = ThreadIdSchema.parse(threadId);
+    return this.serializeMetadataMutation(id, () => this.setArchivedCurrent(id, archived));
+  }
+
+  private async setArchivedCurrent(threadId: ThreadId, archived: boolean): Promise<Thread> {
     const workspace = await this.requireWorkspace();
     const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
     if ((thread.status === "archived") === archived) return thread;
     const timestamp = new Date().toISOString();
+    const metadataEvents = await this.eventStore.listAll();
+    const nextMetadataSequence = metadataEvents.reduce((last, event) =>
+      event.scopeType === "thread" && event.scopeId === thread.id
+        ? Math.max(last, event.sequence) : last, 0) + 1;
     const next = ThreadSchema.parse({
       ...thread,
       status: archived ? "archived" : "active",
       archivedAt: archived ? timestamp : null,
       updatedAt: timestamp,
-      lastEventSequence: thread.lastEventSequence + 1,
+      lastEventSequence: nextMetadataSequence,
     });
     await this.eventStore.append({
       threadId: thread.id,
@@ -142,19 +172,31 @@ export class LocalThreadService {
       scopeId: thread.id,
       type: archived ? "thread.archived" : "thread.unarchived",
       payload: { thread: next },
-      idempotencyKey: `thread-status:${thread.id}:${next.lastEventSequence}`,
+      idempotencyKey: `thread-status:${thread.id}:${nextMetadataSequence}`,
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
     return await this.projectThread(thread.id, workspace.workspaceId);
   }
 
+  /** Every existing-Thread metadata writer acquires this one service-owned queue. */
+  private serializeMetadataMutation<T>(threadId: ThreadId, mutation: () => Promise<T>): Promise<T> {
+    const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
+    const result = previous.then(mutation);
+    // A failed action must not poison the next action or leave a rejected cleanup promise.
+    const settled = result.then(() => undefined, () => undefined);
+    this.metadataMutations.set(threadId, settled);
+    void settled.then(() => {
+      if (this.metadataMutations.get(threadId) === settled) this.metadataMutations.delete(threadId);
+    });
+    return result;
+  }
+
   private async projectThread(threadId: ThreadId, workspaceId: WorkspaceId): Promise<Thread> {
     const allEvents = await this.eventStore.listAll();
     const events = allEvents
       .filter((event) => event.threadId === threadId)
-      .sort((left, right) => left.sequence - right.sequence)
-      .map((event) => ({ event, projectionSequence: event.sequence }));
+      .map((event, index) => ({ event, projectionSequence: index + 1 }));
     const snapshot = projectThreadEvents(threadId, events);
     if (!snapshot || snapshot.thread.workspaceId !== workspaceId) {
       throw new LocalThreadNotFoundError();
@@ -170,16 +212,16 @@ export class LocalThreadService {
 
   private async collectProjections(events: readonly PlatformEvent[]): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
+    const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
       if (event.type === "thread.created") threadIds.add(event.threadId);
+      let inputs = grouped.get(event.threadId);
+      if (!inputs) { inputs = []; grouped.set(event.threadId, inputs); }
+      inputs.push({ event, projectionSequence: inputs.length + 1 });
     }
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
-      const threadEvents = events
-        .filter((event) => event.threadId === threadId)
-        .sort((left, right) => left.sequence - right.sequence)
-        .map((event) => ({ event, projectionSequence: event.sequence }));
-      const snapshot = projectThreadEvents(threadId, threadEvents);
+      const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
       if (snapshot) threads.push(snapshot.thread);
     }
     return threads;
