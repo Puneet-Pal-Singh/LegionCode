@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { interruptAndAwaitTerminal } from "./useChatCore";
+import { interruptAndAwaitTerminal } from "@legioncode/sdk";
 
 describe("interruptAndAwaitTerminal", () => {
   it("stops the chat transport as soon as runtime accepts the interrupt", async () => {
