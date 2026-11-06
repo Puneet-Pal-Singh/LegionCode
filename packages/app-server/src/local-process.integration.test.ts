@@ -66,12 +66,16 @@ describe("local App Server HTTP integration", () => {
       const local = new LocalHarnessComposition(persistence);
       const instanceDirectory = join(storageDirectory, "harness-instance");
       await mkdir(instanceDirectory);
+      const journalDirectory = join(storageDirectory, "harness-journal");
+      await mkdir(journalDirectory);
       let policyCalls = 0;
       const host = await local.createHost(ThreadIdSchema.parse(threadId), {
         instanceDirectory,
+        journalDirectory,
         inheritedEnvironment: { HOME: homedir(), OPENAI_API_KEY: "ambient-secret-sentinel" },
         selectedEnvironment: {},
         launchPolicy: {
+          assertEnforced: async () => undefined,
           launch: async () => {
             policyCalls += 1;
             throw new Error("OS policy denied launch");
