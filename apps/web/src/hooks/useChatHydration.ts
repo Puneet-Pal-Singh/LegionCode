@@ -6,9 +6,9 @@ import {
   useCallback,
 } from "react";
 import type { Message } from "@ai-sdk/react";
-import type { ConversationHistoryDisplayRecord } from "@legioncode/sdk";
 import {
   ChatHydrationService,
+  type ConversationHistoryDisplayRecord,
   type HydrationStatus,
 } from "../services/ChatHydrationService";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";

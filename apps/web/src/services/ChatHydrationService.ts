@@ -14,6 +14,8 @@ import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 type MessageWithMetadata = Message & { data?: { metadata?: Record<string, unknown> } };
 
+export type { ConversationHistoryDisplayRecord };
+
 interface HistoryPagePayload {
   messages: ConversationHistoryMessage[];
   nextCursor: string | null;
