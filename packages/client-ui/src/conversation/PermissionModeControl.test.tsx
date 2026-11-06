@@ -39,6 +39,26 @@ describe("PermissionModeControl", () => {
     fireEvent.click(
       screen.getByRole("menuitemradio", { name: /full access/i }),
     );
+    const confirmation = screen.getByRole("dialog", {
+      name: "Turn on Full Access?",
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(confirmation, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: /full access/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: /full access/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     expect(onChange).toHaveBeenCalledWith(PRODUCT_MODES.FULL_AGENT);
     expect(
@@ -74,9 +94,24 @@ describe("PermissionModeControl", () => {
     expect(menu).toHaveAttribute("role", "menu");
     expect(menu.parentElement).toBe(document.body);
     expect(screen.getByRole("menu")).toBe(menu);
-    expect(screen.getByRole("menuitemradio", { name: /full access/i })).toBeEnabled();
+    expect(
+      screen.getByRole("menuitemradio", { name: /full access/i }),
+    ).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /full access/i }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: /full access/i }),
+    );
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("dialog", { name: "Turn on Full Access?" }),
+    );
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: /full access/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(onChange).toHaveBeenCalledWith(PRODUCT_MODES.FULL_AGENT);
   });
 
