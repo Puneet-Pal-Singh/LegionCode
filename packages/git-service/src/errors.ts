@@ -1,4 +1,5 @@
 export type GitServiceErrorCode =
+  | "git_process_containment_unavailable"
   | "git_artifact_conflict"
   | "git_commit_indeterminate"
   | "git_command_failed"

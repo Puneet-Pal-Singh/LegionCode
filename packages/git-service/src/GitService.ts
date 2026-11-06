@@ -301,8 +301,11 @@ export class DefaultGitService {
     if (input.expectedTerminalTreeId === undefined && (input.expectedBaselineTreeId !== undefined || input.expectedHeadSha !== undefined)) {
       throw new GitServiceError("invalid_git_input", "Artifact baseline guards require a terminal tree");
     }
+    if (input.expectedTerminalTreeId !== undefined && this.executor.supportsArtifactIndexGuard !== true) {
+      throw new GitServiceError("git_process_containment_unavailable", "Immutable artifact commits require a proven pre-HEAD index guard");
+    }
     if (this.executor.supportsIndexTransactions !== true) {
-      throw new GitServiceError("invalid_git_input", "Git executor does not advertise atomic index transactions");
+      throw new GitServiceError("git_process_containment_unavailable", "Git executor does not advertise contained atomic index transactions");
     }
     const args = [
       "-c", `user.name=${input.author.name}`,
@@ -322,6 +325,9 @@ export class DefaultGitService {
       },
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
+    if (result.exitCode === 126) {
+      throw new GitServiceError("git_process_containment_unavailable", result.stderr);
+    }
     if (result.artifactConflict) {
       throw new GitServiceError("git_artifact_conflict", "Selected files no longer match the immutable artifact or its baseline");
     }

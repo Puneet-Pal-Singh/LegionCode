@@ -10,6 +10,12 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 (async () => {
   const input = JSON.parse(process.argv[1]);
+  // Fail before any lock/staging/HEAD operation on platforms whose pre-HEAD hook
+  // policy has not been proved. A post-commit comparison is not authorization.
+  if (input.indexTransaction && input.indexTransaction.expectedTerminalTreeId !== undefined && process.platform !== "linux") {
+    process.stdout.write(JSON.stringify({ exitCode: 126, stdout: "", stderr: "Immutable artifact commits are unavailable: pre-HEAD OS hook policy is not proved" }));
+    return;
+  }
   const environment = { ...process.env, ...input.environment };
   delete environment.GIT_INDEX_FILE;
   const deadline = Date.now() + (input.timeoutMs || 30000);

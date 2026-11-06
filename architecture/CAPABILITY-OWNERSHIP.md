@@ -820,8 +820,10 @@ rename sources and deletions, are compared. A guarded commit uses a separate
 HEAD-based index populated from validated staged entries, so later worktree edits
 cannot retarget the commit. On Linux it delegates configured repository hooks and validates their resulting
 private index before HEAD changes; hook mutations outside the saved artifact are
-typed conflicts. Mac uses the declared no-fork OS backend and does not disable
-repository hooks. Generic hosted commit hooks remain unchanged.
+typed conflicts. Artifact-bound commit is unavailable on Mac until a proved pre-HEAD no-fork
+hook policy is composed; the service requires a distinct advertised immutable
+index-guard capability and refuses before mutation. Repository hooks are not
+disabled. Generic hosted commit hooks remain unchanged.
 `LocalGitService` authorizes canonical admission, terminal lifecycle evidence,
 the existing attempt-bound local artifact store's commit source/start snapshot
 and the retained current workspace lease before

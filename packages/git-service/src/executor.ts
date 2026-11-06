@@ -29,6 +29,8 @@ export interface GitCommandExecutionResult {
 
 export interface GitCommandExecutor {
   readonly supportsIndexTransactions?: true;
+  /** Proven pre-HEAD immutable-index enforcement, separate from generic commits. */
+  readonly supportsArtifactIndexGuard?: true;
   execute(input: GitCommandExecutionInput): Promise<GitCommandExecutionResult>;
 }
 

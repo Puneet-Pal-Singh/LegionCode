@@ -11,8 +11,19 @@ import { GitServiceError } from "@repo/git-service/errors";
 
 export function createNodeGitExecutor(): GitCommandExecutor {
   return {
-    supportsIndexTransactions: true,
+    ...(process.platform === "linux"
+      ? {
+          supportsIndexTransactions: true as const,
+          supportsArtifactIndexGuard: true as const,
+        }
+      : {}),
     async execute(input) {
+      if (input.indexTransaction && process.platform !== "linux") {
+        throw new GitServiceError(
+          "git_process_containment_unavailable",
+          "Contained local Git transactions are unavailable on this platform",
+        );
+      }
       const transaction = input.indexTransaction !== undefined;
       const result = await new Promise<GitCommandExecutionResult>(
         (resolve, reject) => {
