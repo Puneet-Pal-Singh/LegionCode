@@ -1,3 +1,11 @@
+import { HarnessKindSchema } from "./kind.js";
+export { HarnessKindSchema, type HarnessKind } from "./kind.js";
+export {
+  HarnessNextSelectionSchema,
+  HarnessAdmissionSelectionSchema,
+  type HarnessNextSelection,
+  type HarnessAdmissionSelection,
+} from "./selection.js";
 import { z } from "zod";
 import {
   ModelIdSchema,
@@ -11,8 +19,6 @@ import {
 
 const OpaqueId = z.string().min(1).max(256);
 const Generation = z.number().int().safe().nonnegative();
-export const HarnessKindSchema = z.enum(["codex", "claude", "opencode"]);
-export type HarnessKind = z.infer<typeof HarnessKindSchema>;
 
 /** Immutable admission selection. External IDs learned after admission live separately. */
 export const HarnessSelectionSchema = z
@@ -20,6 +26,7 @@ export const HarnessSelectionSchema = z
     userId: UserIdSchema,
     workspaceId: WorkspaceIdSchema,
     environmentId: OpaqueId,
+    selectionRevision: Generation,
     workspaceGrantId: OpaqueId,
     threadId: ThreadIdSchema,
     runId: RunIdSchema,

@@ -72,6 +72,12 @@ export class HarnessObservationIngestor {
       this.reject("Harness ingress is fenced pending durable recovery");
   }
 
+  get steeringTarget(): string | null {
+    return this.terminal || this.quiescent || this.fenced
+      ? null
+      : this.externalTurnId;
+  }
+
   get hasPriorIngress(): boolean {
     return this.lastSequence > 0;
   }
@@ -248,6 +254,9 @@ export class HarnessObservationIngestor {
       async (draft) => {
         applied = true;
         switch (payload.kind) {
+          case "thread_input_applied":
+            await draft.applyThreadInput(payload.input);
+            break;
           case "assistant_text":
             await draft.appendAssistantCommentary(payload.itemId, payload.text);
             break;

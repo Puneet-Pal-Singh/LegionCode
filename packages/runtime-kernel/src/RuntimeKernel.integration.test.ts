@@ -62,7 +62,7 @@ describe("runtime kernel integration", () => {
 
     const delegatedSink = createLifecycleSink();
     const selection = HarnessSelectionSchema.parse({
-      userId: run.userId, workspaceId: run.workspaceId, environmentId: "cloud-test", workspaceGrantId: "grant-test",
+      userId: run.userId, workspaceId: run.workspaceId, environmentId: "cloud-test", selectionRevision: 0, workspaceGrantId: "grant-test",
       threadId: run.threadId, runId: run.id, turnId: turn.id, runAttemptId,
       harness: "codex", instanceId: "instance-test", connectionId: "connection-test", authOwnerGeneration: 7,
       modelId: run.modelId, policyId: run.permissionProfileId, policyRevision: "policy-1",

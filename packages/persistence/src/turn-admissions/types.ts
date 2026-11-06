@@ -39,6 +39,8 @@ export interface ReserveTurnAdmissionInput {
 }
 
 export interface AdmitTurnWithPromptInput {
+  /** Persist with the admitted fingerprint/binding in the canonical transaction. */
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   sessionId: string;
   clientMessageId: string;
   turnId: string;

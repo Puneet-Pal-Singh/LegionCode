@@ -1,3 +1,4 @@
+import { HarnessAdmissionSelectionSchema, type HarnessAdmissionSelection } from "@repo/platform-protocol";
 import type { CoreMessage } from "ai";
 import type { ChatImageAttachmentRef, JsonValue } from "@repo/shared-types";
 import type { TurnScopeBootstrap } from "@repo/platform-protocol";
@@ -222,6 +223,7 @@ export class PersistenceService {
     providerId?: string | null;
     modelId?: string | null;
     branch?: string | null;
+    harnessSelection?: HarnessAdmissionSelection;
   }): Promise<{ id: string; run: RunRecord }> {
     const clientMessageId = readClientMessageId(input.message);
     if (!clientMessageId) {
@@ -244,11 +246,12 @@ export class PersistenceService {
       idempotencyKey: dedupeKey,
       revisionOfTurnId: input.identity.revisionOfTurnId,
     });
+    const harnessSelection = input.harnessSelection ? HarnessAdmissionSelectionSchema.parse(input.harnessSelection) : undefined;
     const requestFingerprint = await this.generateIdempotencyKey(
       input.sessionId,
       input.identity.turnId,
       `${clientMessageId}:${input.identity.revisionOfTurnId ?? "root"}:${input.mode}:${input.providerId ?? ""}:${input.modelId ?? ""}:${input.branch ?? ""}`,
-      `${content}:${JSON.stringify(input.message)}`,
+      `${content}:${JSON.stringify(input.message)}${harnessSelection ? `:harness:${JSON.stringify(harnessSelection)}` : ""}`,
     );
 
     return await withBrainPersistenceRepository(
@@ -263,6 +266,7 @@ export class PersistenceService {
           runAttemptId: input.identity.runAttemptId,
           runId: input.runId,
           requestFingerprint,
+          ...(harnessSelection ? { harnessSelection } : {}),
           userId: input.userId,
           workspaceId: input.workspaceId,
           taskId: input.taskId,
