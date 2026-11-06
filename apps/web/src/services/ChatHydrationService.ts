@@ -7,7 +7,7 @@ import {
   type ConversationHistoryDisplayRecord,
   type ConversationHistoryPage,
 } from "@legioncode/sdk";
-import type { ConversationHistoryMessage } from "@repo/platform-protocol";
+import type { ConversationHistoryMessage } from "@legioncode/sdk";
 import { createHostedAppServerClient } from "./api/appServerClient";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 

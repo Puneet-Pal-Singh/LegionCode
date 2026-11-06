@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
+import { legacyHistoryImportReceiptsMigration } from "./0034-legacy-history-import-receipts.js";
 import type { MigrationLedger, SqlMigration } from "./types.js";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
 
@@ -73,17 +74,31 @@ describe("PostgresMigrationRunner", () => {
     const result = await runner.runPending([
       { id: "0001_done", description: "done", statements: ["SELECT 1"] },
       { id: "0002_pending", description: "pending", statements: ["SELECT 2"] },
+      legacyHistoryImportReceiptsMigration,
     ]);
 
     expect(result).toEqual({
-      applied: ["0002_pending"],
+      applied: ["0002_pending", "0034_legacy_history_import_receipts"],
       skipped: ["0001_done"],
     });
     expect(client.statements).toEqual([
       "SELECT pg_advisory_xact_lock(hashtext('legioncode:persistence:migrations')::bigint)",
       "SELECT 2",
+      ...legacyHistoryImportReceiptsMigration.statements,
     ]);
-    expect(ledger.recorded).toEqual(["0002_pending"]);
+    expect(ledger.recorded).toEqual([
+      "0002_pending",
+      "0034_legacy_history_import_receipts",
+    ]);
+    expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
+      "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
+    );
+    expect(legacyHistoryImportReceiptsMigration.statements[2]).toContain(
+      "WHERE source_kind = 'durable_object_export'",
+    );
+    expect(legacyHistoryImportReceiptsMigration.statements[3]).toContain(
+      "WHERE source_kind = 'local_wrangler_sqlite'",
+    );
   });
 
   it("adds migration context to statement failures", async () => {

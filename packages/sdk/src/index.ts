@@ -164,6 +164,7 @@ export {
   type ConversationHistoryReadOptions,
   type ConversationHistoryReadResult,
 } from "./platform/conversation-history.js";
+export type { ConversationHistoryMessage } from "@repo/platform-protocol";
 export {
   LifecycleContinuationError,
   createLifecycleOrderingState,

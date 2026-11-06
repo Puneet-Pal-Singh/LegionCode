@@ -151,6 +151,11 @@ existing owners until the command slices.
 | Validated complete/partial paginated reads | `sdk/src/platform/conversation-history.ts` | Web ChatHydrationService retains verified pages, rejects invalid identity/timestamp/cursor data, and no longer fabricates message identities or truncates after ten pages. |
 | Source-preserving hydrated transcript content | One framework-neutral projection beside `sdk/src/platform/conversation-history.ts` | Web adapts validated SDK transcript records to React; source roles, order, IDs, tool results and JSON parts stay inspectable without becoming AI-SDK messages or lifecycle state. |
 
+`PostgresTranscriptRepository` projects stored JSONB message-part content as SQL
+text before strict JSON parsing, so JSON scalar strings retain their value after
+the PostgreSQL driver decodes JSONB on normal reads. Legacy-import duplicate
+checks compare the driver's decoded JSON values directly.
+
 ### Fixed-inventory legacy transcript recovery
 
 | Responsibility | Canonical owner | Active consumers and boundary |

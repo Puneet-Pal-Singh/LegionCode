@@ -66,7 +66,7 @@ interface TranscriptRow extends SqlRow {
   part_id?: string;
   part_type?: string;
   session_sequence?: number | string;
-  content_json?: JsonValue | string;
+  content_json?: string;
   part_created_at?: string | Date;
   last_sequence?: number | string;
   admission_turn_id?: string | null;
@@ -1194,7 +1194,7 @@ async function insertMessageParts(
       run_id,
       part_type,
       session_sequence,
-      content_json,
+      content_json::text AS content_json,
       created_at AS part_created_at
   `;
 
@@ -1415,11 +1415,11 @@ function mapPartType(type: string): TranscriptMessagePartType {
 }
 
 function parseContentJson(
-  value: JsonValue | string | undefined,
+  value: string | undefined,
   partId: unknown,
 ): JsonValue {
-  if (typeof value !== "string") {
-    return value ?? null;
+  if (value === undefined) {
+    throw new Error(`Missing content_json for message_part ${String(partId)}`);
   }
 
   try {
@@ -1520,7 +1520,7 @@ const PART_COLUMNS = `
   p.id AS part_id,
   p.part_type,
   p.session_sequence,
-  p.content_json,
+  p.content_json::text AS content_json,
   p.created_at AS part_created_at
 `;
 
