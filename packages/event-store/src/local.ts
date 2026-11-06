@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { LocalTurnAdmissions } from "./local-turn-admissions.js";
+import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
@@ -96,6 +98,14 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly turnAdmissions: {
+    admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
+    findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
+    getByTurn(turnId: string): Promise<TurnAdmission | null>;
+    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number }): Promise<{
+      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+    }>;
+  };
   readonly workspaceGrants: {
     read(): Promise<StoredLocalWorkspaceGrant | null>;
     write(value: StoredLocalWorkspaceGrant): Promise<void>;
@@ -112,6 +122,7 @@ export class LocalPersistence {
   private readonly clock: EventStoreClock;
   private readonly idGenerator: EventStoreIdGenerator;
   private closed = false;
+  private admissions?: LocalTurnAdmissions;
 
   constructor(options: LocalPersistenceOptions) {
     if (!isAbsolute(options.storageDirectory) || options.storageDirectory.includes("\0")) {
@@ -133,6 +144,15 @@ export class LocalPersistence {
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
+      const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
+      admissions.initialize();
+      this.admissions = admissions;
+      this.turnAdmissions = {
+        admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
+        findByRequest: async (threadId, requestId) => this.guardStorage(() => admissions.findByRequest(threadId, requestId)),
+        getByTurn: async (turnId) => this.guardStorage(() => admissions.getByTurn(turnId)),
+        listByThread: async (input) => this.guardStorage(() => admissions.listByThread(input)),
+      };
       this.archiveLegacyFilesAfterCommit();
     } catch (error) {
       this.database?.close();
@@ -380,6 +400,7 @@ export class LocalPersistence {
 
   private appendLifecycleWithin(input: LifecycleEvent): LifecycleEvent {
     const event = parseLifecycleEvent(input);
+    this.admissions?.assertLifecycleIdentity(event);
     const fingerprint = createStableEventFingerprint(event);
     const existing = this.database.prepare(`
       SELECT event_json, fingerprint, family, stream_id, sequence, idempotency_key
