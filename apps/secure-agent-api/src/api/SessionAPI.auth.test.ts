@@ -348,6 +348,23 @@ describe("session auth hardening", () => {
     expect(body.taskId).toBe("task-execute-auth");
     expect(body.status).toBe("success");
     expect(body.output).toContain("node.execute");
+
+    const saved = await runtime.getExecutionSession(sessionId);
+    expect(saved).not.toBeNull();
+    const storedLease = JSON.stringify(saved!.lease);
+    const expiresAt = saved!.expiresAt;
+    const executeBorrowed = (action: string, lease = saved!.lease) => handleExecuteTask(new Request("http://localhost/api/v1/execute", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, taskId: "borrowed-read", action: "filesystem.execute", borrowedLease: { leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation },
+        params: { action, runId: saved!.runId, workspaceScope: saved!.workspaceScope, path: "README.md" } }),
+    }), runtime);
+    expect((await executeBorrowed("read_file")).status).toBe(200);
+    expect((await executeBorrowed("list_files")).status).toBe(200);
+    expect((await executeBorrowed("write_file")).status).toBe(400);
+    expect((await executeBorrowed("read_file", { ...saved!.lease, generation: saved!.lease.generation + 1 })).status).toBe(503);
+    expect(JSON.stringify((await runtime.getExecutionSession(sessionId))!.lease)).toBe(storedLease);
+    expect((await runtime.getExecutionSession(sessionId))!.expiresAt).toBe(expiresAt);
   });
 
   it("cancels an authorized task through the leased runtime port", async () => {

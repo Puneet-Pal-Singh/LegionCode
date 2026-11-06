@@ -208,10 +208,12 @@ export async function getFileContent(
   repo: string,
   path: string,
   ref: string = "HEAD",
+  signal?: AbortSignal,
 ): Promise<RepositoryContentsResponse> {
   const response = await createHostedAppServerClient({
     timeoutMs: null,
     maxResponseBytes: null,
+    signal,
   }).getRepositoryContents({ owner, repo, path, ref });
   return response.contents;
 }

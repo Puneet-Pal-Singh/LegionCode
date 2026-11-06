@@ -1,3 +1,4 @@
+import { composeHostedCheckoutReads } from "../integration/app-server/HostedCheckoutReads";
 import { composeHostedProviderPreferences } from "../integration/app-server/HostedProviderPreferences";
 import { composeHostedProviderCredentials } from "../integration/app-server/HostedProviderCredentials";
 import { composeHostedProviderDiscovery } from "../integration/app-server/HostedProviderDiscovery";
@@ -104,6 +105,7 @@ export const AppServerController = {
     let hostedThreadInputOperationsService: ReturnType<typeof composeHostedThreadInputOperations> | undefined;
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
+    let hostedCheckoutReadsService: ReturnType<typeof composeHostedCheckoutReads> | undefined;
     let hostedGitOperationsService: ReturnType<typeof composeHostedGitOperations> | undefined;
     let hostedCodeArtifactReadsService: ReturnType<typeof composeHostedCodeArtifactReads> | undefined;
     let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
@@ -136,6 +138,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
+        hostedCheckoutReadsService = composeHostedCheckoutReads(request, env, auth.userId);
         hostedGitOperationsService = composeHostedGitOperations(request, env, auth.userId);
         hostedCodeArtifactReadsService = composeHostedCodeArtifactReads(env, auth.userId);
         hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
@@ -228,6 +231,7 @@ export const AppServerController = {
         hostedThreadInputOperationsService,
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
+        hostedCheckoutReadsService,
         hostedGitOperationsService,
         hostedCodeArtifactReadsService,
         hostedRepositoryReadService,
