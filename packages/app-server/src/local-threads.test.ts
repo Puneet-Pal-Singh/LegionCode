@@ -46,6 +46,11 @@ describe("LocalThreadService", () => {
       const renamed = await first.rename(created.id, { title: "Renamed work" });
       const archived = await first.archive(renamed.id);
       expect(archived.status).toBe("archived");
+      const archivedEvent = (await persistence.events.listAll()).find((event) => event.type === "thread.archived");
+      expect(archivedEvent).toMatchObject({
+        sequence: 3, idempotencyKey: `thread-status:${created.id}:3`,
+        payload: { thread: { lastEventSequence: 3 } },
+      });
 
       persistence.close();
       persistence = new LocalPersistence({ storageDirectory });

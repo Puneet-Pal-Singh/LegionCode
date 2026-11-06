@@ -127,12 +127,16 @@ export class LocalThreadService {
     const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
     if ((thread.status === "archived") === archived) return thread;
     const timestamp = new Date().toISOString();
+    const metadataEvents = await this.eventStore.listAll();
+    const nextMetadataSequence = metadataEvents.reduce((last, event) =>
+      event.scopeType === "thread" && event.scopeId === thread.id
+        ? Math.max(last, event.sequence) : last, 0) + 1;
     const next = ThreadSchema.parse({
       ...thread,
       status: archived ? "archived" : "active",
       archivedAt: archived ? timestamp : null,
       updatedAt: timestamp,
-      lastEventSequence: thread.lastEventSequence + 1,
+      lastEventSequence: nextMetadataSequence,
     });
     await this.eventStore.append({
       threadId: thread.id,
@@ -142,7 +146,7 @@ export class LocalThreadService {
       scopeId: thread.id,
       type: archived ? "thread.archived" : "thread.unarchived",
       payload: { thread: next },
-      idempotencyKey: `thread-status:${thread.id}:${next.lastEventSequence}`,
+      idempotencyKey: `thread-status:${thread.id}:${nextMetadataSequence}`,
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });

@@ -16,6 +16,7 @@ import { LocalPersistenceError } from "@repo/event-store/errors";
 import {
   EVENT_SCHEMA_VERSION,
   LifecycleEventSchema,
+  TurnAdmissionSchema,
   createTurnId,
   createRunAttemptId,
   LocalWorkspaceGrantSchema,
@@ -81,8 +82,34 @@ describe("local App Server HTTP integration", () => {
       runAttemptId: createRunAttemptId(),
     });
     const persisted = new LocalPersistence({ storageDirectory });
+    const admitFixture = (admittedTurnId: string, attemptId: string) => {
+      const now = new Date().toISOString();
+      const runId = `run_${crypto.randomUUID().replaceAll("-", "")}`;
+      const workspaceId = (grant as { result: { grant: { workspaceId: string } } }).result.grant.workspaceId;
+      return TurnAdmissionSchema.parse({
+        clientRequestId: `request-${admittedTurnId}`,
+        runAttemptId: attemptId,
+        run: {
+          id: runId, threadId, workspaceId, userId: "usr_localdesktop", status: "queued", mode: "ask",
+          providerId: "openai", modelId: "gpt-4o", workerId: "worker_localtest", permissionProfileId: "perm_readonly",
+          startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 0,
+        },
+        turn: {
+          id: admittedTurnId, threadId, runId, parentTurnId: null, status: "queued",
+          startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 0,
+        },
+        userMessage: {
+          id: `itm_${crypto.randomUUID().replaceAll("-", "")}`, threadId, runId, turnId: admittedTurnId,
+          parentItemId: null, branchId: null, role: "user", type: "user_message", status: "completed",
+          content: { text: "Read this local repository" }, createdAt: now, completedAt: now, eventSequence: 0,
+        },
+      });
+    };
     try {
-      await persisted.lifecycleEvents.appendBatch([...events, unfinished]);
+      await persisted.turnAdmissions.admit(admitFixture(turnId, runAttemptId));
+      await persisted.lifecycleEvents.appendBatch(events);
+      await persisted.turnAdmissions.admit(admitFixture(unfinishedTurnId, unfinished.runAttemptId));
+      await persisted.lifecycleEvents.append(unfinished);
     } finally { persisted.close(); }
     const restarted = await start(storageDirectory);
     const restartedUrl = serverUrl(restarted);
