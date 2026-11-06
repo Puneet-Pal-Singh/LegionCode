@@ -115,6 +115,31 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "turn.completed",
     ]);
     expect(terminalEvents(sink)).toHaveLength(1);
+
+    const conversationSink = createLifecycleSink();
+    const ports = createPorts();
+    const forbiddenArtifacts = createArtifactPorts();
+    const conversation = new RuntimeKernel({
+      lifecycleEvents: conversationSink, ...ports, ...forbiddenArtifacts,
+      producerId: "conversation-test", clock: { now: () => timestamp },
+    });
+    const result = await conversation.startTurn({ run: { ...run, executionCapability: "conversation" }, turn, runAttemptId });
+    expect(result.workspace).toBeNull();
+    expect(result.output).toBe("Done");
+    expect(eventTypes(conversationSink)).not.toContain("workspace.snapshot_captured");
+    expect(eventTypes(conversationSink)).not.toContain("turn.diff_updated");
+    expect(conversationSink.events.find((event) => event.type === "run_attempt.started")?.payload).toMatchObject({ executionCapability: "conversation" });
+    expect(conversationSink.events.at(-1)?.type).toBe("turn.completed");
+    expect(forbiddenArtifacts.gitSnapshots.captureSnapshot).not.toHaveBeenCalled();
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+
+    const deniedSink = createLifecycleSink();
+    ports.provider.generateNext = vi.fn(async () => toolStep());
+    const denied = new RuntimeKernel({ lifecycleEvents: deniedSink, ...ports, producerId: "conversation-test" });
+    await expect(denied.startTurn({ run: { ...run, executionCapability: "conversation" }, turn, runAttemptId })).rejects.toMatchObject({ code: "tool_policy_denied" });
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+    expect(terminalEvents(deniedSink)).toHaveLength(1);
+    expect(deniedSink.events.at(-1)?.type).toBe("turn.failed");
   });
 
   it("emits long final answers as schema-bounded deltas without truncation", async () => {
@@ -913,6 +938,13 @@ describe("RuntimeKernel canonical lifecycle", () => {
 
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+
+    const conversationSink = createLifecycleSink();
+    const conversation = new RuntimeKernel({ lifecycleEvents: conversationSink, ...ports, producerId: "conversation-test" });
+    await expect(conversation.startTurn({ run: { ...run, executionCapability: "conversation" }, turn, runAttemptId })).rejects.toMatchObject({ code: "turn_cancelled" });
+    expect(terminalEvents(conversationSink)).toHaveLength(1);
+    expect(conversationSink.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(eventTypes(conversationSink)).not.toContain("workspace.snapshot_captured");
   });
 
   it("settles a stop queued before kernel execution through the canonical lifecycle", async () => {

@@ -152,6 +152,7 @@ export const RunSchema = z
     modelId: ModelIdSchema,
     workerId: WorkerIdSchema,
     permissionProfileId: PermissionProfileIdSchema,
+    executionCapability: z.enum(["repository", "conversation"]).optional(),
     startedAt: ProtocolTimestampSchema.nullable(),
     completedAt: ProtocolTimestampSchema.nullable(),
     createdAt: ProtocolTimestampSchema,
