@@ -135,6 +135,7 @@ export class GuardianProcess {
       let statusBytes = 0;
       let settled = false;
       let inputFailure: Error | undefined;
+      let inputSettled = input.trustedGit?.stdin === undefined;
       const rejectUncertain = (message: string, cause?: unknown) => {
         this.uncertain = true;
         this.stop();
@@ -146,7 +147,7 @@ export class GuardianProcess {
         }
       };
       const finish = () => {
-        if (!this.closed || !this.statusClosed) return;
+        if (!this.closed || !this.statusClosed || !inputSettled) return;
         clearTimeout(watchdog);
         input.signal.removeEventListener("abort", abort);
         if (settled) return;
@@ -202,7 +203,12 @@ export class GuardianProcess {
         else {
           // Data only, never executable code. Wait for terminal proof even if
           // the target closes input early; input errors are not exit evidence.
-          stdin.on("error", (error) => { inputFailure = error; });
+          stdin.on("error", (error) => { inputFailure = error; inputSettled = true; finish(); });
+          stdin.once("finish", () => { inputSettled = true; finish(); });
+          stdin.once("close", () => {
+            if (!inputSettled) inputFailure = new Error("Canonical Git stdin closed before delivery completed");
+            inputSettled = true; finish();
+          });
           stdin.end(input.trustedGit.stdin);
         }
       }
