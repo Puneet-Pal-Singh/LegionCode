@@ -4,7 +4,6 @@ import type { ProductMode, RunMode } from "@repo/shared-types";
 import type { SubmissionOutcome } from "@legioncode/sdk";
 import { useChatCore, type ChatAppendMessage } from "./useChatCore";
 import { useChatHydration } from "./useChatHydration";
-import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
@@ -64,7 +63,7 @@ export interface UseChatResult {
 /**
  * useChat
  * Main hook that composes all chat-related functionality
- * Orchestrates: Core chat, hydration, persistence, and artifacts
+ * Orchestrates: Core chat, transcript hydration, and artifacts
  */
 export function useChat(
   sessionId: string,
@@ -170,12 +169,6 @@ export function useChat(
     },
     [reviseTurn, retryHydration],
   );
-
-  // Handle message persistence
-  useChatPersistence({
-    scope,
-    messages: verifiedMessages,
-  });
 
   // Handle artifact state
   const artifactState = useChatArtifacts({
