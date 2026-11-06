@@ -1,10 +1,13 @@
 /* Trusted POSIX lifetime guardian. Not a lifecycle/event producer.
  *
  * CLI: --timeout-ms N [--term-grace-ms N] [--cwd-fd 5]
- *      --profile TRUSTED_SEATBELT_PROFILE -- /absolute/executable [argv...]
+ *      [--lease-fd 6] --profile TRUSTED_SEATBELT_PROFILE -- /absolute/executable [argv...]
+ * Lock-only CLI: --acquire-lease-fd 6 (FD4 receipt; no target fork).
  * FD3: G releases the stopped child after its started receipt; C/other bytes
  *      cancel; EOF means owner loss. FD4: trusted NDJSON v1 receipts only.
- * FD5: optional granted directory. The child closes 3/4/5 before policy exec.
+ * FD5: optional granted directory. FD6: shared writer-fence open description.
+ * The child closes control/status/root/lease descriptors before policy exec.
+ * Lease ownership ends only by close, never LOCK_UN or unlink.
  *
  * Only a terminal receipt following exact-child waitpid proves reaping. Missing
  * receipt/abnormal guardian death must never be interpreted as quiescence.
@@ -25,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -35,6 +39,7 @@
 #define CONTROL_FD 3
 #define STATUS_FD 4
 #define ROOT_FD 5
+#define LEASE_FD 6
 #define MAX_TIMEOUT_MS UINT64_C(86400000)
 #define MAX_GRACE_MS UINT64_C(5000)
 
@@ -118,6 +123,35 @@ static bool set_handler(int value, void (*handler)(int)) {
   return sigaction(value, &action, NULL) == 0;
 }
 
+/* Caller retains the same open-file description, not a reopened pathname.
+ * Closing this helper's duplicate must not explicitly unlock the caller's fence. */
+static int acquire_lease(void) {
+  struct stat info;
+  int flags = fcntl(LEASE_FD, F_GETFD);
+  if (flags < 0 || fstat(LEASE_FD, &info) != 0 || !S_ISREG(info.st_mode) ||
+      fcntl(LEASE_FD, F_SETFD, flags | FD_CLOEXEC) != 0) return 70;
+  while (flock(LEASE_FD, LOCK_EX | LOCK_NB) != 0) {
+    if (errno == EINTR) continue;
+    return (errno == EWOULDBLOCK || errno == EAGAIN) ? 75 : 70;
+  }
+  return 0;
+}
+
+static int lease_only(void) {
+  const char *state;
+  char data[96];
+  int outcome, size;
+  if (!configure_pipe(STATUS_FD, true) || !set_handler(SIGPIPE, SIG_IGN)) return 64;
+  outcome = acquire_lease();
+  state = outcome == 0 ? "acquired" : (outcome == 75 ? "busy" : "error");
+  size = snprintf(data, sizeof(data),
+    "{\"v\":1,\"event\":\"lease\",\"state\":\"%s\"}\n", state);
+  if (size <= 0 || (size_t)size >= sizeof(data) || !receipt(data, (size_t)size)) outcome = 74;
+  (void)close(LEASE_FD);
+  (void)close(STATUS_FD);
+  return outcome;
+}
+
 static void signal_child(pid_t child, int value) {
   /* Unreaped direct-child PID cannot be reused, even after exec/setsid. */
   while (kill(child, value) != 0 && errno == EINTR) {}
@@ -133,7 +167,8 @@ static void child_exec(char **arguments, bool use_root, long descriptor_limit) {
   (void)close(STATUS_FD);
   if (use_root && fchdir(ROOT_FD) != 0) _exit(126);
   (void)close(ROOT_FD);
-  for (long descriptor = ROOT_FD + 1; descriptor < descriptor_limit; ++descriptor)
+  (void)close(LEASE_FD);
+  for (long descriptor = LEASE_FD + 1; descriptor < descriptor_limit; ++descriptor)
     (void)close((int)descriptor);
   /* No untrusted execution until the guardian observes this exact stop. */
   if (raise(SIGSTOP) != 0) _exit(126);
@@ -144,7 +179,7 @@ static void child_exec(char **arguments, bool use_root, long descriptor_limit) {
 int main(int argc, char **argv) {
   uint64_t timeout = 0, grace = 250, now = 0, deadline, kill_at = 0;
   const char *profile = NULL, *reason = NULL;
-  bool use_root = false, grace_seen = false;
+  bool use_root = false, use_lease = false, grace_seen = false;
   bool stopped = false, announced = false, go = false, resumed = false;
   bool terminating = false, killed = false, status_ok = true;
   int target = 0, status = 0;
@@ -152,6 +187,9 @@ int main(int argc, char **argv) {
   long descriptor_limit;
   char **arguments;
   sigset_t empty;
+
+  if (argc == 3 && strcmp(argv[1], "--acquire-lease-fd") == 0 &&
+      strcmp(argv[2], "6") == 0) return lease_only();
 
   for (int index = 1; index < argc; ++index) {
     if (strcmp(argv[index], "--") == 0) { target = index + 1; break; }
@@ -164,6 +202,9 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[index], "--cwd-fd") == 0 && !use_root) {
       if (strcmp(argv[++index], "5") != 0) return 64;
       use_root = true;
+    } else if (strcmp(argv[index], "--lease-fd") == 0 && !use_lease) {
+      if (strcmp(argv[++index], "6") != 0) return 64;
+      use_lease = true;
     } else if (strcmp(argv[index], "--profile") == 0 && profile == NULL) {
       profile = argv[++index];
     } else return 64;
@@ -175,6 +216,10 @@ int main(int argc, char **argv) {
   if (use_root) {
     struct stat directory;
     if (fstat(ROOT_FD, &directory) != 0 || !S_ISDIR(directory.st_mode)) return 64;
+  }
+  if (use_lease) {
+    int outcome = acquire_lease();
+    if (outcome != 0) return outcome;
   }
   descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < ROOT_FD + 1 || descriptor_limit > INT_MAX) return 70;
@@ -262,5 +307,7 @@ int main(int argc, char **argv) {
   if (!terminal(child, status, reason == NULL ? "exited" : reason)) status_ok = false;
   (void)close(CONTROL_FD);
   (void)close(STATUS_FD);
+  /* Reaping precedes the guardian's final fence close; never call LOCK_UN. */
+  (void)close(LEASE_FD);
   return status_ok ? 0 : 74;
 }
