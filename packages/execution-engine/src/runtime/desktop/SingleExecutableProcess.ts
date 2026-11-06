@@ -31,7 +31,7 @@ export const executeSingleProcessMac: SingleProcessMacExecutor = (input) =>
   new SingleExecutableProcess(input);
 
 /**
- * Darwin-only no-fork process primitive with a declared deny-default workspace scope.
+ * Darwin-only no-fork process primitive with explicit invoking-user host authority.
  * The trusted runtime must validate the canonical tool call, exact attempt,
  * grant, permission and approval, and acquire real capture before calling it.
  */

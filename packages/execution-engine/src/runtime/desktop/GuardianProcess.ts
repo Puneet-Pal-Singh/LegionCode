@@ -4,7 +4,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { constants as osConstants } from "node:os";
 import type { LocalProcessOutput } from "./BoundedLocalProcess.js";
-import { buildSingleProcessMacSandbox, bindSingleProcessMacSandboxProfile, SingleProcessMacCapabilityError } from "./SingleProcessMacSandbox.js";
+import { buildSingleProcessMacSandbox, SingleProcessMacCapabilityError } from "./SingleProcessMacSandbox.js";
 import type { SingleExecutableProcessInput } from "./SingleExecutableProcess.js";
 
 const OUTPUT_BYTES = 64 * 1024;
@@ -62,7 +62,7 @@ export class GuardianProcess {
       input.signal.throwIfAborted();
       this.guardian = spawn(input.processHelperPath, [
         "--timeout-ms", String(DEADLINE_MS), "--term-grace-ms", String(GRACE_MS), "--cwd-fd", "5",
-        "--profile", bindSingleProcessMacSandboxProfile(sandbox), "--", input.executable, ...input.args,
+        "--profile", sandbox.profile, "--", input.executable, ...input.args,
       ], {
         cwd: input.sandbox.filesystemRoot,
         detached: true,

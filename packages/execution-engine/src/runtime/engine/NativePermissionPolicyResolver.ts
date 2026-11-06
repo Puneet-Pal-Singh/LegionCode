@@ -32,8 +32,8 @@ export class NativePermissionPolicyResolver {
     // the tool policy domain with exact-input approval in every product mode.
     const executableTools: RuleSetPolicy = { ...tools, rules: [...tools.rules, {
       id: "native-single-executable-approval", pattern: "run_executable", effect: "ask", riskLevel: "high",
-      reason: "Running this exact executable and argv requires approval within the declared workspace/runtime paths; network and subprocesses are denied.",
-      approvalPrompt: "Allow this executable with these exact arguments? Workspace changes are allowed; network and subprocesses are denied.",
+      reason: "Running this exact executable and argv requires approval for invoking-user host file, network and IPC access; subprocesses and signals to other PIDs are denied.",
+      approvalPrompt: "Run this executable with these exact arguments using your macOS user file/network/IPC access, including outside this workspace? Subprocesses and signals to other PIDs are denied.",
     }] };
     return {
       commands: askHigh,

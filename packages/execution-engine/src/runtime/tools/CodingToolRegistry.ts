@@ -37,7 +37,7 @@ export type ToolSandboxClass =
 
 export interface ToolPermissionPolicy {
   mode: "allow" | "approval_required" | "deny";
-  scope: "workspace" | "remote" | "repository";
+  scope: "workspace" | "remote" | "repository" | "host_user";
 }
 
 export interface ToolTokenPolicy {

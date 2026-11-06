@@ -5,6 +5,6 @@ export function presentRunExecutable(input: RunExecutableToolInput): ToolPresent
   return {
     description: `Run executable ${input.executable}`,
     displayText: `Running ${input.executable}`,
-    summary: `Executable: ${input.executable}; argv: ${JSON.stringify(input.args)}; cwd: ${input.cwd ?? "."}. Subprocesses and network are denied.`,
+    summary: `Executable: ${input.executable}; argv: ${JSON.stringify(input.args)}; cwd: ${input.cwd ?? "."}. Runs with your macOS user file/network/IPC access, including outside this workspace. Subprocesses are denied; direct signals are limited to self.`,
   };
 }
