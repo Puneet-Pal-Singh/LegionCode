@@ -95,6 +95,11 @@ export class HarnessObservationIngestor {
     await this.options.lifecycle.restoreHarnessHistory(
       recovered.lifecycleEvents,
     );
+    this.tools.clear();
+    this.toolCount = 0;
+    this.terminal = null;
+    this.quiescent = false;
+    this.requestOrigins.clear();
     this.lastSequence = recovered.lastSequence;
     this.externalTurnId = recovered.externalTurnId;
     for (const event of recovered.lifecycleEvents) {
@@ -329,6 +334,15 @@ export class HarnessObservationIngestor {
       },
     );
     this.validateAck(ack, observation);
+    if (!applied && observation.sequence > this.lastSequence) {
+      // Another initialized owner committed between the two immutable lookups.
+      // Restore every canonical/pending/terminal fact before acknowledging it.
+      this.fenced = true;
+      await this.hydrate();
+      if (this.lastSequence < observation.sequence)
+        this.reject("Commit-time duplicate is ahead of canonical recovery");
+      this.fenced = false;
+    }
     if (applied) {
       this.lastSequence = observation.sequence;
       this.externalTurnId ??= observation.externalTurnId;

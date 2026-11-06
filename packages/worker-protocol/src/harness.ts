@@ -4,6 +4,11 @@ import {
   ApprovalGrantScopeSchema,
   ApprovalRequestedPayloadSchema,
   HarnessSelectionSchema,
+  HarnessAdmissionSelectionSchema,
+  ProductModeSchema,
+  PermissionProfileIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
   HarnessActivityMeasuredPayloadSchema,
   HarnessProviderLimitNotifiedPayloadSchema,
   JsonRecordSchema,
@@ -261,3 +266,167 @@ export const HarnessControlCommandSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 export type HarnessControlCommand = z.infer<typeof HarnessControlCommandSchema>;
+
+/** Private Brain -> SECURE_API service binding. Internal service authentication is
+ * mandatory on both routes; bridge additionally requires the existing lease token.
+ * No provider credentials are carried by this protocol. */
+export const HARNESS_SERVICE_CAPABILITY_PATH = "/api/v1/harness/capability";
+export const HARNESS_SERVICE_BRIDGE_PATH = "/api/v1/harness/bridge";
+export const HarnessServiceScopeSchema = z
+  .object({
+    userId: OpaqueId,
+    workspaceId: OpaqueId,
+    sessionId: OpaqueId,
+    runId: OpaqueId,
+    threadId: ThreadIdSchema,
+    turnId: TurnIdSchema,
+    runAttemptId: RunAttemptIdSchema,
+  })
+  .strict();
+export const HarnessServiceCapabilityRequestSchema = z
+  .object({
+    scope: HarnessServiceScopeSchema,
+    capture: HarnessAdmissionSelectionSchema,
+    productMode: ProductModeSchema,
+  })
+  .strict();
+export const HarnessServiceCapabilitySchema = z.discriminatedUnion(
+  "available",
+  [
+    z.object({ available: z.literal(false), code: OpaqueId }).strict(),
+    z
+      .object({
+        available: z.literal(true),
+        productModes: z.array(ProductModeSchema).min(1),
+        policyId: PermissionProfileIdSchema,
+        policyRevision: OpaqueId,
+      })
+      .strict(),
+  ],
+);
+export type HarnessServiceScope = z.infer<typeof HarnessServiceScopeSchema>;
+export type HarnessServiceCapability = z.infer<
+  typeof HarnessServiceCapabilitySchema
+>;
+export const HarnessServiceConnectSchema = z
+  .object({
+    type: z.literal("connect"),
+    scope: HarnessServiceScopeSchema,
+    lease: z
+      .object({
+        leaseId: LeaseIdSchema,
+        generation: Generation,
+        sandboxId: OpaqueId,
+      })
+      .strict(),
+  })
+  .strict();
+const id = z.string().uuid();
+const request = { type: z.literal("request"), requestId: id };
+export const HarnessServiceRequestSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      ...request,
+      operation: z.literal("open"),
+      command: HarnessStartCommandSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...request,
+      operation: z.literal("execute"),
+      command: HarnessStartCommandSchema,
+      session: HarnessSessionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...request,
+      operation: z.literal("observe"),
+      session: HarnessSessionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...request,
+      operation: z.literal("control"),
+      command: HarnessControlCommandSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...request,
+      operation: z.literal("quiescence"),
+      session: HarnessSessionSchema,
+      timeoutMs: z.number().int().min(1).max(60_000),
+    })
+    .strict(),
+]);
+export type HarnessServiceRequest = z.infer<typeof HarnessServiceRequestSchema>;
+const result = { type: z.literal("result"), requestId: id };
+export const HarnessServiceResultSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      ...result,
+      operation: z.literal("open"),
+      value: HarnessSessionSchema,
+    })
+    .strict(),
+  z
+    .object({ ...result, operation: z.literal("execute"), value: z.null() })
+    .strict(),
+  z
+    .object({ ...result, operation: z.literal("observe"), value: z.null() })
+    .strict(),
+  z
+    .object({
+      ...result,
+      operation: z.literal("control"),
+      value: z.object({ accepted: z.boolean() }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...result,
+      operation: z.literal("quiescence"),
+      value: HarnessQuiescenceSchema,
+    })
+    .strict(),
+]);
+export const HarnessServiceObservationFrameSchema = z
+  .object({
+    type: z.literal("observation"),
+    deliveryId: id,
+    observation: HarnessObservationSchema,
+  })
+  .strict();
+export const HarnessServiceAckFrameSchema = z
+  .object({
+    type: z.literal("ack"),
+    deliveryId: id,
+    ack: HarnessCommitAckSchema,
+  })
+  .strict();
+export const HarnessServiceErrorFrameSchema = z
+  .object({
+    type: z.literal("error"),
+    requestId: id,
+    code: z.enum(["unavailable", "invalid_request", "recovery_required"]),
+  })
+  .strict();
+export const HarnessServiceWorkerFrameSchema = z.union([
+  HarnessServiceConnectSchema,
+  HarnessServiceRequestSchema,
+  HarnessServiceAckFrameSchema,
+]);
+export const HarnessServiceHostFrameSchema = z.union([
+  z.object({ type: z.literal("connected") }).strict(),
+  HarnessServiceResultSchema,
+  HarnessServiceObservationFrameSchema,
+  HarnessServiceErrorFrameSchema,
+]);
+export type HarnessServiceHostFrame = z.infer<
+  typeof HarnessServiceHostFrameSchema
+>;
+
+export type HarnessServiceResult = z.infer<typeof HarnessServiceResultSchema>;

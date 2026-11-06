@@ -1,3 +1,4 @@
+import { TurnDiffPayloadSchema, type TurnDiffPayload } from "@repo/platform-protocol";
 import type {
   EditArtifactChangedFile,
   EditArtifactPatchObjectMetadata,
@@ -106,6 +107,30 @@ export class EditArtifactCaptureService {
     });
   }
 
+  /** The kernel already captured both immutable trees and their canonical diff.
+   * Reuse the existing artifact writer/readback; never recapture live Git here. */
+  async persistCanonicalTurnDiff(input: CaptureAfterRunInput & { readonly diff: TurnDiffPayload }): Promise<EditArtifactRecord> {
+    const diff = TurnDiffPayloadSchema.parse(input.diff);
+    if (diff.turnId !== input.turnId || diff.startSnapshot.turnId !== input.turnId) throw new Error("Canonical artifact turn identity differs");
+    return withArtifactRepository(this.env, async (repository) => {
+      const existing = await repository.getLatestReviewArtifact({ runId: input.runId, userId: input.userId,
+        sessionId: input.sessionId, identity: { workspaceId: input.workspaceId, threadId: input.threadId, turnId: input.turnId, runAttemptId: input.runAttemptId } });
+      if (existing) {
+        const prior = await createEditArtifactStorageBackend(this.env).readPatch({ artifact: existing });
+        if (prior !== diff.patch) throw new Error("Canonical turn artifact content is immutable");
+        return existing;
+      }
+      const artifactId = await this.persistCapturedArtifact(repository, input,
+        diff.files.map((file) => ({ path: file.path, status: file.status, additions: file.additions, deletions: file.deletions, isStaged: false })),
+        { patch: diff.patch, branch: null, baseCommitSha: diff.startSnapshot.headSha });
+      const artifact = await repository.getArtifactById(artifactId, input.userId);
+      if (!artifact || artifact.status !== "stored") throw new Error("Canonical artifact metadata was not durably finalized");
+      const stored = await createEditArtifactStorageBackend(this.env).readPatch({ artifact });
+      if (stored === null || stored !== diff.patch || await sha256Hex(stored) !== await sha256Hex(diff.patch)) throw new Error("Canonical artifact readback differs from captured immutable diff");
+      return artifact;
+    });
+  }
+
   private createGitClient(
     input: CaptureAfterRunInput,
   ): SecureGitArtifactClient {
@@ -140,7 +165,7 @@ export class EditArtifactCaptureService {
     input: CaptureAfterRunInput,
     changedFiles: EditArtifactChangedFile[],
     capturedPatch: CapturedPatchPayload,
-  ): Promise<void> {
+  ): Promise<string> {
     const metadata = this.buildCaptureArtifactMetadata(input);
     const artifact = await this.createAndRecordPendingArtifact(
       repository,
@@ -157,6 +182,7 @@ export class EditArtifactCaptureService {
       artifact,
       metadata,
     );
+    return metadata.artifactId;
   }
 
   private buildCaptureArtifactMetadata(
