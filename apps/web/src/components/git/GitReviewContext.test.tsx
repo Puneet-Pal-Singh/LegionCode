@@ -14,6 +14,7 @@ import type { CanonicalTurnReviewSource } from "../../services/review/ReviewSour
 const mockRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFetchLiveDiff = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFetchArtifactDiff = vi.hoisted(() => vi.fn(async () => undefined));
+const mockStageGitFiles = vi.hoisted(() => vi.fn(async () => undefined));
 const mockCommit = vi.hoisted(() => vi.fn(async () => true));
 const mockGitStatusState = vi.hoisted(() => ({
   status: null as GitStatusResponse | null,
@@ -111,7 +112,7 @@ vi.mock("../../hooks/useGitCommit", () => ({
 vi.mock("../../services/api/gitOperations.js", () => ({
   createGitBranch: vi.fn(async () => ({ branch: "feature/test" })),
   pushGitBranch: vi.fn(async () => ({ branch: "feature/test" })),
-  stageGitFiles: vi.fn(async () => undefined),
+  stageGitFiles: mockStageGitFiles,
 }));
 
 describe("GitReviewProvider", () => {
@@ -120,6 +121,7 @@ describe("GitReviewProvider", () => {
     mockFetchLiveDiff.mockClear();
     mockFetchArtifactDiff.mockClear();
     mockCommit.mockClear();
+    mockStageGitFiles.mockClear();
     mockGitStatusState.status = null;
     mockGitStatusState.loading = false;
     mockGitStatusState.error = null;
@@ -260,14 +262,14 @@ describe("GitReviewProvider", () => {
     expect(screen.getByTestId("review-files")).toHaveTextContent("none");
   });
 
-  it("loads an explicit saved edit selection even when live git has files", () => {
+  it("loads an explicit saved edit selection even when live git has files", async () => {
     mockGitStatusState.status = buildGitStatus([
       buildFileStatus("src/live.ts"),
     ]);
     mockArtifactState.source = buildArtifactSource();
     mockArtifactState.resolved = true;
 
-    render(
+    const { rerender } = render(
       <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
@@ -282,6 +284,39 @@ describe("GitReviewProvider", () => {
       "prompt-artifact",
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
+    mockFetchLiveDiff.mockClear();
+    mockArtifactState.source = null;
+    rerender(<GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}><ReviewSourceProbe /></GitReviewProvider>);
+    expect(screen.getByTestId("review-source")).toHaveTextContent("unavailable_saved_artifact:explicit");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("Saved review is unavailable for this turn.");
+    expect(screen.getByTestId("review-diff-error")).toHaveTextContent("Saved review is unavailable for this turn.");
+    fireEvent.click(screen.getByRole("button", { name: "stage requested file" }));
+    await waitFor(() => expect(screen.getByTestId("review-stage-error")).toHaveTextContent("read-only"));
+    expect(mockStageGitFiles).not.toHaveBeenCalled();
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+
+    mockArtifactState.error = "Saved artifact access is unavailable.";
+    rerender(<GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}><ReviewSourceProbe /></GitReviewProvider>);
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("Saved artifact access is unavailable.");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+
+    mockArtifactState.error = null;
+    mockArtifactState.resolved = false;
+    mockArtifactState.loading = true;
+    rerender(<GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}><ReviewSourceProbe /></GitReviewProvider>);
+    expect(screen.getByTestId("review-source-loading")).toHaveTextContent("loading");
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("none");
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+
+    mockArtifactState.loading = false;
+    mockArtifactState.resolved = true;
+    mockArtifactState.source = buildArtifactSource();
+    rerender(<GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}><ReviewSourceProbe /></GitReviewProvider>);
+    expect(screen.getByTestId("review-source")).toHaveTextContent("prompt_artifact:explicit");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
+    fireEvent.click(screen.getByRole("button", { name: "select live git" }));
+    expect(screen.getByTestId("review-source")).toHaveTextContent("live_git:explicit");
   });
 
   it("does not start saved edit lookup before live git status resolves empty", () => {
@@ -415,6 +450,15 @@ describe("GitReviewProvider", () => {
     expect(latestArtifactHookInput()).toEqual(
       expect.objectContaining({ enabled: false }),
     );
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("none");
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
+    expect(screen.getByTestId("review-source")).toHaveTextContent("unavailable_saved_artifact:explicit");
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("Saved review is unavailable for this turn.");
+    expect(screen.getByTestId("review-diff-error")).toHaveTextContent("Saved review is unavailable for this turn.");
+    expect(screen.getByTestId("review-source-loading")).toHaveTextContent("idle");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+    expect(latestGitStatusHookInput()).toEqual(expect.objectContaining({ enabled: false }));
+    expect(latestArtifactHookInput()).toEqual(expect.objectContaining({ enabled: false }));
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
     expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
   });
@@ -613,6 +657,10 @@ function ReviewSourceProbe({
           ? review.reviewSource.turnId
           : "none"}
       </span>
+      <span data-testid="review-source-error">{review.reviewSourceError ?? "none"}</span>
+      <span data-testid="review-diff-error">{review.diffError ?? "none"}</span>
+      <span data-testid="review-stage-error">{review.stageError ?? "none"}</span>
+      <button type="button" onClick={() => void review.toggleFileStaged("src/main.ts", true)}>stage requested file</button>
       <span data-testid="review-diff">{review.diff?.newPath ?? "none"}</span>
       <span data-testid="selected-file">
         {review.selectedFile?.path ?? "none"}
