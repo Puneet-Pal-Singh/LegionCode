@@ -23,6 +23,15 @@ export class DesktopCredentialVaultStub implements CredentialVault {
     throw this.unsupported("setCredential");
   }
 
+  async resolveRuntimeCredential(
+    _providerId: ProviderId,
+  ): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
+    throw this.unsupported("resolveRuntimeCredential");
+  }
+
   async getApiKey(_providerId: ProviderId): Promise<string | null> {
     throw this.unsupported("getApiKey");
   }

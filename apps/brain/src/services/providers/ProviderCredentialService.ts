@@ -158,6 +158,18 @@ export class ProviderCredentialService {
    * Returns null if provider not connected
    * Uses durable store as the only source of truth.
    */
+  async resolveRuntimeCredential(
+    providerId: ProviderId,
+  ): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
+    const apiKey = this.getPlatformManagedApiKey(providerId);
+    return apiKey
+      ? { apiKey }
+      : this.vault.resolveRuntimeCredential(providerId);
+  }
+
   async getApiKey(providerId: ProviderId): Promise<string | null> {
     const platformManagedApiKey = this.getPlatformManagedApiKey(providerId);
     if (platformManagedApiKey) {

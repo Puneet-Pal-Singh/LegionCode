@@ -334,9 +334,8 @@ export class ProviderModelDiscoveryService {
     }
     let config: CloudflareConnectionConfig | undefined;
     try {
-      const candidate = await this.credentialService.getConnectionConfig(
-        providerId,
-      );
+      const candidate =
+        await this.credentialService.getConnectionConfig(providerId);
       if (isCloudflareConfigForProvider(providerId, candidate)) {
         config = candidate;
       }
@@ -515,9 +514,10 @@ export class ProviderModelDiscoveryService {
     let apiKey: string | null = null;
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
-      apiKey = await this.credentialService.getApiKey(providerId);
-      connectionConfig =
-        await this.credentialService.getConnectionConfig(providerId);
+      const credential =
+        await this.credentialService.resolveRuntimeCredential(providerId);
+      apiKey = credential?.apiKey ?? null;
+      connectionConfig = credential?.connectionConfig;
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -742,9 +742,10 @@ export class ProviderModelDiscoveryService {
     let apiKey: string | null = null;
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
-      apiKey = await this.credentialService.getApiKey(providerId);
-      connectionConfig =
-        await this.credentialService.getConnectionConfig(providerId);
+      const credential =
+        await this.credentialService.resolveRuntimeCredential(providerId);
+      apiKey = credential?.apiKey ?? null;
+      connectionConfig = credential?.connectionConfig;
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -1162,7 +1163,7 @@ function buildOpenRouterManageModels(input: {
       const matched =
         model.id === OPENROUTER_AUTO_MODEL_ID
           ? model
-          : resolveOpenRouterInventoryModel(userIndex, model) ?? model;
+          : (resolveOpenRouterInventoryModel(userIndex, model) ?? model);
       const dedupeKey = buildOpenRouterDedupeKey(matched);
       if (seen.has(dedupeKey)) {
         continue;

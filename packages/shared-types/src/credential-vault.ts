@@ -33,6 +33,11 @@ export interface CredentialVault {
     apiKey: string,
     connectionConfig?: ProviderConnectionConfig,
   ): Promise<void>;
+  /** Internal host acquisition; key and endpoint configuration are one value. */
+  resolveRuntimeCredential(providerId: ProviderId): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null>;
   getApiKey(providerId: ProviderId): Promise<string | null>;
   getConnectionConfig(
     providerId: ProviderId,
