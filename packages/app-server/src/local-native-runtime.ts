@@ -53,9 +53,10 @@ export interface LocalNativeRuntimeOptions {
   readonly permissionPolicy: PermissionPolicy;
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
-  /** Canonical Git owner, composed with the same trusted held-root/process capability. */
+  /** Canonical Git owner; abort waits for actual child and pipe quiescence. */
   readonly createGitService: (
     binding: LocalWorkspaceExecutionBinding,
+    signal: AbortSignal,
   ) => Pick<DefaultGitService, "probeRepository" | "getStatus">;
 }
 
@@ -98,7 +99,6 @@ export function createLocalNativeRuntime(
         helperPath,
         rootDirectory: binding.rootDirectory,
       });
-      const git = options.createGitService(binding);
       return new LocalReadOnlyTurnExecutor<LocalWorkspaceExecutionBinding>({
         producerId: workerId,
         lifecycleEvents: options.persistence.lifecycleEvents,
@@ -130,6 +130,8 @@ export function createLocalNativeRuntime(
           });
         },
         async createKernelPorts(admission, bound, signal) {
+          signal.throwIfAborted();
+          const git = options.createGitService(bound, signal);
           const manifests = new MemoryWorkspaceManifestRepository();
           await manifests.create(
             await readManifest(admission, bound, git, signal),
