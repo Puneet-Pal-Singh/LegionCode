@@ -34,6 +34,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
       workspaceService: local.workspaceService,
       threadService: local.threadService,
       providerService: local.providerService,
+      harnessOperations: local.harnessOperations,
       localLifecycleReplayService: local,
     };
     const server = createServer((request, response) => {

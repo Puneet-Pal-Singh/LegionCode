@@ -3,8 +3,9 @@ import { CodexDriver } from "@repo/harness-codex/server";
 import { RuntimeKernel, type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest, ThreadId } from "@repo/platform-protocol";
+import type { HarnessInstanceStatus, ReplayLifecycleEventsRequest, ReplayLifecycleEventsResponse, ThreadId } from "@repo/platform-protocol";
 import { AppServerOperationError } from "../server.js";
+import { LocalHarnessOperations } from "./LocalHarnessOperations.js";
 
 import { LocalProviderService } from "../local-providers.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "../local-threads.js";
@@ -15,23 +16,41 @@ type ConfigureHost = (command: Parameters<HarnessInstance["createHost"]>[0]) => 
 
 /** Node-only local composition. Persistence remains the process's single SQLite writer. */
 export class LocalHarnessComposition {
+  readonly environmentId: string;
   readonly workspaceService: LocalWorkspaceService;
   readonly threadService: LocalThreadService;
   readonly providerService: LocalProviderService;
+  readonly harnessOperations: LocalHarnessOperations;
+  private readonly configuredScopes: HarnessInstanceScope[] = [];
   private readonly registry = new HarnessRegistry();
-  readonly harnessExecution = new HarnessExecutionPort(new HarnessSessionManager(this.registry));
+  private readonly sessions = new HarnessSessionManager(this.registry);
+  readonly harnessExecution = new HarnessExecutionPort(this.sessions);
 
   constructor(private readonly persistence: LocalPersistence) {
+    this.environmentId = persistence.environmentId;
     this.workspaceService = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants });
     this.threadService = new LocalThreadService({
       events: persistence.events,
       getWorkspace: () => this.workspaceService.getCurrent(),
     });
     this.providerService = new LocalProviderService({ selectionStore: persistence.providerSelection });
+    this.harnessOperations = new LocalHarnessOperations({
+      environmentId: this.environmentId,
+      workspaceService: this.workspaceService,
+      threadService: this.threadService,
+      readInstances: () => this.configuredScopes.map((scope): HarnessInstanceStatus => ({
+        environmentId: scope.environmentId, workspaceId: scope.workspaceId, instanceId: scope.instanceId,
+        harness: scope.harness, connectionId: scope.connectionId, accountLabel: null, usage: null,
+        state: "unavailable", reason: "Local connection health and enforceable OS policy have not been verified",
+        capabilities: { approvals: false, questions: false, steer: false, resume: false, fork: false,
+          images: false, terminal: false, contextTelemetry: false, accountQuota: false, experimental: false },
+        runtimeVersion: scope.runtimeVersion, protocolVersion: scope.protocolVersion, observedAt: new Date().toISOString(),
+      })),
+    });
   }
 
   /** Reuses reviewed local replay authorization from PR617; no second event feed. */
-  async replayLifecycleEvents(params: ReplayLifecycleEventsRequest) {
+  async replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse> {
     if (params.backend && params.backend !== "execution-engine-v1") {
       throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
     }
@@ -92,6 +111,9 @@ export class LocalHarnessComposition {
     driver: HarnessDriver,
     configureHost: ConfigureHost,
   ): void {
+    if (scope.environmentId !== this.environmentId) {
+      throw new Error("A local harness instance cannot bind a different environment");
+    }
     this.registry.register({
       scope,
       driver,
@@ -101,6 +123,21 @@ export class LocalHarnessComposition {
         return this.createGrantedHost(thread.id, grant, await configureHost(command));
       },
     });
+    this.configuredScopes.push(Object.freeze({ ...scope }));
+  }
+
+  /** Private main/vault notification after durable revocation. Fence exactly the
+   * originating generation; a late notification cannot revoke a newer connection.
+   * Runtime still owns quiescence, terminal/artifact settlement and lease release.
+   */
+  fenceConnection(origin: Pick<HarnessInstanceScope, "connectionId" | "authOwnerGeneration">): void {
+    for (let index = this.configuredScopes.length - 1; index >= 0; index -= 1) {
+      const scope = this.configuredScopes[index]!;
+      if (scope.connectionId === origin.connectionId && scope.authOwnerGeneration === origin.authOwnerGeneration) {
+        this.sessions.fenceInstance(scope.instanceId);
+        this.configuredScopes.splice(index, 1);
+      }
+    }
   }
 
   private async assertLocalExecution(input: Parameters<DelegatedExecutionDependencies["assertActive"]>[0]) {
