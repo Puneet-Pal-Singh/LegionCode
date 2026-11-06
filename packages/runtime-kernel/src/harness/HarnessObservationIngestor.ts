@@ -18,6 +18,8 @@ export class HarnessObservationIngestor {
   private externalTurnId: string | null = null;
   private terminal: Terminal | null = null;
   private queue: Promise<void> = Promise.resolve();
+  private pending = 0;
+  private readonly requestOrigins = new Set<string>();
 
   constructor(private readonly options: {
     readonly selection: HarnessSelection;
@@ -32,7 +34,10 @@ export class HarnessObservationIngestor {
   async observe(input: unknown): Promise<HarnessCommitAck> {
     // Serialize translation and post-commit effects, including callers that fail
     // to await delivery. The host must separately bound its delivery journal.
-    const operation = this.queue.then(() => this.ingest(input));
+    if (this.pending >= 64) this.reject("Harness ingress buffer is full; delivery must pause");
+    const observation = HarnessObservationSchema.parse(input);
+    this.pending += 1;
+    const operation = this.queue.then(() => this.ingest(observation)).finally(() => { this.pending -= 1; });
     this.queue = operation.then(() => undefined, () => undefined);
     return operation;
   }
@@ -49,6 +54,7 @@ export class HarnessObservationIngestor {
     if (this.externalTurnId !== null && observation.externalTurnId !== this.externalTurnId) this.reject("External turn identity changed");
     const payload = observation.payload;
     if (payload.kind === "approval_requested") {
+      if (this.requestOrigins.has(JSON.stringify(payload.replyTo))) this.reject("Approval request origin was reused");
       if (!sameHarnessSession(payload.replyTo.session, session) ||
         payload.replyTo.authOwnerGeneration !== selection.authOwnerGeneration) this.reject("Stale approval origin");
       if (payload.request.itemId === null || payload.request.itemId === payload.parentItemId) this.reject("Invalid approval item");
@@ -83,7 +89,10 @@ export class HarnessObservationIngestor {
       if (payload.kind === "tool_started") this.tools.set(payload.itemId, payload.content.toolCallId);
       if (payload.kind === "tool_completed") this.tools.delete(payload.itemId);
       if (payload.kind === "external_terminal") this.terminal = payload;
-      if (payload.kind === "approval_requested") this.options.onApproval(payload);
+      if (payload.kind === "approval_requested") {
+        this.requestOrigins.add(JSON.stringify(payload.replyTo));
+        this.options.onApproval(payload);
+      }
     }
     return ack;
   }
