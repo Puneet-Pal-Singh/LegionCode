@@ -218,8 +218,6 @@ export type {
   CredentialConnectionStore,
   CreateCredentialConnectionInput,
   CredentialStore,
-  CredentialConnectionStore,
-  CreateCredentialConnectionInput,
   ProviderAuditEvent,
   ProviderAuditLog,
   ProviderAuditEventType,
