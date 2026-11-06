@@ -36,12 +36,32 @@ export class CodexNativeSession {
       throw new CodexTransportError("invalid_frame", "rejected");
     // An ambiguous open is not automatically retried on this session owner.
     this.opening = true;
+    if (
+      params.sandbox !== "workspace-write" ||
+      params.approvalPolicy !== "untrusted" ||
+      params.approvalsReviewer !== "user" ||
+      !params.modelProvider ||
+      !params.cwd
+    )
+      throw new CodexTransportError("invalid_frame", "rejected");
     const response = await this.transport.request(method, params);
     const threadId = this.readIdentity(response, "thread");
     if (
       !record(response) ||
       (params.model != null && response.model !== params.model) ||
-      (params.cwd != null && response.cwd !== params.cwd)
+      (params.cwd != null && response.cwd !== params.cwd) ||
+      response.modelProvider !== params.modelProvider ||
+      response.approvalPolicy !== "untrusted" ||
+      response.approvalsReviewer !== "user" ||
+      !record(response.sandbox) ||
+      response.sandbox.type !== "workspaceWrite" ||
+      response.sandbox.networkAccess !== false ||
+      response.sandbox.excludeTmpdirEnvVar !== true ||
+      response.sandbox.excludeSlashTmp !== true ||
+      !Array.isArray(response.sandbox.writableRoots) ||
+      response.sandbox.writableRoots.some(
+        (root: unknown) => root !== params.cwd,
+      )
     )
       this.invalidResponse();
     if (expectedId !== undefined && threadId !== expectedId)

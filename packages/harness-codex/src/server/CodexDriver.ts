@@ -17,6 +17,7 @@ import {
   type CodexServerRequest,
 } from "./transport/CodexStdioTransport.js";
 import { initializeCodex } from "./initialize.js";
+import { CodexUsageReader } from "./CodexUsageReader.js";
 import { CodexNativeSession } from "./CodexNativeSession.js";
 import {
   codexEventPayload,
@@ -29,10 +30,26 @@ import { codexPermission } from "./CodexPermissionMapper.js";
 /** Concrete native loop driver; the shared host owns launch policy, delivery journal and process cleanup. */
 export class CodexDriver implements HarnessDriver {
   readonly kind = "codex" as const;
+  private readonly options: Readonly<{
+    experimentalQuestions?: boolean;
+    modelProvider?: string;
+    policy?: Readonly<{ id: string; revision: string }>;
+  }>;
   constructor(
     private readonly executable: string,
-    private readonly options: { experimentalQuestions?: boolean } = {},
-  ) {}
+    options: {
+      experimentalQuestions?: boolean;
+      modelProvider?: string;
+      policy?: Readonly<{ id: string; revision: string }>;
+    } = {},
+  ) {
+    this.options = Object.freeze({
+      ...options,
+      ...(options.policy
+        ? { policy: Object.freeze({ ...options.policy }) }
+        : {}),
+    });
+  }
 
   async open(
     input: Parameters<HarnessDriver["open"]>[0],
@@ -40,6 +57,9 @@ export class CodexDriver implements HarnessDriver {
     const { command, host, signal, observe } = input;
     const { selection } = command;
     if (
+      !this.options.policy ||
+      this.options.policy.id !== selection.policyId ||
+      this.options.policy.revision !== selection.policyRevision ||
       !isAbsolute(this.executable) ||
       signal.aborted ||
       selection.harness !== this.kind ||
@@ -57,6 +77,20 @@ export class CodexDriver implements HarnessDriver {
       command.resumeSession.instanceId !== selection.instanceId
     )
       throw new Error("Codex resume instance mismatch");
+    if (
+      selection.billingSource !== "api_key" &&
+      selection.billingSource !== "subscription"
+    )
+      throw new Error("Codex selected payer route is unsupported");
+    if (
+      selection.billingSource === "subscription" &&
+      ["OPENAI_API_KEY", "CODEX_API_KEY", "AZURE_OPENAI_API_KEY"].some((name) =>
+        Boolean(host.environment[name]),
+      )
+    )
+      throw new Error(
+        "Codex subscription binding contains API-key credentials",
+      );
     const digest = createHash("sha256")
       .update(await readFile(this.executable))
       .digest("hex");
@@ -70,6 +104,7 @@ export class CodexDriver implements HarnessDriver {
     let stopped = false;
     let externalTurnId: string | null = null;
     let terminal = false;
+    let observationFailure = false;
     let finalOutput = "";
     let executing = false;
     let pendingBytes = 0;
@@ -116,7 +151,6 @@ export class CodexDriver implements HarnessDriver {
       const size = Buffer.byteLength(JSON.stringify(raw));
       if (
         stopped ||
-        terminal ||
         ++pendingCount > 256 ||
         (pendingBytes += size) > 8 * 1024 * 1024
       ) {
@@ -130,7 +164,10 @@ export class CodexDriver implements HarnessDriver {
           if (stopped) return;
           await action();
         })
-        .catch(fail)
+        .catch(() => {
+          observationFailure = true;
+          fail();
+        })
         .finally(() => {
           pendingCount--;
           pendingBytes -= size;
@@ -139,7 +176,15 @@ export class CodexDriver implements HarnessDriver {
     let session: ReturnType<typeof HarnessSessionSchema.parse> | null = null;
     const emit = async (payload: HarnessObservationPayload) => {
       if (!session || stopped) throw new Error("Codex observation fenced");
-      await observe({ session, externalTurnId, payload });
+      // Decide foreground/background ownership only inside the serialized processing queue.
+      // Exact session and native turn checks precede this call; no late fact is reassigned.
+      const owned =
+        terminal &&
+        payload.kind !== "external_terminal" &&
+        payload.kind !== "quiescence"
+          ? { ...payload, background: true as const }
+          : payload;
+      await observe({ session, externalTurnId, payload: owned });
     };
     const notification = (method: string, raw: unknown) => {
       if (method === "model/rerouted") {
@@ -224,7 +269,7 @@ export class CodexDriver implements HarnessDriver {
           selection.runAttemptId,
           selection.modelId,
         );
-        if (payload?.kind === "assistant_text") {
+        if (!terminal && payload?.kind === "assistant_text") {
           const item = z
             .object({
               item: z.object({ phase: z.string().nullable().optional() }),
@@ -300,6 +345,12 @@ export class CodexDriver implements HarnessDriver {
       },
     });
     const native = new CodexNativeSession(transport);
+    const accountReader = new CodexUsageReader(transport);
+    const verifyPayer = async () => {
+      const account = await accountReader.account();
+      if (account.route !== selection.billingSource)
+        throw new Error("Codex reported account does not match selected payer");
+    };
     void child.exited.then(() => {
       if (!terminal) fail();
     });
@@ -313,9 +364,21 @@ export class CodexDriver implements HarnessDriver {
       );
       if (initialized.codexHome !== host.instanceDirectory)
         throw new Error("Codex instance home mismatch");
+      await verifyPayer();
+      if (stopped || signal.aborted)
+        throw new Error("Codex account binding fenced");
       const common = {
         cwd: host.workspaceRoot,
         model: selection.modelId,
+        modelProvider: this.options.modelProvider ?? "openai",
+        config: {
+          sandbox_workspace_write: {
+            writable_roots: [],
+            network_access: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+          },
+        },
         sandbox: "workspace-write" as const,
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
@@ -350,8 +413,21 @@ export class CodexDriver implements HarnessDriver {
           executing = true;
           execution.signal.addEventListener("abort", fail, { once: true });
           try {
+            await verifyPayer();
+            if (stopped || execution.signal.aborted)
+              throw new Error("Codex payer binding fenced");
             externalTurnId = await native.start({
               threadId,
+              model: selection.modelId,
+              approvalPolicy: "untrusted",
+              approvalsReviewer: "user",
+              sandboxPolicy: {
+                type: "workspaceWrite",
+                writableRoots: [],
+                networkAccess: false,
+                excludeTmpdirEnvVar: true,
+                excludeSlashTmp: true,
+              },
               input: [
                 { type: "text", text: command.prompt, text_elements: [] },
               ],
@@ -414,7 +490,7 @@ export class CodexDriver implements HarnessDriver {
             else fail();
             return { accepted: true };
           }
-          if (terminal || !externalTurnId)
+          if (!externalTurnId || (terminal && control.kind === "steer"))
             throw new Error("Codex turn unavailable");
           if (control.kind === "steer") {
             await native.steer({
@@ -455,7 +531,14 @@ export class CodexDriver implements HarnessDriver {
             graceMs: Math.min(100, timeoutMs),
             killWaitMs: Math.max(0, timeoutMs - 100),
           });
+          await queue;
           transport.close();
+          if (observationFailure)
+            return {
+              status: "unknown",
+              session: learnedSession,
+              reason: "transport_lost",
+            };
           // Host creation has already asserted the actual filesystem/descendant boundary.
           if (
             !results.length ||
