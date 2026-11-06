@@ -3,6 +3,8 @@ import { z } from "zod";
 import { ModelIdSchema, ThreadIdSchema } from "../ids.js";
 import { WorkspaceScopeIdSchema } from "../turn-scope-bootstrap.js";
 import { HarnessCapabilitiesSchema, HarnessKindSchema } from "./index.js";
+import { HarnessNextSelectionSchema } from "./selection.js";
+export { HarnessNextSelectionSchema, type HarnessNextSelection } from "./selection.js";
 
 const Reference = z.string().trim().min(1).max(256);
 const Revision = z.number().int().safe().nonnegative();
@@ -29,12 +31,6 @@ export const HarnessSelectionReadRequestSchema = HarnessScopeSchema.extend({
  * The service validates account/model eligibility and resolves policy/runtime pins
  * at admission. External session IDs and secret material never enter this type.
  */
-export const HarnessNextSelectionSchema = z.object({
-  harness: HarnessKindSchema,
-  instanceId: Reference,
-  connectionId: Reference,
-  modelId: ModelIdSchema,
-}).strict();
 export const HarnessSelectRequestSchema = HarnessSelectionReadRequestSchema.extend({
   clientCommandId: Reference,
   expectedRevision: Revision,
@@ -82,5 +78,4 @@ export type HarnessModelsResponse = z.infer<typeof HarnessModelsResponseSchema>;
 export type HarnessSelectionReadRequest = z.infer<typeof HarnessSelectionReadRequestSchema>;
 export type HarnessSelectRequest = z.infer<typeof HarnessSelectRequestSchema>;
 export type HarnessSelectionResponse = z.infer<typeof HarnessSelectionResponseSchema>;
-export type HarnessNextSelection = z.infer<typeof HarnessNextSelectionSchema>;
 export type HarnessInstanceStatus = z.infer<typeof HarnessInstanceStatusSchema>;
