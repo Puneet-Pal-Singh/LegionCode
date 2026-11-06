@@ -1,14 +1,13 @@
 /**
  * SessionStateService
  *
- * Single Responsibility: Manage session persistence, migrations, and state.
- * Enforces session-scoped storage keys and data model consistency.
+ * Local session construction/validation and narrow UI preference references.
+ * Hosted session metadata and history are owned by the authenticated SDK path.
  *
  * Storage Keys:
- * - legioncode:sessions:v3 — Read-only legacy session snapshot
  * - legioncode:active-session-id:v4 — Per-tab active session selector
  * - legioncode:session-context:{sessionId} — GitHub context per session
- * - legioncode:run:{runId}:messages — Messages per run
+ * - legioncode:setup-session:v1 — Read-only legacy preference lookup
  *
  * @module services/SessionStateService
  */
@@ -16,28 +15,14 @@
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import type {
   AgentSession,
-  ChatTitleSource,
   SessionStatus,
-  SessionStorageSchema,
   SessionGitHubContext,
   SetupSessionState,
 } from "../types/session";
 import { createRunId, isCanonicalRunId } from "../lib/run-id";
-import { normalizeSessionRunMode } from "./sessionRunMode";
 
-const SESSIONS_KEY = "legioncode:sessions:v3";
 const ACTIVE_SESSION_ID_KEY = "legioncode:active-session-id:v4";
 const SETUP_SESSION_KEY = "legioncode:setup-session:v1";
-
-type StoredSessionStatus = AgentSession["status"] | "error";
-
-type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
-  mode?: string;
-  status?: StoredSessionStatus;
-  titleSource?: ChatTitleSource;
-  pinnedAt?: string | null;
-  archivedAt?: string | null;
-};
 
 function getSessionContextKey(sessionId: string): string {
   return `legioncode:session-context:${sessionId}`;
@@ -45,44 +30,9 @@ function getSessionContextKey(sessionId: string): string {
 
 /**
  * SessionStateService
- * Centralized persistence layer for multi-session state
+ * Local session helpers; durable product state is read through the SDK
  */
 export class SessionStateService {
-  /**
-   * Load all sessions from localStorage
-   * Returns empty object if not found or corrupted
-   */
-  static loadSessions(): Record<string, AgentSession> {
-    try {
-      const stored = localStorage.getItem(SESSIONS_KEY);
-      if (!stored) return {};
-
-      const parsed = JSON.parse(stored) as SessionStorageSchema;
-
-      // Validate version (for future migrations)
-      if (parsed.version !== 3) {
-        console.warn(
-          "[SessionStateService] Unknown version, returning empty sessions",
-        );
-        return {};
-      }
-
-      const sessions = parsed.sessions || {};
-      return Object.fromEntries(
-        Object.entries(sessions).flatMap(([sessionId, session]) => {
-          const normalized = normalizeSession(session as StoredAgentSession);
-          if (!this.validateSession(normalized)) {
-            return [];
-          }
-          return [[sessionId, normalized]];
-        }),
-      );
-    } catch (e) {
-      console.error("[SessionStateService] Failed to load sessions:", e);
-      return {};
-    }
-  }
-
   /**
    * Read the current tab's saved selection as an unverified reference.
    * Callers must resolve it against the owned server session snapshot before use.
@@ -239,7 +189,7 @@ export class SessionStateService {
     };
   }
 
-  /** Create local shell identity before a repo-backed session exists. */
+  /** Create a local preference scope before a repo-backed session exists. */
   static createSetupSession(scope?: { userId: string; workspaceId: string }): SetupSessionState {
     const timestamp = new Date().toISOString();
 
@@ -250,47 +200,6 @@ export class SessionStateService {
       kind: "setup",
       createdAt: timestamp,
       updatedAt: timestamp,
-    };
-  }
-
-  /**
-   * Update session status
-   * Maintains updatedAt timestamp
-   */
-  static updateSessionStatus(
-    session: AgentSession,
-    status: SessionStatus,
-  ): AgentSession {
-    return {
-      ...session,
-      status,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  /**
-   * Add a new run to a session
-   * Useful for supporting multiple runs per session in future PRs
-   */
-  static addRunToSession(
-    session: AgentSession,
-    runId: string,
-    makeActive: boolean = true,
-  ): AgentSession {
-    if (session.runIds.includes(runId)) {
-      console.warn(
-        "[SessionStateService] Run already in session:",
-        runId,
-        session.id,
-      );
-      return session;
-    }
-
-    return {
-      ...session,
-      runIds: [...session.runIds, runId],
-      activeRunId: makeActive ? runId : session.activeRunId,
-      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -365,23 +274,4 @@ export class SessionStateService {
 
     return true;
   }
-}
-
-function normalizeSession(session: StoredAgentSession): AgentSession {
-  return {
-    ...session,
-    mode: normalizeSessionRunMode(session.mode),
-    status: normalizeStoredSessionStatus(session.status),
-    titleSource: session.titleSource ?? "preview",
-    pinnedAt: session.pinnedAt ?? null,
-    archivedAt: session.archivedAt ?? null,
-    createdAt: session.createdAt ?? session.updatedAt,
-  };
-}
-
-function normalizeStoredSessionStatus(
-  status: StoredSessionStatus | undefined,
-): SessionStatus {
-  if (status === "error") return "failed";
-  return status ?? "idle";
 }
