@@ -219,11 +219,33 @@ export class ProviderConfigService {
   ): Promise<BYOKPreferences> {
     await this.ensureStorageReady();
     try {
-      if (patch.defaultCredentialId !== undefined) {
-        const current = await this.options.preferenceStore.getPreferences();
-        const providerId = patch.defaultProviderId ?? current.defaultProviderId;
+      const effective = { ...patch };
+      const current = await this.options.preferenceStore.getPreferences();
+      if (
+        patch.defaultProviderId &&
+        patch.defaultProviderId !== "axis" &&
+        patch.defaultCredentialId === undefined &&
+        (current.defaultProviderId !== patch.defaultProviderId ||
+          !current.defaultCredentialId)
+      ) {
+        // Old callers selected a provider's named default. Persist its actual
+        // identity rather than silently choosing one of its other accounts.
+        const namedDefault = await this.options.credentialStore.getCredential(
+          patch.defaultProviderId,
+        );
+        if (
+          namedDefault &&
+          namedDefault.status === "connected" &&
+          namedDefault.deletedAt === null &&
+          namedDefault.credentialKind === "api_key"
+        )
+          effective.defaultCredentialId = namedDefault.credentialId;
+      }
+      if (effective.defaultCredentialId !== undefined) {
+        const providerId =
+          effective.defaultProviderId ?? current.defaultProviderId;
         const record = await this.options.credentialStore.getConnection(
-          patch.defaultCredentialId,
+          effective.defaultCredentialId,
         );
         if (
           !record ||
@@ -238,7 +260,7 @@ export class ProviderConfigService {
           );
       }
       const response =
-        await this.options.preferenceStore.updatePreferences(patch);
+        await this.options.preferenceStore.updatePreferences(effective);
       await this.options.auditLog.appendAuditEvent({
         eventType: "preferences",
         status: "success",
