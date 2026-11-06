@@ -6,7 +6,7 @@ import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
-interface UseGitStatusResult {
+export interface UseGitStatusResult {
   status: GitStatusResponse | null;
   gitAvailable: boolean;
   loading: boolean;

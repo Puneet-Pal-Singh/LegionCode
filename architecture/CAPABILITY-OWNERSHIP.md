@@ -734,6 +734,13 @@ This ledger records the active wiring for image-bearing conversation context.
 
 ## Plan 058 — Owned current Git operations
 
+Explicit Current Git selection is owned by `useReviewSourceState`. It enables
+SDK status and diff reads against the retained original checkout even after the
+run completes or a saved review was opened. Passive saved-turn review does not
+probe Git. The workspace shell does not suppress an explicit selection based on
+terminal run state; original-lease expiry remains enforced by the hosted owner.
+
+
 | Responsibility | Canonical owner | Active producers and consumers |
 | --- | --- | --- |
 | Git reads and mutations against an execution checkout | Existing `packages/git-service` execution owner, reached through authenticated Brain composition and the existing Secure Agent API execution path | The seven existing Web operations (status, diff, stage/unstage, commit, branch, push, and pull-request creation) will use the typed SDK/App Server path; Web retains only action state and explicit live-review selection. |
