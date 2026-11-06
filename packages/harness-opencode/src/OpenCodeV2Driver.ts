@@ -186,6 +186,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
         if (!sameSession(session, evidence.session))
           throw new OpenCodeTransportError("quiescence binding", true);
         if (evidence.status === "quiescent" && !terminalPublished) {
+          host.fence();
+          capturedNative.fence();
           if (capturedMapper.foregroundEnded) {
             await observe({
               session,
