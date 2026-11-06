@@ -15,6 +15,10 @@ import {
 import { AppServerController } from "../../controllers/AppServerController";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { builtinProviderRegistry } from "@repo/provider-core";
+import type {
+  HarnessAdmissionAccountPort,
+  HarnessAdmissionPrincipal,
+} from "../../runtime/CloudHarnessAdmissionPorts";
 import type { Env } from "../../types/ai";
 import type {
   HostedHarnessConnectionService,
@@ -338,6 +342,91 @@ export function createPostgresHostedHarnessControlPlane(
         }
         throw error;
       }
+    },
+  };
+}
+
+/** Account admission uses the same durable selection and encrypted authority as setup.
+ * Configured instances currently carry no preverified account/host facts, so they
+ * cannot produce execution facts. No credential material is sent to a Worker port.
+ */
+export function createPostgresHarnessAdmissionAccounts(
+  env: Env,
+): HarnessAdmissionAccountPort {
+  const ports = createPostgresHostedHarnessControlPlane(env);
+  const contextFor = (
+    principal: HarnessAdmissionPrincipal,
+  ): HostedHarnessOperationContext => ({
+    userId: principal.userId,
+    workspaceId: principal.workspaceId,
+    environmentId: principal.environmentId,
+    correlationId: principal.runAttemptId,
+    signal: new AbortController().signal,
+  });
+  return {
+    async resolveForAdmission(principal, expected) {
+      const context = contextFor(principal);
+      await ports.authorizeEnvironment(context);
+      if (
+        expected.environmentId !== principal.environmentId ||
+        !expected.selection
+      )
+        throw conflict();
+      const saved = await ports.readSelection(context, {
+        workspaceId: principal.workspaceId,
+        environmentId: principal.environmentId,
+        sessionId: principal.sessionId,
+        threadId: principal.threadId,
+      });
+      if (
+        saved.revision !== expected.selectionRevision ||
+        !saved.selection ||
+        saved.selection.harness !== expected.selection.harness ||
+        saved.selection.instanceId !== expected.selection.instanceId ||
+        saved.selection.connectionId !== expected.selection.connectionId ||
+        saved.selection.modelId !== expected.selection.modelId
+      )
+        throw conflict();
+      const instance = await ports.readInstance(
+        context,
+        expected.selection.instanceId,
+      );
+      const connection = await ports
+        .connectionService(context)
+        .assertUsableConnection(context, expected.selection.connectionId);
+      if (
+        !instance ||
+        !connection ||
+        instance.status.connectionId !== connection.connectionId ||
+        instance.authOwnerGeneration !== connection.ownerGeneration
+      )
+        throw missing();
+      // No self-attestation from a supplied account ID or first provider response.
+      throw unavailable(
+        "Selected account identity and cloud host execution have not been verified",
+      );
+    },
+    async assertForAttempt(principal, selection) {
+      const context = contextFor(principal);
+      await ports.authorizeEnvironment(context);
+      const connection = await ports
+        .connectionService(context)
+        .assertUsableConnection(context, selection.connectionId);
+      if (
+        !connection ||
+        connection.ownerGeneration !== selection.authOwnerGeneration
+      )
+        throw conflict();
+      // Existing immutable bindings do not bypass the current host/account gate.
+      throw unavailable(
+        "Selected account identity and cloud host execution have not been verified",
+      );
+    },
+    async resolveForAttempt(binding) {
+      const context = contextFor(binding);
+      // Full service enforces admitted immutable binding and route policy before
+      // acquisition. This private return is consumed only by the custody owner.
+      return ports.connectionService(context).resolveForAttempt(binding);
     },
   };
 }
