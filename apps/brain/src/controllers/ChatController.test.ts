@@ -1,3 +1,4 @@
+import { createWorkspaceRepository } from "../test-utils/identityTestHelpers";
 import { describe, expect, it, vi } from "vitest";
 import {
   MemoryEventStore,
@@ -30,7 +31,7 @@ const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 describe("ChatController DO runtime migration", () => {
   it("routes execution through RUN_ENGINE_RUNTIME and tags response headers", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       await createChatRequest(env),
@@ -59,7 +60,7 @@ describe("ChatController DO runtime migration", () => {
   it("uses the server-issued thread and run attempt for admission and execution", async () => {
     const runtime = createMockRuntimeNamespace();
     const admissionLimiter = createMockRunAdmissionLimiterNamespace();
-    const env = createEnv(runtime.namespace, {
+    const env = await createEnv(runtime.namespace, {
       runAdmissionLimiter: admissionLimiter.namespace,
     });
     const identity = {
@@ -98,7 +99,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("rejects chat execution without a pre-stream bootstrap identity", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       await createChatRequest(env, { identity: undefined }),
@@ -114,7 +115,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("rejects an identity outside the authorized workspace before execution", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       await createChatRequest(env, {
@@ -136,7 +137,7 @@ describe("ChatController DO runtime migration", () => {
   });
 
   it("fails fast when RUN_ENGINE_RUNTIME binding is unavailable", async () => {
-    const envWithRuntime = createEnv(createMockRuntimeNamespace().namespace);
+    const envWithRuntime = await createEnv(createMockRuntimeNamespace().namespace);
     const envWithoutRuntime = envWithRuntime as unknown as Record<
       string,
       unknown
@@ -156,7 +157,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("forwards provider/model override fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const requestWithProviderModel = await createChatRequest(env, {
       providerId: "openai",
       modelId: "gpt-4",
@@ -179,7 +180,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("forwards deterministic runtime selection defaults to payload", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       await createChatRequest(env),
@@ -210,7 +211,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("fails fast when the quarantined cloudflare_agents route is requested", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const requestWithOverrides = await createChatRequest(env, {
       orchestratorBackend: "cloudflare_agents",
       executionBackend: "e2b",
@@ -229,7 +230,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("forwards repository context fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const requestWithRepoContext = await createChatRequest(env, {
       repositoryOwner: "sourcegraph",
       repositoryName: "legioncode",
@@ -270,7 +271,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("extracts prompt text from structured user message content parts", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const request = await createChatRequest(env, {
       messages: [
         {
@@ -293,7 +294,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("attaches envelope clientMessageId to the latest user message", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const request = await createChatRequest(env, {
       clientMessageId: "client_msg_from_envelope",
       messages: [
@@ -325,7 +326,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("rejects mismatched envelope and latest user message ids", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const request = await createChatRequest(env, {
       clientMessageId: "client_msg_envelope",
       messages: [
@@ -348,7 +349,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("returns validation error for unsupported agentId", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const response = await ChatController.handle(
       await createChatRequest(env, { agentId: "unknown-agent" }),
       env,
@@ -363,7 +364,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("returns validation error when runId is missing", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const response = await ChatController.handle(
       await createChatRequest(env, { runId: undefined }),
       env,
@@ -378,7 +379,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("returns validation error when messages array is empty", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const request = new Request("https://brain.local/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -406,7 +407,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("returns typed deprecation error for legacy /api/chat route", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const response = await ChatController.handleLegacyRoute(
       new Request("https://brain.local/api/chat", {
         method: "POST",
@@ -422,7 +423,7 @@ describe("ChatController DO runtime migration", () => {
 
   it("derives authenticated user/workspace scope for runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
     const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
     const request = new Request("https://brain.local/chat", {
       method: "POST",
@@ -653,14 +654,15 @@ function createMockRuntimeNamespace() {
   return { namespace, idFromName, get, fetch };
 }
 
-function createEnv(
+async function createEnv(
   runEngineRuntime: Env["RUN_ENGINE_RUNTIME"],
   options: {
     runAdmissionLimiter?: Env["RUN_ADMISSION_LIMITER"];
   } = {},
-): Env {
+): Promise<Env> {
   const oauthState = new Map<string, string>();
   const transcripts = new MemoryTranscriptRepository();
+  await transcripts.ensureSession({ sessionId: "session-1", userId: TEST_USER_ID, workspaceId: TEST_WORKSPACE_ID, threadId: "thr_test001" });
   const runs = new MemoryRunRepository();
   const events = new MemoryEventStore();
 
@@ -676,6 +678,7 @@ function createEnv(
       revokeSession: async () => undefined,
     },
     AUTH_TRANSCRIPT_REPOSITORY: transcripts,
+    AUTH_WORKSPACE_REPOSITORY: createWorkspaceRepository(TEST_USER_ID, TEST_WORKSPACE_ID, "123e4567-e89b-42d3-a456-426614174088"),
     AUTH_RUN_REPOSITORY: runs,
     AUTH_LIFECYCLE_EVENT_STORE: new MemoryLifecycleEventStore(),
     AUTH_TURN_ADMISSION_REPOSITORY: createAdmissionFixture(transcripts, runs),
@@ -724,9 +727,9 @@ function createIdentitySessionRecord() {
     },
     createdAt: Date.now(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    workspaceId: TEST_WORKSPACE_ID,
-    defaultWorkspaceId: TEST_WORKSPACE_ID,
-    workspaceIds: [TEST_WORKSPACE_ID],
+    workspaceId: "123e4567-e89b-42d3-a456-426614174088",
+    defaultWorkspaceId: "123e4567-e89b-42d3-a456-426614174088",
+    workspaceIds: ["123e4567-e89b-42d3-a456-426614174088"],
   };
 }
 
