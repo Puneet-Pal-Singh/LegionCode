@@ -1,43 +1,34 @@
 import {
+  CredentialAcquisitionSchema,
+  CredentialSecretSchema,
   ProviderConnectionConfigSchema,
-  type ProviderConnectionConfig,
+  type CredentialAcquisition,
+  type CredentialRefreshClaim,
+  type CredentialSecret,
   type ProviderId,
 } from "@repo/shared-types";
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
+import { CredentialEncryptionService } from "./credential-encryption.js";
 import {
-  CredentialEncryptionService,
-  type EncryptedSecret,
-} from "./credential-encryption.js";
+  acquisition,
+  matches,
+  sameOAuthAccount,
+  ConnectionSecretCodec,
+} from "./connection-custody.js";
 import type {
   CredentialStore,
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   ProviderCredentialRecord,
   SetCredentialInput,
 } from "./types.js";
 import { parseJsonColumn, stringifyJsonColumn } from "./json.js";
 
-interface CredentialRow extends SqlRow {
-  id: string;
-  user_id: string;
-  workspace_id: string;
-  provider_id: string;
-  label: string;
-  key_fingerprint: string;
-  encrypted_secret_json: unknown;
-  connection_config_json: unknown;
-  key_version: string;
-  status: string;
-  last_validated_at: string | null;
-  last_error_code: string | null;
-  last_error_message: string | null;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-}
-
-export class PostgresCredentialStore implements CredentialStore {
+export class PostgresCredentialStore
+  implements CredentialStore, CredentialConnectionStore
+{
   private readonly encryption = new CredentialEncryptionService();
-
+  private readonly codec: ConnectionSecretCodec;
   constructor(
     private readonly client: SqlClient,
     private readonly userId: string,
@@ -45,299 +36,390 @@ export class PostgresCredentialStore implements CredentialStore {
     private readonly masterKey: string,
     private readonly keyVersion: string,
     private readonly previousMasterKey?: string,
-  ) {}
-
+  ) {
+    this.codec = new ConnectionSecretCodec(
+      masterKey,
+      keyVersion,
+      previousMasterKey,
+    );
+  }
   async getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null> {
-    const result = await this.client.query<CredentialRow>(GET_CREDENTIAL_SQL, [
-      this.userId,
-      providerId,
-    ]);
-    const row = result.rows[0];
-    return row ? this.rowToRecord(row) : null;
+    return this.read(
+      "provider_id = $2 AND is_default = TRUE AND deleted_at IS NULL",
+      [providerId],
+    );
   }
-
+  async getConnection(
+    connectionId: string,
+  ): Promise<ProviderCredentialRecord | null> {
+    return this.read("id = $2", [connectionId]);
+  }
   async getCredentialWithKey(
     providerId: ProviderId,
   ): Promise<{ record: ProviderCredentialRecord; apiKey: string } | null> {
-    const result = await this.client.query<CredentialRow>(GET_CREDENTIAL_SQL, [
-      this.userId,
-      providerId,
-    ]);
-    const row = result.rows[0];
-    if (!row) {
+    let record = await this.getCredential(providerId);
+    if (
+      !record ||
+      !matches(record, acquisition(record)) ||
+      record.credentialKind !== "api_key" ||
+      record.refreshClaimId
+    )
       return null;
+    // This is the explicit legacy API-key migration path. Typed acquisitions never accept unbound ciphertext.
+    const secret = await this.codec.decode(record, true);
+    if (secret.type !== "api_key") return null;
+    if (!this.codec.isLegacy(record)) {
+      const current = await this.getConnection(record.credentialId);
+      if (!matches(current, acquisition(record)) || current.refreshClaimId)
+        return null;
+      return { record: current, apiKey: secret.apiKey };
     }
-
-    const encrypted = readEncryptedSecret(row.encrypted_secret_json);
-    const apiKey = await this.encryption.decrypt(encrypted, {
-      masterKey: this.masterKey,
-      previousMasterKey: this.previousMasterKey,
-    });
-
-    return {
-      record: this.rowToRecord(row),
-      apiKey,
-    };
+    const encoded = await this.codec.encode(secret, record);
+    const migrated = await this.update(
+      record,
+      "encrypted_secret_json = $7::jsonb, key_version = $8",
+      [encoded, this.keyVersion],
+      "AND encrypted_secret_json = $9::jsonb",
+      [record.encryptedSecretJson],
+    );
+    if (!migrated) return null;
+    record = migrated;
+    return { record, apiKey: secret.apiKey };
   }
-
   async setCredential(
     input: SetCredentialInput,
   ): Promise<ProviderCredentialRecord> {
-    const credentialId = input.credentialId || crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    if (!this.encryption.isValidKeyFormat(input.apiKey)) {
+    this.authorize(input.userId);
+    if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
+    const existing = await this.getCredential(input.providerId);
+    const record = this.newRecord(
+      input,
+      input.credentialId ?? crypto.randomUUID(),
+      true,
+    );
+    if (existing) {
+      record.credentialId = existing.credentialId;
+      record.authOwnerGeneration = existing.authOwnerGeneration + 1;
+      record.tokenMaterialVersion = existing.tokenMaterialVersion + 1;
+      record.createdAt = existing.createdAt;
     }
-
-    const encrypted = await this.encryption.encrypt(input.apiKey, {
-      keyVersion: this.keyVersion,
-      masterKey: this.masterKey,
-    });
-    const fingerprint = await this.encryption.generateFingerprint(input.apiKey);
-    const workspaceId = input.workspaceId || this.workspaceId;
-
-    const result = await this.client.query<CredentialRow>(
-      UPSERT_CREDENTIAL_SQL,
+    record.encryptedSecretJson = await this.codec.encode(
+      { type: "api_key", apiKey: input.apiKey },
+      record,
+    );
+    record.keyFingerprint = await this.encryption.generateFingerprint(
+      input.apiKey,
+    );
+    if (!existing) return this.insert(record);
+    const result = await this.update(
+      existing,
+      "encrypted_secret_json = $7::jsonb, auth_owner_generation = $8, token_material_version = $9, key_version = $10, key_fingerprint = $11, label = $12, connection_config_json = $13::jsonb, refresh_claim_id = NULL, status = 'connected', credential_kind = 'api_key', last_validated_at = NULL, last_error_code = NULL, last_error_message = NULL",
       [
-        credentialId,
-        this.userId,
-        workspaceId,
-        input.providerId,
-        input.label,
-        fingerprint,
-        JSON.stringify(encrypted),
-        input.connectionConfig ? JSON.stringify(input.connectionConfig) : null,
-        this.keyVersion,
-        "connected",
-        input.createdBy || this.userId,
-        now,
+        record.encryptedSecretJson,
+        record.authOwnerGeneration,
+        record.tokenMaterialVersion,
+        record.keyVersion,
+        record.keyFingerprint,
+        record.label,
+        record.connectionConfig
+          ? JSON.stringify(record.connectionConfig)
+          : null,
       ],
     );
-
-    const row = result.rows[0];
-    if (!row) {
-      throw new Error("Failed to create credential");
-    }
-
-    return this.rowToRecord(row);
+    if (!result)
+      throw new Error(
+        "Credential replacement conflicted with revocation or rotation",
+      );
+    return result;
   }
-
+  async createConnection(
+    input: CreateCredentialConnectionInput,
+  ): Promise<ProviderCredentialRecord> {
+    this.authorize(input.userId);
+    const secret = CredentialSecretSchema.parse(input.secret);
+    const record = this.newRecord(input, crypto.randomUUID(), false);
+    record.credentialKind = secret.type;
+    record.encryptedSecretJson = await this.codec.encode(secret, record);
+    record.keyFingerprint =
+      secret.type === "api_key"
+        ? await this.encryption.generateFingerprint(secret.apiKey)
+        : "unavailable";
+    return this.insert(record);
+  }
+  async acquireConnection(expected: CredentialAcquisition): Promise<{
+    record: ProviderCredentialRecord;
+    secret: CredentialSecret;
+  } | null> {
+    this.authorize(expected.userId);
+    CredentialAcquisitionSchema.parse(expected);
+    const record = await this.getConnection(expected.connectionId);
+    if (!matches(record, expected) || record.refreshClaimId) return null;
+    const secret = await this.codec.decode(record);
+    const current = await this.getConnection(expected.connectionId);
+    if (!matches(current, expected) || current.refreshClaimId) return null;
+    return { record: current, secret };
+  }
+  async claimRefresh(expected: CredentialAcquisition) {
+    this.authorize(expected.userId);
+    CredentialAcquisitionSchema.parse(expected);
+    const before = await this.getConnection(expected.connectionId);
+    if (
+      !matches(before, expected) ||
+      before.credentialKind !== "oauth" ||
+      before.refreshClaimId
+    )
+      return null;
+    const refreshClaimId = crypto.randomUUID();
+    const record = await this.update(
+      before,
+      "refresh_claim_id = $7",
+      [refreshClaimId],
+      "AND refresh_claim_id IS NULL",
+    );
+    if (!record) return null;
+    const secret = await this.codec.decode(record);
+    const current = await this.getConnection(expected.connectionId);
+    if (
+      !matches(current, expected) ||
+      current.refreshClaimId !== refreshClaimId ||
+      secret.type !== "oauth"
+    )
+      return null;
+    return { claim: { ...expected, refreshClaimId }, secret };
+  }
+  async completeRefresh(
+    claim: CredentialRefreshClaim,
+    secret: Extract<CredentialSecret, { type: "oauth" }>,
+  ): Promise<ProviderCredentialRecord | null> {
+    this.authorize(claim.userId);
+    CredentialAcquisitionSchema.parse(acquisitionFromClaim(claim));
+    const before = await this.getConnection(claim.connectionId);
+    if (
+      !matches(before, claim) ||
+      before.refreshClaimId !== claim.refreshClaimId
+    )
+      return null;
+    const previous = await this.codec.decode(before);
+    const parsed = CredentialSecretSchema.parse(secret);
+    if (!sameOAuthAccount(previous, parsed))
+      throw new Error("Refresh cannot change credential ownership or scope");
+    const next = {
+      ...before,
+      tokenMaterialVersion: before.tokenMaterialVersion + 1,
+    };
+    const encoded = await this.codec.encode(parsed, next);
+    return this.update(
+      before,
+      "encrypted_secret_json = $7::jsonb, token_material_version = $8, key_version = $9, refresh_claim_id = NULL",
+      [encoded, next.tokenMaterialVersion, this.keyVersion],
+      "AND refresh_claim_id = $10",
+      [claim.refreshClaimId],
+    );
+  }
+  async revokeConnection(
+    expected: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord | null> {
+    this.authorize(expected.userId);
+    const result = await this.client.query<SqlRow>(
+      `UPDATE provider_credentials SET status = 'revoked', deleted_at = $5, updated_at = $5, auth_owner_generation = auth_owner_generation + 1, refresh_claim_id = NULL, encrypted_secret_json = '{}'::jsonb, is_default = FALSE WHERE user_id = $1 AND id = $2 AND provider_id = $3 AND auth_owner_generation = $4 AND deleted_at IS NULL RETURNING *`,
+      [
+        this.userId,
+        expected.connectionId,
+        expected.providerId,
+        expected.ownerGeneration,
+        new Date().toISOString(),
+      ],
+    );
+    return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;
+  }
   async deleteCredential(providerId: ProviderId): Promise<void> {
-    await this.client.query(DELETE_CREDENTIAL_SQL, [
-      new Date().toISOString(),
-      this.userId,
-      providerId,
-    ] as readonly SqlValue[]);
+    const record = await this.getCredential(providerId);
+    if (record) await this.revokeConnection(acquisition(record));
   }
-
   async listCredentialProviders(): Promise<ProviderId[]> {
     const result = await this.client.query<{ provider_id: string }>(
-      LIST_PROVIDER_IDS_SQL,
+      "SELECT DISTINCT provider_id FROM provider_credentials WHERE user_id = $1 AND is_default = TRUE AND status = 'connected' AND deleted_at IS NULL ORDER BY provider_id",
       [this.userId],
     );
-    return result.rows.map((row) => row.provider_id as ProviderId);
+    return result.rows.map((row) => row.provider_id);
   }
-
   async updateCredentialMetadata(
     providerId: ProviderId,
-    updates: {
-      status?: "connected" | "failed" | "revoked";
-      lastValidatedAt?: string | null;
-      lastErrorCode?: string | null;
-      lastErrorMessage?: string | null;
-    },
+    updates: Parameters<CredentialStore["updateCredentialMetadata"]>[1],
   ): Promise<void> {
-    const setClauses: string[] = ["updated_at = $2"];
-    const params: SqlValue[] = [this.userId, new Date().toISOString()];
-
-    if (updates.status) {
-      setClauses.push(`status = $${params.length + 1}`);
-      params.push(updates.status);
-    }
-    if (updates.lastValidatedAt !== undefined) {
-      setClauses.push(`last_validated_at = $${params.length + 1}`);
-      params.push(updates.lastValidatedAt);
-    }
-    if (updates.lastErrorCode !== undefined) {
-      setClauses.push(`last_error_code = $${params.length + 1}`);
-      params.push(updates.lastErrorCode);
-    }
-    if (updates.lastErrorMessage !== undefined) {
-      setClauses.push(`last_error_message = $${params.length + 1}`);
-      params.push(updates.lastErrorMessage);
-    }
-
-    params.push(providerId);
-
-    await this.client.query(
-      `
-        UPDATE provider_credentials
-        SET ${setClauses.join(", ")}
-        WHERE user_id = $1
-          AND provider_id = $${params.length}
-          AND deleted_at IS NULL
-      `,
-      params,
+    if (updates.status === "revoked") return this.deleteCredential(providerId);
+    const record = await this.getCredential(providerId);
+    if (!record || record.status !== "connected") return;
+    await this.update(
+      record,
+      "status = $7, last_validated_at = $8, last_error_code = $9, last_error_message = $10",
+      [
+        updates.status ?? record.status,
+        updates.lastValidatedAt ?? record.lastValidatedAt,
+        updates.lastErrorCode ?? record.lastErrorCode,
+        updates.lastErrorMessage ?? record.lastErrorMessage,
+      ],
     );
   }
-
-  private rowToRecord(row: CredentialRow): ProviderCredentialRecord {
+  private authorize(userId: string) {
+    if (!userId || userId !== this.userId)
+      throw new Error("Credential scope mismatch");
+  }
+  private async read(
+    predicate: string,
+    values: SqlValue[],
+  ): Promise<ProviderCredentialRecord | null> {
+    const result = await this.client.query<SqlRow>(
+      `SELECT * FROM provider_credentials WHERE user_id = $1 AND ${predicate} LIMIT 1`,
+      [this.userId, ...values],
+    );
+    return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;
+  }
+  private async update(
+    before: ProviderCredentialRecord,
+    set: string,
+    values: SqlValue[],
+    extra = "",
+    extraValues: SqlValue[] = [],
+  ): Promise<ProviderCredentialRecord | null> {
+    const result = await this.client.query<SqlRow>(
+      `UPDATE provider_credentials SET ${set}, updated_at = $6 WHERE user_id = $1 AND id = $2 AND auth_owner_generation = $3 AND token_material_version = $4 AND status = $5 AND status <> 'revoked' AND deleted_at IS NULL ${extra} RETURNING *`,
+      [
+        this.userId,
+        before.credentialId,
+        before.authOwnerGeneration,
+        before.tokenMaterialVersion,
+        before.status,
+        new Date().toISOString(),
+        ...values,
+        ...extraValues,
+      ],
+    );
+    return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;
+  }
+  private newRecord(
+    input: {
+      providerId: ProviderId;
+      label: string;
+      connectionConfig?: ProviderCredentialRecord["connectionConfig"];
+    },
+    connectionId: string,
+    isDefault: boolean,
+  ): ProviderCredentialRecord {
+    if (
+      input.connectionConfig &&
+      ProviderConnectionConfigSchema.parse(input.connectionConfig)
+        .providerId !== input.providerId
+    )
+      throw new Error("Credential configuration scope mismatch");
+    const now = new Date().toISOString();
     return {
-      credentialId: row.id,
-      userId: row.user_id,
-      workspaceId: row.workspace_id,
-      providerId: row.provider_id as ProviderId,
-      label: row.label,
-      keyFingerprint: row.key_fingerprint,
+      credentialId: connectionId,
+      userId: this.userId,
+      workspaceId: this.workspaceId,
+      providerId: input.providerId,
+      label: input.label,
+      authOwnerGeneration: 1,
+      tokenMaterialVersion: 1,
+      credentialKind: "api_key",
+      refreshClaimId: null,
+      isDefault,
+      keyFingerprint: "unavailable",
+      encryptedSecretJson: "{}",
+      connectionConfig: input.connectionConfig,
+      keyVersion: this.keyVersion,
+      status: "connected",
+      lastValidatedAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+  }
+  private async insert(
+    r: ProviderCredentialRecord,
+  ): Promise<ProviderCredentialRecord> {
+    const result = await this.client.query<SqlRow>(
+      `INSERT INTO provider_credentials (id,user_id,workspace_id,provider_id,label,key_fingerprint,encrypted_secret_json,connection_config_json,key_version,status,created_by,created_at,updated_at,auth_owner_generation,token_material_version,credential_kind,refresh_claim_id,is_default) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$12,$13,$14,$15,NULL,$16) RETURNING *`,
+      [
+        r.credentialId,
+        r.userId,
+        r.workspaceId,
+        r.providerId,
+        r.label,
+        r.keyFingerprint,
+        r.encryptedSecretJson,
+        r.connectionConfig ? JSON.stringify(r.connectionConfig) : null,
+        r.keyVersion,
+        r.status,
+        r.userId,
+        r.createdAt,
+        r.authOwnerGeneration,
+        r.tokenMaterialVersion,
+        r.credentialKind,
+        r.isDefault,
+      ],
+    );
+    if (!result.rows[0]) throw new Error("Credential creation failed");
+    return this.rowToRecord(result.rows[0]);
+  }
+  private rowToRecord(row: SqlRow): ProviderCredentialRecord {
+    const integer = (v: unknown): number => {
+      const n = Number(v);
+      if (!Number.isSafeInteger(n) || n < 1)
+        throw new Error("Invalid credential generation");
+      return n;
+    };
+    const config =
+      row.connection_config_json == null
+        ? undefined
+        : ProviderConnectionConfigSchema.parse(
+            parseJsonColumn(row.connection_config_json, "connection config"),
+          );
+    const kind = row.credential_kind;
+    if (kind !== "api_key" && kind !== "oauth" && kind !== "external_reference")
+      throw new Error("Invalid credential kind");
+    const status = row.status;
+    if (status !== "connected" && status !== "failed" && status !== "revoked")
+      throw new Error("Invalid credential status");
+    if (row.user_id !== this.userId || typeof row.is_default !== "boolean")
+      throw new Error("Credential scope mismatch");
+    return {
+      credentialId: String(row.id),
+      userId: String(row.user_id),
+      workspaceId: String(row.workspace_id),
+      providerId: String(row.provider_id),
+      label: String(row.label),
+      authOwnerGeneration: integer(row.auth_owner_generation),
+      tokenMaterialVersion: integer(row.token_material_version),
+      credentialKind: kind,
+      refreshClaimId:
+        row.refresh_claim_id == null ? null : String(row.refresh_claim_id),
+      isDefault: row.is_default,
+      keyFingerprint: String(row.key_fingerprint),
       encryptedSecretJson: stringifyJsonColumn(row.encrypted_secret_json),
-      connectionConfig: readConnectionConfig(row.connection_config_json),
-      keyVersion: row.key_version,
-      status: row.status as "connected" | "failed" | "revoked",
-      lastValidatedAt: row.last_validated_at,
-      lastErrorCode: row.last_error_code,
-      lastErrorMessage: row.last_error_message,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      deletedAt: row.deleted_at,
+      connectionConfig: config,
+      keyVersion: String(row.key_version),
+      status,
+      lastValidatedAt: nullable(row.last_validated_at),
+      lastErrorCode: nullable(row.last_error_code),
+      lastErrorMessage: nullable(row.last_error_message),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      deletedAt: nullable(row.deleted_at),
     };
   }
 }
-
-function readEncryptedSecret(value: unknown): EncryptedSecret {
-  const parsed = parseJsonColumn(value, "encrypted secret payload");
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Invalid encrypted secret payload");
-  }
-
-  const record = parsed as Record<string, unknown>;
-  if (
-    typeof record.ciphertext !== "string" ||
-    typeof record.iv !== "string" ||
-    typeof record.tag !== "string" ||
-    typeof record.keyVersion !== "string"
-  ) {
-    throw new Error("Invalid encrypted secret payload");
-  }
-
-  return {
-    alg: "AES-256-GCM",
-    ciphertext: record.ciphertext,
-    iv: record.iv,
-    tag: record.tag,
-    keyVersion: record.keyVersion,
-  };
+function nullable(value: unknown): string | null {
+  return value == null ? null : String(value);
 }
-
-function readConnectionConfig(
-  value: unknown,
-): ProviderConnectionConfig | undefined {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-  const parsed = parseJsonColumn(value, "connection config payload");
-  if (parsed === null || parsed === undefined) {
-    return undefined;
-  }
-  const result = ProviderConnectionConfigSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error("Invalid provider connection config payload");
-  }
-  return result.data;
+function acquisitionFromClaim(
+  c: CredentialRefreshClaim,
+): CredentialAcquisition {
+  const { refreshClaimId: _, ...expected } = c;
+  return expected;
 }
-
-const GET_CREDENTIAL_SQL = `
-  SELECT
-    id,
-    user_id,
-    workspace_id,
-    provider_id,
-    label,
-    key_fingerprint,
-    encrypted_secret_json,
-    connection_config_json,
-    key_version,
-    status,
-    last_validated_at,
-    last_error_code,
-    last_error_message,
-    created_by,
-    created_at,
-    updated_at,
-    deleted_at
-  FROM provider_credentials
-  WHERE user_id = $1
-    AND provider_id = $2
-    AND deleted_at IS NULL
-  LIMIT 1
-`;
-
-const UPSERT_CREDENTIAL_SQL = `
-  INSERT INTO provider_credentials (
-    id,
-    user_id,
-    workspace_id,
-    provider_id,
-    label,
-    key_fingerprint,
-    encrypted_secret_json,
-    connection_config_json,
-    key_version,
-    status,
-    created_by,
-    created_at,
-    updated_at
-  )
-  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $12)
-  ON CONFLICT (user_id, provider_id)
-  WHERE deleted_at IS NULL
-  DO UPDATE SET
-    label = EXCLUDED.label,
-    encrypted_secret_json = EXCLUDED.encrypted_secret_json,
-    connection_config_json = EXCLUDED.connection_config_json,
-    key_version = EXCLUDED.key_version,
-    key_fingerprint = EXCLUDED.key_fingerprint,
-    status = 'connected',
-    last_validated_at = NULL,
-    last_error_code = NULL,
-    last_error_message = NULL,
-    updated_at = EXCLUDED.updated_at,
-    deleted_at = NULL
-  RETURNING
-    id,
-    user_id,
-    workspace_id,
-    provider_id,
-    label,
-    key_fingerprint,
-    encrypted_secret_json,
-    connection_config_json,
-    key_version,
-    status,
-    last_validated_at,
-    last_error_code,
-    last_error_message,
-    created_by,
-    created_at,
-    updated_at,
-    deleted_at
-`;
-
-const DELETE_CREDENTIAL_SQL = `
-  UPDATE provider_credentials
-  SET deleted_at = $1,
-      updated_at = $1
-  WHERE user_id = $2
-    AND provider_id = $3
-    AND deleted_at IS NULL
-`;
-
-const LIST_PROVIDER_IDS_SQL = `
-  SELECT DISTINCT provider_id
-  FROM provider_credentials
-  WHERE user_id = $1
-    AND deleted_at IS NULL
-  ORDER BY provider_id
-`;

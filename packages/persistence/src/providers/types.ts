@@ -1,4 +1,7 @@
 import type {
+  CredentialSecret,
+  CredentialAcquisition,
+  CredentialRefreshClaim,
   BYOKDiscoveredProviderModel,
   BYOKModelDiscoverySource,
   BYOKPreferences,
@@ -46,6 +49,11 @@ export function buildProviderAuditStatusSqlList(): string {
 
 export interface ProviderCredentialRecord {
   credentialId: string;
+  authOwnerGeneration: number;
+  tokenMaterialVersion: number;
+  credentialKind: CredentialSecret["type"];
+  refreshClaimId: string | null;
+  isDefault: boolean;
   userId: string;
   workspaceId: string;
   providerId: ProviderId;
@@ -72,6 +80,39 @@ export interface SetCredentialInput {
   apiKey: string;
   connectionConfig?: ProviderConnectionConfig;
   createdBy?: string;
+}
+
+export interface CreateCredentialConnectionInput {
+  userId: string;
+  providerId: ProviderId;
+  label: string;
+  secret: CredentialSecret;
+  connectionConfig?: ProviderConnectionConfig;
+}
+export interface CredentialConnectionStore {
+  createConnection(
+    input: CreateCredentialConnectionInput,
+  ): Promise<ProviderCredentialRecord>;
+  getConnection(connectionId: string): Promise<ProviderCredentialRecord | null>;
+  acquireConnection(
+    expected: CredentialAcquisition,
+  ): Promise<{
+    record: ProviderCredentialRecord;
+    secret: CredentialSecret;
+  } | null>;
+  claimRefresh(
+    expected: CredentialAcquisition,
+  ): Promise<{
+    claim: CredentialRefreshClaim;
+    secret: Extract<CredentialSecret, { type: "oauth" }>;
+  } | null>;
+  completeRefresh(
+    claim: CredentialRefreshClaim,
+    secret: Extract<CredentialSecret, { type: "oauth" }>,
+  ): Promise<ProviderCredentialRecord | null>;
+  revokeConnection(
+    expected: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord | null>;
 }
 
 export interface CredentialStore {
