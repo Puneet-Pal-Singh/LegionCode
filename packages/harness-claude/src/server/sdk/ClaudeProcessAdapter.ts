@@ -1,3 +1,4 @@
+import { frozenClaudeLaunchEnvironment } from "../ClaudeAuthentication.js";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type {
@@ -72,6 +73,9 @@ class DeferredClaudeProcess extends EventEmitter implements SpawnedProcess {
 /** This translates only SDK plumbing; launch must use the host's enforced execution policy. */
 export function claudeProcessAdapter(
   launch: (options: SpawnOptions) => Promise<SpawnedProcess>,
+  selectedEnvironment: Readonly<Record<string, string | undefined>>,
 ): NonNullable<Options["spawnClaudeCodeProcess"]> {
-  return (options) => new DeferredClaudeProcess(() => launch(options));
+  const environment = frozenClaudeLaunchEnvironment(selectedEnvironment);
+  return (options) =>
+    new DeferredClaudeProcess(() => launch({ ...options, env: environment }));
 }

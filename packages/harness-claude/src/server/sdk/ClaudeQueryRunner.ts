@@ -1,3 +1,4 @@
+import { frozenClaudeLaunchEnvironment } from "../ClaudeAuthentication.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   Options,
@@ -68,10 +69,18 @@ export class ClaudeQueryRunner {
 
   constructor(options: RunnerOptions) {
     const { beforeTool, ...sdkOptions } = options;
+    const launchEnvironment = frozenClaudeLaunchEnvironment(options.env);
     this.sdk = query({
       prompt: this.input,
       options: {
         ...sdkOptions,
+        env: { ...launchEnvironment },
+        // SDK env handling is version-sensitive. Do not forward its spawn env to the host.
+        spawnClaudeCodeProcess: (spawnOptions) =>
+          options.spawnClaudeCodeProcess({
+            ...spawnOptions,
+            env: launchEnvironment,
+          }),
         abortController: this.abort,
         canUseTool: fencedClaudePermission(
           options.canUseTool,
