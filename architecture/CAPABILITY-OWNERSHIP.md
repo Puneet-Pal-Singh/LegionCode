@@ -1,5 +1,16 @@
 # Capability ownership
 
+## Unused Web run-summary reader retirement
+
+The unreferenced `useRunSummary` hook, its implementation-only tests and its
+architecture allowlist entry are removed. No production caller used this
+direct HTTP reader or its global cache. Active conversation lifecycle stays
+with the SDK projection/continuation and runtime append owners. The shared
+refresh event remains in use by `useChatCore`, `useGitStatus` and
+`useEditArtifactReviewSource`; their existing safeguards and the backend summary
+operation are preserved. No browser records, server history or stored bytes are
+read, rewritten or deleted by this code retirement.
+
 ## Original completed checkout retention
 
 | Responsibility | Canonical owner | Active producer and consumers |
