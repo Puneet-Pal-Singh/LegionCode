@@ -317,6 +317,39 @@ describe("secure-agent-api plugin hardening", () => {
     expect(absolute.success).toBe(false);
     expect(absolute.error).toMatch(/absolute paths are not allowed/i);
     expect(errorSpy).toHaveBeenCalledTimes(2);
+    const borrowedContext = { ...pluginTestExecutionContext({ runId: "run-safe-3" }), borrowedLease: true };
+    const borrowedExec = vi.fn(async () => ({ exitCode: 0, stdout: "/etc/passwd\n", stderr: "" }));
+    const escaped = { ...createSandboxMock(), execIfRunning: borrowedExec };
+    const symlink = await plugin.execute(asSandbox(escaped), { action: "read_file", runId: "run-safe-3", path: "linked.txt" }, undefined, borrowedContext);
+    expect(symlink.success).toBe(false);
+    expect(symlink.error).toMatch(/escapes workspace root/);
+    expect(escaped.execCalls).toHaveLength(0);
+    expect(borrowedExec).toHaveBeenCalledTimes(1);
+    expect(borrowedExec).toHaveBeenCalledWith(expect.stringContaining("'realpath'"), expect.anything());
+    const deniedWrite = await plugin.execute(asSandbox(escaped), { action: "write_file", runId: "run-safe-3", path: "a.txt", content: "denied" }, undefined, borrowedContext);
+    expect(deniedWrite.success).toBe(false);
+    expect(borrowedExec).toHaveBeenCalledTimes(1);
+    expect(escaped.execCalls.some((command) => command.includes("'mkdir'"))).toBe(false);
+    const names = Array.from({ length: 205 }, (_, index) => `file-${String(index).padStart(3, "0")}.txt`);
+    const listingExec = vi.fn(async (command: string) => ({ exitCode: 0,
+      stdout: command.includes("'realpath'") ? "/home/sandbox/checkouts/run-safe-3\n" : names.join("\n") + "\n", stderr: "" }));
+    const listingSandbox = { ...createSandboxMock(), execIfRunning: listingExec };
+    const firstPage = await plugin.execute(asSandbox(listingSandbox), {
+      action: "list_files", runId: "run-safe-3", path: ".", offset: 0, limit: 200,
+    }, undefined, borrowedContext);
+    expect(firstPage.success).toBe(true);
+    expect(firstPage.output).toContain("file-199.txt");
+    expect(firstPage.output).not.toContain("file-200.txt");
+    expect(firstPage.output).toContain("... and 5 more files (Total: 205)");
+    const lastPage = await plugin.execute(asSandbox(listingSandbox), {
+      action: "list_files", runId: "run-safe-3", path: ".", offset: 200, limit: 200,
+    }, undefined, borrowedContext);
+    expect(lastPage.output).toBe(names.slice(200).join("\n"));
+    expect(listingSandbox.execCalls).toHaveLength(0);
+    const normalSandbox = createSandboxMockWithResponder((command) => ({ exitCode: 0,
+      stdout: command.includes("'ls'") ? names.join("\n") + "\n" : "", stderr: "" }));
+    const normalPage = await plugin.execute(asSandbox(normalSandbox), { action: "list_files", runId: "run-safe-3", path: "." });
+    expect(normalPage.output).toBe(names.slice(0, 20).join("\n") + "\n\n... and 185 more files (Total: 205)");
     errorSpy.mockRestore();
   });
 
@@ -524,13 +557,14 @@ function installScopedExecutionFixture<T extends { prototype: IPlugin }>(
     sandbox,
     payload,
     onLog,
+    context,
   ) {
     return execute.call(
       this,
       sandbox,
       payload,
       onLog,
-      pluginTestExecutionContext(payload),
+      context ?? pluginTestExecutionContext(payload),
     );
   });
 }

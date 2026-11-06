@@ -1,24 +1,18 @@
 import type { RefObject } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import type { DiffContent } from "@repo/shared-types";
-import type { Repository } from "../../../services/GitHubService";
 import type { FileExplorerHandle } from "../../FileExplorer";
 import type { SelectedDiff, SelectedFile, TabType } from "./useWorkspaceState";
 
 interface UseSidebarOrchestrationProps {
   activeRunId: string;
-  status: { branch?: string } | null | undefined;
-  repo: Repository | null;
-  branch: string;
-  isContextMismatch: boolean;
-  isGitHubLoaded: boolean;
+  canonicalRunStatus?: string | null;
   isHydrating: boolean;
   isViewingContent: boolean;
   activeContentTabId: string | null;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
-  switchBranch: (branch: string) => void;
-  handleFileClick: (path: string) => Promise<void> | void;
+  restoreLastViewedFile: () => void | void;
   explorerRef: RefObject<FileExplorerHandle | null>;
   setIsViewingContent: (viewing: boolean) => void;
   setActiveTab: (tab: TabType) => void;
@@ -32,18 +26,13 @@ export interface UseSidebarOrchestrationResult {
 
 export function useSidebarOrchestration({
   activeRunId,
-  status,
-  repo,
-  branch,
-  isContextMismatch,
-  isGitHubLoaded,
+  canonicalRunStatus,
   isHydrating,
   isViewingContent,
   activeContentTabId,
   selectedFile,
   selectedDiff,
-  switchBranch,
-  handleFileClick,
+  restoreLastViewedFile,
   explorerRef,
   setIsViewingContent,
   setActiveTab,
@@ -75,35 +64,18 @@ export function useSidebarOrchestration({
 
   useEffect(() => {
     explorerRef.current?.refresh();
-  }, [activeRunId, explorerRef]);
+  }, [activeRunId, canonicalRunStatus, explorerRef]);
 
-  useEffect(() => {
-    if (isContextMismatch || !isGitHubLoaded || !repo) return;
-    const currentWorkspaceBranch = status?.branch?.trim();
-    const currentGitHubContextBranch = branch?.trim();
-    if (!currentWorkspaceBranch || !currentGitHubContextBranch) return;
-    if (currentWorkspaceBranch === currentGitHubContextBranch) return;
-    switchBranch(currentWorkspaceBranch);
-  }, [
-    branch,
-    isContextMismatch,
-    isGitHubLoaded,
-    repo,
-    status?.branch,
-    switchBranch,
-  ]);
 
   useEffect(() => {
     if (isHydrating) return;
-    const savedPath = localStorage.getItem("legioncode_last_viewed_path");
     if (
       isViewingContent &&
       activeContentTabId !== "files" &&
-      savedPath &&
       !selectedFile &&
       !selectedDiff
     ) {
-      void handleFileClick(savedPath);
+      restoreLastViewedFile();
     }
   }, [
     isHydrating,
@@ -111,7 +83,7 @@ export function useSidebarOrchestration({
     activeContentTabId,
     selectedFile,
     selectedDiff,
-    handleFileClick,
+    restoreLastViewedFile,
   ]);
 
   return { handleSidebarDiffSelected };

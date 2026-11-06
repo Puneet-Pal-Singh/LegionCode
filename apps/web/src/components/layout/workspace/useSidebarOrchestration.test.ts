@@ -16,53 +16,48 @@ describe("useSidebarOrchestration", () => {
   it("keeps changed-file diffs in the Review tab", () => {
     const setActiveTab = vi.fn();
     const setIsViewingContent = vi.fn();
-    const { result } = renderHook(() =>
+    const refresh = vi.fn();
+    const explorerRef = { current: { refresh } };
+    const { result, rerender } = renderHook(({ canonicalRunStatus }) =>
       useSidebarOrchestration({
         activeRunId: "run-1",
-        status: null,
-        repo: null,
-        branch: "main",
-        isContextMismatch: false,
-        isGitHubLoaded: false,
+        canonicalRunStatus,
         isHydrating: false,
         isViewingContent: false,
         activeContentTabId: null,
         selectedFile: null,
         selectedDiff: null,
-        switchBranch: vi.fn(),
-        handleFileClick: vi.fn(),
-        explorerRef: { current: null },
+        restoreLastViewedFile: vi.fn(),
+        explorerRef,
         setIsViewingContent,
         setActiveTab,
         reviewSidebarFocusRequest: 0,
       }),
+      { initialProps: { canonicalRunStatus: "RUNNING" } },
     );
 
     result.current.handleSidebarDiffSelected("src/example.ts", diff);
 
     expect(setActiveTab).toHaveBeenCalledWith("review");
     expect(setIsViewingContent).toHaveBeenCalledWith(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    rerender({ canonicalRunStatus: "COMPLETED" });
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it("does not restore the last file over the Open file workspace", () => {
     localStorage.setItem("legioncode_last_viewed_path", "tsconfig.json");
-    const handleFileClick = vi.fn();
+    const restoreLastViewedFile = vi.fn();
 
     renderHook(() =>
       useSidebarOrchestration({
         activeRunId: "run-1",
-        status: null,
-        repo: null,
-        branch: "main",
-        isContextMismatch: false,
-        isGitHubLoaded: false,
         isHydrating: false,
         isViewingContent: true,
         activeContentTabId: "files",
         selectedFile: null,
         selectedDiff: null,
-        switchBranch: vi.fn(),
-        handleFileClick,
+        restoreLastViewedFile,
         explorerRef: { current: null },
         setIsViewingContent: vi.fn(),
         setActiveTab: vi.fn(),
@@ -70,6 +65,6 @@ describe("useSidebarOrchestration", () => {
       }),
     );
 
-    expect(handleFileClick).not.toHaveBeenCalled();
+    expect(restoreLastViewedFile).not.toHaveBeenCalled();
   });
 });

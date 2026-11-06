@@ -13,6 +13,7 @@ import {
   readToolboxCommandContext,
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
+import { WorkspacePathResolver } from "./filesystem/WorkspacePathResolver";
 import { RipgrepService } from "./filesystem/RipgrepService";
 import { WorkspaceEditService } from "./filesystem/WorkspaceEditService";
 import { LanguageToolService } from "./filesystem/LanguageToolService";
@@ -49,6 +50,8 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("list_files"),
     path: z.string().optional(),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
     runId: z.string().optional(),
   }),
   z.object({
@@ -133,7 +136,7 @@ export class FileSystemPlugin implements IPlugin {
   ): Promise<PluginResult> {
     const startedAt = Date.now();
     try {
-      const toolboxContext = readToolboxCommandContext(payload);
+      const toolboxContext = { ...readToolboxCommandContext(payload), borrowedLease: context?.borrowedLease };
       const parsedPayload = FileSystemPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsedPayload.runId ?? toolboxContext.runId);
       const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
@@ -143,7 +146,10 @@ export class FileSystemPlugin implements IPlugin {
         );
       }
 
-      await runSafeCommand(
+      if (toolboxContext.borrowedLease && parsedPayload.action !== "list_files" && parsedPayload.action !== "read_file") {
+        throw new Error("Borrowed checkouts only permit file listing and reading");
+      }
+      if (!toolboxContext.borrowedLease) await runSafeCommand(
         sandbox,
         withToolboxCommandContext(
           { command: "mkdir", args: ["-p", workspaceRoot], runId },
@@ -302,7 +308,9 @@ export class FileSystemPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const targetDir = resolveWorkspacePath(workspaceRoot, payload.path ?? ".");
+    const targetDir = toolboxContext.borrowedLease
+      ? await new WorkspacePathResolver().resolve({ sandbox, workspaceRoot, toolboxContext, runId }, payload.path ?? ".", "filesystem.resolve_list_path")
+      : resolveWorkspacePath(workspaceRoot, payload.path ?? ".");
     const result = await runSafeCommand(
       sandbox,
       withToolboxCommandContext(
@@ -321,16 +329,17 @@ export class FileSystemPlugin implements IPlugin {
       .trim()
       .split("\n")
       .filter((entry) => entry.length > 0);
-    const totalFiles = files.length;
-    if (totalFiles > 20) {
-      const limited = files.slice(0, 20).join("\n");
-      return {
-        success: true,
-        output: `${limited}\n\n... and ${totalFiles - 20} more files (Total: ${totalFiles})`,
-      };
-    }
-
-    return { success: true, output: result.stdout };
+    const offset = payload.offset ?? 0;
+    const limit = payload.limit ?? 20;
+    const page = files.slice(offset, offset + limit);
+    const remaining = Math.max(0, files.length - offset - page.length);
+    if (offset === 0 && remaining === 0) return { success: true, output: result.stdout };
+    return {
+      success: true,
+      output: page.join("\n") + (remaining > 0
+        ? `\n\n... and ${remaining} more files (Total: ${files.length})`
+        : ""),
+    };
   }
 
   private async readFile(
@@ -340,7 +349,9 @@ export class FileSystemPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
+    const targetPath = toolboxContext.borrowedLease
+      ? await new WorkspacePathResolver().resolve({ sandbox, workspaceRoot, toolboxContext, runId }, payload.path, "filesystem.resolve_read_path")
+      : resolveWorkspacePath(workspaceRoot, payload.path);
     let totalBytes: number | undefined;
     if (shouldGuardUnconditionalRead(payload)) {
       const statResult = await runSafeCommand(
