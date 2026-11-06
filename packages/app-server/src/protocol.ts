@@ -25,6 +25,8 @@ import {
   ThreadIdSchema,
   ThreadSchema,
   RunIdSchema,
+  TurnIdSchema,
+  RunAttemptIdSchema,
   TurnScopeBootstrapSchema,
   TurnScopeBootstrapRequestSchema,
   TurnScopeReadQuerySchema,
@@ -178,6 +180,8 @@ const ArtifactReviewLookupResultSchema = z.object({
 );
 export const CheckoutReadParamsSchema = z.object({
   runId: RunIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
   sessionId: z.string().min(1),
   path: z.string().min(1).max(4096),
 }).strict();

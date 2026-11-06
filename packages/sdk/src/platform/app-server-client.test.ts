@@ -168,7 +168,7 @@ describe("AppServerClient", () => {
       method: "artifact/codeContent",
       params: codeContentRequest,
     });
-    const checkout = { runId: RunIdSchema.parse("run_123456"), sessionId: "owned-session", path: "." };
+    const checkout = { turnId: TurnIdSchema.parse("trn_123456"), runAttemptId: RunAttemptIdSchema.parse("attempt_123456"), runId: RunIdSchema.parse("run_123456"), sessionId: "owned-session", path: "." };
     await expect(client.listCheckoutFiles(checkout)).resolves.toEqual({ entries: [{ name: "src", type: "directory" }], truncated: false });
     await expect(client.readCheckoutFile({ ...checkout, path: "src/index.ts" })).resolves.toEqual({ output: "owned file contents", isBinary: false });
     expect(sent.slice(-2).map(({ method, params }) => ({ method, params }))).toEqual([

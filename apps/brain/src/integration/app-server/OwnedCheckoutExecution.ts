@@ -22,7 +22,7 @@ export async function resolveOwnedCheckoutExecution(
   request: Request,
   env: Env,
   userId: string,
-  params: { runId: string; sessionId?: string },
+  params: { runId: string; sessionId?: string; turnId?: string; runAttemptId?: string },
 ): Promise<OwnedCheckoutExecution> {
   const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
   const scope = await resolveExecutionScope(request, env, params.runId, correlationId);
@@ -37,10 +37,11 @@ export async function resolveOwnedCheckoutExecution(
   }
 
   const admission = await withTurnAdmissionRepository(env, (repository) =>
-    repository.getBySessionAndRunId(run.sessionId, run.id),
+    params.turnId ? repository.getByTurnId(params.turnId) : repository.getBySessionAndRunId(run.sessionId, run.id),
   );
   if (
-    !admission || admission.userId !== userId ||
+    !admission || admission.userId !== userId || admission.runId !== run.id || admission.sessionId !== run.sessionId ||
+    (params.runAttemptId !== undefined && admission.runAttemptId !== params.runAttemptId) ||
     admission.workspaceId !== scope.workspaceId || admission.state !== "admitted"
   ) {
     throw checkoutNotFound("No owned turn checkout exists for this run");
