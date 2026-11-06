@@ -1,3 +1,4 @@
+import { desktopAuthChallengesMigration } from "./0036-desktop-auth-challenges.js";
 import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
 import { identitySessionBootstrapMigration } from "./0002-identity-session-bootstrap.js";
 import { workspaceBootstrapMigration } from "./0003-workspace-bootstrap.js";
@@ -114,4 +115,5 @@ export const persistenceMigrations = [
   threadInputsAndContinuationsMigration,
   legacyHistoryImportReceiptsMigration,
   projectlessSessionRepositoryMigration,
+  desktopAuthChallengesMigration,
 ] as const;
