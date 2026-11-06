@@ -44,7 +44,7 @@ export interface DesktopAuthOperations {
     origin: string;
   }): Promise<
     | { status: "pending" }
-    | { status: "issued"; sessionToken: string }
+    | { status: "issued"; sessionToken: string; userId: string }
     | { status: "invalid" }
   >;
 }
@@ -171,13 +171,17 @@ export function createDesktopAuthController(operations: DesktopAuthOperations) {
         if (result.status !== "issued") return failure();
         // Only the canonical authority can produce this fresh session. Its
         // plaintext token exists only long enough to form an HttpOnly cookie.
-        return new Response(null, {
-          status: 204,
-          headers: {
-            ...privateHeaders(),
-            "Set-Cookie": createSessionCookie(result.sessionToken),
+        return new Response(
+          JSON.stringify({ status: "issued", userId: result.userId }),
+          {
+            status: 200,
+            headers: {
+              ...privateHeaders(),
+              "Content-Type": "application/json",
+              "Set-Cookie": createSessionCookie(result.sessionToken),
+            },
           },
-        });
+        );
       } catch (error) {
         return failure(
           error instanceof DesktopAuthBoundaryError ||

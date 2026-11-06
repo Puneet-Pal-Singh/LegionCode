@@ -1,8 +1,13 @@
-import { createHash, randomBytes } from "node:crypto";
-import { session, shell } from "electron";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { session, shell, type Session } from "electron";
 import { z } from "zod";
 
-export const HOSTED_AUTH_SESSION_PARTITION = "legioncode-hosted";
+export type HostedAuthConnection = {
+  readonly session: Session;
+  readonly userId: string;
+};
+// Candidate partitions are private, ephemeral, and never shared with a renderer.
+const CANDIDATE_PARTITION_PREFIX = "legioncode-hosted-auth-";
 const INTENT = "desktop-cloud-session-v1";
 const MAX_RESPONSE_BYTES = 8_192;
 const MAX_LOGIN_MS = 5 * 60_000;
@@ -14,6 +19,13 @@ const ChallengeSchema = z
     expiresAt: z.string().datetime({ offset: true }),
   })
   .strict();
+const IssuedSchema = z
+  .object({ status: z.literal("issued"), userId: z.string().min(1) })
+  .strict();
+const SessionSchema = z.object({
+  authenticated: z.literal(true),
+  user: z.object({ id: z.string().min(1) }),
+});
 const PendingSchema = z
   .object({
     status: z.literal("authorization_pending"),
@@ -36,6 +48,7 @@ export class HostedAuth {
   private controller: AbortController | null = null;
   private operation: Promise<HostedAuthState> | null = null;
   private current: HostedAuthState = "idle";
+  private authenticatedConnection: HostedAuthConnection | null = null;
   private redeemGeneration: number | null = null;
   private readonly origin: string;
 
@@ -63,8 +76,16 @@ export class HostedAuth {
     return this.current;
   }
 
+  /** Main-only reference. Never serialize this object over renderer IPC. */
+  getAuthenticatedConnection(): HostedAuthConnection | null {
+    return this.current === "authenticated"
+      ? this.authenticatedConnection
+      : null;
+  }
+
   signIn(): Promise<HostedAuthState> {
     if (this.operation) return this.operation;
+    this.authenticatedConnection = null;
     const generation = ++this.generation;
     const controller = new AbortController();
     this.controller = controller;
@@ -84,6 +105,7 @@ export class HostedAuth {
     this.controller?.abort();
     this.controller = null;
     this.operation = null;
+    this.authenticatedConnection = null;
     this.update(uncertain ? "redemption_uncertain" : "cancelled");
   }
 
@@ -92,6 +114,12 @@ export class HostedAuth {
     controller: AbortController,
   ): Promise<HostedAuthState> {
     let redemptionSent = false;
+    // The session belongs to this operation, not mutable current selection. An
+    // old response can affect only this candidate, which remains unpublished
+    // after cancellation or an uncertain outcome.
+    const candidate = session.fromPartition(
+      `${CANDIDATE_PARTITION_PREFIX}${randomUUID()}`,
+    );
     const timeout = setTimeout(() => controller.abort(), MAX_LOGIN_MS);
     // Verifier exists only in this bounded main-process operation. Persist only
     // its S256 challenge on the server; never put it in the browser URL.
@@ -100,6 +128,7 @@ export class HostedAuth {
       this.update("authorizing");
       const startedAt = Date.now();
       const challengeResponse = await this.post(
+        candidate,
         "/auth/desktop/challenges",
         {
           codeChallenge: createHash("sha256")
@@ -131,6 +160,7 @@ export class HostedAuth {
         redemptionSent = true;
         this.redeemGeneration = generation;
         const response = await this.post(
+          candidate,
           "/auth/desktop/redeem",
           {
             challengeId: challenge.challengeId,
@@ -145,24 +175,34 @@ export class HostedAuth {
           // Only an explicit pending receipt proves no session was minted and
           // permits another poll. Any ambiguous delivery ends this operation.
           redemptionSent = false;
-          if (this.redeemGeneration === generation) this.redeemGeneration = null;
+          if (this.redeemGeneration === generation)
+            this.redeemGeneration = null;
           await pause(
             Math.min(pending.retryAfterMs, Math.max(0, deadline - Date.now())),
             controller.signal,
           );
           continue;
         }
-        if (response.status !== 204) {
+        if (response.status !== 200) {
           await response.body?.cancel();
           throw new Error("Redemption rejected");
         }
+        const issued = IssuedSchema.parse(await readJson(response));
         this.assertCurrent(generation, controller.signal);
-        // Electron's isolated session accepts Set-Cookie directly. There is no
-        // cookie extraction/copy and no provider credential involved here.
-        const verified = await this.getSession(controller.signal);
-        if (!verified) throw new Error("Session unavailable");
+        // Verify the issued identity against this fresh candidate's cookie jar;
+        // an existing Desktop/browser account cannot satisfy this correlation.
+        const verifiedUserId = await this.getSession(
+          candidate,
+          controller.signal,
+        );
+        if (verifiedUserId !== issued.userId)
+          throw new Error("Session identity mismatch");
         this.assertCurrent(generation, controller.signal);
         this.redeemGeneration = null;
+        this.authenticatedConnection = Object.freeze({
+          session: candidate,
+          userId: issued.userId,
+        });
         this.update("authenticated");
         return this.current;
       }
@@ -184,52 +224,48 @@ export class HostedAuth {
   }
 
   private async post(
+    candidate: Session,
     path: string,
     body: Record<string, string>,
     signal: AbortSignal,
     credentials: RequestCredentials,
   ): Promise<Response> {
-    return session
-      .fromPartition(HOSTED_AUTH_SESSION_PARTITION)
-      .fetch(`${this.origin}${path}`, {
-        method: "POST",
-        redirect: "error",
-        credentials,
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.any([
-          signal,
-          AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        ]),
-      });
+    return candidate.fetch(`${this.origin}${path}`, {
+      method: "POST",
+      redirect: "error",
+      credentials,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([
+        signal,
+        AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      ]),
+    });
   }
 
-  private async getSession(signal: AbortSignal): Promise<boolean> {
-    const response = await session
-      .fromPartition(HOSTED_AUTH_SESSION_PARTITION)
-      .fetch(`${this.origin}/auth/session`, {
-        method: "GET",
-        credentials: "include",
-        redirect: "error",
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.any([
-          signal,
-          AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        ]),
-      });
+  private async getSession(
+    candidate: Session,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    const response = await candidate.fetch(`${this.origin}/auth/session`, {
+      method: "GET",
+      credentials: "include",
+      redirect: "error",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.any([
+        signal,
+        AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      ]),
+    });
     if (!response.ok) {
       await response.body?.cancel();
-      return false;
+      return null;
     }
-    return z
-      .object({
-        authenticated: z.literal(true),
-        user: z.object({ id: z.string().min(1) }),
-      })
-      .safeParse(await readJson(response)).success;
+    const verified = SessionSchema.safeParse(await readJson(response));
+    return verified.success ? verified.data.user.id : null;
   }
 
   private assertCurrent(generation: number, signal: AbortSignal): void {

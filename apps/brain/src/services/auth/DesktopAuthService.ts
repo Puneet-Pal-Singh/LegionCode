@@ -91,7 +91,7 @@ export function composeDesktopAuthOperations(env: Env): DesktopAuthOperations {
         }),
       );
       return result.status === "issued"
-        ? { status: "issued", sessionToken }
+        ? { status: "issued", sessionToken, userId: result.userId }
         : result;
     },
   };
