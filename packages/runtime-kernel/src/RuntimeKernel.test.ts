@@ -17,6 +17,7 @@ import type {
   RuntimeLifecycleEventStore,
 } from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
+import type { ApprovalResolution } from "./types.js";
 import {
   MemoryLifecycleEventSink,
   approvalRequest,
@@ -624,6 +625,58 @@ describe("RuntimeKernel canonical lifecycle", () => {
         reason: null,
       }),
     ).rejects.toMatchObject({ code: "turn_not_active" });
+
+    const failingSink = createLifecycleSink();
+    const failure = new Error("Approval append failed");
+    const appendBatch = failingSink.appendBatch.bind(failingSink);
+    let rejectFirstDecision = true;
+    vi.spyOn(failingSink, "appendBatch").mockImplementation(async (events) => {
+      if (
+        rejectFirstDecision &&
+        events.some((event) => event.type === "approval.decided")
+      ) {
+        rejectFirstDecision = false;
+        throw failure;
+      }
+      return appendBatch(events);
+    });
+    const failingPorts = createPorts();
+    failingPorts.provider.generateNext = vi.fn(async () => toolStep());
+    failingPorts.toolAuthorization.authorize =
+      ports.toolAuthorization.authorize;
+    failingPorts.approvals.waitForDecision = vi.fn(
+      () => new Promise(() => undefined),
+    );
+    const failingKernel = await createKernel(failingSink, failingPorts);
+    const failedExecution = failingKernel.startTurn({
+      run,
+      turn,
+      runAttemptId,
+    });
+    // Attach immediately: failure must reject the active turn, not strand its wait.
+    const executionFailure = expect(failedExecution).rejects.toBe(failure);
+    await vi.waitFor(() =>
+      expect(failingPorts.approvals.waitForDecision).toHaveBeenCalledOnce(),
+    );
+    await expect(
+      failingKernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+        decision: "approved",
+        decidedBy: run.userId,
+        reason: null,
+      }),
+    ).rejects.toBe(failure);
+    await executionFailure;
+    expect(failingPorts.worker.executeTool).not.toHaveBeenCalled();
+    expect(terminalEvents(failingSink).map((event) => event.type)).toEqual([
+      "turn.failed",
+    ]);
+    expect(
+      failingSink.events.filter(
+        (event) =>
+          event.type === "approval.decided" &&
+          event.payload.status === "approved",
+      ),
+    ).toHaveLength(0);
   });
 
   it("rejects a reusable scope that the pending approval did not offer", async () => {
@@ -719,19 +772,81 @@ describe("RuntimeKernel canonical lifecycle", () => {
       toolCall,
       request: approvalRequest,
     }));
-    ports.approvals.waitForDecision = vi.fn(async () => ({
-      decision: "denied" as const,
+    let deliverCompetingDecision!: (resolution: ApprovalResolution) => void;
+    ports.approvals.waitForDecision = vi.fn(
+      () =>
+        new Promise<ApprovalResolution>((resolve) => {
+          deliverCompetingDecision = resolve;
+        }),
+    );
+    let releaseDecision!: () => void;
+    let decisionStarted!: () => void;
+    const decisionBlocked = new Promise<void>((resolve) => {
+      releaseDecision = resolve;
+    });
+    const decisionAppending = new Promise<void>((resolve) => {
+      decisionStarted = resolve;
+    });
+    const appendBatch = sink.appendBatch.bind(sink);
+    vi.spyOn(sink, "appendBatch").mockImplementation(async (events) => {
+      if (events.some((event) => event.type === "approval.decided")) {
+        decisionStarted();
+        await decisionBlocked;
+      }
+      return appendBatch(events);
+    });
+    const kernel = await createKernel(sink, ports);
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await vi.waitFor(() =>
+      expect(ports.approvals.waitForDecision).toHaveBeenCalledOnce(),
+    );
+    const denied: ApprovalResolution = {
+      decision: "denied",
       decidedBy: run.userId,
       reason: "Denied by user.",
-    }));
-    const kernel = await createKernel(sink, ports);
-
-    await expect(
-      kernel.startTurn({ run, turn, runAttemptId }),
-    ).resolves.toMatchObject({
+    };
+    const submitted = { ...denied };
+    const winningDecision = kernel.resolveApproval(
+      turn.id,
+      approvalRequest.approvalId,
+      submitted,
+    );
+    // Caller mutation cannot change the already claimed canonical decision.
+    submitted.decision = "approved";
+    await decisionAppending;
+    const competitors = Promise.allSettled(
+      Array.from({ length: 32 }, (_, index) =>
+        kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+          ...denied,
+          decision: index % 2 === 0 ? "approved" : "denied",
+        }),
+      ),
+    );
+    deliverCompetingDecision({ ...denied, decision: "approved" });
+    await Promise.resolve();
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+    releaseDecision();
+    await winningDecision;
+    const outcomes = await competitors;
+    expect(
+      outcomes.filter((outcome) => outcome.status === "fulfilled"),
+    ).toHaveLength(16);
+    expect(
+      outcomes.filter((outcome) => outcome.status === "rejected"),
+    ).toHaveLength(16);
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected")
+        expect(outcome.reason).toMatchObject({
+          code: "approval_already_active",
+        });
+    }
+    await expect(execution).resolves.toMatchObject({
       status: "completed",
       output: "I will continue with a permitted approach.",
     });
+    expect(
+      sink.events.find((event) => event.type === "approval.decided")?.payload,
+    ).toMatchObject({ status: "denied" });
 
     expect(ports.worker.executeTool).not.toHaveBeenCalled();
     expect(ports.provider.generateNext).toHaveBeenNthCalledWith(
@@ -940,11 +1055,23 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
 
     const conversationSink = createLifecycleSink();
-    const conversation = new RuntimeKernel({ lifecycleEvents: conversationSink, ...ports, producerId: "conversation-test" });
-    await expect(conversation.startTurn({ run: { ...run, executionCapability: "conversation" }, turn, runAttemptId })).rejects.toMatchObject({ code: "turn_cancelled" });
+    const conversation = new RuntimeKernel({
+      lifecycleEvents: conversationSink,
+      ...ports,
+      producerId: "conversation-test",
+    });
+    await expect(
+      conversation.startTurn({
+        run: { ...run, executionCapability: "conversation" },
+        turn,
+        runAttemptId,
+      }),
+    ).rejects.toMatchObject({ code: "turn_cancelled" });
     expect(terminalEvents(conversationSink)).toHaveLength(1);
     expect(conversationSink.events.at(-1)?.type).toBe("turn.interrupted");
-    expect(eventTypes(conversationSink)).not.toContain("workspace.snapshot_captured");
+    expect(eventTypes(conversationSink)).not.toContain(
+      "workspace.snapshot_captured",
+    );
   });
 
   it("settles a stop queued before kernel execution through the canonical lifecycle", async () => {
