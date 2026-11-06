@@ -66,7 +66,7 @@ async function resolveRuntimeCredential(
   const credential = await vault.resolveRuntimeCredential(providerId);
   const isCurrent = () => vault === credentialVault && state.activeMutations === 0 && state.revision === revision;
   if (!isCurrent()) throw new Error("Protected provider credential changed during delivery");
-  return { credential, isCurrent };
+  return { credential, canDeliver: isCurrent };
 }
 
 async function providerRequestHeaders(
