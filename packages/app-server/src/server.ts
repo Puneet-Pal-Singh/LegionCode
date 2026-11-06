@@ -1,4 +1,4 @@
-import type { CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
+import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
@@ -17,6 +17,7 @@ import type {
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
 import type {
+  TurnAdmission,
   ChatRequestBody,
   HostedChatSubmissionResult,
   CompactTurnRequest,
@@ -64,6 +65,14 @@ export type AppServerComposition = {
     contents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   };
   threadService?: LocalThreadService;
+  localTurnService?: {
+    startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
+    getTurn(turnId: TurnId): Promise<TurnAdmission>;
+    readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
+    replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+    interruptTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
+    submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+  };
   providerService?: LocalProviderService;
   hostedProviderDiscoveryService?: {
     catalog(runId?: string): Promise<{ providers: ProviderRegistryEntry[] }>;
@@ -110,7 +119,7 @@ export type AppServerComposition = {
     execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult>;
   };
   hostedTurnCommandsService?: {
-    interruptTurn(params: Extract<AppServerRequest, { method: "turn/interrupt" }>["params"]): Promise<InterruptTurnResponse>;
+    interruptTurn(params: Extract<Extract<AppServerRequest, { method: "turn/interrupt" }>["params"], { sessionId: string }>): Promise<InterruptTurnResponse>;
   };
   hostedThreadInputOperationsService?: {
     execute(command: ThreadInputCommand): Promise<AppServerMethodOutcome>;
@@ -344,6 +353,18 @@ async function dispatch(
       if (!composition.hostedSessionPullRequestService) throw new Error("unsupported");
       return composition.hostedSessionPullRequestService.read(request.params.sessionId);
     }
+    case "turn/start": {
+      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
+      return { admission: await composition.localTurnService.startTurn(request.params) };
+    }
+    case "turn/get": {
+      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
+      return { admission: await composition.localTurnService.getTurn(request.params.turnId) };
+    }
+    case "thread/history": {
+      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
+      return composition.localTurnService.readHistory(request.params);
+    }
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
       return composition.hostedTurnScopeService.reserve(request.params);
@@ -358,6 +379,13 @@ async function dispatch(
       return composition.hostedTurnScopeService.read(request.params);
     }
     case "turn/interrupt": {
+      if (composition.environment === "local") {
+        if (!composition.localTurnService || "sessionId" in request.params) throw new Error("unsupported");
+        return composition.localTurnService.interruptTurn(request.params);
+      }
+      if (!("sessionId" in request.params)) {
+        throw new AppServerOperationError(400, "invalid_request", "Hosted interruption requires its session scope");
+      }
       if (!composition.hostedTurnCommandsService) throw new Error("unsupported");
       return composition.hostedTurnCommandsService.interruptTurn(request.params);
     }
@@ -373,6 +401,10 @@ async function dispatch(
       return composition.hostedThreadInputOperationsService.execute(request.params);
     }
     case "turn/lifecycleEvents": {
+      if (composition.environment === "local") {
+        if (!composition.localTurnService) throw new Error("unsupported");
+        return composition.localTurnService.replayLifecycleEvents(request.params);
+      }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
     }
@@ -381,6 +413,10 @@ async function dispatch(
       return composition.hostedLifecycleOperationsService.getTurnDiff(request.params);
     }
     case "turn/approval": {
+      if (composition.environment === "local") {
+        if (!composition.localTurnService) throw new Error("unsupported");
+        return composition.localTurnService.submitLifecycleApproval(request.params);
+      }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
     }
