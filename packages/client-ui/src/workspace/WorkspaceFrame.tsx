@@ -80,9 +80,16 @@ export function WorkspaceFrame({
       const sidebarElement = sidebarRef.current;
       if (!sidebarElement) return;
 
-      const focusable = Array.from(
-        sidebarElement.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
-      ).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
+      // Thread details/rename are portaled, but their owning row already names
+      // the dialog through aria-describedby. Keep those controls in this drawer.
+      const ownedDialogs = Array.from(sidebarElement.querySelectorAll<HTMLElement>("[aria-describedby]"))
+        .flatMap((element) => (element.getAttribute("aria-describedby") ?? "").split(/\s+/))
+        .map((id) => document.getElementById(id))
+        .filter((element): element is HTMLElement => Boolean(element?.getAttribute("role") === "dialog"));
+      const focusRoots = [sidebarElement, ...ownedDialogs];
+      const focusable = focusRoots.flatMap((element) => Array.from(
+        element.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
+      )).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
       if (focusable.length === 0) {
         event.preventDefault();
         sidebarElement.focus();
@@ -92,10 +99,11 @@ export function WorkspaceFrame({
       const first = focusable[0]!;
       const last = focusable[focusable.length - 1]!;
       const activeElement = document.activeElement;
-      if (event.shiftKey && (activeElement === first || !sidebarElement.contains(activeElement))) {
+      const isOwnedFocus = focusRoots.some((element) => element.contains(activeElement));
+      if (event.shiftKey && (activeElement === first || !isOwnedFocus)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && (activeElement === last || !sidebarElement.contains(activeElement))) {
+      } else if (!event.shiftKey && (activeElement === last || !isOwnedFocus)) {
         event.preventDefault();
         first.focus();
       }
