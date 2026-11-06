@@ -67,6 +67,9 @@ describe("hosted App Server integration", () => {
       method: "artifact/codeContent",
       serverError: { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false },
     });
+    await expect(client.harness.status({ workspaceId: "123e4567-e89b-42d3-a456-426614174111", environmentId: "cloud-1" })).rejects.toMatchObject({
+      code: "server_error", serverCode: "unauthorized", method: "harness/status",
+    });
     const checkout = { turnId: TurnIdSchema.parse("trn_123456"), runAttemptId: RunAttemptIdSchema.parse("attempt_123456"), runId: RunIdSchema.parse("run_123456"), sessionId: "session-123456", path: "README.md" };
     await expect(client.listCheckoutFiles(checkout)).rejects.toMatchObject({ serverCode: "unauthorized", method: "checkout/listFiles" });
     await expect(client.readCheckoutFile(checkout)).rejects.toMatchObject({ serverCode: "unauthorized", method: "checkout/readFile" });

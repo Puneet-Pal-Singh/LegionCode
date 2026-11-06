@@ -92,6 +92,23 @@ describe("App Server protocol", () => {
       params: { ...interrupt.params, userId: "another-user" },
     }).success).toBe(false);
 
+    const harnessScope = { workspaceId: "123e4567-e89b-42d3-a456-426614174111", environmentId: "cloud-1" };
+    const harnessSelection = { ...harnessScope, sessionId: "session-123456", threadId: "thr_123456" };
+    for (const command of [
+      { method: "harness/setup", params: { ...harnessScope, instanceId: "codex-personal", connectionId: "connection-1", harness: "codex", clientCommandId: "setup-1" } },
+      { method: "harness/status", params: harnessScope },
+      { method: "harness/models", params: { ...harnessScope, instanceId: "codex-personal", connectionId: "connection-1" } },
+      { method: "harness/selection/read", params: harnessSelection },
+      { method: "harness/selection/select", params: { ...harnessSelection, clientCommandId: "select-1", expectedRevision: 0, selection: { harness: "codex", instanceId: "codex-personal", connectionId: "connection-1", modelId: "gpt-5" } } },
+    ]) {
+      const envelope = { protocolVersion: APP_SERVER_PROTOCOL_VERSION, ...command };
+      expect(AppServerRequestSchema.safeParse(envelope).success).toBe(true);
+      for (const extra of [{ userId: "other-user" }, { apiKey: "must-not-enter-public-state" }, { filesystemRoot: "/tmp/unowned" }, { processGeneration: 1 }]) {
+        expect(AppServerRequestSchema.safeParse({ ...envelope, params: { ...command.params, ...extra } }).success).toBe(false);
+      }
+    }
+    expect(AppServerRequestSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/selection/select", params: { ...harnessSelection, clientCommandId: "select-1", expectedRevision: -1, selection: null } }).success).toBe(false);
+
     const threadScope = {
       threadId: "thr_123456",
       workspaceId: "123e4567-e89b-42d3-a456-426614174111",

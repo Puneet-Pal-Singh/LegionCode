@@ -390,3 +390,29 @@ export type {
   HostedWorkspaceListItem,
   HostedWorkspaceListResponse,
 } from "@repo/platform-protocol";
+
+export { createHarnessClient, type HarnessClient } from "./harness/client.js";
+export {
+  HarnessSetupRequestSchema,
+  HarnessSetupResponseSchema,
+  HarnessStatusRequestSchema,
+  HarnessStatusResponseSchema,
+  HarnessModelsRequestSchema,
+  HarnessModelsResponseSchema,
+  HarnessSelectionReadRequestSchema,
+  HarnessSelectRequestSchema,
+  HarnessSelectionResponseSchema,
+  HarnessNextSelectionSchema,
+  HarnessInstanceStatusSchema,
+  type HarnessSetupRequest,
+  type HarnessSetupResponse,
+  type HarnessStatusRequest,
+  type HarnessStatusResponse,
+  type HarnessModelsRequest,
+  type HarnessModelsResponse,
+  type HarnessSelectionReadRequest,
+  type HarnessSelectRequest,
+  type HarnessSelectionResponse,
+  type HarnessNextSelection,
+  type HarnessInstanceStatus,
+} from "@repo/platform-protocol";
