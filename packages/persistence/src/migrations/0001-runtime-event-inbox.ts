@@ -1,3 +1,4 @@
+import { harnessRecoveryReplyClaimsMigration } from "./0039-harness-recovery-reply-claims.js";
 import { harnessControlPlaneMigration } from "./0038-harness-control-plane.js";
 import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
 import { harnessBindingsMigration } from "./0035-harness-bindings.js";
@@ -120,4 +121,5 @@ export const persistenceMigrations = [
   harnessBindingsMigration,
   providerConnectionCustodyMigration,
   harnessControlPlaneMigration,
+  harnessRecoveryReplyClaimsMigration,
 ] as const;

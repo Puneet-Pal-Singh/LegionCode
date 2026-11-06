@@ -387,3 +387,6 @@ export { providerConnectionCustodyMigration } from "./migrations/0037-provider-c
 export { PostgresHarnessControlPlaneRepository, HarnessControlPlaneConflictError } from "./harness/PostgresHarnessControlPlaneRepository.js";
 export type { HarnessControlPlaneScope, StoredHarnessInstance, FreezeHarnessAdmissionInput } from "./harness/PostgresHarnessControlPlaneRepository.js";
 export { harnessControlPlaneMigration } from "./migrations/0038-harness-control-plane.js";
+
+export { PostgresHarnessObservationCommitPort } from "./harness/PostgresHarnessObservationCommitPort.js";
+export { harnessRecoveryReplyClaimsMigration } from "./migrations/0039-harness-recovery-reply-claims.js";
