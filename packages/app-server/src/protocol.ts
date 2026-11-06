@@ -248,6 +248,8 @@ export const LOCAL_WORKSPACE_PATH_MAX_BYTES = 500;
 // At six JSON bytes per raw control byte this remains below the 1 MiB transport cap.
 // Services reject larger files with 413/workspace_file_too_large, never partial content.
 export const LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES = 64 * 1024;
+export const LOCAL_WORKSPACE_DIRECTORY_PAGE_MAX_BYTES = 64 * 1024;
+export const LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS = 16 * 1024;
 const LocalWorkspaceRelativePathSchema = z.string().min(1).max(LOCAL_WORKSPACE_PATH_MAX_BYTES).refine(
   (path) => new TextEncoder().encode(path).byteLength <= LOCAL_WORKSPACE_PATH_MAX_BYTES &&
     !path.includes("\0") && !path.includes("\\") &&
@@ -257,20 +259,42 @@ const LocalWorkspaceRelativePathSchema = z.string().min(1).max(LOCAL_WORKSPACE_P
 export const LocalWorkspaceListFilesParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   path: LocalWorkspaceRelativePathSchema,
-  offset: z.number().int().min(0).max(1_000_000).optional(),
+  cursor: z.string().min(1).max(LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS).regex(/^[A-Za-z0-9_-]+$/).nullable().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
 }).strict();
 export const LocalWorkspaceReadFileParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   path: LocalWorkspaceRelativePathSchema.refine((path) => path !== ".", "Read requires a file path"),
 }).strict();
-export const LocalWorkspaceListFilesResultSchema = CheckoutListFilesResultSchema.refine(
-  (result) => result.entries.every((entry) => new TextEncoder().encode(entry.name).byteLength <= LOCAL_WORKSPACE_PATH_MAX_BYTES),
-  "Workspace directory names must fit the native path byte bound",
+export const LocalWorkspaceFileEntrySchema = z.object({
+  name: LocalWorkspaceRelativePathSchema.refine((name) => name !== "." && !name.includes("/"), "Directory entry requires one name"),
+  path: LocalWorkspaceRelativePathSchema,
+  kind: z.enum(["file", "directory", "symlink", "other"]),
+  bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  mode: z.number().int().min(0).max(0o7777),
+  unavailableReason: z.literal("reserved_path").optional(),
+}).strict();
+export const LocalWorkspaceListFilesResultSchema = z.object({
+  path: LocalWorkspaceRelativePathSchema,
+  entries: z.array(LocalWorkspaceFileEntrySchema).max(200),
+  truncated: z.boolean(),
+  nextCursor: z.string().min(1).max(LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS).regex(/^[A-Za-z0-9_-]+$/).nullable(),
+}).strict().refine(
+  (result) => result.truncated === (result.nextCursor !== null) && (!result.truncated || result.entries.length > 0),
+  "A truncated directory page must include entries and its opaque next cursor",
+).refine(
+  (result) => result.entries.every((entry) => entry.path === (result.path === "." ? entry.name : `${result.path}/${entry.name}`)),
+  "Directory entries must belong to the returned relative directory",
+).refine(
+  (result) => new TextEncoder().encode(JSON.stringify(result)).byteLength <= LOCAL_WORKSPACE_DIRECTORY_PAGE_MAX_BYTES,
+  "Workspace directory page exceeds the native serialized byte budget",
 );
 export const LocalWorkspaceReadFileResultSchema = CheckoutReadFileResultSchema.refine(
   (result) => new TextEncoder().encode(result.output).byteLength <= LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES,
   "Workspace file exceeds the 64 KiB preview limit",
 );
+export type LocalWorkspaceFileEntry = z.infer<typeof LocalWorkspaceFileEntrySchema>;
+export type LocalWorkspaceListFilesResult = z.infer<typeof LocalWorkspaceListFilesResultSchema>;
 export type LocalWorkspaceListFilesParams = z.infer<typeof LocalWorkspaceListFilesParamsSchema>;
 export type LocalWorkspaceReadFileParams = z.infer<typeof LocalWorkspaceReadFileParamsSchema>;
 

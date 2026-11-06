@@ -7,6 +7,7 @@ import {
   LocalWorkspaceListFilesParamsSchema,
   LocalWorkspaceReadFileParamsSchema,
   type LocalWorkspaceListFilesParams,
+  type LocalWorkspaceListFilesResult,
   type LocalWorkspaceReadFileParams,
   LocalTurnStartParamsSchema,
   LocalTurnInterruptParamsSchema,
@@ -232,7 +233,7 @@ export type AppServerClient = {
   listRepositoryBranches(params: RepositoryBranchesRequest): Promise<RepositoryBranchesResponse>;
   getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
-  listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<CheckoutListFilesResult>;
+  listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;

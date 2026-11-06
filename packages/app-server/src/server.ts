@@ -1,4 +1,4 @@
-import type { LocalWorkspaceListFilesParams, LocalWorkspaceReadFileParams } from "./protocol.js";
+import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
@@ -56,7 +56,7 @@ export type AppServerComposition = {
   serverVersion: string;
   workspaceService?: LocalWorkspaceService;
   localWorkspaceFilesService?: {
-    listFiles(params: LocalWorkspaceListFilesParams): Promise<CheckoutListFilesResult>;
+    listFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
     readFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   };
   hostedWorkspaceService?: {
