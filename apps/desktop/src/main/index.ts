@@ -93,6 +93,7 @@ handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
   localAppServer.getEnvironment(),
 );
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
+  if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
   environmentGeneration += 1;
   pendingWorkspaceSelections.clear();
   await localAppServer.restart(app.getVersion());
@@ -245,9 +246,15 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
-    shutdownPromise = localAppServer.stop().finally(() => {
+    shutdownPromise = localAppServer.stop().then(() => {
       isQuitting = true;
       app.quit();
+    }).catch(() => {
+      shutdownPromise = null;
+      dialog.showErrorBox(
+        "Local runtime is still running",
+        "LegionCode could not confirm that its local runtime stopped. Try quitting again.",
+      );
     });
   }
 });
