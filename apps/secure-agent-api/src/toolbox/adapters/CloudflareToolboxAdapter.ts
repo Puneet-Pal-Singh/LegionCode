@@ -12,6 +12,12 @@ export class CloudflareToolboxAdapter implements ToolboxCommandExecutor {
     command: string,
     options?: ToolboxCommandExecutionOptions,
   ): Promise<ToolboxCommandResult> {
+    if (options?.borrowedLease) {
+      return await this.sandbox.execIfRunning(command, {
+        cwd: options.cwd,
+        env: options.env,
+      });
+    }
     return await executeWithSandboxSessionRetry(this.sandbox, command, options);
   }
 }

@@ -108,7 +108,7 @@ vi.mock("../../hooks/useGitCommit", () => ({
   }),
 }));
 
-vi.mock("../../lib/git-client.js", () => ({
+vi.mock("../../services/api/gitOperations.js", () => ({
   createGitBranch: vi.fn(async () => ({ branch: "feature/test" })),
   pushGitBranch: vi.fn(async () => ({ branch: "feature/test" })),
   stageGitFiles: vi.fn(async () => undefined),
@@ -429,7 +429,7 @@ describe("GitReviewProvider", () => {
       isDeleted: false,
     }));
 
-    render(
+    const { rerender } = render(
       <GitReviewProvider
         isReviewOpen={false}
         isReviewDataEnabled={false}
@@ -454,6 +454,29 @@ describe("GitReviewProvider", () => {
       expect.objectContaining({ enabled: false }),
     );
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+
+    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    rerender(
+      <GitReviewProvider
+        isReviewOpen={true}
+        isReviewDataEnabled={false}
+        canonicalTurnReview={{
+          turnId: "trn_review001",
+          files: [buildFileStatus("src/app.ts")],
+          loadFileDiff,
+          error: null,
+        }}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "select live git" }));
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("src/live.ts");
   });
 
   it("switches same-path historical review to its selected canonical turn diff", async () => {

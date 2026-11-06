@@ -5,6 +5,7 @@ export {
 } from "./providers/app-server-transport.js";
 export {
   AppServerClientError,
+  GitMutationError,
   createAppServerClient,
   type AppServerClient,
   type AppServerClientOptions,

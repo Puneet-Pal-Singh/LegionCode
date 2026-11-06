@@ -104,12 +104,17 @@ export class GitPlugin implements IPlugin {
     context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
-      const toolboxContext = readToolboxCommandContext(payload);
+      const toolboxContext = {
+        ...readToolboxCommandContext(payload),
+        borrowedLease: context?.borrowedLease,
+      };
       const parsed = GitPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
       const worktree = resolveScopedWorkspaceRoot(context, runId);
 
-      await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
+      if (!context?.borrowedLease) {
+        await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
+      }
 
       switch (parsed.action) {
         case "git_status":

@@ -128,6 +128,7 @@ import { Sandbox } from "@cloudflare/sandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
+  handleBorrowSession,
   handleResumeSession,
   handleExecuteTask,
   handleCancelTask,
@@ -272,6 +273,12 @@ export default {
             response = await handleCreateSession(request, stub);
           }
         }
+      } else if (
+        /^\/api\/v1\/session\/[^/]+\/borrow$/u.test(url.pathname) &&
+        request.method === "POST"
+      ) {
+        const authResponse = enforceInternalServiceBinding(request, env);
+        response = authResponse ?? (await handleBorrowSession(request, stub));
       } else if (
         /^\/api\/v1\/session\/[^/]+\/resume$/u.test(url.pathname) &&
         request.method === "POST"

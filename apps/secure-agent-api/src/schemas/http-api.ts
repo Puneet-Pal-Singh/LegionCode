@@ -87,6 +87,26 @@ export const SessionResumeRequestSchema = z
 
 export type SessionResumeRequest = z.infer<typeof SessionResumeRequestSchema>;
 
+export const SessionBorrowRequestSchema = z.object({
+  runId: z.string().min(1),
+  workspaceScope: WorkspaceScopeSchema,
+  lease: z.object({
+    leaseId: z.string().min(1),
+    sandboxId: z.string().min(1),
+    generation: z.number().int().nonnegative(),
+  }).strict(),
+}).strict().superRefine((value, context) => {
+  if (value.workspaceScope.runId !== value.runId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["workspaceScope", "runId"],
+      message: "workspaceScope.runId must match runId",
+    });
+  }
+});
+
+export type SessionBorrowRequest = z.infer<typeof SessionBorrowRequestSchema>;
+
 /**
  * Task Execution Schemas
  */
@@ -98,6 +118,11 @@ export const ExecuteTaskRequestSchema = z.object({
   params: z.record(z.unknown()),
   timeout: z.number().int().positive().optional(),
   retryable: z.boolean().optional(),
+  borrowedLease: z.object({
+    leaseId: z.string().min(1),
+    sandboxId: z.string().min(1),
+    generation: z.number().int().nonnegative(),
+  }).strict().optional(),
 });
 
 export type ExecuteTaskRequest = z.infer<typeof ExecuteTaskRequestSchema>;
