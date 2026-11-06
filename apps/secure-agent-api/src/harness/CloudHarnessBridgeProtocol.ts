@@ -1,109 +1,23 @@
 import { z } from "zod";
 import {
-  HarnessStartCommandSchema,
-  HarnessSessionSchema,
-  HarnessControlCommandSchema,
-  HarnessObservationSchema,
-  HarnessCommitAckSchema,
-  HarnessQuiescenceSchema,
+  HarnessServiceRequestSchema,
+  HarnessServiceResultSchema,
+  HarnessServiceObservationFrameSchema,
+  HarnessServiceAckFrameSchema,
+  HarnessServiceErrorFrameSchema,
   type HarnessSession,
   type HarnessStartCommand,
+  type HarnessServiceRequest,
 } from "@repo/worker-protocol";
-
-// Transport envelopes only. All domain values use the canonical private schemas.
-const id = z.string().uuid();
-const request = { type: z.literal("request"), requestId: id };
-export const CloudHarnessRequestSchema = z.discriminatedUnion("operation", [
-  z
-    .object({
-      ...request,
-      operation: z.literal("open"),
-      command: HarnessStartCommandSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...request,
-      operation: z.literal("execute"),
-      command: HarnessStartCommandSchema,
-      session: HarnessSessionSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...request,
-      operation: z.literal("observe"),
-      session: HarnessSessionSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...request,
-      operation: z.literal("control"),
-      command: HarnessControlCommandSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...request,
-      operation: z.literal("quiescence"),
-      session: HarnessSessionSchema,
-      timeoutMs: z.number().int().min(1).max(60_000),
-    })
-    .strict(),
-]);
-export type CloudHarnessRequest = z.infer<typeof CloudHarnessRequestSchema>;
-const result = { type: z.literal("result"), requestId: id };
-export const CloudHarnessResultSchema = z.discriminatedUnion("operation", [
-  z
-    .object({
-      ...result,
-      operation: z.literal("open"),
-      value: HarnessSessionSchema,
-    })
-    .strict(),
-  z
-    .object({ ...result, operation: z.literal("execute"), value: z.null() })
-    .strict(),
-  z
-    .object({ ...result, operation: z.literal("observe"), value: z.null() })
-    .strict(),
-  z
-    .object({
-      ...result,
-      operation: z.literal("control"),
-      value: z.object({ accepted: z.boolean() }).strict(),
-    })
-    .strict(),
-  z
-    .object({
-      ...result,
-      operation: z.literal("quiescence"),
-      value: HarnessQuiescenceSchema,
-    })
-    .strict(),
-]);
-export const CloudHarnessObservationFrameSchema = z
-  .object({
-    type: z.literal("observation"),
-    deliveryId: id,
-    observation: HarnessObservationSchema,
-  })
-  .strict();
-export const CloudHarnessAckFrameSchema = z
-  .object({
-    type: z.literal("ack"),
-    deliveryId: id,
-    ack: HarnessCommitAckSchema,
-  })
-  .strict();
-export const CloudHarnessErrorFrameSchema = z
-  .object({
-    type: z.literal("error"),
-    requestId: id,
-    code: z.enum(["unavailable", "invalid_request", "recovery_required"]),
-  })
-  .strict();
+// One canonical private service/bridge schema family. The Node-private peer has
+// no service-binding connect/connected frame; those belong to the Worker hop.
+export const CloudHarnessRequestSchema = HarnessServiceRequestSchema;
+export type CloudHarnessRequest = HarnessServiceRequest;
+export const CloudHarnessResultSchema = HarnessServiceResultSchema;
+export const CloudHarnessObservationFrameSchema =
+  HarnessServiceObservationFrameSchema;
+export const CloudHarnessAckFrameSchema = HarnessServiceAckFrameSchema;
+export const CloudHarnessErrorFrameSchema = HarnessServiceErrorFrameSchema;
 export const CloudHarnessWorkerFrameSchema = z.union([
   CloudHarnessRequestSchema,
   CloudHarnessAckFrameSchema,
