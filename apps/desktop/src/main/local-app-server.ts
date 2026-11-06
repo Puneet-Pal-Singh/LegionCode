@@ -1,3 +1,5 @@
+import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
+import { LocalWorkspaceFilesService } from "@legioncode/app-server/local-workspace-files";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
@@ -30,7 +32,25 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data);
+  runLocalAppServerProcess(parentPort, data, data.nativeFilesystemHelperPath ? {
+    createWorkspaceFilesService: (workspaces) => new LocalWorkspaceFilesService({
+      withWorkspace: async (workspaceId, operation) => {
+        const binding = await workspaces.bindForExecution(workspaceId);
+        try {
+          binding.assertCurrent();
+          const reader = new NativeFilesystemBridge({
+            helperPath: data.nativeFilesystemHelperPath!, rootDirectory: binding.rootDirectory,
+          });
+          const result = await operation(reader, binding.signal);
+          binding.assertCurrent();
+          return result;
+        } finally {
+          // Native operations return only after child and pipe closure.
+          await binding.close();
+        }
+      },
+    }),
+  } : undefined);
 });
 
 process.once("uncaughtException", () => {
@@ -50,6 +70,13 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
     typeof value.serverVersion === "string" &&
     value.serverVersion.length > 0 &&
     typeof value.storageDirectory === "string" &&
-    value.storageDirectory.startsWith("/")
+    value.storageDirectory.startsWith("/") &&
+    (value.protectedHostRoots === undefined || (
+      Array.isArray(value.protectedHostRoots) && value.protectedHostRoots.length <= 32 &&
+      value.protectedHostRoots.every((path: unknown) => typeof path === "string" && path.startsWith("/") && !path.includes("\0"))
+    )) &&
+    [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath].every((path) =>
+      path === undefined || (typeof path === "string" && path.startsWith("/") && !path.includes("\0")),
+    )
   );
 }

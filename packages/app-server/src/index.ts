@@ -6,6 +6,7 @@ export {
 export {
   LocalWorkspaceService,
   type LocalWorkspaceServiceOptions,
+  type LocalWorkspaceExecutionBinding,
 } from "./local-workspace.js";
 export {
   LocalThreadNotFoundError,

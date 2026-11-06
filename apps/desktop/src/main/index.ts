@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
-import { basename } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ProviderIdSchema,
@@ -214,7 +215,21 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
-  void localAppServer.start(app.getVersion(), app.getPath("userData"));
+  const protectedHostRoots = [
+    app.getPath("userData"), app.getAppPath(), process.resourcesPath,
+    fileURLToPath(new URL(".", import.meta.url)),
+  ].map((path) => realpathSync(path));
+  const helperCandidate = app.isPackaged
+    ? join(process.resourcesPath, "native", "legioncode-fs-helper")
+    : join(app.getAppPath(), "native-bin", "legioncode-fs-helper");
+  let nativeFilesystemHelperPath: string | undefined;
+  try {
+    const helperPath = realpathSync(helperCandidate);
+    if (statSync(helperPath).isFile()) nativeFilesystemHelperPath = helperPath;
+  } catch { /* Missing native helper keeps file queries unavailable. */ }
+  void localAppServer.start(app.getVersion(), app.getPath("userData"), {
+    protectedHostRoots: [...new Set(protectedHostRoots)], nativeFilesystemHelperPath,
+  });
   createWindow();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
     isEncryptionAvailable: () =>

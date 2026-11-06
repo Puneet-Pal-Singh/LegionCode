@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { LocalPersistence } from "@repo/event-store/local";
 import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
+import type { AppServerComposition } from "./server.js";
 import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
@@ -13,6 +14,9 @@ export type LocalAppServerStartConfig = {
   credential: string;
   serverVersion: string;
   storageDirectory: string;
+  protectedHostRoots?: readonly string[];
+  nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };
 
 export type LocalAppServerMessage =
@@ -23,11 +27,23 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig) {
+export type LocalWorkspaceFilesCompositionOptions = {
+  createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
+};
+
+export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalWorkspaceFilesCompositionOptions) {
+  if (options?.createWorkspaceFilesService && !config.protectedHostRoots?.length) {
+    throw new Error("Workspace file queries require trusted protected host roots");
+  }
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
     const workspaceService = new LocalWorkspaceService({
       workspaceGrants: persistence.workspaceGrants,
+      protectedHostRoots: [
+        config.storageDirectory, ...(config.protectedHostRoots ?? []),
+        ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),
+        ...(config.nativeProcessHelperPath ? [config.nativeProcessHelperPath] : []),
+      ],
     });
     const threadService = new LocalThreadService({
       events: persistence.events,
@@ -36,8 +52,9 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
     });
+    const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -51,10 +68,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
+  options?: LocalWorkspaceFilesCompositionOptions,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config);
+    server = createLocalAppServer(config, options);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
@@ -86,6 +104,7 @@ async function handleRequest(
   threadService: LocalThreadService,
   providerService: LocalProviderService,
   persistence: LocalPersistence,
+  workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -101,6 +120,7 @@ async function handleRequest(
     serverVersion: config.serverVersion,
     credential: config.credential,
     workspaceService,
+    localWorkspaceFilesService: workspaceFilesService,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
