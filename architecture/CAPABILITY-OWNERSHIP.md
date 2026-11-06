@@ -952,3 +952,11 @@ portable timers without a browser global or another lifecycle subscription owner
 The unused `uiShellStore` writer and persisted shell identity mirror are removed after a whole-repository caller audit found only the App writer and no restoring consumers. Existing `legioncode_ui_shell` bytes remain untouched. Setup no longer writes `legioncode:setup-session:v1`; a valid existing record is read only to retain its legitimate preference lookup. Fresh setup uses an account/workspace-bound local preference scope, never an execution run or persisted conversation identity. Unknown/malformed legacy setup bytes remain intact. Existing provider preference adapters retain their byte-preserving lookup and explicit-selection writes.
 
 Legacy session snapshot readers and their preservation checks remain quarantined until the real browser inventory is matched; the downloaded inventory has not yet been reconciled. They are not an active session/history source. No historical browser values are deleted by this slice.
+
+### Unused Web transport retirement
+
+The unreferenced generic Brain/Muscle fetch wrapper and its private error helpers
+are removed after a repository-wide import and symbol audit found no consumers.
+The scoped conversation, workspace, provider and review operations retain their
+existing typed SDK/server owners. This removes no active behavior, routes,
+storage or recovery data and introduces no replacement transport.
