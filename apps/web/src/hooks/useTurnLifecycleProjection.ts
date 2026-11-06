@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
 import {
   TurnIdSchema,
-  replayLifecycleEventsWithRetry,
-  type LifecycleEvent,
+  followConversationLifecycleProjection,
   type PlatformClient,
   type TurnId,
 } from "@legioncode/sdk";
 import { createWebPlatformClient } from "../services/api/platformClient";
 import {
-  applyConversationLifecycleEvent as applyLifecycleEvent,
   createLifecycleProjection,
   type LifecycleProjection,
 } from "@legioncode/sdk";
@@ -73,13 +70,25 @@ export function useTurnLifecycleProjection(
     }
 
     const abortController = new AbortController();
-    void followLifecycle({
+    void followConversationLifecycleProjection({
       turnId: canonicalTurnId,
       lifecycleClient,
-      abortController,
-      setProjectionState,
-      setErrorState,
-      setContinuationStatus,
+      signal: abortController.signal,
+      onProjection: (projection) =>
+        setProjectionState({ turnId: canonicalTurnId, projection }),
+      onStatus: (status) => {
+        if (status === "replaying") setErrorState(null);
+        setContinuationStatus(
+          status ? { turnId: canonicalTurnId, status } : null,
+        );
+      },
+    }).catch((error: unknown) => {
+      if (abortController.signal.aborted) return;
+      setErrorState({
+        turnId: canonicalTurnId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setContinuationStatus({ turnId: canonicalTurnId, status: "stopped" });
     });
     return () => {
       abortController.abort();
@@ -107,116 +116,4 @@ function normalizeCanonicalTurnId(
   const trimmed = turnId?.trim();
   const parsed = trimmed ? TurnIdSchema.safeParse(trimmed) : null;
   return parsed?.success ? parsed.data : null;
-}
-
-interface FollowLifecycleInput {
-  readonly turnId: TurnId;
-  readonly lifecycleClient: Pick<PlatformClient, "replayLifecycleEvents" | "followTurnLifecycle">;
-  readonly abortController: AbortController;
-  readonly setProjectionState: Dispatch<SetStateAction<ProjectionState | null>>;
-  readonly setErrorState: Dispatch<SetStateAction<ErrorState | null>>;
-  readonly setContinuationStatus: Dispatch<
-    SetStateAction<ContinuationStatusState | null>
-  >;
-}
-
-async function followLifecycle(input: FollowLifecycleInput): Promise<void> {
-  try {
-    let projection = createLifecycleProjection(input.turnId);
-    let afterSequence: number | null = null;
-    let resumed = false;
-    const resumedEvents: LifecycleEvent[] = [];
-    const operationOptions = {
-      signal: input.abortController.signal,
-      onLifecycleContinuationStatus: (
-        status: "replaying" | "following" | "reconnecting",
-      ) => {
-        if (input.abortController.signal.aborted) return;
-        if (status === "following" && !resumed) {
-          resumed = true;
-          for (const event of resumedEvents) {
-            projection = applyLifecycleEvent(projection, event);
-          }
-          if (resumedEvents.length > 0) {
-            input.setProjectionState({ turnId: input.turnId, projection });
-            resumedEvents.length = 0;
-          }
-        }
-        input.setContinuationStatus({ turnId: input.turnId, status });
-      },
-    };
-    input.setErrorState(null);
-    input.setContinuationStatus({ turnId: input.turnId, status: "replaying" });
-
-    // A historical replay is one read-model snapshot. Publishing each replayed
-    // event separately exposes obsolete intermediate states (for example an
-    // approval request that was resolved later in the same replay). Build the
-    // complete snapshot off-screen, then publish it once.
-    while (!input.abortController.signal.aborted) {
-      const replay = await replayLifecycleEventsWithRetry(
-        {
-          options: operationOptions,
-          replay: (request, options) =>
-            input.lifecycleClient.replayLifecycleEvents(request, options),
-        },
-        {
-          turnId: input.turnId,
-          afterSequence,
-          limit: 1_000,
-        },
-      );
-      for (const event of replay.events) {
-        projection = applyLifecycleEvent(projection, event);
-      }
-      if (replay.events.length < 1_000 || replay.nextSequence === null) {
-        break;
-      }
-      afterSequence = projection.lastSequence || null;
-    }
-
-    if (input.abortController.signal.aborted) return;
-    input.setProjectionState({ turnId: input.turnId, projection });
-    if (projection.terminal) {
-      input.setContinuationStatus(null);
-      return;
-    }
-
-    for await (const event of input.lifecycleClient.followTurnLifecycle(
-      {
-        turnId: input.turnId,
-        afterSequence: projection.lastSequence || null,
-      },
-      operationOptions,
-    )) {
-      if (input.abortController.signal.aborted) {
-        return;
-      }
-      if (!resumed) {
-        resumedEvents.push(event);
-        continue;
-      }
-      projection = applyLifecycleEvent(projection, event);
-      input.setProjectionState((current) => ({
-        turnId: input.turnId,
-        projection: applyLifecycleEvent(
-          current?.turnId === input.turnId
-            ? current.projection
-            : createLifecycleProjection(input.turnId),
-          event,
-        ),
-      }));
-    }
-    if (projection.terminal) {
-      input.setContinuationStatus(null);
-    }
-  } catch (error) {
-    if (input.abortController.signal.aborted) {
-      return;
-    }
-    input.setErrorState({
-      turnId: input.turnId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    input.setContinuationStatus({ turnId: input.turnId, status: "stopped" });
-  }
 }
