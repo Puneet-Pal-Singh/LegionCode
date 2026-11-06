@@ -37,9 +37,7 @@ export const harnessObservationReceipts = pgTable(
     turnId: text("turn_id")
       .notNull()
       .references(() => harnessBindings.turnId, { onDelete: "cascade" }),
-    processGeneration: bigint("process_generation", {
-      mode: "number",
-    }).notNull(),
+    processGeneration: text("process_generation").notNull(),
     sequence: bigint("sequence", { mode: "number" }).notNull(),
     observationFingerprint: text("observation_fingerprint").notNull(),
     eventIdsJson: jsonb("event_ids_json").notNull(),
