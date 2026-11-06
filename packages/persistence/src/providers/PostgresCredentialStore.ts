@@ -1,3 +1,4 @@
+import { PostgresCredentialDefaultFence } from "./PostgresCredentialDefaultFence.js";
 import {
   CredentialAcquisitionSchema,
   CredentialSecretSchema,
@@ -92,33 +93,14 @@ export class PostgresCredentialStore
     input: SetCredentialInput,
   ): Promise<ProviderCredentialRecord> {
     this.authorize(input.userId);
-    return this.client.transaction(async (client) => {
-      await this.lockDefault(client, input.providerId);
-      return new PostgresCredentialStore(
-        client,
-        this.userId,
-        this.workspaceId,
-        this.masterKey,
-        this.keyVersion,
-        this.previousMasterKey,
-      ).setCredentialLocked(input);
-    });
-  }
-  private async setCredentialLocked(
-    input: SetCredentialInput,
-  ): Promise<ProviderCredentialRecord> {
-    this.authorize(input.userId);
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
-    let existing = await this.getCredential(input.providerId);
-    if (existing?.status === "revoked") {
-      // Older metadata-only revocation did not create a tombstone. Explicit
-      // reconnection retires that identity; it never changes it back to connected.
-      const retired = await this.revokeConnection(acquisition(existing));
-      if (!retired)
-        throw new Error("Credential ownership changed during reconnection");
-      existing = null;
-    }
+    const fence = new PostgresCredentialDefaultFence(this.client);
+    const scope = { userId: this.userId, providerId: input.providerId };
+    // Capture the durable slot generation before an absent lookup or encryption.
+    const epoch = await fence.capture(scope);
+    const before = await this.getCredential(input.providerId);
+    const existing = before?.status === "revoked" ? null : before;
     const record = this.newRecord(
       input,
       input.credentialId ?? crypto.randomUUID(),
@@ -137,27 +119,43 @@ export class PostgresCredentialStore
     record.keyFingerprint = await this.encryption.generateFingerprint(
       input.apiKey,
     );
-    if (!existing) return this.insert(record);
-    const result = await this.update(
-      existing,
-      "encrypted_secret_json = $7::jsonb, auth_owner_generation = $8, token_material_version = $9, key_version = $10, key_fingerprint = $11, label = $12, connection_config_json = $13::jsonb, refresh_claim_id = NULL, status = 'connected', credential_kind = 'api_key', last_validated_at = NULL, last_error_code = NULL, last_error_message = NULL",
-      [
-        record.encryptedSecretJson,
-        record.authOwnerGeneration,
-        record.tokenMaterialVersion,
-        record.keyVersion,
-        record.keyFingerprint,
-        record.label,
-        record.connectionConfig
-          ? JSON.stringify(record.connectionConfig)
-          : null,
-      ],
+    const committed = await fence.commitIfCurrent(
+      scope,
+      epoch,
+      async (client) => {
+        const store = this.withClient(client);
+        if (before?.status === "revoked") {
+          // Retire a legacy metadata-only revocation without reconnecting its ID.
+          const retired = await store.revokeConnection(acquisition(before));
+          if (!retired)
+            throw new Error("Credential ownership changed during reconnection");
+        }
+        if (!existing) return store.insert(record);
+        const updated = await store.update(
+          existing,
+          "encrypted_secret_json = $7::jsonb, auth_owner_generation = $8, token_material_version = $9, key_version = $10, key_fingerprint = $11, label = $12, connection_config_json = $13::jsonb, refresh_claim_id = NULL, status = 'connected', credential_kind = 'api_key', last_validated_at = NULL, last_error_code = NULL, last_error_message = NULL",
+          [
+            record.encryptedSecretJson,
+            record.authOwnerGeneration,
+            record.tokenMaterialVersion,
+            record.keyVersion,
+            record.keyFingerprint,
+            record.label,
+            record.connectionConfig
+              ? JSON.stringify(record.connectionConfig)
+              : null,
+          ],
+        );
+        if (!updated)
+          throw new Error(
+            "Credential replacement conflicted with revocation or rotation",
+          );
+        return updated;
+      },
     );
-    if (!result)
-      throw new Error(
-        "Credential replacement conflicted with revocation or rotation",
-      );
-    return result;
+    if (committed.status === "conflict")
+      throw new Error("Credential default changed during connection");
+    return committed.value;
   }
   async createConnection(
     input: CreateCredentialConnectionInput,
@@ -260,35 +258,22 @@ export class PostgresCredentialStore
     return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;
   }
   async deleteCredential(providerId: ProviderId): Promise<void> {
-    await this.client.transaction(async (client) => {
-      await this.lockDefault(client, providerId);
-      const store = new PostgresCredentialStore(
-        client,
-        this.userId,
-        this.workspaceId,
-        this.masterKey,
-        this.keyVersion,
-        this.previousMasterKey,
-      );
+    const fence = new PostgresCredentialDefaultFence(this.client);
+    // Advance even for an absent slot; revoke and epoch advance commit together.
+    await fence.advance({ userId: this.userId, providerId }, async (client) => {
+      const store = this.withClient(client);
       const record = await store.getCredential(providerId);
       if (record) await store.revokeConnection(acquisition(record));
     });
   }
-  private async lockDefault(
-    client: SqlClient,
-    providerId: ProviderId,
-  ): Promise<void> {
-    // Acquired before even an absent-row lookup and held through encryption/insert.
-    // Delete shares the lock, so it cannot miss an in-flight initial creation.
-    await client.query(
-      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-      [
-        JSON.stringify([
-          "legioncode-provider-default-v1",
-          this.userId,
-          providerId,
-        ]),
-      ],
+  private withClient(client: SqlClient): PostgresCredentialStore {
+    return new PostgresCredentialStore(
+      client,
+      this.userId,
+      this.workspaceId,
+      this.masterKey,
+      this.keyVersion,
+      this.previousMasterKey,
     );
   }
   async listCredentialProviders(): Promise<ProviderId[]> {
