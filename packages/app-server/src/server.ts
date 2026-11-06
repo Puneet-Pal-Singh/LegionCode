@@ -1,3 +1,4 @@
+import type { Thread, ThreadId } from "@repo/platform-protocol";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
@@ -64,7 +65,10 @@ export type AppServerComposition = {
     tree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
     contents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   };
-  threadService?: LocalThreadService;
+  threadService?: LocalThreadService & {
+    pin?(threadId: ThreadId): Promise<Thread>;
+    unpin?(threadId: ThreadId): Promise<Thread>;
+  };
   localTurnService?: {
     startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
     getTurn(turnId: TurnId): Promise<TurnAdmission>;
@@ -566,6 +570,18 @@ async function dispatch(
       return {
         thread: await composition.threadService.rename(request.params.threadId, request.params),
       };
+    }
+    case "thread/pin": {
+      if (composition.environment !== "local" || !composition.threadService?.pin) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.pin(request.params.threadId) };
+    }
+    case "thread/unpin": {
+      if (composition.environment !== "local" || !composition.threadService?.unpin) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.unpin(request.params.threadId) };
     }
     case "thread/archive": {
       if (!composition.threadService) throw new Error("unsupported");
