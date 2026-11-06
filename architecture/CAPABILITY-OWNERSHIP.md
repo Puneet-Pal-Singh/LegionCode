@@ -833,6 +833,8 @@ method contract remain the canonical Git owners and consumers.
 | Repository PR-read reuse                 | RegistryToolAuthorization and canonical approval grants | An explicitly offered grant binds the trusted authenticated user, chat, workspace and normalized repository. Existing lifecycle grant persistence is reused. Writes, shell, other repositories and old exact-input grants cannot consume the new matcher.                                                  |
 | Pre-execution rejection recovery         | BashPlugin validation and native kernel worker          | Structured rejection proves execution did not start. One same-rule correction may return through the existing recoverable tool-result path, with normal validation/approval on every call. Exhaustion settles one canonical failed outcome explaining incomplete work.                                     |
 | Composer provider/model preference       | ProviderStore and its session preference adapter        | ChatInputBar, AgentSetup, ProviderDialog and useChatCore share a stable session choice independently of the execution run. Cache is a browser preference only; submission uses the validated resolver and captures the admitted configuration. Inventory refresh cannot silently replace explicit choices. |
+| Session provider selection restoration   | ProviderSelectionPreferences and ProviderStore          | Restore valid local or legacy session-storage selections without rewriting either key. Malformed and unknown raw bytes remain unchanged until an explicit selection write; current provider records and the authorized scope decide whether a saved choice is usable.                   |
+| Rendered conversation messages           | Canonical transcript history and live lifecycle; Web `useChat` owns only its current render state | The unused `useChatPersistence` -> `ChatPersistenceService` -> `agentStore` mirror is removed; no production path read it. Existing history hydration and live lifecycle remain the only sources for rendered conversation messages. No browser history authority is introduced. |
 
 No lifecycle, grant or chat database migration is required. The old run-keyed
 composer preference cache and direct unvalidated submission shortcut are removed
@@ -857,3 +859,17 @@ never rendered as a successfully verified closed pull request.
 | Chat title mutation | Authenticated session metadata operation and ThreadTitleService | Sidebar and header rename capture the selected session ID, await the server response, and update only that session's canonical title projection. Errors stay visible to the user; run, workspace and status fields are not copied from a stale response. |
 | Saved image source list | Authenticated transcript image references and ChatMediaStore | Web derives references only from restored user messages in the active `SessionConversationSurface`, validates the shared image-reference schema, deduplicates by attachment ID and resolves the existing authenticated image source. Draft and optimistic images are excluded; loading, partial and failed history remain explicit. Presentation reuses `ChatImageGallery`. |
 | Outputs, subagents and background processes | Their separately scoped capabilities | Summary sections remain hidden until their canonical capabilities exist; Web does not infer runtime state or fabricate counts. |
+
+## Plan 058 — Portable interruption settlement
+
+The SDK `platform/conversation-interruption` operation owns the existing Stop
+request and bounded wait for the exact thread/Turn/Run Attempt terminal event.
+Web `useChatCore` supplies the captured scope and its accepted-command callback;
+React owns pending/error presentation and transport cleanup. The hosted App
+Server and runtime retain interruption authorization and canonical settlement.
+
+The Web-only helper is removed. A successful command acknowledges cancellation
+admission, not terminal settlement: only a matching completed, failed or
+interrupted lifecycle event finishes the SDK operation. The existing 15-second
+abort, mismatched-attempt rejection and iterator cleanup are preserved, using
+portable timers without a browser global or another lifecycle subscription owner.
