@@ -1006,3 +1006,30 @@ storage or recovery data and introduces no replacement transport.
 The existing transcript repository projects a session's own archive timestamp or its owned parent task's historical archive timestamp. Active and archived SDK lists therefore cover owned conversations without erasing the older task archive intent. Reads do not repair or rewrite rows. An explicit single-session unarchive command runs in the existing repository transaction: it retains inherited archive timestamps on other owned sibling sessions before restoring the parent and target, so one restored chat cannot revive its siblings. Pin/archive/delete guards use the same effective archive policy; foreign ownership is rejected and transcript bytes, identities and lifecycle events remain unchanged.
 
 Actual authorized localhost:5174 browser-profile audit (2026-11-06): 664 retained keys (660 local, 4 session), 109334 UTF-8 bytes, inventory digest `e9c857c677ff943f56053eca1738075fc300f1046ee2a3c858e3f680ec3732e8`; both provider preference stores were included. The two readable v3 keys contain 109 metadata rows for 85 unique owned sessions. Complete active plus archived SDK reads matched every ID and read 272 canonical messages; no embedded message arrays, single-message objects, message/preview/content/attachment hints or typed references were found in the retained metadata. All seven provider selection keys had valid shape and owned-session associations. Raw v3/setup bytes retained their earlier hashes, and no value changed during the audit. This profile has no identified unmatched browser-only message copy; other unavailable profiles and physical historical attachment/R2 viewing remain distinct acceptance gates. The separate frozen SQLite recovery receipts are not used as browser-profile proof.
+
+## Explicit provider resolution retry
+
+The SDK/App Server provider resolver remains the current availability authority.
+`ProviderStore` retains successful resolution caching and concurrent request
+deduplication, but no longer caches server/transport failures indefinitely by
+selection. Explicit setup/composer retries revalidate the same provider,
+credential and model through that owner, including after an abort or a repaired
+server/credential failure. Client-known invalid/hidden selections still fail
+before submission. No automatic retries, timeout increase, fallback provider or
+new scope owner is introduced.
+
+## Setup permission selection and first submission
+
+- The mounted `SessionConversationSurface` owns one permission selection and
+  supplies it to both controlled `AgentSetup` and `useChat`/`useChatCore`. Setup
+  no longer maintains a second same-session selection that only writes storage.
+- The runless shell owns its own setup choice. Explicit project/draft transfer
+  carries that selected `productMode` into the saved session. The session owner
+  applies and consumes that one-shot draft handoff before later chat remounts
+  can reuse it. The existing SDK request capture freezes retry mode separately;
+  an initial-prompt record never reseeds the composer's later choice. The owner
+  retains the selected mode after the initial intent retires. Browser preference storage is
+  not an event bus or permission authority.
+- The existing canonical chat request `productMode` and runtime permission policy
+  retain their owners. A transition to the conversation cannot substitute the
+  default Auto edits mode for an explicitly selected Supervised mode.
