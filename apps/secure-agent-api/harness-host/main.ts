@@ -26,6 +26,10 @@ export function startCloudHarnessHost(options?: {
     configureHost: async () => {
       throw new CloudHarnessUnavailableError();
     },
+    // Disabled status composition cannot acknowledge or retire a damaged stream.
+    resolveObservationIntegrity: async () => {
+      throw new CloudHarnessUnavailableError();
+    },
   });
   const server = createServer((request, response) => {
     if (

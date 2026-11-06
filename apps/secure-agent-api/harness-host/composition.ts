@@ -1,9 +1,11 @@
+import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
 import {
   createHarnessHost,
   HarnessExecutionPort,
   HarnessRegistry,
   HarnessSessionManager,
   type HarnessInstanceScope,
+  type HarnessRecoveryInput,
   type HarnessLaunchPolicy,
   type SupervisedProcess,
 } from "@repo/harness-core/server";
@@ -59,17 +61,44 @@ export class SandboxHarnessLaunchPolicy implements HarnessLaunchPolicy {
  */
 export class CloudHarnessComposition {
   private readonly registry = new HarnessRegistry();
-  readonly execution = new HarnessExecutionPort(
+  private readonly hostExecution = new HarnessExecutionPort(
     new HarnessSessionManager(this.registry),
   );
+  readonly execution: DelegatedHarnessPort = this.hostExecution;
   readonly launchPolicy = new SandboxHarnessLaunchPolicy();
   constructor(
     private readonly authority: {
       assertActive(target: CloudHarnessTarget): Promise<void>;
       /** Resolve selected credentials only AFTER the enforcing capability gate. */
       configureHost(command: HarnessStartCommand): Promise<HostConfiguration>;
+      /** Canonical failed/interrupted settlement plus durable replay. No physical-
+       * quiescence-only acknowledgement and no fabricated missing observations.
+       */
+      resolveObservationIntegrity: NonNullable<
+        HarnessRecoveryInput["resolveObservationIntegrity"]
+      >;
     },
-  ) {}
+  ) {
+    if (typeof authority.resolveObservationIntegrity !== "function")
+      throw new Error(
+        "Canonical observation integrity settlement authority is required",
+      );
+  }
+
+  /** Trusted recovery setup, before any open/rebind. Core checks sticky journal
+   * integrity and canonical failure replay before retiring the old stream.
+   * A caller cannot replace the configured settlement authority in input.
+   */
+  reconcilePriorGeneration(
+    input: Omit<HarnessRecoveryInput, "resolveObservationIntegrity">,
+  ) {
+    return this.hostExecution.reconcilePriorGeneration({
+      ...input,
+      resolveObservationIntegrity: (request) =>
+        this.authority.resolveObservationIntegrity(request),
+    });
+  }
+
   status() {
     return CLOUD_HARNESS_AVAILABILITY;
   }
