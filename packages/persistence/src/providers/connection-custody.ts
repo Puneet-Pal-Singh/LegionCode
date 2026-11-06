@@ -83,7 +83,14 @@ export class ConnectionSecretCodec {
       JSON.parse(record.encryptedSecretJson),
     );
     const legacy = encrypted.contextVersion === undefined;
-    if (legacy && (!allowLegacy || record.credentialKind !== "api_key"))
+    if (
+      legacy &&
+      (!allowLegacy ||
+        record.credentialKind !== "api_key" ||
+        !record.isDefault ||
+        record.authOwnerGeneration !== 1 ||
+        record.tokenMaterialVersion !== 1)
+    )
       throw new Error("Credential migration required");
     const text = await this.encryption.decrypt(encrypted, {
       masterKey: this.masterKey,

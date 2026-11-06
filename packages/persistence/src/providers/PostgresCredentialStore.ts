@@ -110,7 +110,15 @@ export class PostgresCredentialStore
     this.authorize(input.userId);
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
-    const existing = await this.getCredential(input.providerId);
+    let existing = await this.getCredential(input.providerId);
+    if (existing?.status === "revoked") {
+      // Older metadata-only revocation did not create a tombstone. Explicit
+      // reconnection retires that identity; it never changes it back to connected.
+      const retired = await this.revokeConnection(acquisition(existing));
+      if (!retired)
+        throw new Error("Credential ownership changed during reconnection");
+      existing = null;
+    }
     const record = this.newRecord(
       input,
       input.credentialId ?? crypto.randomUUID(),
