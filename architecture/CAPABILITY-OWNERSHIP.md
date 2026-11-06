@@ -960,4 +960,3 @@ Legacy session snapshot readers and their preservation checks remain quarantined
   server selection invalidates older reads; late reads or selection callbacks
   from a previous account cannot replace the current selection. No browser
   persistence, repair write, background retry loop or new product owner is added.
-
