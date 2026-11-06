@@ -1112,3 +1112,32 @@ new scope owner is introduced.
 - The existing canonical chat request `productMode` and runtime permission policy
   retain their owners. A transition to the conversation cannot substitute the
   default Auto edits mode for an explicitly selected Supervised mode.
+
+## Shared workspace file explorer presentation
+
+The tree renderer, loaded-file filtering, expansion, pagination and stale-request
+isolation move from Web FileExplorer into `client-ui/src/files/FileExplorer.tsx`.
+Web FileExplorer retains AuthContext and the exact hosted checkout identity/offset
+adapter. DesktopWorkspaceFiles supplies the native workspace/cursor SDK adapter;
+its right-panel mount remains pending the Desktop shell owner. Native entry kinds
+remain explicit; symlinks, special and reserved entries are not openable. Runtime,
+workspace grant, file execution and immutable artifact ownership are unchanged.
+The shared read port transports opaque string or numeric cursors without translating
+between native cursor and hosted offset models. No copied Web tree remains.
+
+Source reconciliation: shared presentation extraction is `a6434ebbb4e6123b8a290ca4ce81597206261357`; the Desktop SDK adapter is `75b2686b2c3b4fb656cad3cde61b3140bc5b7634`. These source revisions establish the renderer and adapter wiring described above; they do not establish a mounted Desktop panel or packaged execution acceptance. Subsequent capability-ledger updates remain with the single ledger owner.
+
+## Accepted local execution policy scope — implementation pending
+
+The coordinated Plan 057 scope accepts one explicit `single_executable_nofork`
+policy: OS-enforced fork denial and own-process-only signal protection, with
+canonical exact-executable/argv approval that discloses host file and network
+authority and the absence of subprocesses. The child receives a minimal
+environment without provider secrets. This scope makes no workspace or network
+jail claim and defines no fallback profiles.
+
+This entry records the accepted scope only. Production ownership remains with the
+Plan 057 packaged execution owner. Enablement requires its published implementation
+revision and actual packaged bootstrap, fork, PID, owner-loss and writer-FD proof;
+none is established by the presentation revisions above. Implementation and
+packaged acceptance remain unverified in this ledger until that evidence arrives.
