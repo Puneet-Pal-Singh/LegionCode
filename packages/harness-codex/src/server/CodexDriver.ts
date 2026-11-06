@@ -452,7 +452,7 @@ export class CodexDriver implements HarnessDriver {
         session: learnedSession,
         execute: async (execution) => {
           if (
-            command.resumeSession !== null ||
+            command.mode !== "start" ||
             executing ||
             stopped ||
             execution.signal.aborted ||
@@ -587,7 +587,7 @@ export class CodexDriver implements HarnessDriver {
             return {
               status: "unknown",
               session: learnedSession,
-              reason: "transport_lost",
+              reason: "observation_integrity_lost",
             };
           // Host creation has already asserted the actual filesystem/descendant boundary.
           if (
@@ -609,6 +609,7 @@ export class CodexDriver implements HarnessDriver {
             observedAt: new Date().toISOString(),
             evidenceId: randomUUID(),
             scope: "process_tree_and_background_work",
+            observationIntegrity: "complete",
           };
         },
       };

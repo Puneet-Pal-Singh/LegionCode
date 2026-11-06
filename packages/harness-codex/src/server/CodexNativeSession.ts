@@ -15,6 +15,7 @@ export class CodexNativeSession {
   private activeTurnId: string | null = null;
   private startSubmitted = false;
   private opening = false;
+  private nativeIdle = false;
 
   constructor(private readonly transport: CodexStdioTransport) {}
 
@@ -66,6 +67,12 @@ export class CodexNativeSession {
       this.invalidResponse();
     if (expectedId !== undefined && threadId !== expectedId)
       this.invalidResponse();
+    // A new admitted turn may continue an existing thread, but must never
+    // turn/start into a native turn that is active or whose status is unknown.
+    this.nativeIdle =
+      record(response.thread) &&
+      record(response.thread.status) &&
+      response.thread.status.type === "idle";
     this.externalThreadId = threadId;
     return threadId;
   }
@@ -73,9 +80,10 @@ export class CodexNativeSession {
   async start(params: TurnStartParams): Promise<string> {
     this.assertThread(params.threadId);
     // turn/start can steer an active Codex turn. Never let a repeated start do that.
-    if (this.startSubmitted || this.activeTurnId !== null)
+    if (!this.nativeIdle || this.startSubmitted || this.activeTurnId !== null)
       throw new CodexTransportError("invalid_frame", "rejected");
     this.startSubmitted = true;
+    this.nativeIdle = false;
     const response = await this.transport.request("turn/start", params);
     this.activeTurnId = this.readIdentity(response, "turn");
     return this.activeTurnId;
