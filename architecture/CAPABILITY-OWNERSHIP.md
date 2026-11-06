@@ -1130,3 +1130,13 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+
+
+### Private host credential contract foundation
+
+Desktop main and its utility process share the bounded correlated credential
+message schemas/client under main/runtime-credentials.ts. The public DesktopApi
+has no credential-read operation. The contract foundation alone wires no broker,
+provider, startup path or execution capability; trusted main and utility
+composition consume it in their separate integration slices. It is not an HTTP
+credential transport or a renderer API.
