@@ -1,6 +1,6 @@
 /** Product, protocol and Promise client are a single reviewed compatibility family. */
 export const OPENCODE_VERSION = "2.2.5";
-export const OPENCODE_TRANSPORT = "opencode-native-v2";
+export const OPENCODE_TRANSPORT = "opencode_v2";
 export const OPENCODE_SOURCE_REVISION =
   "76ff9a6ab25fca4b8f0f5c43e4ef12bd0c10cc3e";
 

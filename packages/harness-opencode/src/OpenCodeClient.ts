@@ -1,4 +1,4 @@
-import { OpenCodeEvent as EventSchema } from "@opencode/protocol/groups/event";
+import { readOpenCodeEvents } from "./OpenCodeEventStream.js";
 import { ServerInfo } from "@opencode/protocol/groups/server";
 import { Schema } from "effect";
 import {
@@ -27,8 +27,15 @@ export class OpenCodeTransportError extends Error {
 /** Native transport only. Canonical observation persistence and acknowledgements belong to the host. */
 export class OpenCodeClient {
   private readonly native: NativeClient;
+  private readonly events: (
+    activity: () => void,
+  ) => AsyncIterable<OpenCodeEvent>;
   private readonly stream = new AbortController();
   private verified = false;
+  private disconnectedResolve!: (reason: "gap" | "closed") => void;
+  readonly disconnected = new Promise<"gap" | "closed">((resolve) => {
+    this.disconnectedResolve = resolve;
+  });
   private state: "new" | "subscribing" | "ready" | "gap" | "closed" = "new";
   private lastActivity = Date.now();
   private watchdog: ReturnType<typeof setInterval> | undefined;
@@ -38,10 +45,18 @@ export class OpenCodeClient {
     const origin = requirePrivateOpenCodeUrl(baseUrl);
     if (!/^[A-Za-z0-9_-]{43}$/.test(password))
       throw new Error("Invalid OpenCode transport credential.");
+    const authorization = `Basic ${Buffer.from(`opencode:${password}`, "utf8").toString("base64")}`;
+    this.events = (activity) =>
+      readOpenCodeEvents({
+        origin,
+        authorization,
+        signal: this.stream.signal,
+        activity,
+      });
     this.native = OpenCode.make({
       baseUrl: origin,
       headers: {
-        Authorization: `Basic ${Buffer.from(`opencode:${password}`, "utf8").toString("base64")}`,
+        Authorization: authorization,
       },
       // A redirect must never forward the private transport credential to another origin.
       fetch: (input, init) => fetch(input, { ...init, redirect: "error" }),
@@ -88,14 +103,9 @@ export class OpenCodeClient {
     this.watchdog.unref();
     this.reader = (async () => {
       try {
-        for await (const event of this.native.event.subscribe({
-          signal: this.stream.signal,
-          onActivity: () => {
-            this.lastActivity = Date.now();
-          },
+        for await (const event of this.events(() => {
+          this.lastActivity = Date.now();
         })) {
-          if (!validEvent(event))
-            throw new OpenCodeTransportError("event validation", true);
           if (event.type === "server.connected") {
             if (this.state !== "subscribing")
               throw new OpenCodeTransportError("stream continuity", true);
@@ -105,7 +115,7 @@ export class OpenCodeClient {
             continue;
           }
           if (this.state !== "ready") break;
-          // Serial, awaited delivery. Upstream bounds the subscriber at 4096 events and fails overflow.
+          // Serial, awaited delivery; the native SSE reader bounds frames without a producer queue.
           await commit(event);
         }
       } catch {
@@ -167,15 +177,17 @@ export class OpenCodeClient {
   /** Closing transport is not proof that the provider process or descendants stopped. */
   async close(): Promise<void> {
     this.state = "closed";
+    this.disconnectedResolve("closed");
     this.stream.abort();
     if (this.watchdog) clearInterval(this.watchdog);
     await this.reader;
   }
 
   private fail(): void {
-    if (this.state !== "closed") this.state = "gap";
+    if (this.state !== "closed") {
+      this.state = "gap";
+      this.disconnectedResolve("gap");
+    }
     this.stream.abort();
   }
 }
-
-const validEvent = Schema.is(Schema.toEncoded(EventSchema));
