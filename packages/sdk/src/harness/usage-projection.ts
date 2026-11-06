@@ -1,3 +1,7 @@
+import {
+  HarnessUsageObservationSchema,
+  type HarnessUsageObservation,
+} from "@repo/platform-protocol";
 import type { LifecycleEvent } from "@repo/platform-protocol";
 
 /** The admitted attempt, never the account currently selected in a picker. */
@@ -91,4 +95,47 @@ export function projectHarnessAttemptElapsedMs(
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
     return null;
   return endMs - startMs;
+}
+
+/** Validate the public read payload and deduplicate exact measurement identities.
+ * Conflicting duplicates are excluded, never selected by arrival order or summed. */
+export function projectHarnessAccountUsage(
+  observation: HarnessUsageObservation,
+) {
+  const parsed = HarnessUsageObservationSchema.parse(observation);
+  const measurements = new Map<
+    string,
+    HarnessUsageObservation["activity"][number]
+  >();
+  const conflicts = new Set<string>();
+  for (const measurement of parsed.activity) {
+    const key = JSON.stringify([
+      parsed.connectionId,
+      parsed.accountId,
+      parsed.environmentId,
+      parsed.authOwnerGeneration,
+      measurement.threadId,
+      measurement.turnId,
+      measurement.runAttemptId,
+      measurement.instanceId,
+      measurement.externalSessionId,
+      measurement.processGeneration,
+      measurement.source,
+      measurement.sequence,
+      measurement.measurementId,
+    ]);
+    if (conflicts.has(key)) continue;
+    const previous = measurements.get(key);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(measurement)) {
+      measurements.delete(key);
+      conflicts.add(key);
+    } else measurements.set(key, measurement);
+  }
+  return {
+    ...parsed,
+    activity: [...measurements.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, value]) => value),
+    conflictingMeasurementCount: conflicts.size,
+  };
 }
