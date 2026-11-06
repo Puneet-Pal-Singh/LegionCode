@@ -22,7 +22,7 @@
 .desktop-workspace-confirm { padding: 0.65rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.5rem; background: var(--lc-color-background); }
 .desktop-workspace-confirm p { margin: 0 0 0.6rem; line-height: 1.5; overflow-wrap: anywhere; }
 .desktop-rail-error { margin: 0; color: #fca5a5; line-height: 1.5; overflow-wrap: anywhere; }
-.desktop-settings-dialog { width: min(720px, calc(100vw - 2rem)); max-height: calc(100dvh - 3rem); padding: 0; overflow: hidden; border: 1px solid var(--lc-color-border); border-radius: 0.75rem; background: var(--lc-color-background); color: var(--lc-color-text-primary); }
+.desktop-settings-dialog { margin: auto; width: min(720px, calc(100vw - 2rem)); max-height: calc(100dvh - 3rem); padding: 0; overflow: hidden; border: 1px solid var(--lc-color-border); border-radius: 0.75rem; background: var(--lc-color-background); color: var(--lc-color-text-primary); }
 .desktop-settings-dialog[open] { display: flex; flex-direction: column; }
 .desktop-settings-dialog::backdrop { background: rgb(0 0 0 / 65%); }
 .desktop-settings-header { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--lc-color-border); }
