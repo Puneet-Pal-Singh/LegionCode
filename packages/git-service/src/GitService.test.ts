@@ -404,12 +404,43 @@ describe("DefaultGitService", () => {
       expect(git(["ls-files", "--stage", "-z"])).toBe(beforeIndex);
       expect(git(["rev-parse", "HEAD"])).toBe(beforeHead);
       git(["add", "--", "new.txt"]);
+      const stagedNewIndex = git(["ls-files", "--stage", "-z"]);
+      writeFileSync(join(root, "new.txt"), "later new content\n");
+      writeFileSync(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      await expect(service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["new.txt"], message: "reject staged new file",
+        author: { name: "Legion", email: "legion@example.com" },
+      })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(git(["ls-files", "--stage", "-z"])).toBe(stagedNewIndex);
+      expect(git(["rev-parse", "HEAD"])).toBe(beforeHead);
+      expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("later new content\n");
+      rmSync(join(root, ".git", "hooks", "pre-commit"));
       await service.commit({
         workspace: { runId: RUN_ID, filesystemRoot: root },
         paths: ["new.txt"], message: "explicitly staged new file",
         author: { name: "Legion", email: "legion@example.com" },
       });
       expect(git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).trim()).toBe("new.txt");
+      rmSync(join(root, "new.txt"));
+      const deletionIndex = git(["ls-files", "--stage", "-z"]);
+      const deletionHead = git(["rev-parse", "HEAD"]);
+      writeFileSync(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      await expect(service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["new.txt"], message: "reject deletion",
+        author: { name: "Legion", email: "legion@example.com" },
+      })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(git(["ls-files", "--stage", "-z"])).toBe(deletionIndex);
+      expect(git(["rev-parse", "HEAD"])).toBe(deletionHead);
+      expect(git(["diff", "--name-only"])).toContain("new.txt");
+      rmSync(join(root, ".git", "hooks", "pre-commit"));
+      await service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["new.txt"], message: "delete selected file",
+        author: { name: "Legion", email: "legion@example.com" },
+      });
+      expect(git(["diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD"]).trim()).toBe("D\tnew.txt");
       expect(git(["show", ":selected[1].txt"])).toBe("staged prior\n");
       expect(readFileSync(join(root, "selected[1].txt"), "utf8")).toBe("worktree later\n");
     } finally {
