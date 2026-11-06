@@ -10,7 +10,10 @@ import type {
   ProviderConnectionConfig,
   ProviderId,
 } from "@repo/shared-types";
-import type { CredentialStore } from "./stores/CredentialStore";
+import type {
+  CredentialStore,
+  ProviderCredentialRecord,
+} from "./stores/CredentialStore";
 
 export class CloudCredentialVault implements CredentialVault {
   readonly surface = "cloud" as const;
@@ -37,7 +40,10 @@ export class CloudCredentialVault implements CredentialVault {
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
     const result = await this.credentialStore.getCredentialWithKey(providerId);
-    return result?.apiKey ?? null;
+    if (!result || !this.isUsableCredential(result.record, providerId)) {
+      return null;
+    }
+    return result.apiKey;
   }
 
   async deleteCredential(providerId: ProviderId): Promise<void> {
@@ -46,14 +52,16 @@ export class CloudCredentialVault implements CredentialVault {
 
   async isConnected(providerId: ProviderId): Promise<boolean> {
     const cred = await this.credentialStore.getCredential(providerId);
-    return cred !== null && cred.status === "connected";
+    return cred !== null && this.isUsableCredential(cred, providerId);
   }
 
   async getConnectionConfig(
     providerId: ProviderId,
   ): Promise<ProviderConnectionConfig | undefined> {
     const credential = await this.credentialStore.getCredential(providerId);
-    return credential?.connectionConfig;
+    return credential && this.isUsableCredential(credential, providerId)
+      ? credential.connectionConfig
+      : undefined;
   }
 
   async listConnectedProviders(): Promise<ProviderId[]> {
@@ -61,10 +69,20 @@ export class CloudCredentialVault implements CredentialVault {
     const connectedProviders: ProviderId[] = [];
     for (const providerId of allProviders) {
       const cred = await this.credentialStore.getCredential(providerId);
-      if (cred && cred.status === "connected") {
+      if (cred && this.isUsableCredential(cred, providerId)) {
         connectedProviders.push(providerId);
       }
     }
     return connectedProviders;
+  }
+
+  private isUsableCredential(
+    record: ProviderCredentialRecord,
+    providerId: ProviderId,
+  ): boolean {
+    if (record.userId !== this.userId || record.providerId !== providerId) {
+      throw new Error("Credential scope does not match the authorized vault");
+    }
+    return record.status === "connected" && record.deletedAt === null;
   }
 }
