@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "../../types/session";
 import { AgentSidebar } from "./AgentSidebar";
@@ -45,6 +45,8 @@ describe("AgentSidebar adapter", () => {
     const onClose = vi.fn();
     const onCreate = vi.fn();
     renderSidebar({ onSelect, onClose, onCreate });
+    expect(screen.getByRole("button", { name: "Toggle Recents" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Chats without a project appear here")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("option", { name: "Draft task" }));
     expect(onSelect).toHaveBeenCalledWith("session-1");
@@ -172,6 +174,7 @@ describe("AgentSidebar adapter", () => {
     const onRemoveRepository = vi.fn();
     renderSidebar({
       sessions: [
+        createSession({ id: "project", name: "Project task" }),
         createSession({
           id: "unscoped",
           name: "Unscoped task",
@@ -187,20 +190,43 @@ describe("AgentSidebar adapter", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Toggle No repository" }),
+      screen.getByRole("button", { name: "Toggle Recents" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Rename workspace No repository" }),
+      screen.queryByRole("button", { name: "Workspace actions for Recents" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Remove workspace No repository" }),
+      screen.queryByRole("button", { name: "Workspace actions for No repository" }),
     ).not.toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: "New task in No repository" }),
+      screen.getByRole("button", { name: "New chat" }),
     );
     expect(onCreate).toHaveBeenCalledWith(undefined);
+    const projectTask = screen.getByRole("option", { name: "Project task" });
+    act(() => projectTask.focus());
+    fireEvent.keyDown(projectTask, { key: "ArrowDown" });
+    expect(screen.getByRole("option", { name: "Unscoped task" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("option", { name: "Unscoped task" }), { key: "Enter" });
     fireEvent.click(screen.getByRole("option", { name: "Unscoped task" }));
     expect(onSelect).toHaveBeenCalledWith("unscoped");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Projects" }));
+    expect(screen.queryByRole("option", { name: "Project task" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Unscoped task" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Recents" }));
+    expect(screen.queryByRole("option", { name: "Unscoped task" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No matching tasks or projects")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Projects" }));
+    expect(screen.getByRole("option", { name: "Project task" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Recents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "unscoped" } });
+    expect(screen.queryByRole("option", { name: "Project task" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Unscoped task" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Completed" }));
+    expect(screen.getByRole("button", { name: "Toggle Recents" })).toBeInTheDocument();
+    expect(screen.getByText("No matching chats")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Unscoped task" })).not.toBeInTheDocument();
     expect(onRenameRepository).not.toHaveBeenCalled();
     expect(onRemoveRepository).not.toHaveBeenCalled();
   });

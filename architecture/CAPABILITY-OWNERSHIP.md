@@ -576,7 +576,7 @@ and existing-profile data preservation in the later authority slice.
 | Responsibility | Canonical owner | Active producers and consumers |
 | --- | --- | --- |
 | GitHub repository list, branch list, tree, and repository file contents | Brain `RepositoryReadService` over the existing authenticated GitHub client from `getGitHubClient`; hosted reads bind the cookie-verified App Server principal and delegate to this client | `AuthorizedRepositoryPicker`, `ChatBranchSelector`, `EnvironmentSummaryMenu`, `useGitHubTree`, and `useFileLoader` consume the four typed SDK/App Server operations; the Web session/login/logout/OAuth snapshot flow remains Web host glue. Branch/tree request coalescing is scoped to the verified account and cleared when that account changes. Failures remain explicit rather than becoming cached empty results. The replaced `/api/github` query and inactive pull-request routes are retired after caller audit; run-based pull-request mutations remain on their active path. |
-| Mounted workspace file listing and reads | Unresolved; the current Web `FileExplorer` and `useFileLoader` call the legacy `terminalCommandPath` endpoint directly | The current `filesystem.list_files` and `filesystem.read_file` schemas exist for runtime tool execution, but no supported hosted owned-checkout read contract is established by this transport. Keep these mounted consumers and endpoint until a supported owned contract is wired; do not treat repository contents as a replacement for workspace reads. |
+| Mounted workspace file listing and reads | Existing filesystem plugin, reached through SDK/App Server `checkout/listFiles` and `checkout/readFile`; Brain shares `OwnedCheckoutExecution` with Current Git for authenticated original-checkout authorization | `FileExplorer` and the single `useFileLoader` request owner serve sidebar and fullscreen file opening. Reads borrow the exact persisted lease, skip checkout creation, use only `execIfRunning`, and reject traversal, symlink escape, foreign scope and unavailable leases without recovery or renewal. The direct Web terminal-command reads and listing parser are removed. Repository files keep their distinct SDK repository-contents owner. Account/session/run/repository/branch changes cancel old requests; superseded responses cannot open tabs or change errors/loading. |
 
 The repository query migration retires the replaced Brain `/api/github` query
 routes and inactive pull-request routes after all five Web query consumers use
@@ -692,7 +692,7 @@ The hint supplies no identity or permission and does not bypass provider scope.
 | --- | --- | --- |
 | Saved session repository | Brain transcript/session repository | Session creation accepts `repository: null`. Migration `0034_projectless_session_repository` normalizes the old `New Project` label. No new sentinel repository is written. |
 | Active chat repository context | Hosted session workspace context, projected by Web | Explicit project selection, SDK-backed session workspace context and session branch preferences supply repository/branch identity. Global browser context restoration and workspace-selection bootstrap are removed; a null repository cannot match a repository context. |
-| Projects and Recents | SDK sidebar projection over saved session metadata | The dev shared ThreadSidebar retains its repository groups and explicit No repository group. Pinning, search, status and archive use the existing canonical session projections. |
+| Projects and Recents | SDK sidebar projection over saved session metadata | Web opts into separate collapsible Projects and Recents sections in the shared ThreadSidebar. Recents presents the existing projectless selection group, including its empty state; it creates no workspace identity. Project groups, pinning, search, status and archive still use the SDK session projection. Desktop retains its existing grouped presentation. |
 | Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. Sidebar Add project reads the mounted composer through its draft reader port before switching sessions; the composer remains the unsent draft owner. The modal is portaled to the viewport with focus isolation and a light backdrop blur. Home keeps the centered composer and dynamic project/settings island; section expansion is local UI state. Setup uses the same sidebar header/tabs/Close controls as conversation and the shell owns panel width across both surfaces. |
 
 | Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
@@ -975,6 +975,16 @@ interrupted lifecycle event finishes the SDK operation. The existing 15-second
 abort, mismatched-attempt rejection and iterator cleanup are preserved, using
 portable timers without a browser global or another lifecycle subscription owner.
 
+### Mounted file selection preservation
+
+The global `legioncode_last_viewed_path` bytes remain untouched. They cannot identify an owned conversation or distinguish saved previews from mounted files, so they no longer trigger an automatic file read. Scoped file-view preferences record only explicit successful mounted/repository selections and perform a fresh authorized read when restored; opening a saved preview clears only this new scoped restoration intent. Canonical saved artifact content remains the source for previews. The active terminal feature still uses `terminalCommandPath`; its endpoint is not deleted while that consumer remains.
+
+The file panel explicitly distinguishes Task checkout from Repository. An owned canonical turn selects the task source by default; before admission, the repository source remains available without probing a fabricated run. Checkout read errors remain visible and never silently switch to GitHub contents. Both sidebar and fullscreen consumers receive the same owned-turn binding.
+
+Mounted read requests capture the server-issued turn and attempt in addition to session/run. Brain resolves that exact admission and verifies its attempt before borrowing the original checkout, so a follow-up reusing a run ID cannot redirect an in-flight file read. Web cancels and clears mounted requests when that identity changes. The existing sidebar orchestration refreshes the mounted tree on canonical run-status transitions, including terminal settlement.
+
+Mounted directory reads use bounded 200-entry pages through the existing filesystem `list_files` offset/limit contract; root and nested File Explorer lists expose the returned next offset through Load more. The model tool keeps its existing default 20-entry output. Scope changes cancel pending pages and discard stale results. Repository browsing retains its independently selected canonical repository branch; Current Git no longer copies a private task-checkout branch into the GitHub context.
+
 ### Browser shell identity retirement
 
 The unused `uiShellStore` writer and persisted shell identity mirror are removed after a whole-repository caller audit found only the App writer and no restoring consumers. Existing `legioncode_ui_shell` bytes remain untouched. Setup no longer writes `legioncode:setup-session:v1`; a valid existing record is read only to retain its legitimate preference lookup. Fresh setup uses an account/workspace-bound local preference scope, never an execution run or persisted conversation identity. Unknown/malformed legacy setup bytes remain intact. Existing provider preference adapters retain their byte-preserving lookup and explicit-selection writes.
@@ -1000,3 +1010,30 @@ storage or recovery data and introduces no replacement transport.
   server selection invalidates older reads; late reads or selection callbacks
   from a previous account cannot replace the current selection. No browser
   persistence, repair write, background retry loop or new product owner is added.
+
+## Explicit provider resolution retry
+
+The SDK/App Server provider resolver remains the current availability authority.
+`ProviderStore` retains successful resolution caching and concurrent request
+deduplication, but no longer caches server/transport failures indefinitely by
+selection. Explicit setup/composer retries revalidate the same provider,
+credential and model through that owner, including after an abort or a repaired
+server/credential failure. Client-known invalid/hidden selections still fail
+before submission. No automatic retries, timeout increase, fallback provider or
+new scope owner is introduced.
+
+## Setup permission selection and first submission
+
+- The mounted `SessionConversationSurface` owns one permission selection and
+  supplies it to both controlled `AgentSetup` and `useChat`/`useChatCore`. Setup
+  no longer maintains a second same-session selection that only writes storage.
+- The runless shell owns its own setup choice. Explicit project/draft transfer
+  carries that selected `productMode` into the saved session. The session owner
+  applies and consumes that one-shot draft handoff before later chat remounts
+  can reuse it. The existing SDK request capture freezes retry mode separately;
+  an initial-prompt record never reseeds the composer's later choice. The owner
+  retains the selected mode after the initial intent retires. Browser preference storage is
+  not an event bus or permission authority.
+- The existing canonical chat request `productMode` and runtime permission policy
+  retain their owners. A transition to the conversation cannot substitute the
+  default Auto edits mode for an explicitly selected Supervised mode.

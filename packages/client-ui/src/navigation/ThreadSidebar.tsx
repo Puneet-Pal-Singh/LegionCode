@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, FolderPlus, MoreHorizontal, Pin, Search, SquarePen, PanelLeftClose, X } from "lucide-react";
 import type { HostedSessionPullRequestsResponse, ThreadSidebarDisplayStatus, ThreadSidebarItem, ThreadSidebarReadModel } from "@legioncode/sdk";
+import { ThreadSidebarSectionHeader } from "./ThreadSidebarSectionHeader.js";
 import { ThreadSidebarGroup, type ThreadSidebarEntry } from "./ThreadSidebarGroup.js";
 
 type WorkspaceSelectionId = string;
@@ -20,6 +21,8 @@ const LOAD_MORE_ROWS = 10;
 
 export interface ThreadSidebarProps {
   model: ThreadSidebarReadModel;
+  /** Present this host-owned projectless group as a separate Recents section. */
+  recentWorkspaceSelectionId?: WorkspaceSelectionId;
   onSelect: (selectionId: string) => void;
   onCreate?: (workspaceSelectionId?: WorkspaceSelectionId) => void;
   onAddWorkspace?: () => void;
@@ -42,6 +45,7 @@ export interface ThreadSidebarProps {
 
 export function ThreadSidebar({
   model,
+  recentWorkspaceSelectionId,
   onSelect,
   onCreate,
   onAddWorkspace,
@@ -72,6 +76,7 @@ export function ThreadSidebar({
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
   const [previewSelectionId, setPreviewSelectionId] = useState<string | null>(null);
+  const [isProjectsOpen, setIsProjectsOpen] = useState(true);
   const [isArchivedOpen, setIsArchivedOpen] = useState(false);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<ReadonlySet<string>>(() => new Set());
   const [visibleCounts, setVisibleCounts] = useState<Readonly<Record<string, number>>>({});
@@ -98,13 +103,14 @@ export function ThreadSidebar({
   const groups = useMemo(
     () => model.workspaceGroups
       .map((group) => {
+        const label = group.workspaceSelectionId === recentWorkspaceSelectionId ? "Recents" : group.label;
         const workspaceMatches = Boolean(
-          normalizedQuery && group.label?.toLocaleLowerCase().includes(normalizedQuery),
+          normalizedQuery && label?.toLocaleLowerCase().includes(normalizedQuery),
         );
         return {
           workspaceId: group.workspaceId,
           workspaceSelectionId: group.workspaceSelectionId,
-          label: group.label,
+          label,
           placement: group.placement,
           threads: group.threads.filter((thread) =>
             matches(thread, workspaceMatches ? "" : normalizedQuery, statusFilter),
@@ -112,11 +118,12 @@ export function ThreadSidebar({
         };
       })
       .filter((group) =>
+        group.workspaceSelectionId === recentWorkspaceSelectionId ||
         !normalizedQuery ||
         group.label?.toLocaleLowerCase().includes(normalizedQuery) ||
         group.threads.length > 0,
       ),
-    [model.workspaceGroups, normalizedQuery, statusFilter],
+    [model.workspaceGroups, normalizedQuery, statusFilter, recentWorkspaceSelectionId],
   );
   const pinned = model.pinned.filter((thread) =>
     matches(thread, normalizedQuery, statusFilter) ||
@@ -130,7 +137,11 @@ export function ThreadSidebar({
     ? model.archived.filter((thread) => matches(thread, normalizedQuery, statusFilter))
     : [];
   const visiblePinned = visibleItems(pinned, visibleCounts["\0pinned"] ?? INITIAL_VISIBLE_ROWS);
-  const visibleGroups = groups.map((group) => ({
+  const orderedGroups = recentWorkspaceSelectionId
+    ? [...groups.filter((group) => group.workspaceSelectionId !== recentWorkspaceSelectionId && isProjectsOpen),
+      ...groups.filter((group) => group.workspaceSelectionId === recentWorkspaceSelectionId)]
+    : groups;
+  const visibleGroups = orderedGroups.map((group) => ({
     ...group,
     visibleThreads: visibleItems(group.threads, visibleCounts[group.workspaceSelectionId] ?? INITIAL_VISIBLE_ROWS),
   }));
@@ -148,6 +159,9 @@ export function ThreadSidebar({
       : []),
   ];
   const activeIndex = entries.length === 0 ? 0 : Math.min(focusedIndex, entries.length - 1);
+  const hasNoMatches = recentWorkspaceSelectionId
+    ? pinned.length === 0 && groups.every((group) => group.threads.length === 0) && archived.length === 0 && Boolean(normalizedQuery || statusFilter !== "all")
+    : entries.length === 0 && archived.length === 0;
 
   function closePreview(selectionId: string): void {
     setPreviewSelectionId((current) => current === selectionId ? null : current);
@@ -181,6 +195,31 @@ export function ThreadSidebar({
     await onArchive(selectionId);
     setPendingArchiveId(null);
   }
+
+  const projectActions = (
+    <>
+      {onAddWorkspace ? (
+        <button type="button" aria-label="Add project" title="Add project" onClick={onAddWorkspace} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200">
+          <FolderPlus size={14} aria-hidden="true" />
+        </button>
+      ) : null}
+      <div className="relative" ref={filterMenuRef}>
+        <button type="button" aria-label="Filter tasks" title="Filter tasks" aria-haspopup="menu" aria-expanded={isFilterMenuOpen} onClick={() => setIsFilterMenuOpen((open) => !open)} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200">
+          <MoreHorizontal size={14} aria-hidden="true" className={statusFilter !== "all" ? "text-emerald-300" : undefined} />
+        </button>
+        {isFilterMenuOpen ? (
+          <div role="menu" className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2">
+            <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">Show tasks</div>
+            {FILTER_OPTIONS.map((option) => (
+              <button key={option.value} type="button" role="menuitemradio" aria-checked={statusFilter === option.value} onClick={() => { setStatusFilter(option.value); setIsFilterMenuOpen(false); setFocusedIndex(0); }} className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800">
+                <span>{option.label}</span>{statusFilter === option.value ? <Check size={14} className="text-zinc-300" aria-hidden="true" /> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
 
   return (
     <aside className="lc-thread-sidebar ui-sidebar-surface !text-zinc-100 flex h-full flex-col overflow-hidden border-r" style={{ width }} aria-label="Workspace navigation">
@@ -255,31 +294,16 @@ export function ThreadSidebar({
         {model.status === "empty" ? <p className="px-2 py-3 text-xs italic text-zinc-600">No tasks yet</p> : null}
         {model.status === "ready" || model.status === "empty" ? (
           <div className="space-y-2">
-            <div className="group/projects flex h-8 items-center justify-between px-2">
-              <span className="text-sm font-medium text-zinc-500">Projects</span>
-              <div className="flex items-center gap-1">
-                {onAddWorkspace ? (
-                  <button type="button" aria-label="Add project" title="Add project" onClick={onAddWorkspace} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200">
-                    <FolderPlus size={14} aria-hidden="true" />
-                  </button>
-                ) : null}
-                <div className="relative" ref={filterMenuRef}>
-                  <button type="button" aria-label="Filter tasks" title="Filter tasks" aria-haspopup="menu" aria-expanded={isFilterMenuOpen} onClick={() => setIsFilterMenuOpen((open) => !open)} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200">
-                    <MoreHorizontal size={14} aria-hidden="true" className={statusFilter !== "all" ? "text-emerald-300" : undefined} />
-                  </button>
-                  {isFilterMenuOpen ? (
-                    <div role="menu" className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2">
-                      <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">Show tasks</div>
-                      {FILTER_OPTIONS.map((option) => (
-                        <button key={option.value} type="button" role="menuitemradio" aria-checked={statusFilter === option.value} onClick={() => { setStatusFilter(option.value); setIsFilterMenuOpen(false); setFocusedIndex(0); }} className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800">
-                          <span>{option.label}</span>{statusFilter === option.value ? <Check size={14} className="text-zinc-300" aria-hidden="true" /> : null}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+            {recentWorkspaceSelectionId ? (
+              <ThreadSidebarSectionHeader label="Projects" expanded={isProjectsOpen} onToggle={() => setIsProjectsOpen((open) => !open)}>
+                {projectActions}
+              </ThreadSidebarSectionHeader>
+            ) : (
+              <div className="group/projects flex h-8 items-center justify-between px-2">
+                <span className="text-sm font-medium text-zinc-500">Projects</span>
+                <div className="flex items-center gap-1">{projectActions}</div>
               </div>
-            </div>
+            )}
             <div
               role="listbox"
               aria-label="Thread list"
@@ -324,24 +348,28 @@ export function ThreadSidebar({
                 />
               </section>
             ) : null}
+            {recentWorkspaceSelectionId && isProjectsOpen && !groups.some((group) => group.workspaceSelectionId !== recentWorkspaceSelectionId) ? (
+              <p className="px-2 py-3 text-xs italic text-zinc-600">{normalizedQuery || statusFilter !== "all" ? "No matching projects" : "Your projects will appear here"}</p>
+            ) : null}
             {visibleGroups.map((group) => {
               const groupEntries = group.visibleThreads.map((item) => ({ item, workspaceLabel: group.label ?? "Unknown workspace" }));
               const startIndex = entries.findIndex((entry) => entry.item.selectionId === groupEntries[0]?.item.selectionId);
+              const isRecent = group.workspaceSelectionId === recentWorkspaceSelectionId;
               const isExpanded = !collapsedWorkspaces.has(group.workspaceSelectionId);
+              const toggleGroup = () => setCollapsedWorkspaces((current) => {
+                const next = new Set(current);
+                if (next.has(group.workspaceSelectionId)) next.delete(group.workspaceSelectionId);
+                else next.add(group.workspaceSelectionId);
+                return next;
+              });
               const isManageable = canManageWorkspace?.(group.workspaceSelectionId) ?? true;
               const label = group.label ?? "Unknown workspace";
-              return (
-                <ThreadSidebarGroup
+              const content = <ThreadSidebarGroup
                   key={group.workspaceSelectionId}
                   label={label}
-                  workspaceSelectionId={group.workspaceSelectionId}
+                  workspaceSelectionId={isRecent ? undefined : group.workspaceSelectionId}
                   expanded={isExpanded}
-                  onToggle={() => setCollapsedWorkspaces((current) => {
-                    const next = new Set(current);
-                    if (next.has(group.workspaceSelectionId)) next.delete(group.workspaceSelectionId);
-                    else next.add(group.workspaceSelectionId);
-                    return next;
-                  })}
+                  onToggle={isRecent ? undefined : toggleGroup}
                   entries={isExpanded ? groupEntries : []}
                   startIndex={Math.max(0, startIndex)}
                   focusedIndex={activeIndex}
@@ -371,8 +399,16 @@ export function ThreadSidebar({
                     ...current,
                     [group.workspaceSelectionId]: Math.min((current[group.workspaceSelectionId] ?? INITIAL_VISIBLE_ROWS) + LOAD_MORE_ROWS, group.threads.length),
                   }))}
-                />
-              );
+                />;
+              return isRecent ? (
+                <section key={group.workspaceSelectionId} aria-label="Recents" className="space-y-1 pt-5">
+                    <ThreadSidebarSectionHeader label="Recents" expanded={isExpanded} onToggle={toggleGroup}>
+                      {onCreate ? <button type="button" aria-label="New chat" title="New chat" onClick={() => onCreate(group.workspaceSelectionId)} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"><SquarePen size={14} aria-hidden="true" /></button> : null}
+                    </ThreadSidebarSectionHeader>
+                  {isExpanded ? content : null}
+                  {isExpanded && group.threads.length === 0 ? <p className="px-2 py-3 text-xs italic text-zinc-600">{normalizedQuery || statusFilter !== "all" ? "No matching chats" : "Chats without a project appear here"}</p> : null}
+                </section>
+              ) : content;
             })}
             {archived.length > 0 ? (
               <section className="space-y-1">
@@ -410,7 +446,7 @@ export function ThreadSidebar({
                 ) : null}
               </section>
             ) : null}
-            {model.status === "ready" && entries.length === 0 && archived.length === 0 ? <p className="px-2 py-3 text-xs italic text-zinc-600">No matching tasks or projects</p> : null}
+            {model.status === "ready" && hasNoMatches ? <p className="px-2 py-3 text-xs italic text-zinc-600">No matching tasks or projects</p> : null}
             </div>
           </div>
         ) : null}

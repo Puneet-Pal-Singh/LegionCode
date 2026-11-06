@@ -369,6 +369,8 @@ describe("ThreadSidebar interactions", () => {
       />,
     );
 
+    expect(screen.queryByRole("button", { name: "Toggle Projects" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
     const firstToggle = screen.getByRole("button", { name: "Toggle foo_bar" });
     const secondToggle = screen.getByRole("button", { name: "Toggle bar" });
     expect(firstToggle).toHaveAttribute("aria-expanded", "true");

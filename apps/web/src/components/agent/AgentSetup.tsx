@@ -10,7 +10,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import { DEFAULT_RUN_MODE, type ProductMode, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -55,7 +55,6 @@ import {
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootstrap-loading.js";
-import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 import { ProjectChooser } from "./ProjectChooser";
 import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
@@ -68,6 +67,8 @@ interface AgentSetupProps {
   initialDraft?: AgentSetupDraft;
   draftRef?: Ref<AgentSetupDraftReader>;
   sessionId: string;
+  productMode: ProductMode;
+  onProductModeChange: (mode: ProductMode) => void;
   isRightSidebarOpen?: boolean;
   rightSidebarWidth: number;
   setRightSidebarWidth: Dispatch<SetStateAction<number>>;
@@ -81,6 +82,7 @@ interface AgentSetupProps {
     branch: string;
     task: string;
     mode: RunMode;
+    productMode: ProductMode;
     attachments?: ChatSubmitAttachments;
   }) => void;
   onRepoClick?: (draft?: AgentSetupDraft) => void;
@@ -92,6 +94,8 @@ interface AgentSetupProps {
 
 export function AgentSetup({
   sessionId,
+  productMode,
+  onProductModeChange,
   initialDraft,
   draftRef,
   isRightSidebarOpen = false,
@@ -121,13 +125,13 @@ export function AgentSetup({
     (): AgentSetupDraft => ({
       task,
       imageAttachments: imageDraft.attachments,
+      productMode,
     }),
-    [task, imageDraft.attachments],
+    [task, imageDraft.attachments, productMode],
   );
   useImperativeHandle(draftRef, () => ({ getDraft: currentDraft }), [
     currentDraft,
   ]);
-  const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
@@ -253,7 +257,7 @@ export function AgentSetup({
     setActiveTab((current) => (current === "changes" ? "review" : "changes"));
   }, [setActiveTab, setIsViewingContent]);
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
-    sandboxId: sessionId,
+    sessionId,
     runId: activeRunId,
     setIsLoadingContent,
     setContentError,
@@ -371,6 +375,7 @@ export function AgentSetup({
         branch: branch || "main",
         task: task.trim() || "Analyze the attached image(s).",
         mode,
+        productMode,
         attachments:
           detachedImages.length > 0
             ? { imageAttachments: detachedImages }
@@ -833,7 +838,7 @@ export function AgentSetup({
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
-                onChange={setProductMode}
+                onChange={onProductModeChange}
                 appearance="ghost"
                 menuPlacement="below"
               />

@@ -28,8 +28,8 @@ import {
   isSessionStoreUnavailableError,
 } from "../AuthService";
 import type { Env } from "../../types/ai";
-import type { SecureExecutionWorkspaceScope } from "../../runtime/RuntimeWorkspaceScope";
-import type { SecureExecutionSessionHandle } from "../secure-execution/SecureExecutionSessionClient";
+import type { OwnedCheckoutExecution } from "../../integration/app-server/OwnedCheckoutExecution";
+export type OwnedGitExecution = OwnedCheckoutExecution;
 
 export type GitStatusParams = Extract<AppServerRequest, { method: "git/status" }>['params'];
 export type GitDiffParams = Extract<AppServerRequest, { method: "git/diff" }>['params'];
@@ -38,13 +38,6 @@ export type GitCommitParams = Extract<AppServerRequest, { method: "git/commit" }
 export type GitBranchParams = Extract<AppServerRequest, { method: "git/branch" }>['params'];
 export type GitPushParams = Extract<AppServerRequest, { method: "git/push" }>['params'];
 export type GitPullRequestParams = Extract<AppServerRequest, { method: "git/pullRequest" }>['params'];
-
-export interface OwnedGitExecution {
-  readonly runId: string;
-  readonly brainSessionId: string;
-  readonly workspaceScope: SecureExecutionWorkspaceScope;
-  readonly session: SecureExecutionSessionHandle;
-}
 
 export type GitOperationName =
   | "getStatus"

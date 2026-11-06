@@ -5,7 +5,7 @@ import type {
   AgentSession,
   SessionHydrationStatus,
 } from "../../hooks/useSessionManager";
-import { projectAgentSessionsForSidebar } from "../../lib/session-sidebar-selectors";
+import { PROJECTLESS_SELECTION_ID, projectAgentSessionsForSidebar } from "../../lib/session-sidebar-selectors";
 import {
   SidebarAccountMenu,
   type SidebarAccountUser,
@@ -94,17 +94,18 @@ export function AgentSidebar({
   return (
     <ThreadSidebar
       model={model}
+      recentWorkspaceSelectionId={PROJECTLESS_SELECTION_ID}
       onSelect={onSelect}
       onCreate={(workspaceSelectionId) =>
         onCreate(
-          workspaceSelectionId === "No repository"
+          workspaceSelectionId === PROJECTLESS_SELECTION_ID
             ? undefined
             : workspaceSelectionId,
         )
       }
       onAddWorkspace={onAddRepository}
       canManageWorkspace={(workspaceSelectionId) =>
-        workspaceSelectionId !== "No repository"
+        workspaceSelectionId !== PROJECTLESS_SELECTION_ID
       }
       onRenameWorkspace={
         onRenameRepository
