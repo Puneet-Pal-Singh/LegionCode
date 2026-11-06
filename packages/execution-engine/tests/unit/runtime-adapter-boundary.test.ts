@@ -24,6 +24,13 @@ const FORBIDDEN_BRANCH_PATTERNS = [
   /switch\s*\(\s*harness[a-zA-Z0-9_]*\s*\)/,
 ];
 const CORE_RUNTIME_SEGMENTS = ["/runtime/engine/", "/runtime/orchestration/"];
+// Concrete inference belongs to this implementation/composition boundary.
+// Runtime consumers must continue to use the provider port/factory.
+const PROVIDER_IMPLEMENTATION_FILES = new Set([
+  "src/runtime/provider/ProviderInferenceFactory.ts",
+  "src/runtime/provider/adapters/OpenAIAdapter.ts",
+  "src/runtime/provider/adapters/index.ts",
+]);
 
 describe("runtime adapter boundary guard", () => {
   it("prevents provider-specific adapter usage inside runtime modules", () => {
@@ -36,14 +43,25 @@ describe("runtime adapter boundary guard", () => {
     for (const filePath of runtimeFiles) {
       const content = readFileSync(filePath, "utf8");
       const relativePath = relative(process.cwd(), filePath);
+      const ownsProviderImplementation = PROVIDER_IMPLEMENTATION_FILES.has(
+        relativePath.replaceAll("\\", "/"),
+      );
 
       for (const token of FORBIDDEN_ADAPTER_TOKENS) {
+        if (ownsProviderImplementation && token === "OpenAIAdapter") continue;
         if (content.includes(token)) {
-          violations.push(`${relativePath}: contains forbidden token "${token}"`);
+          violations.push(
+            `${relativePath}: contains forbidden token "${token}"`,
+          );
         }
       }
 
       for (const pattern of FORBIDDEN_IMPORT_PATTERNS) {
+        if (
+          ownsProviderImplementation &&
+          pattern.source.includes("OpenAIAdapter")
+        )
+          continue;
         if (pattern.test(content)) {
           violations.push(
             `${relativePath}: matches forbidden adapter import pattern ${pattern.source}`,
