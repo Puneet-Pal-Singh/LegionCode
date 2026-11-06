@@ -15,30 +15,18 @@ export function MessageArtifacts({
   message,
   onArtifactOpen,
   loadArtifactContent,
-  storedCalls = [],
 }: {
   message?: Message;
   onArtifactOpen?: ArtifactOpenHandler;
   loadArtifactContent?: (key: string, signal?: AbortSignal) => Promise<string>;
-  /** Source-projected calls for read-only transcript rows, without AI SDK message casts. */
-  storedCalls?: readonly StoredCodeArtifactCall[];
 }) {
-  const calls = [
-    ...(message?.toolInvocations
+  const calls = message?.toolInvocations
       ?.filter((invocation) => invocation.toolName === "create_code_artifact")
       .map((invocation) => ({
         toolCallId: invocation.toolCallId,
         args: invocation.args,
         status: invocation.state,
-      })) ?? []),
-    ...storedCalls
-      .filter((call) => call.toolName === "create_code_artifact")
-      .map((call) => ({
-        toolCallId: call.toolCallId,
-        args: call.args,
-        status: "result" as const,
-      })),
-  ];
+      })) ?? [];
 
   return calls.map((call, index) => {
       const args = toArtifactArgs(call.args);
@@ -56,12 +44,6 @@ export function MessageArtifacts({
         />
       );
     });
-}
-
-export interface StoredCodeArtifactCall {
-  toolName: string;
-  toolCallId?: string;
-  args: unknown;
 }
 
 function toArtifactArgs(value: unknown): {
