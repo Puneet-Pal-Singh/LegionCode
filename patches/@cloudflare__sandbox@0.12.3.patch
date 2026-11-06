@@ -34,7 +34,7 @@ index 9d0eddb90a0c5757acf71dc9d275620894c10c93..3f34d9909fa5deb6071c4e04f58acade
  		startProcess: (command, processOptions) => useDefaultSession || processOptions?.sessionId !== void 0 ? stub.startProcess(command, processOptions) : stub.startProcess(command, {
  			...processOptions,
  			sessionId: DISABLE_SESSION_TOKEN
-@@ -8056,6 +8057,45 @@ var Sandbox = class Sandbox extends Container {
+@@ -8056,6 +8057,51 @@ var Sandbox = class Sandbox extends Container {
  		return await super.containerFetch(requestOrUrl, portOrInit, portParam);
  	}
  	/**
@@ -53,7 +53,13 @@ index 9d0eddb90a0c5757acf71dc9d275620894c10c93..3f34d9909fa5deb6071c4e04f58acade
 +				headers: { "Content-Type": "application/json" }
 +			});
 +		}
-+		return await this.ctx.container.getTcpPort(port).fetch(request);
++		this.inflightRequests++;
++		try {
++			this.renewActivityTimeout();
++			return await this.ctx.container.getTcpPort(port).fetch(request);
++		} finally {
++			this.decrementInflight();
++		}
 +	}
 +	/**
 +	* Execute a command through the SDK command client without
