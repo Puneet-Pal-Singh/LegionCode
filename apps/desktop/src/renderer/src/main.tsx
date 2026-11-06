@@ -17,7 +17,9 @@ import type {
   DesktopBuildInfo,
   WorkspaceSelection,
 } from "../../shared/desktop-api";
-import { DesktopProviderSetup } from "./DesktopProviderSetup";
+import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
+import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
+import { DesktopRightPanel } from "./DesktopRightPanel";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -37,8 +39,11 @@ function DesktopApp(): React.JSX.Element {
   const [threadLoadState, setThreadLoadState] =
     useState<ThreadLoadState>("loading");
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
-  const [newThreadTitle, setNewThreadTitle] = useState("");
-  const [threadTitle, setThreadTitle] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const workspaceCommand = useRef(false);
+  const rightPanelButton = useRef<HTMLButtonElement>(null);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => !window.matchMedia("(max-width: 1023px)").matches,
@@ -92,11 +97,12 @@ function DesktopApp(): React.JSX.Element {
       return;
     }
     let active = true;
+    const scope = threadScope.current;
     setThreadLoadState("loading");
     void appServerClient
       .getWorkspaceGrant()
       .then(async (nextWorkspace) => {
-        if (!active) return;
+        if (!active || scope !== threadScope.current) return;
         setWorkspace(nextWorkspace);
         if (nextWorkspace?.readiness === "ready") {
           await refreshThreads();
@@ -107,16 +113,12 @@ function DesktopApp(): React.JSX.Element {
         }
       })
       .catch(() => {
-        if (!active) return;
+        if (!active || scope !== threadScope.current) return;
         setWorkspaceError("The local workspace grant could not be loaded.");
         setThreadLoadState("ready");
       });
     return () => { active = false; };
   }, [appServerClient, sdkReady]);
-
-  useEffect(() => {
-    setThreadTitle(selectedThread?.title ?? "");
-  }, [selectedThread?.id, selectedThread?.title]);
 
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
     const scope = threadScope.current;
@@ -152,9 +154,7 @@ function DesktopApp(): React.JSX.Element {
       );
       if (scope !== threadScope.current) return;
       if (request === selectionRequest.current) {
-        setNewThreadTitle("");
         setSelectedThread(created);
-        setThreadTitle(created.title);
         await refreshThreads(created.id);
       } else {
         await refreshThreads();
@@ -176,7 +176,6 @@ function DesktopApp(): React.JSX.Element {
       const opened = await appServerClient.getThread(knownThread.id);
       if (request !== selectionRequest.current) return;
       setSelectedThread(opened);
-      setThreadTitle(opened.title);
     } catch {
       if (request === selectionRequest.current) {
         setThreadError("The local thread could not be opened.");
@@ -184,45 +183,22 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  async function renameThread(): Promise<void> {
-    if (!selectedThread) return;
+  async function renameThread(threadId: string, title: string): Promise<void> {
+    const known = threads.find((thread) => thread.id === threadId);
+    if (!known || !appServerClient) throw new Error("The local thread is unavailable.");
     const scope = threadScope.current;
     const request = selectionRequest.current;
-    setThreadError(null);
     try {
-      if (!appServerClient) return;
-      const renamed = await appServerClient.renameThread(
-        selectedThread.id,
-        threadTitle,
-      );
+      const renamed = await appServerClient.renameThread(known.id, title);
       if (scope !== threadScope.current) return;
       if (request === selectionRequest.current) {
         setSelectedThread((current) => current?.id === renamed.id ? renamed : current);
       }
+      // A newer selection suppresses selection writes, not same-scope metadata refresh.
       await refreshThreads();
     } catch {
       if (scope !== threadScope.current || request !== selectionRequest.current) return;
-      setThreadError("Thread titles must contain 1 to 80 characters.");
-    }
-  }
-
-  async function setThreadArchived(archived: boolean): Promise<void> {
-    if (!selectedThread || !appServerClient) return;
-    const scope = threadScope.current;
-    const request = selectionRequest.current;
-    setThreadError(null);
-    try {
-      const updated = archived
-        ? await appServerClient.archiveThread(selectedThread.id)
-        : await appServerClient.unarchiveThread(selectedThread.id);
-      if (scope !== threadScope.current) return;
-      if (request === selectionRequest.current) {
-        setSelectedThread((current) => current?.id === updated.id ? updated : current);
-      }
-      await refreshThreads();
-    } catch {
-      if (scope !== threadScope.current || request !== selectionRequest.current) return;
-      setThreadError("The local thread could not be updated.");
+      throw new Error("Thread titles must contain 1 to 80 characters.");
     }
   }
 
@@ -267,14 +243,18 @@ function DesktopApp(): React.JSX.Element {
   async function chooseWorkspace(): Promise<void> {
     setWorkspaceError(null);
     try {
-      setSelection(await window.desktop.pickWorkspace());
+      const picked = await window.desktop.pickWorkspace();
+      setSelection(picked);
+      if (picked) setSidebarOpen(true);
     } catch {
       setWorkspaceError("The native workspace picker could not be opened.");
     }
   }
 
   async function grantWorkspace(): Promise<void> {
-    if (!selection) return;
+    if (!selection || workspaceCommand.current) return;
+    workspaceCommand.current = true;
+    setWorkspaceBusy(true);
     setWorkspaceError(null);
     let granted: LocalWorkspaceGrant;
     try {
@@ -285,6 +265,9 @@ function DesktopApp(): React.JSX.Element {
     } catch {
       setWorkspaceError("The selected directory is not a Git repository root.");
       return;
+    } finally {
+      workspaceCommand.current = false;
+      setWorkspaceBusy(false);
     }
 
     threadScope.current += 1;
@@ -298,6 +281,9 @@ function DesktopApp(): React.JSX.Element {
   }
 
   async function revokeWorkspace(): Promise<void> {
+    if (workspaceCommand.current) return;
+    workspaceCommand.current = true;
+    setWorkspaceBusy(true);
     setWorkspaceError(null);
     try {
       if (!appServerClient) return;
@@ -311,6 +297,9 @@ function DesktopApp(): React.JSX.Element {
       setThreadLoadState("ready");
     } catch {
       setWorkspaceError("The local workspace grant could not be revoked.");
+    } finally {
+      workspaceCommand.current = false;
+      setWorkspaceBusy(false);
     }
   }
 
@@ -348,124 +337,80 @@ function DesktopApp(): React.JSX.Element {
     return <ClientShellLoading label="Loading Desktop" />;
   }
 
+  function closeCompactSidebar(): void {
+    if (window.matchMedia("(max-width: 1023px)").matches) setSidebarOpen(false);
+  }
+
   return (
-    <ClientShell
-      environment={environment}
-      onEnvironmentRetry={() => void window.desktop.restartEnvironment()}
-    >
-      <WorkspaceFrame
-        className="desktop-workspace-frame"
-        sidebarOpen={sidebarOpen}
-        onSidebarOpenChange={setSidebarOpen}
-        sidebar={(
-          <ThreadSidebar
-            model={sidebarModel}
-            onSelect={(threadId) => {
-              setSidebarOpen(false);
-              void openThread(threadId);
-            }}
-            onCreate={workspace?.readiness === "ready"
-              ? () => void createThread()
-              : undefined}
-            onArchive={archiveThread}
-            onUnarchive={unarchiveThread}
-            onClose={() => setSidebarOpen(false)}
-          />
-        )}
-        topBar={(
-          <WorkspaceTopBar
-            title="LegionCode Desktop"
-            actions={(
-              <button type="button" onClick={() => void chooseWorkspace()}>
-                Choose folder
-              </button>
-            )}
-          />
-        )}
-      >
-        <div className="desktop-content">
-          <DesktopProviderSetup client={appServerClient} ready={sdkReady} />
-          <section className="workspace-panel" aria-labelledby="workspace-heading">
-            <div className="workspace-panel-header">
-              <div>
-                <p className="eyebrow">Local workspace</p>
-                <h2 id="workspace-heading">
-                  {workspace?.displayName ?? "No workspace granted"}
-                </h2>
-              </div>
-            </div>
-            {selection ? (
-              <div className="workspace-selection">
-                <p>Selected: {selection.displayName}</p>
-                <button type="button" onClick={() => void grantWorkspace()}>
-                  Grant access
-                </button>
-              </div>
-            ) : null}
-            {workspace && environment.status === "ready" ? (
-              <dl className="workspace-details" aria-label="Workspace details">
-                <div><dt>Repository</dt><dd>{workspace.repositoryIdentity ?? "Local Git repository"}</dd></div>
-                <div><dt>Branch</dt><dd>{workspace.branch ?? "Detached HEAD"}</dd></div>
-                <div><dt>Readiness</dt><dd>{workspace.readiness}</dd></div>
-                <div><dt>Capabilities</dt><dd>{workspace.capabilities.join(", ") || "None"}</dd></div>
-              </dl>
-            ) : null}
-            {workspace && environment.status === "ready" && workspace.readiness === "missing" ? <p role="status">{workspace.reason}</p> : null}
-            {workspace && environment.status === "ready" ? <button type="button" onClick={() => void revokeWorkspace()}>Revoke access</button> : null}
-            {workspaceError ? <p role="alert">{workspaceError}</p> : null}
-          </section>
-
-          {workspace?.readiness === "ready" ? (
-            <section className="thread-panel" aria-labelledby="threads-heading">
-              <div>
-                <p className="eyebrow">Local threads</p>
-                <h2 id="threads-heading">Threads</h2>
-              </div>
-              <div className="thread-create-row">
-                <input
-                  aria-label="New thread title"
-                  value={newThreadTitle}
-                  onChange={(event) => setNewThreadTitle(event.target.value)}
-                  placeholder="New thread title"
-                  maxLength={80}
-                />
-                <button type="button" onClick={() => void createThread(newThreadTitle)}>
-                  Create thread
-                </button>
-              </div>
-              {selectedThread ? (
-                <div className="thread-detail" aria-label="Opened local thread">
-                  <p className="eyebrow">Opened thread</p>
-                  <input
-                    aria-label="Thread title"
-                    value={threadTitle}
-                    onChange={(event) => setThreadTitle(event.target.value)}
-                    maxLength={80}
+    <>
+      <ClientShell environment={environment} onEnvironmentRetry={() => void window.desktop.restartEnvironment()}>
+        <WorkspaceFrame
+          className="desktop-workspace-frame"
+          sidebarOpen={sidebarOpen}
+          onSidebarOpenChange={setSidebarOpen}
+          sidebar={(
+            <ThreadSidebar
+              model={sidebarModel}
+              onSelect={(threadId) => { closeCompactSidebar(); void openThread(threadId); }}
+              onCreate={workspace?.readiness === "ready" && sdkReady ? () => void createThread() : undefined}
+              onAddWorkspace={sdkReady ? () => void chooseWorkspace() : undefined}
+              onRenameSession={renameThread}
+              onArchive={archiveThread}
+              onUnarchive={unarchiveThread}
+              onClose={() => setSidebarOpen(false)}
+              footer={(
+                <>
+                  {threadError ? <p role="alert" className="desktop-rail-error">{threadError}</p> : null}
+                  <DesktopWorkspaceControls
+                    workspace={workspace}
+                    selection={selection}
+                    ready={sdkReady}
+                    busy={workspaceBusy}
+                    error={workspaceError}
+                    onChoose={() => void chooseWorkspace()}
+                    onGrant={() => void grantWorkspace()}
+                    onCancelSelection={() => setSelection(null)}
+                    onRevoke={() => void revokeWorkspace()}
+                    onSettings={() => { closeCompactSidebar(); setSettingsOpen(true); }}
                   />
-                  <button type="button" onClick={() => void renameThread()}>
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void setThreadArchived(selectedThread.status === "active")}
-                  >
-                    {selectedThread.status === "active" ? "Archive" : "Unarchive"}
-                  </button>
-                </div>
-              ) : null}
-              {threadError ? <p role="alert">{threadError}</p> : null}
-            </section>
-          ) : null}
-
-          <dl className="desktop-build-info" aria-label="Build information">
-            <div><dt>Version</dt><dd>{build.version}</dd></div>
-            <div><dt>Platform</dt><dd>{build.platform}</dd></div>
-            <div><dt>Architecture</dt><dd>{build.arch}</dd></div>
-            <div><dt>Build</dt><dd>{build.packaged ? "Packaged" : "Development"}</dd></div>
-          </dl>
-        </div>
-      </WorkspaceFrame>
-    </ClientShell>
+                </>
+              )}
+            />
+          )}
+          topBar={(
+            <WorkspaceTopBar
+              title={selectedThread?.title ?? "LegionCode Desktop"}
+              leading={workspace ? <span className="desktop-topbar-workspace">{workspace.displayName}</span> : undefined}
+              actions={(
+                <button ref={rightPanelButton} type="button" aria-expanded={rightPanelOpen} aria-label="Toggle files and review" onClick={() => setRightPanelOpen((open) => !open)}>
+                  Files and review
+                </button>
+              )}
+            />
+          )}
+          rightPanel={rightPanelOpen ? (
+            <DesktopRightPanel
+              workspace={workspace}
+              threadId={selectedThread?.id ?? null}
+              review={null}
+              filesUnavailableReason="Local workspace file reads are unavailable in this environment."
+              commitUnavailableReason="Choose a completed turn with saved changes before committing."
+              onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
+            />
+          ) : undefined}
+          rightPanelLabel="Files and saved turn review"
+        >
+          <div className="desktop-home">
+            <span className="desktop-home-brand">Legion<span>Code</span></span>
+            <h2>{selectedThread?.title ?? (workspace?.readiness === "ready" ? "Choose a task" : "Open a local workspace")}</h2>
+            <p>{selectedThread ? `Saved in ${workspace?.displayName ?? "your local workspace"}.`
+              : workspace?.readiness === "ready" ? "Open a saved task or choose New task in the sidebar."
+              : "Choose a folder in the sidebar and grant access to get started."}</p>
+          </div>
+        </WorkspaceFrame>
+      </ClientShell>
+      <DesktopSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} client={appServerClient} ready={sdkReady} build={build} />
+    </>
   );
 }
 
