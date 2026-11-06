@@ -19,7 +19,13 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
     private readonly options: {
       readonly binding: LocalReadOnlyWorkspaceBinding;
     },
-  ) {}
+  ) {
+    if (process.platform !== "linux") {
+      throw new Error(
+        "This platform requires the native descriptor-scoped read_file backend",
+      );
+    }
+  }
 
   async execute(
     plugin: string,

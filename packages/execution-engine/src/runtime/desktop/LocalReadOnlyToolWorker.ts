@@ -1,3 +1,4 @@
+import type { RuntimeExecutionService } from "../types.js";
 import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import { JsonRecordSchema, type ThreadId } from "@repo/platform-protocol";
 import type {
@@ -10,10 +11,7 @@ import {
 } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "../engine/RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "../engine/RuntimeWorkspaceScope.js";
-import {
-  LOCAL_READ_ONLY_TOOL_IDS,
-  LocalReadOnlyExecutionService,
-} from "./LocalReadOnlyExecutionService.js";
+import { LOCAL_READ_ONLY_TOOL_IDS } from "./LocalReadOnlyExecutionService.js";
 
 /** Translates the existing registry/gateway result; RuntimeKernel alone appends lifecycle. */
 export class LocalReadOnlyToolWorker implements WorkerProtocolPort {
@@ -24,7 +22,7 @@ export class LocalReadOnlyToolWorker implements WorkerProtocolPort {
   >();
 
   constructor(
-    private readonly executor: LocalReadOnlyExecutionService,
+    private readonly executor: RuntimeExecutionService,
     private readonly threadId: ThreadId,
     private readonly toolTracker?: NativeProviderToolTracker,
   ) {}

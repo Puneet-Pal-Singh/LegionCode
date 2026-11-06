@@ -14,7 +14,6 @@ export async function openLocalWorkspaceEntry(
 }> {
   const descriptorPath = (fd: number) => {
     if (process.platform === "linux") return `/proc/self/fd/${fd}`;
-    if (process.platform === "darwin") return `/dev/fd/${fd}`;
     throw new Error(
       "Descriptor-scoped local reads are unavailable on this platform",
     );

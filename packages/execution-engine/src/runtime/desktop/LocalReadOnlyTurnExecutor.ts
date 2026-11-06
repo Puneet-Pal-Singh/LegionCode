@@ -1,3 +1,4 @@
+import type { RuntimeExecutionService } from "../types.js";
 import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
@@ -57,6 +58,11 @@ export class LocalReadOnlyTurnExecutor<
         admission: TurnAdmission,
         signal: AbortSignal,
       ) => Promise<TBinding>;
+      readonly createReadExecutionService?: (
+        admission: TurnAdmission,
+        binding: TBinding,
+        signal: AbortSignal,
+      ) => RuntimeExecutionService | Promise<RuntimeExecutionService>;
       readonly lifecycleEvents: RuntimeKernelDependencies["lifecycleEvents"];
       readonly producerId: string;
       readonly createKernelPorts: (
@@ -110,6 +116,13 @@ export class LocalReadOnlyTurnExecutor<
         }
         const signal = AbortSignal.any([controller.signal, binding.signal]);
         signal.throwIfAborted();
+        const executionService = this.options.createReadExecutionService
+          ? await this.options.createReadExecutionService(
+              admission,
+              binding,
+              signal,
+            )
+          : new LocalReadOnlyExecutionService({ binding });
         const { toolTracker, ...ports } = await this.options.createKernelPorts(
           admission,
           binding,
@@ -124,7 +137,7 @@ export class LocalReadOnlyTurnExecutor<
             ? AbortSignal.any([signal, ports.signal])
             : signal,
           worker: new LocalReadOnlyToolWorker(
-            new LocalReadOnlyExecutionService({ binding }),
+            executionService,
             admission.run.threadId,
             toolTracker,
           ),

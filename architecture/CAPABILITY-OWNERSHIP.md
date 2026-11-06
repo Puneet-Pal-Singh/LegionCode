@@ -30,6 +30,10 @@ The App Server consumer/composition and protected provider resolution remain
 integration dependencies owned by workers01/04. Durable admission uses worker02's
 canonical `TurnAdmission` contract; the executor does not own a prompt store.
 The real Desktop acceptance loop is pending that wiring and installed Mac proof.
+The default Node descriptor reader is Linux-only. Mac must supply the safe native
+reader through the existing `RuntimeExecutionService` port using
+`createReadExecutionService(admission, theSameBinding, signal)`; it never falls
+back to pathname traversal or advertises directory reads.
 
 Sources inspected: [Codex isolated ghost-commit capture](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/git-utils/src/ghost_commits.rs#L302)
 keeps capture indexing isolated; [T3 checkpoint service](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/server/src/orchestration-v2/CheckpointCaptureService.ts#L68)
