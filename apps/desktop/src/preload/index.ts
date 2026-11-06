@@ -11,6 +11,8 @@ import {
 import {
   APP_SERVER_REQUEST_CHANNEL,
   BUILD_INFO_CHANNEL,
+  DESTINATION_SELECT_CHANNEL,
+  DesktopDestinationSchema,
   ENVIRONMENT_SNAPSHOT_CHANNEL,
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
@@ -52,6 +54,9 @@ const desktopApi: DesktopApi = {
     }
     return response;
   },
+  selectDestination: async (destination) => AppServerEnvironmentSnapshotSchema.parse(
+    await ipcRenderer.invoke(DESTINATION_SELECT_CHANNEL, DesktopDestinationSchema.parse(destination)),
+  ),
   getBuildInfo: async () => BuildInfoSchema.parse(
     await ipcRenderer.invoke(BUILD_INFO_CHANNEL),
   ) satisfies DesktopBuildInfo,

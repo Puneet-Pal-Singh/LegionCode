@@ -101,6 +101,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
       requireType: "undefined",
       desktopMethods: [
         "request",
+        "selectDestination",
         "getBuildInfo",
         "getEnvironment",
         "onEnvironmentStatus",

@@ -4,6 +4,9 @@ import type { AppServerRequest } from "@legioncode/app-server/protocol";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 
 export const APP_SERVER_REQUEST_CHANNEL = "desktop:app-server-request";
+export const DESTINATION_SELECT_CHANNEL = "desktop:select-destination";
+export const DesktopDestinationSchema = z.enum(["local", "hosted"]);
+
 export const BUILD_INFO_CHANNEL = "desktop:get-build-info";
 export const ENVIRONMENT_SNAPSHOT_CHANNEL = "desktop:get-environment";
 export const ENVIRONMENT_STATUS_CHANNEL = "desktop:environment-status";
@@ -48,6 +51,7 @@ export type WorkspaceSelection = {
 
 export type DesktopApi = {
   request(envelope: AppServerRequest): Promise<unknown>;
+  selectDestination(destination: "local" | "hosted"): Promise<AppServerEnvironmentSnapshot>;
   getBuildInfo(): Promise<DesktopBuildInfo>;
   getEnvironment(): Promise<AppServerEnvironmentSnapshot>;
   onEnvironmentStatus(

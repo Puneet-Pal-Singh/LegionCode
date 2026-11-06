@@ -14,6 +14,8 @@ import {
 import {
   APP_SERVER_REQUEST_CHANNEL,
   BUILD_INFO_CHANNEL,
+  DESTINATION_SELECT_CHANNEL,
+  DesktopDestinationSchema,
   ENVIRONMENT_SNAPSHOT_CHANNEL,
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
@@ -23,6 +25,7 @@ import {
 } from "../shared/desktop-api";
 import { createWindowOptions } from "./window-options";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
+import { HostedAppServer } from "./hosted-app-server";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
@@ -39,6 +42,15 @@ let credentialVault: DesktopCredentialVault | null = null;
 const localAppServer = new LocalAppServerSupervisor((request) =>
   providerRequestHeaders(request),
 );
+const hostedAppServer = new HostedAppServer(
+  process.env.LEGIONCODE_HOSTED_APP_SERVER_URL,
+);
+let destination: "local" | "hosted" = "local";
+let destinationGeneration = 0;
+const selectedEnvironment = () =>
+  destination === "local"
+    ? localAppServer.getEnvironment()
+    : hostedAppServer.getEnvironment();
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
@@ -72,16 +84,22 @@ function assertTrustedDesktopFrame(event: Electron.IpcMainInvokeEvent): void {
   const expectedRendererUrl = expectedRendererUrls.get(event.sender.id);
   assertTrustedFrameFacts({
     senderFrameRoutingId: event.senderFrame?.routingId,
-    mainFrameRoutingId: browserWindow ? event.sender.mainFrame.routingId : undefined,
+    mainFrameRoutingId: browserWindow
+      ? event.sender.mainFrame.routingId
+      : undefined,
     senderFrameUrl: event.senderFrame?.url,
     expectedRendererUrl,
-    hasDesktopWindow: browserWindow !== null && expectedRendererUrl !== undefined,
+    hasDesktopWindow:
+      browserWindow !== null && expectedRendererUrl !== undefined,
   });
 }
 
 function handleNativeInvoke<T>(
   channel: string,
-  handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => T | Promise<T>,
+  handler: (
+    event: Electron.IpcMainInvokeEvent,
+    ...args: unknown[]
+  ) => T | Promise<T>,
 ): void {
   ipcMain.handle(channel, (event, ...args: unknown[]) => {
     assertTrustedDesktopFrame(event);
@@ -89,15 +107,28 @@ function handleNativeInvoke<T>(
   });
 }
 
-handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
-  localAppServer.getEnvironment(),
-);
+handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () => selectedEnvironment());
+handleNativeInvoke(DESTINATION_SELECT_CHANNEL, async (_event, value) => {
+  const next = DesktopDestinationSchema.parse(value);
+  const generation = ++destinationGeneration;
+  destination = next;
+  environmentGeneration += 1;
+  pendingWorkspaceSelections.clear();
+  if (next === "hosted") await hostedAppServer.connect(app.getVersion());
+  else hostedAppServer.disconnect();
+  if (generation !== destinationGeneration)
+    throw new Error("Destination changed");
+  return selectedEnvironment();
+});
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
   environmentGeneration += 1;
   pendingWorkspaceSelections.clear();
-  await localAppServer.restart(app.getVersion());
+  if (destination === "hosted") await hostedAppServer.connect(app.getVersion());
+  else await localAppServer.restart(app.getVersion());
 });
 handleNativeInvoke(WORKSPACE_PICK_CHANNEL, async (event) => {
+  if (destination !== "local")
+    throw new Error("Choose local execution to grant a folder");
   const requestGeneration = environmentGeneration;
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
@@ -119,17 +150,29 @@ handleNativeInvoke(WORKSPACE_PICK_CHANNEL, async (event) => {
   return { selectionToken, displayName: basename(path) };
 });
 handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
+  if (destination !== "local")
+    throw new Error("Local credentials are unavailable in cloud mode");
   const parsedCommand = DesktopCredentialCommandSchema.safeParse(value);
-  if (!parsedCommand.success) throw new Error("Provider credential request was rejected");
+  if (!parsedCommand.success)
+    throw new Error("Provider credential request was rejected");
   const command = parsedCommand.data;
-  if (!credentialVault) throw new Error("Protected provider credentials are unavailable");
+  if (!credentialVault)
+    throw new Error("Protected provider credentials are unavailable");
   if (command.operation === "save") {
     const request = command.request;
     const provider = findBuiltinProvider(request.providerId);
-    if (!provider || !isLaunchSupportedProvider(provider) || !provider.authModes.includes("api_key")) {
+    if (
+      !provider ||
+      !isLaunchSupportedProvider(provider) ||
+      !provider.authModes.includes("api_key")
+    ) {
       throw new Error("Provider is not available in this Desktop build");
     }
-    await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
+    await credentialVault.setCredential(
+      request.providerId,
+      request.apiKey,
+      request.config,
+    );
     return { ok: true } as const;
   }
   if (command.operation === "delete" || command.operation === "status") {
@@ -137,15 +180,23 @@ handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
       await credentialVault.deleteCredential(command.providerId);
       return { ok: true } as const;
     }
-    return { providerId: command.providerId, status: await credentialVault.status(command.providerId) };
+    return {
+      providerId: command.providerId,
+      status: await credentialVault.status(command.providerId),
+    };
   }
   if (command.operation === "list" && Object.keys(command).length === 1) {
     const providerIds = await credentialVault.listConnectedProviders();
-    return providerIds.map((providerId) => ({ providerId, status: "present" as const }));
+    return providerIds.map((providerId) => ({
+      providerId,
+      status: "present" as const,
+    }));
   }
   throw new Error("Provider credential request was rejected");
 });
 handleNativeInvoke(APP_SERVER_REQUEST_CHANNEL, async (event, value) => {
+  const generation = destinationGeneration;
+  const requestedDestination = destination;
   let request: AppServerRequest;
   try {
     request = resolveDesktopAppServerRequest(
@@ -159,8 +210,12 @@ handleNativeInvoke(APP_SERVER_REQUEST_CHANNEL, async (event, value) => {
 
   try {
     const response = AppServerResponseSchema.parse(
-      await localAppServer.request(request),
+      await (requestedDestination === "local"
+        ? localAppServer.request(request)
+        : hostedAppServer.request(request)),
     );
+    if (generation !== destinationGeneration)
+      throw new Error("Destination changed");
     if (response.method !== request.method) {
       throw new Error("Response method did not match request");
     }
@@ -213,6 +268,7 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
+  hostedAppServer.watchSession();
   void localAppServer.start(app.getVersion(), app.getPath("userData"));
   createWindow();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
@@ -227,7 +283,9 @@ void app.whenReady().then(() => {
   });
 });
 
-localAppServer.subscribe((snapshot) => {
+function publishEnvironment(
+  snapshot: ReturnType<typeof selectedEnvironment>,
+): void {
   if (snapshot.status !== "ready") {
     environmentGeneration += 1;
     pendingWorkspaceSelections.clear();
@@ -238,6 +296,12 @@ localAppServer.subscribe((snapshot) => {
       window.webContents.send(ENVIRONMENT_STATUS_CHANNEL, snapshot);
     }
   }
+}
+localAppServer.subscribe((snapshot) => {
+  if (destination === "local") publishEnvironment(snapshot);
+});
+hostedAppServer.subscribe((snapshot) => {
+  if (destination === "hosted") publishEnvironment(snapshot);
 });
 
 app.on("before-quit", (event) => {
@@ -245,6 +309,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
+    hostedAppServer.disconnect();
     shutdownPromise = localAppServer.stop().finally(() => {
       isQuitting = true;
       app.quit();
