@@ -25,6 +25,7 @@ export class ApprovalCoordinator {
     parentItemId: ItemId,
     request: ApprovalRequestedPayload,
     signal?: AbortSignal,
+    requestAlreadyCommitted = false,
   ): Promise<ApprovalResolution> {
     if (request.itemId === null || request.itemId === parentItemId) {
       throw new RuntimeKernelError(
@@ -34,7 +35,7 @@ export class ApprovalCoordinator {
     }
     const pending = this.createPending(request);
     try {
-      await this.lifecycle.requestApproval(
+      if (!requestAlreadyCommitted) await this.lifecycle.requestApproval(
         parentItemId,
         request.approvalId,
         request.itemId,

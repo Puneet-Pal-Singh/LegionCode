@@ -3,7 +3,7 @@ import {
   ApprovalDecisionSchema, ApprovalGrantScopeSchema, ApprovalRequestedPayloadSchema,
   HarnessSelectionSchema, ItemIdSchema, LeaseIdSchema, ProtocolErrorSchema,
   ProtocolTimestampSchema, RunAttemptIdSchema, ToolCallItemContentSchema,
-  UsageCostSnapshotSchema, WorkspaceSnapshotIdSchema,
+  UsageCostSnapshotSchema, TurnWorkspaceSnapshotSchema,
 } from "@repo/platform-protocol";
 
 const OpaqueId = z.string().min(1).max(256);
@@ -75,7 +75,7 @@ export const HarnessStartCommandSchema = z.object({
   commandId: OpaqueId,
   selection: HarnessSelectionSchema,
   leaseId: LeaseIdSchema,
-  startSnapshotId: WorkspaceSnapshotIdSchema,
+  startSnapshot: TurnWorkspaceSnapshotSchema,
   filesystemRoot: z.string().min(1).max(4096),
   prompt: z.string().min(1).max(1_048_576),
   resumeSession: HarnessSessionSchema.nullable(),
