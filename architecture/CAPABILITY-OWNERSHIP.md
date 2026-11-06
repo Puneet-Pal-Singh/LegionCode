@@ -811,3 +811,17 @@ path and publishes canonical projections. Historical replay never follows an
 unsettled old Turn. Aborted or replaced hooks cannot publish late results, and
 transport closure never creates terminal state. Runtime append and hosted
 lifecycle storage remain the lifecycle authorities.
+
+## Plan 058 — Portable interruption settlement
+
+The SDK `platform/conversation-interruption` operation owns the existing Stop
+request and bounded wait for the exact thread/Turn/Run Attempt terminal event.
+Web `useChatCore` supplies the captured scope and its accepted-command callback;
+React owns pending/error presentation and transport cleanup. The hosted App
+Server and runtime retain interruption authorization and canonical settlement.
+
+The Web-only helper is removed. A successful command acknowledges cancellation
+admission, not terminal settlement: only a matching completed, failed or
+interrupted lifecycle event finishes the SDK operation. The existing 15-second
+abort, mismatched-attempt rejection and iterator cleanup are preserved, using
+portable timers without a browser global or another lifecycle subscription owner.
