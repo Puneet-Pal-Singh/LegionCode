@@ -12,7 +12,8 @@ export type BridgeDisconnectReason =
   | "transport_error"
   | "invalid_frame"
   | "overflow"
-  | "consumer_error";
+  | "consumer_error"
+  | "cleanup_error";
 
 export interface CloudHarnessBridgeOptions {
   /** A fresh private bridge credential; never a provider credential. */
@@ -25,7 +26,7 @@ export interface CloudHarnessBridgeOptions {
    * alone is insufficient. No ACK may be emitted for rejected/failed frames.
    */
   receive: (frame: string) => Promise<void>;
-  disconnected: (reason: BridgeDisconnectReason) => void;
+  disconnected: (reason: BridgeDisconnectReason) => void | Promise<void>;
 }
 
 /**
@@ -37,6 +38,14 @@ export class CloudHarnessBridgeTransport {
   private pendingFrames = 0;
   private tail: Promise<void> = Promise.resolve();
   private closed = false;
+  private finalDisconnectReason: BridgeDisconnectReason | null = null;
+
+  /** Transport loss/cleanup failure is unknown execution outcome, never quiescence.
+   * Remains readable even when the disconnect observer itself fails.
+   */
+  get disconnectReason(): BridgeDisconnectReason | null {
+    return this.finalDisconnectReason;
+  }
 
   private constructor(
     private readonly socket: WebSocket,
@@ -153,18 +162,37 @@ export class CloudHarnessBridgeTransport {
 
   private finish(reason: BridgeDisconnectReason): void {
     if (this.closed) return;
+    // Fence sends and queued delivery before invoking any fallible cleanup code.
     this.closed = true;
-    this.socket.removeEventListener("message", this.onMessage);
-    this.socket.removeEventListener("close", this.onClose);
-    this.socket.removeEventListener("error", this.onError);
-    this.options.signal.removeEventListener("abort", this.onAbort);
-    try {
+    this.finalDisconnectReason = reason;
+    const cleanup = (action: () => void): void => {
+      try {
+        action();
+      } catch {
+        // Record only a fixed category. Never expose cleanup messages or causes.
+        this.finalDisconnectReason = "cleanup_error";
+      }
+    };
+    cleanup(() => this.socket.removeEventListener("message", this.onMessage));
+    cleanup(() => this.socket.removeEventListener("close", this.onClose));
+    cleanup(() => this.socket.removeEventListener("error", this.onError));
+    cleanup(() =>
+      this.options.signal.removeEventListener("abort", this.onAbort),
+    );
+    cleanup(() =>
       this.socket.close(
         reason === "closed" || reason === "aborted" ? 1000 : 1008,
         "Private harness bridge disconnected",
-      );
-    } finally {
-      this.options.disconnected(reason);
-    }
+      ),
+    );
+    cleanup(() => {
+      // A failed observer cannot replace send's sanitized error or reject the
+      // receive queue. Preserve a fenced, inspectable failure category instead.
+      void Promise.resolve(
+        this.options.disconnected(this.finalDisconnectReason ?? reason),
+      ).catch(() => {
+        this.finalDisconnectReason = "cleanup_error";
+      });
+    });
   }
 }
