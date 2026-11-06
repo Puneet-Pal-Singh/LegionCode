@@ -109,6 +109,23 @@ describe("App Server protocol", () => {
     }
     expect(AppServerRequestSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/selection/select", params: { ...harnessSelection, clientCommandId: "select-1", expectedRevision: -1, selection: null } }).success).toBe(false);
 
+    const status = {
+      ...harnessScope, instanceId: "codex-personal", harness: "codex", connectionId: "connection-1", accountLabel: "Personal",
+      state: "offline", reason: null, runtimeVersion: null, protocolVersion: null, observedAt: "2026-11-06T00:00:00.000Z",
+      capabilities: { approvals: false, questions: false, steer: false, resume: false, fork: false, images: false, terminal: false, contextTelemetry: false, accountQuota: false, experimental: false },
+      usage: null,
+    };
+    const statusEnvelope = (instance: unknown) => ({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/status", ok: true, result: { instances: [instance] } });
+    expect(AppServerResponseSchema.safeParse(statusEnvelope(status)).success).toBe(true);
+    const usage = {
+      connectionId: "connection-1", accountId: "account-1", environmentId: "cloud-1", authOwnerGeneration: 0, billingRoute: "external",
+      quota: { scope: "account", state: "unsupported", checkedAt: null, source: null, windows: null }, activity: [],
+    };
+    expect(AppServerResponseSchema.safeParse(statusEnvelope({ ...status, usage })).success).toBe(true);
+    for (const foreign of [{ ...usage, connectionId: "another-connection" }, { ...usage, environmentId: "another-environment" }]) {
+      expect(AppServerResponseSchema.safeParse(statusEnvelope({ ...status, usage: foreign })).success).toBe(false);
+    }
+
     const threadScope = {
       threadId: "thr_123456",
       workspaceId: "123e4567-e89b-42d3-a456-426614174111",

@@ -1,3 +1,4 @@
+import { HarnessUsageObservationSchema } from "./usage.js";
 import { z } from "zod";
 import { ModelIdSchema, ThreadIdSchema } from "../ids.js";
 import { WorkspaceScopeIdSchema } from "../turn-scope-bootstrap.js";
@@ -44,13 +45,21 @@ export const HarnessInstanceStatusSchema = HarnessInstanceScopeSchema.extend({
   harness: HarnessKindSchema,
   connectionId: Reference.nullable(),
   accountLabel: z.string().min(1).max(256).nullable(),
+  // A redacted account observation, never an inferred balance or run total.
+  usage: HarnessUsageObservationSchema.nullable(),
   state: z.enum(["ready", "offline", "connecting", "reauthentication_required", "unavailable"]),
   reason: z.string().max(2000).nullable(),
   capabilities: HarnessCapabilitiesSchema,
   runtimeVersion: Reference.nullable(),
   protocolVersion: Reference.nullable(),
   observedAt: z.string().datetime(),
-}).strict();
+}).strict().refine(
+  (instance) => instance.usage === null || (
+    instance.connectionId === instance.usage.connectionId &&
+    instance.environmentId === instance.usage.environmentId
+  ),
+  "Harness usage must belong to the instance connection and environment",
+);
 export const HarnessStatusResponseSchema = z.object({ instances: z.array(HarnessInstanceStatusSchema).max(200) }).strict();
 export const HarnessSetupResponseSchema = z.object({ instance: HarnessInstanceStatusSchema }).strict();
 export const HarnessModelsResponseSchema = HarnessModelsRequestSchema.extend({

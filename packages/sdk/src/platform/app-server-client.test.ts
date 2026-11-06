@@ -186,7 +186,7 @@ describe("AppServerClient", () => {
     const scope = { workspaceId: "123e4567-e89b-42d3-a456-426614174111", environmentId: "cloud-1" };
     const instance = {
       ...scope, harness: "codex" as const, instanceId: "codex-personal", connectionId: "connection-1",
-      accountLabel: "Personal", state: "ready" as const, reason: null,
+      accountLabel: "Personal", usage: null, state: "ready" as const, reason: null,
       capabilities: { approvals: true, questions: false, steer: false, resume: true, fork: false, images: false, terminal: false, contextTelemetry: false, accountQuota: false, experimental: false },
       runtimeVersion: "pinned", protocolVersion: "pinned", observedAt: "2026-11-06T00:00:00.000Z",
     };
