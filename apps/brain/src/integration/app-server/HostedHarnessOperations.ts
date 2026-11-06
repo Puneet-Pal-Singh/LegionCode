@@ -18,6 +18,8 @@ export interface HostedHarnessOperationContext {
  * environment/instance/connection ownership and placement eligibility against the
  * verified principal before host/provider work. select additionally owns durable
  * revision CAS and command deduplication; no preference lives in this adapter.
+ * status/setup return usage:null unless the observation also matches the current
+ * credential auth-owner generation. Reading status never silently changes payer.
  */
 export type HostedHarnessConnectionService = {
   [Method in keyof HarnessOperations]: (
