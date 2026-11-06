@@ -250,6 +250,7 @@ body {
 .lc-workspace-body { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .lc-workspace-right-panel { display: flex; width: var(--lc-workspace-panel-width, 320px); flex: 0 0 auto; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--lc-color-border); background: var(--lc-color-surface); }
 .lc-workspace-right-panel > * { width: 100%; min-width: 0; }
+.lc-workspace-right-panel > aside { border-left: 0; }
 @media (max-width: 767px) {
   .lc-workspace-body-with-panel > .lc-workspace-content { display: none; }
   .lc-workspace-right-panel { width: 100%; flex: 1; border-left: 0; }

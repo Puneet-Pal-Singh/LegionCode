@@ -2,130 +2,40 @@
 @import "@legioncode/client-ui/styles.css";
 @source "../../../../../packages/client-ui/src";
 
-.desktop-workspace-frame {
-  flex: 1 1 auto;
-}
-
-.desktop-content {
-  display: grid;
-  align-content: start;
-  gap: 1rem;
-  width: min(100%, 960px);
-  margin: 0 auto;
-  padding: 1.5rem;
-}
-
-.workspace-panel h2,
-.thread-panel h2 {
-  margin: 0;
-  color: var(--lc-color-text-primary);
-  font-size: 1.2rem;
-}
-
-.workspace-panel button,
-.thread-panel button {
-  min-height: 2.25rem;
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 0.45rem;
-  padding: 0.4rem 0.7rem;
-  color: var(--lc-color-text-primary);
-  background: var(--lc-color-surface-elevated);
-  cursor: pointer;
-  font: inherit;
-}
-
-.workspace-panel button:focus-visible,
-.thread-panel button:focus-visible,
-.lc-workspace-topbar-actions button:focus-visible {
-  outline: 2px solid var(--lc-color-accent);
-  outline-offset: 2px;
-}
-
-.lc-workspace-topbar-actions button {
-  min-height: 2rem;
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 0.4rem;
-  padding: 0.3rem 0.6rem;
-  color: var(--lc-color-text-primary);
-  background: var(--lc-color-surface-elevated);
-  cursor: pointer;
-  font: inherit;
-}
-
-.workspace-panel,
-.thread-panel {
-  min-width: 0;
-  padding: 1rem;
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 0.75rem;
-  background: var(--lc-color-surface-elevated);
-}
-
-.workspace-panel-header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.eyebrow {
-  margin: 0 0 0.5rem;
-  color: var(--lc-color-accent);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.workspace-selection {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--lc-color-border-subtle);
-}
-
-.workspace-selection p {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.workspace-details,
-.desktop-build-info {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 1rem 0 0;
-}
-
-.workspace-details div,
-.desktop-build-info div {
-  min-width: 0;
-  padding: 0.65rem;
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 0.45rem;
-  background: var(--lc-color-surface);
-}
-
-.workspace-details dd,
-.desktop-build-info dd {
-  margin: 0.25rem 0 0;
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-details dt,
-.desktop-build-info dt {
-  color: var(--lc-color-text-tertiary);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-}
+.desktop-workspace-frame { flex: 1 1 auto; }
+.desktop-topbar-workspace { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lc-color-text-tertiary); font-size: 0.75rem; }
+.desktop-home { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; text-align: center; }
+.desktop-home-brand { margin-bottom: 1.5rem; color: var(--lc-color-text-primary); font-size: 1.4rem; font-weight: 650; letter-spacing: -0.04em; }
+.desktop-home-brand span { color: var(--lc-color-text-tertiary); }
+.desktop-home h2 { max-width: 32rem; margin: 0; color: var(--lc-color-text-primary); font-size: 1.1rem; font-weight: 500; overflow-wrap: anywhere; }
+.desktop-home p { max-width: 25rem; margin: 0.75rem 0 0; color: var(--lc-color-text-tertiary); font-size: 0.85rem; line-height: 1.6; }
+.desktop-rail-footer { display: grid; gap: 0.65rem; font-size: 0.75rem; }
+.desktop-workspace-summary { display: grid; gap: 0.25rem; }
+.desktop-workspace-summary > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lc-color-text-primary); font-size: 0.8rem; font-weight: 500; }
+.desktop-workspace-summary > span, .desktop-workspace-summary p { margin: 0; color: var(--lc-color-text-tertiary); }
+.desktop-rail-caption { font-size: 0.65rem; }
+.desktop-inline-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.desktop-inline-actions button, .desktop-settings-button, .desktop-settings-header button, .lc-workspace-topbar-actions button { min-height: 2rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.4rem; padding: 0.3rem 0.55rem; background: transparent; color: var(--lc-color-text-secondary); cursor: pointer; font: inherit; font-size: 0.75rem; }
+.desktop-inline-actions button:hover, .desktop-settings-button:hover, .desktop-settings-header button:hover, .lc-workspace-topbar-actions button:hover { background: var(--lc-color-surface-elevated); color: var(--lc-color-text-primary); }
+.desktop-inline-actions button:disabled { cursor: default; opacity: 0.5; }
+.desktop-settings-button { text-align: left; border-color: transparent; }
+.desktop-workspace-confirm { padding: 0.65rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.5rem; background: var(--lc-color-background); }
+.desktop-workspace-confirm p { margin: 0 0 0.6rem; line-height: 1.5; overflow-wrap: anywhere; }
+.desktop-rail-error { margin: 0; color: #fca5a5; line-height: 1.5; overflow-wrap: anywhere; }
+.desktop-settings-dialog { width: min(720px, calc(100vw - 2rem)); max-height: calc(100dvh - 3rem); padding: 0; overflow: hidden; border: 1px solid var(--lc-color-border); border-radius: 0.75rem; background: var(--lc-color-background); color: var(--lc-color-text-primary); }
+.desktop-settings-dialog[open] { display: flex; flex-direction: column; }
+.desktop-settings-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.desktop-settings-header { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--lc-color-border); }
+.desktop-settings-header h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.desktop-settings-header p { margin: 0.3rem 0 0; color: var(--lc-color-text-tertiary); font-size: 0.75rem; }
+.desktop-settings-body { min-height: 0; overflow: auto; padding: 1.25rem; }
+.desktop-about { margin-top: 1rem; color: var(--lc-color-text-secondary); font-size: 0.75rem; }
+.desktop-about summary { cursor: pointer; }
+.desktop-about dl { display: grid; gap: 0.6rem; }
+.desktop-about dl > div { display: flex; gap: 1rem; justify-content: space-between; }
+.desktop-about dd { margin: 0; }
+.eyebrow { margin: 0 0 0.5rem; color: var(--lc-color-accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+button:focus-visible { outline-color: var(--lc-color-accent); }
 
 .desktop-provider-setup {
   min-width: 0;
@@ -219,64 +129,4 @@
 .desktop-provider-selection select:focus-visible {
   outline: 2px solid var(--lc-color-accent);
   outline-offset: 2px;
-}
-
-.workspace-panel [role="alert"],
-.thread-panel [role="alert"] {
-  color: #fca5a5;
-}
-
-.thread-panel > div:first-child {
-  margin-bottom: 0.75rem;
-}
-
-.thread-create-row,
-.thread-detail {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.thread-create-row input,
-.thread-detail input {
-  min-width: min(100%, 14rem);
-  min-height: 2.25rem;
-  flex: 1 1 14rem;
-  border: 1px solid var(--lc-color-border-subtle);
-  border-radius: 0.45rem;
-  padding: 0.4rem 0.65rem;
-  color: var(--lc-color-text-primary);
-  background: var(--lc-color-background);
-  font: inherit;
-}
-
-.thread-detail {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--lc-color-border-subtle);
-}
-
-.thread-detail .eyebrow {
-  width: 100%;
-  margin-bottom: 0;
-}
-
-@media (max-width: 520px) {
-  .desktop-content {
-    padding: 1rem;
-  }
-
-  .workspace-details,
-  .desktop-build-info {
-    grid-template-columns: 1fr;
-  }
-
-  .desktop-provider-credentials > div {
-    align-items: stretch;
-  }
-
-  .desktop-provider-credentials button {
-    width: 100%;
-  }
 }
