@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { questionAnswer } from "./OpenCodeQuestionMapper.js";
 import type { ModelRef, SessionCreateInput } from "@opencode/client";
 import type {
   HarnessDriver,
@@ -85,6 +87,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
     let executing = false;
     let stopping = false;
     let terminalPublished = false;
+    let provenQuiescence: HarnessQuiescence | undefined;
     let resolveForeground!: () => void;
     let rejectForeground!: (error: Error) => void;
     const foreground = new Promise<void>((resolve, reject) => {
@@ -138,12 +141,13 @@ export class OpenCodeV2Driver implements HarnessDriver {
       );
       const abort = () => {
         stopping = true;
+        capturedNative.fence();
         host.fence();
         rejectForeground(new OpenCodeTransportError("attempt aborted", true));
       };
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
-      return {
+      const live: HarnessLiveSession = {
         session,
         execute: async (request) => {
           if (
@@ -162,11 +166,19 @@ export class OpenCodeV2Driver implements HarnessDriver {
           request.signal.throwIfAborted();
           await capturedNative.prompt(command.prompt);
           await foreground;
+          while (!stopping) {
+            const evidence = await live.awaitQuiescence({ timeoutMs: 2000 });
+            if (evidence.status === "quiescent") return;
+            if (evidence.reason !== "work_still_running")
+              throw new OpenCodeTransportError("quiescence unavailable", true);
+            await delay(500, undefined, { signal: request.signal });
+          }
+          throw new OpenCodeTransportError("attempt stopped", true);
         },
         control: async (raw) => {
           const control = HarnessControlCommandSchema.parse(raw);
           const origin =
-            control.kind === "reply"
+            control.kind === "reply" || control.kind === "user_input_reply"
               ? control.reply.replyTo.session
               : control.session;
           if (!sameSession(session, origin))
@@ -176,6 +188,24 @@ export class OpenCodeV2Driver implements HarnessDriver {
               "steer capability unavailable",
               false,
             );
+          if (control.kind === "user_input_reply") {
+            const reply = control.reply;
+            const form = capturedNative.pendingForm(reply.replyTo.requestId);
+            if (
+              stopping ||
+              !form ||
+              form.sessionID !== reply.replyTo.origin ||
+              reply.replyTo.authOwnerGeneration !==
+                command.selection.authOwnerGeneration
+            ) {
+              throw new OpenCodeTransportError("question origin", true);
+            }
+            await capturedNative.replyForm(
+              form.id,
+              questionAnswer(form, reply.response),
+            );
+            return { accepted: true };
+          }
           if (control.kind === "reply") {
             const reply = control.reply;
             if (
@@ -195,6 +225,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
             return { accepted: true };
           }
           stopping = true;
+          capturedNative.fence();
           host.fence();
           if (control.kind === "interrupt") {
             await capturedNative.interrupt();
@@ -206,6 +237,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
           return { accepted: true };
         },
         awaitQuiescence: async ({ timeoutMs }) => {
+          if (provenQuiescence?.status === "quiescent") return provenQuiescence;
           if (
             !Number.isSafeInteger(timeoutMs) ||
             timeoutMs < 0 ||
@@ -251,10 +283,12 @@ export class OpenCodeV2Driver implements HarnessDriver {
               payload: { kind: "quiescence", evidence },
             });
             terminalPublished = true;
+            provenQuiescence = evidence;
           }
           return evidence;
         },
       };
+      return live;
     } catch {
       host.fence();
       await host.terminateProcesses({ graceMs: 100, killWaitMs: 1000 });

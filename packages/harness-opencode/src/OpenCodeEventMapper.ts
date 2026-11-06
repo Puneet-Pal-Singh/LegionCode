@@ -1,3 +1,4 @@
+import { questionPayload } from "./OpenCodeQuestionMapper.js";
 import { createHash } from "node:crypto";
 import type { ModelRef, OpenCodeEvent } from "@opencode/client";
 import {
@@ -186,12 +187,31 @@ export class OpenCodeEventMapper {
           },
         ];
       }
-      case "session.tool.failed":
-        // The current shared union lacks tool_failed. Never translate a failure into success.
-        throw new OpenCodeTransportError(
-          "tool failure capability unavailable",
-          true,
-        );
+      case "session.tool.failed": {
+        const key = this.toolKey(event.data);
+        if (!this.toolNames.has(key))
+          throw new OpenCodeTransportError("tool failure without start", true);
+        this.toolNames.delete(key);
+        return [
+          {
+            kind: "tool_failed",
+            itemId: this.item("tool", key),
+            failure: {
+              code:
+                event.data.error.type === "permission.rejected"
+                  ? "policy_denied"
+                  : "command_failed",
+              message:
+                event.data.error.type === "permission.rejected"
+                  ? "OpenCode action was denied."
+                  : "OpenCode tool failed.",
+              retryable: false,
+              correlationId: null,
+              details: null,
+            },
+          },
+        ];
+      }
       case "permission.asked": {
         if (!event.data.source || event.data.source.type !== "tool")
           throw new OpenCodeTransportError(
@@ -233,11 +253,23 @@ export class OpenCodeEventMapper {
           },
         ];
       }
-      case "form.created":
-        throw new OpenCodeTransportError(
-          "question capability unavailable",
-          true,
-        );
+      case "form.created": {
+        const form = event.data.form;
+        return [
+          {
+            kind: "user_input_requested",
+            itemId: this.item("question", form.id),
+            requestId: `input_${this.hash("question", form.id)}`,
+            payload: questionPayload(form),
+            replyTo: {
+              session: this.options.session,
+              origin: form.sessionID,
+              requestId: form.id,
+              authOwnerGeneration: this.options.selection.authOwnerGeneration,
+            },
+          },
+        ];
+      }
       case "session.usage.updated":
         return [{ kind: "usage", usage: this.usage.observe(event) }];
       case "session.execution.succeeded":
@@ -249,6 +281,7 @@ export class OpenCodeEventMapper {
           throw new OpenCodeTransportError("duplicate native terminal", true);
         this.pendingTerminal = {
           kind: "external_terminal",
+          providerCompletedAt: new Date(event.created).toISOString(),
           itemId: this.item("final", this.options.session.externalSessionId),
           status:
             event.type === "session.execution.succeeded"

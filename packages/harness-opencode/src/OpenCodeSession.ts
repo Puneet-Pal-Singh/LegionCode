@@ -5,6 +5,7 @@ import { SessionInbox } from "@opencode/schema/session-inbox";
 import { Location } from "@opencode/schema/location";
 import type {
   OpenCodeEvent,
+  FormCreated,
   SessionCreateInput,
   SessionInfo,
   SessionFormReplyInput,
@@ -25,7 +26,11 @@ export class OpenCodeSession {
   >();
   private readonly forms = new Map<
     string,
-    { sessionID: string; committed: Promise<void> }
+    {
+      sessionID: string;
+      committed: Promise<void>;
+      form: FormCreated["data"]["form"];
+    }
   >();
   private readonly promptId = SessionMessage.ID.create();
   private promptSent = false;
@@ -63,19 +68,46 @@ export class OpenCodeSession {
       }
       const sessionID = sessionIdOf(event);
       if (!sessionID || !session.sessions.has(sessionID)) return;
+      if (!session.stopping) {
+        if (
+          event.type === "permission.asked" &&
+          (session.permissions.size >= 128 ||
+            session.permissions.has(event.data.id))
+        ) {
+          return transport.invalidate("pending permission bound or duplicate");
+        }
+        if (
+          event.type === "form.created" &&
+          (session.forms.size >= 128 || session.forms.has(event.data.form.id))
+        ) {
+          return transport.invalidate("pending question bound or duplicate");
+        }
+      }
       // Install the generation-local capability before publishing, but gate its use on commit.
       const committed = Promise.resolve().then(() => commit(event));
       if (!session.stopping) {
         if (event.type === "permission.asked")
           session.permissions.set(event.data.id, { sessionID, committed });
         if (event.type === "form.created")
-          session.forms.set(event.data.form.id, { sessionID, committed });
+          session.forms.set(event.data.form.id, {
+            sessionID,
+            committed,
+            form: event.data.form,
+          });
       }
       await committed;
-      if (event.type === "permission.replied")
-        session.permissions.delete(event.data.requestID);
-      if (event.type === "form.replied" || event.type === "form.cancelled")
-        session.forms.delete(event.data.id);
+      if (
+        event.type === "permission.replied" &&
+        session.permissions.has(event.data.requestID)
+      )
+        return transport.invalidate(
+          "permission settled outside canonical reply",
+        );
+      if (
+        (event.type === "form.replied" || event.type === "form.cancelled") &&
+        session.forms.has(event.data.id)
+      )
+        return transport.invalidate("question settled outside canonical reply");
     });
     session.root = await transport.mutate("session.create", (api, signal) =>
       api.session.create(captured, { signal }),
@@ -133,10 +165,16 @@ export class OpenCodeSession {
       throw new OpenCodeTransportError("stale permission reply", true);
     this.permissions.delete(requestID);
     await pending.committed;
+    if (this.stopping)
+      throw new OpenCodeTransportError("reply fenced by Stop", true);
     const sessionID = pending.sessionID;
     await this.transport.mutate("permission.reply", (api, signal) =>
       api.permission.reply({ sessionID, requestID, decision }, { signal }),
     );
+  }
+
+  pendingForm(formID: string): FormCreated["data"]["form"] | undefined {
+    return this.forms.get(formID)?.form;
   }
 
   async replyForm(
@@ -148,6 +186,8 @@ export class OpenCodeSession {
       throw new OpenCodeTransportError("stale form reply", true);
     this.forms.delete(formID);
     await pending.committed;
+    if (this.stopping)
+      throw new OpenCodeTransportError("reply fenced by Stop", true);
     const sessionID = pending.sessionID;
     await this.transport.mutate("form.reply", (api, signal) =>
       api.session.form.reply({ sessionID, formID, answer }, { signal }),
@@ -160,10 +200,18 @@ export class OpenCodeSession {
       throw new OpenCodeTransportError("stale form cancellation", true);
     this.forms.delete(formID);
     await pending.committed;
+    if (this.stopping)
+      throw new OpenCodeTransportError("reply fenced by Stop", true);
     const sessionID = pending.sessionID;
     await this.transport.mutate("form.cancel", (api, signal) =>
       api.session.form.cancel({ sessionID, formID }, { signal }),
     );
+  }
+
+  fence(): void {
+    this.stopping = true;
+    this.permissions.clear();
+    this.forms.clear();
   }
 
   /**
@@ -173,9 +221,7 @@ export class OpenCodeSession {
   async interrupt(): Promise<
     ReadonlyArray<{ sessionID: string; interrupted: boolean }>
   > {
-    this.stopping = true;
-    this.permissions.clear();
-    this.forms.clear();
+    this.fence();
     const parent = await this.transport.mutate(
       "session.interrupt",
       (api, signal) =>

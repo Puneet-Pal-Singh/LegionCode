@@ -59,7 +59,7 @@ export class OpenCodeClient {
         Authorization: authorization,
       },
       // A redirect must never forward the private transport credential to another origin.
-      fetch: (input, init) => fetch(input, { ...init, redirect: "error" }),
+      fetch: boundedNativeFetch,
     });
   }
 
@@ -191,3 +191,25 @@ export class OpenCodeClient {
     this.stream.abort();
   }
 }
+
+/** Bound native JSON/pages before the Promise client's JSON parser can allocate an unbounded body. */
+const boundedNativeFetch: typeof fetch = async (input, init) => {
+  const response = await fetch(input, { ...init, redirect: "error" });
+  if (!response.body) return response;
+  let bytes = 0;
+  const body = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength;
+        if (bytes > 4 * 1024 * 1024)
+          throw new Error("OpenCode response bound exceeded.");
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};

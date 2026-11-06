@@ -3,7 +3,7 @@ import type { HarnessCapabilities } from "@repo/platform-protocol";
 /** Support flags only; host isolation, selected credentials and release proof independently gate availability. */
 export const OPENCODE_CAPABILITIES = Object.freeze({
   approvals: true,
-  questions: false,
+  questions: true,
   steer: false,
   resume: false,
   fork: false,
