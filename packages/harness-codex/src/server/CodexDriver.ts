@@ -23,12 +23,16 @@ import {
   codexItemId,
   nativeIdentity,
 } from "./CodexEventMapper.js";
+import { codexQuestion } from "./CodexQuestionMapper.js";
 import { codexPermission } from "./CodexPermissionMapper.js";
 
 /** Concrete native loop driver; the shared host owns launch policy, delivery journal and process cleanup. */
 export class CodexDriver implements HarnessDriver {
   readonly kind = "codex" as const;
-  constructor(private readonly executable: string) {}
+  constructor(
+    private readonly executable: string,
+    private readonly options: { experimentalQuestions?: boolean } = {},
+  ) {}
 
   async open(
     input: Parameters<HarnessDriver["open"]>[0],
@@ -85,6 +89,10 @@ export class CodexDriver implements HarnessDriver {
       rejectDone = reject;
     });
     void done.catch(() => undefined);
+    const pendingQuestions = new Map<
+      string,
+      ReturnType<typeof codexQuestion>
+    >();
     const pendingReplies = new Map<
       string,
       ReturnType<typeof codexPermission>
@@ -93,6 +101,7 @@ export class CodexDriver implements HarnessDriver {
       if (stopped) return;
       stopped = true;
       pendingReplies.clear();
+      pendingQuestions.clear();
       rejectTurn(new Error("Codex execution unavailable"));
       rejectDone(new Error("Codex execution outcome requires reconciliation"));
       host.fence();
@@ -174,6 +183,19 @@ export class CodexDriver implements HarnessDriver {
           await emit({
             kind: "external_terminal",
             status,
+            providerCompletedAt: new Date(
+              z
+                .object({
+                  turn: z.object({
+                    completedAt: z
+                      .number()
+                      .int()
+                      .nonnegative()
+                      .max(8_640_000_000_000),
+                  }),
+                })
+                .parse(raw).turn.completedAt * 1000,
+            ).toISOString(),
             itemId: codexItemId(selection.runAttemptId, turn.id),
             output: finalOutput,
             error:
@@ -192,6 +214,7 @@ export class CodexDriver implements HarnessDriver {
           });
           terminal = true;
           pendingReplies.clear();
+          pendingQuestions.clear();
           resolveDone();
           return;
         }
@@ -218,6 +241,30 @@ export class CodexDriver implements HarnessDriver {
     };
     const request = (raw: CodexServerRequest) => {
       // Internal-only auth, dynamic-tool and unsupported permission/question APIs are never exposed.
+      if (
+        raw.method === "item/tool/requestUserInput" &&
+        this.options.experimentalQuestions === true
+      ) {
+        enqueue(raw.params, async () => {
+          if (!session || !externalTurnId)
+            throw new Error("Codex question has no active turn");
+          const mapped = codexQuestion(
+            raw,
+            session,
+            selection.authOwnerGeneration,
+            externalTurnId,
+          );
+          const key = mapped.payload.replyTo.requestId;
+          if (
+            pendingQuestions.has(key) ||
+            pendingQuestions.size + pendingReplies.size >= 64
+          )
+            throw new Error("Codex request overflow");
+          pendingQuestions.set(key, mapped);
+          await emit(mapped.payload);
+        });
+        return;
+      }
       if (
         ![
           "item/commandExecution/requestApproval",
@@ -259,7 +306,11 @@ export class CodexDriver implements HarnessDriver {
     try {
       await child.ready;
       if (stopped) throw new Error("Codex opening interrupted");
-      const initialized = await initializeCodex(transport, "0.0.0");
+      const initialized = await initializeCodex(
+        transport,
+        "0.0.0",
+        this.options.experimentalQuestions === true,
+      );
       if (initialized.codexHome !== host.instanceDirectory)
         throw new Error("Codex instance home mismatch");
       const common = {
@@ -289,6 +340,7 @@ export class CodexDriver implements HarnessDriver {
         session: learnedSession,
         execute: async (execution) => {
           if (
+            command.resumeSession !== null ||
             executing ||
             stopped ||
             execution.signal.aborted ||
@@ -317,7 +369,7 @@ export class CodexDriver implements HarnessDriver {
         control: async (raw) => {
           const control = HarnessControlCommandSchema.parse(raw);
           const target =
-            control.kind === "reply"
+            control.kind === "reply" || control.kind === "user_input_reply"
               ? control.reply.replyTo.session
               : control.session;
           if (
@@ -332,6 +384,7 @@ export class CodexDriver implements HarnessDriver {
           }
           if (control.kind === "interrupt") {
             pendingReplies.clear();
+            pendingQuestions.clear();
             if (externalTurnId) await native.interrupt();
             else fail();
             return { accepted: true };
@@ -344,6 +397,13 @@ export class CodexDriver implements HarnessDriver {
               expectedTurnId: control.expectedExternalTurnId,
               input: [{ type: "text", text: control.text, text_elements: [] }],
             });
+          } else if (control.kind === "user_input_reply") {
+            const handle = pendingQuestions.get(
+              control.reply.replyTo.requestId,
+            );
+            if (!handle) throw new Error("Codex question reply unavailable");
+            handle.reply(control.reply);
+            pendingQuestions.delete(control.reply.replyTo.requestId);
           } else {
             const handle = pendingReplies.get(control.reply.replyTo.requestId);
             if (!handle) throw new Error("Codex reply unavailable");

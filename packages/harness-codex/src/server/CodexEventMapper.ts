@@ -67,10 +67,24 @@ export function codexEventPayload(
       },
     };
   }
+  if (item.status === "failed" || item.status === "declined") {
+    return {
+      kind: "tool_failed",
+      itemId,
+      failure: {
+        code: item.status === "declined" ? "policy_denied" : "command_failed",
+        message:
+          item.status === "declined"
+            ? "Codex tool was declined"
+            : "Codex tool failed",
+        retryable: false,
+        correlationId: null,
+        details: null,
+      },
+    };
+  }
   if (item.status !== "completed")
-    throw new Error(
-      "Codex non-success tool outcome requires canonical failure variant",
-    );
+    throw new Error("Invalid Codex tool completion status");
   return {
     kind: "tool_completed",
     itemId,

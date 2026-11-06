@@ -84,6 +84,8 @@ try {
     "v2/TurnStartParams",
     "v2/TurnSteerParams",
     "v2/TurnInterruptParams",
+    "v2/ToolRequestUserInputParams",
+    "v2/ToolRequestUserInputResponse",
   ])
     copy(name + ".ts");
   writeFileSync(

@@ -9,6 +9,7 @@ import {
 export async function initializeCodex(
   transport: CodexStdioTransport,
   clientVersion: string,
+  experimentalApi = false,
 ): Promise<InitializeResponse> {
   const params: InitializeParams = {
     clientInfo: {
@@ -16,7 +17,7 @@ export async function initializeCodex(
       title: "LegionCode",
       version: clientVersion,
     },
-    capabilities: { experimentalApi: false, requestAttestation: false },
+    capabilities: { experimentalApi, requestAttestation: false },
   };
   const result = await transport.request("initialize", params);
   if (
