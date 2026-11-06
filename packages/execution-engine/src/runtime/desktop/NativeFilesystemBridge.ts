@@ -46,7 +46,7 @@ export class NativeFilesystemBridge {
   async mutate(input: {
     readonly path: string;
     readonly prepare: (current: string | null) => string;
-    readonly beforeCommit: () => Promise<void>;
+    readonly beforeCommit: (signal: AbortSignal) => Promise<void>;
     readonly signal: AbortSignal;
   }): Promise<{ path: string; bytes: number; created: boolean }> {
     return this.withHelper("M", input, async (reader, stdin) => {
@@ -77,7 +77,10 @@ export class NativeFilesystemBridge {
       );
       await reader.tag(83);
       // The helper has only staged bytes. Revalidate runtime authority before commit.
-      await input.beforeCommit();
+      await awaitAuthorization(
+        () => input.beforeCommit(input.signal),
+        input.signal,
+      );
       input.signal.throwIfAborted();
       await send(stdin, Buffer.from("C"));
       await reader.tag(67);
@@ -128,17 +131,19 @@ export class NativeFilesystemBridge {
       shell: false,
       windowsHide: true,
     });
-    const closed = new Promise<{ code: number | null; error?: Error }>(
-      (resolve) => {
-        let error: Error | undefined;
-        child.once("error", (cause) => {
-          error = cause;
-        });
-        child.once("close", (code) =>
-          resolve({ code, ...(error ? { error } : {}) }),
-        );
-      },
-    );
+    const closed = new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      error?: Error;
+    }>((resolve) => {
+      let error: Error | undefined;
+      child.once("error", (cause) => {
+        error = cause;
+      });
+      child.once("close", (code, signal) =>
+        resolve({ code, signal, ...(error ? { error } : {}) }),
+      );
+    });
     const stdin = child.stdin!,
       stdout = child.stdout!,
       stderr = child.stderr!;
@@ -165,7 +170,7 @@ export class NativeFilesystemBridge {
       const result = await run(reader, stdin);
       stdin.end();
       const outcome = await closed;
-      if (outcome.error || outcome.code !== 0)
+      if (outcome.error || outcome.signal !== null || outcome.code !== 0)
         throw new NativeFilesystemError(
           3,
           "Native filesystem operation did not exit cleanly; mutation capture must settle actual state",
@@ -187,7 +192,12 @@ export class NativeFilesystemBridge {
       stdout.destroy();
       // Never fabricate quiescence while a syscall, cleanup or child remains active.
       const outcome = await closed;
-      if (outcome.code === 2)
+      if (
+        outcome.error ||
+        outcome.signal !== null ||
+        (outcome.code !== 0 && outcome.code !== 1) ||
+        (reader.receivedError && outcome.code !== 1)
+      )
         throw new NativeFilesystemError(
           3,
           "Native filesystem cleanup failed; workspace capture is required",
@@ -248,6 +258,7 @@ function decode(bytes: Buffer): string {
 }
 
 class FrameReader {
+  receivedError = false;
   private buffered = Buffer.alloc(0);
   constructor(private readonly source: AsyncIterator<Buffer | string>) {}
 
@@ -281,6 +292,8 @@ class FrameReader {
     const tag = (await this.read(1))[0];
     if (tag === 69) {
       const code = (await this.read(1))[0]!;
+      if (code < 1 || code > 5) throw new Error("Invalid native error receipt");
+      this.receivedError = true;
       const length = await this.length(1024);
       throw new NativeFilesystemError(
         code,
@@ -302,5 +315,53 @@ function send(pipe: Writable, bytes: Buffer): Promise<void> {
     pipe.write(bytes, (error?: Error | null) =>
       error ? reject(error) : resolve(),
     );
+  });
+}
+
+function awaitAuthorization(
+  check: () => Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (outcome: { ok: true } | { ok: false; error: unknown }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      if (outcome.ok) resolve();
+      else reject(outcome.error);
+    };
+    const abort = () =>
+      finish({
+        ok: false,
+        error: new NativeFilesystemError(
+          4,
+          "Native commit authorization was cancelled",
+        ),
+      });
+    signal.addEventListener("abort", abort, { once: true });
+    timer = setTimeout(
+      () =>
+        finish({
+          ok: false,
+          error: new NativeFilesystemError(
+            3,
+            "Native commit authorization timed out",
+          ),
+        }),
+      10_000,
+    );
+    Promise.resolve()
+      .then(() => {
+        signal.throwIfAborted();
+        return check();
+      })
+      .then(
+        () => finish({ ok: true }),
+        (error: unknown) => finish({ ok: false, error }),
+      );
+    if (signal.aborted) abort();
   });
 }

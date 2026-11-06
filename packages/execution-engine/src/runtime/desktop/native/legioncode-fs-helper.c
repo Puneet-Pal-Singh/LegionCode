@@ -1,3 +1,6 @@
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -215,7 +218,9 @@ static int run(void) {
     if (renameat(parent_fd, temporary, parent_fd, name)) return fail(3, "Atomic file replacement failed");
     temporary[0] = 0;
   } else {
-    if (linkat(parent_fd, temporary, parent_fd, name, 0)) return fail(2, "New file already exists or cannot be created");
+    if (linkat(parent_fd, temporary, parent_fd, name, 0)) {
+      return errno == EEXIST ? fail(2, "New file already exists") : fail(3, "New file publication failed");
+    }
     if (unlinkat(parent_fd, temporary, 0)) return fail(3, "Created file but staged-link cleanup failed");
     temporary[0] = 0;
   }
@@ -230,8 +235,17 @@ int main(void) {
   int result = run();
   if (temporary[0] && parent_fd >= 0 && staged_fd >= 0) {
     struct stat named, held;
-    if (!fstatat(parent_fd, temporary, &named, AT_SYMLINK_NOFOLLOW) && !fstat(staged_fd, &held) &&
-        named.st_dev == held.st_dev && named.st_ino == held.st_ino && unlinkat(parent_fd, temporary, 0)) result = 2;
+    if (fstat(staged_fd, &held)) result = 2;
+    else if (fstatat(parent_fd, temporary, &named, AT_SYMLINK_NOFOLLOW)) {
+      if (errno != ENOENT || held.st_nlink != 0) result = 2;
+    } else if (named.st_dev == held.st_dev && named.st_ino == held.st_ino) {
+      if (unlinkat(parent_fd, temporary, 0)) {
+        if (errno != ENOENT || fstat(staged_fd, &held) || held.st_nlink != 0) result = 2;
+      }
+    } else if (held.st_nlink != 0) {
+      /* The owned staged inode was moved; never delete a substituted entry. */
+      result = 2;
+    }
   }
   if (staged_fd >= 0 && close(staged_fd)) result = 2;
   if (parent_fd >= 0 && close(parent_fd)) result = 2;
