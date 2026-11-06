@@ -70,10 +70,7 @@ export type {
   LegacyHistoryImportRecord,
   LegacyHistoryImportResult,
 } from "./sessions/types.js";
-export {
-  PostgresTurnAdmissionRepository,
-  TurnAdmissionConflictError,
-} from "./turn-admissions/PostgresTurnAdmissionRepository.js";
+export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
 export type {
   AdmitContinuationInput,
   AdmitTurnWithPromptInput,
@@ -114,10 +111,7 @@ export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title
 export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
 export { threadInputsAndContinuationsMigration } from "./migrations/0033-thread-inputs-and-continuations.js";
 export { legacyHistoryImportReceiptsMigration } from "./migrations/0034-legacy-history-import-receipts.js";
-export {
-  PostgresThreadInputRepository,
-  ThreadInputConflictError,
-} from "./thread-inputs/PostgresThreadInputRepository.js";
+export { PostgresThreadInputRepository, ThreadInputConflictError } from "./thread-inputs/PostgresThreadInputRepository.js";
 export type {
   CreateThreadInput,
   StoredThreadInput,
@@ -215,8 +209,6 @@ export type {
   IdentitySessionRepository,
 } from "./identity/types.js";
 export type {
-  CredentialConnectionStore,
-  CreateCredentialConnectionInput,
   CredentialStore,
   ProviderAuditEvent,
   ProviderAuditLog,
