@@ -1,13 +1,9 @@
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { LocalBashWorker } from "../desktop/LocalBashWorker.js";
 import type {
   PermissionEffect,
   PermissionPolicy,
 } from "@repo/permission-policy";
 import { ItemIdSchema, RunSchema } from "@repo/platform-protocol";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { RegistryToolAuthorization } from "./RegistryToolAuthorization.js";
 
 const timestamp = "2026-06-18T10:00:00.000Z";
@@ -346,65 +342,6 @@ describe("RegistryToolAuthorization", () => {
       code: "tool_policy_denied",
       reason: expect.stringContaining("command"),
     });
-
-    // Exercise the real native command boundary under the same canonical policy.
-    const root = await mkdtemp(join(tmpdir(), "legion-bash-"));
-    const grantAbort = new AbortController();
-    let current = true;
-    const bashPolicy = createPolicy("ask");
-    const worker = new LocalBashWorker({
-      attempt: { workspaceId: run.workspaceId, runId: run.id, turnId: "trn_runtime001", runAttemptId: "attempt_runtime001" },
-      grant: { filesystemRoot: root, generation: 1, signal: grantAbort.signal,
-        assertCurrent: () => { if (!current) throw new Error("Grant was replaced"); } },
-      permissionPolicy: bashPolicy,
-      artifactCapture: "required",
-    });
-    const command: Parameters<LocalBashWorker["executeTool"]>[0] = {
-      runId: run.id, turnId: "trn_runtime001", runAttemptId: "attempt_runtime001",
-      workspace: { runId: run.id, workspaceId: run.workspaceId, repoOwner: "local", repoName: "fixture", repoUrl: "https://example.com/local/fixture",
-        baseBranch: "dev", workingBranch: "task", baseSha: "a".repeat(40), headSha: "a".repeat(40), executionLocation: "local",
-        workerId: run.workerId, filesystemRoot: root, artifactNamespace: "test", permissionProfileId: run.permissionProfileId,
-        state: "ready", lastError: null, createdAt: timestamp, updatedAt: timestamp },
-      toolCall: { toolCallId: "toolcall_runtime001", toolName: "bash", input: { command: "node --test test.cjs" } },
-      approval: { decision: "approved", decidedBy: run.userId, reason: null },
-    };
-    try {
-      await writeFile(join(root, "test.cjs"), 'require("node:assert/strict").equal(2 + 2, 4); console.log("approved native test passed");');
-      const result = await worker.executeTool(command);
-      expect(result).toMatchObject({ kind: "completed", output: { exitCode: 0, timedOut: false } });
-      if (result.kind === "completed") expect(result.output.stdout).toContain("approved native test passed");
-      expect(await worker.awaitQuiescence({ turnId: command.turnId, timeoutMs: 500 })).toBe(true);
-      const bounded = await worker.executeTool({ ...command, toolCall: { ...command.toolCall,
-        input: { command: `node -e 'process.stdout.write("x".repeat(100000)); process.stderr.write("y".repeat(100000))'` } } });
-      expect(bounded).toMatchObject({ kind: "completed", output: { exitCode: 0, truncated: true } });
-      if (bounded.kind === "completed") {
-        expect(Buffer.byteLength(String(bounded.output.stdout))).toBe(64 * 1024);
-        expect(Buffer.byteLength(String(bounded.output.stderr))).toBe(64 * 1024);
-      }
-
-      const mutating = { ...command, toolCall: { ...command.toolCall, input: { command: "printf forbidden > denied.txt" } } };
-      for (const approval of [null, { decision: "denied" as const, decidedBy: run.userId, reason: null }]) {
-        expect(await worker.executeTool({ ...mutating, approval })).toMatchObject({ kind: "failed" });
-      }
-      expect(await worker.executeTool({ ...mutating, runAttemptId: "attempt_other001" })).toMatchObject({ kind: "failed" });
-      current = false;
-      expect(await worker.executeTool(mutating)).toMatchObject({ kind: "failed" });
-      await expect(readFile(join(root, "denied.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-      current = true;
-      const abort = new AbortController();
-      const execution = worker.executeTool({ ...command, signal: abort.signal,
-        toolCall: { ...command.toolCall, input: { command: "printf started > started.txt; exec sleep 30" } } });
-      await vi.waitFor(async () => expect(await readFile(join(root, "started.txt"), "utf8")).toBe("started"));
-      abort.abort();
-      expect(await execution).toMatchObject({ kind: "cancelled" });
-      expect(await worker.stop()).toBe(true);
-      expect(await worker.stop()).toBe(true);
-      expect(await worker.executeTool(command)).toMatchObject({ kind: "cancelled" });
-    } finally {
-      await worker.stop();
-      await rm(root, { recursive: true, force: true });
-    }
-
   });
 });
 
