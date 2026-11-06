@@ -29,7 +29,9 @@
 		"@repo/git-service": "workspace:*",
 		"@repo/observability": "workspace:*",
 		"@repo/shared-types": "workspace:*",
-		"zod": "^3.25.1"
+		"zod": "^3.25.1",
+		"@repo/worker-protocol": "workspace:*",
+		"@repo/runtime-kernel": "workspace:*"
 	},
 	"author": "",
 	"license": "MIT"

@@ -71,4 +71,8 @@ RUN python3 -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
 COPY --from=go-builder /app/redis-binary /usr/local/bin/my-redis-server
 RUN chmod +x /usr/local/bin/my-redis-server && mkdir -p /data
 
+# The separately built Node entry contains only trusted host/status/bridge code.
+# Driver packages are Node-only; provider launch remains capability-gated.
+COPY harness-host/dist/main.mjs /opt/legioncode/harness-host/main.mjs
+
 WORKDIR /root

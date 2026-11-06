@@ -1,0 +1,26 @@
+{
+  "name": "@legioncode/cloud-harness-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild main.ts --bundle --platform=node --format=esm --external:@repo/harness-codex/server --external:@repo/harness-claude/server --external:@repo/harness-opencode/server --banner:js='import { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);' --outfile=dist/main.mjs",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/harness-core": "workspace:*",
+    "@repo/harness-codex": "workspace:*",
+    "@repo/harness-claude": "workspace:*",
+    "@repo/harness-opencode": "workspace:*",
+    "@repo/worker-protocol": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
+    "ws": "8.19.0",
+    "zod": "3.25.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.9",
+    "@types/ws": "8.18.1",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.2"
+  }
+}
