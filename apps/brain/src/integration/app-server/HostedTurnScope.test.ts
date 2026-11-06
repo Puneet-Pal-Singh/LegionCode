@@ -1,3 +1,5 @@
+import { bindAuthenticatedChatRequest } from "../../controllers/ChatRequestBoundary";
+import { createWorkspaceRepository } from "../../test-utils/identityTestHelpers";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryTranscriptRepository } from "@repo/persistence";
 import { RunIdSchema } from "@repo/platform-protocol";
@@ -40,6 +42,19 @@ describe("TurnController public bootstrap contract", () => {
       userId: TEST_USER_ID,
       workspaceId: TEST_WORKSPACE_ID,
     });
+
+    // A recovered, unbound conversation keeps its reserved workspace even when
+    // the mutable selection has already moved to another owned project.
+    const legacyEnv = await createEnv(runtime.namespace, { sessionWorkspaceId: null, missingRun: true });
+    const legacyClient = createClient(legacyEnv, { Cookie: "legioncode_session=test-session-token" });
+    await expect(legacyClient.reserveTurnScope({ runId: TEST_RUN_ID, sessionId: "session-1", clientMessageId: "client-message-1" })).resolves.toEqual(runtime.identity);
+    await expect(bindAuthenticatedChatRequest(
+      new Request("https://brain.local/chat", { headers: { Cookie: "legioncode_session=test-session-token" } }),
+      legacyEnv,
+      { sessionId: "session-1", runId: TEST_RUN_ID, clientMessageId: "client-message-1", identity: runtime.identity, messages: [{ role: "user", content: "continue" }] },
+      "legacy-scope-regression",
+    )).resolves.toMatchObject({ userId: TEST_USER_ID, workspaceId: TEST_WORKSPACE_ID });
+
   });
 
   it("rejects an unauthenticated pre-stream request before runtime allocation", async () => {
@@ -91,6 +106,26 @@ describe("TurnController public bootstrap contract", () => {
         clientMessageId: "client-message-1",
       }),
     ).rejects.toMatchObject({ status: 409, code: "TURN_SCOPE_MISMATCH" });
+    expect(runtime.fetch).not.toHaveBeenCalled();
+
+    for (const headers of [
+      { "X-Workspace-Id": "123e4567-e89b-42d3-a456-426614174088" },
+      { "X-User-Id": "another-user" },
+    ]) {
+      const scopedClient = createClient(await createEnv(runtime.namespace), {
+        Cookie: "legioncode_session=test-session-token", ...headers,
+      });
+      await expect(scopedClient.reserveTurnScope({
+        runId: TEST_RUN_ID, sessionId: "session-1", clientMessageId: "client-message-1",
+      })).rejects.toMatchObject({ status: 403, code: "AUTH_FAILED" });
+    }
+    const foreignRunEnv = await createEnv(runtime.namespace);
+    foreignRunEnv.AUTH_RUN_REPOSITORY = {
+      getRun: async () => ({ userId: "another-user", sessionId: "session-1", workspaceId: TEST_WORKSPACE_ID }),
+    } as unknown as Env["AUTH_RUN_REPOSITORY"];
+    await expect(createClient(foreignRunEnv, { Cookie: "legioncode_session=test-session-token" }).reserveTurnScope({
+      runId: TEST_RUN_ID, sessionId: "session-1", clientMessageId: "client-message-1",
+    })).rejects.toMatchObject({ status: 403, code: "AUTH_FAILED" });
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
 
@@ -189,7 +224,8 @@ async function createEnv(
   runEngineRuntime: Env["RUN_ENGINE_RUNTIME"],
   options: {
     sessionUserId?: string;
-    sessionWorkspaceId?: string;
+    sessionWorkspaceId?: string | null;
+    missingRun?: boolean;
     executionState?: "pending" | "running" | "recovery_required" | "settled";
     continuationOfTurnId?: string;
     originalPromptId?: string;
@@ -199,7 +235,7 @@ async function createEnv(
   await transcriptRepository.ensureSession({
     sessionId: "session-1",
     userId: options.sessionUserId ?? TEST_USER_ID,
-    workspaceId: options.sessionWorkspaceId ?? TEST_WORKSPACE_ID,
+    workspaceId: "sessionWorkspaceId" in options ? options.sessionWorkspaceId : TEST_WORKSPACE_ID,
     title: "fixture",
     threadId: null,
   });
@@ -234,9 +270,11 @@ async function createEnv(
       revokeSession: async () => undefined,
     },
     AUTH_TRANSCRIPT_REPOSITORY: transcriptRepository,
+    AUTH_WORKSPACE_REPOSITORY: createWorkspaceRepository(TEST_USER_ID, TEST_WORKSPACE_ID, "123e4567-e89b-42d3-a456-426614174088"),
     AUTH_RUN_REPOSITORY: {
-      getRun: async () => ({
+      getRun: async () => options.missingRun ? null : ({
         sessionId: "session-1",
+        userId: TEST_USER_ID,
         workspaceId: TEST_WORKSPACE_ID,
       }),
     } as unknown as Env["AUTH_RUN_REPOSITORY"],
@@ -267,8 +305,8 @@ function createIdentitySessionRecord() {
     encryptedToken: { ciphertext: "ciphertext", iv: "iv", tag: "tag" },
     createdAt: Date.now(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    workspaceId: TEST_WORKSPACE_ID,
-    defaultWorkspaceId: TEST_WORKSPACE_ID,
-    workspaceIds: [TEST_WORKSPACE_ID],
+    workspaceId: "123e4567-e89b-42d3-a456-426614174088",
+    defaultWorkspaceId: "123e4567-e89b-42d3-a456-426614174088",
+    workspaceIds: ["123e4567-e89b-42d3-a456-426614174088"],
   };
 }

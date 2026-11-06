@@ -22,15 +22,14 @@ import {
   DomainError,
   PolicyError,
   ValidationError,
-  isDomainError,
 } from "../domain/errors";
 import type { SerializableToolDefinition } from "../types/tools";
 import { parseOptionalScopeIdentifier } from "./chat-request-helpers";
 import {
-  extractSessionToken,
+  getAuthenticatedUserSession,
   type UserSessionRecord,
 } from "../services/AuthService";
-import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
+import { resolveHostedResourceScope } from "../integration/app-server/HostedResourceScope";
 import { createTraceContext, formatTraceparent } from "@repo/observability";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
@@ -150,43 +149,16 @@ export async function resolveExecutionScope(
   runId: string,
   correlationId: string,
   verifiedPrincipal?: { userId: string; session: UserSessionRecord },
+  sessionId?: string,
 ): Promise<ExecutionScope> {
-  const sessionToken = extractSessionToken(req);
-  if (!sessionToken && !verifiedPrincipal) {
-    throw new DomainError(
-      "AUTH_FAILED",
-      "Unauthorized: missing authentication token.",
-      401,
-      false,
-      correlationId,
-    );
+  const principal = verifiedPrincipal ?? await getAuthenticatedUserSession(req, env);
+  if (!principal) {
+    throw new DomainError("AUTH_FAILED", "Unauthorized: missing authentication token.", 401, false, correlationId);
   }
-
-  try {
-    const scope = await resolveAuthorizedProviderScope(
-      req,
-      env,
-      correlationId,
-      RunIdSchema.parse(runId),
-      verifiedPrincipal,
-      { ignoreLegacyQueryScope: true },
-    );
-    return {
-      userId: scope.userId,
-      workspaceId: scope.workspaceId,
-    };
-  } catch (error) {
-    if (isDomainError(error)) {
-      throw error;
-    }
-    throw new DomainError(
-      "AUTH_FAILED",
-      "Failed to resolve authenticated execution scope.",
-      401,
-      false,
-      correlationId,
-    );
-  }
+  const scope = await resolveHostedResourceScope(
+    req, env, principal.userId, correlationId, RunIdSchema.parse(runId), sessionId,
+  );
+  return { userId: scope.userId, workspaceId: scope.workspaceId };
 }
 
 export async function executeViaRunEngineDurableObject(

@@ -68,6 +68,23 @@ bootstrap and legacy TranscriptController remain retired. New conversation date
 markers and seeded image-draft presentation live in `packages/client-ui`, alongside
 the existing guarded resume controls and approval composer.
 
+## Plan 058 — Existing conversation workspace binding
+
+`HostedResourceScope` authorizes the authenticated account against the persisted
+session/run workspace and active owned workspace records. Turn reservation,
+reconstruction, chat submission, steering, checkout reads, and provider operations
+share this resource owner. A mutable current selection and cookie workspace claims
+do not rebind an established conversation. Only an unbound owned conversation's
+first admission or runless provider setup uses the owned current selection. A
+reserved admission pins that first workspace through submission even if selection
+changes before prompt persistence.
+Explicit user/workspace/run headers must agree with the canonical resource; foreign
+sessions/runs/workspaces and inconsistent stored tuples still fail closed. No
+history, preference bytes, or existing workspace identities are rewritten.
+
+The obsolete cookie-claim-based execution workspace resolver is deleted. Web keeps
+its SDK bootstrap/replay path and does not choose a recovery workspace.
+
 ## Plan 058.1 — Canonical turn-patch read model
 
 | Responsibility | Canonical owner | Active producer and consumers |
@@ -963,6 +980,14 @@ portable timers without a browser global or another lifecycle subscription owner
 The unused `uiShellStore` writer and persisted shell identity mirror are removed after a whole-repository caller audit found only the App writer and no restoring consumers. Existing `legioncode_ui_shell` bytes remain untouched. Setup no longer writes `legioncode:setup-session:v1`; a valid existing record is read only to retain its legitimate preference lookup. Fresh setup uses an account/workspace-bound local preference scope, never an execution run or persisted conversation identity. Unknown/malformed legacy setup bytes remain intact. Existing provider preference adapters retain their byte-preserving lookup and explicit-selection writes.
 
 Legacy session snapshot readers and their preservation checks remain quarantined until the real browser inventory is matched; the downloaded inventory has not yet been reconciled. They are not an active session/history source. No historical browser values are deleted by this slice.
+
+### Unused Web transport retirement
+
+The unreferenced generic Brain/Muscle fetch wrapper and its private error helpers
+are removed after a repository-wide import and symbol audit found no consumers.
+The scoped conversation, workspace, provider and review operations retain their
+existing typed SDK/server owners. This removes no active behavior, routes,
+storage or recovery data and introduces no replacement transport.
 
 ## Runless workspace selection recovery
 
