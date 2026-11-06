@@ -136,6 +136,27 @@ export class SessionStateService {
   }
 
   /**
+   * Reuse setup metadata without rewriting its stored bytes. If an unknown or
+   * malformed value already exists, keep it intact and use an ephemeral setup
+   * scope until its recovery policy is decided.
+   */
+  static loadOrCreateSetupSession(): SetupSessionState {
+    let hasStoredValue = false;
+    try {
+      hasStoredValue = localStorage.getItem(SETUP_SESSION_KEY) !== null;
+    } catch {
+      return this.createSetupSession();
+    }
+
+    const saved = this.loadSetupSession();
+    if (saved) return saved;
+
+    const created = this.createSetupSession();
+    if (!hasStoredValue) this.saveSetupSession(created);
+    return created;
+  }
+
+  /**
    * Save the current setup session so provider-scoped setup survives refreshes.
    */
   static saveSetupSession(session: SetupSessionState): void {
@@ -143,17 +164,6 @@ export class SessionStateService {
       localStorage.setItem(SETUP_SESSION_KEY, JSON.stringify(session));
     } catch (e) {
       console.error("[SessionStateService] Failed to save setup session:", e);
-    }
-  }
-
-  /**
-   * Clear setup session state after auth loss or once a real repo session exists.
-   */
-  static clearSetupSession(): void {
-    try {
-      localStorage.removeItem(SETUP_SESSION_KEY);
-    } catch (e) {
-      console.error("[SessionStateService] Failed to clear setup session:", e);
     }
   }
 

@@ -417,7 +417,11 @@ If a command fails because a package/script name changed, inspect
   - `refactor(scope): summary`
   - `test(scope): summary`
   - `docs(scope): summary`
-- Keep commits atomic.
+- Keep commits atomic: commit one completed small task at a time, aiming for
+  about 4–5 related files. Split larger work into safe, buildable subtasks;
+  avoid 20-file bulk commits or unrelated tasks. This is a guide, not a hard
+  cap: a coherent schema change, implementation, and required caller wiring
+  may need additional files. Review the diff and stage exact paths.
 - For shared/reviewed branches, prefer merge over rebase.
 - Rebase only private unpushed cleanup branches.
 - When seeing unfamiliar changes, assume another agent/user made them and work

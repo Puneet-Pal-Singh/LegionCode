@@ -1,5 +1,30 @@
 # Capability ownership
 
+## Original completed checkout retention
+
+| Responsibility | Canonical owner | Active producer and consumers |
+| --- | --- | --- |
+| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed, interrupted, unsettled, and already-expired paths do not gain a retention window. |
+| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles the checkout; its existing final release retains only successfully settled completion and releases all other outcomes immediately. |
+| Persisted expiry alarm and physical sandbox cleanup | Existing Secure Agent API `AgentRuntime` Durable Object | Persisted `execution:session:` references schedule the earliest nested lease expiry; cleanup and immediate release resolve the exact persisted lease after DO reload and protect another live reference to its sandbox. Before destruction, the existing session record receives a durable cleanup marker; storage for both that session key and sandbox ID is blocked, and flagged leases cannot execute. Destroy waits are bounded; failure retains the marked record and retries with backoff. Successful destroy removes the record and marker, after which the existing generation flow can create a replacement using its distinct sandbox ID. |
+
+This is the approved original-lease retention policy for explicit Current Git
+reads. Retention does not renew or extend the original nested lease, use the
+one-hour session expiry, restore execution admission, create a replacement
+sandbox, or alter saved review artifacts. `TaskCheckoutLeaseCoordinator` remains
+the normal execution replacement-generation owner; Git borrowing is a later,
+separate capability and does not participate in this lifecycle change.
+
+Upstream source inspection before this semantic change:
+
+- Codex revision [`6a0c4709ca2154e9f3ebb07e58fb156386630188`](https://github.com/openai/codex/tree/6a0c4709ca2154e9f3ebb07e58fb156386630188): [`agent/status.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/status.rs) represents normal completion as `Completed`; [`agent/control.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/control.rs) releases spawned-thread ownership through explicit shutdown/close paths. This supports keeping terminal completion and resource release distinct, but Codex's local agent registry is not a cloud sandbox lease owner and has no directly reusable expiry/alarm policy.
+- OpenCode revision [`3729fd57068445104ea464a952d41798ed30ea20`](https://github.com/anomalyco/opencode/tree/3729fd57068445104ea464a952d41798ed30ea20): [`session/status.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/session/status.ts) clears volatile status on idle; [`project/instance.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/project/instance.ts) invokes registered instance disposers. Neither is an analogue for persisted Cloudflare sandbox lease cleanup across a Durable Object reload.
+
+The smallest necessary implementation change is to let the existing checkout
+lifecycle retain only its successful settled outcome and extend `AgentRuntime`'s
+existing persisted-session owner with an alarm-driven cleanup path; no new
+scheduler, session store, runtime, schema, or replacement lease owner is added.
+
 ## Main integration — shared conversation and continuation
 
 Incoming main approval/recovery, workflow, steering, queue and continuation behavior
@@ -429,6 +454,24 @@ key remains a UI preference; removing a folder only changes the current view
 and never clears in-memory conversation messages. Legacy per-session GitHub
 context remains read-only for branch preference reconstruction. Full browser
 storage retirement and any cache recovery/import policy remain undecided.
+
+The Web authority-first slice binds live session rows only to the owned hosted
+session list and requires create/archive acknowledgements to match the requested
+session identity before publication. The v3 recovery snapshot remains read-only
+and byte-preserved. Provider session selections remain durable UI preferences
+across auth reset; reset clears only volatile provider/session scope state.
+Repository folder IDs remain the existing canonical repository strings in
+`legioncode_repositories`. Sidebar labels and hidden-folder state use the
+narrow UI preference key `legioncode:repository-folder-preferences:v1`, keyed
+by that repository ID; folder actions do not mutate session rows or active
+selection. This preference is presentational and cannot create, archive, or
+rebind a hosted session.
+
+The persisted provider-setup shell session still carries a locally generated
+run-shaped identifier for existing provider setup scope. This authority slice
+preserves its bytes and current behavior. Its deletion trigger is a verified
+provider setup flow that resolves and restores setup scope without a fabricated
+run identifier; this change does not alter protocol/runtime run identity.
 
 ### Plan 058 authenticated hosted workspace selection
 

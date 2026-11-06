@@ -18,6 +18,8 @@ export interface SidebarRepository {
 export interface ProjectAgentSessionsForSidebarInput {
   sessions: readonly AgentSession[];
   repositories: readonly string[];
+  repositoryLabels?: Readonly<Record<string, string>>;
+  hiddenRepositoryIds?: readonly string[];
   activeSessionId: string | null;
   hydrationStatus: SessionHydrationStatus;
   now?: number;
@@ -42,18 +44,31 @@ export function selectSessionActive(session: AgentSession): boolean {
 export function projectAgentSessionsForSidebar({
   sessions,
   repositories,
+  repositoryLabels = {},
+  hiddenRepositoryIds = [],
   activeSessionId,
   hydrationStatus,
   now = Date.now(),
 }: ProjectAgentSessionsForSidebarInput) {
   const repositoryById = new Map<string, SidebarRepository>();
+  const hiddenRepositories = new Set(hiddenRepositoryIds);
   for (const repository of repositories) {
     const key = repository.trim();
-    if (key) repositoryById.set(key, { id: key, label: repositoryLabel(key) });
+    if (key && !hiddenRepositories.has(key)) {
+      repositoryById.set(key, {
+        id: key,
+        label: repositoryLabels[key] ?? repositoryLabel(key),
+      });
+    }
   }
   for (const session of sessions) {
     const key = session.repository?.trim();
-    if (key) repositoryById.set(key, { id: key, label: repositoryLabel(key) });
+    if (key && !hiddenRepositories.has(key)) {
+      repositoryById.set(key, {
+        id: key,
+        label: repositoryLabels[key] ?? repositoryLabel(key),
+      });
+    }
   }
   if (sessions.some((session) => !session.repository?.trim())) {
     repositoryById.set(NO_REPOSITORY, {
@@ -75,21 +90,23 @@ export function projectAgentSessionsForSidebar({
     };
   });
 
-  const threads: ThreadSidebarThreadInput[] = sessions.map((session) => {
-    const repository = session.repository?.trim() || NO_REPOSITORY;
-    return {
-      selectionId: session.id,
-      threadId: ThreadIdSchema.safeParse(session.id).data ?? null,
-      workspaceId: null,
-      workspaceSelectionId: workspaceByRepository.get(repository) ?? repository,
-      title: session.name,
-      updatedAt: session.updatedAt,
-      pinnedAt: session.pinnedAt,
-      archivedAt: session.archivedAt,
-      displayStatus: displayStatus(session, activeSessionId, now),
-      isUnread: selectSessionUnread(session),
-    };
-  });
+  const threads: ThreadSidebarThreadInput[] = sessions
+    .filter((session) => !hiddenRepositories.has(session.repository?.trim() ?? ""))
+    .map((session) => {
+      const repository = session.repository?.trim() || NO_REPOSITORY;
+      return {
+        selectionId: session.id,
+        threadId: ThreadIdSchema.safeParse(session.id).data ?? null,
+        workspaceId: null,
+        workspaceSelectionId: workspaceByRepository.get(repository) ?? repository,
+        title: session.name,
+        updatedAt: session.updatedAt,
+        pinnedAt: session.pinnedAt,
+        archivedAt: session.archivedAt,
+        displayStatus: displayStatus(session, activeSessionId, now),
+        isUnread: selectSessionUnread(session),
+      };
+    });
 
   const state: ProjectThreadSidebarInput["state"] =
     hydrationStatus === "loading" || hydrationStatus === "idle"

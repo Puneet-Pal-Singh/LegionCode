@@ -14,6 +14,8 @@ import {
 interface AgentSidebarProps {
   sessions: AgentSession[];
   repositories: string[];
+  repositoryLabels?: Readonly<Record<string, string>>;
+  hiddenRepositoryIds?: readonly string[];
   activeSessionId: string | null;
   hydrationStatus?: SessionHydrationStatus;
   onSelect: (id: string) => void;
@@ -39,6 +41,8 @@ interface AgentSidebarProps {
 export function AgentSidebar({
   sessions,
   repositories,
+  repositoryLabels = {},
+  hiddenRepositoryIds = [],
   activeSessionId,
   hydrationStatus = "ready",
   onSelect,
@@ -65,10 +69,19 @@ export function AgentSidebar({
       projectAgentSessionsForSidebar({
         sessions,
         repositories,
+        repositoryLabels,
+        hiddenRepositoryIds,
         activeSessionId,
         hydrationStatus,
       }),
-    [activeSessionId, hydrationStatus, repositories, sessions],
+    [
+      activeSessionId,
+      hiddenRepositoryIds,
+      hydrationStatus,
+      repositories,
+      repositoryLabels,
+      sessions,
+    ],
   );
   const footer = (
     <SidebarAccountMenu
