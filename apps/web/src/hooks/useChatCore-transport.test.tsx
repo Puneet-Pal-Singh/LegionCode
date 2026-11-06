@@ -207,7 +207,9 @@ function PermissionComposer({ runId, sessionId = FIXTURE.sessionId, initialMode,
   return <PermissionModeControl value={productMode} onChange={setProductMode} />;
 }
 
-type PermissionChat = Pick<ReturnType<typeof useChatCore>, "handleInputChange" | "handleSubmit" | "input" | "isLoading" | "error">;
+type PermissionChat = Pick<ReturnType<typeof useChatCore>, "handleInputChange" | "input" | "isLoading" | "error"> & {
+  handleSubmit: () => Promise<boolean>;
+};
 
 function ObservedPermissionControl({ chat, productMode, setProductMode, onChat }: {
   chat: PermissionChat;
