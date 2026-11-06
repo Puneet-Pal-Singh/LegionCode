@@ -432,7 +432,9 @@ function AppContent() {
       : undefined;
   const { credentials, reset: resetProviderStore } = useProviderStore(
     isAuthenticated ? providerScopeRunId : undefined,
-    undefined,
+    isAuthenticated
+      ? (providerScopeSession?.id ?? setupSession?.id)
+      : undefined,
     isAuthenticated ? providerScopeWorkspaceId : undefined,
   );
 
