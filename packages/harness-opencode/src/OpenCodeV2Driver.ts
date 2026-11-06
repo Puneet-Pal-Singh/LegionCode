@@ -85,6 +85,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
     let mapper: OpenCodeEventMapper | undefined;
     let native: OpenCodeSession | undefined;
     let executing = false;
+    let execution: Promise<void> | undefined;
+    let quiescenceJob: Promise<HarnessQuiescence> | undefined;
     let stopping = false;
     let terminalPublished = false;
     let provenQuiescence: HarnessQuiescence | undefined;
@@ -147,9 +149,63 @@ export class OpenCodeV2Driver implements HarnessDriver {
       };
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
+      const checkQuiescence: HarnessLiveSession["awaitQuiescence"] = async ({
+        timeoutMs,
+      }) => {
+        if (provenQuiescence?.status === "quiescent") return provenQuiescence;
+        if (
+          !Number.isSafeInteger(timeoutMs) ||
+          timeoutMs < 0 ||
+          timeoutMs > 60_000
+        )
+          throw new OpenCodeTransportError("quiescence deadline", false);
+        if (!stopping) {
+          if (owner.transport.continuity !== "ready")
+            return { status: "unknown", session, reason: "transport_lost" };
+          const recovery = await capturedNative.reconcile();
+          if (
+            !capturedMapper.foregroundEnded ||
+            recovery.activeSessionIds.length ||
+            capturedNative.pendingNativeWork > 0
+          ) {
+            return {
+              status: "unknown",
+              session,
+              reason: "work_still_running",
+            };
+          }
+        }
+        const evidence = HarnessQuiescenceSchema.parse(
+          await this.options.proveQuiescence({
+            host,
+            session,
+            timeoutMs,
+            interrupted: stopping,
+          }),
+        );
+        if (!sameSession(session, evidence.session))
+          throw new OpenCodeTransportError("quiescence binding", true);
+        if (evidence.status === "quiescent" && !terminalPublished) {
+          if (capturedMapper.foregroundEnded) {
+            await observe({
+              session,
+              externalTurnId: capturedNative.externalTurnId,
+              payload: capturedMapper.terminalAfterQuiescence(evidence),
+            });
+          }
+          await observe({
+            session,
+            externalTurnId: capturedNative.externalTurnId,
+            payload: { kind: "quiescence", evidence },
+          });
+          terminalPublished = true;
+          provenQuiescence = evidence;
+        }
+        return evidence;
+      };
       const live: HarnessLiveSession = {
         session,
-        execute: async (request) => {
+        execute: (request) => {
           if (
             executing ||
             stopping ||
@@ -163,17 +219,32 @@ export class OpenCodeV2Driver implements HarnessDriver {
             );
           }
           executing = true;
-          request.signal.throwIfAborted();
-          await capturedNative.prompt(command.prompt);
-          await foreground;
-          while (!stopping) {
-            const evidence = await live.awaitQuiescence({ timeoutMs: 2000 });
-            if (evidence.status === "quiescent") return;
-            if (evidence.reason !== "work_still_running")
-              throw new OpenCodeTransportError("quiescence unavailable", true);
-            await delay(500, undefined, { signal: request.signal });
-          }
-          throw new OpenCodeTransportError("attempt stopped", true);
+          execution = (async () => {
+            request.signal.throwIfAborted();
+            await capturedNative.prompt(command.prompt);
+            await foreground;
+            while (!stopping) {
+              const evidence = await live.awaitQuiescence({ timeoutMs: 2000 });
+              if (evidence.status === "quiescent") return;
+              if (evidence.reason !== "work_still_running")
+                throw new OpenCodeTransportError(
+                  "quiescence unavailable",
+                  true,
+                );
+              await delay(500, undefined, { signal: request.signal });
+            }
+            throw new OpenCodeTransportError("attempt stopped", true);
+          })();
+          void execution.catch(() => undefined);
+          return execution;
+        },
+        observeExisting: ({ signal: observerSignal }) => {
+          if (observerSignal.aborted || !execution)
+            return Promise.reject(
+              new OpenCodeTransportError("no live execution to observe", true),
+            );
+          // Only the existing provider execution is observed. No prompt/steer/reply is sent.
+          return execution;
         },
         control: async (raw) => {
           const control = HarnessControlCommandSchema.parse(raw);
@@ -236,56 +307,26 @@ export class OpenCodeV2Driver implements HarnessDriver {
           signal.removeEventListener("abort", abort);
           return { accepted: true };
         },
-        awaitQuiescence: async ({ timeoutMs }) => {
-          if (provenQuiescence?.status === "quiescent") return provenQuiescence;
+        awaitQuiescence: (request) => {
           if (
-            !Number.isSafeInteger(timeoutMs) ||
-            timeoutMs < 0 ||
-            timeoutMs > 60_000
+            !Number.isSafeInteger(request.timeoutMs) ||
+            request.timeoutMs < 0 ||
+            request.timeoutMs > 60_000
           )
-            throw new OpenCodeTransportError("quiescence deadline", false);
-          if (!stopping) {
-            if (owner.transport.continuity !== "ready")
-              return { status: "unknown", session, reason: "transport_lost" };
-            const recovery = await capturedNative.reconcile();
-            if (
-              !capturedMapper.foregroundEnded ||
-              recovery.activeSessionIds.length
-            ) {
-              return {
-                status: "unknown",
-                session,
-                reason: "work_still_running",
-              };
-            }
+            return Promise.reject(
+              new OpenCodeTransportError("quiescence deadline", false),
+            );
+          if (provenQuiescence?.status === "quiescent")
+            return Promise.resolve(provenQuiescence);
+          if (!quiescenceJob) {
+            quiescenceJob = checkQuiescence(request);
+            void quiescenceJob
+              .finally(() => {
+                quiescenceJob = undefined;
+              })
+              .catch(() => undefined);
           }
-          const evidence = HarnessQuiescenceSchema.parse(
-            await this.options.proveQuiescence({
-              host,
-              session,
-              timeoutMs,
-              interrupted: stopping,
-            }),
-          );
-          if (!sameSession(session, evidence.session))
-            throw new OpenCodeTransportError("quiescence binding", true);
-          if (evidence.status === "quiescent" && !terminalPublished) {
-            if (capturedMapper.foregroundEnded) {
-              await observe({
-                session,
-                externalTurnId: capturedNative.externalTurnId,
-                payload: capturedMapper.terminalAfterQuiescence(evidence),
-              });
-            }
-            await observe({
-              session,
-              externalTurnId: capturedNative.externalTurnId,
-              payload: { kind: "quiescence", evidence },
-            });
-            terminalPublished = true;
-            provenQuiescence = evidence;
-          }
-          return evidence;
+          return quiescenceJob;
         },
       };
       return live;

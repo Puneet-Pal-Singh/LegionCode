@@ -1,3 +1,4 @@
+import { OpenCodeWorkTracker } from "./OpenCodeWorkTracker.js";
 import { Schema } from "effect";
 import { Session } from "@opencode/schema/session";
 import { SessionMessage } from "@opencode/schema/session-message";
@@ -20,6 +21,7 @@ import { OpenCodeClient, OpenCodeTransportError } from "./OpenCodeClient.js";
  */
 export class OpenCodeSession {
   private readonly sessions = new Set<string>();
+  private readonly work = new OpenCodeWorkTracker();
   private readonly permissions = new Map<
     string,
     { sessionID: string; committed: Promise<void> }
@@ -57,6 +59,7 @@ export class OpenCodeSession {
     const captured = structuredClone(input);
     const session = new OpenCodeSession(transport);
     await transport.subscribe(async (event) => {
+      session.work.observe(event);
       if (
         event.type === "session.created" &&
         event.data.parentID &&
@@ -121,6 +124,10 @@ export class OpenCodeSession {
   get id(): string {
     if (!this.root) throw new Error("OpenCode session is not initialized.");
     return this.root.id;
+  }
+
+  get pendingNativeWork(): number {
+    return this.work.pending;
   }
 
   get externalTurnId(): string {

@@ -31,6 +31,7 @@ export class OpenCodeEventMapper {
   private readonly usage: OpenCodeUsageReader;
   private pendingTerminal: Terminal | undefined;
   private terminalDelivered = false;
+  private latestProviderCompletion = 0;
 
   constructor(
     private readonly options: {
@@ -85,7 +86,12 @@ export class OpenCodeEventMapper {
       throw new OpenCodeTransportError("unsettled tool observations", true);
     }
     this.terminalDelivered = true;
-    return this.pendingTerminal;
+    return {
+      ...this.pendingTerminal,
+      providerCompletedAt: new Date(
+        this.latestProviderCompletion,
+      ).toISOString(),
+    };
   }
 
   private translate(
@@ -275,6 +281,10 @@ export class OpenCodeEventMapper {
       case "session.execution.succeeded":
       case "session.execution.failed":
       case "session.execution.interrupted": {
+        this.latestProviderCompletion = Math.max(
+          this.latestProviderCompletion,
+          event.created,
+        );
         if (event.data.sessionID !== this.options.session.externalSessionId)
           return [];
         if (this.pendingTerminal)
