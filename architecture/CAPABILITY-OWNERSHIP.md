@@ -1046,6 +1046,16 @@ The existing transcript repository projects a session's own archive timestamp or
 
 Actual authorized localhost:5174 browser-profile audit (2026-11-06): 664 retained keys (660 local, 4 session), 109334 UTF-8 bytes, inventory digest `e9c857c677ff943f56053eca1738075fc300f1046ee2a3c858e3f680ec3732e8`; both provider preference stores were included. The two readable v3 keys contain 109 metadata rows for 85 unique owned sessions. Complete active plus archived SDK reads matched every ID and read 272 canonical messages; no embedded message arrays, single-message objects, message/preview/content/attachment hints or typed references were found in the retained metadata. All seven provider selection keys had valid shape and owned-session associations. Raw v3/setup bytes retained their earlier hashes, and no value changed during the audit. This profile has no identified unmatched browser-only message copy; other unavailable profiles and physical historical attachment/R2 viewing remain distinct acceptance gates. The separate frozen SQLite recovery receipts are not used as browser-profile proof.
 
+## Missing explicitly selected saved review
+
+Web's existing review-source projection keeps an explicit saved-artifact choice
+separate from Current Git when the authenticated saved lookup is missing or
+fails. The local unavailable kind carries no invented artifact identity, exposes
+the existing lookup error/empty-state surface, and cannot stage, commit, or fetch
+live Git as a replacement. Default unselected empty review and an explicit
+Current Git choice retain their existing presentation. SDK/server ownership and
+artifact authorization are unchanged.
+
 ## Explicit provider resolution retry
 
 The SDK/App Server provider resolver remains the current availability authority.
@@ -1072,3 +1082,19 @@ new scope owner is introduced.
 - The existing canonical chat request `productMode` and runtime permission policy
   retain their owners. A transition to the conversation cannot substitute the
   default Auto edits mode for an explicitly selected Supervised mode.
+
+
+## Plan 057.6C — Local canonical lifecycle replay
+
+The local App Server composes `turn/lifecycleEvents` over the existing SQLite
+lifecycle event store. It resolves the persisted event's thread through the
+current ready workspace grant before returning any page. Unknown turns,
+foreign-workspace threads, revoked grants and hosted backend requests fail
+closed. The existing SDK replay/cursor continuation consumes the same envelope;
+there is no local event schema, second replay endpoint or subscription store.
+
+This read path preserves runtime-produced events byte-for-byte across restart.
+It does not admit or execute turns, fabricate settlement after process loss, or
+advertise `turn-execution-v1`. Atomic admission, native read-only execution,
+protected provider delivery and the renderer binding remain separate integration
+dependencies. The mounted end-to-end Desktop execution path is not yet complete.
