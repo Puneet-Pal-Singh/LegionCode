@@ -29,6 +29,7 @@ export type LocalAppServerStartConfig = {
   storageDirectory: string;
   protectedHostRoots?: readonly string[];
   nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };
 
 export type LocalAppServerMessage =
@@ -51,6 +52,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeO
         config.storageDirectory,
         ...(config.protectedHostRoots ?? []),
         ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),
+        ...(config.nativeProcessHelperPath ? [config.nativeProcessHelperPath] : []),
       ],
     });
     const threadService = new LocalThreadService({

@@ -66,6 +66,10 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
     (value.nativeFilesystemHelperPath === undefined || (
       typeof value.nativeFilesystemHelperPath === "string" &&
       value.nativeFilesystemHelperPath.startsWith("/") && !value.nativeFilesystemHelperPath.includes("\0")
+    )) &&
+    (value.nativeProcessHelperPath === undefined || (
+      typeof value.nativeProcessHelperPath === "string" &&
+      value.nativeProcessHelperPath.startsWith("/") && !value.nativeProcessHelperPath.includes("\0")
     ))
   );
 }

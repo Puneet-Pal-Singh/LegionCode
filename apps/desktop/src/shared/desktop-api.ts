@@ -82,6 +82,7 @@ export type LocalAppServerMessage =
 export type LocalAppServerHostConfig = {
   protectedHostRoots: readonly string[];
   nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };
 
 export type LocalAppServerStartMessage = {
@@ -91,4 +92,5 @@ export type LocalAppServerStartMessage = {
   storageDirectory: string;
   protectedHostRoots?: readonly string[];
   nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };
