@@ -137,6 +137,7 @@ export function createPostgresHostedHarnessControlPlane(
               )
                 throw missing();
               const selected = HarnessSelectionSchema.unwrap()
+                .innerType()
                 .pick({
                   connectionId: true,
                   authOwnerGeneration: true,
@@ -220,6 +221,7 @@ export function createPostgresHostedHarnessControlPlane(
             );
             if (!stored) continue;
             const selected = HarnessSelectionSchema.unwrap()
+              .innerType()
               .pick({ connectionId: true, authOwnerGeneration: true })
               .parse(JSON.parse(stored.selection.selectionJson));
             if (
