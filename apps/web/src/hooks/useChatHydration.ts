@@ -84,6 +84,10 @@ export function useChatHydration(
     resetRetry();
     setManualRetryRevision((revision) => revision + 1);
   }, [normalizedSessionId, resetRetry]);
+  const publishSnapshot = useCallback(
+    (nextMessages: Message[]) => setMessages(nextMessages),
+    [setMessages],
+  );
 
   useLayoutEffect(() => {
     activeRequestIdentityRef.current = requestIdentity;
@@ -118,13 +122,11 @@ export function useChatHydration(
         if (!isCurrent()) return;
         if (result.status === "readable" || result.status === "empty") {
           // Only a complete pinned read may replace the verified transcript.
-          setMessages(result.messages);
+          publishSnapshot(result.messages);
         } else if (result.status === "partial" && result.messages.length > 0) {
           // Verified pages can extend the transcript, but a partial read may
           // never remove rows established by an earlier complete snapshot.
-          setMessages(
-            mergePartialTranscript(requestStartMessages, result.messages),
-          );
+          publishSnapshot(mergePartialTranscript(requestStartMessages, result.messages));
         }
         if (result.status === "cancelled") {
           settledRequestIdentityRef.current = currentRequestIdentity;
@@ -193,7 +195,7 @@ export function useChatHydration(
     retrySignal,
     scheduleRetry,
     resetRetry,
-    setMessages,
+    publishSnapshot,
   ]);
 
   const currentView =

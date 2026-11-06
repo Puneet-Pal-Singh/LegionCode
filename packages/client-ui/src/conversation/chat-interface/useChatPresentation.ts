@@ -42,6 +42,7 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
   );
   if (!initialPrompt || alreadyProjected) return canonicalEntries;
   return [
+    ...canonicalEntries,
     {
       kind: "message" as const,
       message: {
@@ -50,7 +51,6 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
         content: initialPrompt,
       },
     },
-    ...canonicalEntries,
   ];
 }
 
