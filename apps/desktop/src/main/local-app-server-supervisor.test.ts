@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
 const mocks = vi.hoisted(() => ({
@@ -74,6 +74,11 @@ function childAt(index: number): FakeChild {
 }
 
 describe("Local App Server supervisor generation safety", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     mocks.children.length = 0;
     mocks.initialize.mockReset();
@@ -118,7 +123,9 @@ describe("Local App Server supervisor generation safety", () => {
     child.emit("exit");
     await stopping;
     requestResult.resolve({ ok: true });
-    await expect(request).rejects.toThrow("Local App Server changed during the request");
+    await expect(request).rejects.toThrow(
+      "Local App Server changed during the request",
+    );
   });
 
   it("coalesces concurrent restart requests around the same child", async () => {
@@ -136,6 +143,52 @@ describe("Local App Server supervisor generation safety", () => {
     const stopping = supervisor.stop();
     childAt(1).emit("exit");
     await stopping;
+
+    vi.useFakeTimers();
+    vi.spyOn(process, "kill").mockReturnValue(true);
+    const delayedHandshake = deferred<unknown>();
+    mocks.initialize.mockReset().mockReturnValue(delayedHandshake.promise);
+    await supervisor.start("1.0.0", "/private/user-data");
+    const delayedChild = childAt(2);
+    delayedChild.emit("message", {
+      type: "ready",
+      baseUrl: "http://127.0.0.1:4312",
+    });
+    delayedChild.emit("message", {
+      type: "ready",
+      baseUrl: "http://127.0.0.1:4312",
+    });
+    await settleMessages();
+    expect(mocks.initialize).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(supervisor.getEnvironment()).toMatchObject({
+      status: "offline",
+      reason: "Local App Server did not start",
+    });
+    delayedHandshake.resolve(handshake);
+    await settleMessages();
+    expect(supervisor.getEnvironment().status).toBe("offline");
+    delayedChild.emit("exit");
+
+    mocks.initialize.mockReset().mockResolvedValue(handshake);
+    await supervisor.start("1.0.0", "/private/user-data");
+    const readyChild = childAt(3);
+    readyChild.emit("message", {
+      type: "ready",
+      baseUrl: "http://127.0.0.1:4312",
+    });
+    await settleMessages();
+    readyChild.emit("message", {
+      type: "ready",
+      baseUrl: "http://127.0.0.1:4312",
+    });
+    await settleMessages();
+    expect(mocks.initialize).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(supervisor.getEnvironment().status).toBe("ready");
+    const readyStop = supervisor.stop();
+    readyChild.emit("exit");
+    await readyStop;
   });
 
   it("does not relaunch after shutdown overtakes a pending restart", async () => {
