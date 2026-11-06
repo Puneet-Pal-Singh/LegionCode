@@ -14,15 +14,14 @@ export type SingleExecutableProcessInput = {
   /** Trusted packaged guardian path supplied only by the private runtime composition. */
   processHelperPath: string;
   /** Optional private writer-fence open description; never model or renderer input. */
-  writerLeaseFd?: number;
+  writerLease?: { readonly fd: number };
   /** The same held workspace directory descriptor supplied by the grant owner. */
-  workspaceRootFd: number;
-  /** Canonical Git owner only; not accepted by run_executable/model/renderer input. */
-  trustedGit?: {
-    environment: Readonly<Record<string, string>>;
-    stdin?: string;
-    timeoutMs: number;
-  };
+  cwdFd: number;
+  /** Canonical Git owner only; not run_executable/model/renderer inputs. */
+  environment?: Readonly<Record<string, string>>;
+  stdin?: string;
+  /** Also drives the independent guardian deadline, never just a JS timer. */
+  timeoutMs?: number;
 };
 
 export interface SingleProcessMacExecution {
