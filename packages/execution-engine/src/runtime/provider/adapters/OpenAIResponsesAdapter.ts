@@ -159,6 +159,14 @@ async function requestResponsesCompletion(input: {
   body: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<ResponsesPayload> {
+  if (input.signal?.aborted) {
+    throw new ProviderError(
+      "openai-responses",
+      "Responses request was aborted",
+      undefined,
+      { code: "ABORTED", retryable: false },
+    );
+  }
   const abortController = new AbortController();
   const abort = () => abortController.abort(input.signal?.reason);
   input.signal?.addEventListener("abort", abort, { once: true });
@@ -180,17 +188,48 @@ async function requestResponsesCompletion(input: {
       throw new ProviderError(
         "openai-responses",
         `Responses request failed with status ${response.status}${await readErrorDetail(response)}`,
+        undefined,
+        {
+          statusCode: response.status,
+          retryable:
+            response.status === 408 ||
+            response.status === 429 ||
+            response.status >= 500,
+        },
       );
     }
-    return parseResponsesPayload(await response.json());
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      if (abortController.signal.aborted) throw error;
+      throw new ProviderError(
+        "openai-responses",
+        "Responses payload is not valid JSON",
+        undefined,
+        {
+          code: "INVALID_RESPONSE_CONTRACT",
+          statusCode: 502,
+          retryable: false,
+        },
+      );
+    }
+    return parseResponsesPayload(payload);
   } catch (error) {
     if (error instanceof ProviderError) {
       throw error;
     }
+    const interrupted = input.signal?.aborted === true;
+    const timedOut = abortController.signal.aborted && !interrupted;
     throw new ProviderError(
       "openai-responses",
       `Responses request failed: ${toErrorMessage(error)}`,
       error,
+      {
+        code: interrupted ? "ABORTED" : timedOut ? "TIMEOUT" : "NETWORK_ERROR",
+        statusCode: timedOut ? 408 : undefined,
+        retryable: !interrupted,
+      },
     );
   } finally {
     clearTimeout(timeoutId);
@@ -335,6 +374,7 @@ function parseResponsesPayload(payload: unknown): ResponsesPayload {
       "openai-responses",
       "Responses payload failed schema validation.",
       parsed.error,
+      { code: "INVALID_RESPONSE_CONTRACT", statusCode: 502, retryable: false },
     );
   }
   return parsed.data;
@@ -378,9 +418,7 @@ function extractResponsesReasoningSummary(
     .map((part) => part.text?.trim())
     .filter((part): part is string => Boolean(part))
     .join("\n\n");
-  return text
-    ? [{ type: "reasoning", text, displaySafe: true }]
-    : undefined;
+  return text ? [{ type: "reasoning", text, displaySafe: true }] : undefined;
 }
 
 function buildResponsesTools(

@@ -86,13 +86,33 @@ export interface ProviderAdapter {
 /**
  * Error for provider-specific issues
  */
+export interface ProviderFailureMetadata {
+  readonly statusCode?: number;
+  readonly retryable?: boolean;
+  readonly code?:
+    | "ABORTED"
+    | "TIMEOUT"
+    | "INVALID_RESPONSE_CONTRACT"
+    | "AUTH_FAILED"
+    | "PROVIDER_UNAVAILABLE"
+    | "NETWORK_ERROR"
+    | "INVALID_PROVIDER_CONFIGURATION";
+}
+
 export class ProviderError extends Error {
+  readonly statusCode?: number;
+  readonly retryable?: boolean;
+  readonly code?: ProviderFailureMetadata["code"];
   constructor(
     public readonly provider: string,
     message: string,
     public readonly cause?: unknown,
+    metadata: ProviderFailureMetadata = {},
   ) {
     super(`[provider/${provider}] ${message}`);
     this.name = "ProviderError";
+    this.statusCode = metadata.statusCode;
+    this.retryable = metadata.retryable;
+    this.code = metadata.code;
   }
 }
