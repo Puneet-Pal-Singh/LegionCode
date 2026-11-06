@@ -24,6 +24,7 @@ type ThreadLoadState = "loading" | "ready" | "error";
 
 function DesktopApp(): React.JSX.Element {
   const selectionRequest = useRef(0);
+  const threadScope = useRef(0);
   const threadListRequest = useRef(0);
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
   const [environment, setEnvironment] =
@@ -70,6 +71,7 @@ function DesktopApp(): React.JSX.Element {
 
   useEffect(() => {
     setSdkReady(false);
+    threadScope.current += 1;
     selectionRequest.current += 1;
     threadListRequest.current += 1;
     setSelectedThread(null);
@@ -117,13 +119,14 @@ function DesktopApp(): React.JSX.Element {
   }, [selectedThread?.id, selectedThread?.title]);
 
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
+    const scope = threadScope.current;
     const request = ++threadListRequest.current;
     const selection = selectionRequest.current;
     setThreadLoadState("loading");
     try {
       if (!appServerClient) return;
       const nextThreads = await appServerClient.listThreads();
-      if (request !== threadListRequest.current) return;
+      if (scope !== threadScope.current || request !== threadListRequest.current) return;
       setThreads(nextThreads);
       setThreadLoadState("ready");
       if (selection === selectionRequest.current) {
@@ -133,12 +136,13 @@ function DesktopApp(): React.JSX.Element {
         });
       }
     } catch {
-      if (request !== threadListRequest.current) return;
+      if (scope !== threadScope.current || request !== threadListRequest.current) return;
       setThreadLoadState("error");
     }
   }
 
   async function createThread(title?: string): Promise<void> {
+    const scope = threadScope.current;
     const request = ++selectionRequest.current;
     setThreadError(null);
     try {
@@ -146,13 +150,17 @@ function DesktopApp(): React.JSX.Element {
       const created = await appServerClient.createThread(
         title?.trim() || undefined,
       );
-      if (request !== selectionRequest.current) return;
-      setNewThreadTitle("");
-      setSelectedThread(created);
-      setThreadTitle(created.title);
-      await refreshThreads(created.id);
-    } catch {
+      if (scope !== threadScope.current) return;
       if (request === selectionRequest.current) {
+        setNewThreadTitle("");
+        setSelectedThread(created);
+        setThreadTitle(created.title);
+        await refreshThreads(created.id);
+      } else {
+        await refreshThreads();
+      }
+    } catch {
+      if (scope === threadScope.current && request === selectionRequest.current) {
         setThreadError("The local thread could not be created.");
       }
     }
@@ -178,6 +186,7 @@ function DesktopApp(): React.JSX.Element {
 
   async function renameThread(): Promise<void> {
     if (!selectedThread) return;
+    const scope = threadScope.current;
     const request = selectionRequest.current;
     setThreadError(null);
     try {
@@ -186,28 +195,33 @@ function DesktopApp(): React.JSX.Element {
         selectedThread.id,
         threadTitle,
       );
-      if (request !== selectionRequest.current) return;
-      setSelectedThread((current) => current?.id === renamed.id ? renamed : current);
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current) {
+        setSelectedThread((current) => current?.id === renamed.id ? renamed : current);
+      }
       await refreshThreads();
     } catch {
-      if (request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
       setThreadError("Thread titles must contain 1 to 80 characters.");
     }
   }
 
   async function setThreadArchived(archived: boolean): Promise<void> {
     if (!selectedThread || !appServerClient) return;
+    const scope = threadScope.current;
     const request = selectionRequest.current;
     setThreadError(null);
     try {
       const updated = archived
         ? await appServerClient.archiveThread(selectedThread.id)
         : await appServerClient.unarchiveThread(selectedThread.id);
-      if (request !== selectionRequest.current) return;
-      setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current) {
+        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      }
       await refreshThreads();
     } catch {
-      if (request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -215,17 +229,18 @@ function DesktopApp(): React.JSX.Element {
   async function archiveThread(threadId: string): Promise<void> {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
+    const scope = threadScope.current;
     const request = selectionRequest.current;
     try {
       if (!appServerClient) return;
       const updated = await appServerClient.archiveThread(thread.id);
-      if (request !== selectionRequest.current) return;
-      if (selectedThread?.id === updated.id) {
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current && selectedThread?.id === updated.id) {
         setSelectedThread((current) => current?.id === updated.id ? updated : current);
       }
       await refreshThreads();
     } catch {
-      if (request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -233,17 +248,18 @@ function DesktopApp(): React.JSX.Element {
   async function unarchiveThread(threadId: string): Promise<void> {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
+    const scope = threadScope.current;
     const request = selectionRequest.current;
     try {
       if (!appServerClient) return;
       const updated = await appServerClient.unarchiveThread(thread.id);
-      if (request !== selectionRequest.current) return;
-      if (selectedThread?.id === updated.id) {
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current && selectedThread?.id === updated.id) {
         setSelectedThread((current) => current?.id === updated.id ? updated : current);
       }
       await refreshThreads();
     } catch {
-      if (request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -271,6 +287,7 @@ function DesktopApp(): React.JSX.Element {
       return;
     }
 
+    threadScope.current += 1;
     selectionRequest.current += 1;
     threadListRequest.current += 1;
     setSelectedThread(null);
@@ -285,6 +302,7 @@ function DesktopApp(): React.JSX.Element {
     try {
       if (!appServerClient) return;
       await appServerClient.revokeWorkspace();
+      threadScope.current += 1;
       selectionRequest.current += 1;
       threadListRequest.current += 1;
       setWorkspace(null);
