@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   HarnessClient,
   HarnessInstanceStatus,
+  HarnessModelsResponse,
   HarnessStatusRequest,
 } from "@legioncode/sdk";
 
@@ -137,6 +138,13 @@ function HarnessConnectionSettingsContent({
               {new Date(instance.observedAt).toLocaleString()}
             </time>
           </p>
+          {instance.connectionId && instance.state === "ready" ? (
+            <ConnectionModels
+              key={instance.connectionId + instance.observedAt}
+              client={client}
+              instance={instance}
+            />
+          ) : null}
           {instance.connectionId &&
           (instance.state === "offline" ||
             instance.state === "reauthentication_required") ? (
@@ -151,5 +159,91 @@ function HarnessConnectionSettingsContent({
         </div>
       ))}
     </section>
+  );
+}
+
+/** Model discovery is scoped to a connection, independent of any conversation. */
+function ConnectionModels({
+  client,
+  instance,
+}: {
+  client: HarnessClient;
+  instance: HarnessInstanceStatus;
+}) {
+  const [open, setOpen] = useState(false);
+  const [result, setResult] = useState<HarnessModelsResponse | null>(null);
+  const [error, setError] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    if (!open || !instance.connectionId) return;
+    let active = true;
+    setResult(null);
+    setError(false);
+    void client
+      .models({
+        workspaceId: instance.workspaceId,
+        environmentId: instance.environmentId,
+        instanceId: instance.instanceId,
+        connectionId: instance.connectionId,
+      })
+      .then((models) => {
+        if (!active) return;
+        if (
+          models.workspaceId !== instance.workspaceId ||
+          models.environmentId !== instance.environmentId ||
+          models.instanceId !== instance.instanceId ||
+          models.connectionId !== instance.connectionId
+        ) {
+          setError(true);
+          return;
+        }
+        setResult(models);
+      })
+      .catch(() => {
+        if (active) setError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, instance, open, refresh]);
+  return (
+    <div className="mt-2 text-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? "Hide models" : "Show models"}
+      </button>
+      {open ? (
+        <>
+          {error ? (
+            <p role="alert">
+              Models could not be loaded.{" "}
+              <button
+                type="button"
+                onClick={() => setRefresh((value) => value + 1)}
+              >
+                Retry
+              </button>
+            </p>
+          ) : !result ? (
+            <p role="status">Loading models…</p>
+          ) : result.availability !== "available" ? (
+            <p role="status">
+              {result.reason ?? "Models are unavailable for this connection."}
+            </p>
+          ) : result.models.length === 0 ? (
+            <p role="status">No models are available for this connection.</p>
+          ) : (
+            <ul>
+              {result.models.map((model) => (
+                <li key={model.id}>{model.label}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : null}
+    </div>
   );
 }

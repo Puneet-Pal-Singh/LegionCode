@@ -49,6 +49,8 @@ import {
 } from "./lib/settings-dialog-events";
 import {
   HarnessSelectionReadRequestSchema,
+  HarnessStatusRequestSchema,
+  AppServerEnvironmentIdSchema,
   type HookSettingsAuditReadModel,
 } from "@legioncode/sdk";
 import { HostedHarnessScopeProvider } from "./components/harness/HostedHarnessScope";
@@ -163,17 +165,9 @@ function AppContent() {
     void initializeHostedAppServer()
       .then((handshake) => {
         if (!active) return;
-        // P13 owns this handshake field. Older servers cannot supply a scope;
-        // placement is never inferred from the client or the environment kind.
-        if (
-          "environmentId" in handshake &&
-          typeof handshake.environmentId === "string" &&
-          handshake.environmentId.trim()
-        ) {
-          setEnvironmentIdentity({
-            userId: ownerId,
-            id: handshake.environmentId,
-          });
+        const parsedEnvironmentId = AppServerEnvironmentIdSchema.safeParse(handshake.environmentId);
+        if (parsedEnvironmentId.success) {
+          setEnvironmentIdentity({ userId: ownerId, id: parsedEnvironmentId.data });
         }
         setEnvironment({
           kind: handshake.environment,
@@ -356,35 +350,6 @@ function AppContent() {
     applySessionWorkspaceProjection,
   });
 
-  const harnessScope = useMemo(() => {
-    if (
-      !isAuthenticated ||
-      !hasVerifiedSession ||
-      environment.status !== "ready" ||
-      !environmentIdentity ||
-      environmentIdentity.userId !== user?.id ||
-      !activeSessionId ||
-      sessionWorkspaceContext?.sessionId !== activeSessionId ||
-      sessionWorkspaceContext.workspaceStatus !== "active"
-    )
-      return null;
-    const parsed = HarnessSelectionReadRequestSchema.safeParse({
-      environmentId: environmentIdentity.id,
-      workspaceId: sessionWorkspaceContext.workspaceId,
-      threadId: sessionWorkspaceContext.threadId,
-      sessionId: sessionWorkspaceContext.sessionId,
-    });
-    return parsed.success ? parsed.data : null;
-  }, [
-    isAuthenticated,
-    hasVerifiedSession,
-    user?.id,
-    environment.status,
-    environmentIdentity,
-    activeSessionId,
-    sessionWorkspaceContext,
-  ]);
-
   const openSettingsDialog = useCallback(
     (section: SettingsSection = "general") => {
       setSettingsInitialSection(section);
@@ -418,6 +383,62 @@ function AppContent() {
     : workspaceSelectionIsResolved
       ? (ownedWorkspaceSelection?.workspaceId ?? null)
       : undefined;
+  const harnessConnectionScope = useMemo(() => {
+    if (
+      !isAuthenticated ||
+      !hasVerifiedSession ||
+      environment.status !== "ready" ||
+      !environmentIdentity ||
+      environmentIdentity.userId !== user?.id
+    )
+      return null;
+    // An open conversation keeps its own workspace. Setup without a conversation
+    // uses the authenticated workspace owner's current selection.
+    const workspaceId = activeSessionId
+      ? sessionWorkspaceContext?.sessionId === activeSessionId &&
+        sessionWorkspaceContext.workspaceStatus === "active"
+        ? sessionWorkspaceContext.workspaceId
+        : null
+      : workspaceSelectionIsResolved
+        ? ownedWorkspaceSelection?.workspaceId
+        : null;
+    const parsed = HarnessStatusRequestSchema.safeParse({
+      workspaceId,
+      environmentId: environmentIdentity.id,
+    });
+    return parsed.success ? parsed.data : null;
+  }, [
+    isAuthenticated,
+    hasVerifiedSession,
+    environment.status,
+    environmentIdentity,
+    user?.id,
+    activeSessionId,
+    sessionWorkspaceContext,
+    workspaceSelectionIsResolved,
+    ownedWorkspaceSelection,
+  ]);
+  const harnessSelectionScope = useMemo(() => {
+    if (
+      !harnessConnectionScope ||
+      !activeSessionId ||
+      sessionWorkspaceContext?.sessionId !== activeSessionId
+    )
+      return null;
+    const parsed = HarnessSelectionReadRequestSchema.safeParse({
+      ...harnessConnectionScope,
+      sessionId: sessionWorkspaceContext.sessionId,
+      threadId: sessionWorkspaceContext.threadId,
+    });
+    return parsed.success ? parsed.data : null;
+  }, [harnessConnectionScope, activeSessionId, sessionWorkspaceContext]);
+  const harnessSelectionUnavailableReason =
+    harnessConnectionScope &&
+    activeSessionId &&
+    isWorkspaceContextResolved &&
+    !harnessSelectionScope
+      ? "External agent selection is unavailable for this conversation. Start a new conversation to choose an agent."
+      : null;
   const setupSession = useSetupPreferenceScope(
     isAuthenticated ? authenticatedUserId : undefined,
     providerScopeWorkspaceId,
@@ -924,7 +945,12 @@ function AppContent() {
   }
 
   return (
-    <HostedHarnessScopeProvider scope={harnessScope}>
+    <HostedHarnessScopeProvider
+      connectionScope={harnessConnectionScope}
+      selectionScope={harnessSelectionScope}
+      sessionId={activeSessionId}
+      selectionUnavailableReason={harnessSelectionUnavailableReason}
+    >
     <ClientShell
       environment={environment.status === "ready" ? undefined : environment}
     >

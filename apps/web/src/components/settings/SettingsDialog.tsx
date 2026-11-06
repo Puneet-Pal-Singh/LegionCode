@@ -68,13 +68,7 @@ export function SettingsDialog({
   onUnarchiveSession = async () => undefined,
   onClose,
 }: SettingsDialogProps): React.ReactElement | null {
-  const harnessSelectionScope = useHostedHarnessScope();
-  const harnessScope = harnessSelectionScope
-    ? {
-        workspaceId: harnessSelectionScope.workspaceId,
-        environmentId: harnessSelectionScope.environmentId,
-      }
-    : null;
+  const { connectionScope: harnessScope } = useHostedHarnessScope();
   const harnessClient = useMemo(
     () => createHostedAppServerClient().harness,
     [],

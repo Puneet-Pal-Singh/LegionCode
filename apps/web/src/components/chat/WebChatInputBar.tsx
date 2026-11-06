@@ -32,7 +32,9 @@ export function WebChatInputBar({
   const preferences = useComposerPreferences();
   const hostedScope = useHostedHarnessScope();
   const harnessSelectionScope =
-    hostedScope?.sessionId === props.sessionId ? hostedScope : null;
+    hostedScope.sessionId === props.sessionId
+      ? hostedScope.selectionScope
+      : null;
   const harnessClient = useMemo(
     () => createHostedAppServerClient().harness,
     [],
@@ -52,6 +54,13 @@ export function WebChatInputBar({
       renderModelPicker={(onWarning) => (
         <>
           {providerControls.renderModelPicker(onWarning)}
+          {!props.isHidden &&
+          hostedScope.sessionId === props.sessionId &&
+          hostedScope.selectionUnavailableReason ? (
+            <p role="status" className="text-xs text-zinc-400">
+              {hostedScope.selectionUnavailableReason}
+            </p>
+          ) : null}
           {!props.isHidden && harnessSelectionScope ? (
             <HarnessSelection
               key={JSON.stringify(harnessSelectionScope)}
