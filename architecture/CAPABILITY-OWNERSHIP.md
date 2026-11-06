@@ -548,6 +548,28 @@ scope/error/default/visibility tests in this path remain the acceptance gate.
 Browser selection/readiness repair remains a separate pending authority slice;
 this extraction introduces no local vault, selection store or new policy.
 
+### Provider setup without an execution run
+
+Hosted provider configuration remains owned by the existing App Server,
+Brain `HostedProviderScope`, `RunEngineRuntime` provider handlers, and
+`ProviderConfigService`. The authenticated principal authorizes the request;
+setup binds to the server-resolved, owned active workspace. An absent `runId`
+means setup only. A supplied `runId` identifies an actual persisted run and
+must resolve through its owned session and consistent active workspace; invalid,
+missing, foreign, or unbound real runs fail without falling back to setup or the
+current selection. The Web-provided workspace header is only a captured
+selection assertion and cannot change server ownership.
+
+The existing `RunEngineRuntime` is placed by `provider-setup:v1:<userId>:<workspaceId>`
+for setup provider requests; real-run requests retain their actual run placement.
+This stable placement lets the existing per-user/workspace/action
+`ProviderRateLimitService` reuse its short-lived connect/validate windows across
+tabs and reloads. Old setup-run partitions are not migrated or deleted; a new
+setup placement may begin a fresh finite window. Existing real-run limits and
+all durable credential, preference, audit, model-cache, quota, and accounting
+owners remain unchanged. No run/session is created and no provider data moves
+into Durable Object storage.
+
 The existing uncapped visibility-list request is preserved only for authenticated
 `provider/preferences/update`: SDK supplies an exact method routing hint, Brain
 verifies the cookie before reading that body and rejects a mismatched envelope.
