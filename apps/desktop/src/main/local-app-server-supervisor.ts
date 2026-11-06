@@ -25,7 +25,9 @@ import type {
   LocalAppServerMessage,
 } from "../shared/desktop-api";
 
-type RequestHeaders = NonNullable<AppServerHttpTransportOptions["requestHeaders"]>;
+type RequestHeaders = NonNullable<
+  AppServerHttpTransportOptions["requestHeaders"]
+>;
 
 const STARTUP_TIMEOUT_MS = 5_000;
 const LIVENESS_CHECK_MS = 250;
@@ -38,6 +40,7 @@ export class LocalAppServerSupervisor {
 
   private child: UtilityProcess | null = null;
   private childPid: number | null = null;
+  private handshakeChild: UtilityProcess | null = null;
   private credential: string | null = null;
   private storageDirectory: string | null = null;
   private transport: AppServerTransport | null = null;
@@ -66,6 +69,7 @@ export class LocalAppServerSupervisor {
   async start(serverVersion: string, storageDirectory: string): Promise<void> {
     const generation = ++this.generation;
     this.stopping = false;
+    this.handshakeChild = null;
     this.childPid = null;
     this.transport = null;
     this.update(createSnapshot("starting"));
@@ -100,6 +104,7 @@ export class LocalAppServerSupervisor {
     });
     this.startupTimer = setTimeout(() => {
       if (child !== this.child || generation !== this.generation) return;
+      this.clearStartupTimer();
       this.update(createSnapshot("offline", "Local App Server did not start"));
       this.terminateChild(child);
     }, STARTUP_TIMEOUT_MS);
@@ -116,7 +121,9 @@ export class LocalAppServerSupervisor {
     this.credential = null;
     this.transport = null;
     if (!child) {
-      this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      this.update(
+        createSnapshot("stopped", "Local App Server stopped cleanly"),
+      );
       return;
     }
     await new Promise<void>((resolve) => {
@@ -185,11 +192,15 @@ export class LocalAppServerSupervisor {
       if (isFatalMessage(message)) this.handleChildExit(child);
       return;
     }
+    if (this.handshakeChild === child) return;
+    this.handshakeChild = child;
     const baseUrl = message.baseUrl;
-    this.clearStartupTimer();
     const credential = this.credential;
     if (!isLoopbackBaseUrl(baseUrl) || !credential) {
-      this.update(createSnapshot("degraded", "Local App Server address was rejected"));
+      this.clearStartupTimer();
+      this.update(
+        createSnapshot("degraded", "Local App Server address was rejected"),
+      );
       this.terminateChild(child);
       return;
     }
@@ -208,7 +219,12 @@ export class LocalAppServerSupervisor {
       const handshake = await client.initialize([
         ...LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
       ]);
-      if (child !== this.child || generation !== this.generation) return;
+      if (
+        child !== this.child ||
+        generation !== this.generation ||
+        !this.startupTimer
+      )
+        return;
       const snapshot = AppServerEnvironmentSnapshotSchema.parse({
         kind: handshake.environment,
         status: "ready",
@@ -218,10 +234,17 @@ export class LocalAppServerSupervisor {
         unavailableCapabilities: handshake.unavailableCapabilities,
         reason: null,
       });
+      this.clearStartupTimer();
       this.transport = transport;
       this.update({ ...snapshot, connection: { baseUrl, credential } });
     } catch (error) {
-      if (child !== this.child || generation !== this.generation) return;
+      if (
+        child !== this.child ||
+        generation !== this.generation ||
+        !this.startupTimer
+      )
+        return;
+      this.clearStartupTimer();
       const reason =
         error instanceof AppServerClientError &&
         error.serverCode === "protocol_incompatible"
@@ -241,7 +264,9 @@ export class LocalAppServerSupervisor {
     this.credential = null;
     this.transport = null;
     if (this.stopping) return;
-    this.update(createSnapshot("offline", "Local App Server stopped unexpectedly"));
+    this.update(
+      createSnapshot("offline", "Local App Server stopped unexpectedly"),
+    );
   }
 
   private terminateChild(child: UtilityProcess): void {
