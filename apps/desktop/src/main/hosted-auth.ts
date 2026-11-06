@@ -116,13 +116,17 @@ export class HostedAuth {
         await readJson(challengeResponse),
       );
       const expiresAt = Date.parse(challenge.expiresAt);
-      if (expiresAt <= Date.now() || expiresAt > startedAt + MAX_LOGIN_MS)
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
         throw new Error("Invalid challenge expiry");
+      // Server expiry starts when Brain receives the request. Positive network
+      // latency must not invalidate it; the independent local timer still caps
+      // this operation even if the server clock or expiry is further ahead.
+      const deadline = Math.min(expiresAt, startedAt + MAX_LOGIN_MS);
       this.assertCurrent(generation, controller.signal);
       const authorizationUrl = new URL("/auth/desktop/authorize", this.origin);
       authorizationUrl.searchParams.set("id", challenge.challengeId);
       await shell.openExternal(authorizationUrl.toString());
-      while (Date.now() < expiresAt) {
+      while (Date.now() < deadline) {
         this.assertCurrent(generation, controller.signal);
         redemptionSent = true;
         this.redeemGeneration = generation;
@@ -143,7 +147,7 @@ export class HostedAuth {
           redemptionSent = false;
           if (this.redeemGeneration === generation) this.redeemGeneration = null;
           await pause(
-            Math.min(pending.retryAfterMs, Math.max(0, expiresAt - Date.now())),
+            Math.min(pending.retryAfterMs, Math.max(0, deadline - Date.now())),
             controller.signal,
           );
           continue;
