@@ -1000,6 +1000,16 @@ snapshot. Legacy GitHub context remains a read-only, exact-repository branch
 preference lookup. This retires unused code, not storage keys, broader archived
 history recovery or unavailable-profile acceptance gates.
 
+A further whole-repository caller audit retired App's uncalled
+`convertSessionsToRuns` projection and its unused `RunInboxItem` import, including
+the unreachable `session_updated_at_` preference read. The unconsumed
+`run-summary-status-snapshot` parser/type and its three helper-only test cases
+are also removed. Canonical SDK run-summary lifecycle projection remains the
+status owner. `run-summary-events` remains active for scoped invalidation in
+`useGitStatus`, `useEditArtifactReviewSource` and `useChatCore`;
+its consumers and their existing status, approval and isolation checks remain.
+No browser keys or bytes are read, written or removed by this retirement.
+
 ### Unused Web transport retirement
 
 The unreferenced generic Brain/Muscle fetch wrapper and its private error helpers
