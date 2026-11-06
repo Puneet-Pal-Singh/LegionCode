@@ -8,10 +8,8 @@ import type { ThreadInputReceipt } from "@legioncode/sdk";
 import type { PlatformClient } from "@legioncode/sdk";
 import type { ChatImageAttachment } from "@legioncode/client-ui";
 import { resolveReasoningEffortForRequest } from "../../lib/model-reasoning-preferences";
-import { resolveRuntimeHarnessId } from "../../lib/chat-request";
-import {
-  createConversationScope,
-} from "../conversationScope";
+import type { CapturedHarnessSelection } from "../../lib/chat-execution-selection";
+import { createConversationScope } from "../conversationScope";
 import type { ConversationScope } from "@legioncode/sdk";
 
 export function useConversationInputCommands(input: {
@@ -23,7 +21,11 @@ export function useConversationInputCommands(input: {
   selectedProviderId?: string | null;
   selectedModelId?: string | null;
   selectedModelEfforts?: readonly ReasoningEffort[];
-  lifecycleClient: Pick<PlatformClient, "steerTurn" | "enqueueThreadInput" | "resumeTurn">;
+  readHarnessSelection: () => Promise<CapturedHarnessSelection | undefined>;
+  lifecycleClient: Pick<
+    PlatformClient,
+    "steerTurn" | "enqueueThreadInput" | "resumeTurn"
+  >;
   scopeRef: MutableRefObject<ConversationScope | null>;
   runScopeRef: MutableRefObject<string>;
   generationRef: MutableRefObject<number>;
@@ -55,15 +57,26 @@ export function useConversationInputCommands(input: {
         return false;
       }
 
-      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      let configuration: ReturnType<
+        typeof ThreadInputConfigurationSchema.parse
+      >;
       try {
-        configuration = buildInputConfiguration(input);
+        configuration =
+          delivery === "steer"
+            ? ThreadInputConfigurationSchema.parse({})
+            : await buildInputConfiguration(input);
       } catch {
         input.setError(
-          "Conversation settings are invalid. Check the selected provider, model, and reasoning effort.",
+          "Conversation settings could not be captured. Check the selected agent connection or Native provider and try again.",
         );
         return false;
       }
+      if (
+        !input.isActiveRunInvocation(capturedRunScope, capturedGeneration) ||
+        input.scopeRef.current?.sessionId !== capturedScope.sessionId ||
+        input.scopeRef.current?.runAttemptId !== capturedScope.runAttemptId
+      )
+        return false;
       const fingerprint = JSON.stringify({
         workspaceId: capturedScope.workspaceId,
         threadId: capturedScope.threadId,
@@ -71,7 +84,7 @@ export function useConversationInputCommands(input: {
         runAttemptId: capturedScope.runAttemptId,
         delivery,
         capturedDraftVersion,
-        ...(delivery === "queue" ? { configuration } : {}),
+        // Mutable settings cannot turn an uncertain delivery into a new command.
         text: capturedText,
         images: (attachments?.imageAttachments ?? []).map((image) => ({
           id: image.id,
@@ -155,30 +168,40 @@ export function useConversationInputCommands(input: {
       const capturedRunScope = input.runScopeRef.current;
       const capturedGeneration = input.generationRef.current;
       if (!capturedScope) return false;
-      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      let configuration: ReturnType<
+        typeof ThreadInputConfigurationSchema.parse
+      >;
       try {
-        configuration = buildInputConfiguration(input);
+        configuration = await buildInputConfiguration(input);
       } catch {
         input.setError(
-          "Conversation settings are invalid. Check the selected provider, model, and reasoning effort.",
+          "Conversation settings could not be captured. Check the selected agent connection or Native provider and try again.",
         );
         return false;
       }
+      if (
+        !input.isActiveRunInvocation(capturedRunScope, capturedGeneration) ||
+        input.scopeRef.current?.sessionId !== capturedScope.sessionId ||
+        input.scopeRef.current?.runAttemptId !== capturedScope.runAttemptId
+      )
+        return false;
       const fingerprint = JSON.stringify({
         workspaceId: capturedScope.workspaceId,
         threadId: capturedScope.threadId,
         turnId: capturedScope.turnId,
         runAttemptId: capturedScope.runAttemptId,
         expectedTerminalSequence,
-        configuration,
       });
       try {
-        const receipt = await commands.resumeInterruptedTurn(input.lifecycleClient, {
-          fingerprint,
-          scope: capturedScope,
-          expectedTerminalSequence,
-          configuration,
-        });
+        const receipt = await commands.resumeInterruptedTurn(
+          input.lifecycleClient,
+          {
+            fingerprint,
+            scope: capturedScope,
+            expectedTerminalSequence,
+            configuration,
+          },
+        );
         if (
           !input.isActiveRunInvocation(capturedRunScope, capturedGeneration) ||
           input.scopeRef.current?.threadId !== capturedScope.threadId ||
@@ -255,22 +278,26 @@ export function useConversationInputCommands(input: {
   return { submitFollowUp, resumeInterruptedTurn, applyStartedQueueReceipt };
 }
 
-function buildInputConfiguration(input: {
+async function buildInputConfiguration(input: {
   sessionId: string;
   mode: RunMode;
   productMode?: ProductMode;
   selectedProviderId?: string | null;
   selectedModelId?: string | null;
   selectedModelEfforts?: readonly ReasoningEffort[];
+  readHarnessSelection: () => Promise<CapturedHarnessSelection | undefined>;
 }) {
+  const harnessSelection = await input.readHarnessSelection();
+  const delegated = Boolean(harnessSelection?.selection);
   return ThreadInputConfigurationSchema.parse({
+    ...(harnessSelection ? { harnessSelection } : {}),
     mode: input.mode === "build" ? "auto_edit" : input.mode,
     ...(input.productMode ? { productMode: input.productMode } : {}),
-    harnessId: resolveRuntimeHarnessId(input.sessionId),
-    ...(input.selectedProviderId && input.selectedModelId
+    ...(delegated ? {} : { harnessId: "cloudflare-sandbox" as const }),
+    ...(!delegated && input.selectedProviderId && input.selectedModelId
       ? { providerId: input.selectedProviderId, modelId: input.selectedModelId }
       : {}),
-    ...(input.selectedProviderId && input.selectedModelId
+    ...(!delegated && input.selectedProviderId && input.selectedModelId
       ? (() => {
           const reasoningEffort = resolveReasoningEffortForRequest(
             input.selectedProviderId!,

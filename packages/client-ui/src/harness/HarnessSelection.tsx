@@ -26,6 +26,8 @@ function HarnessSelectionContent({
   scope,
   onSelectionChange,
 }: HarnessSelectionProps) {
+  const selectionCallback = useRef(onSelectionChange);
+  selectionCallback.current = onSelectionChange;
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -65,6 +67,7 @@ function HarnessSelectionContent({
           selection.threadId !== threadId
         )
           throw new Error("Selection scope mismatch");
+        selectionCallback.current?.(selection);
         setSnapshot(selection);
         setInstances(
           status.instances.filter(
@@ -149,7 +152,7 @@ function HarnessSelectionContent({
         throw new Error("Selection scope mismatch");
       setSnapshot(result);
       setInstanceId(result.selection?.instanceId ?? "");
-      onSelectionChange?.(result);
+      selectionCallback.current?.(result);
     } catch {
       if (!mounted.current) return;
       setError(
