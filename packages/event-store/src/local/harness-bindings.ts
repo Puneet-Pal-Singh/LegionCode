@@ -256,7 +256,7 @@ export function validateLocalHarnessBindings(
     )
     .all();
   if (!marker && tables.length === 0) return false;
-  if (!["1","2"].includes(marker?.value ?? "") || tables.length !== 3)
+  if (!["1", "2"].includes(marker?.value ?? "") || tables.length !== 3)
     throw new LocalPersistenceError(
       "corrupt",
       "Local harness schema is incomplete",
@@ -283,15 +283,56 @@ export function validateLocalHarnessBindings(
         "Local harness primary key is invalid",
       );
   }
-  const hasRecovery=database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='harness_reply_claims'").get();
-  const recoveryColumn=(database.pragma("table_info(harness_observation_receipts)") as {name:string}[]).some(c=>c.name==="recovery_observation_json");
-  if(marker?.value==="2" && (!hasRecovery || !recoveryColumn))throw new LocalPersistenceError("corrupt","Local harness recovery schema is incomplete");
-  if(marker?.value==="1" && (hasRecovery || recoveryColumn))throw new LocalPersistenceError("corrupt","Local harness recovery upgrade is incomplete");
-  if(marker?.value==="2"){
-    const claimColumns=database.pragma("table_info(harness_reply_claims)") as {name:string;pk:number}[];
-    const keys=claimColumns.filter(c=>c.pk>0).sort((a,b)=>a.pk-b.pk).map(c=>c.name);
-    const refs=database.pragma("foreign_key_list(harness_reply_claims)") as {table:string;from:string;to:string;on_delete:string}[];
-    if(JSON.stringify(keys)!==JSON.stringify(["turn_id","process_generation","request_sequence"]) || !claimColumns.some(c=>c.name==="origin_json") || refs.length!==3 || refs.some(r=>r.table!=="harness_observation_receipts" || r.on_delete!=="CASCADE") || !refs.some(r=>r.from==="request_sequence" && r.to==="sequence"))throw new LocalPersistenceError("corrupt","Local harness reply claim schema is invalid");
+  const hasRecovery = database
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='harness_reply_claims'",
+    )
+    .get();
+  const recoveryColumn = (
+    database.pragma("table_info(harness_observation_receipts)") as {
+      name: string;
+    }[]
+  ).some((c) => c.name === "recovery_observation_json");
+  if (marker?.value === "2" && (!hasRecovery || !recoveryColumn))
+    throw new LocalPersistenceError(
+      "corrupt",
+      "Local harness recovery schema is incomplete",
+    );
+  if (marker?.value === "1" && (hasRecovery || recoveryColumn))
+    throw new LocalPersistenceError(
+      "corrupt",
+      "Local harness recovery upgrade is incomplete",
+    );
+  if (marker?.value === "2") {
+    const claimColumns = database.pragma(
+      "table_info(harness_reply_claims)",
+    ) as { name: string; pk: number }[];
+    const keys = claimColumns
+      .filter((c) => c.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((c) => c.name);
+    const refs = database.pragma("foreign_key_list(harness_reply_claims)") as {
+      table: string;
+      from: string;
+      to: string;
+      on_delete: string;
+    }[];
+    if (
+      JSON.stringify(keys) !==
+        JSON.stringify(["turn_id", "process_generation", "request_sequence"]) ||
+      !claimColumns.some((c) => c.name === "origin_json") ||
+      refs.length !== 3 ||
+      refs.some(
+        (r) =>
+          r.table !== "harness_observation_receipts" ||
+          r.on_delete !== "CASCADE",
+      ) ||
+      !refs.some((r) => r.from === "request_sequence" && r.to === "sequence")
+    )
+      throw new LocalPersistenceError(
+        "corrupt",
+        "Local harness reply claim schema is invalid",
+      );
   }
 
   const indexes = database.pragma("index_list(harness_bindings)") as {
@@ -354,16 +395,30 @@ export function validateLocalHarnessBindings(
   return true;
 }
 
-export function initializeLocalHarnessBindings(database:Database.Database):void {
-  const existing=validateLocalHarnessBindings(database);
-  const marker=database.prepare("SELECT value FROM metadata WHERE key='harness_bindings_version'").get() as {value:string}|undefined;
-  if(existing && marker?.value==="2")return;
-  database.transaction(()=>{
-    if(!existing)database.exec(LOCAL_SCHEMA);
-    database.exec("ALTER TABLE harness_observation_receipts ADD COLUMN recovery_observation_json TEXT");
-    database.exec("CREATE TABLE harness_reply_claims(turn_id TEXT NOT NULL,process_generation TEXT NOT NULL,request_sequence INTEGER NOT NULL,origin_json TEXT NOT NULL,PRIMARY KEY(turn_id,process_generation,request_sequence),FOREIGN KEY(turn_id,process_generation,request_sequence) REFERENCES harness_observation_receipts(turn_id,process_generation,sequence) ON DELETE CASCADE)");
-    database.prepare("INSERT INTO metadata(key,value) VALUES ('harness_bindings_version','2') ON CONFLICT(key) DO UPDATE SET value='2'").run();
-  }).immediate();
+export function initializeLocalHarnessBindings(
+  database: Database.Database,
+): void {
+  const existing = validateLocalHarnessBindings(database);
+  const marker = database
+    .prepare("SELECT value FROM metadata WHERE key='harness_bindings_version'")
+    .get() as { value: string } | undefined;
+  if (existing && marker?.value === "2") return;
+  database
+    .transaction(() => {
+      if (!existing) database.exec(LOCAL_SCHEMA);
+      database.exec(
+        "ALTER TABLE harness_observation_receipts ADD COLUMN recovery_observation_json TEXT",
+      );
+      database.exec(
+        "CREATE TABLE harness_reply_claims(turn_id TEXT NOT NULL,process_generation TEXT NOT NULL,request_sequence INTEGER NOT NULL,origin_json TEXT NOT NULL,PRIMARY KEY(turn_id,process_generation,request_sequence),FOREIGN KEY(turn_id,process_generation,request_sequence) REFERENCES harness_observation_receipts(turn_id,process_generation,sequence) ON DELETE CASCADE)",
+      );
+      database
+        .prepare(
+          "INSERT INTO metadata(key,value) VALUES ('harness_bindings_version','2') ON CONFLICT(key) DO UPDATE SET value='2'",
+        )
+        .run();
+    })
+    .immediate();
 }
 
 export class LocalHarnessBindingRepository implements HarnessBindingRepository {
@@ -612,94 +667,111 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           );
         return {
           sequence: input.sequence,
-          eventIds: z
-            .array(z.string())
-            .parse(JSON.parse(receipt.event_ids_json)),
+          eventIds: this.validateCanonicalReferences(
+            input.selection,
+            receipt.event_ids_json,
+          ),
           duplicate: true,
         };
       })
       .immediate();
   }
-  async appendObservation(input: HarnessObservationCommit): Promise<HarnessObservationAck> {
-    try { return this.database.transaction(() => this.appendObservationWithin(input)).immediate(); }
-    catch (error) { rethrowHarnessCommitFailure(error); }
+  async appendObservation(
+    input: HarnessObservationCommit,
+  ): Promise<HarnessObservationAck> {
+    try {
+      return this.database
+        .transaction(() => this.appendObservationWithin(input))
+        .immediate();
+    } catch (error) {
+      rethrowHarnessCommitFailure(error);
+    }
   }
-  appendObservationWithin(input: HarnessObservationCommit): HarnessObservationAck {
-    if (!this.database.inTransaction) throw new HarnessPersistenceError("corrupt", "Canonical observation append requires the existing writer transaction");
+  /** Caller must own the current connection's transaction; used to add private
+   * recovery facts to the SAME ingress/canonical append commit. */
+  appendObservationWithin(
+    input: HarnessObservationCommit,
+  ): HarnessObservationAck {
+    if (!this.database.inTransaction)
+      throw new HarnessPersistenceError(
+        "corrupt",
+        "Canonical observation append requires the existing writer transaction",
+      );
     validateHarnessObservation(input);
-
-        const binding = this.required(input.selection);
-        this.requireClaim(input.selection.turnId);
-        assertHarnessOrigin(binding.attachment, input.origin);
-        assertLearnedExternalTurn(binding, input.learnedExternalTurnId);
-        const receipt = this.database
-          .prepare(
-            "SELECT observation_fingerprint,event_ids_json FROM harness_observation_receipts WHERE turn_id=? AND process_generation=? AND sequence=?",
-          )
-          .get(
-            input.selection.turnId,
-            input.origin.processGeneration,
-            input.sequence,
-          ) as
-          | { observation_fingerprint: string; event_ids_json: string }
-          | undefined;
-        if (receipt) {
-          if (receipt.observation_fingerprint !== input.observationFingerprint)
-            throw new HarnessPersistenceError(
-              "observation_conflict",
-              "Observation sequence already contains different evidence",
-            );
-          return {
-            sequence: input.sequence,
-            eventIds: this.validateCanonicalReferences(input.selection, receipt.event_ids_json),
-            duplicate: true,
-          };
-        }
-        const latest = this.database
-          .prepare(
-            "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence DESC LIMIT 1",
-          )
-          .get(input.selection.turnId) as { event_json: string } | undefined;
-        if (
-          latest &&
-          ["turn.completed", "turn.failed", "turn.interrupted"].includes(
-            LifecycleEventSchema.parse(JSON.parse(latest.event_json)).type,
-          )
-        )
-          throw new HarnessPersistenceError(
-            "stale_origin",
-            "Attempt is already settled",
-          );
-        if (input.sequence !== binding.lastObservationSequence + 1)
-          throw new HarnessPersistenceError(
-            "sequence_gap",
-            "Harness observation sequence has a gap",
-          );
-        const eventIds = input.events.map(
-          (event) => this.appendLifecycle(event).eventId,
+    const binding = this.required(input.selection);
+    this.requireClaim(input.selection.turnId);
+    assertHarnessOrigin(binding.attachment, input.origin);
+    assertLearnedExternalTurn(binding, input.learnedExternalTurnId);
+    const receipt = this.database
+      .prepare(
+        "SELECT observation_fingerprint,event_ids_json FROM harness_observation_receipts WHERE turn_id=? AND process_generation=? AND sequence=?",
+      )
+      .get(
+        input.selection.turnId,
+        input.origin.processGeneration,
+        input.sequence,
+      ) as
+      | { observation_fingerprint: string; event_ids_json: string }
+      | undefined;
+    if (receipt) {
+      if (receipt.observation_fingerprint !== input.observationFingerprint)
+        throw new HarnessPersistenceError(
+          "observation_conflict",
+          "Observation sequence already contains different evidence",
         );
-        this.database
-          .prepare(
-            "INSERT INTO harness_observation_receipts(turn_id,process_generation,sequence,observation_fingerprint,event_ids_json) VALUES (?,?,?,?,?)",
-          )
-          .run(
-            input.selection.turnId,
-            input.origin.processGeneration,
-            input.sequence,
-            input.observationFingerprint,
-            JSON.stringify(eventIds),
-          );
-        this.database
-          .prepare(
-            "UPDATE harness_bindings SET last_observation_sequence=?,external_turn_id=COALESCE(external_turn_id,?) WHERE turn_id=?",
-          )
-          .run(
-            input.sequence,
-            input.learnedExternalTurnId ?? null,
-            input.selection.turnId,
-          );
-        return { sequence: input.sequence, eventIds, duplicate: false };
-
+      return {
+        sequence: input.sequence,
+        eventIds: this.validateCanonicalReferences(
+          input.selection,
+          receipt.event_ids_json,
+        ),
+        duplicate: true,
+      };
+    }
+    const latest = this.database
+      .prepare(
+        "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(input.selection.turnId) as { event_json: string } | undefined;
+    if (
+      latest &&
+      ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+        LifecycleEventSchema.parse(JSON.parse(latest.event_json)).type,
+      )
+    )
+      throw new HarnessPersistenceError(
+        "stale_origin",
+        "Attempt is already settled",
+      );
+    if (input.sequence !== binding.lastObservationSequence + 1)
+      throw new HarnessPersistenceError(
+        "sequence_gap",
+        "Harness observation sequence has a gap",
+      );
+    const eventIds = input.events.map(
+      (event) => this.appendLifecycle(event).eventId,
+    );
+    this.database
+      .prepare(
+        "INSERT INTO harness_observation_receipts(turn_id,process_generation,sequence,observation_fingerprint,event_ids_json) VALUES (?,?,?,?,?)",
+      )
+      .run(
+        input.selection.turnId,
+        input.origin.processGeneration,
+        input.sequence,
+        input.observationFingerprint,
+        JSON.stringify(eventIds),
+      );
+    this.database
+      .prepare(
+        "UPDATE harness_bindings SET last_observation_sequence=?,external_turn_id=COALESCE(external_turn_id,?) WHERE turn_id=?",
+      )
+      .run(
+        input.sequence,
+        input.learnedExternalTurnId ?? null,
+        input.selection.turnId,
+      );
+    return { sequence: input.sequence, eventIds, duplicate: false };
   }
   private validateCanonicalReferences(
     selection: StoredHarnessSelection,

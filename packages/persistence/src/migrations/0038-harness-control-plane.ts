@@ -1,7 +1,12 @@
 import type { SqlMigration } from "./types.js";
-export const harnessControlPlaneMigration:SqlMigration={id:"0038_harness_control_plane",description:"Durable configured harness instances, next-selection CAS and frozen admission receipts",statements:[
-`CREATE TABLE harness_configured_instances(user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL,environment_id TEXT NOT NULL,instance_id TEXT NOT NULL,harness TEXT NOT NULL CHECK(harness IN ('codex','claude','opencode')),connection_id UUID NOT NULL REFERENCES provider_credentials(id),auth_owner_generation BIGINT NOT NULL CHECK(auth_owner_generation>0 AND auth_owner_generation<=9007199254740991),created_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(user_id,workspace_id,environment_id,instance_id))`,
-`CREATE TABLE harness_next_selections(user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL,environment_id TEXT NOT NULL,session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,thread_id TEXT NOT NULL,revision BIGINT NOT NULL CHECK(revision>=0 AND revision<=9007199254740991),selection_json JSONB,PRIMARY KEY(user_id,workspace_id,environment_id,session_id,thread_id))`,
-`CREATE TABLE harness_control_command_receipts(user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL,environment_id TEXT NOT NULL,operation TEXT NOT NULL CHECK(operation IN ('setup','select')),scope_id TEXT NOT NULL,command_id TEXT NOT NULL,request_fingerprint TEXT NOT NULL,response_json JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(user_id,workspace_id,environment_id,operation,scope_id,command_id))`,
-`ALTER TABLE canonical_turn_admissions ADD COLUMN harness_admission_receipt_json JSONB`,
-]};
+export const harnessControlPlaneMigration: SqlMigration = {
+  id: "0038_harness_control_plane",
+  description:
+    "Durable configured harness instances, next-selection CAS and frozen admission receipts",
+  statements: [
+    `CREATE TABLE harness_configured_instances(user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL,environment_id TEXT NOT NULL,instance_id TEXT NOT NULL,harness TEXT NOT NULL CHECK(harness IN ('codex','claude','opencode')),connection_id UUID NOT NULL REFERENCES provider_credentials(id),auth_owner_generation BIGINT NOT NULL CHECK(auth_owner_generation>0 AND auth_owner_generation<=9007199254740991),created_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(user_id,workspace_id,environment_id,instance_id))`,
+    `CREATE TABLE harness_next_selections(user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL,environment_id TEXT NOT NULL,session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,thread_id TEXT NOT NULL,revision BIGINT NOT NULL CHECK(revision>=0 AND revision<=9007199254740991),selection_json JSONB,PRIMARY KEY(user_id,workspace_id,environment_id,session_id,thread_id))`,
+    `CREATE TABLE harness_control_command_receipts(user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL,environment_id TEXT NOT NULL,operation TEXT NOT NULL CHECK(operation IN ('setup','select')),scope_id TEXT NOT NULL,command_id TEXT NOT NULL,request_fingerprint TEXT NOT NULL,response_json JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(user_id,workspace_id,environment_id,operation,scope_id,command_id))`,
+    `ALTER TABLE canonical_turn_admissions ADD COLUMN harness_admission_receipt_json JSONB`,
+  ],
+};

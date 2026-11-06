@@ -402,3 +402,5 @@ export { harnessControlPlaneMigration } from "./migrations/0038-harness-control-
 
 export { PostgresHarnessObservationCommitPort } from "./harness/PostgresHarnessObservationCommitPort.js";
 export { harnessRecoveryReplyClaimsMigration } from "./migrations/0039-harness-recovery-reply-claims.js";
+
+export { PostgresHarnessAdmissionBindingPort } from "./harness/PostgresHarnessAdmissionBindingPort.js";
