@@ -1,4 +1,5 @@
 import { RunIdSchema, TurnIdSchema } from "@repo/platform-protocol";
+import { ProviderIdSchema } from "@repo/shared-types";
 import type { ILLMGateway } from "../llm/types.js";
 import { normalizeProviderTextResponse } from "../llm/ProviderTextResponse.js";
 import { LegacyProviderTranscriptPartNormalizer } from "../llm/TranscriptPartNormalizer.js";
@@ -8,11 +9,31 @@ import {
   type ProtectedProviderInferenceOptions,
 } from "./ProtectedProviderInference.js";
 
+export type ProtectedProviderGatewayOptions = Omit<
+  ProtectedProviderInferenceOptions,
+  "providerId"
+> & { readonly providerId: string };
+
 /** Trusted runtime bridge; pricing, stepping and lifecycle remain with their existing owners. */
 export function createProtectedProviderGateway(
-  options: ProtectedProviderInferenceOptions,
+  options: ProtectedProviderGatewayOptions,
 ): Pick<ILLMGateway, "generateText"> {
-  const adapter = createProtectedProviderAdapter(options);
+  const providerId = ProviderIdSchema.safeParse(options.providerId);
+  if (!providerId.success) {
+    throw new ProviderError(
+      "native",
+      "Selected provider is unavailable",
+      undefined,
+      {
+        code: "INVALID_PROVIDER_CONFIGURATION",
+        retryable: false,
+      },
+    );
+  }
+  const adapter = createProtectedProviderAdapter({
+    ...options,
+    providerId: providerId.data,
+  });
   const normalizer = new LegacyProviderTranscriptPartNormalizer();
   return {
     async generateText(request) {
