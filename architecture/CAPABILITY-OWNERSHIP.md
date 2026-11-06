@@ -789,6 +789,8 @@ This ledger records the active wiring for image-bearing conversation context.
 | Repository PR-read reuse                 | RegistryToolAuthorization and canonical approval grants | An explicitly offered grant binds the trusted authenticated user, chat, workspace and normalized repository. Existing lifecycle grant persistence is reused. Writes, shell, other repositories and old exact-input grants cannot consume the new matcher.                                                  |
 | Pre-execution rejection recovery         | BashPlugin validation and native kernel worker          | Structured rejection proves execution did not start. One same-rule correction may return through the existing recoverable tool-result path, with normal validation/approval on every call. Exhaustion settles one canonical failed outcome explaining incomplete work.                                     |
 | Composer provider/model preference       | ProviderStore and its session preference adapter        | ChatInputBar, AgentSetup, ProviderDialog and useChatCore share a stable session choice independently of the execution run. Cache is a browser preference only; submission uses the validated resolver and captures the admitted configuration. Inventory refresh cannot silently replace explicit choices. |
+| Session provider selection restoration   | ProviderSelectionPreferences and ProviderStore          | Restore valid local or legacy session-storage selections without rewriting either key. Malformed and unknown raw bytes remain unchanged until an explicit selection write; current provider records and the authorized scope decide whether a saved choice is usable.                   |
+| Rendered conversation messages           | Canonical transcript history and live lifecycle; Web `useChat` owns only its current render state | The unused `useChatPersistence` -> `ChatPersistenceService` -> `agentStore` mirror is removed; no production path read it. Existing history hydration and live lifecycle remain the only sources for rendered conversation messages. No browser history authority is introduced. |
 
 No lifecycle, grant or chat database migration is required. The old run-keyed
 composer preference cache and direct unvalidated submission shortcut are removed
@@ -813,6 +815,36 @@ never rendered as a successfully verified closed pull request.
 | Chat title mutation | Authenticated session metadata operation and ThreadTitleService | Sidebar and header rename capture the selected session ID, await the server response, and update only that session's canonical title projection. Errors stay visible to the user; run, workspace and status fields are not copied from a stale response. |
 | Saved image source list | Authenticated transcript image references and ChatMediaStore | Web derives references only from restored user messages in the active `SessionConversationSurface`, validates the shared image-reference schema, deduplicates by attachment ID and resolves the existing authenticated image source. Draft and optimistic images are excluded; loading, partial and failed history remain explicit. Presentation reuses `ChatImageGallery`. |
 | Outputs, subagents and background processes | Their separately scoped capabilities | Summary sections remain hidden until their canonical capabilities exist; Web does not infer runtime state or fabricate counts. |
+
+
+## Queued follow-up and resume command identity
+
+- The SDK `createConversationInputCommands` binding retains one captured queue or
+  steer command per explicit intent fingerprint and the current resume command.
+  Canonical request schemas copy content, image bytes and configuration when
+  allocating client identity. A transport failure retains that exact request for
+  explicit retry; a typed server receipt retires it. Each conversation creates
+  its own binding; there is no global product cache or new lifecycle authority.
+- Web `useConversationInputCommands` keeps composer draft/version and active
+  conversation generation checks, resolves current provider/harness settings,
+  presents receipts/errors and applies server-returned scope. The SDK dispatches
+  only through the existing PlatformClient methods; hosted admission, queue
+  ordering, steering and resume settlement retain their server/runtime owners.
+
+## Plan 058 — Portable lifecycle projection continuation
+
+SDK `platform/conversation-lifecycle` composes the existing canonical lifecycle
+replay, continuation and workflow projector. Web's active-Turn hook supplies
+React state callbacks and cancellation; its historical-Turn hook supplies the
+same SDK operation for paged replay and retains unavailable-history diagnostics.
+The Web-only replay/follow reducer loops are removed.
+
+Initial replay publishes one complete snapshot so resolved historical approvals
+cannot flash as pending. Live continuation uses the existing SDK cursor/retry
+path and publishes canonical projections. Historical replay never follows an
+unsettled old Turn. Aborted or replaced hooks cannot publish late results, and
+transport closure never creates terminal state. Runtime append and hosted
+lifecycle storage remain the lifecycle authorities.
 
 ## Plan 058 — Portable interruption settlement
 

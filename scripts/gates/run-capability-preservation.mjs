@@ -67,10 +67,6 @@ const CAPABILITIES = [
         "replaces the verified transcript from a complete revision snapshot",
       ],
       [
-        "apps/web/src/hooks/useChatPersistence.test.tsx",
-        "does not read browser storage while mirroring messages",
-      ],
-      [
         "packages/persistence/src/turn-admissions/ChatDurability.sql.test.ts",
         "appends assistant turns for distinct user turns on the same run",
       ],
@@ -91,7 +87,6 @@ const CAPABILITIES = [
         "test",
         "--",
         "src/hooks/useChatHydration.test.tsx",
-        "src/hooks/useChatPersistence.test.tsx",
         "src/services/__tests__/SessionStateService.test.ts",
       ],
       [

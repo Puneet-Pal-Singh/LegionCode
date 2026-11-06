@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createConversationInputCommands } from "./conversation-input-commands.js";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import {
   InterruptTurnRequestSchema,
+  ModelIdSchema,
+  ProviderIdSchema,
   RunAttemptIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
@@ -313,5 +316,62 @@ describe("AppServerClient", () => {
       "thread/input/start",
     ]);
     expect(sent[3]).toMatchObject({ params: { providerId: "openai", modelId: "gpt-4o" } });
+
+
+    const commands = createConversationInputCommands();
+    const scope = {
+      ...threadScope,
+      turnId,
+      runAttemptId,
+      runId: "run_123456",
+      sessionId: "session-1",
+    };
+    const content = {
+      text: "captured follow-up",
+      images: [{ dataUrl: "data:image/png;base64,AAAA", name: "first.png", mediaType: "image/png" as const }],
+    };
+    const configuration = { providerId: ProviderIdSchema.parse("openai"), modelId: ModelIdSchema.parse("first-model") };
+    let loseQueueResponse = true;
+    let loseResumeResponse = true;
+    const uncertainClient = {
+      steerTurn: client.steerTurn,
+      enqueueThreadInput: async (request: Parameters<typeof client.enqueueThreadInput>[0]) => {
+        const receipt = await client.enqueueThreadInput(request);
+        if (loseQueueResponse) {
+          loseQueueResponse = false;
+          throw new Error("Queue response lost");
+        }
+        return receipt;
+      },
+      resumeTurn: async (request: Parameters<typeof client.resumeTurn>[0]) => {
+        const receipt = await client.resumeTurn(request);
+        if (loseResumeResponse) {
+          loseResumeResponse = false;
+          throw new Error("Resume response lost");
+        }
+        return receipt;
+      },
+    };
+    const delivery = { fingerprint: "draft-1", scope, delivery: "queue" as const, content, configuration };
+    await expect(commands.submitFollowUp(uncertainClient, delivery)).rejects.toThrow("Queue response lost");
+    const firstQueueEnvelope = sent.at(-1);
+    content.text = "later draft";
+    content.images[0]!.dataUrl = "data:image/png;base64,BBBB";
+    configuration.modelId = ModelIdSchema.parse("later-model");
+    await commands.submitFollowUp(uncertainClient, delivery);
+    expect(sent.at(-1)).toEqual(firstQueueEnvelope);
+    expect(sent.at(-1)).toMatchObject({ params: {
+      content: { text: "captured follow-up", images: [{ dataUrl: "data:image/png;base64,AAAA" }] },
+      configuration: { modelId: "first-model" },
+    } });
+    await commands.submitFollowUp(uncertainClient, delivery);
+    expect(sent.at(-1)).not.toEqual(firstQueueEnvelope);
+
+    const continuation = { fingerprint: "resume-1", scope, expectedTerminalSequence: 1, configuration };
+    await expect(commands.resumeInterruptedTurn(uncertainClient, continuation)).rejects.toThrow("Resume response lost");
+    const firstResumeEnvelope = sent.at(-1);
+    configuration.modelId = ModelIdSchema.parse("newer-model");
+    await commands.resumeInterruptedTurn(uncertainClient, continuation);
+    expect(sent.at(-1)).toEqual(firstResumeEnvelope);
   });
 });
