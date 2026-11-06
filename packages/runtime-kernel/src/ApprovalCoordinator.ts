@@ -203,8 +203,12 @@ function raceApprovalResolution(
   resolutions: readonly Promise<ApprovalResolution>[],
   signal?: AbortSignal,
 ): Promise<ApprovalResolution> {
-  if (!signal) return Promise.race(resolutions);
+  // Attach handlers to every already-created provider promise before checking
+  // cancellation; a late provider rejection must remain observed after Stop.
+  const raced = Promise.race(resolutions);
+  if (!signal) return raced;
   if (signal.aborted) {
+    void raced.catch(() => undefined);
     return Promise.reject(
       new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
     );
@@ -215,7 +219,7 @@ function raceApprovalResolution(
         new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
       );
     signal.addEventListener("abort", abort, { once: true });
-    Promise.race(resolutions)
+    raced
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", abort));
   });
