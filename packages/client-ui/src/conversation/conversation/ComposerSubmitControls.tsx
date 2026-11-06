@@ -50,7 +50,7 @@ export function ComposerSubmitControls({
           aria-label={label}
           title={
             followUpAvailable
-              ? `${label} · ${modifierShortcutLabel} to ${behavior === "queue" ? "steer" : "queue"}`
+              ? `${label} · Enter to queue · ${modifierShortcutLabel} to steer`
               : "Follow-up delivery is unavailable"
           }
           whileHover={{ scale: canSubmit && followUpAvailable ? 1.05 : 1 }}
