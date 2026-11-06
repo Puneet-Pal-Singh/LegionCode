@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
-import { basename, isAbsolute } from "node:path";
+import { basename, isAbsolute, relative, sep } from "node:path";
 
 import type {
   LocalPersistence,
@@ -16,10 +16,13 @@ import {
   type LocalWorkspaceGrant,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { DefaultGitService, type GitCommandExecutor } from "@repo/git-service";
+import { DefaultGitService } from "@repo/git-service";
+import { createNodeGitExecutor } from "./local-node-git-executor.js";
 
 export type LocalWorkspaceServiceOptions = {
   workspaceGrants: LocalPersistence["workspaceGrants"];
+  /** Trusted host storage/app/helper locations; never workspace request fields. */
+  protectedHostRoots?: readonly string[];
   gitService?: Pick<DefaultGitService, "probeRepository">;
 };
 
@@ -39,6 +42,7 @@ export class LocalWorkspaceService {
   private generation = 0;
   private transitioning = false;
   private executionController = new AbortController();
+  private readonly protectedHostRoots: readonly string[];
   private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
   private readonly gitService: Pick<
     DefaultGitService,
@@ -47,6 +51,7 @@ export class LocalWorkspaceService {
 
   constructor(options: LocalWorkspaceServiceOptions) {
     this.workspaceGrants = options.workspaceGrants;
+    this.protectedHostRoots = Object.freeze([...(options.protectedHostRoots ?? [])]);
     this.gitService = options.gitService ?? new DefaultGitService(createNodeGitExecutor());
   }
 
@@ -65,6 +70,7 @@ export class LocalWorkspaceService {
     this.transitioning = true;
     try {
     const canonicalPath = await validateSelectedDirectory(path);
+    await this.assertOutsideProtectedRoots(canonicalPath);
     const { repoRoot, probe } = await this.readRepository(canonicalPath);
     if (repoRoot !== canonicalPath) {
       throw new Error("Workspace selection must be the repository root");
@@ -101,6 +107,8 @@ export class LocalWorkspaceService {
     if (!stored || stored.grant.workspaceId !== workspaceId) {
       throw new Error("Workspace is not granted for local execution");
     }
+    await this.assertOutsideProtectedRoots(stored.path);
+    this.assertGeneration(generation);
     const before = await lstat(stored.path);
     if (!before.isDirectory() || before.isSymbolicLink()) {
       throw new Error("Local workspace root is no longer a real directory");
@@ -154,6 +162,7 @@ export class LocalWorkspaceService {
   ): Promise<LocalWorkspaceGrant> {
     try {
       const canonicalPath = await validateSelectedDirectory(stored.path);
+      await this.assertOutsideProtectedRoots(canonicalPath);
       const { repoRoot, probe } = await this.readRepository(canonicalPath);
       if (repoRoot !== stored.path) {
         return invalidGrant(stored.grant, "Authorized repository path changed");
@@ -164,6 +173,23 @@ export class LocalWorkspaceService {
         stored.grant,
         "Authorized workspace is missing or no longer a Git repository",
       );
+    }
+  }
+
+  private async assertOutsideProtectedRoots(workspaceRoot: string): Promise<void> {
+    for (const configuredRoot of this.protectedHostRoots) {
+      if (!isAbsolute(configuredRoot) || configuredRoot.includes("\0")) {
+        throw new Error("Protected host root configuration is invalid");
+      }
+      // Resolve every time: restored grants cannot bypass changed host locations/symlinks.
+      const protectedRoot = await realpath(configuredRoot);
+      const contains = (parent: string, child: string) => {
+        const path = relative(parent, child);
+        return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
+      };
+      if (contains(workspaceRoot, protectedRoot) || contains(protectedRoot, workspaceRoot)) {
+        throw new Error("Workspace overlaps protected host storage or application files");
+      }
     }
   }
 
@@ -218,39 +244,3 @@ function workspaceIdForPath(path: string) {
   return WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${digest}`));
 }
 
-function createNodeGitExecutor(): GitCommandExecutor {
-  return {
-    execute: async ({ cwd, args, environment, timeoutMs }) => {
-      const { spawn } = await import("node:child_process");
-      return await new Promise((resolve) => {
-        const child = spawn("git", [...args], {
-          cwd,
-          env: environment ? { ...process.env, ...environment } : process.env,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        let settled = false;
-        const finish = (result: { exitCode: number; stdout: string; stderr: string }) => {
-          if (settled) return;
-          settled = true;
-          resolve(result);
-        };
-        const timer = setTimeout(() => {
-          child.kill();
-          finish({ exitCode: 124, stdout: Buffer.concat(stdout).toString(), stderr: "git probe timed out" });
-        }, timeoutMs ?? 30_000);
-        child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-        child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-        child.once("error", (error) => {
-          clearTimeout(timer);
-          finish({ exitCode: 1, stdout: "", stderr: error.message });
-        });
-        child.once("close", (exitCode) => {
-          clearTimeout(timer);
-          finish({ exitCode: exitCode ?? 1, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() });
-        });
-      });
-    },
-  };
-}

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -248,7 +249,13 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
-  void localAppServer.start(app.getVersion(), app.getPath("userData"));
+  const protectedHostRoots = [
+    app.getPath("userData"), app.getAppPath(), process.resourcesPath,
+    fileURLToPath(new URL(".", import.meta.url)),
+  ].map((path) => realpathSync(path));
+  void localAppServer.start(app.getVersion(), app.getPath("userData"), {
+    protectedHostRoots: [...new Set(protectedHostRoots)],
+  });
   createWindow();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
     isEncryptionAvailable: () =>

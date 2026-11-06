@@ -58,6 +58,14 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
     typeof value.serverVersion === "string" &&
     value.serverVersion.length > 0 &&
     typeof value.storageDirectory === "string" &&
-    value.storageDirectory.startsWith("/")
+    value.storageDirectory.startsWith("/") &&
+    (value.protectedHostRoots === undefined || (
+      Array.isArray(value.protectedHostRoots) && value.protectedHostRoots.length <= 32 &&
+      value.protectedHostRoots.every((path: unknown) => typeof path === "string" && path.startsWith("/") && !path.includes("\0"))
+    )) &&
+    (value.nativeFilesystemHelperPath === undefined || (
+      typeof value.nativeFilesystemHelperPath === "string" &&
+      value.nativeFilesystemHelperPath.startsWith("/") && !value.nativeFilesystemHelperPath.includes("\0")
+    ))
   );
 }

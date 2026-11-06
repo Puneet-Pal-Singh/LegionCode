@@ -27,6 +27,8 @@ export type LocalAppServerStartConfig = {
   credential: string;
   serverVersion: string;
   storageDirectory: string;
+  protectedHostRoots?: readonly string[];
+  nativeFilesystemHelperPath?: string;
 };
 
 export type LocalAppServerMessage =
@@ -38,10 +40,18 @@ export type LocalAppServerParentPort = {
 };
 
 export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeOptions?: LocalAppServerRuntimeOptions) {
+  if (runtimeOptions?.createRuntime && !config.protectedHostRoots?.length) {
+    throw new Error("Native execution requires trusted protected host roots");
+  }
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
     const workspaceService = new LocalWorkspaceService({
       workspaceGrants: persistence.workspaceGrants,
+      protectedHostRoots: [
+        config.storageDirectory,
+        ...(config.protectedHostRoots ?? []),
+        ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),
+      ],
     });
     const threadService = new LocalThreadService({
       events: persistence.events,
