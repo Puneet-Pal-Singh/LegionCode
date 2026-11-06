@@ -1,3 +1,4 @@
+import { findCloudHarnessLease } from "../harness/CloudHarnessLeaseLookup";
 // apps/secure-agent-api/src/core/AgentRuntime.ts
 // RECONSTRUCTABILITY: Execution sessions and logs exist only in DO storage.
 // Chat history is dual-written to DO (runtime cache) and Postgres
@@ -468,6 +469,13 @@ export class AgentRuntime extends DurableObject {
 
       await this.scheduleExecutionSessionAlarm();
     });
+  }
+
+  /** Private service binding lookup by canonical checkout identity. */
+  async getHarnessExecutionSession(
+    lease: Pick<SandboxExecutionLease, "leaseId" | "sandboxId" | "generation">,
+  ): Promise<RuntimeSessionRecord | null> {
+    return findCloudHarnessLease(await this.listExecutionSessions(), lease);
   }
 
   async getExecutionSession(

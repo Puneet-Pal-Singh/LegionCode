@@ -23,7 +23,10 @@ export function createCloudHarnessAuthenticator(grant: {
   readonly command: HarnessStartCommand;
   readonly expiresAt: number;
   readonly composition: CloudHarnessComposition;
-  /** Retained lease/process-scoped capability, independent of provider auth. */
+  /** Existing retained checkout bearer, bound here to the exact process/session.
+   * This cleanup-only grant is independent of provider auth and distinct from
+   * the active private Node bridge credential.
+   */
   readonly cleanup?: {
     readonly credential: string;
     readonly session: HarnessSession;

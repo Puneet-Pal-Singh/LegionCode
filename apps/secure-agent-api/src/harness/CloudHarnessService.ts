@@ -1,143 +1,196 @@
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
-import { z } from "zod";
+import {
+  HarnessServiceCapabilityRequestSchema,
+  HarnessServiceCapabilitySchema,
+  HarnessServiceConnectSchema,
+  HarnessServiceWorkerFrameSchema,
+  HarnessServiceHostFrameSchema,
+  HarnessServiceResultSchema,
+  type HarnessServiceRequest,
+} from "@repo/worker-protocol";
 import { SessionCreateResponseSchema } from "../schemas/http-api";
 import { composeCloudHarnessRuntime } from "../factories/RuntimeCompositionFactory";
 import {
-  CloudHarnessRequestSchema,
-  CloudHarnessResultSchema,
   cloudHarnessRequestTarget,
   isCloudHarnessCleanup,
   sameCloudHarnessSession,
 } from "./CloudHarnessBridgeProtocol";
-import { assertCloudHarnessLaunchAvailable } from "./CloudHarnessAvailability";
+import {
+  assertCloudHarnessLaunchAvailable,
+  CLOUD_HARNESS_AVAILABILITY,
+} from "./CloudHarnessAvailability";
 import {
   CLOUD_HARNESS_BRIDGE_LIMITS,
   encodeCloudHarnessBridgeFrame,
 } from "./CloudHarnessBridgeLimits";
 
-/** HTTP transport wrapper only; domain request and lease schemas are reused.
- * Brain's existing authenticated SECURE_API Fetcher calls this route.
- */
-export const CloudHarnessServiceRequestSchema = z
-  .object({
-    runtimeSessionId: z.string().min(1).max(256),
-    lease: SessionCreateResponseSchema.shape.lease,
-    request: CloudHarnessRequestSchema,
-  })
-  .strict();
-export const CLOUD_HARNESS_CLEANUP_SECRET_HEADER =
-  "X-Legion-Harness-Cleanup-Secret";
-
+interface LeaseRecord {
+  lease: unknown;
+  token: string;
+}
 interface CloudHarnessServiceEnvironment {
   Sandbox: DurableObjectNamespace<Sandbox>;
   AGENT_RUNTIME: {
     idFromName(name: string): DurableObjectId;
     get(id: DurableObjectId): {
-      getExecutionSession(
-        sessionId: string,
-      ): Promise<{ lease: unknown } | null>;
+      getHarnessExecutionSession(lease: {
+        leaseId: string;
+        sandboxId: string;
+        generation: number;
+      }): Promise<LeaseRecord | null>;
     };
   };
 }
-
+const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
 async function readBody(request: Request): Promise<unknown> {
-  if (!request.body) throw new Error("Invalid cloud harness request");
+  if (!request.body) throw new Error("Invalid harness service request");
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
       if (size > CLOUD_HARNESS_BRIDGE_LIMITS.maxFrameBytes)
-        throw new Error("Cloud harness request exceeds limit");
-      chunks.push(value);
+        throw new Error("Harness request exceeds limit");
+      chunks.push(part.value);
     }
   } catch {
     try {
       await reader.cancel();
-    } catch {
-      /* Never expose body/cleanup errors. */
-    }
-    throw new Error("Invalid cloud harness request");
+    } catch {}
+    throw new Error("Invalid harness service request");
   } finally {
     reader.releaseLock();
   }
-  const bytes = new Uint8Array(size);
+  const all = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
-    bytes.set(chunk, offset);
+    all.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(bytes));
+  return JSON.parse(new TextDecoder().decode(all));
 }
 
-/** Call ONLY after the existing internal-service secret guard. No JS environment
- * factories, provider credentials, preview endpoints, or new admission authority.
- */
-export async function handleCloudHarnessDispatch(
+/** Existing internal-service authentication MUST run before either handler. */
+export async function handleCloudHarnessCapability(
   request: Request,
-  env: CloudHarnessServiceEnvironment,
 ): Promise<Response> {
-  let body: z.infer<typeof CloudHarnessServiceRequestSchema>;
   try {
-    body = CloudHarnessServiceRequestSchema.parse(await readBody(request));
-    encodeCloudHarnessBridgeFrame(body);
+    HarnessServiceCapabilityRequestSchema.parse(await readBody(request));
   } catch {
     return Response.json({ code: "invalid_request" }, { status: 400 });
   }
-  const operation = body.request;
-  const target = cloudHarnessRequestTarget(operation);
-  const error = (code: "unavailable" | "recovery_required", status: number) =>
-    Response.json(
-      { type: "error", requestId: operation.requestId, code },
-      { status },
-    );
-  // The actual service boundary truthfully rejects all provider-affecting work
-  // BEFORE credential injection, sandbox bootstrap, or durable command dispatch.
-  if (!isCloudHarnessCleanup(target)) return error("unavailable", 503);
-  const cleanupSecret =
-    request.headers.get(CLOUD_HARNESS_CLEANUP_SECRET_HEADER) ?? "";
-  if (!/^[A-Za-z0-9_-]{43,256}$/.test(cleanupSecret))
-    return error("recovery_required", 403);
-  const stub = env.AGENT_RUNTIME.get(
-    env.AGENT_RUNTIME.idFromName(body.runtimeSessionId),
+  return Response.json(
+    HarnessServiceCapabilitySchema.parse({
+      available: false,
+      code: CLOUD_HARNESS_AVAILABILITY.code,
+    }),
   );
-  const expectedLease = body.lease;
-  const assertOwned = async () => {
-    const persisted = await stub.getExecutionSession(body.runtimeSessionId);
-    const actual = SessionCreateResponseSchema.shape.lease.parse(
-      persisted?.lease,
-    );
-    if (
-      JSON.stringify(actual) !== JSON.stringify(expectedLease) ||
-      actual.workspaceScope.runAttemptId !== target.session.runAttemptId
-    )
-      throw new Error("Cloud harness cleanup ownership mismatch");
-    // Expired/revoked inference credentials are intentionally irrelevant here.
-    // A missing/replaced lease never creates or borrows a replacement checkout.
-    return actual;
+}
+
+/** Real SECURE_API Fetcher WebSocket endpoint. No cross-Worker JS factory. */
+export function handleCloudHarnessBridge(
+  request: Request,
+  env: CloudHarnessServiceEnvironment,
+): Response {
+  const bearer = request.headers
+    .get("Authorization")
+    ?.match(/^Bearer (.+)$/)?.[1];
+  if (!bearer || request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+    return Response.json({ code: "unauthorized" }, { status: 401 });
+  const pair = new WebSocketPair();
+  const [client, server] = Object.values(pair);
+  let closed = false;
+  let activeRequests = 0;
+  let pendingBytes = 0;
+  const seen = new Set<string>();
+  let connection:
+    | ReturnType<typeof HarnessServiceConnectSchema.parse>
+    | undefined;
+  let connecting = false;
+  let ready = false;
+  const timer = setTimeout(() => fence(), 10_000);
+  const fence = () => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(timer);
+    try {
+      server.close(1008, "Harness service recovery required");
+    } catch {}
   };
-  try {
-    await assertOwned();
+  const send = (value: unknown) => {
+    if (closed) throw new Error("Harness service fenced");
+    server.send(
+      encodeCloudHarnessBridgeFrame(HarnessServiceHostFrameSchema.parse(value)),
+    );
+  };
+  const verify = async () => {
+    if (!connection) throw new Error("Harness service handshake required");
+    const scope = connection.scope;
+    const stub = env.AGENT_RUNTIME.get(
+      env.AGENT_RUNTIME.idFromName(scope.sessionId),
+    );
+    const record = await stub.getHarnessExecutionSession(connection.lease);
+    if (!record) throw new Error("Harness checkout lease unavailable");
+    const lease = SessionCreateResponseSchema.shape.lease.parse(record.lease);
+    const a = new TextEncoder().encode(bearer),
+      b = new TextEncoder().encode(record.token);
+    let diff = a.length ^ b.length;
+    for (let i = 0; i < Math.max(a.length, b.length); i++)
+      diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+    if (
+      diff ||
+      lease.leaseId !== connection.lease.leaseId ||
+      lease.sandboxId !== connection.lease.sandboxId ||
+      lease.generation !== connection.lease.generation ||
+      lease.workspaceScope.runId !== scope.runId ||
+      lease.workspaceScope.workspaceId !== scope.workspaceId ||
+      lease.workspaceScope.threadId !== scope.threadId ||
+      lease.workspaceScope.turnId !== scope.turnId ||
+      lease.workspaceScope.runAttemptId !== scope.runAttemptId
+    )
+      throw new Error("Harness checkout ownership mismatch");
+    // Cleanup remains lease/process scoped even after provider auth revocation.
+    // Missing/replaced leases never create/borrow a replacement checkout.
+    return { record, lease };
+  };
+  const dispatch = async (operation: HarnessServiceRequest) => {
+    const target = cloudHarnessRequestTarget(operation);
+    await verify();
+    if (!isCloudHarnessCleanup(target)) {
+      send({
+        type: "error",
+        requestId: operation.requestId,
+        code: "unavailable",
+      });
+      return;
+    }
+    if (target.session.runAttemptId !== connection!.scope.runAttemptId)
+      throw new Error("Harness cleanup scope mismatch");
+    const { record } = await verify();
+    // The trusted Node host binds its cleanup-only grant to this existing
+    // checkout bearer plus the exact external session/process generation. No
+    // provider credential or new credential authority is introduced here.
+    const cleanupSecret = record.token;
     const { execution: port } = composeCloudHarnessRuntime(
       {
         assertActive: async () => assertCloudHarnessLaunchAvailable(),
         assertCleanup: async (requested) => {
           if (!sameCloudHarnessSession(requested.session, target.session))
-            throw new Error("Cloud harness cleanup generation mismatch");
-          await assertOwned();
+            throw new Error("Harness cleanup generation mismatch");
+          await verify();
         },
         sandbox: async () => {
-          const lease = await assertOwned();
+          const { lease } = await verify();
           return getSandbox(env.Sandbox, lease.sandboxId);
         },
         bridgeCredential: async () => {
-          throw new Error("Cloud harness provider work unavailable");
+          throw new Error("Harness provider work unavailable");
         },
         cleanupBridgeCredential: async () => {
-          await assertOwned();
+          await verify();
           return cleanupSecret;
         },
       },
@@ -149,22 +202,23 @@ export async function handleCloudHarnessDispatch(
         operation.command.kind === "dispose")
     ) {
       const value = await port.control(operation.command);
-      return Response.json(
-        CloudHarnessResultSchema.parse({
+      await verify();
+      send(
+        HarnessServiceResultSchema.parse({
           type: "result",
           requestId: operation.requestId,
           operation: "control",
           value,
         }),
       );
-    }
-    if (operation.operation === "quiescence") {
+    } else if (operation.operation === "quiescence") {
       const value = await port.awaitQuiescence({
         session: operation.session,
         timeoutMs: operation.timeoutMs,
       });
-      return Response.json(
-        CloudHarnessResultSchema.parse({
+      await verify();
+      send(
+        HarnessServiceResultSchema.parse({
           type: "result",
           requestId: operation.requestId,
           operation: "quiescence",
@@ -172,8 +226,81 @@ export async function handleCloudHarnessDispatch(
         }),
       );
     }
-    return error("unavailable", 503);
-  } catch {
-    return error("recovery_required", 409);
-  }
+  };
+  server.addEventListener("message", (event) => {
+    if (closed) return;
+    if (
+      typeof event.data !== "string" ||
+      bytes(event.data) > CLOUD_HARNESS_BRIDGE_LIMITS.maxFrameBytes
+    ) {
+      fence();
+      return;
+    }
+    let frame: ReturnType<typeof HarnessServiceWorkerFrameSchema.parse>;
+    try {
+      frame = HarnessServiceWorkerFrameSchema.parse(JSON.parse(event.data));
+    } catch {
+      fence();
+      return;
+    }
+    if (!connection) {
+      if (connecting || frame.type !== "connect") {
+        fence();
+        return;
+      }
+      connecting = true;
+      connection = HarnessServiceConnectSchema.parse(frame);
+      void verify()
+        .then(() => {
+          if (!closed) {
+            clearTimeout(timer);
+            ready = true;
+            connecting = false;
+            send({ type: "connected" });
+          }
+        })
+        .catch(fence);
+      return;
+    }
+    if (!ready) {
+      fence();
+      return;
+    }
+    if (
+      frame.type !== "request" ||
+      activeRequests >= 64 ||
+      seen.size >= 512 ||
+      seen.has(frame.requestId) ||
+      pendingBytes + bytes(event.data) >
+        CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes
+    ) {
+      fence();
+      return;
+    }
+    const operation = frame;
+    const size = bytes(event.data);
+    seen.add(operation.requestId);
+    activeRequests++;
+    pendingBytes += size;
+    void dispatch(operation)
+      .catch(() => {
+        try {
+          send({
+            type: "error",
+            requestId: operation.requestId,
+            code: "recovery_required",
+          });
+        } catch {
+          fence();
+        }
+      })
+      .finally(() => {
+        activeRequests--;
+        pendingBytes -= size;
+      });
+  });
+  server.addEventListener("close", fence);
+  server.addEventListener("error", fence);
+  server.accept();
+  return new Response(null, { status: 101, webSocket: client });
 }
