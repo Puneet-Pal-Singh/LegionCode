@@ -16,6 +16,12 @@ export {
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
 export type { ConversationScope } from "./platform/conversation-scope.js";
 export {
+  followConversationLifecycleProjection,
+  replayConversationLifecycleProjection,
+  type ConversationLifecycleContinuationStatus,
+  type ConversationLifecycleProjectionBindings,
+} from "./platform/conversation-lifecycle.js";
+export {
   acquireSubmissionAttempt,
   findSubmissionAttempt,
   finishSubmissionAttempt,

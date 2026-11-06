@@ -792,3 +792,18 @@ never rendered as a successfully verified closed pull request.
 | Chat title mutation | Authenticated session metadata operation and ThreadTitleService | Sidebar and header rename capture the selected session ID, await the server response, and update only that session's canonical title projection. Errors stay visible to the user; run, workspace and status fields are not copied from a stale response. |
 | Saved image source list | Authenticated transcript image references and ChatMediaStore | Web derives references only from restored user messages in the active `SessionConversationSurface`, validates the shared image-reference schema, deduplicates by attachment ID and resolves the existing authenticated image source. Draft and optimistic images are excluded; loading, partial and failed history remain explicit. Presentation reuses `ChatImageGallery`. |
 | Outputs, subagents and background processes | Their separately scoped capabilities | Summary sections remain hidden until their canonical capabilities exist; Web does not infer runtime state or fabricate counts. |
+
+## Plan 058 — Portable lifecycle projection continuation
+
+SDK `platform/conversation-lifecycle` composes the existing canonical lifecycle
+replay, continuation and workflow projector. Web's active-Turn hook supplies
+React state callbacks and cancellation; its historical-Turn hook supplies the
+same SDK operation for paged replay and retains unavailable-history diagnostics.
+The Web-only replay/follow reducer loops are removed.
+
+Initial replay publishes one complete snapshot so resolved historical approvals
+cannot flash as pending. Live continuation uses the existing SDK cursor/retry
+path and publishes canonical projections. Historical replay never follows an
+unsettled old Turn. Aborted or replaced hooks cannot publish late results, and
+transport closure never creates terminal state. Runtime append and hosted
+lifecycle storage remain the lifecycle authorities.
