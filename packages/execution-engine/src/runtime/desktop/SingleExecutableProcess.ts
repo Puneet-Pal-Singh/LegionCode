@@ -8,12 +8,28 @@ export type SingleExecutableProcessInput = {
   signal: AbortSignal;
 };
 
+export interface SingleProcessMacExecution {
+  readonly scope: "single_executable_nofork";
+  readonly result: Promise<LocalProcessOutput>;
+  readonly quiescent: boolean;
+  stop(): void;
+}
+
+/** Shared OS execution port for canonical command and local Git consumers. */
+export type SingleProcessMacExecutor = (
+  input: SingleExecutableProcessInput,
+) => SingleProcessMacExecution;
+
+export const executeSingleProcessMac: SingleProcessMacExecutor = (input) =>
+  new SingleExecutableProcess(input);
+
 /**
  * Darwin-only no-fork process primitive, not a shell or filesystem sandbox.
  * The trusted runtime must validate the canonical tool call, exact attempt,
  * grant, permission and approval, and acquire real capture before calling it.
  */
-export class SingleExecutableProcess {
+export class SingleExecutableProcess implements SingleProcessMacExecution {
+  readonly scope = "single_executable_nofork" as const;
   private readonly process: BoundedLocalProcess;
   readonly result: Promise<LocalProcessOutput>;
 

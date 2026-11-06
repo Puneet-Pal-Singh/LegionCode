@@ -43,7 +43,8 @@ export class BoundedLocalProcess {
     let args: readonly string[];
     if ("executable" in input) {
       if (process.platform !== "darwin") throw new Error("Single-executable no-fork commands require Darwin Seatbelt");
-      if (!isAbsolute(input.executable) || input.executable.includes("\0")
+      if (!isAbsolute(input.executable) || input.executable.includes("\0") || Buffer.byteLength(input.executable) > 4_096
+        || !isAbsolute(input.cwd) || input.cwd.includes("\0")
         || input.args.length > 255 || input.args.some((arg) => typeof arg !== "string" || arg.includes("\0") || Buffer.byteLength(arg) > 4_096)) {
         throw new Error("Invalid single-executable argv");
       }
