@@ -243,6 +243,26 @@ export const CheckoutReadFileResultSchema = z.object({
 export type CheckoutListFilesResult = z.infer<typeof CheckoutListFilesResultSchema>;
 export type CheckoutReadFileResult = z.infer<typeof CheckoutReadFileResultSchema>;
 
+/** Grant-scoped live reads: no synthetic Turn, Run or hosted Session identity. */
+const LocalWorkspaceRelativePathSchema = z.string().min(1).max(500).refine(
+  (path) => new TextEncoder().encode(path).byteLength <= 500 &&
+    !path.includes("\0") && !path.includes("\\") &&
+    (path === "." || path.split("/").every((part) => part !== "" && part !== "." && part !== "..")),
+  "Workspace path must be relative and at most 500 UTF-8 bytes",
+);
+export const LocalWorkspaceListFilesParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  path: LocalWorkspaceRelativePathSchema,
+  offset: z.number().int().min(0).max(1_000_000).optional(),
+}).strict();
+export const LocalWorkspaceReadFileParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  path: LocalWorkspaceRelativePathSchema.refine((path) => path !== ".", "Read requires a file path"),
+}).strict();
+export type LocalWorkspaceListFilesParams = z.infer<typeof LocalWorkspaceListFilesParamsSchema>;
+export type LocalWorkspaceReadFileParams = z.infer<typeof LocalWorkspaceReadFileParamsSchema>;
+
+
 const GitStatusParamsSchema = GitRequestContextSchema;
 const GitDiffParamsSchema = GitRequestContextSchema.extend({
   path: z.string().min(1).optional(),
@@ -322,6 +342,8 @@ export const AppServerMethodSchema = z.enum([
   "repository/branches",
   "repository/tree",
   "repository/contents",
+  "workspace/listFiles",
+  "workspace/readFile",
   "workspace/current",
   "workspace/grant",
   "workspace/revoke",
@@ -407,6 +429,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/listFiles"), params: LocalWorkspaceListFilesParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/revoke"), params: EmptyParamsSchema }).strict(),
@@ -488,6 +512,8 @@ export const AppServerResultSchemas = {
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
+  "workspace/listFiles": CheckoutListFilesResultSchema,
+  "workspace/readFile": CheckoutReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
   "workspace/revoke": z.object({ revoked: z.literal(true) }).strict(),
@@ -569,6 +595,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
+  success("workspace/listFiles", AppServerResultSchemas["workspace/listFiles"]),
+  success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),
   success("workspace/revoke", AppServerResultSchemas["workspace/revoke"]),

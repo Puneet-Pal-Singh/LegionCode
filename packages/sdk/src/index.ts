@@ -392,6 +392,10 @@ export type {
 } from "@repo/platform-protocol";
 
 export type {
+  LocalWorkspaceListFilesParams,
+  LocalWorkspaceReadFileParams,
+  CheckoutListFilesResult,
+  CheckoutReadFileResult,
   LocalTurnStartParams,
   LocalTurnInterruptParams,
   LocalThreadHistoryParams,
