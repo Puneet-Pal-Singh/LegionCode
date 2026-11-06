@@ -36,3 +36,5 @@ export {
   artifactMetadata,
   artifactMetadataChangedFiles,
 } from "./artifact-metadata.js";
+
+export { desktopAuthChallenges } from "./desktop-auth.js";
