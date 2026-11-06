@@ -33,6 +33,8 @@ export type LocalTurnServiceOptions = {
   };
 };
 
+export type LocalTurnRuntime = NonNullable<LocalTurnServiceOptions["runtime"]>;
+
 export class LocalTurnService {
   private readonly executors = new Map<TurnId, LocalTurnExecutor>();
   private readonly approvals: LocalApprovalService;
