@@ -34,5 +34,12 @@ export function DesktopWorkspaceFilesMount({ client, workspaceId }: { client: Fi
       <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry workspace files</button>
     </div>
   );
-  return <DesktopWorkspaceFiles key={workspaceId} client={client} workspaceId={workspaceId} availability={{ available: true }} />;
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button type="button" className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200" onClick={() => setRetry((value) => value + 1)}>Refresh files</button>
+      </div>
+      <DesktopWorkspaceFiles key={workspaceId} client={client} workspaceId={workspaceId} availability={{ available: true }} />
+    </div>
+  );
 }
