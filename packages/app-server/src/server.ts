@@ -481,7 +481,6 @@ async function dispatch(
     }
     case "provider/catalog": {
       if (composition.hostedProviderDiscoveryService) {
-        if (!request.params.runId) throw new AppServerOperationError(400, "invalid_request", "Provider requests require a run ID");
         return composition.hostedProviderDiscoveryService.catalog(request.params.runId);
       }
       if (!composition.providerService) throw new Error("unsupported");
@@ -489,7 +488,6 @@ async function dispatch(
     }
     case "provider/models": {
       if (composition.hostedProviderDiscoveryService) {
-        if (!request.params.runId) throw new AppServerOperationError(400, "invalid_request", "Provider requests require a run ID");
         return composition.hostedProviderDiscoveryService.models(request.params.runId, request.params.providerId, request.params.query);
       }
       if (!composition.providerService) throw new Error("unsupported");

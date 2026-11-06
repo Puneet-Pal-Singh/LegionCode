@@ -113,8 +113,9 @@ function createMockEnv(options?: {
         const userId = request.headers.get("X-User-Id");
         const workspaceId = request.headers.get("X-Workspace-Id");
 
-        if (!runId || runId !== id) {
-          return jsonError("Missing required X-Run-Id header", 400);
+        const expectedRuntimeId = runId ?? `provider-setup:v1:${userId}:${workspaceId}`;
+        if (expectedRuntimeId !== id) {
+          return jsonError("Invalid provider runtime scope", 400, "AUTH_FAILED");
         }
 
         if (userId !== TEST_USER_ID || workspaceId !== TEST_WORKSPACE_ID) {
