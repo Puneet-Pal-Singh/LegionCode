@@ -35,10 +35,16 @@ function SelectedConversation({ client, thread, capabilities }: DesktopConversat
           onOpen={conversation.reload}
         />
       ) : null}
+      {conversation.interrupting ? <p role="status">Waiting for runtime Stop settlement…</p> : null}
       {conversation.continuation === "reconnecting" ? <p role="status">Reconnecting to local runtime…</p> : null}
       {conversation.continuation === "stopped" ? (
         <button type="button" onClick={conversation.retry}>Retry live updates</button>
       ) : null}
+      {conversation.hasNewerPages ? <p role="status">Showing an earlier page. Load newer turns before sending another prompt.</p> : null}
+      <nav aria-label="Conversation pages" className="flex gap-3">
+        {conversation.firstPage ? <button type="button" onClick={conversation.firstPage}>First turns</button> : null}
+        {conversation.nextPage ? <button type="button" onClick={conversation.nextPage}>Next turns</button> : null}
+      </nav>
       {conversation.admissions.map((admission) => {
         const projection = conversation.projections[admission.turn.id] ?? null;
         return (

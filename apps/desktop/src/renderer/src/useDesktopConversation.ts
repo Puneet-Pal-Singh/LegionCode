@@ -6,8 +6,11 @@ import {
   type ConversationLifecycleContinuationStatus,
   type LifecycleProjection,
 } from "@legioncode/sdk";
-import { EventIdempotencyKeySchema, type Thread, type TurnAdmission } from "@repo/platform-protocol";
+import { EventIdempotencyKeySchema, type EventCursor, type Thread, type TurnAdmission } from "@repo/platform-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+const HISTORY_PAGE_SIZE = 25;
+const REPLAY_CONCURRENCY = 2;
 
 /** Scoped SDK reads and command delivery; lifecycle truth stays in SDK replay. */
 export function useDesktopConversation(client: AppServerClient, thread: Thread) {
@@ -20,8 +23,12 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
   const [liveError, setLiveError] = useState<string | null>(null);
   const [continuation, setContinuation] = useState<ConversationLifecycleContinuationStatus | "stopped" | null>(null);
   const [reload, setReload] = useState(0);
+  const [afterCursor, setAfterCursor] = useState<EventCursor | null>(null);
+  const [nextCursor, setNextCursor] = useState<EventCursor | null>(null);
   const [retry, setRetry] = useState(0);
   const [delivering, setDelivering] = useState(false);
+  const [interrupting, setInterrupting] = useState(false);
+  const stopCommand = useRef<Promise<void> | null>(null);
   const scope = useRef<AbortController | null>(null);
   const loadedScope = useRef({ client, workspaceId: thread.workspaceId, threadId: thread.id });
   const scopeMatches = loadedScope.current.client === client && loadedScope.current.workspaceId === thread.workspaceId && loadedScope.current.threadId === thread.id;
@@ -33,6 +40,8 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
     scope.current = controller;
     commandPending.current = false;
     setDelivering(false);
+    setInterrupting(false);
+    stopCommand.current = null;
     setHistoryReady(false);
     setLoading(true);
     setError(null);
@@ -45,22 +54,24 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
     }
     setContinuation(null);
     void (async () => {
-      const history: TurnAdmission[] = [];
-      let cursor = null;
-      const cursors = new Set<string>();
-      do {
-        const page = await client.getThreadHistoryPage({
-          workspaceId: thread.workspaceId, threadId: thread.id, afterCursor: cursor, limit: 100,
-        });
-        if (controller.signal.aborted) return;
-        for (const admission of page.admissions) {
-          assertScope(admission, thread);
-          history.push(admission);
-        }
-        cursor = page.nextCursor;
-        if (cursor && cursors.has(cursor)) throw new Error("History cursor did not advance");
-        if (cursor) cursors.add(cursor);
-      } while (cursor !== null);
+      const page = await client.getThreadHistoryPage({
+        workspaceId: thread.workspaceId, threadId: thread.id,
+        afterCursor, limit: HISTORY_PAGE_SIZE,
+      });
+      if (controller.signal.aborted) return;
+      if (page.admissions.length > HISTORY_PAGE_SIZE || (page.nextCursor && page.nextCursor === afterCursor)) {
+        throw new Error("Invalid history page");
+      }
+      const history = [...page.admissions];
+      for (const admission of history) assertScope(admission, thread);
+      // Existing cursors name the last returned record, even on the last page.
+      // A one-record lookahead distinguishes the tail without retaining another page.
+      const lookahead = page.nextCursor ? await client.getThreadHistoryPage({
+        workspaceId: thread.workspaceId, threadId: thread.id,
+        afterCursor: page.nextCursor, limit: 1,
+      }) : null;
+      if (controller.signal.aborted) return;
+      const followingCursor = lookahead?.admissions.length ? page.nextCursor : null;
       const latest = history.at(-1);
       if (latest) {
         const restored = await client.getTurn(latest.turn.id);
@@ -70,19 +81,24 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
         }
         history[history.length - 1] = restored;
       }
-      const saved = await Promise.all(history.map(async (admission) => ({
-        turnId: admission.turn.id,
-        projection: await replayConversationLifecycleProjection({
-          turnId: admission.turn.id, lifecycleClient, signal: controller.signal,
-        }),
-      })));
+      const saved: Record<string, LifecycleProjection> = {};
+      for (let offset = 0; offset < history.length; offset += REPLAY_CONCURRENCY) {
+        if (controller.signal.aborted) return;
+        await Promise.all(history.slice(offset, offset + REPLAY_CONCURRENCY).map(async (admission) => {
+          const projection = await replayConversationLifecycleProjection({
+            turnId: admission.turn.id, lifecycleClient, signal: controller.signal,
+          });
+          if (projection) saved[admission.turn.id] = projection;
+        }));
+      }
       if (controller.signal.aborted) return;
-      setProjections(Object.fromEntries(saved.flatMap(({ turnId, projection }) => projection ? [[turnId, projection]] : [])));
+      setProjections(saved);
+      setNextCursor(followingCursor);
       if (history.some((item) => item.clientRequestId === pendingRequest.current?.clientRequestId)) {
         pendingRequest.current = null;
       }
       setAdmissions(history);
-      commandPending.current = saved.some(({ projection }) => !projection?.terminal);
+      commandPending.current = history.some((item) => !saved[item.turn.id]?.terminal);
       setHistoryReady(true);
       setLoading(false);
     })().catch(() => {
@@ -91,18 +107,22 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
       setLoading(false);
     });
     return () => { controller.abort(); };
-  }, [client, lifecycleClient, thread.id, thread.workspaceId, reload]);
+  }, [client, lifecycleClient, thread.id, thread.workspaceId, reload, afterCursor]);
 
   const latest = admissions.at(-1) ?? null;
   useEffect(() => {
-    if (!latest || loading) return;
+    if (!latest || loading || nextCursor !== null) return;
     const controller = new AbortController();
     void followConversationLifecycleProjection({
       turnId: latest.turn.id, lifecycleClient, signal: controller.signal,
       onProjection: (projection) => {
         if (controller.signal.aborted) return;
         setLiveError(null);
-        if (projection.terminal) commandPending.current = false;
+        if (projection.terminal) {
+          commandPending.current = false;
+          stopCommand.current = null;
+          setInterrupting(false);
+        }
         setProjections((current) => ({ ...current, [latest.turn.id]: projection }));
       },
       onStatus: (status) => {
@@ -114,13 +134,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
       setContinuation("stopped");
     });
     return () => { controller.abort(); };
-  }, [latest?.turn.id, lifecycleClient, loading, retry]);
+  }, [latest?.turn.id, lifecycleClient, loading, retry, nextCursor]);
 
   const unsettled = admissions.some((admission) => !projections[admission.turn.id]?.terminal);
 
   async function submit(prompt: string): Promise<boolean> {
     const controller = scope.current;
-    if (!scopeMatches || !controller || controller.signal.aborted || commandPending.current || !historyReady || loading || unsettled) return false;
+    if (!scopeMatches || !controller || controller.signal.aborted || commandPending.current || !historyReady || loading || nextCursor !== null || unsettled) return false;
     if (pendingRequest.current && pendingRequest.current.prompt !== prompt) {
       setError("The previous prompt is unconfirmed. Retry its unchanged draft or reload saved history first.");
       return false;
@@ -140,7 +160,10 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
       if (controller.signal.aborted || scope.current !== controller) return false;
       assertScope(admission, thread);
       if (admission.clientRequestId !== request.clientRequestId) throw new Error("Admission request changed");
-      setAdmissions((current) => current.some((item) => item.turn.id === admission.turn.id) ? current : [...current, admission]);
+      const visible = admissions.some((item) => item.turn.id === admission.turn.id) ? admissions : [...admissions, admission].slice(-HISTORY_PAGE_SIZE);
+      const visibleIds = new Set<string>(visible.map((item) => item.turn.id));
+      setAdmissions(visible);
+      setProjections((current) => Object.fromEntries(Object.entries(current).filter(([turnId]) => visibleIds.has(turnId))));
       pendingRequest.current = null;
       accepted = !projections[admission.turn.id]?.terminal;
       return true;
@@ -158,22 +181,46 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
   }
 
   async function stop(): Promise<void> {
-    if (!scopeMatches || !latest || projections[latest.turn.id]?.terminal) return;
-    await client.interruptLocalTurn({
+    const controller = scope.current;
+    if (!scopeMatches || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
+    if (stopCommand.current) return stopCommand.current;
+    setInterrupting(true);
+    const request = client.interruptLocalTurn({
       workspaceId: latest.run.workspaceId, threadId: latest.turn.threadId,
       runId: latest.run.id, turnId: latest.turn.id, runAttemptId: latest.runAttemptId,
       reason: "User stopped the local turn.",
+    }).then((receipt) => {
+      if (controller.signal.aborted || scope.current !== controller) return;
+      const terminal = receipt.terminalEvent;
+      if (receipt.runId !== latest.run.id || (terminal && (
+        terminal.threadId !== latest.turn.threadId || terminal.turnId !== latest.turn.id || terminal.runAttemptId !== latest.runAttemptId
+      ))) throw new Error("Stop receipt belongs to another attempt");
+      if (!receipt.accepted && receipt.status !== "settled") {
+        throw new Error("The active runtime did not accept Stop");
+      }
+      // A receipt requests another canonical read; it never settles the projection.
+      setRetry((value) => value + 1);
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted && scope.current === controller) {
+        stopCommand.current = null;
+        setInterrupting(false);
+      }
+      throw error;
     });
-    // The response is command delivery only; the follower supplies settlement.
+    stopCommand.current = request;
+    return request;
   }
 
   return {
     admissions: scopeMatches ? admissions : [],
     projections: scopeMatches ? projections : {},
     loading: loading || !scopeMatches, error: scopeMatches ? error ?? liveError : null, continuation: scopeMatches ? continuation : null,
-    busy: !scopeMatches || !historyReady || loading || delivering || unsettled,
-    submit, stop,
-    canStop: Boolean(scopeMatches && latest && !projections[latest.turn.id]?.terminal),
+    busy: !scopeMatches || !historyReady || loading || nextCursor !== null || delivering || unsettled,
+    nextPage: nextCursor && historyReady && !loading ? () => setAfterCursor(nextCursor) : null,
+    firstPage: afterCursor !== null ? () => setAfterCursor(null) : null,
+    hasNewerPages: nextCursor !== null,
+    submit, stop, interrupting: scopeMatches && interrupting,
+    canStop: Boolean(scopeMatches && nextCursor === null && !interrupting && latest && !projections[latest.turn.id]?.terminal),
     retry: () => { setLiveError(null); setRetry((value) => value + 1); },
     reload: () => setReload((value) => value + 1),
   };
