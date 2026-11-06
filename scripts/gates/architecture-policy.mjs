@@ -39,6 +39,7 @@ export const APP_IMPORT_POLICY = {
   ],
   "@legioncode/secure-agent-api": [
     "@repo/git-service",
+    "@repo/runtime-kernel",
     "@repo/observability",
     "@repo/shared-types",
     "@repo/worker-protocol",
