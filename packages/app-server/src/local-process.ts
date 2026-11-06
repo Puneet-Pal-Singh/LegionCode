@@ -1,10 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
-import { LocalWorkspaceService } from "./local-workspace.js";
-import { LocalThreadService } from "./local-threads.js";
-import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
+import { handleAppServerHttpRequest, validateAppServerHttpBoundary, type AppServerComposition } from "./server.js";
+import { ProviderConfigurationSchema } from "./local-providers.js";
+import { LocalHarnessComposition } from "./harness/LocalHarnessComposition.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -25,18 +24,18 @@ export type LocalAppServerParentPort = {
 export function createLocalAppServer(config: LocalAppServerStartConfig) {
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
-    const workspaceService = new LocalWorkspaceService({
-      workspaceGrants: persistence.workspaceGrants,
-    });
-    const threadService = new LocalThreadService({
-      events: persistence.events,
-      getWorkspace: () => workspaceService.getCurrent(),
-    });
-    const providerService = new LocalProviderService({
-      selectionStore: persistence.providerSelection,
-    });
+    const local = new LocalHarnessComposition(persistence);
+    const composition = {
+      environment: "local" as const,
+      serverId: "legioncode-local",
+      serverVersion: config.serverVersion,
+      credential: config.credential,
+      workspaceService: local.workspaceService,
+      threadService: local.threadService,
+      providerService: local.providerService,
+    };
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService);
+      void handleRequest(request, response, composition);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -80,10 +79,7 @@ export function runLocalAppServerProcess(
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  config: LocalAppServerStartConfig,
-  workspaceService: LocalWorkspaceService,
-  threadService: LocalThreadService,
-  providerService: LocalProviderService,
+  composition: AppServerComposition & { credential: string },
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -92,14 +88,6 @@ async function handleRequest(
     origin: request.headers.origin,
     authorization: request.headers.authorization,
     contentType: request.headers["content-type"],
-  };
-  const composition = {
-    environment: "local" as const,
-    serverId: "legioncode-local",
-    serverVersion: config.serverVersion,
-    credential: config.credential,
-    workspaceService,
-    threadService,
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {
@@ -134,7 +122,7 @@ async function handleRequest(
       ...baseInput,
       rawBody: body.value,
     },
-    { ...composition, providerService, providerConfiguration },
+    { ...composition, providerConfiguration },
   );
   writeJson(response, result.statusCode, result.payload, result.headers);
 }
