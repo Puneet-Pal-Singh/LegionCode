@@ -28,5 +28,10 @@ export interface GitCommandExecutor {
 
 export {
   gitIndexTransactionArgs,
+  gitCommandRunnerArgs,
+  gitCommandRunnerEnvironment,
+  gitIndexTransactionHostSource,
   parseGitIndexTransactionResult,
 } from "./index-transaction.js";
+
+export { gitCommandEnvironment } from "./host-git-process.js";

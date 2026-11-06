@@ -299,7 +299,7 @@ export class DefaultGitService {
     const paths = validateExplicitRepoPaths(input.paths);
     const message = validateCommitMessage(input.message);
     if (this.executor.supportsIndexTransactions !== true) {
-      throw new GitServiceError("invalid_git_input", "Git executor does not advertise atomic index transactions");
+      throw new GitServiceError("git_process_containment_unavailable", "Git executor does not advertise contained atomic index transactions");
     }
     const args = [
       "-c", `user.name=${input.author.name}`,
