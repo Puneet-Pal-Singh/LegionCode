@@ -6,6 +6,8 @@ import { buildChatEntries } from "./chatEntries.js";
 import { createLifecycleProjection } from "@legioncode/sdk";
 import { TurnIdSchema } from "@legioncode/sdk";
 import { ItemIdSchema } from "@legioncode/sdk";
+import { conversationDateMarkers } from "./conversationDateMarkers.js";
+import { workspaceSnapshotNotice } from "./workspace-snapshot-status.js";
 
 describe("buildChatEntries", () => {
   it("preserves canonical transcript order", () => {
@@ -18,6 +20,19 @@ describe("buildChatEntries", () => {
         { kind: "message", message: assistant },
       ],
     );
+    const sameDay = createMessage("user-2", "user", "Another prompt");
+    const nextDay = { ...createMessage("user-3", "user", "Continue tomorrow"), createdAt: new Date("2026-06-26T12:00:00.000Z") };
+    const entries = buildChatEntries(buildConversationTurns([user, assistant, sameDay, nextDay]));
+    expect([...conversationDateMarkers(entries)]).toEqual(["user-3"]);
+    const resume = { ...createLifecycleProjection(TurnIdSchema.parse("trn_date01")), continuationOfTurnId: TurnIdSchema.parse("trn_date00"), startedAt: "2026-06-27T12:00:00.000Z" };
+    expect([...conversationDateMarkers([...entries, { kind: "workflow", key: "resume", turnId: resume.turnId, projection: resume }])]).toEqual(["user-3", "resume"]);
+    expect([...conversationDateMarkers([{ kind: "workflow", key: "resume", turnId: resume.turnId, projection: resume }])]).toEqual([]);
+    expect([...conversationDateMarkers([...entries, { kind: "workflow", key: "same-day-resume", turnId: resume.turnId, projection: { ...resume, startedAt: "2026-06-26T13:00:00.000Z" } }])]).toEqual(["user-3"]);
+    const stopped = { ...resume, terminal: { state: "interrupted" as const, eventId: "evt_stop", content: "interrupted", occurredAt: resume.startedAt }, workspaceSnapshotState: "captured" as const, resumeSnapshotAvailable: false };
+    expect(workspaceSnapshotNotice(stopped)).toContain("No resume snapshot was saved");
+    expect(workspaceSnapshotNotice({ ...stopped, resumeSnapshotAvailable: true })).toBeNull();
+    expect(workspaceSnapshotNotice({ ...stopped, executionCapability: "conversation" })).toBeNull();
+
   });
 
   it("preserves durable assistant text from a failed turn", () => {
