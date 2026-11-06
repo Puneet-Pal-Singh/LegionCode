@@ -24,6 +24,7 @@ export function openCodeServerEnvironment(
     ...environment,
     OPENCODE_PASSWORD: password,
     OPENCODE_CLIENT: "legioncode",
+    OPENCODE_DB: "opencode.db",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
   });
 }

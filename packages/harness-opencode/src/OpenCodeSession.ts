@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Session } from "@opencode/schema/session";
+import { SessionMessage } from "@opencode/schema/session-message";
 import { SessionInbox } from "@opencode/schema/session-inbox";
 import { Location } from "@opencode/schema/location";
 import type {
@@ -26,6 +27,7 @@ export class OpenCodeSession {
     string,
     { sessionID: string; committed: Promise<void> }
   >();
+  private readonly promptId = SessionMessage.ID.create();
   private promptSent = false;
   private stopping = false;
   private root: SessionInfo | undefined;
@@ -89,6 +91,10 @@ export class OpenCodeSession {
     return this.root.id;
   }
 
+  get externalTurnId(): string {
+    return this.promptId;
+  }
+
   /** Caller must hold canonical admission, checkout lease and persisted start evidence first. */
   async prompt(text: string): Promise<SessionInboxUser> {
     if (this.promptSent || this.stopping)
@@ -98,11 +104,22 @@ export class OpenCodeSession {
     const result = await this.transport.mutate(
       "session.prompt",
       (api, signal) =>
-        api.session.prompt({ sessionID: this.id, text }, { signal }),
+        api.session.prompt(
+          { sessionID: this.id, id: this.promptId, text },
+          { signal },
+        ),
     );
-    if (!validInboxUser(result) || result.sessionID !== this.id)
+    if (
+      !validInboxUser(result) ||
+      result.sessionID !== this.id ||
+      result.id !== this.promptId
+    )
       return this.transport.invalidate("prompt receipt validation");
     return result;
+  }
+
+  permissionOrigin(requestID: string): string | undefined {
+    return this.permissions.get(requestID)?.sessionID;
   }
 
   async replyPermission(
@@ -237,7 +254,7 @@ export class OpenCodeSession {
     };
   }
 
-  /** Measured session tokens and cost; account-wide quota is unavailable here. */
+  /** Session tokens and harness cost (possibly estimated); neither is account quota or a billed charge. */
   async usage(): Promise<{ tokens: TokenUsageInfo; cost: number }> {
     const info = await this.transport.inspect("session.get", (api, signal) =>
       api.session.get({ sessionID: this.id }, { signal }),
