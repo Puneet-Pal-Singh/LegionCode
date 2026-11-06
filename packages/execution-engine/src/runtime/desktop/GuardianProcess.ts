@@ -55,7 +55,7 @@ export class GuardianProcess {
     // The descriptor is the authority. Absolute cwd is made relative only
     // lexically; the C helper walks every component from FD5 without following
     // symlinks or reopening the root pathname.
-    if (typeof input.cwd !== "string" || input.cwd.includes("\0") || input.cwd.includes("\\")
+    if (typeof input.cwd !== "string" || input.cwd.length === 0 || input.cwd.includes("\0") || input.cwd.includes("\\")
       || (isAbsolute(input.cwd) && resolve(input.cwd) !== input.cwd)) {
       throw new SingleProcessMacCapabilityError("Unsupported held-root cwd spelling");
     }
