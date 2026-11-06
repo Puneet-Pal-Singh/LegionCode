@@ -55,6 +55,7 @@ export type AppServerComposition = {
   environment: "local" | "hosted";
   serverId: string;
   serverVersion: string;
+  environmentId?: string | null;
   workspaceService?: LocalWorkspaceService;
   hostedWorkspaceService?: {
     list(): Promise<HostedWorkspaceListResponse>;
@@ -516,6 +517,7 @@ async function dispatch(
         {
           environment: composition.environment,
           serverId: composition.serverId,
+          environmentId: composition.environmentId,
           serverVersion: composition.serverVersion,
         },
       );

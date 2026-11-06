@@ -85,6 +85,7 @@ describe("AppServerClient", () => {
               protocolVersion: APP_SERVER_PROTOCOL_VERSION,
               server: { id: "local", version: "0.1.0" },
               environment: "local",
+              environmentId: null,
               capabilities: [],
               unavailableCapabilities: [],
             },

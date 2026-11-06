@@ -222,6 +222,7 @@ export const AppServerController = {
         environment: "hosted",
         harnessOperations,
         serverId: "legioncode-hosted",
+        environmentId: env.APP_SERVER_ENVIRONMENT_ID ?? null,
         serverVersion: "0.1.0",
         hostedWorkspaceService,
         hostedProviderDiscoveryService,

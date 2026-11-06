@@ -1,4 +1,5 @@
 import { AppServerOperationError, type HarnessOperations } from "@legioncode/app-server/server";
+import { AppServerEnvironmentIdSchema } from "@repo/platform-protocol";
 import type { HarnessStatusRequest } from "@repo/platform-protocol";
 import { isDomainError } from "../../domain/errors";
 import { withWorkspaceRepository } from "../../services/workspaces/WorkspacePersistenceFactory";
@@ -40,6 +41,13 @@ export function composeHostedHarnessOperations(
   ): Promise<Result> => {
     const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
     try {
+      const environment = AppServerEnvironmentIdSchema.safeParse(env.APP_SERVER_ENVIRONMENT_ID);
+      if (!environment.success) {
+        throw new AppServerOperationError(503, "server_unavailable", "Hosted environment identity is not configured", "HARNESS_ENVIRONMENT_UNAVAILABLE", false);
+      }
+      if (params.environmentId !== environment.data) {
+        throw new AppServerOperationError(404, "not_found", "Environment not found");
+      }
       // Explicit workspace authorization: changing the UI's current workspace
       // cannot retarget a saved Thread or authorize an unrelated setup request.
       const owned = await withWorkspaceRepository(env, async (repository) =>

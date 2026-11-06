@@ -72,6 +72,8 @@
     },
   ],
   "vars": {
+    // Stable execution-host identity. Preserve across deployments; never derive from a request.
+    "APP_SERVER_ENVIRONMENT_ID": "env_5d6069a2-fe81-4ff4-a3ac-b767948fca1f",
     "FRONTEND_URL": "https://legioncode.dev/agents",
     "PRIVATE_ALPHA_ACCESS_MODE": "allowlist",
     "PRIVATE_ALPHA_GITHUB_LOGINS": "Puneet-Pal-Singh",

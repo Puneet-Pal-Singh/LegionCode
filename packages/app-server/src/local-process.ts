@@ -36,7 +36,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
       selectionStore: persistence.providerSelection,
     });
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService);
+      void handleRequest(request, response, config, persistence.environmentId, workspaceService, threadService, providerService);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -81,6 +81,7 @@ async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: LocalAppServerStartConfig,
+  environmentId: string,
   workspaceService: LocalWorkspaceService,
   threadService: LocalThreadService,
   providerService: LocalProviderService,
@@ -96,6 +97,7 @@ async function handleRequest(
   const composition = {
     environment: "local" as const,
     serverId: "legioncode-local",
+    environmentId,
     serverVersion: config.serverVersion,
     credential: config.credential,
     workspaceService,
