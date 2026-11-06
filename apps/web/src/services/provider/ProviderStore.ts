@@ -1405,11 +1405,6 @@ export class ProviderStore {
               }
             : null,
       });
-      this.persistSessionScopedSelection({
-        selectedProviderId: config.providerId,
-        selectedCredentialId: normalizedCredentialId,
-        selectedModelId: effectiveModelId,
-      });
       this.lastResolveSelectionKey = selectionKey;
       this.lastResolveError = null;
 

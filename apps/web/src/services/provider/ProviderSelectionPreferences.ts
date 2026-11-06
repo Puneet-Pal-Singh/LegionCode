@@ -26,7 +26,7 @@ export function readSessionScopedSelection(
   const key = buildSessionScopedSelectionStorageKey(sessionId);
   try {
     const serialized = localStorage.getItem(key);
-    if (serialized) {
+    if (serialized !== null) {
       const parsed: unknown = JSON.parse(serialized);
       if (isProviderSelectionSnapshot(parsed)) return parsed;
     }
@@ -42,7 +42,6 @@ export function readSessionScopedSelection(
     if (!serialized) return null;
     const parsed: unknown = JSON.parse(serialized);
     if (!isProviderSelectionSnapshot(parsed)) return null;
-    writeSessionScopedSelection(sessionId, parsed);
     return parsed;
   } catch (error) {
     console.warn(
