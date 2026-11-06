@@ -63,7 +63,9 @@ describe("AppServerClient", () => {
           if (envelope.method === "checkout/listFiles" || envelope.method === "checkout/readFile") {
             return { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: envelope.method, ok: true,
               result: envelope.method === "checkout/listFiles"
-                ? { entries: [{ name: "src", type: "directory" }], truncated: false }
+                ? envelope.params.offset === 200
+                  ? { entries: [{ name: "tail.ts", type: "file" }], truncated: false, nextOffset: null }
+                  : { entries: [{ name: "src", type: "directory" }], truncated: true, nextOffset: 200 }
                 : { output: "owned file contents", isBinary: false } };
           }
           if (envelope.method === "artifact/codeContent") {
@@ -169,10 +171,13 @@ describe("AppServerClient", () => {
       params: codeContentRequest,
     });
     const checkout = { turnId: TurnIdSchema.parse("trn_123456"), runAttemptId: RunAttemptIdSchema.parse("attempt_123456"), runId: RunIdSchema.parse("run_123456"), sessionId: "owned-session", path: "." };
-    await expect(client.listCheckoutFiles(checkout)).resolves.toEqual({ entries: [{ name: "src", type: "directory" }], truncated: false });
+    await expect(client.listCheckoutFiles(checkout)).resolves.toEqual({ entries: [{ name: "src", type: "directory" }], truncated: true, nextOffset: 200 });
+    await expect(client.listCheckoutFiles({ ...checkout, offset: 200 })).resolves.toEqual({ entries: [{ name: "tail.ts", type: "file" }], truncated: false, nextOffset: null });
+    expect(() => client.listCheckoutFiles({ ...checkout, offset: -1 })).toThrow();
     await expect(client.readCheckoutFile({ ...checkout, path: "src/index.ts" })).resolves.toEqual({ output: "owned file contents", isBinary: false });
-    expect(sent.slice(-2).map(({ method, params }) => ({ method, params }))).toEqual([
+    expect(sent.slice(-3).map(({ method, params }) => ({ method, params }))).toEqual([
       { method: "checkout/listFiles", params: checkout },
+      { method: "checkout/listFiles", params: { ...checkout, offset: 200 } },
       { method: "checkout/readFile", params: { ...checkout, path: "src/index.ts" } },
     ]);
 

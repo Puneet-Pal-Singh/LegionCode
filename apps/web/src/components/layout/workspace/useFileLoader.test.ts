@@ -1,18 +1,19 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useFileLoader } from "./useFileLoader";
+import { getFileContent, type Repository } from "../../../services/GitHubService";
 import { readCheckoutFile } from "../../../services/api/checkoutReads";
 
-vi.mock("../../github/GitHubContextProvider", () => ({
-  useGitHub: () => ({ repo: null, branch: "main" }),
-}));
+const repositoryContext = vi.hoisted(() => ({ repo: null as Repository | null, branch: "main" }));
+vi.mock("../../github/GitHubContextProvider", () => ({ useGitHub: () => repositoryContext }));
+vi.mock("../../../services/GitHubService", () => ({ getFileContent: vi.fn() }));
 vi.mock("../../../contexts/AuthContext", () => ({
   useAuth: () => ({ isAuthenticated: true, user: { id: "owned-account", workspaceId: "owned-workspace" } }),
 }));
 vi.mock("../../../services/api/checkoutReads", () => ({ readCheckoutFile: vi.fn() }));
 
 describe("useFileLoader", () => {
-  afterEach(() => { vi.resetAllMocks(); localStorage.clear(); });
+  afterEach(() => { vi.resetAllMocks(); localStorage.clear(); repositoryContext.repo = null; repositoryContext.branch = "main"; });
 
   it("opens runtime file output without transport metadata or duplicate line numbers", async () => {
     vi.mocked(readCheckoutFile).mockResolvedValueOnce({
@@ -39,6 +40,15 @@ describe("useFileLoader", () => {
     expect(signal.aborted).toBe(true);
     await act(async () => { resolveOld({ output: "old private content", isBinary: false }); await oldRead; });
     expect(openFileTab).toHaveBeenCalledTimes(1);
+
+    repositoryContext.repo = { owner: { login: "owner" }, name: "repo", full_name: "owner/repo" } as Repository;
+    repositoryContext.branch = "main";
+    rerender({ ...props, checkoutTurn: { turnId: "trn_next", runAttemptId: "attempt_next" } });
+    vi.mocked(getFileContent).mockResolvedValueOnce({ content: "Y2Fmw6k=", encoding: "base64", sha: "repository-file", size: 5 });
+    await act(() => result.current.handleGitHubFileSelect("README.md"));
+    expect(getFileContent).toHaveBeenCalledWith("owner", "repo", "README.md", "main", expect.any(AbortSignal));
+    expect(openFileTab).toHaveBeenLastCalledWith({ path: "README.md", content: "café" });
+
   });
 
   it("keeps unreadable responses out of file tabs", async () => {

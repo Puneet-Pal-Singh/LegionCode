@@ -185,13 +185,20 @@ export const CheckoutReadParamsSchema = z.object({
   sessionId: z.string().min(1),
   path: z.string().min(1).max(4096),
 }).strict();
+export const CheckoutListFilesParamsSchema = CheckoutReadParamsSchema.extend({
+  offset: z.number().int().min(0).optional(),
+});
 export const CheckoutListFilesResultSchema = z.object({
   entries: z.array(z.object({
     name: z.string().min(1),
     type: z.enum(["file", "directory"]),
-  }).strict()),
+  }).strict()).max(200),
   truncated: z.boolean(),
-}).strict();
+  nextOffset: z.number().int().positive().nullable(),
+}).strict().refine(
+  (result) => result.truncated === (result.nextOffset !== null),
+  "A truncated directory page must provide its next offset",
+);
 export const CheckoutReadFileResultSchema = z.object({
   output: z.string(),
   isBinary: z.boolean(),
@@ -344,7 +351,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewLatest"), params: ArtifactReviewLatestParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewByMessage"), params: ArtifactReviewByMessageParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/diff"), params: ArtifactDiffParamsSchema }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("checkout/listFiles"), params: CheckoutReadParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("checkout/listFiles"), params: CheckoutListFilesParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("checkout/readFile"), params: CheckoutReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/status"), params: GitStatusParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/diff"), params: GitDiffParamsSchema }).strict(),

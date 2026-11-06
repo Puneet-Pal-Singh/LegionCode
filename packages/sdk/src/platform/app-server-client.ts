@@ -1,4 +1,4 @@
-import { CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
+import { CheckoutListFilesParamsSchema, CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
 import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMutationErrorMetadata, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
@@ -199,7 +199,7 @@ export type AppServerClient = {
   getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
-  listCheckoutFiles(params: z.input<typeof CheckoutReadParamsSchema>): Promise<CheckoutListFilesResult>;
+  listCheckoutFiles(params: z.input<typeof CheckoutListFilesParamsSchema>): Promise<CheckoutListFilesResult>;
   readCheckoutFile(params: z.input<typeof CheckoutReadParamsSchema>): Promise<CheckoutReadFileResult>;
   getGitStatus(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
   getGitDiff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
@@ -395,7 +395,7 @@ export function createAppServerClient(
       params: { artifactId, path, ...identity },
     }, AppServerResultSchemas["artifact/diff"]),
     listCheckoutFiles: (params) => request(options, {
-      method: "checkout/listFiles", params: CheckoutReadParamsSchema.parse(params),
+      method: "checkout/listFiles", params: CheckoutListFilesParamsSchema.parse(params),
     }, AppServerResultSchemas["checkout/listFiles"]),
     readCheckoutFile: (params) => request(options, {
       method: "checkout/readFile", params: CheckoutReadParamsSchema.parse(params),

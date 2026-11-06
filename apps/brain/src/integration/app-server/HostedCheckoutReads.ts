@@ -5,6 +5,7 @@ import { resolveOwnedCheckoutExecution } from "./OwnedCheckoutExecution";
 import { isDomainError, mapDomainErrorToHttp } from "../../domain/errors";
 import type { Env } from "../../types/ai";
 
+type ListParams = Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"];
 type ReadParams = Extract<AppServerRequest, { method: "checkout/readFile" }>["params"];
 const ExecutionResultSchema = z.object({ status: z.string(), output: z.string().optional() });
 
@@ -14,7 +15,7 @@ export function composeHostedCheckoutReads(
   env: Env,
   userId: string,
 ): NonNullable<AppServerComposition["hostedCheckoutReadsService"]> {
-  async function executeRead(action: "list_files" | "read_file", params: ReadParams): Promise<string> {
+  async function executeRead(action: "list_files" | "read_file", params: ReadParams | ListParams): Promise<string> {
     const execution = await resolveOwnedCheckoutExecution(request, env, userId, params);
     const url = new URL("/api/v1/execute", "http://internal");
     url.searchParams.set("session", execution.brainSessionId);
@@ -30,7 +31,9 @@ export function composeHostedCheckoutReads(
           sandboxId: execution.session.lease.sandboxId,
           generation: execution.session.lease.generation,
         },
-        params: { action, path: params.path, runId: execution.runId, workspaceScope: execution.workspaceScope },
+        params: { action, path: params.path, runId: execution.runId, workspaceScope: execution.workspaceScope,
+          ...(action === "list_files" ? { offset: "offset" in params ? params.offset : undefined, limit: 200 } : {}),
+        },
         timeout: 30_000,
       }),
     });
@@ -39,7 +42,7 @@ export function composeHostedCheckoutReads(
     if (result.status !== "success" || result.output === undefined) throw unavailable();
     return result.output;
   }
-  async function read(action: "list_files" | "read_file", params: ReadParams): Promise<string> {
+  async function read(action: "list_files" | "read_file", params: ReadParams | ListParams): Promise<string> {
     try { return await executeRead(action, params); }
     catch (error) {
       if (error instanceof AppServerOperationError) throw error;
@@ -61,7 +64,8 @@ export function composeHostedCheckoutReads(
       }));
       // Entry names cannot supply a different path to the client.
       if (entries.some(({ name }) => !name || name === "." || name === ".." || /[/\\\0]/.test(name))) throw unavailable();
-      return { entries, truncated };
+      if (truncated && entries.length === 0) throw unavailable();
+      return { entries, truncated, nextOffset: truncated ? (params.offset ?? 0) + entries.length : null };
     },
     readFile: async (params) => {
       const output = await read("read_file", params);

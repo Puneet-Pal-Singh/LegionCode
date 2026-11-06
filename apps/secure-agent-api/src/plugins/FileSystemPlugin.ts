@@ -50,6 +50,8 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("list_files"),
     path: z.string().optional(),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
     runId: z.string().optional(),
   }),
   z.object({
@@ -327,16 +329,17 @@ export class FileSystemPlugin implements IPlugin {
       .trim()
       .split("\n")
       .filter((entry) => entry.length > 0);
-    const totalFiles = files.length;
-    if (totalFiles > 20) {
-      const limited = files.slice(0, 20).join("\n");
-      return {
-        success: true,
-        output: `${limited}\n\n... and ${totalFiles - 20} more files (Total: ${totalFiles})`,
-      };
-    }
-
-    return { success: true, output: result.stdout };
+    const offset = payload.offset ?? 0;
+    const limit = payload.limit ?? 20;
+    const page = files.slice(offset, offset + limit);
+    const remaining = Math.max(0, files.length - offset - page.length);
+    if (offset === 0 && remaining === 0) return { success: true, output: result.stdout };
+    return {
+      success: true,
+      output: page.join("\n") + (remaining > 0
+        ? `\n\n... and ${remaining} more files (Total: ${files.length})`
+        : ""),
+    };
   }
 
   private async readFile(

@@ -1,24 +1,17 @@
 import type { RefObject } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import type { DiffContent } from "@repo/shared-types";
-import type { Repository } from "../../../services/GitHubService";
 import type { FileExplorerHandle } from "../../FileExplorer";
 import type { SelectedDiff, SelectedFile, TabType } from "./useWorkspaceState";
 
 interface UseSidebarOrchestrationProps {
   activeRunId: string;
   canonicalRunStatus?: string | null;
-  status: { branch?: string } | null | undefined;
-  repo: Repository | null;
-  branch: string;
-  isContextMismatch: boolean;
-  isGitHubLoaded: boolean;
   isHydrating: boolean;
   isViewingContent: boolean;
   activeContentTabId: string | null;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
-  switchBranch: (branch: string) => void;
   restoreLastViewedFile: () => void | void;
   explorerRef: RefObject<FileExplorerHandle | null>;
   setIsViewingContent: (viewing: boolean) => void;
@@ -34,17 +27,11 @@ export interface UseSidebarOrchestrationResult {
 export function useSidebarOrchestration({
   activeRunId,
   canonicalRunStatus,
-  status,
-  repo,
-  branch,
-  isContextMismatch,
-  isGitHubLoaded,
   isHydrating,
   isViewingContent,
   activeContentTabId,
   selectedFile,
   selectedDiff,
-  switchBranch,
   restoreLastViewedFile,
   explorerRef,
   setIsViewingContent,
@@ -79,21 +66,6 @@ export function useSidebarOrchestration({
     explorerRef.current?.refresh();
   }, [activeRunId, canonicalRunStatus, explorerRef]);
 
-  useEffect(() => {
-    if (isContextMismatch || !isGitHubLoaded || !repo) return;
-    const currentWorkspaceBranch = status?.branch?.trim();
-    const currentGitHubContextBranch = branch?.trim();
-    if (!currentWorkspaceBranch || !currentGitHubContextBranch) return;
-    if (currentWorkspaceBranch === currentGitHubContextBranch) return;
-    switchBranch(currentWorkspaceBranch);
-  }, [
-    branch,
-    isContextMismatch,
-    isGitHubLoaded,
-    repo,
-    status?.branch,
-    switchBranch,
-  ]);
 
   useEffect(() => {
     if (isHydrating) return;

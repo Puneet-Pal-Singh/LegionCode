@@ -210,9 +210,7 @@ export function Workspace({
     retryRepoTree,
     repo,
     branch,
-    switchBranch,
     isGitHubLoaded,
-    isContextMismatch,
   } = useGitHubTree(repository);
 
   const {
@@ -521,7 +519,7 @@ export function Workspace({
     explicitReviewOpen,
     runUiState.kind,
   ]);
-  const { status, refetch: refetchGitStatus } = useGitStatus(
+  const { refetch: refetchGitStatus } = useGitStatus(
     activeRunId,
     sessionId,
     liveGitReviewEnabled,
@@ -574,17 +572,11 @@ export function Workspace({
   const { handleSidebarDiffSelected } = useSidebarOrchestration({
     activeRunId,
     canonicalRunStatus,
-    status,
-    repo,
-    branch,
-    isContextMismatch,
-    isGitHubLoaded,
     isHydrating,
     isViewingContent,
     activeContentTabId,
     selectedFile,
     selectedDiff,
-    switchBranch,
     restoreLastViewedFile,
     explorerRef,
     setIsViewingContent,
