@@ -128,6 +128,10 @@ export interface GitCommitIdentity {
 }
 
 export interface GitCommitInput {
+  /** Trusted immutable artifact guard, resolved by the host rather than the client. */
+  readonly expectedTerminalTreeId?: string;
+  readonly expectedBaselineTreeId?: string;
+  readonly expectedHeadSha?: string;
   readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];
   readonly message: string;

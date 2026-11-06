@@ -9,7 +9,12 @@ export interface GitCommandExecutionInput {
   readonly stdin?: string;
   readonly environment?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
-  readonly indexTransaction?: { readonly paths: readonly string[] };
+  readonly indexTransaction?: {
+    readonly paths: readonly string[];
+    readonly expectedTerminalTreeId?: string;
+    readonly expectedBaselineTreeId?: string;
+    readonly expectedHeadSha?: string;
+  };
 }
 
 export interface GitCommandExecutionResult {
@@ -17,6 +22,7 @@ export interface GitCommandExecutionResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly indexPublication?: "indeterminate";
+  readonly artifactConflict?: true;
   readonly commitSha?: string;
   readonly branchName?: string;
 }

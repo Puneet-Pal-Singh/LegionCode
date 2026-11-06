@@ -814,6 +814,18 @@ terminal run state; original-lease expiry remains enforced by the hosted owner.
 | Checkout retention and physical expiry | Existing task-checkout lifecycle keeps only the original successfully completed and settled lease through its original nested `lease.expiresAt`; existing secure `AgentRuntime` Durable Object owns persisted-session alarm cleanup and physical sandbox destruction | Git borrows the exact persisted session/lease identity and does not create, renew, recover, replace, or release it. Failed, interrupted, unsettled, expired, missing, mismatched, or dead checkout access is explicitly unavailable; saved completed review remains immutable. |
 | Atomic explicit-file commit and index publication | `DefaultGitService` requests the advertised executor index-transaction capability; the shared host runner owns the worktree-specific exclusive index lock and private alternate index | `SandboxGitCommandExecutor` uses the existing Toolbox command boundary with `execIfRunning`, no automatic retry and no competing outer timeout. The local Node executor runs the same canonical runner. Requested tracked, new and deleted files commit without changing unrelated staged work; rejection discards private state only. Timeout waits for Git process closure. Publication or transport uncertainty returns `git_commit_indeterminate` and never rewrites immutable artifacts or terminal Turn evidence. |
 
+Artifact-selected local commits additionally pass trusted terminal/baseline tree
+and HEAD guards to that same transaction. Only saved-diff leaf paths, including
+rename sources and deletions, are compared. A guarded commit uses a separate
+HEAD-based index populated from validated staged entries, so later worktree edits
+cannot retarget the commit. Its per-command empty-hooks policy preserves the
+reviewed artifact exactly; generic hosted commits retain repository hooks.
+`LocalGitService` authorizes canonical admission, terminal lifecycle evidence,
+immutable artifact ownership and the retained current workspace lease before
+calling the Git owner. Its App Server/SDK/renderer dispatch remains pending the
+central composition owner; this leaf alone does not complete Desktop 7B.
+
+
 This records the approved bounded retention and ownership decision before code
 changes. The retention/alarm implementation is in the separately reviewed
 checkout-retention change and must be present on `dev` before this operation is

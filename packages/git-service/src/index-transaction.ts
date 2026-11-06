@@ -13,14 +13,15 @@ const { spawn } = require("node:child_process");
   const environment = { ...process.env, ...input.environment };
   delete environment.GIT_INDEX_FILE;
   const deadline = Date.now() + (input.timeoutMs || 30000);
-  const run = (args, index, inspection = false) => new Promise((resolve, reject) => {
+  const run = (args, index, inspection = false, stdin) => new Promise((resolve, reject) => {
     const remaining = inspection ? 5000 : deadline - Date.now();
     if (remaining <= 0) return resolve({ exitCode: 124, stdout: "", stderr: "Git transaction timed out" });
     const child = spawn("git", args, {
       cwd: input.cwd,
       env: index ? { ...environment, GIT_INDEX_FILE: index } : environment,
-      detached: true, stdio: ["ignore", "pipe", "pipe"],
+      detached: true, stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
+    if (stdin !== undefined) child.stdin.end(stdin);
     let stdout = "", stderr = "", timedOut = false, killTimer;
     const killGroup = (signal) => {
       if (!child.pid) return;
@@ -82,7 +83,40 @@ const { spawn } = require("node:child_process");
     const beforeHead = await headState();
     const branchName = await required(["branch", "--show-current"]);
     if (!branchName) throw new Error("Git commit requires a named branch");
-    result = await run(input.args, privateIndex);
+    let commitIndex = privateIndex;
+    let commitArgs = input.args;
+    const guard = input.indexTransaction;
+    if (guard.expectedTerminalTreeId) {
+      const conflict = () => { throw Object.assign(new Error("Immutable artifact content conflict"), { result: { exitCode: 1, stdout: "", stderr: "Immutable artifact content conflict", artifactConflict: true } }); };
+      if (guard.expectedHeadSha && beforeHead !== guard.expectedHeadSha) conflict();
+      const absentPaths = guard.paths.filter(candidate => !presentPaths.includes(candidate));
+      if (absentPaths.length) await required(["--literal-pathspecs", "update-index", "--force-remove", "--", ...absentPaths], privateIndex);
+      for (const tree of [guard.expectedTerminalTreeId, guard.expectedBaselineTreeId].filter(Boolean)) {
+        const leaves = await required(["--literal-pathspecs", "ls-tree", "-z", tree, "--", ...guard.paths]);
+        if (leaves.split("\0").some(entry => entry.startsWith("040000 "))) conflict();
+      }
+      if (guard.expectedBaselineTreeId) {
+        const baseline = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", beforeHead, guard.expectedBaselineTreeId, "--", ...guard.paths]);
+        if (baseline.exitCode === 1) conflict();
+        if (baseline.exitCode !== 0) throw Object.assign(new Error(baseline.stderr), { result: baseline });
+      }
+      const matches = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--cached", "--quiet", guard.expectedTerminalTreeId, "--", ...guard.paths], privateIndex);
+      if (matches.exitCode === 1) conflict();
+      if (matches.exitCode !== 0) throw Object.assign(new Error(matches.stderr), { result: matches });
+      const entries = await run(["--literal-pathspecs", "ls-files", "--stage", "-z", "--", ...guard.paths], privateIndex);
+      if (entries.exitCode !== 0) throw Object.assign(new Error(entries.stderr), { result: entries });
+      commitIndex = path.join(directory, "commit-index");
+      await required(["read-tree", beforeHead.startsWith("unborn:") ? "--empty" : beforeHead], commitIndex);
+      await required(["--literal-pathspecs", "update-index", "--force-remove", "--", ...guard.paths], commitIndex);
+      const installed = await run(["update-index", "-z", "--index-info"], commitIndex, false, entries.stdout);
+      if (installed.exitCode !== 0) throw Object.assign(new Error(installed.stderr), { result: installed });
+      // Commit only the validated immutable index. Never re-read live files via --only.
+      const separator = input.args.indexOf("--");
+      const hooks = path.join(directory, "empty-hooks");
+      fs.mkdirSync(hooks, { mode: 0o700 });
+      commitArgs = ["-c", "core.hooksPath=" + hooks, ...input.args.slice(0, separator < 0 ? input.args.length : separator).filter(value => value !== "--only")];
+    }
+    result = await run(commitArgs, commitIndex);
     if (result.exitCode !== 0) {
       let unchanged = false;
       try { unchanged = (await headState()) === beforeHead; } catch {}
@@ -96,6 +130,13 @@ const { spawn } = require("node:child_process");
       const commitSha = await headState();
       if (commitSha.startsWith("unborn:")) throw new Error("Git did not produce a commit");
       result = { ...result, commitSha, branchName };
+      if (guard.expectedTerminalTreeId) {
+        const verified = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", guard.expectedTerminalTreeId, commitSha, "--", ...guard.paths], undefined, true);
+        const changed = await run(["diff", "--name-only", "-z", beforeHead, commitSha], undefined, true);
+        if (verified.exitCode !== 0 || changed.exitCode !== 0 || changed.stdout.split("\0").filter(Boolean).some(candidate => !guard.paths.includes(candidate))) {
+          throw new Error("Git hooks changed the immutable artifact commit; outcome requires inspection");
+        }
+      }
       if (!ownsLock()) throw new Error("Git index lock ownership changed before publication");
       fs.writeFileSync(lockFd, fs.readFileSync(privateIndex));
       fs.fsyncSync(lockFd);
@@ -149,6 +190,7 @@ export function parseGitIndexTransactionResult(
     typeof value.stdout !== "string" ||
     !("stderr" in value) ||
     typeof value.stderr !== "string" ||
+    ("artifactConflict" in value && value.artifactConflict !== true) ||
     ("indexPublication" in value &&
       value.indexPublication !== "indeterminate") ||
     ("commitSha" in value && typeof value.commitSha !== "string") ||

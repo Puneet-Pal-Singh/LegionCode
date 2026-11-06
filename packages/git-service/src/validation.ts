@@ -33,7 +33,7 @@ export function validateRepoRelativePath(path: string): string {
   if (
     path.startsWith("/") ||
     WINDOWS_ABSOLUTE_PATH_PATTERN.test(path) ||
-    path.includes("\\")
+    path.includes("\\") || path.includes("\0")
   ) {
     throw new GitServiceError(
       "invalid_git_input",
