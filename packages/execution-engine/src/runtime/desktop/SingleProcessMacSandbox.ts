@@ -44,6 +44,9 @@ export function buildSingleProcessMacSandbox(
   const profile = [
     "(version 1)", "(deny default)", "(allow process-exec)", "(deny process-fork)",
     "(allow signal (target self))",
+    // Codex's base policy permits process-info* for same-sandbox targets.
+    // No-fork execution needs only its own runtime/code-signing metadata.
+    "(allow process-info* (target self))",
     '(allow file-read* (subpath (param "WORKSPACE_ROOT")) (literal (param "EXECUTABLE"))',
     '  (subpath "/System/Library") (subpath "/usr/lib") (subpath "/usr/share/locale")',
     '  (subpath "/usr/share/zoneinfo") (subpath "/private/var/db/dyld")',
