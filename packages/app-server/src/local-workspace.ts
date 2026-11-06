@@ -153,14 +153,16 @@ function workspaceIdForPath(path: string) {
   return WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${digest}`));
 }
 
-function createNodeGitExecutor(): GitCommandExecutor {
+export function createNodeGitExecutor(): GitCommandExecutor {
   return {
     execute: async ({ cwd, args, environment, timeoutMs }) => {
       const { spawn } = await import("node:child_process");
       return await new Promise((resolve) => {
+        const childEnvironment = { ...process.env };
+        for (const name of Object.keys(childEnvironment)) if (name.startsWith("GIT_")) delete childEnvironment[name];
         const child = spawn("git", [...args], {
           cwd,
-          env: environment ? { ...process.env, ...environment } : process.env,
+          env: { ...childEnvironment, ...environment },
           stdio: ["ignore", "pipe", "pipe"],
         });
         const stdout: Buffer[] = [];

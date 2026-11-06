@@ -1,11 +1,17 @@
 import { createHarnessHost, HarnessExecutionPort, HarnessRegistry, HarnessSessionManager, type HarnessDriver, type HarnessInstance, type HarnessInstanceScope, type HarnessHost } from "@repo/harness-core/server";
 import { CodexDriver } from "@repo/harness-codex/server";
+import { ClaudeDriver } from "@repo/harness-claude/server";
+import { OpenCodeV2Driver } from "@repo/harness-opencode/server";
 import { RuntimeKernel, type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
-import type { HarnessInstanceStatus, ReplayLifecycleEventsRequest, ReplayLifecycleEventsResponse, ThreadId } from "@repo/platform-protocol";
+import { HarnessSelectionSchema, type HarnessInstanceStatus, type ReplayLifecycleEventsRequest, type ReplayLifecycleEventsResponse, type ThreadId } from "@repo/platform-protocol";
 import { AppServerOperationError } from "../server.js";
 import { LocalHarnessOperations } from "./LocalHarnessOperations.js";
+import { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
+import { LocalGitSnapshots } from "./LocalGitSnapshots.js";
+import { LocalTurnArtifacts } from "./LocalTurnArtifacts.js";
+import { LocalTurnService, type LocalHarnessRuntimeServices, type LocalHarnessRuntimeBinding } from "./LocalTurnService.js";
 
 import { LocalProviderService } from "../local-providers.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "../local-threads.js";
@@ -21,12 +27,17 @@ export class LocalHarnessComposition {
   readonly threadService: LocalThreadService;
   readonly providerService: LocalProviderService;
   readonly harnessOperations: LocalHarnessOperations;
+  readonly turnService: LocalTurnService;
+  readonly gitSnapshots: LocalGitSnapshots;
+  readonly leases: LocalWorkspaceLease;
+  readonly artifacts: LocalTurnArtifacts | undefined;
+  private runtimeServices: LocalHarnessRuntimeServices | undefined;
   private readonly configuredScopes: HarnessInstanceScope[] = [];
   private readonly registry = new HarnessRegistry();
   private readonly sessions = new HarnessSessionManager(this.registry);
   readonly harnessExecution = new HarnessExecutionPort(this.sessions);
 
-  constructor(private readonly persistence: LocalPersistence) {
+  constructor(private readonly persistence: LocalPersistence, storageDirectory?: string) {
     this.environmentId = persistence.environmentId;
     this.workspaceService = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants });
     this.threadService = new LocalThreadService({
@@ -34,6 +45,9 @@ export class LocalHarnessComposition {
       getWorkspace: () => this.workspaceService.getCurrent(),
     });
     this.providerService = new LocalProviderService({ selectionStore: persistence.providerSelection });
+    this.leases = new LocalWorkspaceLease(persistence, this.workspaceService);
+    this.gitSnapshots = new LocalGitSnapshots(persistence, this.workspaceService, this.threadService);
+    this.artifacts = storageDirectory ? new LocalTurnArtifacts(persistence, storageDirectory) : undefined;
     this.harnessOperations = new LocalHarnessOperations({
       environmentId: this.environmentId,
       workspaceService: this.workspaceService,
@@ -47,6 +61,49 @@ export class LocalHarnessComposition {
         runtimeVersion: scope.runtimeVersion, protocolVersion: scope.protocolVersion, observedAt: new Date().toISOString(),
       })),
     });
+    this.turnService = new LocalTurnService({
+      persistence, threads: this.threadService, workspace: this.workspaceService, leases: this.leases,
+      harnessOperations: this.harnessOperations,
+      readDiff: async (turnId) => {
+        if (!this.artifacts) throw new AppServerOperationError(503, "server_unavailable", "Local artifact storage is unavailable");
+        return this.artifacts.readDiff(turnId);
+      },
+      resolveBinding: async (input) => {
+        if (!this.runtimeServices) throw new AppServerOperationError(503, "server_unavailable",
+          "Local credential, lease, artifact and enforced launch services are not available", "LOCAL_HARNESS_CAPABILITY_UNAVAILABLE", false);
+        return this.runtimeServices.resolveBinding(input);
+      },
+      composeRuntime: (binding, prepared) => {
+        this.ensureSelectedDriver(binding);
+        return this.createRuntime(prepared.dependencies, prepared.execution);
+      },
+    });
+  }
+
+  /** Existing private utility-process bootstrap installs canonical local adapters. */
+  bindRuntimeServices(services: LocalHarnessRuntimeServices): void {
+    this.runtimeServices = services;
+  }
+
+  private ensureSelectedDriver(binding: LocalHarnessRuntimeBinding): void {
+    const existing = this.configuredScopes.find((scope) => scope.instanceId === binding.scope.instanceId);
+    if (existing) {
+      if (Object.entries(existing).some(([key, value]) => binding.scope[key as keyof HarnessInstanceScope] !== value)) {
+        throw new Error("Configured local instance changed after selection was frozen");
+      }
+      return;
+    }
+    if (binding.scope.harness === "codex") {
+      if (!binding.codexExecutable) throw new Error("Selected Codex installation is unavailable");
+      this.registerCodexInstance({ ...binding.scope, harness: "codex" }, binding.codexExecutable, binding.configureHost, {
+        ...binding.codexOptions, policy: { id: binding.permissionProfileId, revision: binding.policyRevision },
+      });
+    } else if (binding.scope.harness === "claude") {
+      this.registerInstance(binding.scope, new ClaudeDriver(), binding.configureHost);
+    } else {
+      if (!binding.openCodeOptions) throw new Error("OpenCode requires configured native policy and quiescence authorities");
+      this.registerInstance(binding.scope, new OpenCodeV2Driver(binding.openCodeOptions), binding.configureHost);
+    }
   }
 
   /** Reuses reviewed local replay authorization from PR617; no second event feed. */
@@ -82,14 +139,18 @@ export class LocalHarnessComposition {
     dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">,
     execution: Omit<DelegatedExecutionDependencies, "harness">,
   ): RuntimeKernel {
+    if (!this.artifacts) throw new AppServerOperationError(503, "server_unavailable", "Local immutable artifact storage is unavailable");
     return new RuntimeKernel({
       ...dependencies,
+      gitSnapshots: this.gitSnapshots,
+      turnArtifacts: this.artifacts,
       lifecycleEvents: this.persistence.lifecycleEvents,
       delegated: {
         ...execution,
         harness: this.harnessExecution,
         assertActive: async (input) => {
           await this.assertLocalExecution(input);
+          await this.leases.assertActive(input);
           await execution.assertActive(input);
         },
       },
@@ -101,8 +162,13 @@ export class LocalHarnessComposition {
     scope: HarnessInstanceScope & { readonly harness: "codex" },
     executable: string,
     configureHost: ConfigureHost,
+    options: NonNullable<ConstructorParameters<typeof CodexDriver>[1]>,
   ): void {
-    this.registerInstance(scope, new CodexDriver(executable), configureHost);
+    if (!options.policy || !options.accountBinding || options.accountBinding.instanceId !== scope.instanceId ||
+        options.accountBinding.connectionId !== scope.connectionId || options.accountBinding.authOwnerGeneration !== scope.authOwnerGeneration) {
+      throw new Error("Codex requires trusted configured policy and preverified selected-account binding");
+    }
+    this.registerInstance(scope, new CodexDriver(executable, options), configureHost);
   }
 
   /** Trusted local setup only. Runtime must durably admit/claim before opening this port. */
@@ -149,6 +215,12 @@ export class LocalHarnessComposition {
         admission.run.permissionProfileId !== selection.policyId || admission.run.executionCapability === "conversation" ||
         admission.runAttemptId !== selection.runAttemptId || admission.turn.id !== selection.turnId) {
       throw new Error("Harness execution does not match a canonical local Turn admission");
+    }
+    const frozen = await this.persistence.harnessBindings.read({ userId: selection.userId,
+      turnId: selection.turnId, runAttemptId: selection.runAttemptId });
+    if (!frozen || JSON.stringify(HarnessSelectionSchema.parse(JSON.parse(frozen.selection.selectionJson) as unknown)) !==
+        JSON.stringify(HarnessSelectionSchema.parse(selection))) {
+      throw new Error("Local harness selection is not durably frozen for this attempt");
     }
     const thread = await this.threadService.get(selection.threadId);
     if (thread.status !== "active" || thread.userId !== selection.userId || thread.workspaceId !== selection.workspaceId) {
