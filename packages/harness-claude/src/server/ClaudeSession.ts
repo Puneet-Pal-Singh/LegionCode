@@ -108,6 +108,8 @@ export class ClaudeSession implements HarnessLiveSession {
       const foreground = new Promise<SDKResultMessage>((resolve, reject) => {
         this.runner = new ClaudeQueryRunner({
           cwd: this.opening.host.workspaceRoot,
+          instanceDirectory: this.opening.host.instanceDirectory,
+          journalDirectory: this.opening.host.journalDirectory,
           env: this.opening.host.environment,
           model: this.opening.command.selection.modelId,
           sessionId: this.session.externalSessionId,
