@@ -1140,3 +1140,15 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+## Shared workspace file explorer presentation
+
+The tree renderer, loaded-file filtering, expansion, pagination and stale-request
+isolation move from Web FileExplorer into `client-ui/src/files/FileExplorer.tsx`.
+Web FileExplorer retains AuthContext and the exact hosted checkout identity/offset
+adapter. DesktopWorkspaceFiles supplies the native workspace/cursor SDK adapter;
+its right-panel mount remains pending the Desktop shell owner. Native entry kinds
+remain explicit; symlinks, special and reserved entries are not openable. Runtime,
+workspace grant, file execution and immutable artifact ownership are unchanged.
+The shared read port transports opaque string or numeric cursors without translating
+between native cursor and hosted offset models. No copied Web tree remains.
