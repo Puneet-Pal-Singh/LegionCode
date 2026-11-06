@@ -124,6 +124,9 @@ export type AppServerComposition = {
     reviewByMessage(params: Extract<AppServerRequest, { method: "artifact/reviewByMessage" }>["params"]): Promise<ArtifactReviewLookupResult>;
     diff(params: Extract<AppServerRequest, { method: "artifact/diff" }>["params"]): Promise<EditArtifactDiffResponse>;
   };
+  hostedCodeArtifactReadsService?: {
+    codeContent(params: Extract<AppServerRequest, { method: "artifact/codeContent" }>["params"]): Promise<{ content: string }>;
+  };
 };
 
 export type ArtifactReviewLookupResult = {
@@ -381,6 +384,10 @@ async function dispatch(
     case "artifact/diff": {
       if (!composition.hostedEditArtifactReadsService) throw new Error("unsupported");
       return composition.hostedEditArtifactReadsService.diff(request.params);
+    }
+    case "artifact/codeContent": {
+      if (!composition.hostedCodeArtifactReadsService) throw new Error("unsupported");
+      return composition.hostedCodeArtifactReadsService.codeContent(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");
