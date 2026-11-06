@@ -4,6 +4,7 @@ import {
   RunAttemptIdSchema,
   ToolCallIdSchema,
   TurnSchema,
+  ResumeWorkspaceSnapshotRefSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol";
 import { describe, expect, it, vi } from "vitest";
@@ -17,6 +18,7 @@ import type {
   RuntimeLifecycleEventStore,
 } from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
+import { TurnArtifactSettlementCoordinator } from "./TurnArtifactSettlementCoordinator.js";
 import {
   MemoryLifecycleEventSink,
   approvalRequest,
@@ -945,6 +947,39 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(terminalEvents(conversationSink)).toHaveLength(1);
     expect(conversationSink.events.at(-1)?.type).toBe("turn.interrupted");
     expect(eventTypes(conversationSink)).not.toContain("workspace.snapshot_captured");
+
+    for (const failure of ["diff", "diff_store", "snapshot"] as const) {
+      const failedSink = createLifecycleSink();
+      const failedPorts = createPorts();
+      failedPorts.provider.generateNext = ports.provider.generateNext;
+      failedPorts.worker.awaitQuiescence = vi.fn(async () => true);
+      const artifacts = createArtifactPorts(partialDiff());
+      const resume = ResumeWorkspaceSnapshotRefSchema.parse({
+        schemaVersion: 1, artifactId: "art_resume001", payloadObjectKey: "resume/immutable.patch",
+        userId: run.userId, workspaceId: run.workspaceId, threadId: run.threadId,
+        sourceRunId: run.id, sourceTurnId: turn.id, sourceRunAttemptId: runAttemptId,
+        baseSnapshotId: "wsnap_runtime001", baseCommitSha: "a".repeat(40),
+        terminalTreeSha: "c".repeat(40), patchSha256: "d".repeat(64), byteLength: 12,
+      });
+      artifacts.gitSnapshots.captureResumeSnapshot = vi.fn(async () => resume);
+      if (failure === "diff") vi.mocked(artifacts.gitSnapshots.getSnapshotDiff).mockRejectedValue(new Error("diff failed"));
+      if (failure === "diff_store") vi.mocked(artifacts.turnArtifacts.putTurnDiff).mockRejectedValue(new Error("diff store failed"));
+      if (failure === "snapshot") vi.mocked(artifacts.turnArtifacts.putSnapshot)
+        .mockResolvedValueOnce({ artifactId: "art_snapshot001" }).mockRejectedValueOnce(new Error("snapshot store failed"));
+      const failedKernel = await createKernel(failedSink, failedPorts, artifacts);
+      await expect(failedKernel.startTurn({ run, turn, runAttemptId })).rejects.toMatchObject({ code: "turn_cancelled" });
+      expect(terminalEvents(failedSink)).toHaveLength(1);
+      expect(failedSink.events.at(-1)?.type).toBe("turn.interrupted");
+      const resumeEvents = failedSink.events.filter((event) => event.type === "artifact.created");
+      if (failure === "snapshot") {
+        expect(resumeEvents).toHaveLength(0);
+        expect(eventTypes(failedSink)).toContain("workspace.snapshot_unavailable");
+      } else {
+        expect(resumeEvents).toHaveLength(1);
+        expect(resumeEvents[0]?.payload).toMatchObject({ artifact: { artifactId: resume.artifactId, payloadRef: { objectKey: resume.payloadObjectKey } } });
+      }
+      expect(eventTypes(failedSink)).not.toContain("turn.diff_updated");
+    }
   });
 
   it("settles a stop queued before kernel execution through the canonical lifecycle", async () => {
@@ -1117,6 +1152,32 @@ describe("RuntimeKernel canonical lifecycle", () => {
         diff: expect.objectContaining({ files: [], patch: "" }),
       }),
     );
+    for (const failure of ["start", "snapshot", "diff", "diff_store"] as const) {
+      const ports = createArtifactPorts();
+      let ticks = 0;
+      const clock = { now: vi.fn(() => new Date(Date.UTC(2026, 5, 14, 10, 0, ticks++)).toISOString()) };
+      const coordinator = new TurnArtifactSettlementCoordinator({
+        git: ports.gitSnapshots, artifacts: ports.turnArtifacts, clock, run, turn, workspace: manifest,
+      });
+      if (failure === "start") {
+        vi.mocked(ports.turnArtifacts.putSnapshot).mockRejectedValueOnce(new Error("start store unavailable"));
+        await expect(coordinator.begin()).rejects.toThrow("start store unavailable");
+        await expect(coordinator.settle()).rejects.toMatchObject({ code: "turn_artifact_settlement_failed" });
+      }
+      await coordinator.begin();
+      if (failure === "snapshot") vi.mocked(ports.turnArtifacts.putSnapshot).mockRejectedValueOnce(new Error("store unavailable"));
+      if (failure === "diff") vi.mocked(ports.gitSnapshots.getSnapshotDiff).mockRejectedValueOnce(new Error("diff unavailable"));
+      if (failure === "diff_store") vi.mocked(ports.turnArtifacts.putTurnDiff).mockRejectedValueOnce(new Error("diff store unavailable"));
+      if (failure !== "start") await expect(coordinator.settle()).rejects.toMatchObject({ code: "turn_artifact_settlement_failed" });
+      const retried = await coordinator.settle();
+      expect(retried.terminalSnapshot?.treeId).toBe("c".repeat(40));
+      expect(ports.gitSnapshots.captureSnapshot).toHaveBeenCalledTimes(2);
+      expect(clock.now).toHaveBeenCalledTimes(2);
+      const writes = vi.mocked(ports.turnArtifacts.putSnapshot).mock.calls;
+      const retryIndex = failure === "start" ? 0 : 1;
+      expect(writes[retryIndex]?.[0].snapshot).toEqual(writes[retryIndex + 1]?.[0].snapshot);
+    }
+
   });
 
   it("preserves partial changed files when a turn fails", async () => {
