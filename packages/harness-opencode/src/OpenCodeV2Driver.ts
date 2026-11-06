@@ -1,3 +1,5 @@
+import { captureNativePermissions } from "./OpenCodePermissionPolicy.js";
+import { HarnessSelectionSchema } from "@repo/platform-protocol";
 import { setTimeout as delay } from "node:timers/promises";
 import { questionAnswer } from "./OpenCodeQuestionMapper.js";
 import type { ModelRef, SessionCreateInput } from "@opencode/client";
@@ -36,10 +38,22 @@ export class OpenCodeV2Driver implements HarnessDriver {
       /** Resolve only the admitted connection/model/policy through existing authorities. */
       readonly resolveConfiguration: (command: HarnessStartCommand) => Promise<{
         readonly model: ModelRef;
-        readonly permissions: NonNullable<SessionCreateInput["permissions"]>;
         readonly agent?: string;
         readonly priorThreadTokens: number;
       }>;
+      /** Existing policy authority resolves this exact frozen selection; never renderer/provider input. */
+      readonly resolvePolicy: (command: HarnessStartCommand) => Promise<{
+        readonly selection: HarnessStartCommand["selection"];
+        readonly permissions: NonNullable<SessionCreateInput["permissions"]>;
+      }>;
+      /** Must attest actual enforced native configuration (including agent rules, saved grants and
+       * permission hooks for all agents/descendants) plus the current canonical policy revision. No prompt-based attestation. */
+      readonly assertEffectivePolicy: (input: {
+        readonly command: HarnessStartCommand;
+        readonly host: HarnessHost;
+        readonly permissions: NonNullable<SessionCreateInput["permissions"]>;
+        readonly externalSessionId: string | null;
+      }) => Promise<void>;
       /** Real enforced scope proof. A process-group receipt cannot implement this callback. */
       readonly proveQuiescence: (input: {
         readonly host: HarnessHost;
@@ -49,7 +63,14 @@ export class OpenCodeV2Driver implements HarnessDriver {
         readonly interrupted: boolean;
       }) => Promise<HarnessQuiescence>;
     },
-  ) {}
+  ) {
+    if (
+      typeof options.resolvePolicy !== "function" ||
+      typeof options.assertEffectivePolicy !== "function"
+    ) {
+      throw new OpenCodeTransportError("policy authority unavailable", false);
+    }
+  }
 
   async open(
     input: Parameters<HarnessDriver["open"]>[0],
@@ -78,6 +99,21 @@ export class OpenCodeV2Driver implements HarnessDriver {
       configuration.priorThreadTokens < 0
     )
       throw new OpenCodeTransportError("canonical usage baseline", false);
+    const policy = structuredClone(await this.options.resolvePolicy(command));
+    if (
+      JSON.stringify(HarnessSelectionSchema.parse(policy.selection)) !==
+      JSON.stringify(command.selection)
+    ) {
+      throw new OpenCodeTransportError("frozen policy resolution", false);
+    }
+    const nativePermissions = captureNativePermissions(policy.permissions);
+    // Mandatory actual-policy assertion before launch; the host's OS launch assertion is separate.
+    await this.options.assertEffectivePolicy({
+      command,
+      host,
+      permissions: nativePermissions,
+      externalSessionId: null,
+    });
     signal.throwIfAborted();
     const owner = await OpenCodeServerOwner.start({
       host,
@@ -104,7 +140,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
         owner.transport,
         {
           model: configuration.model,
-          permissions: configuration.permissions,
+          permissions: nativePermissions,
           agent: configuration.agent,
           location: { directory: host.workspaceRoot },
         },
@@ -132,9 +168,38 @@ export class OpenCodeV2Driver implements HarnessDriver {
         selection: command.selection,
         session,
         model: configuration.model,
+        permissions: nativePermissions,
         priorThreadTokens: configuration.priorThreadTokens,
       });
       const capturedNative = native;
+      const assertPolicy = async () => {
+        try {
+          await capturedNative.assertPermissions(nativePermissions);
+          await this.options.assertEffectivePolicy({
+            command,
+            host,
+            permissions: nativePermissions,
+            externalSessionId: capturedNative.id,
+          });
+          signal.throwIfAborted();
+          if (stopping)
+            throw new OpenCodeTransportError("policy recheck after Stop", true);
+        } catch {
+          stopping = true;
+          capturedNative.fence();
+          host.fence();
+          const error = new OpenCodeTransportError(
+            "effective policy unavailable",
+            true,
+          );
+          rejectForeground(error);
+          void host
+            .terminateProcesses({ graceMs: 100, killWaitMs: 1000 })
+            .catch(() => undefined);
+          throw error;
+        }
+      };
+
       const capturedMapper = mapper;
       const fingerprint = JSON.stringify(command);
       void owner.process.exited.then(() =>
@@ -225,6 +290,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
           executing = true;
           execution = (async () => {
             request.signal.throwIfAborted();
+            await assertPolicy();
+            request.signal.throwIfAborted();
             await capturedNative.prompt(command.prompt);
             await foreground;
             while (!stopping) {
@@ -275,6 +342,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
             ) {
               throw new OpenCodeTransportError("question origin", true);
             }
+            await assertPolicy();
             await capturedNative.replyForm(
               form.id,
               questionAnswer(form, reply.response),
@@ -293,6 +361,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
             ) {
               throw new OpenCodeTransportError("permission origin", true);
             }
+            await assertPolicy();
             await capturedNative.replyPermission(
               reply.replyTo.requestId,
               reply.decision === "approved" ? "once" : "reject",

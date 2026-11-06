@@ -1,3 +1,4 @@
+import { sameNativePermissions } from "./OpenCodePermissionPolicy.js";
 import { OpenCodeWorkTracker } from "./OpenCodeWorkTracker.js";
 import { Schema } from "effect";
 import { Session } from "@opencode/schema/session";
@@ -124,6 +125,23 @@ export class OpenCodeSession {
   get id(): string {
     if (!this.root) throw new Error("OpenCode session is not initialized.");
     return this.root.id;
+  }
+
+  /** Session overrides are necessary but not sufficient: the host separately attests agent/saved/hook policy. */
+  async assertPermissions(
+    expected: NonNullable<SessionCreateInput["permissions"]>,
+  ): Promise<void> {
+    const actual = await this.transport.inspect(
+      "session policy",
+      (api, signal) => api.session.get({ sessionID: this.id }, { signal }),
+    );
+    if (
+      !validSession(actual) ||
+      actual.id !== this.id ||
+      !sameNativePermissions(expected, actual.permissions)
+    ) {
+      return this.transport.invalidate("native session policy changed");
+    }
   }
 
   get pendingNativeWork(): number {
