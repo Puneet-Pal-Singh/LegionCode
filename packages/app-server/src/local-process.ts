@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import { handleAppServerHttpRequest, validateAppServerHttpBoundary, type AppServerComposition } from "./server.js";
+import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary, type AppServerComposition } from "./server.js";
 import { ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalHarnessComposition } from "./harness/LocalHarnessComposition.js";
+import type { LocalHarnessRuntimeServices } from "./harness/LocalTurnService.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -21,10 +22,11 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig) {
+export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeServices?: LocalHarnessRuntimeServices) {
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
-    const local = new LocalHarnessComposition(persistence);
+    const local = new LocalHarnessComposition(persistence, config.storageDirectory);
+    if (runtimeServices) local.bindRuntimeServices(runtimeServices);
     const composition = {
       environment: "local" as const,
       serverId: local.environmentId,
@@ -34,13 +36,29 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
       threadService: local.threadService,
       providerService: local.providerService,
       harnessOperations: local.harnessOperations,
+      localTurnService: local.turnService,
+      // Existing dispatcher port, with an accountless local implementation and no hosted principal.
+      hostedChatSubmissionService: local.turnService,
+      hostedLifecycleOperationsService: {
+        replayLifecycleEvents: local.replayLifecycleEvents.bind(local),
+        getTurnDiff: local.turnService.getTurnDiff.bind(local.turnService),
+        submitLifecycleApproval: local.turnService.submitLifecycleApproval.bind(local.turnService),
+        compactTurn: async () => { throw new AppServerOperationError(503, "server_unavailable", "Local harness compaction is unavailable"); },
+      },
       localLifecycleReplayService: local,
     };
     const server = createServer((request, response) => {
       void handleRequest(request, response, composition);
     });
-    server.once("close", () => persistence.close());
-    server.once("error", () => persistence.close());
+    let shutdown: Promise<void> | undefined;
+    const closePersistence = () => {
+      if (!local.turnService.hasActiveExecutions) { persistence.close(); return; }
+      shutdown ??= local.turnService.shutdown().then(() => persistence.close());
+      // Never close the writer while cleanup/lease settlement is unproven.
+      void shutdown.catch(() => server.emit("runtime-shutdown-failed"));
+    };
+    server.once("close", closePersistence);
+    server.once("error", closePersistence);
     return server;
   } catch (error) {
     persistence.close();
@@ -51,15 +69,17 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
+  runtimeServices?: LocalHarnessRuntimeServices,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config);
+    server = createLocalAppServer(config, runtimeServices);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
     return;
   }
+  server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
     server.close(() => process.exit(1));

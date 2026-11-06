@@ -21,8 +21,10 @@
   "dependencies": {
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
+    "@repo/harness-claude": "workspace:*",
     "@repo/harness-codex": "workspace:*",
     "@repo/harness-core": "workspace:*",
+    "@repo/harness-opencode": "workspace:*",
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
