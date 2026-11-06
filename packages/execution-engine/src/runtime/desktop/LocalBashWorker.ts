@@ -67,6 +67,7 @@ export class LocalBashWorker implements WorkerProtocolPort {
       // Revalidate after all asynchronous preparation, immediately before spawn.
       await this.grant.assertCurrent();
       operation.controller.signal.throwIfAborted();
+      this.requireDescendantContainment();
       operation.process = new BoundedLocalProcess({ command: command.command, cwd, signal: operation.controller.signal });
       const output = await operation.process.result;
       if (!(await this.waitForProcess(operation.process, 2_000))) {
@@ -103,6 +104,12 @@ export class LocalBashWorker implements WorkerProtocolPort {
       if (Date.now() >= deadline) return false;
       await new Promise((resolve) => setTimeout(resolve, 20));
     } while (true);
+  }
+
+  private requireDescendantContainment(): void {
+    // Process groups cannot contain setsid descendants. No supported full-tree
+    // owner is composed; accidental wiring must not enable this worker.
+    throw new RuntimeKernelError("tool_policy_denied", "Native bash is unavailable until descendant containment is implemented");
   }
 
   private assertIdentity(input: Parameters<WorkerProtocolPort["executeTool"]>[0]): void {
