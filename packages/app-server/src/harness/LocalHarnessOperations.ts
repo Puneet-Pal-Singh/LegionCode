@@ -19,6 +19,7 @@ export class LocalHarnessOperations implements HarnessOperations {
   private selectionStore: SelectionStore | undefined;
   private modelsReader: HarnessOperations["models"] | undefined;
   private statusReader: HarnessOperations["status"] | undefined;
+  private setupWriter: HarnessOperations["setup"] | undefined;
 
   constructor(private readonly options: {
     readonly environmentId: string;
@@ -30,21 +31,28 @@ export class LocalHarnessOperations implements HarnessOperations {
   /** Trusted local bootstrap only; these adapters must use the existing SQLite
    * writer and a supported safe catalog reader. They are never supplied by HTTP.
    */
-  bindServices(services: SelectionStore & Partial<Pick<HarnessOperations, "models" | "status">>): void {
+  bindServices(services: SelectionStore & Partial<Pick<HarnessOperations, "models" | "status" | "setup">>): void {
     this.selectionStore = services;
     this.modelsReader = services.models?.bind(services);
     this.statusReader = services.status?.bind(services);
+    this.setupWriter = services.setup?.bind(services);
   }
 
   async setup(params: HarnessSetupRequest): Promise<HarnessSetupResponse> {
     await this.authorizeScope(params);
-    const instance = await this.requireInstance(params);
-    if (instance.harness !== params.harness) {
-      throw new AppServerOperationError(409, "invalid_request", "Local harness kind does not match the configured instance");
+    if (!this.setupWriter) throw new AppServerOperationError(503, "server_unavailable",
+      "Local instance setup requires its durable connection and command-receipt store", "LOCAL_HARNESS_SETUP_UNAVAILABLE", false);
+    // The same-writer setup owner issues a persisted identity on initial creation,
+    // deduplicates the scoped command, and rejects unknown reconnect IDs. Never
+    // manufacture a replacement identity in the service or live registry.
+    const result = HarnessSetupResponseSchema.parse(await this.setupWriter(params));
+    if (result.instance.environmentId !== params.environmentId || result.instance.workspaceId !== params.workspaceId ||
+        result.instance.harness !== params.harness || result.instance.connectionId !== params.connectionId ||
+        (params.instanceId !== undefined && result.instance.instanceId !== params.instanceId)) {
+      throw new AppServerOperationError(503, "server_unavailable", "Local setup receipt does not match the requested connection or instance");
     }
-    // Existing authorized references are already bound by trusted local bootstrap.
-    // Confirmation is a read and is idempotent, including after a lost response.
-    return HarnessSetupResponseSchema.parse({ instance });
+    await this.authorizeScope(params);
+    return result;
   }
 
   async status(params: HarnessStatusRequest): Promise<HarnessStatusResponse> {
