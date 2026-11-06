@@ -119,7 +119,24 @@ binary/no-line-change, known-stat preservation and hunk context behavior remain.
 | ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and session-bound artifact content loader. |
 | Artifact-open callback types | `client-ui/src/conversation/artifactOpen.ts` | Shared message/artifact UI and Web workflow/conversation callers use the same type. |
 | Hosted hydrated-image URL binding | Web `chatMessageImagePresentation.ts` | Existing scoped-path validation and Brain base resolution supplied explicitly to ChatMessage. |
-| Existing code-artifact preview reads | Brain `HostedCodeArtifactReads` composed after authenticated App Server dispatch; SDK `artifact/codeContent` is the typed client boundary | Web ChatInterface captures the authenticated session and supplies a cancellable loader; shared ArtifactPreview/MessageArtifacts display inline strings and exact persisted `r2_ref` values, opening resolved content. Brain authorizes only exact genuine persisted `create_code_artifact.args.content` membership in that principal's pinned transcript pages, then reads the unchanged object through Secure's internal service binding. Receipt-backed imported history uses its server-verified provenance mapping. |
+| Existing code-artifact preview reads | Brain `HostedCodeArtifactReads` composed after authenticated App Server dispatch; SDK `artifact/codeContent` is the typed client boundary | Web ChatInterface captures the authenticated session and supplies a cancellable loader; shared ArtifactPreview/MessageArtifacts display inline strings and exact persisted `r2_ref` values, opening resolved content. Brain requires both exact genuine persisted `create_code_artifact.args.content` membership in that principal's pinned transcript pages and the matching trusted import receipt, then reads the unchanged object through Secure's internal service binding. |
+
+The merged legacy-history projection supplies the real consumer: SDK history
+classification retains original message/call IDs and arguments;
+`ChatHydrationService` binds those calls to the existing shared message artifact
+renderer. No unused `storedCalls` interface, fabricated tool call, or runtime
+identity is needed. The existing Web message case covers hydration, the
+session-bound SDK read, resolved-content opening and cancellation on unmount;
+the existing SDK/controller cases cover the typed envelope and unauthenticated
+rejection. These fixtures do not prove live cloud inventory coverage.
+
+Source inspection rechecked the same client/server boundary in
+[Codex App Server](https://github.com/openai/codex/blob/ddd1812a51f4aded35c3ec5446672474d5cb546b/codex-rs/app-server/README.md),
+[OpenCode's shared timeline binding](https://github.com/anomalyco/opencode/blob/21eaa626a37f77d7a8d80fa01997fa7d52506c97/packages/app/src/session/timeline/message-timeline.tsx)
+and [T3 Code's timeline projection](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/web/src/components/chat/MessagesTimeline.logic.ts).
+Their separation of server-owned records, reusable projection and UI actions
+informs this wiring; trusted legacy-reference authorization remains LegionCode's
+own receipt-backed boundary.
 
 Replaced Web message/rendering/helpers are deleted. Only active host URL/HTTP
 bindings remain. The old `loadColdStorageArtifact` Web transport and public

@@ -57,6 +57,15 @@ describe("hosted App Server integration", () => {
       method: "artifact/reviewLatest",
       serverError: { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false },
     });
+    await expect(client.getCodeArtifactContent({
+      sessionId: "550e8400-e29b-41d4-a716-446655440001",
+      key: "artifacts/legacy/session/index.ts",
+    })).rejects.toMatchObject({
+      code: "server_error",
+      serverCode: "unauthorized",
+      method: "artifact/codeContent",
+      serverError: { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false },
+    });
   });
 
   it("retains typed authorization errors when a provider preference body requests its existing uncapped contract", async () => {
