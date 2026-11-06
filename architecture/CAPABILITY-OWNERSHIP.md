@@ -1,5 +1,32 @@
 # Capability ownership
 
+## Plans 048/061 — Brain external execution routing
+
+`HostedChatSubmission` and queued/resumed `prepareAdmittedTurnModel` branch on
+explicit harness intent before native model discovery. `HandleChatRequest`
+preserves the admission snapshot, skips native provider-route/context-window and
+conversation-context construction for delegated input, and omits native auth-mode
+defaults. Subscription credentials remain with the selected connection authority.
+
+`RunEngineRuntime` supplies the canonical preparation capability to the actual
+`RunEngineRequestHandler` caller. After its existing authenticated execution claim,
+that handler enters `executeDelegatedRun` before `createRuntimeState`,
+`prepareRuntimeExecutionResources` or `RuntimeKernelNativeRunner` construction.
+The delegated helper validates the frozen admitted selection and canonical IDs,
+uses the same `RuntimeKernel`/lifecycle store/approval and steering registries, and
+retains the existing checkout settlement owner. Native execution ports are
+unavailable in that composition. Missing canonical preparation reports unavailable
+before provider work. P09/P11/P12 composition must supply
+`HARNESS_RUN_PREPARATION`; no new provider loop, credential resolver or store is
+introduced by this caller.
+
+The actual initial-title caller passes the execution strategy to
+`InitialThreadTitleScheduler`. External routes persist the existing canonical
+preview with generation unavailable (`titleStatus: failed`), then return before
+native route resolution or `ThreadTitleGenerationCoordinator.schedule`. They do
+not send subscription authentication to native title inference or choose an
+alternate payer. Existing Native title behavior remains with its original owner.
+
 ## Plans 048/061 — delegated kernel and execution safety
 
 | Responsibility | Canonical owner | Actual wiring and integration status |

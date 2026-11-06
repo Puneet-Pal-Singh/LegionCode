@@ -1,3 +1,4 @@
+import { isDelegatedHarnessRoute } from "../../runtime/HarnessExecutionRoute";
 import type { RunRecord } from "@repo/persistence";
 import type {
   ResumeWorkspaceSnapshotRef,
@@ -64,6 +65,7 @@ export async function prepareAdmittedTurnModel(input: {
   readonly workspaceId: string;
   readonly configuration: AdmittedTurnExecution["configuration"];
 }): Promise<ChatModelMetadata> {
+  if (isDelegatedHarnessRoute(input.configuration)) return {};
   const modelMetadata = await resolveChatModelMetadata({
     providerId:
       input.configuration.providerId ?? input.run.providerId ?? undefined,

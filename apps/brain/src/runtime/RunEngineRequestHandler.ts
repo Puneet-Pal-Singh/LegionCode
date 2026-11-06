@@ -1,3 +1,5 @@
+import { executeDelegatedRun, type DelegatedRunPreparationPort } from "./DelegatedRunExecution";
+import { isDelegatedHarnessRoute } from "./HarnessExecutionRoute";
 import { claimExecutionWithStartupInterrupt } from "./RunExecutionStartup";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
@@ -168,6 +170,7 @@ export interface CanonicalRunEventSink {
 }
 
 export interface RunEngineRequestHandlerDependencies {
+  delegatedPreparation?: DelegatedRunPreparationPort;
   canonicalEventSink?: CanonicalRunEventSink;
   lifecycleEventStore?: LifecycleEventStore;
   interruptRegistry?: RunInterruptRegistry;
@@ -1352,14 +1355,11 @@ export class RunEngineRequestHandler {
             "RUN_SCOPE_MISMATCH",
           );
         }
-        // Explicit pre-admission placement cannot be discarded by the native
-        // runner. P09/P13 composition must resolve the durable selection/binding
-        // before this path can execute it; never infer a host from a model name.
-        if (payload.input.harnessSelection) throw new DomainError(
-          "HARNESS_ADMISSION_COMPOSITION_REQUIRED",
-          "The selected execution environment is unavailable until its canonical harness admission is configured.",
-          503, false, payload.correlationId,
-        );
+        const delegatedRoute = isDelegatedHarnessRoute(payload.input);
+        if (delegatedRoute && !this.dependencies.delegatedPreparation) throw new DomainError(
+          "HARNESS_ADMISSION_COMPOSITION_REQUIRED", "The selected harness admission/host is unavailable.", 503, false, payload.correlationId);
+        if (!delegatedRoute && payload.input.harnessSelection) throw new DomainError(
+          "HARNESS_ADMISSION_COMPOSITION_REQUIRED", "The selected native environment has no configured placement resolver.", 503, false, payload.correlationId);
         const claimId = crypto.randomUUID();
         const claimResult = await claimExecutionWithStartupInterrupt(this.interruptRegistry, turnId, () => withTurnAdmissionRepository(
           this.env,
@@ -1392,6 +1392,12 @@ export class RunEngineRequestHandler {
           );
         }
         executionClaim = { turnId, claimId };
+        if (delegatedRoute && this.dependencies.delegatedPreparation) {
+          const response = await executeDelegatedRun({ payload, preparation: this.dependencies.delegatedPreparation,
+            lifecycleEvents: this.createLifecycleEventStore(), interrupts: this.interruptRegistry,
+            approvals: this.approvalResolutionRegistry, threadInputs: this.threadInputRegistry });
+          return withRunEngineHeaders(request, this.env, response, { "X-Thread-Id": threadId, "X-Turn-Id": turnId, "X-Run-Attempt-Id": runAttemptId });
+        }
         const runtimeState = this.createRuntimeState();
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
         const taskCheckoutLifecycle = resources.checkoutLifecycle;

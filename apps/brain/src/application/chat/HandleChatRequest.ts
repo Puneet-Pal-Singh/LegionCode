@@ -1,3 +1,4 @@
+import { isDelegatedHarnessRoute } from "../../runtime/HarnessExecutionRoute";
 import { HarnessAdmissionSelectionSchema, type HarnessAdmissionSelection } from "@repo/platform-protocol";
 /**
  * HandleChatRequest Use-Case
@@ -127,7 +128,7 @@ export interface HandleChatRequestOutput {
       orchestratorBackend: RuntimeOrchestratorBackend;
       executionBackend: RuntimeExecutionBackend;
       harnessMode: RuntimeHarnessMode;
-      authMode: RuntimeAuthMode;
+      authMode?: RuntimeAuthMode;
       metadata?: Record<string, unknown>;
       repositoryContext?: RepositoryContext;
     };
@@ -176,6 +177,7 @@ export class HandleChatRequest {
       identity,
     } = input;
 
+    const delegated = isDelegatedHarnessRoute(input);
     const runtimeSelections = this.resolveRuntimeSelections(input);
     const mode = input.mode ?? DEFAULT_RUN_MODE;
 
@@ -189,19 +191,19 @@ export class HandleChatRequest {
         capabilities: input.modelCapabilities,
         inputModalities: input.modelInputModalities,
       };
-      assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
+      if (!delegated) assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
 
       const repositorySlug =
         repositoryOwner && repositoryName
           ? `${repositoryOwner}/${repositoryName}`
           : undefined;
       const taskId = input.taskId ?? sessionId;
-      const contextWindowTokens = resolveContextWindowTokens(input);
-      const providerRuntimeRoute =
+      const contextWindowTokens = delegated ? undefined : resolveContextWindowTokens(input);
+      const providerRuntimeRoute = delegated ? undefined :
         input.providerRuntimeRoute ??
         resolveProviderRuntimeRoute(input.providerId, input.modelId);
       const normalizedProviderRuntimeRoute =
-        normalizeProviderRuntimeRoute(providerRuntimeRoute);
+        delegated ? {} : normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
       let persistedRun: RunRecord | undefined;
       if (!userId) {
@@ -263,10 +265,11 @@ export class HandleChatRequest {
           providerRuntimeRoute: input.providerRuntimeRoute,
           modelCapabilities: input.modelCapabilities,
           backgroundTaskOwner: input.backgroundTaskOwner,
+          executionStrategy: delegated ? "delegated" : "native",
         });
       }
 
-      const executionMessages = userId
+      const executionMessages = userId && !delegated
         ? await new DurableConversationContextAssembler(this.env).assemble({
             sessionId,
             userId,
@@ -381,13 +384,13 @@ export class HandleChatRequest {
     orchestratorBackend: RuntimeOrchestratorBackend;
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
-    authMode: RuntimeAuthMode;
+    authMode?: RuntimeAuthMode;
   } {
     return {
       orchestratorBackend: input.orchestratorBackend ?? "execution-engine-v1",
       executionBackend: input.executionBackend ?? "cloudflare_sandbox",
-      harnessMode: input.harnessMode ?? "platform_owned",
-      authMode: input.authMode ?? "api_key",
+      harnessMode: isDelegatedHarnessRoute(input) ? "delegated" : input.harnessMode ?? "platform_owned",
+      authMode: isDelegatedHarnessRoute(input) ? undefined : input.authMode ?? "api_key",
     };
   }
 

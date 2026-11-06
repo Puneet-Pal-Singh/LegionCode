@@ -1,3 +1,4 @@
+import { isDelegatedHarnessRoute } from "../runtime/HarnessExecutionRoute";
 import type { Env } from "../types/ai";
 import { DomainError } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
@@ -64,7 +65,7 @@ export async function bindAuthenticatedChatRequest(
     );
   }
 
-  validateWithSchema(
+  if (!isDelegatedHarnessRoute(body)) validateWithSchema(
     { providerId: body.providerId, modelId: body.modelId },
     ChatProviderSelectionSchema,
     correlationId,

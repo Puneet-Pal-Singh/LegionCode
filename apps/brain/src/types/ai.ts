@@ -29,6 +29,8 @@ export interface HyperdriveBinding {
 }
 
 export interface Env {
+  /** In-process canonical admission/host composition; never client supplied. */
+  HARNESS_RUN_PREPARATION?: import("../runtime/DelegatedRunExecution").DelegatedRunPreparationPort;
   // Existing bindings
   AI: Ai;
   SECURE_API: Fetcher;

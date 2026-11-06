@@ -15,6 +15,7 @@ import { buildThreadTitleInput } from "./ThreadTitleInput";
 import { ThreadTitleService } from "./ThreadTitleService";
 
 interface InitialThreadTitleInput {
+  executionStrategy?: "native" | "delegated";
   sessionId: string;
   userId: string;
   identity: TurnScopeBootstrap;
@@ -52,9 +53,12 @@ export async function scheduleInitialThreadTitle(
     if (!scope.runId) return;
     const preview = await new ThreadTitleService(env).persistPreview({
       ...scope,
-      titleStatus: input.backgroundTaskOwner ? "pending" : "failed",
+      titleStatus: input.executionStrategy !== "delegated" && input.backgroundTaskOwner ? "pending" : "failed",
     });
-    if (!preview || !input.backgroundTaskOwner) return;
+    // External subscription/account auth is never reused by native title inference.
+    // No harness title producer exists here, so keep the canonical preview and
+    // mark generation unavailable without selecting a different payer.
+    if (!preview || input.executionStrategy === "delegated" || !input.backgroundTaskOwner) return;
     // Only accept routing metadata for the same provider/model as the persisted first run.
     const trustedRoute = input.providerRuntimeRoute;
     const sameRoute =

@@ -1,3 +1,4 @@
+import { isDelegatedHarnessRoute } from "../../runtime/HarnessExecutionRoute";
 import type { AgentType } from "@legioncode/execution-engine/runtime";
 import { HandleChatRequest } from "../../application/chat";
 import type { Env } from "../../types/ai";
@@ -109,7 +110,8 @@ export async function submitHostedChat(
 
     const executionStartedAt = Date.now();
     const useCase = new HandleChatRequest(env);
-    const trustedModelMetadata: ChatModelMetadata =
+    const delegated = isDelegatedHarnessRoute(body);
+    const trustedModelMetadata: ChatModelMetadata = delegated ? {} :
       await resolveChatModelMetadata({
         providerId: body.providerId,
         modelId: body.modelId,
@@ -125,7 +127,7 @@ export async function submitHostedChat(
           }),
       });
 
-    const reasoningEffortError = validateChatReasoningEffort(
+    const reasoningEffortError = delegated ? null : validateChatReasoningEffort(
       body.reasoningEffort,
       trustedModelMetadata,
     );
