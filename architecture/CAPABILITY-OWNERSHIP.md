@@ -1099,6 +1099,23 @@ advertise `turn-execution-v1`. Atomic admission, native read-only execution,
 protected provider delivery and the renderer binding remain separate integration
 dependencies. The mounted end-to-end Desktop execution path is not yet complete.
 
+
+## Plan 057 — Canonical local turn command contracts
+
+Local start/get/paged thread-history intent uses canonical TurnAdmission records;
+no local identity, lifecycle event or terminal schema is introduced. Local versus
+hosted interruption is explicitly dispatched by environment and existing hosted
+SDK validation remains unchanged. Native composition supplies the local operation
+owner in its integration slice; these contracts do not advertise execution.
+
+SDK createAppServerLifecycleClient adapts an existing AppServerClient to the
+canonical replay/follow port. It reuses cursor ordering, retry classification,
+status delivery and the runtime terminal events. Its bounded IPC read suppresses
+late results after abort without converting transport closure into settlement.
+The existing client case verifies empty initial replay, continuation/resume,
+abort suppression and permanent not-found failure. No renderer polling loop or
+second lifecycle reducer is introduced.
+
 ## Plan 057.6C — Atomic native Turn admission persistence
 
 | Responsibility | Canonical owner | Producer and consumer status |
@@ -1169,3 +1186,12 @@ failure. `readFile` remains its UTF-8 view. Worker01 owns the public query/SDK
 contracts; worker10 owns the actual workspace-files query service/UI; worker12
 owns the bundled binary. No runtime tool ID, event producer, filesystem fallback
 or new persistent directory authority is added.
+
+### Private host credential contract foundation
+
+Desktop main and its utility process share the bounded correlated credential
+message schemas/client under main/runtime-credentials.ts. The public DesktopApi
+has no credential-read operation. The contract foundation alone wires no broker,
+provider, startup path or execution capability; trusted main and utility
+composition consume it in their separate integration slices. It is not an HTTP
+credential transport or a renderer API.

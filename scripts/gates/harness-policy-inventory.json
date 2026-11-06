@@ -4,8 +4,8 @@
   "purpose": "Machine-readable inventory for LegionCode harness policy files. New *Policy.ts files must be classified here before they can enter apps/ or packages/.",
   "entries": [
     {
-      "path": "apps/brain/src/services/providers/ProviderRequestPolicy.ts",
-      "owner": "brain-provider-routing",
+      "path": "packages/execution-engine/src/runtime/provider/ProviderRequestPolicy.ts",
+      "owner": "runtime-provider-adapters",
       "category": "provider",
       "disposition": "keep-pure-policy",
       "purpose": "Bound provider request retry behavior at the adapter boundary.",
