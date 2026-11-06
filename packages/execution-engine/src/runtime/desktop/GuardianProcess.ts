@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, constants, fstatSync, openSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, sep } from "node:path";
+import { fstatSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { constants as osConstants } from "node:os";
 import type { LocalProcessOutput } from "./BoundedLocalProcess.js";
@@ -52,10 +52,39 @@ export class GuardianProcess {
       throw new SingleProcessMacCapabilityError("Invalid single-executable argv");
     }
     const sandbox = buildSingleProcessMacSandbox(input.executable, input.sandbox);
-    const cwd = realpathSync(input.cwd);
-    const cwdRelative = relative(input.sandbox.filesystemRoot, cwd);
-    if (cwd !== input.cwd || cwdRelative === ".." || cwdRelative.startsWith(`..${sep}`) || isAbsolute(cwdRelative)) {
-      throw new SingleProcessMacCapabilityError("Single-executable cwd must be canonical and inside the granted root");
+    // The descriptor is the authority. Do not reopen the root by pathname.
+    // The current C protocol can fchdir to root only; relative traversal needs
+    // a separately reviewed no-follow helper operation before being supported.
+    if (!isAbsolute(input.cwd) || resolve(input.cwd) !== input.sandbox.filesystemRoot) {
+      throw new SingleProcessMacCapabilityError("Single-executable cwd supports only the held workspace root");
+    }
+    try {
+      if (!Number.isSafeInteger(input.workspaceRootFd) || input.workspaceRootFd < 3 || !fstatSync(input.workspaceRootFd).isDirectory()) {
+        throw new SingleProcessMacCapabilityError("The held workspace directory descriptor is required");
+      }
+    } catch (error) {
+      if (error instanceof SingleProcessMacCapabilityError) throw error;
+      throw new SingleProcessMacCapabilityError("The held workspace directory descriptor is unavailable", error);
+    }
+    const gitEnvironment: Record<string, string> = {};
+    const deadlineMs = input.trustedGit?.timeoutMs ?? DEADLINE_MS;
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > DEADLINE_MS) {
+      throw new SingleProcessMacCapabilityError("Unsupported bounded Git command timeout");
+    }
+    if (input.trustedGit) {
+      for (const [key, value] of Object.entries(input.trustedGit.environment)) {
+        if (!["GIT_INDEX_FILE", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT"].includes(key)
+          || typeof value !== "string" || value.includes("\0") || Buffer.byteLength(value) > 4_096
+          || (key === "GIT_OPTIONAL_LOCKS" && value !== "0" && value !== "1")
+          || (key === "GIT_TERMINAL_PROMPT" && value !== "0")) {
+          throw new SingleProcessMacCapabilityError("Unsupported private Git environment override");
+        }
+        gitEnvironment[key] = value;
+      }
+      if (input.trustedGit.stdin !== undefined && (typeof input.trustedGit.stdin !== "string"
+        || Buffer.byteLength(input.trustedGit.stdin) > 1_000_000)) {
+        throw new SingleProcessMacCapabilityError("Canonical Git stdin exceeds its supported bound");
+      }
     }
     if (input.writerLeaseFd !== undefined) {
       try {
@@ -67,23 +96,19 @@ export class GuardianProcess {
         throw new SingleProcessMacCapabilityError("The private writer-fence descriptor is unavailable", error);
       }
     }
-    const cwdFd = openSync(cwd, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    try {
-      input.signal.throwIfAborted();
-      this.guardian = spawn(input.processHelperPath, [
-        "--timeout-ms", String(DEADLINE_MS), "--term-grace-ms", String(GRACE_MS), "--cwd-fd", "5",
+    input.signal.throwIfAborted();
+    this.guardian = spawn(input.processHelperPath, [
+        "--timeout-ms", String(deadlineMs), "--term-grace-ms", String(GRACE_MS), "--cwd-fd", "5",
         ...(input.writerLeaseFd === undefined ? [] : ["--lease-fd", "6"]),
         "--profile", sandbox.profile, "--", input.executable, ...input.args,
       ], {
-        cwd: input.sandbox.filesystemRoot,
         detached: true,
-        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: input.sandbox.filesystemRoot, TMPDIR: input.sandbox.filesystemRoot, LANG: "C.UTF-8" },
+        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: input.sandbox.filesystemRoot, TMPDIR: input.sandbox.filesystemRoot, LANG: "C.UTF-8", ...gitEnvironment },
         // The guardian retains this same open description through waitpid;
         // its target closes FD6 before exec. Never reopen/unlock the fence here.
-        stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", cwdFd,
+        stdio: [input.trustedGit?.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe", "pipe", "pipe", input.workspaceRootFd,
           ...(input.writerLeaseFd === undefined ? [] : [input.writerLeaseFd])],
       });
-    } finally { closeSync(cwdFd); }
     // spawn can return a ChildProcess with missing pipes and report EMFILE or
     // ENFILE asynchronously. Install the failure observer before validation.
     this.guardian.on("error", () => { this.uncertain = true; });
@@ -109,6 +134,7 @@ export class GuardianProcess {
       let statusBuffer = "";
       let statusBytes = 0;
       let settled = false;
+      let inputFailure: Error | undefined;
       const rejectUncertain = (message: string, cause?: unknown) => {
         this.uncertain = true;
         this.stop();
@@ -129,6 +155,7 @@ export class GuardianProcess {
           return;
         }
         settled = true;
+        if (inputFailure) { reject(new SingleProcessMacCapabilityError("Canonical Git stdin could not be delivered", inputFailure)); return; }
         resolve({ exitCode: this.receipt.exitCode, signal: this.receipt.signal,
           stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"), truncated,
           timedOut: this.receipt.timedOut, outputClosed: false });
@@ -167,8 +194,18 @@ export class GuardianProcess {
       const watchdog = setTimeout(() => {
         rejectUncertain("Process guardian terminal receipt did not arrive before the bound");
         stdoutStream.destroy(); stderrStream.destroy(); status.destroy();
-      }, DEADLINE_MS + GRACE_MS + 2_000);
+      }, deadlineMs + GRACE_MS + 2_000);
       watchdog.unref();
+      if (input.trustedGit?.stdin !== undefined) {
+        const stdin = this.guardian.stdin;
+        if (!(stdin instanceof Writable)) rejectUncertain("Canonical Git stdin channel is unavailable");
+        else {
+          // Data only, never executable code. Wait for terminal proof even if
+          // the target closes input early; input errors are not exit evidence.
+          stdin.on("error", (error) => { inputFailure = error; });
+          stdin.end(input.trustedGit.stdin);
+        }
+      }
       if (input.signal.aborted) this.stop();
     });
   }

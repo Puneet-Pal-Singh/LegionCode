@@ -1,4 +1,3 @@
-import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 /** Adapter failure code for runtime capability reporting; never select a fallback. */
@@ -26,20 +25,14 @@ export function buildSingleProcessMacSandbox(
   sandbox: SingleProcessMacSandbox,
 ): { profile: string; parameters: string[] } {
   const validPath = (path: string) => typeof path === "string" && isAbsolute(path)
-    && resolve(path) !== "/" && !path.includes("\0") && Buffer.byteLength(path) <= 4_096;
+    && resolve(path) === path && path !== "/" && !path.includes("\0") && Buffer.byteLength(path) <= 4_096;
   if (!sandbox || sandbox.scope !== "single_executable_nofork"
     || Object.keys(sandbox).sort().join(",") !== "filesystemRoot,scope"
     || !validPath(sandbox.filesystemRoot) || !validPath(executable)) {
     throw new SingleProcessMacCapabilityError("Unsupported single-process scope; restrictive filesystem/network policies are not implemented");
   }
-  try {
-    if (realpathSync(sandbox.filesystemRoot) !== sandbox.filesystemRoot) {
-      throw new SingleProcessMacCapabilityError("Workspace binding must be canonical");
-    }
-  } catch (error) {
-    if (error instanceof SingleProcessMacCapabilityError) throw error;
-    throw new SingleProcessMacCapabilityError("Workspace binding is unavailable", error);
-  }
+  // This string labels cwd/environment only. The separately held descriptor
+  // is the directory authority; do not resolve/reopen a competing root here.
   return {
     profile: [
       "(version 1)",

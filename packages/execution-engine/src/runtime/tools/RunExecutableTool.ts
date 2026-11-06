@@ -19,7 +19,7 @@ export type RunExecutableToolInput = z.infer<typeof RUN_EXECUTABLE_TOOL_INPUT_SC
 export const RUN_EXECUTABLE_TOOL_DEFINITION = {
   id: "run_executable",
   title: "Run Executable",
-  description: "Run one executable with exact arguments using your macOS user file, network and IPC access, including outside this workspace. Subprocess creation is denied; direct signals are limited to self. No shell parsing or expansion occurs in this tool.",
+  description: "Run one executable with exact arguments using your macOS user file, network and IPC access, including outside this workspace. Subprocess creation is denied; direct signals are limited to self. Cwd is limited to the granted workspace root. No shell parsing or expansion occurs in this tool.",
   inputSchema: RUN_EXECUTABLE_TOOL_INPUT_SCHEMA,
   permission: { mode: "approval_required", scope: "host_user" },
   sandboxClass: "write",

@@ -15,6 +15,14 @@ export type SingleExecutableProcessInput = {
   processHelperPath: string;
   /** Optional private writer-fence open description; never model or renderer input. */
   writerLeaseFd?: number;
+  /** The same held workspace directory descriptor supplied by the grant owner. */
+  workspaceRootFd: number;
+  /** Canonical Git owner only; not accepted by run_executable/model/renderer input. */
+  trustedGit?: {
+    environment: Readonly<Record<string, string>>;
+    stdin?: string;
+    timeoutMs: number;
+  };
 };
 
 export interface SingleProcessMacExecution {
