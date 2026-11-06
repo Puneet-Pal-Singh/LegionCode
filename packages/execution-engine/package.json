@@ -90,7 +90,8 @@
     "@ai-sdk/anthropic": "1.1.0",
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",
-    "zod-to-json-schema": "3.25.1"
+    "zod-to-json-schema": "3.25.1",
+    "@repo/provider-core": "workspace:*"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",

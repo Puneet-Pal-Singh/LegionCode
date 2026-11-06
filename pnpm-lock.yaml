@@ -792,6 +792,9 @@ importers:
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
+      '@repo/provider-core':
+        specifier: workspace:*
+        version: link:../provider-core
       '@repo/runtime-kernel':
         specifier: workspace:*
         version: link:../runtime-kernel

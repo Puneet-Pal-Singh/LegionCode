@@ -22,6 +22,7 @@ export function createAppServerLifecycleClient(
       return result;
     } catch (error) {
       assertNotAborted(options);
+      if (error instanceof PlatformClientOperationError) throw error;
       throw mapHostedLifecycleError(error, "turn/lifecycleEvents");
     }
   };
