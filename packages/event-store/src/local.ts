@@ -96,6 +96,7 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly environmentId: string;
   readonly workspaceGrants: {
     read(): Promise<StoredLocalWorkspaceGrant | null>;
     write(value: StoredLocalWorkspaceGrant): Promise<void>;
@@ -128,11 +129,22 @@ export class LocalPersistence {
       this.database = new Database(databasePath, { timeout: 0 });
       if (!existed) chmodSync(databasePath, 0o600);
       this.assertArchiveMarkerInOpenDatabase();
-      if (existed) this.validateExistingDatabaseBeforeMutation();
+      if (existed) {
+        this.validateExistingDatabaseBeforeMutation();
+        const hasMetadata = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'").get();
+        if (hasMetadata) this.readEnvironmentId();
+      }
       this.configureAndAcquireExclusiveLock();
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
+      this.environmentId = this.database.transaction(() => {
+        const existingEnvironmentId = this.readEnvironmentId();
+        if (existingEnvironmentId !== null) return existingEnvironmentId;
+        const environmentId = `env_${randomUUID()}`;
+        this.database.prepare("INSERT INTO metadata(key,value) VALUES ('local_environment_id_v1',?)").run(environmentId);
+        return environmentId;
+      }).immediate();
       this.archiveLegacyFilesAfterCommit();
     } catch (error) {
       this.database?.close();
@@ -551,6 +563,15 @@ export class LocalPersistence {
     this.guardStorage(() => this.database.transaction(() => {
       this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
     }).immediate());
+  }
+
+  private readEnvironmentId(): string | null {
+    const row = this.database.prepare("SELECT value FROM metadata WHERE key='local_environment_id_v1'").get() as { value: string } | undefined;
+    if (!row) return null;
+    if (!/^env_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(row.value)) {
+      throw corruptStore("Stored local environment identity is invalid");
+    }
+    return row.value;
   }
 
   private guardStorage<T>(operation: () => T): T {
