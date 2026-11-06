@@ -20,6 +20,12 @@ export type RuntimeCredentialRequest = z.infer<typeof RuntimeCredentialRequestSc
 export type RuntimeCredentialResponse = z.infer<typeof RuntimeCredentialResponseSchema>;
 export type RuntimeProviderCredential = NonNullable<RuntimeCredentialResponse["credential"]>;
 
+/** Main/supervisor-only lease. Never serialize the predicate or this wrapper. */
+export type RuntimeCredentialLease = {
+  readonly credential: RuntimeProviderCredential | null;
+  readonly isCurrent: () => boolean;
+};
+
 export class RuntimeCredentialClient {
   private closed = false;
   private readonly pending = new Map<string, {
