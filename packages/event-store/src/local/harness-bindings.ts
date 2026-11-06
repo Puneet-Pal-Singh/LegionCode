@@ -4,7 +4,7 @@ import {
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
 import { z } from "zod";
-import { LocalPersistenceError } from "../errors.js";
+import { EventStoreError, LocalPersistenceError } from "../errors.js";
 import { createStableEventFingerprint } from "../fingerprint.js";
 
 // Storage envelopes only. selectionJson is produced from the canonical P04
@@ -66,6 +66,9 @@ export interface HarnessObservationCommit {
   readonly events: readonly LifecycleEvent[];
   readonly learnedExternalTurnId?: string | null;
 }
+/** After commit_outcome_unknown or runtime restart, these event IDs are canonical
+ * recovery references, not permission to ACK and keep using stale runtime state.
+ * Restore the complete turn from the existing lifecycle replay port first. */
 export interface HarnessObservationAck {
   readonly sequence: number;
   readonly eventIds: readonly string[];
@@ -117,7 +120,8 @@ export class HarnessPersistenceError extends Error {
       | "sequence_gap"
       | "observation_conflict"
       | "admission_required"
-      | "corrupt",
+      | "corrupt"
+      | "commit_outcome_unknown",
     message: string,
   ) {
     super(message);
@@ -329,8 +333,10 @@ export function validateLocalHarnessBindings(
       !Number.isSafeInteger(row.last_observation_sequence) ||
       row.last_observation_sequence < 0 ||
       ![0, 1].includes(row.recovery_required) ||
-      (row.external_turn_id !== null && typeof row.external_turn_id !== "string") ||
-      (row.execution_claim_id !== null && typeof row.execution_claim_id !== "string")
+      (row.external_turn_id !== null &&
+        typeof row.external_turn_id !== "string") ||
+      (row.execution_claim_id !== null &&
+        typeof row.execution_claim_id !== "string")
     )
       throw new LocalPersistenceError(
         "corrupt",
@@ -555,9 +561,25 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           input.origin,
           input.expectedProcessGeneration,
         );
-        const retired = this.database.prepare("SELECT 1 FROM harness_process_generations WHERE turn_id=? AND process_generation=?").get(input.selection.turnId, input.origin.processGeneration);
-        if (retired) throw new HarnessPersistenceError("stale_origin", "A retired process generation cannot be reattached");
-        this.database.prepare("INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES (?,?,?)").run(input.selection.turnId, input.origin.processGeneration, JSON.stringify(input.origin));
+        const retired = this.database
+          .prepare(
+            "SELECT 1 FROM harness_process_generations WHERE turn_id=? AND process_generation=?",
+          )
+          .get(input.selection.turnId, input.origin.processGeneration);
+        if (retired)
+          throw new HarnessPersistenceError(
+            "stale_origin",
+            "A retired process generation cannot be reattached",
+          );
+        this.database
+          .prepare(
+            "INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES (?,?,?)",
+          )
+          .run(
+            input.selection.turnId,
+            input.origin.processGeneration,
+            JSON.stringify(input.origin),
+          );
         for (const event of input.events ?? []) {
           assertEventScope(input.selection, event);
           this.appendLifecycle(event);
@@ -604,9 +626,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           );
         return {
           sequence: input.sequence,
-          eventIds: z
-            .array(z.string())
-            .parse(JSON.parse(receipt.event_ids_json)),
+          eventIds: this.validateCanonicalReferences(input.selection, receipt.event_ids_json),
           duplicate: true,
         };
       })
@@ -616,83 +636,116 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     input: HarnessObservationCommit,
   ): Promise<HarnessObservationAck> {
     validateHarnessObservation(input);
-    return this.database
-      .transaction(() => {
-        const binding = this.required(input.selection);
-        this.requireClaim(input.selection.turnId);
-        assertHarnessOrigin(binding.attachment, input.origin);
-        assertLearnedExternalTurn(binding, input.learnedExternalTurnId);
-        const receipt = this.database
-          .prepare(
-            "SELECT observation_fingerprint,event_ids_json FROM harness_observation_receipts WHERE turn_id=? AND process_generation=? AND sequence=?",
+    try {
+      return this.database
+        .transaction(() => {
+          const binding = this.required(input.selection);
+          this.requireClaim(input.selection.turnId);
+          assertHarnessOrigin(binding.attachment, input.origin);
+          assertLearnedExternalTurn(binding, input.learnedExternalTurnId);
+          const receipt = this.database
+            .prepare(
+              "SELECT observation_fingerprint,event_ids_json FROM harness_observation_receipts WHERE turn_id=? AND process_generation=? AND sequence=?",
+            )
+            .get(
+              input.selection.turnId,
+              input.origin.processGeneration,
+              input.sequence,
+            ) as
+            | { observation_fingerprint: string; event_ids_json: string }
+            | undefined;
+          if (receipt) {
+            if (
+              receipt.observation_fingerprint !== input.observationFingerprint
+            )
+              throw new HarnessPersistenceError(
+                "observation_conflict",
+                "Observation sequence already contains different evidence",
+              );
+            return {
+              sequence: input.sequence,
+              eventIds: this.validateCanonicalReferences(
+                input.selection,
+                receipt.event_ids_json,
+              ),
+              duplicate: true,
+            };
+          }
+          const latest = this.database
+            .prepare(
+              "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence DESC LIMIT 1",
+            )
+            .get(input.selection.turnId) as { event_json: string } | undefined;
+          if (
+            latest &&
+            ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+              LifecycleEventSchema.parse(JSON.parse(latest.event_json)).type,
+            )
           )
-          .get(
-            input.selection.turnId,
-            input.origin.processGeneration,
-            input.sequence,
-          ) as
-          | { observation_fingerprint: string; event_ids_json: string }
-          | undefined;
-        if (receipt) {
-          if (receipt.observation_fingerprint !== input.observationFingerprint)
             throw new HarnessPersistenceError(
-              "observation_conflict",
-              "Observation sequence already contains different evidence",
+              "stale_origin",
+              "Attempt is already settled",
             );
-          return {
-            sequence: input.sequence,
-            eventIds: z
-              .array(z.string())
-              .parse(JSON.parse(receipt.event_ids_json)),
-            duplicate: true,
-          };
-        }
-        const latest = this.database
-          .prepare(
-            "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence DESC LIMIT 1",
-          )
-          .get(input.selection.turnId) as { event_json: string } | undefined;
-        if (
-          latest &&
-          ["turn.completed", "turn.failed", "turn.interrupted"].includes(
-            LifecycleEventSchema.parse(JSON.parse(latest.event_json)).type,
-          )
+          if (input.sequence !== binding.lastObservationSequence + 1)
+            throw new HarnessPersistenceError(
+              "sequence_gap",
+              "Harness observation sequence has a gap",
+            );
+          const eventIds = input.events.map(
+            (event) => this.appendLifecycle(event).eventId,
+          );
+          this.database
+            .prepare(
+              "INSERT INTO harness_observation_receipts(turn_id,process_generation,sequence,observation_fingerprint,event_ids_json) VALUES (?,?,?,?,?)",
+            )
+            .run(
+              input.selection.turnId,
+              input.origin.processGeneration,
+              input.sequence,
+              input.observationFingerprint,
+              JSON.stringify(eventIds),
+            );
+          this.database
+            .prepare(
+              "UPDATE harness_bindings SET last_observation_sequence=?,external_turn_id=COALESCE(external_turn_id,?) WHERE turn_id=?",
+            )
+            .run(
+              input.sequence,
+              input.learnedExternalTurnId ?? null,
+              input.selection.turnId,
+            );
+          return { sequence: input.sequence, eventIds, duplicate: false };
+        })
+        .immediate();
+    } catch (error) {
+      rethrowHarnessCommitFailure(error);
+    }
+  }
+  private validateCanonicalReferences(
+    selection: StoredHarnessSelection,
+    json: string,
+  ): readonly string[] {
+    const ids = z.array(z.string().min(1)).max(1000).parse(JSON.parse(json));
+    for (const id of ids) {
+      const row = this.database
+        .prepare(
+          "SELECT event_json FROM events WHERE family='lifecycle' AND event_id=?",
         )
-          throw new HarnessPersistenceError(
-            "stale_origin",
-            "Attempt is already settled",
-          );
-        if (input.sequence !== binding.lastObservationSequence + 1)
-          throw new HarnessPersistenceError(
-            "sequence_gap",
-            "Harness observation sequence has a gap",
-          );
-        const eventIds = input.events.map(
-          (event) => this.appendLifecycle(event).eventId,
+        .get(id) as { event_json: string } | undefined;
+      if (!row)
+        throw new HarnessPersistenceError(
+          "corrupt",
+          "Observation receipt references missing canonical evidence",
         );
-        this.database
-          .prepare(
-            "INSERT INTO harness_observation_receipts(turn_id,process_generation,sequence,observation_fingerprint,event_ids_json) VALUES (?,?,?,?,?)",
-          )
-          .run(
-            input.selection.turnId,
-            input.origin.processGeneration,
-            input.sequence,
-            input.observationFingerprint,
-            JSON.stringify(eventIds),
-          );
-        this.database
-          .prepare(
-            "UPDATE harness_bindings SET last_observation_sequence=?,external_turn_id=COALESCE(external_turn_id,?) WHERE turn_id=?",
-          )
-          .run(
-            input.sequence,
-            input.learnedExternalTurnId ?? null,
-            input.selection.turnId,
-          );
-        return { sequence: input.sequence, eventIds, duplicate: false };
-      })
-      .immediate();
+      const event = LifecycleEventSchema.parse(JSON.parse(row.event_json));
+      assertEventScope(selection, event);
+      if (event.eventId !== id)
+        throw new HarnessPersistenceError(
+          "corrupt",
+          "Observation receipt canonical identity is invalid",
+        );
+    }
+    return ids;
   }
   private required(selection: StoredHarnessSelection): StoredHarnessBinding {
     const binding = this.readWithin(selection);
@@ -751,8 +804,27 @@ export function sameHarnessOrigin(
 }
 
 /** Call only after the canonical worker observation schema has validated input. */
-export async function fingerprintHarnessObservation(observation: unknown): Promise<string> {
-  const encoded = new TextEncoder().encode(createStableEventFingerprint(observation));
+export async function fingerprintHarnessObservation(
+  observation: unknown,
+): Promise<string> {
+  const encoded = new TextEncoder().encode(
+    createStableEventFingerprint(observation),
+  );
   const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/** A connection/IO failure cannot prove that COMMIT did not become durable. */
+export function rethrowHarnessCommitFailure(error: unknown): never {
+  if (
+    error instanceof HarnessPersistenceError ||
+    error instanceof EventStoreError
+  )
+    throw error;
+  throw new HarnessPersistenceError(
+    "commit_outcome_unknown",
+    "Observation commit outcome is unknown; fence ingress and restore canonical history before continuing",
+  );
 }

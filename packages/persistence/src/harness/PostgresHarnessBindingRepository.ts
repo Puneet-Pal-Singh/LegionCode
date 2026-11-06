@@ -1,5 +1,8 @@
 import { PostgresTurnAdmissionRepository } from "../turn-admissions/PostgresTurnAdmissionRepository.js";
-import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
+import {
+  LifecycleEventSchema,
+  type LifecycleEvent,
+} from "@repo/platform-protocol/lifecycle";
 import {
   HarnessPersistenceError,
   StoredHarnessSelectionSchema,
@@ -12,6 +15,7 @@ import {
   assertEventScope,
   assertLearnedExternalTurn,
   sameHarnessOrigin,
+  rethrowHarnessCommitFailure,
   type StoredHarnessSelection,
   type StoredHarnessAttachment,
   type StoredHarnessBinding,
@@ -140,9 +144,23 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
         input.origin,
         input.expectedProcessGeneration,
       );
-      const retired = await tx.query("SELECT 1 FROM harness_process_generations WHERE turn_id=$1 AND process_generation=$2", [input.selection.turnId, input.origin.processGeneration]);
-      if (retired.rows[0]) throw new HarnessPersistenceError("stale_origin", "A retired process generation cannot be reattached");
-      await tx.query("INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES ($1,$2,$3::jsonb)", [input.selection.turnId, input.origin.processGeneration, JSON.stringify(input.origin)]);
+      const retired = await tx.query(
+        "SELECT 1 FROM harness_process_generations WHERE turn_id=$1 AND process_generation=$2",
+        [input.selection.turnId, input.origin.processGeneration],
+      );
+      if (retired.rows[0])
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "A retired process generation cannot be reattached",
+        );
+      await tx.query(
+        "INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES ($1,$2,$3::jsonb)",
+        [
+          input.selection.turnId,
+          input.origin.processGeneration,
+          JSON.stringify(input.origin),
+        ],
+      );
       for (const event of input.events ?? [])
         assertEventScope(input.selection, event);
       await new PostgresLifecycleEventStore(tx).appendBatch(input.events ?? []);
@@ -190,6 +208,7 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
           "corrupt",
           "Stored observation receipt is invalid",
         );
+      await validateCanonicalReferences(tx, input.selection, eventIds);
       return { sequence: input.sequence, eventIds, duplicate: true };
     });
   }
@@ -197,91 +216,96 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
     input: HarnessObservationCommit,
   ): Promise<HarnessObservationAck> {
     validateHarnessObservation(input);
-    return this.client.transaction(async (tx) => {
-      await lockCanonicalTurn(tx, input.selection.turnId);
-      // Preserve lock order with admission and terminal append. Duplicate ACKs
-      // remain readable after settlement, but new observations cannot revive it.
-      const admission = await tx.query<{ execution_state: string }>(
-        `SELECT a.execution_state FROM canonical_turn_admissions a
+    try {
+      return await this.client.transaction(async (tx) => {
+        await lockCanonicalTurn(tx, input.selection.turnId);
+        // Preserve lock order with admission and terminal append. Duplicate ACKs
+        // remain readable after settlement, but new observations cannot revive it.
+        const admission = await tx.query<{ execution_state: string }>(
+          `SELECT a.execution_state FROM canonical_turn_admissions a
         JOIN sessions s ON s.id=a.session_id WHERE a.turn_id=$1 AND a.run_attempt_id=$2 AND s.user_id=$3 FOR UPDATE OF a`,
-        [
-          input.selection.turnId,
-          input.selection.runAttemptId,
-          input.selection.userId,
-        ],
-      );
-      if (!admission.rows[0])
-        throw new HarnessPersistenceError(
-          "admission_required",
-          "Owned admitted attempt was not found",
+          [
+            input.selection.turnId,
+            input.selection.runAttemptId,
+            input.selection.userId,
+          ],
         );
-      const binding = await requiredBinding(tx, input.selection);
-      assertHarnessOrigin(binding.attachment, input.origin);
-      assertLearnedExternalTurn(binding, input.learnedExternalTurnId);
-      const receipt = await tx.query<ReceiptRow>(
-        `SELECT observation_fingerprint,event_ids_json FROM harness_observation_receipts
+        if (!admission.rows[0])
+          throw new HarnessPersistenceError(
+            "admission_required",
+            "Owned admitted attempt was not found",
+          );
+        const binding = await requiredBinding(tx, input.selection);
+        assertHarnessOrigin(binding.attachment, input.origin);
+        assertLearnedExternalTurn(binding, input.learnedExternalTurnId);
+        const receipt = await tx.query<ReceiptRow>(
+          `SELECT observation_fingerprint,event_ids_json FROM harness_observation_receipts
         WHERE turn_id=$1 AND process_generation=$2 AND sequence=$3`,
-        [
-          input.selection.turnId,
-          input.origin.processGeneration,
-          input.sequence,
-        ],
-      );
-      const prior = receipt.rows[0];
-      if (prior) {
-        if (prior.observation_fingerprint !== input.observationFingerprint)
-          throw new HarnessPersistenceError(
-            "observation_conflict",
-            "Observation sequence already contains different evidence",
-          );
-        const eventIds = jsonValue(prior.event_ids_json);
-        if (
-          !Array.isArray(eventIds) ||
-          !eventIds.every((id): id is string => typeof id === "string")
-        )
-          throw new HarnessPersistenceError(
-            "corrupt",
-            "Stored observation receipt is invalid",
-          );
-        return { sequence: input.sequence, eventIds, duplicate: true };
-      }
-      if (admission.rows[0].execution_state === "settled")
-        throw new HarnessPersistenceError(
-          "stale_origin",
-          "Attempt is already settled",
+          [
+            input.selection.turnId,
+            input.origin.processGeneration,
+            input.sequence,
+          ],
         );
-      if (input.sequence !== binding.lastObservationSequence + 1)
-        throw new HarnessPersistenceError(
-          "sequence_gap",
-          "Harness observation sequence has a gap",
+        const prior = receipt.rows[0];
+        if (prior) {
+          if (prior.observation_fingerprint !== input.observationFingerprint)
+            throw new HarnessPersistenceError(
+              "observation_conflict",
+              "Observation sequence already contains different evidence",
+            );
+          const eventIds = jsonValue(prior.event_ids_json);
+          if (
+            !Array.isArray(eventIds) ||
+            !eventIds.every((id): id is string => typeof id === "string")
+          )
+            throw new HarnessPersistenceError(
+              "corrupt",
+              "Stored observation receipt is invalid",
+            );
+          await validateCanonicalReferences(tx, input.selection, eventIds);
+          return { sequence: input.sequence, eventIds, duplicate: true };
+        }
+        if (admission.rows[0].execution_state === "settled")
+          throw new HarnessPersistenceError(
+            "stale_origin",
+            "Attempt is already settled",
+          );
+        if (input.sequence !== binding.lastObservationSequence + 1)
+          throw new HarnessPersistenceError(
+            "sequence_gap",
+            "Harness observation sequence has a gap",
+          );
+        // Nested transaction is a savepoint on this SAME tx/connection. Returning
+        // an ACK happens only after the enclosing transaction commits successfully.
+        const events = await new PostgresLifecycleEventStore(tx).appendBatch(
+          input.events,
         );
-      // Nested transaction is a savepoint on this SAME tx/connection. Returning
-      // an ACK happens only after the enclosing transaction commits successfully.
-      const events = await new PostgresLifecycleEventStore(tx).appendBatch(
-        input.events,
-      );
-      const eventIds = events.map((event) => event.eventId);
-      await tx.query(
-        `INSERT INTO harness_observation_receipts(turn_id,process_generation,sequence,observation_fingerprint,event_ids_json)
+        const eventIds = events.map((event) => event.eventId);
+        await tx.query(
+          `INSERT INTO harness_observation_receipts(turn_id,process_generation,sequence,observation_fingerprint,event_ids_json)
         VALUES ($1,$2,$3,$4,$5::jsonb)`,
-        [
-          input.selection.turnId,
-          input.origin.processGeneration,
-          input.sequence,
-          input.observationFingerprint,
-          JSON.stringify(eventIds),
-        ],
-      );
-      await tx.query(
-        "UPDATE harness_bindings SET last_observation_sequence=$2,external_turn_id=COALESCE(external_turn_id,$3) WHERE turn_id=$1",
-        [
-          input.selection.turnId,
-          input.sequence,
-          input.learnedExternalTurnId ?? null,
-        ],
-      );
-      return { sequence: input.sequence, eventIds, duplicate: false };
-    });
+          [
+            input.selection.turnId,
+            input.origin.processGeneration,
+            input.sequence,
+            input.observationFingerprint,
+            JSON.stringify(eventIds),
+          ],
+        );
+        await tx.query(
+          "UPDATE harness_bindings SET last_observation_sequence=$2,external_turn_id=COALESCE(external_turn_id,$3) WHERE turn_id=$1",
+          [
+            input.selection.turnId,
+            input.sequence,
+            input.learnedExternalTurnId ?? null,
+          ],
+        );
+        return { sequence: input.sequence, eventIds, duplicate: false };
+      });
+    } catch (error) {
+      rethrowHarnessCommitFailure(error);
+    }
   }
 }
 async function requireAdmission(
@@ -374,4 +398,35 @@ async function lockCanonicalTurn(tx: SqlClient, turnId: string): Promise<void> {
   await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     turnId,
   ]);
+}
+
+async function validateCanonicalReferences(
+  tx: SqlClient,
+  selection: StoredHarnessSelection,
+  ids: readonly string[],
+): Promise<void> {
+  if (ids.length > 1000)
+    throw new HarnessPersistenceError(
+      "corrupt",
+      "Observation receipt exceeds its bound",
+    );
+  for (const id of ids) {
+    const result = await tx.query<{ event_json: unknown }>(
+      "SELECT event_json FROM canonical_lifecycle_events WHERE event_id=$1",
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row)
+      throw new HarnessPersistenceError(
+        "corrupt",
+        "Observation receipt references missing canonical evidence",
+      );
+    const event = LifecycleEventSchema.parse(jsonValue(row.event_json));
+    assertEventScope(selection, event);
+    if (event.eventId !== id)
+      throw new HarnessPersistenceError(
+        "corrupt",
+        "Observation receipt canonical identity is invalid",
+      );
+  }
 }

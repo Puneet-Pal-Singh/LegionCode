@@ -34,6 +34,7 @@ export {
   assertLearnedExternalTurn,
   sameHarnessOrigin,
   fingerprintHarnessObservation,
+  rethrowHarnessCommitFailure,
 } from "./local/harness-bindings.js";
 export type {
   StoredHarnessSelection,
