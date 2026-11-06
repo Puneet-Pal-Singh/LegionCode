@@ -1,3 +1,4 @@
+import { prepareOwnedSessionUnarchive } from "./sessionArchive.js";
 import type { ChatTitleSource, JsonValue } from "@repo/shared-types";
 
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
@@ -257,11 +258,12 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     userId: string,
     sessionId: string,
   ): Promise<SessionRecord | null> {
-    return await updateSessionWithClient(this.client, UNARCHIVE_SESSION_SQL, [
-      userId,
-      sessionId,
-      this.clock.now(),
-    ]);
+    const now = this.clock.now();
+    const restore = async (client: SqlClient): Promise<SessionRecord | null> => {
+      if (!await prepareOwnedSessionUnarchive(client, userId, sessionId, now)) return null;
+      return await updateSessionWithClient(client, UNARCHIVE_SESSION_SQL, [userId, sessionId, now]);
+    };
+    return this.skipTxWrap ? await restore(this.client) : await this.client.transaction(restore);
   }
 
   async deleteArchivedSession(
@@ -1654,6 +1656,8 @@ const PIN_SESSION_SQL = `
   WHERE user_id = $1
     AND id = $2
     AND archived_at IS NULL
+    AND EXISTS (SELECT 1 FROM tasks WHERE tasks.id = sessions.task_id
+      AND tasks.user_id = $1 AND tasks.archived_at IS NULL)
   RETURNING ${SESSION_COLUMNS}
 `;
 
@@ -1674,6 +1678,8 @@ const ARCHIVE_SESSION_SQL = `
   WHERE user_id = $1
     AND id = $2
     AND archived_at IS NULL
+    AND EXISTS (SELECT 1 FROM tasks WHERE tasks.id = sessions.task_id
+      AND tasks.user_id = $1 AND tasks.archived_at IS NULL)
   RETURNING ${SESSION_COLUMNS}
 `;
 
@@ -1683,7 +1689,6 @@ const UNARCHIVE_SESSION_SQL = `
       updated_at = $3
   WHERE user_id = $1
     AND id = $2
-    AND archived_at IS NOT NULL
   RETURNING ${SESSION_COLUMNS}
 `;
 
@@ -1691,7 +1696,10 @@ const DELETE_ARCHIVED_SESSION_SQL = `
   DELETE FROM sessions
   WHERE user_id = $1
     AND id = $2
-    AND archived_at IS NOT NULL
+    AND (archived_at IS NOT NULL OR EXISTS (
+      SELECT 1 FROM tasks WHERE tasks.id = sessions.task_id
+        AND tasks.user_id = $1 AND tasks.archived_at IS NOT NULL
+    ))
   RETURNING task_id
 `;
 
@@ -1924,14 +1932,15 @@ const LIST_ARCHIVED_SESSIONS_SQL = `
     s.mode,
     s.status AS session_status,
     s.pinned_at,
-    s.archived_at,
+    COALESCE(s.archived_at, tasks.archived_at) AS archived_at,
     s.created_at AS session_created_at,
     s.updated_at AS session_updated_at
   FROM sessions s
   JOIN tasks ON tasks.id = s.task_id
   WHERE s.user_id = $1
-    AND s.archived_at IS NOT NULL
-  ORDER BY s.archived_at DESC
+    AND tasks.user_id = $1
+    AND COALESCE(s.archived_at, tasks.archived_at) IS NOT NULL
+  ORDER BY COALESCE(s.archived_at, tasks.archived_at) DESC
 `;
 
 const HAS_LEGACY_HISTORY_ARTIFACT_REFERENCE_SQL = `

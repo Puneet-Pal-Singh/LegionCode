@@ -219,6 +219,10 @@ describe("PostgresTranscriptRepository", () => {
     );
     expect(client.queries[1]?.statement).toContain("s.title_version");
     expect(client.queries[1]?.statement).toContain("s.title_status");
+    expect(client.queries[1]?.statement).toContain("COALESCE(s.archived_at, tasks.archived_at) AS archived_at");
+    expect(client.queries[1]?.statement).toContain("COALESCE(s.archived_at, tasks.archived_at) IS NOT NULL");
+    expect(client.queries[1]?.statement).toContain("tasks.user_id = $1");
+
   });
 
   it("projects approval only from the latest blocking event in the active run's current thread turn", async () => {
@@ -341,6 +345,31 @@ describe("PostgresTranscriptRepository", () => {
         "123e4567-e89b-42d3-a456-426614174001",
       );
       expect(clearedResult.sessions[0]?.status).toBe("running");
+
+      const owner = "123e4567-e89b-42d3-a456-426614174001";
+      const sessionId = "123e4567-e89b-42d3-a456-426614174002";
+      const siblingId = "123e4567-e89b-42d3-a456-426614174003";
+      await db.query(`INSERT INTO sessions
+        SELECT $1, user_id, workspace_id, NULL, NULL, task_id, 'Sibling', 'generated', 1, 'ready', repository, NULL, mode, 'idle', NULL, NULL, created_at, updated_at
+        FROM sessions WHERE id = $2`, [siblingId, sessionId]);
+      await db.query("UPDATE tasks SET archived_at = $1, status = 'archived'", [NOW]);
+      expect((await repository.listSessions(owner)).sessions).toEqual([]);
+      const inherited = await repository.listArchivedSessions(owner);
+      expect(inherited.map((session) => session.id).sort()).toEqual([sessionId, siblingId]);
+      expect(inherited.every((session) => session.archivedAt === NOW.toISOString())).toBe(true);
+      expect(await repository.pinSession(owner, sessionId)).toBeNull();
+      expect(await repository.unarchiveSession("123e4567-e89b-42d3-a456-426614174099", sessionId)).toBeNull();
+      const restored = await repository.unarchiveSession(owner, sessionId);
+      expect(restored?.archivedAt).toBeNull();
+      expect(restored?.activeRunId).toBe("run_abc123");
+      expect((await repository.listSessions(owner)).sessions.map((session) => session.id)).toEqual([sessionId]);
+      expect((await repository.listArchivedSessions(owner)).map((session) => [session.id, session.archivedAt])).toEqual([[siblingId, NOW.toISOString()]]);
+      const parent = await db.query("SELECT archived_at, status FROM tasks");
+      expect(parent.rows[0]).toMatchObject({ archived_at: null, status: "active" });
+      await repository.unarchiveSession(owner, siblingId);
+      expect((await repository.listSessions(owner)).sessions).toHaveLength(2);
+      expect(await repository.listArchivedSessions(owner)).toEqual([]);
+
     } finally {
       await db.close();
     }
