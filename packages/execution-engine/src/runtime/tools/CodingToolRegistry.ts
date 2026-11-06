@@ -1,3 +1,5 @@
+import { RUN_EXECUTABLE_TOOL_INPUT_SCHEMA, RUN_EXECUTABLE_TOOL_DEFINITION } from "./RunExecutableTool.js";
+export { RUN_EXECUTABLE_TOOL_INPUT_SCHEMA, type RunExecutableToolInput } from "./RunExecutableTool.js";
 import { readPreExecutionRejection } from "./PreExecutionRejection.js";
 import type { CoreTool } from "ai";
 import { isModelFacingCodingTool } from "./ModelFacingCodingTools.js";
@@ -56,6 +58,7 @@ export type ToolOutputRenderer =
 export const ToolBackendCapabilitySchema = z.enum([
   "filesystem_read",
   "filesystem_write",
+  "single_executable_nofork",
   "shell",
   "git",
   "network",
@@ -436,6 +439,7 @@ export const CODING_TOOL_IDS = [
   "apply_patch",
   "format_file",
   "bash",
+  "run_executable",
   "git_stage",
   "git_commit",
   "git_push",
@@ -472,6 +476,7 @@ export type CodingToolInputByName = {
   apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
   format_file: z.infer<typeof FORMAT_FILE_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
+  run_executable: z.infer<typeof RUN_EXECUTABLE_TOOL_INPUT_SCHEMA>;
   git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
   git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
   git_push: z.infer<typeof GIT_PUSH_TOOL_INPUT_SCHEMA>;
@@ -963,6 +968,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "format_file" },
   }),
+  createRoutedToolDefinition(RUN_EXECUTABLE_TOOL_DEFINITION),
   createRoutedToolDefinition({
     id: "bash",
     title: "Bash",
@@ -1258,9 +1264,11 @@ export class CodingToolRegistry {
     return this.definitionsById.has(id);
   }
 
-  toCoreToolRegistry(): Record<string, CoreTool> {
+  toCoreToolRegistry(backendCapabilities: readonly ToolBackendCapability[] = []): Record<string, CoreTool> {
     const registry: Record<string, CoreTool> = {};
     for (const tool of this.definitionsById.values()) {
+      if (tool.requiredBackendCapabilities.includes("single_executable_nofork")
+        && !backendCapabilities.includes("single_executable_nofork")) continue;
       registry[tool.id] = {
         description: tool.description,
         parameters: tool.inputSchema,

@@ -28,6 +28,13 @@ export class NativePermissionPolicyResolver {
           )
         : allowLow;
 
+    // Structured executable calls have no shell command string. Keep them in
+    // the tool policy domain with exact-input approval in every product mode.
+    const executableTools: RuleSetPolicy = { ...tools, rules: [...tools.rules, {
+      id: "native-single-executable-approval", pattern: "run_executable", effect: "ask", riskLevel: "high",
+      reason: "Running this exact executable and argv requires approval within the declared workspace/runtime paths; network and subprocesses are denied.",
+      approvalPrompt: "Allow this executable with these exact arguments? Workspace changes are allowed; network and subprocesses are denied.",
+    }] };
     return {
       commands: askHigh,
       paths: allowLow,
@@ -36,7 +43,7 @@ export class NativePermissionPolicyResolver {
       packageManagers: askHigh,
       secrets: ruleSet("deny", "critical"),
       externalServices: askHigh,
-      tools,
+      tools: executableTools,
     };
   }
 }

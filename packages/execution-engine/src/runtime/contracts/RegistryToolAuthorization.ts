@@ -178,6 +178,9 @@ function buildSafeInputSummary(
   }
   const family = resolveWorkflowFamily(definition);
   const record = input as Record<string, unknown>;
+  if (definition.id === "run_executable") {
+    return { inputSummary: JSON.stringify({ executable: record.executable, args: record.args, cwd: record.cwd ?? "." }).slice(0, 280) };
+  }
   const candidateKeys =
     family === "read" || family === "edit"
       ? ["path", "filePath", "file"]
