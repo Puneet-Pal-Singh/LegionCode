@@ -128,7 +128,7 @@ export interface HandleChatRequestOutput {
       orchestratorBackend: RuntimeOrchestratorBackend;
       executionBackend: RuntimeExecutionBackend;
       harnessMode: RuntimeHarnessMode;
-      authMode: RuntimeAuthMode;
+      authMode?: RuntimeAuthMode;
       metadata?: Record<string, unknown>;
       repositoryContext?: RepositoryContext;
     };
@@ -268,6 +268,7 @@ export class HandleChatRequest {
           providerRuntimeRoute: input.providerRuntimeRoute,
           modelCapabilities: input.modelCapabilities,
           backgroundTaskOwner: input.backgroundTaskOwner,
+          executionStrategy: delegated ? "delegated" : "native",
         });
       }
 
@@ -386,13 +387,13 @@ export class HandleChatRequest {
     orchestratorBackend: RuntimeOrchestratorBackend;
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
-    authMode: RuntimeAuthMode;
+    authMode?: RuntimeAuthMode;
   } {
     return {
       orchestratorBackend: input.orchestratorBackend ?? "execution-engine-v1",
       executionBackend: input.executionBackend ?? "cloudflare_sandbox",
-      harnessMode: input.harnessMode ?? "platform_owned",
-      authMode: input.authMode ?? "api_key",
+      harnessMode: isDelegatedChat(input) ? "delegated" : input.harnessMode ?? "platform_owned",
+      authMode: isDelegatedChat(input) ? undefined : input.authMode ?? "api_key",
     };
   }
 

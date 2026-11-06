@@ -500,6 +500,7 @@ export class RunEngineRuntime extends DurableObject {
       this.withExecutionLock,
       undefined,
       {
+        delegatedPreparation: (this.env as Env).HARNESS_RUN_PREPARATION,
         interruptRegistry: this.interruptRegistry,
         approvalResolutionRegistry: this.approvalResolutionRegistry,
         contextCompactionRegistry: this.contextCompactionRegistry,

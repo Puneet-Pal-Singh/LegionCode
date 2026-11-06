@@ -62,7 +62,8 @@ export interface RunEngineExecutionPayload {
     orchestratorBackend: RuntimeOrchestratorBackend;
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
-    authMode: RuntimeAuthMode;
+    harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
+    authMode?: RuntimeAuthMode;
     metadata?: Record<string, unknown>;
     repositoryContext?: RepositoryContext;
   };
