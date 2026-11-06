@@ -1,3 +1,4 @@
+import { isDelegatedChat, assertHostedChatEnvironment } from "../chat/ChatExecutionStrategy";
 import type { RunRecord } from "@repo/persistence";
 import type {
   ResumeWorkspaceSnapshotRef,
@@ -64,6 +65,9 @@ export async function prepareAdmittedTurnModel(input: {
   readonly workspaceId: string;
   readonly configuration: AdmittedTurnExecution["configuration"];
 }): Promise<ChatModelMetadata> {
+  assertHostedChatEnvironment(input.configuration.harnessSelection, input.env.APP_SERVER_ENVIRONMENT_ID);
+  // No Native model discovery or reasoning-policy calls for an external loop.
+  if (isDelegatedChat(input.configuration)) return {};
   const modelMetadata = await resolveChatModelMetadata({
     providerId:
       input.configuration.providerId ?? input.run.providerId ?? undefined,
@@ -95,6 +99,7 @@ export async function dispatchAdmittedTurn(
       ReturnType<HandleChatRequest["execute"]>
     >["executionPayload"];
     try {
+      const delegated = isDelegatedChat(input.configuration, input.correlationId);
       const modelMetadata =
         input.modelMetadata ?? (await prepareAdmittedTurnModel(input));
       const promptMessage = {
@@ -113,10 +118,8 @@ export async function dispatchAdmittedTurn(
           mode: toRuntimeRunMode(input.configuration.mode ?? input.run.mode),
           prompt: input.prompt,
           messages: [promptMessage],
-          providerId:
-            input.configuration.providerId ?? input.run.providerId ?? undefined,
-          modelId:
-            input.configuration.modelId ?? input.run.modelId ?? undefined,
+          providerId: delegated ? undefined : input.configuration.providerId ?? input.run.providerId ?? undefined,
+          modelId: delegated ? input.configuration.harnessSelection?.selection?.modelId : input.configuration.modelId ?? input.run.modelId ?? undefined,
           harnessId: input.configuration.harnessId,
           harnessSelection: input.configuration.harnessSelection,
           productMode: input.configuration.productMode,

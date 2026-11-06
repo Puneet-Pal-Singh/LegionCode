@@ -1,3 +1,4 @@
+import { isDelegatedChat, assertHostedChatEnvironment } from "../chat/ChatExecutionStrategy";
 import {
   ResumeWorkspaceSnapshotRefSchema,
   ThreadInputConfigurationSchema,
@@ -43,6 +44,7 @@ export interface ResumedTurn {
     readonly reasoningEffort?: ThreadInputConfiguration["reasoningEffort"];
     readonly productMode?: ThreadInputConfiguration["productMode"];
     readonly harnessId?: ThreadInputConfiguration["harnessId"];
+    readonly harnessSelection?: ThreadInputConfiguration["harnessSelection"];
   };
   readonly resumeSnapshot: ResumeWorkspaceSnapshotRef | undefined;
   readonly workspacePatch: string | undefined;
@@ -74,6 +76,8 @@ export class ResumeTurnService {
       throw new ResumeTurnError("The resume configuration is invalid", "resume_configuration_invalid", 400);
     }
 
+    assertHostedChatEnvironment(explicitConfiguration.harnessSelection, this.env.APP_SERVER_ENVIRONMENT_ID);
+    const delegated = isDelegatedChat(explicitConfiguration);
     const target = await withTurnAdmissionRepository(this.env, (repository) =>
       repository.getInterruptedTarget({
         sessionId: input.sessionId,
@@ -137,11 +141,12 @@ export class ResumeTurnService {
       reasoningEffort?: ThreadInputConfiguration["reasoningEffort"];
       productMode?: ThreadInputConfiguration["productMode"];
       harnessId?: ThreadInputConfiguration["harnessId"];
+      harnessSelection?: ThreadInputConfiguration["harnessSelection"];
     } = {
       ...explicitConfiguration,
       mode: explicitConfiguration.mode ?? target.run.mode,
-      providerId: explicitConfiguration.providerId ?? target.run.providerId,
-      modelId: explicitConfiguration.modelId ?? target.run.modelId,
+      providerId: delegated ? null : explicitConfiguration.providerId ?? target.run.providerId,
+      modelId: delegated ? explicitConfiguration.harnessSelection?.selection?.modelId ?? null : explicitConfiguration.modelId ?? target.run.modelId,
       branch: target.run.branch,
     };
     const fingerprint = await buildResumeFingerprint({
@@ -174,6 +179,7 @@ export class ResumeTurnService {
         mode: configuration.mode,
         providerId: configuration.providerId,
         modelId: configuration.modelId,
+        harnessSelection: configuration.harnessSelection,
         branch: configuration.branch,
         runStatus: "running",
         continuationOfTurnId: target.admission.turnId,

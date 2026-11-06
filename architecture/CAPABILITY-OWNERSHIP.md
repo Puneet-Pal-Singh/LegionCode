@@ -1105,3 +1105,21 @@ new scope owner is introduced.
   remains unavailable when it is null. This field identifies a host environment;
   admission still owns the exact workspace/account/model/runtime binding, and
   does not gain authority from a renderer echoing the field.
+
+
+## Explicit delegated chat preparation
+
+- `ChatExecutionStrategy` classifies the canonical admission selection before
+  Native provider validation/discovery. An unbound legacy delegated flag rejects;
+  it cannot select a provider or host implicitly. Explicit placement must match
+  the configured hosted environment identity.
+- `ChatRequestBoundary`, `HostedChatSubmission`, `HandleChatRequest` and admitted
+  queued/resume dispatch retain that selection through admission fingerprinting
+  and runtime input. External execution omits Native provider routing/tool input,
+  context assembly, model discovery, Native reasoning policy and provider-driven
+  title generation. The external model remains in the canonical selection.
+- This prepares the real SDK turn/submit path; it is not completed harness
+  execution. RunEngine's explicit `HARNESS_ADMISSION_COMPOSITION_REQUIRED` guard
+  still prevents execution until canonical binding/lease/driver composition is
+  supplied. Persistence must retain and recover the exact admitted selection;
+  UI defaults or current provider preferences cannot repair a missing binding.

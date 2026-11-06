@@ -1,3 +1,4 @@
+import { isDelegatedChat, assertHostedChatEnvironment } from "../services/chat/ChatExecutionStrategy";
 import type { Env } from "../types/ai";
 import { DomainError } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
@@ -64,11 +65,14 @@ export async function bindAuthenticatedChatRequest(
     );
   }
 
-  validateWithSchema(
-    { providerId: body.providerId, modelId: body.modelId },
-    ChatProviderSelectionSchema,
-    correlationId,
-  );
+  const delegated = isDelegatedChat(body, correlationId);
+  if (!delegated) {
+    validateWithSchema(
+      { providerId: body.providerId, modelId: body.modelId },
+      ChatProviderSelectionSchema,
+      correlationId,
+    );
+  }
   const imageInput = validateChatImageInput(body, correlationId);
   const executionScope = await resolveExecutionScope(
     req,
@@ -87,6 +91,8 @@ export async function bindAuthenticatedChatRequest(
       correlationId,
     );
   }
+
+  assertHostedChatEnvironment(body.harnessSelection, env.APP_SERVER_ENVIRONMENT_ID, correlationId);
 
   return {
     body,
