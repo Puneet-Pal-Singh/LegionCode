@@ -79,6 +79,9 @@ export class LocalTurnService {
       });
       // Construct ports before admission; providers execute only through execute().
       const executor = runtime.createExecutor(binding);
+      if (candidate.run.mode === "auto_edit" && !executor.awaitResourceRelease) {
+        throw new AppServerOperationError(503, "server_unavailable", "Captured local execution requires runtime resource-settlement confirmation");
+      }
       binding.assertCurrent();
       const { admission, newlyAdmitted } = await this.options.persistence.turnAdmissions.admit(candidate);
       if (newlyAdmitted) {
