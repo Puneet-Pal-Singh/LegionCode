@@ -46,6 +46,7 @@ export interface HarnessConnectionMetadata {
   providerId: ProviderId;
   ownerGeneration: number;
   tokenMaterialVersion: number;
+  refreshPending: boolean;
   kind: CredentialSecret["type"];
   status: ProviderCredentialRecord["status"];
 }
@@ -66,6 +67,8 @@ export class HarnessConnectionService {
     },
   ): Promise<HarnessConnectionMetadata> {
     await this.authorize(scope);
+    if (!input.label || input.label.length > 256)
+      throw new Error("Invalid connection label");
     const parsed = CredentialSecretSchema.safeParse(input.secret);
     if (!parsed.success) throw new Error("Invalid credential material");
     await this.policy.assertRouteAllowed(
@@ -88,6 +91,27 @@ export class HarnessConnectionService {
     const record = await this.store.getConnection(connectionId);
     return record && record.userId === scope.userId ? metadata(record) : null;
   }
+  async assertUsableConnection(
+    scope: HarnessConnectionScope,
+    connectionId: string,
+  ): Promise<HarnessConnectionMetadata | null> {
+    await this.authorize(scope);
+    const record = await this.store.getConnection(connectionId);
+    if (
+      !record ||
+      record.userId !== scope.userId ||
+      record.status !== "connected" ||
+      record.deletedAt !== null
+    )
+      return null;
+    await this.policy.assertRouteAllowed(
+      scope,
+      record.providerId,
+      record.credentialKind,
+    );
+    return metadata(record);
+  }
+
   async resolveForAttempt(binding: HarnessAttemptCredentialBinding) {
     await this.policy.authorizeAttempt(binding);
     await this.policy.ensureReady();
@@ -195,6 +219,7 @@ function metadata(r: ProviderCredentialRecord): HarnessConnectionMetadata {
     providerId: r.providerId,
     ownerGeneration: r.authOwnerGeneration,
     tokenMaterialVersion: r.tokenMaterialVersion,
+    refreshPending: r.refreshClaimId !== null,
     kind: r.credentialKind,
     status: r.status,
   };
