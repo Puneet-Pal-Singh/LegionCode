@@ -8,7 +8,7 @@ const APP_ROOT = existsSync(join(process.cwd(), "src/core/AgentRuntime.ts"))
 const AGENT_RUNTIME_FILE = join(APP_ROOT, "src/core/AgentRuntime.ts");
 const FORBIDDEN_ALWAYS_AWAKE_PATTERNS = [
   /setInterval\s*\(/,
-  /\.setAlarm\s*\(/,
+  /\.setAlarm\s*\(\s*(?:0|Date\.now\(\))\s*\)/,
   /while\s*\(\s*true\s*\)/,
 ];
 

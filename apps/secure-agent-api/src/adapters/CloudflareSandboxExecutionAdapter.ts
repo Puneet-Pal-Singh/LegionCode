@@ -23,6 +23,8 @@ interface TaskActionMapping {
 
 type TerminationReason = "cancelled" | "timeout";
 
+const SANDBOX_DESTROY_TIMEOUT_MS = 15_000;
+
 interface ActiveTaskExecution {
   leaseId: string;
   taskId: string;
@@ -130,13 +132,18 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     }
   }
 
-  async releaseLease(leaseId: string): Promise<LeaseReleaseResult> {
+  async releaseLease(
+    leaseId: string,
+    options: { destroySandbox?: boolean } = {},
+  ): Promise<LeaseReleaseResult> {
     const lease = this.leases.get(leaseId);
     if (!lease) return { released: false, sandboxReleased: false };
     await this.cleanup(leaseId);
     this.leases.delete(leaseId);
     const sandboxReleased = this.leases.size === 0;
-    if (sandboxReleased) await destroySandbox(this.sandbox);
+    if (sandboxReleased && options.destroySandbox !== false) {
+      await destroySandbox(this.sandbox);
+    }
     return { released: true, sandboxReleased };
   }
 
@@ -223,7 +230,9 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       }
       const normalized = normalizeError(error);
       if (isSandboxUnavailable(error, normalized)) {
-        if (!input.borrowedLease) await this.releaseLease(lease.leaseId);
+        if (!input.borrowedLease) {
+          await this.releaseLease(lease.leaseId, { destroySandbox: false });
+        }
         return {
           taskId: input.taskId,
           leaseId: lease.leaseId,
@@ -420,7 +429,20 @@ async function waitForQuiescence(
 }
 
 async function destroySandbox(sandbox: Sandbox): Promise<void> {
-  await sandbox.destroy();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sandbox.destroy(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Sandbox cleanup timed out")),
+          SANDBOX_DESTROY_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function resolveExecutePayloadAction(action: string, params: Record<string, unknown>): string {

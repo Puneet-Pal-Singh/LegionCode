@@ -858,7 +858,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       expect(result.status).toBe("sandbox_unavailable");
       expect(result.error?.code).toBe("SANDBOX_UNAVAILABLE");
       expect(result.retryable).toBe(true);
-      expect(destroy).toHaveBeenCalledOnce();
+      expect(destroy).not.toHaveBeenCalled();
     });
 
     it("does not cancel a sibling lease during cleanup", async () => {
