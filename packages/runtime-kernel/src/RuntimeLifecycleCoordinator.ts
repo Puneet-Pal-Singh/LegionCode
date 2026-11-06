@@ -1,3 +1,5 @@
+import type { HarnessCommitAck, HarnessObservation } from "@repo/worker-protocol";
+import type { HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";
 import {
   EventIdSchema,
   JsonRecordSchema,
@@ -115,6 +117,46 @@ export class RuntimeLifecycleCoordinator {
 
   constructor(private readonly options: RuntimeLifecycleCoordinatorOptions) {
     this.sequence = options.initialSequence ?? 0;
+  }
+
+  /** Serialize draft generation with ordinary lifecycle work. Only committed
+   * state is adopted; an append failure leaves the live coordinator unchanged. */
+  async commitHarnessObservation(
+    observation: HarnessObservation,
+    persistence: HarnessObservationCommitPort,
+    apply: (draft: RuntimeLifecycleCoordinator) => Promise<void>,
+  ): Promise<HarnessCommitAck> {
+    let acknowledgement: HarnessCommitAck | undefined;
+    await this.enqueue(async () => {
+      const existing = await persistence.lookup(observation);
+      if (existing) { acknowledgement = existing; return; }
+      const events: LifecycleEvent[] = [];
+      const draft = new RuntimeLifecycleCoordinator({
+        ...this.options,
+        sink: { appendBatch: async (batch) => { events.push(...batch); return batch; } },
+      });
+      draft.copyStateFrom(this);
+      await apply(draft);
+      acknowledgement = await persistence.commit({ observation, events });
+      this.copyStateFrom(draft);
+    });
+    if (!acknowledgement) throw new Error("Observation commit returned no acknowledgement");
+    return acknowledgement;
+  }
+
+  private copyStateFrom(source: RuntimeLifecycleCoordinator): void {
+    this.status = source.status;
+    this.blockingState = source.blockingState;
+    this.runAttemptStatus = source.runAttemptStatus;
+    this.accepted = source.accepted;
+    this.completionReserved = source.completionReserved;
+    this.sequence = source.sequence;
+    for (const key of ["itemStatuses", "itemKinds", "toolCallStatuses", "toolCallNames",
+      "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents"] as const) {
+      Object.assign(this[key], source[key]);
+    }
+    this.acceptedInputSequences.clear();
+    for (const [key, value] of source.acceptedInputSequences) this.acceptedInputSequences.set(key, value);
   }
 
   static restoreForInterruption(

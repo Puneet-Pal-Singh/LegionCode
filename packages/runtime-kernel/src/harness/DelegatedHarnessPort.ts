@@ -1,3 +1,4 @@
+import type { LifecycleEvent } from "@repo/platform-protocol";
 import type { HarnessCommitAck, HarnessControlCommand, HarnessObservation, HarnessQuiescence, HarnessSession, HarnessStartCommand } from "@repo/worker-protocol";
 
 /** Placement-independent execution. Concrete Node SDK types stay in the driver. */
@@ -16,13 +17,14 @@ export interface DelegatedHarnessPort {
   awaitQuiescence(input: { readonly session: HarnessSession; readonly timeoutMs: number }): Promise<HarnessQuiescence>;
 }
 
-/** P11 implementation must atomically deduplicate ingress and append canonical events.
- * The callback runs only for a new, next sequence inside the same transaction.
- * Existing committed ingress returns its prior ACK without invoking append again.
+/** P11 owns the durable transaction: validate active binding, deduplicate the exact
+ * ingress identity, append events and ingress atomically, then publish continuation.
+ * No ACK is returned on an ambiguous/failed commit. Duplicate payload conflicts reject.
  */
 export interface HarnessObservationCommitPort {
+  lookup(observation: HarnessObservation): Promise<HarnessCommitAck | null>;
   commit(input: {
     readonly observation: HarnessObservation;
-    readonly append: () => Promise<void>;
+    readonly events: readonly LifecycleEvent[];
   }): Promise<HarnessCommitAck>;
 }
