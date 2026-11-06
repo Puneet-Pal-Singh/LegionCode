@@ -2,6 +2,7 @@ import type { SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 export { SingleProcessMacCapabilityError, type SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 import type { LocalProcessOutput } from "./BoundedLocalProcess.js";
 import { GuardianProcess } from "./GuardianProcess.js";
+export { SingleProcessMacLifetimeUncertainError } from "./GuardianProcess.js";
 
 export type SingleExecutableProcessInput = {
   /** Absolute executable path. No shell parsing, translation or expansion. */

@@ -11,6 +11,15 @@ const OUTPUT_BYTES = 64 * 1024;
 const DEADLINE_MS = 60_000;
 const GRACE_MS = 250;
 
+/** No terminal process truth is available; consumers must not infer clean settlement. */
+export class SingleProcessMacLifetimeUncertainError extends Error {
+  readonly code = "single_executable_lifetime_uncertain" as const;
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = "SingleProcessMacLifetimeUncertainError";
+  }
+}
+
 type Receipt = { pid: number; exitCode: number | null; signal: string | null; timedOut: boolean };
 
 /** Private guardian protocol. Neither stdout nor stderr carries settlement truth. */
@@ -93,7 +102,7 @@ export class GuardianProcess {
           settled = true;
           clearTimeout(watchdog);
           input.signal.removeEventListener("abort", abort);
-          reject(new SingleProcessMacCapabilityError(message, cause));
+          reject(new SingleProcessMacLifetimeUncertainError(message, cause));
         }
       };
       const finish = () => {
