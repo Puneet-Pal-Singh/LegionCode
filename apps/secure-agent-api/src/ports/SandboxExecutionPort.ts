@@ -61,5 +61,8 @@ export interface SandboxExecutionPort {
     cpuUsage?: number;
   }>;
   cleanup(leaseId: string): Promise<void>;
-  releaseLease(leaseId: string): Promise<LeaseReleaseResult>;
+  releaseLease(
+    leaseId: string,
+    options?: { destroySandbox?: boolean },
+  ): Promise<LeaseReleaseResult>;
 }
