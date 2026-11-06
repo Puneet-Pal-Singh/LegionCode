@@ -15,7 +15,12 @@ export const HarnessScopeSchema = z.object({
   environmentId: Reference,
 }).strict();
 export const HarnessInstanceScopeSchema = HarnessScopeSchema.extend({ instanceId: Reference }).strict();
-export const HarnessSetupRequestSchema = HarnessInstanceScopeSchema.extend({
+/** Omit instanceId to create a server-issued instance. A supplied reference is
+ * reconnect-only; unknown references must not silently create replacements.
+ * The scoped command receipt owns the winning identity across retries.
+ */
+export const HarnessSetupRequestSchema = HarnessScopeSchema.extend({
+  instanceId: Reference.optional(),
   harness: HarnessKindSchema,
   connectionId: Reference,
   clientCommandId: Reference,

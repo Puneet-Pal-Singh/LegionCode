@@ -4,6 +4,8 @@ import { requestAppServerOperation, type AppServerClientOptions } from "../platf
 
 /** The same authenticated App Server transport is used by Web and Desktop.
  * No provider transport, polling loop, credentials or execution state lives here.
+ * setup omits instanceId for first creation and returns the server's instance
+ * receipt; reconnect callers pass that persisted ID without generating another.
  */
 export function createHarnessClient(options: AppServerClientOptions): HarnessClient {
   return {
