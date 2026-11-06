@@ -1037,3 +1037,19 @@ new scope owner is introduced.
 - The existing canonical chat request `productMode` and runtime permission policy
   retain their owners. A transition to the conversation cannot substitute the
   default Auto edits mode for an explicitly selected Supervised mode.
+
+
+## Plan 057.6C — Local canonical lifecycle replay
+
+The local App Server composes `turn/lifecycleEvents` over the existing SQLite
+lifecycle event store. It resolves the persisted event's thread through the
+current ready workspace grant before returning any page. Unknown turns,
+foreign-workspace threads, revoked grants and hosted backend requests fail
+closed. The existing SDK replay/cursor continuation consumes the same envelope;
+there is no local event schema, second replay endpoint or subscription store.
+
+This read path preserves runtime-produced events byte-for-byte across restart.
+It does not admit or execute turns, fabricate settlement after process loss, or
+advertise `turn-execution-v1`. Atomic admission, native read-only execution,
+protected provider delivery and the renderer binding remain separate integration
+dependencies. The mounted end-to-end Desktop execution path is not yet complete.
