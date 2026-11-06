@@ -35,6 +35,7 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
+import { useSessionProductMode } from "./components/agent/hooks/useSessionProductMode";
 import { ProviderStore } from "./services/provider/ProviderStore";
 import {
   isSessionContextPending,
@@ -339,6 +340,10 @@ function AppContent() {
 
     return SessionStateService.loadOrCreateSetupSession();
   }, [isAuthenticated, sessions.length]);
+  const {
+    productMode: setupProductMode,
+    setProductMode: setSetupProductMode,
+  } = useSessionProductMode(setupSession?.id);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ??
@@ -1095,6 +1100,10 @@ function AppContent() {
                   activeSession.activeRunId ?? activeSession.latestRunId ?? ""
                 }
                 mode={activeSession.mode}
+                initialProductMode={
+                  initialPromptSubmissions[activeSessionId]?.productMode ??
+                  setupDrafts[activeSessionId]?.productMode
+                }
                 workspaceContext={
                   sessionWorkspaceContext?.sessionId === activeSession.id
                     ? sessionWorkspaceContext
@@ -1214,6 +1223,8 @@ function AppContent() {
                         <AgentSetup
                           draftRef={setupDraftReaderRef}
                           sessionId={activeSessionId}
+                          productMode={productMode}
+                          onProductModeChange={setProductMode}
                           initialDraft={setupDrafts[activeSessionId]}
                           mode={activeSession.mode}
                           onModeChange={(mode) =>
@@ -1233,12 +1244,20 @@ function AppContent() {
                           onNoProject={handleChooseNoProject}
                           onStart={(config) => {
                             setSessionMode(activeSessionId, config.mode);
+                            setSetupDrafts((current) => ({
+                              ...current,
+                              [activeSessionId]: {
+                                ...(current[activeSessionId] ?? { task: "", imageAttachments: [] }),
+                                productMode: config.productMode,
+                              },
+                            }));
                             const submission: InitialPromptSubmission = {
                               id: createInitialPromptSubmissionId(
                                 crypto.randomUUID(),
                               ),
                               prompt: config.task,
                               attachments: config.attachments,
+                              productMode: config.productMode,
                               status: "queued",
                             };
                             const previous =
@@ -1278,6 +1297,8 @@ function AppContent() {
                   <AgentSetup
                     draftRef={setupDraftReaderRef}
                     sessionId={setupSession.id}
+                    productMode={setupProductMode}
+                    onProductModeChange={setSetupProductMode}
                     isRightSidebarOpen={isRightSidebarOpen}
                     rightSidebarWidth={rightSidebarWidth}
                     setRightSidebarWidth={setRightSidebarWidth}
@@ -1295,6 +1316,10 @@ function AppContent() {
                       );
                       inheritComposerSelection(sessionId);
                       clearContext();
+                      setSetupDrafts((current) => ({
+                        ...current,
+                        [sessionId]: { task: "", imageAttachments: [], productMode: config.productMode },
+                      }));
                       updateInitialPromptSubmissions((current) => ({
                         ...current,
                         [sessionId]: {
@@ -1303,6 +1328,7 @@ function AppContent() {
                           ),
                           prompt: config.task,
                           attachments: config.attachments,
+                          productMode: config.productMode,
                           status: "queued",
                         },
                       }));

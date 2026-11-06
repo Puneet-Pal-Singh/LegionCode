@@ -13,10 +13,7 @@ import {
   projectSavedChatSources,
   type SavedChatSourcesProjection,
 } from "../../lib/saved-chat-sources";
-import {
-  loadStoredProductMode,
-  persistProductMode,
-} from "../../lib/product-mode-storage";
+import { useSessionProductMode } from "../agent/hooks/useSessionProductMode";
 
 export interface SessionConversationSurfaceContext {
   chat: UseChatResult;
@@ -31,6 +28,7 @@ interface SessionConversationSurfaceProps {
   sessionId: string;
   runId?: string;
   mode?: RunMode;
+  initialProductMode?: ProductMode;
   onServerProjectionAvailable?: () => void;
   onSavedSourcesChange?: (projection: SavedChatSourcesProjection) => void;
   onRunIdChange?: (runId: string) => void;
@@ -45,6 +43,7 @@ export function SessionConversationSurface({
   sessionId,
   runId,
   mode,
+  initialProductMode,
   onServerProjectionAvailable,
   onSavedSourcesChange,
   onRunIdChange,
@@ -53,9 +52,7 @@ export function SessionConversationSurface({
   hasQueuedIntent,
   children,
 }: SessionConversationSurfaceProps) {
-  const [productMode, setProductMode] = useState<ProductMode>(() =>
-    loadStoredProductMode(sessionId),
-  );
+  const { productMode, setProductMode } = useSessionProductMode(sessionId, initialProductMode);
   const [fileCreatedRefresh, setFileCreatedRefresh] = useState<
     (() => void) | null
   >(null);
@@ -68,10 +65,6 @@ export function SessionConversationSurface({
   const refreshCreatedFile = useCallback(
     () => fileCreatedRefresh?.(),
     [fileCreatedRefresh],
-  );
-  useEffect(
-    () => persistProductMode(sessionId, productMode),
-    [productMode, sessionId],
   );
 
   const chat = useChat(

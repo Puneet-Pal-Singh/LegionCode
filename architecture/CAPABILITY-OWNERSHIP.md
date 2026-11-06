@@ -942,3 +942,18 @@ admission, not terminal settlement: only a matching completed, failed or
 interrupted lifecycle event finishes the SDK operation. The existing 15-second
 abort, mismatched-attempt rejection and iterator cleanup are preserved, using
 portable timers without a browser global or another lifecycle subscription owner.
+
+
+## Setup permission selection and first submission
+
+- The mounted `SessionConversationSurface` owns one permission selection and
+  supplies it to both controlled `AgentSetup` and `useChat`/`useChatCore`. Setup
+  no longer maintains a second same-session selection that only writes storage.
+- The runless shell owns its own setup choice. Explicit project/draft transfer
+  and first-prompt intent carry that selected `productMode` into the saved
+  session. The session owner applies the handoff before child submission effects,
+  and retains it after the initial intent retires. Browser preference storage is
+  not an event bus or permission authority.
+- The existing canonical chat request `productMode` and runtime permission policy
+  retain their owners. A transition to the conversation cannot substitute the
+  default Auto edits mode for an explicitly selected Supervised mode.

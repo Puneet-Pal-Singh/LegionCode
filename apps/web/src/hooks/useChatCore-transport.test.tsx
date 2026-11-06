@@ -1,4 +1,9 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, renderHook } from "@testing-library/react";
+import { useLayoutEffect } from "react";
+import type { ProductMode } from "@repo/shared-types";
+import { PermissionModeControl } from "@legioncode/client-ui";
+import { useSessionProductMode } from "../components/agent/hooks/useSessionProductMode";
+import { copySetupDraft } from "../components/agent/setupDraft";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatCore } from "./useChatCore";
 import type { SubmissionOutcome } from "@legioncode/sdk";
@@ -153,10 +158,9 @@ function reservations(requests: Array<{ url: string; body: string | null }>) {
   return requests.filter(({ url, body }) => url.endsWith("/app-server/request") && JSON.parse(body ?? "{}").method === "turn/reserve");
 }
 
-function renderCore(runId = `${FIXTURE.runId}_${crypto.randomUUID()}`) {
-  return renderHook(({ currentRunId }: { currentRunId: string }) =>
-    useChatCore(FIXTURE.sessionId, currentRunId, undefined, undefined, undefined, undefined, {
-      sessionId: FIXTURE.sessionId,
+function useFixtureCore(currentRunId: string, productMode?: ProductMode, sessionId = FIXTURE.sessionId) {
+  return useChatCore(sessionId, currentRunId, undefined, productMode, undefined, undefined, {
+      sessionId,
       workspaceId: FIXTURE.workspaceId,
       threadId: FIXTURE.threadId,
       workspaceStatus: "active",
@@ -174,9 +178,24 @@ function renderCore(runId = `${FIXTURE.runId}_${crypto.randomUUID()}`) {
       },
       selectedBranch: "main",
       runBranch: null,
-    }), {
-      initialProps: { currentRunId: runId },
     });
+}
+
+function renderCore(runId = `${FIXTURE.runId}_${crypto.randomUUID()}`) {
+  return renderHook(({ currentRunId }: { currentRunId: string }) =>
+    useFixtureCore(currentRunId), { initialProps: { currentRunId: runId } });
+}
+
+function PermissionComposer({ runId, sessionId = FIXTURE.sessionId, initialMode, onChat }: {
+  runId: string;
+  sessionId?: string;
+  initialMode?: ProductMode;
+  onChat: (chat: ReturnType<typeof useChatCore>) => void;
+}) {
+  const { productMode, setProductMode } = useSessionProductMode(sessionId, initialMode);
+  const chat = useFixtureCore(runId, productMode, sessionId);
+  useLayoutEffect(() => onChat(chat), [chat, onChat]);
+  return <PermissionModeControl value={productMode} onChange={setProductMode} />;
 }
 
 async function append(core: ReturnType<typeof renderCore>["result"], input: {
@@ -216,7 +235,15 @@ describe("useChatCore installed SDK request outcomes", () => {
 
   it("keeps a 503 unconfirmed and preserves composer input although SDK append resolves", async () => {
     const requests = installServer(async () => new Response("upstream unavailable", { status: 503 }));
-    const { result } = renderCore();
+    localStorage.removeItem(`legioncode:product-mode:${FIXTURE.sessionId}`);
+    const result = { current: undefined as unknown as ReturnType<typeof useChatCore> };
+    const ui = render(<PermissionComposer
+      runId={`${FIXTURE.runId}_${crypto.randomUUID()}`}
+      onChat={(chat) => { result.current = chat; }}
+    />);
+    fireEvent.click(ui.getByRole("button", { name: "Permission mode" }));
+    fireEvent.click(ui.getByRole("menuitemradio", { name: /Supervised/ }));
+    expect(ui.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
     act(() => result.current.handleInputChange({ target: { value: "Keep this intent" } } as never));
     let submitted!: boolean;
     await act(async () => { submitted = await result.current.handleSubmit(); });
@@ -237,6 +264,24 @@ describe("useChatCore installed SDK request outcomes", () => {
     expect(chatRequests).toHaveLength(2);
     expect(chatRequests[1]?.body).toBe(firstWire);
     expect(reservations(requests)).toHaveLength(1);
+    expect(JSON.parse(firstWire!).params.productMode).toBe("ask_always");
+    expect(ui.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
+    ui.unmount();
+
+    const newSessionId = crypto.randomUUID();
+    const newRunId = `${FIXTURE.runId}_${crypto.randomUUID()}`;
+    const receiveChat = (chat: ReturnType<typeof useChatCore>) => { result.current = chat; };
+    const draft = copySetupDraft({ task: "Transferred supervised intent", imageAttachments: [], productMode: "ask_always" });
+    const transferred = render(<PermissionComposer runId={newRunId} sessionId={newSessionId} onChat={receiveChat} />);
+    expect(transferred.getByRole("button", { name: "Permission mode" }).textContent).toContain("Auto edits");
+    transferred.rerender(<PermissionComposer runId={newRunId} sessionId={newSessionId} initialMode={draft.productMode} onChat={receiveChat} />);
+    expect(transferred.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
+    act(() => result.current.handleInputChange({ target: { value: draft.task } } as never));
+    await act(async () => { await result.current.handleSubmit(); });
+    const firstTransferredWire = requests.filter(isSubmissionRequest).at(-1)?.body;
+    expect(JSON.parse(firstTransferredWire!).params).toMatchObject({ sessionId: newSessionId, productMode: "ask_always" });
+    transferred.rerender(<PermissionComposer runId={newRunId} sessionId={newSessionId} onChat={receiveChat} />);
+    expect(transferred.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
   });
 
   it("reuses the reserved scope and exact emitted wire for an unchanged same-CID retry after a run reset", async () => {
