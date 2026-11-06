@@ -4,3 +4,7 @@ export * from "./server/ProcessSupervisor.js";
 export * from "./server/ScopedRequestReply.js";
 export * from "./server/ObservationDeliveryJournal.js";
 export * from "./server/HarnessHost.js";
+export * from "./server/HarnessDriver.js";
+export * from "./server/HarnessRegistry.js";
+export * from "./server/HarnessSessionManager.js";
+export * from "./server/HarnessExecutionPort.js";
