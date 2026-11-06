@@ -1,3 +1,5 @@
+import type { SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
+export type { SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 import { BoundedLocalProcess, type LocalProcessOutput } from "./BoundedLocalProcess.js";
 
 export type SingleExecutableProcessInput = {
@@ -6,6 +8,7 @@ export type SingleExecutableProcessInput = {
   args: readonly string[];
   cwd: string;
   signal: AbortSignal;
+  sandbox: SingleProcessMacSandbox;
 };
 
 export interface SingleProcessMacExecution {
@@ -24,7 +27,7 @@ export const executeSingleProcessMac: SingleProcessMacExecutor = (input) =>
   new SingleExecutableProcess(input);
 
 /**
- * Darwin-only no-fork process primitive, not a shell or filesystem sandbox.
+ * Darwin-only no-fork process primitive with a declared deny-default workspace scope.
  * The trusted runtime must validate the canonical tool call, exact attempt,
  * grant, permission and approval, and acquire real capture before calling it.
  */

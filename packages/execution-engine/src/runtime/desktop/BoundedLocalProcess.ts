@@ -1,5 +1,7 @@
+import { buildSingleProcessMacSandbox, type SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative, sep } from "node:path";
 
 const OUTPUT_BYTES = 64 * 1024;
 const COMMAND_TIMEOUT_MS = 60_000;
@@ -17,10 +19,8 @@ export type LocalProcessOutput = {
 
 export type BoundedLocalProcessInput = { cwd: string; signal: AbortSignal } & (
   | { command: string }
-  | { executable: string; args: readonly string[] }
+  | { executable: string; args: readonly string[]; sandbox: SingleProcessMacSandbox }
 );
-
-const NO_FORK_PROFILE = "(version 1)(allow default)(deny process-fork)";
 
 /** Group lifetime for legacy bash; single-PID lifetime only under Darwin no-fork. */
 export class BoundedLocalProcess {
@@ -48,8 +48,14 @@ export class BoundedLocalProcess {
         || input.args.length > 255 || input.args.some((arg) => typeof arg !== "string" || arg.includes("\0") || Buffer.byteLength(arg) > 4_096)) {
         throw new Error("Invalid single-executable argv");
       }
+      const sandbox = buildSingleProcessMacSandbox(input.executable, input.sandbox);
+      const cwd = realpathSync(input.cwd);
+      const cwdRelative = relative(input.sandbox.filesystemRoot, cwd);
+      if (cwd !== input.cwd || cwdRelative === ".." || cwdRelative.startsWith(`..${sep}`) || isAbsolute(cwdRelative)) {
+        throw new Error("Single-executable cwd must be canonical and inside the granted root");
+      }
       executable = "/usr/bin/sandbox-exec";
-      args = ["-p", NO_FORK_PROFILE, input.executable, ...input.args];
+      args = [...sandbox.parameters, "-p", sandbox.profile, input.executable, ...input.args];
     } else {
       executable = "/bin/bash";
       args = ["--noprofile", "--norc", "-c", input.command];
@@ -58,7 +64,8 @@ export class BoundedLocalProcess {
       cwd: input.cwd,
       detached: true,
       // Never inherit provider credentials or shell startup hooks.
-      env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", HOME: input.cwd, LANG: "C.UTF-8" },
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: "sandbox" in input ? input.sandbox.filesystemRoot : input.cwd,
+        TMPDIR: "sandbox" in input ? input.sandbox.filesystemRoot : input.cwd, LANG: "C.UTF-8" },
       stdio: "pipe",
     });
     this.child.stdin.end();
