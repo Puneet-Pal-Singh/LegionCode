@@ -983,6 +983,8 @@ describe("ProviderStore", () => {
       restoredStore.setActiveRunId("run-1");
       await restoredStore.bootstrap();
 
+      restoredStore.copySessionSelection("session-restore", "session-from-composer");
+      restoredStore.setActiveSessionId("session-from-composer");
       const state = restoredStore.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);

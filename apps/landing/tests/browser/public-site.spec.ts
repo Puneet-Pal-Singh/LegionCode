@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-async function expectNoHorizontalOverflow(page: import("@playwright/test").Page) {
+async function expectNoHorizontalOverflow(
+  page: import("@playwright/test").Page,
+) {
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
@@ -16,25 +18,28 @@ test("homepage exposes the product and primary routes", async ({ page }) => {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "The open-source multi-agent coding workspace.",
+      name: "LegionCode",
     }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Request Cloud Access" }).first(),
+    page.getByRole("link", { name: "Request Access" }).first(),
   ).toHaveAttribute("href", "/cloud/");
   await expect(
-    page.getByRole("link", { name: "Star on GitHub" }).first(),
-  ).toHaveAttribute(
-    "href",
-    "https://github.com/Puneet-Pal-Singh/LegionCode",
-  );
+    page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: "GitHub", exact: true }),
+  ).toHaveAttribute("href", "https://github.com/Puneet-Pal-Singh/LegionCode");
   await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Terms", exact: true }),
+  ).toHaveAttribute("href", "/terms/");
+  await expect(
+    page.getByRole("link", { name: "Privacy", exact: true }),
+  ).toHaveAttribute("href", "/privacy/");
   await expectNoHorizontalOverflow(page);
 });
 
-test("cloud page records a private-alpha access request", async ({
-  page,
-}) => {
+test("cloud page records a private-alpha access request", async ({ page }) => {
   await page.route("**/api/waitlist", async (route) => {
     await route.fulfill({
       status: 202,
@@ -52,7 +57,9 @@ test("cloud page records a private-alpha access request", async ({
       name: /Run a team of coding agents in the cloud/,
     }),
   ).toBeVisible();
-  await page.getByRole("textbox", { name: "Work email" }).fill("dev@example.com");
+  await page
+    .getByRole("textbox", { name: "Work email" })
+    .fill("dev@example.com");
   await page.getByRole("button", { name: "Request access" }).click();
   await expect(page.getByRole("status")).toHaveText(
     "Your private-alpha request has been recorded.",
@@ -72,14 +79,14 @@ test("mobile navigation remains usable and contained", async ({ page }) => {
   await expect(menuButton).toBeVisible();
   await menuButton.click();
   const mobileNavigation = page.getByRole("navigation", { name: "Mobile" });
-  await expect(mobileNavigation.getByRole("link", { name: "Docs" })).toHaveAttribute(
-    "href",
-    "/docs/",
-  );
-  await expect(mobileNavigation.getByRole("link", { name: "Request Access" })).toHaveAttribute(
-    "href",
-    "/cloud/",
-  );
-  await expect(page.getByRole("button", { name: "Close navigation" })).toBeFocused();
+  await expect(
+    mobileNavigation.getByRole("link", { name: "Docs" }),
+  ).toHaveAttribute("href", "/docs/");
+  await expect(
+    mobileNavigation.getByRole("link", { name: "Request Access" }),
+  ).toHaveAttribute("href", "/cloud/");
+  await expect(
+    page.getByRole("button", { name: "Close navigation" }),
+  ).toBeFocused();
   await expectNoHorizontalOverflow(page);
 });

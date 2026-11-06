@@ -4,6 +4,7 @@ export function resumeUnavailableMessage(
   projection: LifecycleProjection | null,
   hasScope: boolean,
 ): string | null {
+  if (projection?.executionCapability === "conversation") return null;
   if (!hasScope || projection?.terminal?.state !== "interrupted") return null;
   if (projection.workspaceSnapshotState === "unavailable") {
     return describeWorkspaceSnapshotUnavailable(
@@ -20,7 +21,11 @@ export function resumeUnavailableMessage(
 export function workspaceSnapshotNotice(
   projection: LifecycleProjection,
 ): string | null {
-  if (projection.terminal?.state !== "interrupted") return null;
+  if (
+    projection.executionCapability === "conversation" ||
+    projection.terminal?.state !== "interrupted"
+  )
+    return null;
   if (projection.workspaceSnapshotState === "unavailable") {
     return describeWorkspaceSnapshotUnavailable(
       projection.workspaceSnapshotUnavailableReason,
@@ -30,7 +35,7 @@ export function workspaceSnapshotNotice(
     projection.workspaceSnapshotState === "captured" &&
     projection.resumeSnapshotAvailable !== true
   ) {
-    return `${describeResumeUnavailable(projection.resumeUnavailableReason)} Workspace review remains available.`;
+    return describeResumeUnavailable(projection.resumeUnavailableReason);
   }
   return null;
 }
@@ -52,7 +57,9 @@ function describeResumeUnavailable(reason: string | null): string {
       return "The workspace was still changing when this turn stopped, so it cannot be resumed.";
     case "snapshot_too_large":
       return "The resume snapshot was too large to save, so this turn cannot be resumed.";
+    case "snapshot_unavailable":
+      return "No resume snapshot was saved for this turn. You can review the workspace or send a new message.";
     default:
-      return "The workspace is available for review, but this turn cannot be resumed.";
+      return "No resume snapshot was saved for this turn. You can review the workspace or send a new message.";
   }
 }

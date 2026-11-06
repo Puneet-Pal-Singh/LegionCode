@@ -32,13 +32,14 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex w-32 items-center justify-between gap-1 rounded-md border border-white/5 bg-zinc-900 px-2.5 py-1.5 text-zinc-400 transition-all hover:border-white/15 hover:text-white"
+      aria-label="Search documentation"
+      className="flex size-8 shrink-0 items-center justify-center gap-1 rounded-md border border-white/5 bg-zinc-900 text-zinc-400 transition-colors hover:border-white/15 hover:text-white sm:h-auto sm:w-32 sm:justify-between sm:px-2.5 sm:py-1.5"
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <Search className="h-3 w-3 shrink-0 text-zinc-500" aria-hidden="true" />
-        <span className="truncate text-xs">search docs</span>
+        <span className="hidden truncate text-xs sm:inline">search docs</span>
       </span>
-      <kbd className="rounded border border-white/5 bg-zinc-950 px-1 py-0.5 text-[8px] text-zinc-500">
+      <kbd className="hidden rounded border border-white/5 bg-zinc-950 px-1 py-0.5 text-[8px] text-zinc-500 sm:inline">
         ⌘K
       </kbd>
     </button>
@@ -150,7 +151,10 @@ function SearchDialog({
 
 function DocsBrand() {
   return (
-    <Link href="/overview/" className="flex items-center gap-1.5">
+    <Link
+      href="/overview/"
+      className="flex shrink-0 items-center gap-1.5 whitespace-nowrap"
+    >
       <svg
         aria-hidden="true"
         className="h-5 w-5 text-white"
@@ -164,7 +168,7 @@ function DocsBrand() {
       </svg>
       <span className="text-sm font-semibold text-white">
         LegionCode{" "}
-        <span className="ml-1 text-[9px] tracking-widest text-zinc-500">
+        <span className="ml-1 hidden text-[9px] tracking-widest text-zinc-500 sm:inline">
           DOCS
         </span>
       </span>
@@ -174,7 +178,7 @@ function DocsBrand() {
 
 function DocsActions({ onSearch }: { onSearch: () => void }) {
   return (
-    <div className="flex items-center gap-4 text-xs font-medium text-zinc-400">
+    <div className="flex shrink-0 items-center gap-2 text-xs font-medium text-zinc-400 sm:gap-4">
       <SearchTrigger onClick={onSearch} />
       <Link href="/changelog/" className="hidden hover:text-white sm:inline">
         Changelog
@@ -192,9 +196,11 @@ function DocsActions({ onSearch }: { onSearch: () => void }) {
       {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <a
         href="/cloud/"
-        className="rounded-md bg-white px-3 py-1.5 font-bold text-black hover:bg-zinc-200"
+        aria-label="Request private-alpha access"
+        className="whitespace-nowrap rounded-md bg-white px-2.5 py-1.5 font-bold text-black hover:bg-zinc-200 sm:px-3"
       >
-        Request Access
+        <span className="sm:hidden">Access</span>
+        <span className="hidden sm:inline">Request Access</span>
       </a>
     </div>
   );
@@ -211,7 +217,7 @@ export function Navbar({
       className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between border-b border-white/5 bg-black/90 px-4 backdrop-blur-md sm:px-6"
       aria-label="Documentation"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         {onToggleSidebar && (
           <button
             type="button"

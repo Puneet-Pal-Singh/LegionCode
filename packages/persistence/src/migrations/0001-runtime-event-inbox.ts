@@ -35,6 +35,7 @@ import { sessionReadReceiptsMigration } from "./0033-session-read-receipts.js";
 import { threadInputsAndContinuationsMigration } from "./0033-thread-inputs-and-continuations.js";
 import { legacyHistoryImportReceiptsMigration } from "./0034-legacy-history-import-receipts.js";
 import type { SqlMigration } from "./types.js";
+import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
   buildRuntimeEventInboxStatusSqlList();
@@ -112,4 +113,5 @@ export const persistenceMigrations = [
   sessionReadReceiptsMigration,
   threadInputsAndContinuationsMigration,
   legacyHistoryImportReceiptsMigration,
+  projectlessSessionRepositoryMigration,
 ] as const;
