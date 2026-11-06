@@ -14,7 +14,6 @@ import type { AgentSession } from "../../types/session";
 import { TurnIdSchema } from "@legioncode/sdk";
 import { useSessionManager } from "../useSessionManager";
 import { SessionStateService } from "../../services/SessionStateService";
-import { agentStore } from "../../store/agentStore";
 
 describe("useSessionManager", () => {
   beforeEach(() => {
@@ -143,6 +142,7 @@ describe("useSessionManager", () => {
 
       expect(result.current.sessionHydrationStatus).toBe("idle");
       expect(hydrateSpy).not.toHaveBeenCalled();
+      expect(result.current.sessions).toEqual([]);
 
       rerender({ enabled: true });
 
@@ -180,8 +180,10 @@ describe("useSessionManager", () => {
       await act(async () => { creation = result.current.createSession("Pending", "repo"); });
       expect(result.current.sessions).toEqual([]);
       expect(result.current.activeSessionId).toBeNull();
-      await act(async () => { release(pendingSession); await creation; });
+      const confirmedSession = { ...pendingSession, name: "Server confirmed" };
+      await act(async () => { release(confirmedSession); await creation; });
       expect(result.current.sessions[0]?.id).toBe(await creation);
+      expect(result.current.sessions[0]?.name).toBe("Server confirmed");
       expect(result.current.activeSessionId).toBe(await creation);
     });
 
@@ -294,10 +296,17 @@ describe("useSessionManager", () => {
       let sessionId = "";
       await act(async () => {
         sessionId = await result.current.createSession("Unread task", "repo");
-        result.current.updateSession(sessionId, {
-          lastTerminalTurnId: "trn_terminal001",
-        });
       });
+      const created = result.current.sessions.find((session) => session.id === sessionId)!;
+      const unread = {
+        ...created,
+        lastTerminalTurnId: "trn_terminal001",
+        lastAcknowledgedTerminalTurnId: null,
+      };
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer).mockResolvedValueOnce({
+        [sessionId]: { ...unread, updatedAt: new Date(Date.now() + 1000).toISOString() },
+      });
+      await act(async () => { await result.current.refreshSessionProjection(sessionId); });
       const activityTimestamp = result.current.sessions.find(
         (session) => session.id === sessionId,
       )!.updatedAt;
@@ -326,8 +335,17 @@ describe("useSessionManager", () => {
       let sessionId = "";
       await act(async () => {
         sessionId = await result.current.createSession("Unread task", "repo");
-        result.current.updateSession(sessionId, { lastTerminalTurnId: "trn_terminal001" });
       });
+      const created = result.current.sessions.find((session) => session.id === sessionId)!;
+      const unread = {
+        ...created,
+        lastTerminalTurnId: "trn_terminal001",
+        lastAcknowledgedTerminalTurnId: null,
+      };
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer).mockResolvedValueOnce({
+        [sessionId]: { ...unread, updatedAt: new Date(Date.now() + 1000).toISOString() },
+      });
+      await act(async () => { await result.current.refreshSessionProjection(sessionId); });
       let resolveAcknowledgement!: (value: { sessionId: string; lastAcknowledgedTerminalTurnId: ReturnType<typeof TurnIdSchema.parse>; acknowledgedAt: string }) => void;
       vi.mocked(SessionMetadata.acknowledgeSessionReadReceipt).mockReturnValueOnce(new Promise((resolve) => {
         resolveAcknowledgement = resolve;
@@ -337,12 +355,15 @@ describe("useSessionManager", () => {
         pending = result.current.acknowledgeSession(sessionId);
         await Promise.resolve();
       });
-      await act(async () => {
-        result.current.updateSession(sessionId, {
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer).mockResolvedValueOnce({
+        [sessionId]: {
+          ...unread,
           lastTerminalTurnId: "trn_terminal002",
           lastAcknowledgedTerminalTurnId: "trn_terminal002",
-        });
+          updatedAt: new Date(Date.now() + 2000).toISOString(),
+        },
       });
+      await act(async () => { await result.current.refreshSessionProjection(sessionId); });
       await act(async () => {
         resolveAcknowledgement({ sessionId, lastAcknowledgedTerminalTurnId: TurnIdSchema.parse("trn_terminal001"), acknowledgedAt: "2026-10-12T00:00:01.000Z" });
         await pending;
@@ -357,8 +378,17 @@ describe("useSessionManager", () => {
       let sessionId = "";
       await act(async () => {
         sessionId = await result.current.createSession("Unread task", "repo");
-        result.current.updateSession(sessionId, { lastTerminalTurnId: "trn_terminal001" });
       });
+      const created = result.current.sessions.find((session) => session.id === sessionId)!;
+      const unread = {
+        ...created,
+        lastTerminalTurnId: "trn_terminal001",
+        lastAcknowledgedTerminalTurnId: null,
+      };
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer).mockResolvedValueOnce({
+        [sessionId]: { ...unread, updatedAt: new Date(Date.now() + 1000).toISOString() },
+      });
+      await act(async () => { await result.current.refreshSessionProjection(sessionId); });
       let rejectAcknowledgement!: (reason: Error) => void;
       vi.mocked(SessionMetadata.acknowledgeSessionReadReceipt).mockReturnValueOnce(new Promise((_, reject) => {
         rejectAcknowledgement = reject;
@@ -368,9 +398,14 @@ describe("useSessionManager", () => {
         pending = result.current.acknowledgeSession(sessionId);
         await Promise.resolve();
       });
-      await act(async () => {
-        result.current.updateSession(sessionId, { lastTerminalTurnId: "trn_terminal002" });
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer).mockResolvedValueOnce({
+        [sessionId]: {
+          ...unread,
+          lastTerminalTurnId: "trn_terminal002",
+          updatedAt: new Date(Date.now() + 2000).toISOString(),
+        },
       });
+      await act(async () => { await result.current.refreshSessionProjection(sessionId); });
       await act(async () => {
         rejectAcknowledgement(new Error("stale receipt"));
         await pending;
@@ -386,7 +421,7 @@ describe("useSessionManager", () => {
       const { result } = renderHook(() => useSessionManager());
       let sessionId = "";
       await act(async () => { sessionId = await result.current.createSession("Task", "repo"); });
-      vi.mocked(SessionMetadata.archiveSession).mockRejectedValueOnce(new Error("archive unavailable"));
+      vi.mocked(SessionMetadata.archiveSession).mockRejectedValueOnce(new Error("Session archive failed: 404"));
       await act(async () => { expect(await result.current.archiveSession(sessionId)).toBe(false); });
       expect(result.current.activeSessionId).toBe(sessionId);
       expect(result.current.sessions[0]?.archivedAt).toBeNull();
@@ -459,26 +494,6 @@ describe("useSessionManager", () => {
       expect(loaded).toEqual(context);
     });
 
-    it("keeps local-only sessions archived when the server archive returns not found", async () => {
-      vi.mocked(SessionMetadata.archiveSession).mockRejectedValueOnce(
-        new Error("Session archive failed: 404"),
-      );
-      const { result } = renderHook(() => useSessionManager());
-
-      let sessionId = "";
-      await act(async () => {
-        sessionId = await result.current.createSession("Task", "repo");
-      });
-
-      await act(async () => {
-        result.current.removeSession(sessionId);
-      });
-
-      await waitFor(() => {
-        expect(result.current.sessions[0]?.archivedAt).not.toBeNull();
-      });
-      expect(result.current.activeSessionId).toBeNull();
-    });
   });
 
   describe("Session Updates", () => {
@@ -491,13 +506,13 @@ describe("useSessionManager", () => {
       });
 
       await act(async () => {
-        result.current.updateSession(sessionId, { name: "Updated Task" });
+        result.current.setSessionMode(sessionId, "plan");
       });
 
       const session = result.current.sessions.find(
         (s: AgentSession) => s.id === sessionId,
       );
-      expect(session?.name).toBe("Updated Task");
+      expect(session?.mode).toBe("plan");
     });
 
     it("should update session status", async () => {
@@ -509,7 +524,11 @@ describe("useSessionManager", () => {
       });
 
       await act(async () => {
-        result.current.updateSession(sessionId, { status: "running" });
+        result.current.applyCanonicalSessionStatus(
+          sessionId,
+          result.current.sessions[0]!.activeRunId!,
+          "running",
+        );
       });
 
       const session = result.current.sessions.find(
@@ -532,7 +551,11 @@ describe("useSessionManager", () => {
       expect(original).toBeDefined();
 
       await act(async () => {
-        result.current.updateSession(sessionId, { status: original!.status });
+        result.current.applyCanonicalSessionStatus(
+          sessionId,
+          original!.activeRunId!,
+          original!.status,
+        );
       });
 
       const afterNoOp = result.current.sessions.find(
@@ -550,10 +573,10 @@ describe("useSessionManager", () => {
       const originalUpdatedAt = result.current.sessions[0]!.updatedAt;
 
       await act(async () => {
-        result.current.updateSession(
+        result.current.applyCanonicalSessionStatus(
           sessionId,
-          { status: "waiting_for_approval" },
-          { preserveActivityTimestamp: true },
+          result.current.sessions[0]!.activeRunId!,
+          "waiting_for_approval",
         );
       });
 
@@ -573,11 +596,9 @@ describe("useSessionManager", () => {
         (s: AgentSession) => s.id === sessionId,
       );
 
-      // Try to set activeRunId to a non-existent run
+      // Invalid run identities cannot replace the server-admitted run.
       await act(async () => {
-        result.current.updateSession(sessionId, {
-          activeRunId: "non-existent-run",
-        } as unknown as Partial<Omit<AgentSession, "id">>);
+        result.current.recordSessionRun(sessionId, "non-existent-run");
       });
 
       // Session should remain unchanged
@@ -615,9 +636,10 @@ describe("useSessionManager", () => {
 
     it("should remove repository", async () => {
       const { result } = renderHook(() => useSessionManager());
+      let sessionId = "";
 
       await act(async () => {
-        result.current.addRepository("repo");
+        sessionId = await result.current.createSession("Task", "repo");
       });
 
       expect(result.current.repositories).toContain("repo");
@@ -626,26 +648,10 @@ describe("useSessionManager", () => {
         result.current.removeRepository("repo");
       });
 
-      expect(result.current.repositories).not.toContain("repo");
-    });
-
-    it("should remove sessions when removing repository", async () => {
-      const { result } = renderHook(() => useSessionManager());
-      const clearMessagesForRun = vi.spyOn(agentStore, "clearMessagesForRun");
-
-      await act(async () => {
-        await result.current.createSession("Task 1", "repo");
-        await result.current.createSession("Task 2", "repo");
-      });
-
-      expect(result.current.sessions).toHaveLength(2);
-
-      await act(async () => {
-        result.current.removeRepository("repo");
-      });
-
-      expect(result.current.sessions).toHaveLength(0);
-      expect(clearMessagesForRun).not.toHaveBeenCalled();
+      expect(result.current.repositories).toContain("repo");
+      expect(result.current.repositoryFolderPreferences.hiddenRepositoryIds).toContain("repo");
+      expect(result.current.sessions.map((session) => session.id)).toContain(sessionId);
+      expect(result.current.activeSessionId).toBe(sessionId);
     });
 
     it("should rename repository", async () => {
@@ -663,9 +669,11 @@ describe("useSessionManager", () => {
       const session = result.current.sessions.find(
         (s: AgentSession) => s.id === sessionId,
       );
-      expect(session?.repository).toBe("new-repo");
-      expect(result.current.repositories).toContain("new-repo");
-      expect(result.current.repositories).not.toContain("old-repo");
+      expect(session?.repository).toBe("old-repo");
+      expect(result.current.repositories).toContain("old-repo");
+      expect(result.current.repositories).not.toContain("new-repo");
+      expect(result.current.repositoryFolderPreferences.labels["old-repo"]).toBe("new-repo");
+      expect(result.current.activeSessionId).toBe(sessionId);
     });
   });
 
@@ -673,11 +681,12 @@ describe("useSessionManager", () => {
     it("should restore sessions on mount", async () => {
       const session = SessionStateService.createSession("Task", "repo");
       const legacySnapshot = storeLegacySessions({ [session.id]: session }, session.id);
+      vi.mocked(SessionMetadata.hydrateSessionsFromServer).mockResolvedValueOnce({
+        [session.id]: session,
+      });
 
-      // The explicit no-hydration seam still reads the legacy session list.
-      const { result } = renderHook(() =>
-        useSessionManager({ hydrateFromServer: false }),
-      );
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() => expect(result.current.sessionHydrationStatus).toBe("ready"));
       expect(result.current.sessions).toEqual([session]);
       expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
     });

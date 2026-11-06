@@ -57,33 +57,6 @@ function buildSessionScopedSelectionStorageKey(sessionId: string): string {
   return `${SESSION_SCOPED_SELECTION_STORAGE_KEY_PREFIX}${sessionId}`;
 }
 
-export function clearPersistedSessionScopedSelections(): void {
-  clearSessionScopedSelections(() => localStorage);
-  clearSessionScopedSelections(() => sessionStorage);
-}
-
-function clearSessionScopedSelections(getStorage: () => Storage): void {
-  try {
-    const storage = getStorage();
-    const keysToRemove: string[] = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (key && key.startsWith(SESSION_SCOPED_SELECTION_STORAGE_KEY_PREFIX)) {
-        keysToRemove.push(key);
-      }
-    }
-
-    for (const key of keysToRemove) {
-      storage.removeItem(key);
-    }
-  } catch (error) {
-    console.warn(
-      "[provider/store] failed to clear persisted session-scoped selections",
-      error,
-    );
-  }
-}
-
 function isProviderSelectionSnapshot(
   value: unknown,
 ): value is ProviderSelectionSnapshot {
