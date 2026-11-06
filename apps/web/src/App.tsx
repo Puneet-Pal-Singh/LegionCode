@@ -47,7 +47,11 @@ import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
-import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
+import {
+  HarnessSelectionReadRequestSchema,
+  type HookSettingsAuditReadModel,
+} from "@legioncode/sdk";
+import { HostedHarnessScopeProvider } from "./components/harness/HostedHarnessScope";
 import { initializeHostedAppServer } from "./services/api/appServerClient";
 import { useSessionWorkspaceContext } from "./hooks/useSessionWorkspaceContext";
 import { useOwnedWorkspaceSelection } from "./hooks/useOwnedWorkspaceSelection";
@@ -133,9 +137,44 @@ function App() {
 function AppContent() {
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot>(HOSTED_ENVIRONMENT);
+  const {
+    isAuthenticated,
+    isLoading,
+    hasVerifiedSession,
+    sessionCheckError,
+    login,
+    logout,
+    refreshSession,
+    user,
+  } = useAuth();
+  const [environmentIdentity, setEnvironmentIdentity] = useState<{
+    userId: string;
+    id: string;
+  } | null>(null);
   useEffect(() => {
+    let active = true;
+    setEnvironmentIdentity(null);
+    if (!isAuthenticated || !hasVerifiedSession || !user?.id) {
+      setEnvironment(HOSTED_ENVIRONMENT);
+      return;
+    }
+    const ownerId = user.id;
+    setEnvironment(HOSTED_ENVIRONMENT);
     void initializeHostedAppServer()
       .then((handshake) => {
+        if (!active) return;
+        // P13 owns this handshake field. Older servers cannot supply a scope;
+        // placement is never inferred from the client or the environment kind.
+        if (
+          "environmentId" in handshake &&
+          typeof handshake.environmentId === "string" &&
+          handshake.environmentId.trim()
+        ) {
+          setEnvironmentIdentity({
+            userId: ownerId,
+            id: handshake.environmentId,
+          });
+        }
         setEnvironment({
           kind: handshake.environment,
           status: "ready",
@@ -147,23 +186,17 @@ function AppContent() {
         });
       })
       .catch(() => {
+        if (!active) return;
         setEnvironment({
           ...HOSTED_ENVIRONMENT,
           status: "degraded",
           reason: "Hosted App Server status is unavailable",
         });
       });
-  }, []);
-  const {
-    isAuthenticated,
-    isLoading,
-    hasVerifiedSession,
-    sessionCheckError,
-    login,
-    logout,
-    refreshSession,
-    user,
-  } = useAuth();
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated, hasVerifiedSession, user?.id]);
   const {
     sessions,
     activeSessionId,
@@ -322,6 +355,35 @@ function AppContent() {
     ),
     applySessionWorkspaceProjection,
   });
+
+  const harnessScope = useMemo(() => {
+    if (
+      !isAuthenticated ||
+      !hasVerifiedSession ||
+      environment.status !== "ready" ||
+      !environmentIdentity ||
+      environmentIdentity.userId !== user?.id ||
+      !activeSessionId ||
+      sessionWorkspaceContext?.sessionId !== activeSessionId ||
+      sessionWorkspaceContext.workspaceStatus !== "active"
+    )
+      return null;
+    const parsed = HarnessSelectionReadRequestSchema.safeParse({
+      environmentId: environmentIdentity.id,
+      workspaceId: sessionWorkspaceContext.workspaceId,
+      threadId: sessionWorkspaceContext.threadId,
+      sessionId: sessionWorkspaceContext.sessionId,
+    });
+    return parsed.success ? parsed.data : null;
+  }, [
+    isAuthenticated,
+    hasVerifiedSession,
+    user?.id,
+    environment.status,
+    environmentIdentity,
+    activeSessionId,
+    sessionWorkspaceContext,
+  ]);
 
   const openSettingsDialog = useCallback(
     (section: SettingsSection = "general") => {
@@ -862,6 +924,7 @@ function AppContent() {
   }
 
   return (
+    <HostedHarnessScopeProvider scope={harnessScope}>
     <ClientShell
       environment={environment.status === "ready" ? undefined : environment}
     >
@@ -1264,6 +1327,7 @@ function AppContent() {
         </div>
       </WorkspaceFrame>
     </ClientShell>
+    </HostedHarnessScopeProvider>
   );
 }
 
