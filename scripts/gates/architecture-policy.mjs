@@ -246,7 +246,6 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
     forbiddenImportPattern:
       /\b(?:isRunEventActivityOpen|isApprovalRequiredRunStatus|isTerminalRunStatus|normalizeRunStatus)\b/,
     allowedFiles: [
-      "apps/web/src/hooks/useRunSummary.ts",
       "apps/web/src/lib/run-status.ts",
       "apps/web/src/services/activity/RunEventActivitySnapshot.ts",
       "apps/web/src/components/chat/chat-interface/useActivityPresentation.ts",
