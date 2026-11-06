@@ -55,7 +55,10 @@ interface RuntimeStoreMock extends Record<string, unknown> {
     since?: number,
     taskId?: string,
   ) => Promise<SessionLogEntry[]>;
-  deleteExecutionSession: (sessionId: string) => Promise<void>;
+  deleteExecutionSession: (
+    sessionId: string,
+    expectedLease: SessionRecord["lease"],
+  ) => Promise<void>;
   executionPort: {
     executeTask: (
       sessionId: string,
@@ -108,9 +111,16 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
         return matchesSince && matchesTask;
       });
     },
-    async deleteExecutionSession(sessionId) {
-      sessions.delete(sessionId);
-      logs.delete(sessionId);
+    async deleteExecutionSession(sessionId, expectedLease) {
+      const current = sessions.get(sessionId);
+      if (
+        current?.lease.leaseId === expectedLease.leaseId &&
+        current.lease.sandboxId === expectedLease.sandboxId &&
+        current.lease.generation === expectedLease.generation
+      ) {
+        sessions.delete(sessionId);
+        logs.delete(sessionId);
+      }
     },
     executionPort: {
       async executeTask(sessionId, input) {
