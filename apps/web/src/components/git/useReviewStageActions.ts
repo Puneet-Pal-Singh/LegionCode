@@ -4,7 +4,7 @@ import {
   createGitBranch,
   pushGitBranch,
   stageGitFiles,
-} from "../../lib/git-client.js";
+} from "../../services/api/gitOperations.js";
 
 interface UseReviewStageActionsInput {
   canMutateGit: boolean;

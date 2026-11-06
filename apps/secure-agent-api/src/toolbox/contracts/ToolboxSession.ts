@@ -14,6 +14,7 @@ export interface ToolboxSessionRequest {
   env?: Record<string, string | undefined>;
   cwd?: string;
   timeoutMs?: number;
+  borrowedLease?: boolean;
 }
 
 export interface ToolboxSessionHandle {
@@ -51,6 +52,7 @@ export interface ToolboxCommandResult {
 export interface ToolboxCommandExecutionOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
+  borrowedLease?: boolean;
 }
 
 export interface ToolboxCommandExecutor {
