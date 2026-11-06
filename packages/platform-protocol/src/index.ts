@@ -619,3 +619,5 @@ export {
   type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";
 export * from "./harness/index.js";
+
+export * from "./harness/observation-events.js";

@@ -2,6 +2,8 @@ import { HarnessCommitAckSchema, type HarnessCommitAck, type HarnessObservation 
 import type { HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";
 import {
   EventIdSchema,
+  type HarnessActivityMeasuredPayload,
+  type HarnessProviderLimitNotifiedPayload,
   JsonRecordSchema,
   type ApprovalId,
   type ItemId,
@@ -197,6 +199,39 @@ export class RuntimeLifecycleCoordinator {
     });
     this.operationQueue = recovery.catch(() => undefined);
     await recovery;
+  }
+
+  /** Canonical failure settlement for an integrity-lost host stream. This does
+   * not prove physical quiescence or release a lease, and never repairs a gap. */
+  async resolveObservationIntegrity(input: {
+    readonly command: import("@repo/worker-protocol").HarnessStartCommand;
+    readonly session: import("@repo/worker-protocol").HarnessSession;
+    readonly signal: AbortSignal;
+    readonly persistence: HarnessObservationCommitPort;
+  }): Promise<import("./harness/DelegatedHarnessPort.js").HarnessObservationRecovery> {
+    input.signal.throwIfAborted();
+    const selection = input.command.selection;
+    if (selection.turnId !== this.options.turnId || selection.threadId !== this.options.threadId ||
+      selection.runAttemptId !== this.options.runAttemptId || selection.workspaceId !== this.options.workspaceId ||
+      input.session.runAttemptId !== selection.runAttemptId || input.session.instanceId !== selection.instanceId) throw new Error("Integrity resolution does not match canonical runtime ownership");
+    const recovered = await input.persistence.recover(input.session);
+    if (recovered.session.runAttemptId !== input.session.runAttemptId || recovered.session.instanceId !== input.session.instanceId ||
+      recovered.session.externalSessionId !== input.session.externalSessionId || recovered.session.processGeneration !== input.session.processGeneration) throw new Error("Integrity recovery replay has a stale process/session");
+    input.signal.throwIfAborted();
+    await this.restoreHarnessHistory(recovered.lifecycleEvents);
+    const terminal = recovered.lifecycleEvents.find((event) => ["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type));
+    if (terminal?.type === "turn.completed") throw new Error("Integrity loss conflicts with committed success; stream must remain fenced");
+    if (!terminal) {
+      await this.markWorkspaceSnapshotUnavailable("observation_integrity_lost");
+      input.signal.throwIfAborted();
+      await this.fail({ code: "command_failed", message: "Harness observation integrity was lost; execution requires recovery.",
+        retryable: false, correlationId: null, details: { reason: "observation_integrity_lost" } });
+    }
+    const settled = await input.persistence.recover(input.session);
+    input.signal.throwIfAborted();
+    if (!settled.lifecycleEvents.some((event) => event.turnId === selection.turnId && event.runAttemptId === selection.runAttemptId &&
+      (event.type === "turn.failed" || event.type === "turn.interrupted"))) throw new Error("Canonical failure settlement was not confirmed by replay");
+    return settled;
   }
 
   static restoreForInterruption(
@@ -828,6 +863,25 @@ export class RuntimeLifecycleCoordinator {
         payload: { snapshot },
       }),
     );
+  }
+
+  async recordHarnessActivity(payload: HarnessActivityMeasuredPayload): Promise<void> {
+    this.assertHarnessMeasurementScope(payload.measurement);
+    await this.enqueue(async () => this.emit({
+      type: "harness.activity_measured", payload,
+    }));
+  }
+
+  async recordHarnessProviderLimit(payload: HarnessProviderLimitNotifiedPayload): Promise<void> {
+    this.assertHarnessMeasurementScope(payload.notification);
+    await this.enqueue(async () => this.emit({
+      type: "harness.provider_limit_notified", payload,
+    }));
+  }
+
+  private assertHarnessMeasurementScope(value: { threadId: ThreadId; turnId: TurnId; runAttemptId: RunAttemptId }): void {
+    if (value.threadId !== this.options.threadId || value.turnId !== this.options.turnId || value.runAttemptId !== this.options.runAttemptId)
+      throw new Error("Harness measurement does not belong to this canonical attempt");
   }
 
   async updateUsage(usage: UsageCostSnapshot): Promise<void> {

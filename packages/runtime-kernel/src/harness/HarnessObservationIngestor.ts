@@ -247,6 +247,17 @@ export class HarnessObservationIngestor {
       !sameHarnessSession(payload.evidence.session, session)
     )
       this.reject("Stale quiescence evidence");
+    if (payload.kind === "activity_measurement" || payload.kind === "provider_limit") {
+      const fact = payload.kind === "activity_measurement" ? payload.measurement : payload.notification;
+      if (
+        fact.threadId !== selection.threadId ||
+        fact.turnId !== selection.turnId ||
+        fact.runAttemptId !== session.runAttemptId ||
+        fact.instanceId !== session.instanceId ||
+        fact.externalSessionId !== session.externalSessionId ||
+        fact.processGeneration !== session.processGeneration
+      ) this.reject("Measurement identity differs from the admitted process binding");
+    }
     let applied = false;
     const ack = await lifecycle.commitHarnessObservation(
       observation,
@@ -299,6 +310,12 @@ export class HarnessObservationIngestor {
                 metadata: payload.request.metadata,
               },
             );
+            break;
+          case "activity_measurement":
+            await draft.recordHarnessActivity({ measurement: payload.measurement });
+            break;
+          case "provider_limit":
+            await draft.recordHarnessProviderLimit({ notification: payload.notification });
             break;
           case "usage":
             await draft.updateUsage(payload.usage);

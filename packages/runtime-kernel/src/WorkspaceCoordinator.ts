@@ -14,7 +14,7 @@ const EXECUTABLE_STATES = new Set<WorkspaceManifest["state"]>([
 ]);
 
 export class WorkspaceCoordinator {
-  constructor(private readonly repository: WorkspaceManifestRepository) {}
+  constructor(private readonly repository: Pick<WorkspaceManifestRepository, "getLatestByRunId">) {}
 
   async loadExecutableManifest(runId: RunId): Promise<WorkspaceManifest> {
     const manifest = await this.repository.getLatestByRunId(runId);

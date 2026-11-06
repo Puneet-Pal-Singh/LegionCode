@@ -52,13 +52,13 @@ export interface RuntimeKernelDependencies {
   readonly lifecycleEvents: RuntimeLifecycleEventStore;
   readonly gitSnapshots?: RuntimeGitSnapshotPort;
   readonly turnArtifacts?: RuntimeTurnArtifactPort;
-  readonly workspaceManifests?: WorkspaceManifestRepository;
-  readonly contextAssembly: ContextAssemblyPort;
+  readonly workspaceManifests?: Pick<WorkspaceManifestRepository, "getLatestByRunId">;
+  readonly contextAssembly?: ContextAssemblyPort;
   readonly contextCompaction?: ContextCompactionPort;
-  readonly provider: ProviderPort;
-  readonly worker: WorkerProtocolPort;
-  readonly toolAuthorization: ToolAuthorizationPort;
-  readonly approvals: ApprovalWaitPort;
+  readonly provider?: ProviderPort;
+  readonly worker?: WorkerProtocolPort;
+  readonly toolAuthorization?: ToolAuthorizationPort;
+  readonly approvals?: ApprovalWaitPort;
   readonly hooks?: RuntimeHookOrchestrationPort;
   readonly producerId: string;
   readonly maxToolCalls?: number;
@@ -74,7 +74,7 @@ interface PreparedTurn {
   readonly workspace: WorkspaceManifest | null;
   readonly lifecycle: RuntimeLifecycleCoordinator;
   readonly artifacts: TurnArtifactSettlementCoordinator | null;
-  readonly tools: ToolExecutionCoordinator;
+  readonly tools: ToolExecutionCoordinator | null;
   readonly delegated: DelegatedTurnCoordinator | null;
   readonly executionSignal: AbortSignal;
   readonly hookTriggerEvents: {
@@ -139,7 +139,7 @@ export class RuntimeKernel {
     const delegated = this.preparedTurns.get(input.turnId)?.delegated;
     if (delegated) return delegated.acceptThreadInput(input);
     const lifecycle = this.lifecycles.get(input.turnId);
-    if (!lifecycle || !this.dependencies.provider.enqueueThreadInput) {
+    if (!lifecycle || !this.dependencies.provider?.enqueueThreadInput) {
       throw new RuntimeKernelError(
         "turn_not_active",
         `Turn ${input.turnId} has no active model input owner`,
@@ -152,7 +152,7 @@ export class RuntimeKernel {
         transcriptMessageId: input.transcriptMessageId,
       },
       (acceptedSequence) => {
-        this.dependencies.provider.enqueueThreadInput?.({
+        this.dependencies.provider?.enqueueThreadInput?.({
           ...input.accepted,
           acceptedSequence,
         });
@@ -249,12 +249,8 @@ export class RuntimeKernel {
       lifecycle,
     );
     this.approvalCoordinators.set(turn.id, approvals);
-    const tools = new ToolExecutionCoordinator(
-      this.dependencies.worker,
-      this.dependencies.toolAuthorization,
-      approvals,
-      lifecycle,
-    );
+    const native = delegatedInput ? null : this.requireNativePorts();
+    const tools = native ? new ToolExecutionCoordinator(native.worker, native.toolAuthorization, approvals, lifecycle) : null;
     const executionController = new AbortController();
     if (this.dependencies.signal?.aborted) {
       executionController.abort(this.dependencies.signal.reason);
@@ -320,6 +316,7 @@ export class RuntimeKernel {
       // Snapshot capture awaits filesystem/Git work. Stop may have been accepted
       // during that await; revalidate before entering terminal arbitration.
       if (prepared.executionSignal.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped during artifact capture");
+      if (prepared.delegated) await prepared.delegated.requireQuiescence();
       await lifecycle.complete(result.output, result.finalItemId, () => !prepared.executionSignal.aborted);
       return {
         status: result.status,
@@ -340,7 +337,7 @@ export class RuntimeKernel {
               resumeQuiescent = true;
             } catch { /* Unknown quiescence retains checkout ownership for recovery. */ }
           } else {
-            resumeQuiescent = interrupted && (await this.dependencies.worker.awaitQuiescence?.({ turnId: turn.id, timeoutMs: 500 })) === true;
+            resumeQuiescent = interrupted && (await this.dependencies.worker?.awaitQuiescence?.({ turnId: turn.id, timeoutMs: 500 })) === true;
           }
           await this.settleArtifacts(
             turn.id,
@@ -373,8 +370,15 @@ export class RuntimeKernel {
     }
   }
 
+  private requireNativePorts(): { provider: ProviderPort; contextAssembly: ContextAssemblyPort; worker: WorkerProtocolPort; toolAuthorization: ToolAuthorizationPort } {
+    const { provider, contextAssembly, worker, toolAuthorization } = this.dependencies;
+    if (!provider || !contextAssembly || !worker || !toolAuthorization) throw new RuntimeKernelError("worker_failed", "Native execution requires its configured native ports");
+    return { provider, contextAssembly, worker, toolAuthorization };
+  }
+
   private async executeNativePreparedTurn(prepared: PreparedTurn) {
     const { run, turn, runAttemptId, workspace, tools } = prepared;
+    if (!tools) throw new RuntimeKernelError("worker_failed", "Native tool ports are unavailable for this strategy");
     const context = await this.assembleContext(run, turn, workspace, [], prepared.executionSignal);
     this.activeContexts.set(turn.id, context);
     return this.executeLoop(prepared, run, runAttemptId, turn, workspace, context, tools);
@@ -444,7 +448,7 @@ export class RuntimeKernel {
         try { await prepared.delegated.requireQuiescence(); quiescent = true; }
         catch { /* No release or immutable snapshot while mutation may continue. */ }
       } else {
-        quiescent = executionSettled && (await this.dependencies.worker.awaitQuiescence?.({ turnId, timeoutMs: 500 })) === true;
+        quiescent = executionSettled && (await this.dependencies.worker?.awaitQuiescence?.({ turnId, timeoutMs: 500 })) === true;
       }
       await this.interruptPreparedTurn(prepared, reason, quiescent);
     }
@@ -482,6 +486,18 @@ export class RuntimeKernel {
       );
     }
     await approvals.resolve(approvalId, resolution);
+  }
+
+  /** Bind this actual canonical callback into HarnessRecovery before retiring a
+   * damaged journal. A physical stop alone is never a successful resolution. */
+  async resolveObservationIntegrity(input: {
+    readonly command: import("@repo/worker-protocol").HarnessStartCommand;
+    readonly session: import("@repo/worker-protocol").HarnessSession;
+    readonly signal: AbortSignal;
+  }): Promise<import("./harness/DelegatedHarnessPort.js").HarnessObservationRecovery> {
+    const delegated = this.preparedTurns.get(input.command.selection.turnId)?.delegated;
+    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No canonical delegated owner exists for integrity resolution");
+    return delegated.resolveObservationIntegrity(input);
   }
 
   async respondUserInput(input: {
@@ -577,7 +593,7 @@ export class RuntimeKernel {
       };
       let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
       try {
-        step = await this.dependencies.provider.generateNext(providerInput);
+        step = await this.requireNativePorts().provider.generateNext(providerInput);
       } catch (error) {
         if (error instanceof RuntimeKernelError) throw error;
         throw new RuntimeKernelError(
@@ -614,10 +630,10 @@ export class RuntimeKernel {
       }
       if (step.kind === "complete") {
         const reserved = await prepared.lifecycle.reserveCompletion(
-          () => this.dependencies.provider.hasPendingThreadInputs?.() ?? false,
+          () => this.requireNativePorts().provider.hasPendingThreadInputs?.() ?? false,
         );
         if (!reserved) {
-          const flushed = await this.dependencies.provider.flushThreadInputs?.();
+          const flushed = await this.requireNativePorts().provider.flushThreadInputs?.();
           if (flushed) {
             toolCallCount -= 1;
             continue;
@@ -715,7 +731,7 @@ export class RuntimeKernel {
     toolResults: readonly ToolResult[],
     signal: AbortSignal,
   ): Promise<Awaited<ReturnType<ContextAssemblyPort["assemble"]>>> {
-    const context = await this.dependencies.contextAssembly.assemble({
+    const context = await this.requireNativePorts().contextAssembly.assemble({
       run,
       turn,
       workspace,
