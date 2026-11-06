@@ -111,10 +111,10 @@ describe("Local App Server supervisor generation safety", () => {
     mocks.initialize.mockResolvedValue(handshake);
     const requestResult = deferred<unknown>();
     mocks.request.mockReturnValue(requestResult.promise);
-    const credentialResult = deferred<{ apiKey: string } | null>();
+    const credentialResult = deferred<{ credential: { apiKey: string }; canDeliver: () => boolean } | null>();
     const resolveCredential = vi
       .fn()
-      .mockResolvedValue({ apiKey: "fixture-runtime-secret" });
+      .mockResolvedValue({ credential: { apiKey: "fixture-runtime-secret" }, canDeliver: () => true });
     const supervisor = new LocalAppServerSupervisor(
       undefined,
       resolveCredential,
@@ -180,7 +180,7 @@ describe("Local App Server supervisor generation safety", () => {
     const stopping = supervisor.stop();
     child.emit("exit");
     await stopping;
-    credentialResult.resolve({ apiKey: "fixture-stale-secret" });
+    credentialResult.resolve({ credential: { apiKey: "fixture-stale-secret" }, canDeliver: () => true });
     await settleMessages();
     expect(child.messages).toHaveLength(messagesBeforeStop);
     requestResult.resolve({ ok: true });
