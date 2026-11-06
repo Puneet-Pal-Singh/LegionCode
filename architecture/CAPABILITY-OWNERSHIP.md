@@ -23,6 +23,15 @@ Remaining Web command/subscription bindings, including input command acknowledge
 and queue refresh, retire in Plan 058.3C/D when all real consumers use the canonical
 SDK/App Server operations. Browser settings remain presentation preferences.
 
+The November main sync keeps explicit project selection and nullable projectless
+sessions on the hosted SDK/App Server session contract. Session creation remains
+awaited before publishing setup or queued prompts. Web transfers only unsent setup
+drafts and provider preferences when a project is chosen; session workspace context
+and branch preferences retain their dev owners. The deleted global selection
+bootstrap and legacy TranscriptController remain retired. New conversation date
+markers and seeded image-draft presentation live in `packages/client-ui`, alongside
+the existing guarded resume controls and approval composer.
+
 ## Plan 058.1 — Canonical turn-patch read model
 
 | Responsibility | Canonical owner | Active producer and consumers |
@@ -562,6 +571,28 @@ The existing uncapped visibility-list request is preserved only for authenticate
 verifies the cookie before reading that body and rejects a mismatched envelope.
 Other methods retain the generic 32 KB request limit and streaming cancellation.
 The hint supplies no identity or permission and does not bypass provider scope.
+## Project selection and projectless chat
+
+| Responsibility | Canonical owner | Active wiring and invariant |
+| --- | --- | --- |
+| Saved session repository | Brain transcript/session repository | Session creation accepts `repository: null`. Migration `0034_projectless_session_repository` normalizes the old `New Project` label. No new sentinel repository is written. |
+| Active chat repository context | Hosted session workspace context, projected by Web | Explicit project selection, SDK-backed session workspace context and session branch preferences supply repository/branch identity. Global browser context restoration and workspace-selection bootstrap are removed; a null repository cannot match a repository context. |
+| Projects and Recents | SDK sidebar projection over saved session metadata | The dev shared ThreadSidebar retains its repository groups and explicit No repository group. Pinning, search, status and archive use the existing canonical session projections. |
+| Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. Sidebar Add project reads the mounted composer through its draft reader port before switching sessions; the composer remains the unsent draft owner. The modal is portaled to the viewport with focus isolation and a light backdrop blur. Home keeps the centered composer and dynamic project/settings island; section expansion is local UI state. Setup uses the same sidebar header/tabs/Close controls as conversation and the shell owns panel width across both surfaces. |
+
+| Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
+| Turn execution and Stop | Existing native runner and RuntimeKernel | Both capabilities share provider/context/budgeting, canonical lifecycle append, interruption and terminal settlement. `Run.executionCapability` is emitted on the started attempt; no alternate chat transport or fabricated manifest is introduced. |
+| Interrupted continuation | Existing turn admission and ResumeTurnService | Exact owner, thread, turn, attempt, terminal sequence, root prompt and command dedupe remain required. Projectless resume restores conversation history; repository resume additionally validates its captured workspace artifact. SDK replay projects capability for Web Play availability. The empty composer reuses its submit control for Play; typed drafts still send new requests, and active turns retain Stop/Queue/Steer. Interruption and continuation markers render terminal state and canonical start timestamps; accepted user inputs use their persisted message timestamps, including Queue/Steer. User-input date markers appear only when a later prompt starts on a different local calendar day from prior chat activity; initial and same-day prompts omit them. They reuse the chat 12-hour formatter and omit rules. Continuation attempts retain dev's chronological workflow history and their own canonical start timestamps, without a duplicate date marker. The dev composer retains unavailable-resume messaging and its asynchronous guarded Play control; interrupted terminal messages are not duplicated in the transcript. |
+
+The unconditional checkout requirement is removed for admitted projectless chats.
+Repository execution retains its Git and artifact requirements. The SDK renders
+runtime capability from lifecycle replay rather than inferring it from the current
+project picker. Completed-turn review uses that same capability: conversations
+have no Git diff and do not display a missing-diff warning; repository turns
+still require their settled canonical diff. ProviderStore carries an unsent composer's model preference into
+the chat created by an explicit project choice or first submission; validation
+at admission remains authoritative.
+
 This entry records the title, workflow display, conversation durability, and
 image-context boundaries changed by this work.
 

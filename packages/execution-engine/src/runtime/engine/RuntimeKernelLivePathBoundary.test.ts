@@ -82,8 +82,9 @@ describe("RuntimeKernel live path boundary", () => {
     expect(source).not.toContain("executeNativeConversationalTurn");
     expect(source).toContain("new RuntimeKernel");
     expect(source).toContain("build-path-selected");
+    expect(source).toContain('executionCapability: input.workspace ? "repository" : "conversation"');
     expect(source).toContain(
-      'rationale: "Build turns use the canonical runtime kernel path."',
+      'rationale: "Repository and conversation turns use the canonical runtime kernel path."',
     );
   });
 

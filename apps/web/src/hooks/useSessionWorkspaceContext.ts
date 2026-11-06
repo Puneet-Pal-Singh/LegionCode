@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
-import type { Repository } from "../services/GitHubService";
+import { repositoryFromWorkspaceSelection } from "../lib/workspace-repository";
 import { useGitHub } from "../components/github/GitHubContextProvider";
 import { getSessionWorkspaceContext } from "../services/api/sessionMetadata";
 import { loadSessionBranchPreference } from "../lib/session-branch-preference";
@@ -25,8 +25,11 @@ export function useSessionWorkspaceContext({
   applySessionWorkspaceProjection,
 }: UseSessionWorkspaceContextOptions) {
   const { setContext, clearContext } = useGitHub();
-  const [context, setContextState] = useState<HostedSessionWorkspaceContext | null>(null);
-  const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
+  const [context, setContextState] =
+    useState<HostedSessionWorkspaceContext | null>(null);
+  const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!authenticated || !sessionId || !persistenceReady) {
@@ -36,7 +39,8 @@ export function useSessionWorkspaceContext({
     const controller = new AbortController();
     void getSessionWorkspaceContext(sessionId, undefined, controller.signal)
       .then((resolved) => {
-        if (controller.signal.aborted || resolved.sessionId !== sessionId) return;
+        if (controller.signal.aborted || resolved.sessionId !== sessionId)
+          return;
         const preferredBranch = resolved.repository
           ? loadSessionBranchPreference(sessionId, resolved.repository.fullName)
           : null;
@@ -46,7 +50,14 @@ export function useSessionWorkspaceContext({
         setContextState(effective);
         setResolvedSessionId(sessionId);
         if (effective.repository) {
-          setContext(toRepository(effective.repository), effective.selectedBranch ?? effective.repository.defaultBranch);
+          setContext(
+            repositoryFromWorkspaceSelection({
+              repository: effective.repository,
+              selectedBranch:
+                effective.selectedBranch ?? effective.repository.defaultBranch,
+            }),
+            effective.selectedBranch ?? effective.repository.defaultBranch,
+          );
         } else {
           clearContext();
         }
@@ -57,11 +68,21 @@ export function useSessionWorkspaceContext({
         setContextState(null);
         setResolvedSessionId(sessionId);
         clearContext();
-        console.warn("[session/workspaceContext] Failed to load session workspace context:", error);
+        console.warn(
+          "[session/workspaceContext] Failed to load session workspace context:",
+          error,
+        );
       });
 
     return () => controller.abort();
-  }, [authenticated, sessionId, persistenceReady, clearContext, setContext, applySessionWorkspaceProjection]);
+  }, [
+    authenticated,
+    sessionId,
+    persistenceReady,
+    clearContext,
+    setContext,
+    applySessionWorkspaceProjection,
+  ]);
 
   const hasQueryScope = authenticated && Boolean(sessionId) && persistenceReady;
   return {
@@ -69,22 +90,5 @@ export function useSessionWorkspaceContext({
     isLoading: Boolean(hasQueryScope && resolvedSessionId !== sessionId),
     isResolved: Boolean(hasQueryScope && resolvedSessionId === sessionId),
     setContext: setContextState,
-  };
-}
-
-function toRepository(repository: NonNullable<HostedSessionWorkspaceContext["repository"]>): Repository {
-  return {
-    id: Number(repository.providerRepoId ?? 0),
-    name: repository.name,
-    full_name: repository.fullName,
-    owner: { login: repository.owner, avatar_url: "" },
-    description: null,
-    private: false,
-    html_url: repository.repoUrl,
-    clone_url: `${repository.repoUrl}.git`,
-    default_branch: repository.defaultBranch,
-    stargazers_count: 0,
-    language: null,
-    updated_at: repository.updatedAt,
   };
 }

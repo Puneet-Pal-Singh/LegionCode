@@ -5,7 +5,14 @@ import {
 import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
 import type { ChatMessageProps } from "../ChatMessage.js";
 import type { ChatMessageMetadata } from "../chat-message/types.js";
-import { forwardRef, type ReactNode } from "react";
+
+import { conversationDateMarkers } from "./conversationDateMarkers.js";
+import { Fragment, forwardRef, type ReactNode } from "react";
+import {
+  ConversationTimeMarker,
+  ConversationTerminalMarker,
+} from "../workflow/ConversationMarker.js";
+
 import type {
   DiffContent,
   FileStatus,
@@ -32,7 +39,6 @@ import {
 import type { ChatInterfaceEntry } from "./chatEntries.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { ChevronDown, Folder } from "lucide-react";
-import { workspaceSnapshotNotice } from "./workspace-snapshot-status.js";
 
 export interface ChatInterfaceViewProps {
   workspaceId: string | null;
@@ -205,31 +211,40 @@ export const ChatInterfaceView = forwardRef<
 });
 
 function Transcript(props: ChatInterfaceViewProps) {
+  const dateMarkers = conversationDateMarkers(props.chatEntries);
   return (
     <>
       {props.chatEntries.map((entry) => {
         if (entry.kind === "workflow") {
           return (
-            <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
+            <TurnWorkflowEntry
+              key={entry.key}
+              entry={entry}
+              props={props}
+            />
           );
         }
         return (
-          <ChatMessage
-            resolveHydratedImageSource={props.resolveHydratedImageSource}
-            loadArtifactContent={props.loadArtifactContent}
-            key={entry.message.id}
-            message={entry.message}
-            metadata={props.messageMetadataById[entry.message.id]}
-            onArtifactOpen={props.onArtifactOpen}
-            onReviewOpen={props.onReviewOpen}
-            changedFilesSummary={resolveMessageChangedFilesSummary(
-              props,
-              entry.message.id,
-            )}
-            hookAudits={entry.projection?.hookAudits}
-            onEdit={resolveUserMessageEdit(props, entry)}
-            historyStatus={entry.historyStatus}
-          />
+          <Fragment key={entry.message.id}>
+            {dateMarkers.has(entry.message.id) ? (
+              <ConversationTimeMarker at={entry.message.createdAt} />
+            ) : null}
+            <ChatMessage
+              resolveHydratedImageSource={props.resolveHydratedImageSource}
+              loadArtifactContent={props.loadArtifactContent}
+              message={entry.message}
+              metadata={props.messageMetadataById[entry.message.id]}
+              onArtifactOpen={props.onArtifactOpen}
+              onReviewOpen={props.onReviewOpen}
+              changedFilesSummary={resolveMessageChangedFilesSummary(
+                props,
+                entry.message.id,
+              )}
+              hookAudits={entry.projection?.hookAudits}
+              onEdit={resolveUserMessageEdit(props, entry)}
+              historyStatus={entry.historyStatus}
+            />
+          </Fragment>
         );
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
@@ -293,14 +308,6 @@ function TurnWorkflowEntry({
         <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
           Earlier workflow · revised
         </span>
-      ) : null}
-      {workspaceSnapshotNotice(entry.projection) ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100/90"
-        >
-          {workspaceSnapshotNotice(entry.projection)}
-        </p>
       ) : null}
       {entry.workflowHistory?.length ? (
         <div
@@ -435,18 +442,10 @@ function TerminalMessage(
 
   if (terminal.state !== "completed") {
     return (
-      <div
-        role="alert"
-        className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
-      >
-        <span className="mt-0.5 text-zinc-500" aria-hidden="true">
-          !
-        </span>
-        <p className="leading-5 text-zinc-300">
-          {terminal.content ||
-            "The run ended before it could return an answer. Retry the request."}
-        </p>
-      </div>
+      <ConversationTerminalMarker
+        interrupted={false}
+        content={terminal.content}
+      />
     );
   }
 

@@ -46,9 +46,9 @@ const systemClock: RuntimeKernelClock = { now: () => new Date().toISOString() };
 
 export interface RuntimeKernelDependencies {
   readonly lifecycleEvents: RuntimeLifecycleEventStore;
-  readonly gitSnapshots: RuntimeGitSnapshotPort;
-  readonly turnArtifacts: RuntimeTurnArtifactPort;
-  readonly workspaceManifests: WorkspaceManifestRepository;
+  readonly gitSnapshots?: RuntimeGitSnapshotPort;
+  readonly turnArtifacts?: RuntimeTurnArtifactPort;
+  readonly workspaceManifests?: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
   readonly contextCompaction?: ContextCompactionPort;
   readonly provider: ProviderPort;
@@ -66,9 +66,9 @@ interface PreparedTurn {
   readonly run: Run;
   readonly turn: Turn;
   readonly runAttemptId: StartTurnInput["runAttemptId"];
-  readonly workspace: WorkspaceManifest;
+  readonly workspace: WorkspaceManifest | null;
   readonly lifecycle: RuntimeLifecycleCoordinator;
-  readonly artifacts: TurnArtifactSettlementCoordinator;
+  readonly artifacts: TurnArtifactSettlementCoordinator | null;
   readonly tools: ToolExecutionCoordinator;
   readonly executionSignal: AbortSignal;
   readonly hookTriggerEvents: {
@@ -78,7 +78,7 @@ interface PreparedTurn {
 }
 
 export class RuntimeKernel {
-  private readonly workspaces: WorkspaceCoordinator;
+  private readonly workspaces: WorkspaceCoordinator | null;
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
   private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
@@ -107,7 +107,7 @@ export class RuntimeKernel {
   private readonly executionControllers = new Map<string, AbortController>();
 
   constructor(private readonly dependencies: RuntimeKernelDependencies) {
-    this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
+    this.workspaces = dependencies.workspaceManifests ? new WorkspaceCoordinator(dependencies.workspaceManifests) : null;
     this.maxToolCalls = dependencies.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
     this.clock = dependencies.clock ?? systemClock;
     if (dependencies.signal) {
@@ -184,19 +184,13 @@ export class RuntimeKernel {
     const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
     this.assertTurnIdentity(run, turn);
     this.assertTurnAvailable(turn);
-    const workspace = await this.workspaces.loadExecutableManifest(run.id);
-    this.assertWorkspaceIdentity(run, workspace);
-    const artifactSettlement = new TurnArtifactSettlementCoordinator({
-      git: this.dependencies.gitSnapshots,
-      artifacts: this.dependencies.turnArtifacts,
-      clock: this.clock,
-      run,
-      turn,
-      workspace,
-    });
-    const startArtifacts = await artifactSettlement.begin();
+    const workspace = run.executionCapability === "conversation"
+      ? null : await this.requireWorkspace(run);
+    const artifactSettlement = workspace
+      ? this.createArtifactSettlement(run, turn, workspace) : null;
+    const startArtifacts = await artifactSettlement?.begin();
     const lifecycle = this.createLifecycle(run, turn, runAttemptId, input);
-    this.artifactSettlements.set(turn.id, artifactSettlement);
+    if (artifactSettlement) this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
       this.dependencies.approvals,
       lifecycle,
@@ -214,7 +208,7 @@ export class RuntimeKernel {
     }
     this.executionControllers.set(turn.id, executionController);
     const lifecycleStart = await lifecycle.start();
-    await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    if (startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
     return {
       run,
       turn,
@@ -323,7 +317,7 @@ export class RuntimeKernel {
 
   private async runHooks(prepared: PreparedTurn): Promise<void> {
     const hooks = this.dependencies.hooks;
-    if (!hooks) return;
+    if (!hooks || !prepared.workspace) return;
 
     const base = {
       run: prepared.run,
@@ -447,7 +441,7 @@ export class RuntimeKernel {
     run: Run,
     runAttemptId: StartTurnInput["runAttemptId"],
     turn: Turn,
-    workspace: StartTurnResult["workspace"],
+    workspace: WorkspaceManifest | null,
     context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
     tools: ToolExecutionCoordinator,
   ): Promise<
@@ -614,6 +608,9 @@ export class RuntimeKernel {
           step.reasoning.displaySafe,
         );
       }
+      if (!workspace) {
+        throw new RuntimeKernelError("tool_policy_denied", "Select a project before using repository tools.");
+      }
       toolResults.push(
         await tools.execute(
           run,
@@ -635,7 +632,7 @@ export class RuntimeKernel {
   private async assembleContext(
     run: Run,
     turn: Turn,
-    workspace: WorkspaceManifest,
+    workspace: WorkspaceManifest | null,
     toolResults: readonly ToolResult[],
     signal: AbortSignal,
   ): Promise<Awaited<ReturnType<ContextAssemblyPort["assemble"]>>> {
@@ -785,9 +782,26 @@ export class RuntimeKernel {
     }
   }
 
+  private async requireWorkspace(run: Run): Promise<WorkspaceManifest> {
+    if (!this.workspaces) throw new RuntimeKernelError("workspace_not_found", "Repository execution requires a workspace owner.");
+    const workspace = await this.workspaces.loadExecutableManifest(run.id);
+    this.assertWorkspaceIdentity(run, workspace);
+    return workspace;
+  }
+
+  private createArtifactSettlement(run: Run, turn: Turn, workspace: WorkspaceManifest) {
+    if (!this.dependencies.gitSnapshots || !this.dependencies.turnArtifacts) {
+      throw new RuntimeKernelError("turn_artifact_settlement_failed", "Repository execution requires Git and artifact owners.");
+    }
+    return new TurnArtifactSettlementCoordinator({
+      git: this.dependencies.gitSnapshots, artifacts: this.dependencies.turnArtifacts,
+      clock: this.clock, run, turn, workspace,
+    });
+  }
+
   private assertWorkspaceIdentity(
     run: Run,
-    workspace: StartTurnResult["workspace"],
+    workspace: WorkspaceManifest,
   ): void {
     if (workspace.workspaceId !== run.workspaceId) {
       throw new RuntimeKernelError(
@@ -816,6 +830,7 @@ export class RuntimeKernel {
     const lifecycle = new RuntimeLifecycleCoordinator({
       sink: this.dependencies.lifecycleEvents,
       producerId: this.dependencies.producerId,
+      executionCapability: run.executionCapability,
       clock: this.clock,
       threadId: run.threadId,
       workspaceId: run.workspaceId,
@@ -847,11 +862,12 @@ export class RuntimeKernel {
   private async settleArtifacts(
     turnId: Turn["id"],
     lifecycle: RuntimeLifecycleCoordinator,
-    coordinator: TurnArtifactSettlementCoordinator,
+    coordinator: TurnArtifactSettlementCoordinator | null,
     interruptedSettlement = false,
     preserveWorkspaceProgress = false,
     resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
+    if (!coordinator) return {};
     const existing = this.artifactSettlementEmissions.get(turnId);
     if (existing) return await existing;
     const settlement = this.settleArtifactsNow(

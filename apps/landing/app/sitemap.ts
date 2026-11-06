@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { docsRoutes, site } from "@/lib/site";
+import { legalUpdatedAt } from "@/lib/legal";
 
 export const dynamic = "force-static";
 
@@ -23,5 +24,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: route === "overview" ? 0.8 : 0.6,
     }),
   );
-  return [...productRoutes, ...documentationRoutes];
+  const legalRoutes: MetadataRoute.Sitemap = ["terms", "privacy"].map(
+    (route) => ({
+      url: `${site.url}/${route}/`,
+      lastModified: legalUpdatedAt,
+      changeFrequency: "yearly" as const,
+      priority: 0.3,
+    }),
+  );
+  return [...productRoutes, ...documentationRoutes, ...legalRoutes];
 }

@@ -244,7 +244,7 @@ export class SessionStateService {
    */
   static createSession(
     name: string,
-    repository: string,
+    repository: string | null,
     status: SessionStatus = "idle",
     mode: RunMode = DEFAULT_RUN_MODE,
   ): AgentSession {

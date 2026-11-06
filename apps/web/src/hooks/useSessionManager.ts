@@ -222,8 +222,10 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       const parsed = saved ? JSON.parse(saved) : [];
 
       if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (repository): repository is string => typeof repository === "string",
+        // Remove the former projectless label from this UI-only project cache.
+        return parsed.filter((repository): repository is string =>
+          typeof repository === "string" &&
+          repository !== "New Project" && repository.trim().length > 0,
         );
       }
       return [];
@@ -244,7 +246,8 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     },
     [],
   );
-  const rememberRepository = useCallback((repository: string) => {
+  const rememberRepository = useCallback((repository: string | null) => {
+    if (repository === null) return;
     if (repositoriesRef.current.includes(repository)) return;
     const next = [...repositoriesRef.current, repository];
     repositoriesRef.current = next;
@@ -503,7 +506,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const createSession = useCallback(
     async (
       name?: string,
-      repository: string = "New Project",
+      repository: string | null = null,
       mode: RunMode = DEFAULT_RUN_MODE,
       workspaceId?: string,
     ) => {
@@ -533,9 +536,11 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         throw new Error("Session creation response did not match the request");
       }
       rememberRepository(repository);
-      updateRepositoryFolderPreferences((preferences) =>
-        setRepositoryFolderHidden(preferences, repository, false),
-      );
+      if (repository !== null) {
+        updateRepositoryFolderPreferences((preferences) =>
+          setRepositoryFolderHidden(preferences, repository, false),
+        );
+      }
       if (
         activeHydrationWindow &&
         hydrationCreationWindowRef.current === activeHydrationWindow

@@ -1,5 +1,15 @@
 import { useComposerPreferences } from "../../lib/composer-preferences";
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useImperativeHandle,
+  type Ref,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
@@ -19,6 +29,8 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
+import { SidebarHeader } from "../layout/workspace/SidebarHeader";
+import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 import { SidebarContent } from "../layout/workspace/SidebarContent";
 import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
@@ -50,9 +62,16 @@ import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
 import { MarkdownMessageContent } from "@legioncode/client-ui";
 import { resolveComposerKeyboardAction } from "@legioncode/client-ui";
 
+import type { AgentSetupDraft, AgentSetupDraftReader } from "./setupDraft";
+
 interface AgentSetupProps {
+  initialDraft?: AgentSetupDraft;
+  draftRef?: Ref<AgentSetupDraftReader>;
   sessionId: string;
   isRightSidebarOpen?: boolean;
+  rightSidebarWidth: number;
+  setRightSidebarWidth: Dispatch<SetStateAction<number>>;
+  onCloseRightSidebar: () => void;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
@@ -64,16 +83,21 @@ interface AgentSetupProps {
     mode: RunMode;
     attachments?: ChatSubmitAttachments;
   }) => void;
-  onRepoClick?: () => void;
+  onRepoClick?: (draft?: AgentSetupDraft) => void;
   projects?: readonly string[];
-  onProjectSelect?: (project: string) => void;
+  onProjectSelect?: (project: string, draft: AgentSetupDraft) => void;
+  onNoProject?: (draft: AgentSetupDraft) => void;
   onBranchSelect?: (branch: string) => void | Promise<void>;
-  onNoProject?: () => void;
 }
 
 export function AgentSetup({
   sessionId,
+  initialDraft,
+  draftRef,
   isRightSidebarOpen = false,
+  rightSidebarWidth: sidebarWidth,
+  setRightSidebarWidth: setSidebarWidth,
+  onCloseRightSidebar,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   requiresRepository = false,
@@ -88,8 +112,21 @@ export function AgentSetup({
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const composerPreferences = useComposerPreferences();
-  const [task, setTask] = useState("");
-  const imageDraft = useChatImageAttachmentDraft();
+  const [task, setTask] = useState(initialDraft?.task ?? "");
+  const imageDraft = useChatImageAttachmentDraft(
+    true,
+    initialDraft?.imageAttachments,
+  );
+  const currentDraft = useCallback(
+    (): AgentSetupDraft => ({
+      task,
+      imageAttachments: imageDraft.attachments,
+    }),
+    [task, imageDraft.attachments],
+  );
+  useImperativeHandle(draftRef, () => ({ getDraft: currentDraft }), [
+    currentDraft,
+  ]);
   const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -171,8 +208,11 @@ export function AgentSetup({
   const {
     activeTab,
     setActiveTab,
-    sidebarWidth,
-    setSidebarWidth,
+    contentTabs,
+    activeContentTabId,
+    selectContentTab,
+    closeContentTab,
+    openFilesTab,
     isResizing,
     setIsResizing,
     selectedFile,
@@ -185,6 +225,12 @@ export function AgentSetup({
     contentError,
     setContentError,
   } = useWorkspaceState();
+  const { isCompact, isMobile } = useWorkspaceViewport();
+  const renderedSidebarWidth = isMobile
+    ? "100vw"
+    : isCompact
+      ? "min(560px, 86vw)"
+      : sidebarWidth;
   const {
     repoTree,
     isLoadingTree,
@@ -463,21 +509,15 @@ export function AgentSetup({
     }
   };
 
-  const repoName =
-    repo?.name || (requiresRepository ? "Connect repository" : "New Project");
-  const renderSetupComposer = (placement: "hero" | "docked") => (
+  const repoName = repo?.name || "Select project";
+  const renderSetupComposer = () => (
     <motion.div
-      className={
-        placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"
-      }
+      className="w-full max-w-4xl"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4, duration: 0.4 }}
     >
-      <form
-        onSubmit={handleSubmit}
-        className={placement === "hero" ? "relative" : "relative px-4 pb-3"}
-      >
+      <form onSubmit={handleSubmit} className="relative">
         {shouldShowFilePicker ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
             <div
@@ -491,9 +531,16 @@ export function AgentSetup({
                   Loading repository files...
                 </div>
               ) : repoTreeError ? (
-                <div className="flex items-center justify-between gap-3 px-3 py-4 text-[11px] text-amber-200" role="alert">
+                <div
+                  className="flex items-center justify-between gap-3 px-3 py-4 text-[11px] text-amber-200"
+                  role="alert"
+                >
                   <span>{repoTreeError}</span>
-                  <button type="button" onClick={retryRepoTree} className="shrink-0 text-blue-300 hover:text-blue-200">
+                  <button
+                    type="button"
+                    onClick={retryRepoTree}
+                    className="shrink-0 text-blue-300 hover:text-blue-200"
+                  >
                     Retry
                   </button>
                 </div>
@@ -612,7 +659,11 @@ export function AgentSetup({
             onSelect={syncCursorPosition}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            placeholder="Ask LegionCode to work on this repository…"
+            placeholder={
+              hasRepositoryContext
+                ? "Ask LegionCode to work on this repository…"
+                : "Ask anything, or describe what you want to build…"
+            }
             rows={1}
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -753,9 +804,11 @@ export function AgentSetup({
               <ProjectChooser
                 currentProject={repo?.full_name}
                 projects={projects}
-                onSelect={(project) => onProjectSelect?.(project)}
-                onNewProject={() => onRepoClick?.()}
-                onNoProject={() => onNoProject?.()}
+                onSelect={(project) =>
+                  onProjectSelect?.(project, currentDraft())
+                }
+                onNewProject={() => onRepoClick?.(currentDraft())}
+                onNoProject={() => onNoProject?.(currentDraft())}
               >
                 <button
                   type="button"
@@ -767,8 +820,15 @@ export function AgentSetup({
                   <ChevronDown size={14} className="shrink-0 text-zinc-500" />
                 </button>
               </ProjectChooser>
-              <div className="h-4 w-px bg-zinc-800/80" />
-              <ChatBranchSelector placement="below" onBranchSelect={onBranchSelect} />
+              {hasRepositoryContext ? (
+                <>
+                  <div className="h-4 w-px bg-zinc-800/80" />
+                  <ChatBranchSelector
+                    placement="below"
+                    onBranchSelect={onBranchSelect}
+                  />
+                </>
+              ) : null}
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
@@ -855,46 +915,70 @@ export function AgentSetup({
                 Let's build
               </h1>
 
-              {/* Project Name with Dropdown */}
               <ProjectChooser
                 currentProject={repo?.full_name}
                 projects={projects}
-                onSelect={(project) => onProjectSelect?.(project)}
-                onNewProject={() => onRepoClick?.()}
-                onNoProject={() => onNoProject?.()}
+                onSelect={(project) =>
+                  onProjectSelect?.(project, currentDraft())
+                }
+                onNewProject={() => onRepoClick?.(currentDraft())}
+                onNoProject={() => onNoProject?.(currentDraft())}
               >
                 <motion.button
                   type="button"
-                  className="group mt-0.5 flex items-center gap-1.5 text-2xl font-medium text-zinc-500 transition-colors duration-200 hover:text-zinc-400"
+                  aria-label={`Choose project, current project ${repoName}`}
+                  className="group mt-0.5 flex items-center gap-1.5 text-2xl font-medium text-zinc-500 transition-colors hover:text-zinc-400"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
                   <span>{repoName}</span>
                   <ChevronDown
                     size={18}
-                    className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
+                    className="text-zinc-600 group-hover:text-zinc-500"
                   />
                 </motion.button>
               </ProjectChooser>
             </motion.div>
-
-            <div className="mb-6 w-full max-w-4xl">
-              {renderSetupComposer("hero")}
-            </div>
+            <div className="mb-6 w-full max-w-4xl">{renderSetupComposer()}</div>
           </div>
         </main>
 
+        {isRightSidebarOpen ? (
+          <SidebarHeader
+            sidebarWidth={renderedSidebarWidth}
+            isViewingContent={isViewingContent}
+            contentTabs={contentTabs}
+            activeContentTabId={activeContentTabId}
+            onSelectReview={() => {
+              setIsViewingContent(false);
+              setActiveTab("review");
+            }}
+            onSelectContent={(id) => {
+              selectContentTab(id);
+              setActiveTab("review");
+            }}
+            onCloseReview={onCloseRightSidebar}
+            onCloseContent={closeContentTab}
+            onOpenFiles={() => {
+              openFilesTab();
+              setActiveTab("files");
+            }}
+            onOpenChanges={toggleChangesPanel}
+            onExpand={() => setIsGitReviewOpen(true)}
+            onCloseSidebar={onCloseRightSidebar}
+          />
+        ) : null}
         <motion.aside
           initial={false}
           animate={{
-            width: isRightSidebarOpen ? sidebarWidth : 0,
+            width: isRightSidebarOpen ? renderedSidebarWidth : 0,
           }}
           transition={
             isResizing
               ? { duration: 0 }
               : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
           }
-          className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative ${
+          className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-50 ${
             !isRightSidebarOpen ? "border-transparent" : ""
           }`}
         >
@@ -905,15 +989,15 @@ export function AgentSetup({
               onResizeEnd={() => setIsResizing(false)}
               onResize={(delta) =>
                 setSidebarWidth((prev) =>
-                  Math.max(280, Math.min(600, prev + delta)),
+                  Math.max(320, Math.min(720, prev + delta)),
                 )
               }
             />
           )}
 
           <div
-            className="flex-1 flex flex-col min-w-[280px]"
-            style={{ width: sidebarWidth }}
+            className="flex-1 flex flex-col min-w-0"
+            style={{ width: renderedSidebarWidth }}
           >
             <SidebarContent
               isViewingContent={isViewingContent}

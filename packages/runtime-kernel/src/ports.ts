@@ -43,7 +43,7 @@ export interface ContextAssemblyPort {
   assemble(input: {
     run: Run;
     turn: Turn;
-    workspace: WorkspaceManifest;
+    workspace: WorkspaceManifest | null;
     toolResults?: readonly import("./types.js").ToolResult[];
     signal?: AbortSignal;
   }): Promise<RuntimeContext>;
