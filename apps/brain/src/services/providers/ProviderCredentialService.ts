@@ -86,15 +86,11 @@ export class ProviderCredentialService {
       };
     } catch (error) {
       const providerId = request.providerId;
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = "Credential storage is unavailable";
       if (isDomainError(error)) {
         throw error;
       }
-      console.error(
-        `[provider/credential] Error connecting ${providerId}:`,
-        error,
-      );
+      console.error(`[provider/credential] Error connecting ${providerId}`);
 
       return this.failureResponse(providerId, errorMessage);
     }
@@ -152,7 +148,7 @@ export class ProviderCredentialService {
         providerId,
       };
     } catch (error) {
-      console.error(`[provider/credential] Error disconnecting:`, error);
+      console.error("[provider/credential] Error disconnecting");
       throw error;
     }
   }
