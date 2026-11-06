@@ -176,6 +176,25 @@ const ArtifactReviewLookupResultSchema = z.object({
   (result) => (result.status === 200) === (result.source !== null),
   "Artifact review lookup status must match its source",
 );
+const CheckoutReadParamsSchema = z.object({
+  runId: RunIdSchema,
+  sessionId: z.string().min(1),
+  path: z.string().min(1).max(4096),
+}).strict();
+export const CheckoutListFilesResultSchema = z.object({
+  entries: z.array(z.object({
+    name: z.string().min(1),
+    type: z.enum(["file", "directory"]),
+  }).strict()),
+  truncated: z.boolean(),
+}).strict();
+export const CheckoutReadFileResultSchema = z.object({
+  output: z.string(),
+  isBinary: z.boolean(),
+}).strict();
+export type CheckoutListFilesResult = z.infer<typeof CheckoutListFilesResultSchema>;
+export type CheckoutReadFileResult = z.infer<typeof CheckoutReadFileResultSchema>;
+
 const GitStatusParamsSchema = GitRequestContextSchema;
 const GitDiffParamsSchema = GitRequestContextSchema.extend({
   path: z.string().min(1).optional(),
@@ -235,6 +254,8 @@ export const AppServerMethodSchema = z.enum([
   "artifact/reviewLatest",
   "artifact/reviewByMessage",
   "artifact/diff",
+  "checkout/listFiles",
+  "checkout/readFile",
   "git/status",
   "git/diff",
   "git/stage",
@@ -319,6 +340,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewLatest"), params: ArtifactReviewLatestParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/reviewByMessage"), params: ArtifactReviewByMessageParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("artifact/diff"), params: ArtifactDiffParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("checkout/listFiles"), params: CheckoutReadParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("checkout/readFile"), params: CheckoutReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/status"), params: GitStatusParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/diff"), params: GitDiffParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/stage"), params: GitStageParamsSchema }).strict(),
@@ -395,6 +418,8 @@ export const AppServerResultSchemas = {
   "artifact/reviewLatest": ArtifactReviewLookupResultSchema,
   "artifact/reviewByMessage": ArtifactReviewLookupResultSchema,
   "artifact/diff": EditArtifactDiffResponseSchema,
+  "checkout/listFiles": CheckoutListFilesResultSchema,
+  "checkout/readFile": CheckoutReadFileResultSchema,
   "git/status": GitStatusResponseSchema,
   "git/diff": GitDiffResponseSchema,
   "git/stage": GitMutationSuccessSchema,
@@ -471,6 +496,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("artifact/reviewLatest", AppServerResultSchemas["artifact/reviewLatest"]),
   success("artifact/reviewByMessage", AppServerResultSchemas["artifact/reviewByMessage"]),
   success("artifact/diff", AppServerResultSchemas["artifact/diff"]),
+  success("checkout/listFiles", AppServerResultSchemas["checkout/listFiles"]),
+  success("checkout/readFile", AppServerResultSchemas["checkout/readFile"]),
   success("git/status", AppServerResultSchemas["git/status"]),
   success("git/diff", AppServerResultSchemas["git/diff"]),
   success("git/stage", AppServerResultSchemas["git/stage"]),

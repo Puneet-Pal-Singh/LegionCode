@@ -6,6 +6,7 @@ import {
   InterruptTurnRequestSchema,
   ModelIdSchema,
   ProviderIdSchema,
+  RunIdSchema,
   RunAttemptIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
@@ -58,6 +59,12 @@ describe("AppServerClient", () => {
                 diff: { oldPath: "src/example.ts", newPath: "src/example.ts", hunks: [], isBinary: false, isNewFile: false, isDeleted: false },
               },
             };
+          }
+          if (envelope.method === "checkout/listFiles" || envelope.method === "checkout/readFile") {
+            return { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: envelope.method, ok: true,
+              result: envelope.method === "checkout/listFiles"
+                ? { entries: [{ name: "src", type: "directory" }], truncated: false }
+                : { output: "owned file contents", isBinary: false } };
           }
           if (envelope.method === "artifact/codeContent") {
             return {
@@ -161,6 +168,14 @@ describe("AppServerClient", () => {
       method: "artifact/codeContent",
       params: codeContentRequest,
     });
+    const checkout = { runId: RunIdSchema.parse("run_123456"), sessionId: "owned-session", path: "." };
+    await expect(client.listCheckoutFiles(checkout)).resolves.toEqual({ entries: [{ name: "src", type: "directory" }], truncated: false });
+    await expect(client.readCheckoutFile({ ...checkout, path: "src/index.ts" })).resolves.toEqual({ output: "owned file contents", isBinary: false });
+    expect(sent.slice(-2).map(({ method, params }) => ({ method, params }))).toEqual([
+      { method: "checkout/listFiles", params: checkout },
+      { method: "checkout/readFile", params: { ...checkout, path: "src/index.ts" } },
+    ]);
+
   });
 
   it("acknowledges a canonical terminal turn through the typed session operation", async () => {

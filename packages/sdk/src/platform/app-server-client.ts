@@ -1,3 +1,4 @@
+import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMutationErrorMetadata, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
@@ -197,6 +198,8 @@ export type AppServerClient = {
   getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactDiff(params: { artifactId: string; path: string; identity: EditArtifactIdentity }): Promise<EditArtifactDiffResponse>;
+  listCheckoutFiles(params: Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"]): Promise<CheckoutListFilesResult>;
+  readCheckoutFile(params: Extract<AppServerRequest, { method: "checkout/readFile" }>["params"]): Promise<CheckoutReadFileResult>;
   getGitStatus(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
   getGitDiff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
   stageGitFiles(params: Extract<AppServerRequest, { method: "git/stage" }>['params']): Promise<{ success: true }>;
@@ -390,6 +393,12 @@ export function createAppServerClient(
       method: "artifact/diff",
       params: { artifactId, path, ...identity },
     }, AppServerResultSchemas["artifact/diff"]),
+    listCheckoutFiles: (params) => request(options, {
+      method: "checkout/listFiles", params,
+    }, AppServerResultSchemas["checkout/listFiles"]),
+    readCheckoutFile: (params) => request(options, {
+      method: "checkout/readFile", params,
+    }, AppServerResultSchemas["checkout/readFile"]),
     getGitStatus: (params) => request(options, {
       method: "git/status", params,
     }, AppServerResultSchemas["git/status"]),
