@@ -379,6 +379,6 @@ export { PostgresHarnessBindingRepository } from "./harness/PostgresHarnessBindi
 export type { StoredHarnessSelection, StoredHarnessAttachment, StoredHarnessBinding, HarnessObservationCommit, HarnessObservationAck, HarnessBindingRepository, HarnessExecutionClaimResult } from "./harness/types.js";
 
 export { DESKTOP_AUTH_INTENT, DESKTOP_AUTH_CHALLENGE_MAX_AGE_MS, DesktopAuthChallengeError } from "./identity/desktop-auth-types.js";
-export type { DesktopAuthChallengeScope, CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession, DesktopAuthChallengeRepository } from "./identity/desktop-auth-types.js";
+export type { DesktopAuthChallengeScope, CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession, DesktopAuthRedeemResult, DesktopAuthChallengeRepository } from "./identity/desktop-auth-types.js";
 export { desktopAuthChallengesMigration } from "./migrations/0036-desktop-auth-challenges.js";
 export { desktopAuthChallenges } from "./schema/desktop-auth.js";

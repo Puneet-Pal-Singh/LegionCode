@@ -3,7 +3,7 @@ export const DESKTOP_AUTH_CHALLENGE_MAX_AGE_MS = 10 * 60 * 1000;
 
 export interface DesktopAuthChallengeScope {
   /** SHA-256 hex of the opaque challenge ID; never the raw challenge ID. */
-  challengeHash: string;
+  challengeIdHash: string;
   origin: string;
   intent: typeof DESKTOP_AUTH_INTENT;
   now: string;
@@ -16,12 +16,12 @@ export interface CreateDesktopAuthChallengeInput extends DesktopAuthChallengeSco
 export interface PrepareDesktopAuthConsentInput extends DesktopAuthChallengeScope {
   /** Hash of the cookie session actually making the browser request. */
   sourceSessionHash: string;
-  consentCsrfHash: string;
+  csrfHash: string;
 }
 export interface AuthorizeDesktopAuthChallengeInput extends PrepareDesktopAuthConsentInput {}
 export interface RedeemDesktopAuthChallengeInput extends DesktopAuthChallengeScope {
   verifierChallenge: string;
-  newSessionHash: string;
+  sessionHash: string;
   sessionExpiresAt: string;
 }
 export interface DesktopAuthConsentRecord {
@@ -34,19 +34,23 @@ export interface DesktopAuthRedeemedSession {
   userId: string;
   expiresAt: string;
 }
+export type DesktopAuthRedeemResult =
+  | {status:"pending"}
+  | {status:"invalid"}
+  | ({status:"issued"} & DesktopAuthRedeemedSession);
 export interface DesktopAuthChallengeRepository {
   createDesktopAuthChallenge(
     input: CreateDesktopAuthChallengeInput,
   ): Promise<void>;
   prepareDesktopAuthConsent(
     input: PrepareDesktopAuthConsentInput,
-  ): Promise<DesktopAuthConsentRecord | null>;
+  ): Promise<boolean>;
   authorizeDesktopAuthChallenge(
     input: AuthorizeDesktopAuthChallengeInput,
   ): Promise<boolean>;
   redeemDesktopAuthChallenge(
     input: RedeemDesktopAuthChallengeInput,
-  ): Promise<DesktopAuthRedeemedSession | null>;
+  ): Promise<DesktopAuthRedeemResult>;
 }
 export class DesktopAuthChallengeError extends Error {
   constructor(
@@ -65,7 +69,7 @@ export class DesktopAuthChallengeError extends Error {
 export function validateDesktopAuthScope(
   input: DesktopAuthChallengeScope,
 ): void {
-  requireDigest(input.challengeHash);
+  requireDigest(input.challengeIdHash);
   let origin: URL;
   try {
     origin = new URL(input.origin);
@@ -94,14 +98,14 @@ export function validateDesktopAuthConsent(
 ): void {
   validateDesktopAuthScope(input);
   requireDigest(input.sourceSessionHash);
-  requireDigest(input.consentCsrfHash);
+  requireDigest(input.csrfHash);
 }
 export function validateDesktopAuthRedeem(
   input: RedeemDesktopAuthChallengeInput,
 ): void {
   validateDesktopAuthScope(input);
   requireVerifier(input.verifierChallenge);
-  requireDigest(input.newSessionHash);
+  requireDigest(input.sessionHash);
   if (requireTime(input.sessionExpiresAt) <= requireTime(input.now))
     throw invalid();
 }

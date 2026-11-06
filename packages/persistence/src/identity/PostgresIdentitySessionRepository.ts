@@ -1,5 +1,5 @@
 import { PostgresDesktopAuthChallenges } from "./PostgresDesktopAuthChallenges.js";
-import type { CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession } from "./desktop-auth-types.js";
+import type { CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession, DesktopAuthRedeemResult } from "./desktop-auth-types.js";
 import type { JsonValue } from "@repo/shared-types";
 import type { SqlClient, SqlRow } from "../sql.js";
 import type {
@@ -41,13 +41,13 @@ export class PostgresIdentitySessionRepository implements IdentitySessionReposit
   createDesktopAuthChallenge(input: CreateDesktopAuthChallengeInput): Promise<void> {
     return new PostgresDesktopAuthChallenges(this.client).create(input);
   }
-  prepareDesktopAuthConsent(input: PrepareDesktopAuthConsentInput): Promise<DesktopAuthConsentRecord | null> {
+  prepareDesktopAuthConsent(input: PrepareDesktopAuthConsentInput): Promise<boolean> {
     return new PostgresDesktopAuthChallenges(this.client).prepare(input);
   }
   authorizeDesktopAuthChallenge(input: AuthorizeDesktopAuthChallengeInput): Promise<boolean> {
     return new PostgresDesktopAuthChallenges(this.client).authorize(input);
   }
-  redeemDesktopAuthChallenge(input: RedeemDesktopAuthChallengeInput): Promise<DesktopAuthRedeemedSession | null> {
+  redeemDesktopAuthChallenge(input: RedeemDesktopAuthChallengeInput): Promise<DesktopAuthRedeemResult> {
     return new PostgresDesktopAuthChallenges(this.client).redeem(input);
   }
 

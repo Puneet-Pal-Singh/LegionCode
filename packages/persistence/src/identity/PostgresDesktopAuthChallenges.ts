@@ -10,11 +10,12 @@ import {
   type AuthorizeDesktopAuthChallengeInput,
   type RedeemDesktopAuthChallengeInput,
   type DesktopAuthConsentRecord,
-  type DesktopAuthRedeemedSession,
+  type DesktopAuthRedeemedSession, type DesktopAuthRedeemResult,
 } from "./desktop-auth-types.js";
 
 interface ChallengeRow extends SqlRow {
-  authorized_source_session_id: string;
+  authorized_source_session_id: string | null;
+  authorized_at: string | Date | null;
   expires_at: string | Date;
 }
 interface SourceSessionRow extends SqlRow {
@@ -40,7 +41,7 @@ export class PostgresDesktopAuthChallenges {
       (challenge_hash,verifier_challenge,origin,intent,expires_at,created_at)
       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (challenge_hash) DO NOTHING RETURNING challenge_hash`,
       [
-        input.challengeHash,
+        input.challengeIdHash,
         input.verifierChallenge,
         input.origin,
         input.intent,
@@ -56,7 +57,7 @@ export class PostgresDesktopAuthChallenges {
   }
   async prepare(
     input: PrepareDesktopAuthConsentInput,
-  ): Promise<DesktopAuthConsentRecord | null> {
+  ): Promise<boolean> {
     validateDesktopAuthConsent(input);
     const result = await this.client.query<{ expires_at: string | Date }>(
       `UPDATE desktop_auth_challenges AS c
@@ -67,22 +68,16 @@ export class PostgresDesktopAuthChallenges {
         AND (c.consent_session_id IS NULL OR c.consent_session_id=s.id)
       RETURNING c.expires_at`,
       [
-        input.challengeHash,
+        input.challengeIdHash,
         input.sourceSessionHash,
-        input.consentCsrfHash,
+        input.csrfHash,
         input.origin,
         input.intent,
         input.now,
       ],
     );
     const row = result.rows[0];
-    return row
-      ? {
-          origin: input.origin,
-          intent: DESKTOP_AUTH_INTENT,
-          expiresAt: iso(row.expires_at),
-        }
-      : null;
+    return row !== undefined;
   }
   async authorize(input: AuthorizeDesktopAuthChallengeInput): Promise<boolean> {
     validateDesktopAuthConsent(input);
@@ -95,9 +90,9 @@ export class PostgresDesktopAuthChallenges {
         AND c.expires_at>$6 AND c.consumed_at IS NULL AND c.authorized_at IS NULL
       RETURNING c.challenge_hash`,
       [
-        input.challengeHash,
+        input.challengeIdHash,
         input.sourceSessionHash,
-        input.consentCsrfHash,
+        input.csrfHash,
         input.origin,
         input.intent,
         input.now,
@@ -107,17 +102,16 @@ export class PostgresDesktopAuthChallenges {
   }
   async redeem(
     input: RedeemDesktopAuthChallengeInput,
-  ): Promise<DesktopAuthRedeemedSession | null> {
+  ): Promise<DesktopAuthRedeemResult> {
     validateDesktopAuthRedeem(input);
     try {
       return await this.client.transaction(async (tx) => {
         const challenge = await tx.query<ChallengeRow>(
-          `SELECT authorized_source_session_id,expires_at
+          `SELECT authorized_source_session_id,authorized_at,expires_at
           FROM desktop_auth_challenges WHERE challenge_hash=$1 AND verifier_challenge=$2 AND origin=$3 AND intent=$4
-            AND expires_at>$5 AND authorized_at IS NOT NULL AND consumed_at IS NULL
-            AND authorized_source_session_id=consent_session_id FOR UPDATE`,
+            AND expires_at>$5 AND consumed_at IS NULL FOR UPDATE`,
           [
-            input.challengeHash,
+            input.challengeIdHash,
             input.verifierChallenge,
             input.origin,
             input.intent,
@@ -125,7 +119,9 @@ export class PostgresDesktopAuthChallenges {
           ],
         );
         const approved = challenge.rows[0];
-        if (!approved) return null;
+        if (!approved) return {status:"invalid"};
+        if (approved.authorized_at === null) return {status:"pending"};
+        if (approved.authorized_source_session_id === null) return {status:"invalid"};
         // This exact source-session row stays locked through creation/consume;
         // a concurrent revoke cannot slip between validation and the new session.
         const sourceResult = await tx.query<SourceSessionRow>(
@@ -134,8 +130,8 @@ export class PostgresDesktopAuthChallenges {
           [approved.authorized_source_session_id, input.now],
         );
         const source = sourceResult.rows[0];
-        if (!source || source.session_hash === input.newSessionHash)
-          return null;
+        if (!source || source.session_hash === input.sessionHash)
+          return {status:"invalid"};
         const expiresAt = new Date(
           Math.min(
             Date.parse(input.sessionExpiresAt),
@@ -145,7 +141,7 @@ export class PostgresDesktopAuthChallenges {
         const created = await tx.query<NewSessionRow>(
           `INSERT INTO auth_sessions(user_id,session_hash,expires_at,created_at,last_seen_at)
           VALUES ($1,$2,$3,$4,$4) RETURNING id,user_id,expires_at`,
-          [source.user_id, input.newSessionHash, expiresAt, input.now],
+          [source.user_id, input.sessionHash, expiresAt, input.now],
         );
         const session = created.rows[0];
         if (!session)
@@ -156,7 +152,7 @@ export class PostgresDesktopAuthChallenges {
         const consumed = await tx.query(
           `UPDATE desktop_auth_challenges SET consumed_at=$2
           WHERE challenge_hash=$1 AND consumed_at IS NULL RETURNING challenge_hash`,
-          [input.challengeHash, input.now],
+          [input.challengeIdHash, input.now],
         );
         if (consumed.rows.length !== 1)
           throw new DesktopAuthChallengeError(
@@ -164,6 +160,7 @@ export class PostgresDesktopAuthChallenges {
             "Desktop authentication exchange is no longer available",
           );
         return {
+          status: "issued",
           authSessionId: session.id,
           userId: session.user_id,
           expiresAt: iso(session.expires_at),
