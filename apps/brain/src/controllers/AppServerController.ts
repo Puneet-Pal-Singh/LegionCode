@@ -149,7 +149,7 @@ export const AppServerController = {
           execute: async (params) => {
             const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
             try {
-              const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth);
+              const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth, harnessOperations);
               const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext);
               if (!runtimeResponse.ok) {
                 const failure = await readHostedChatError(runtimeResponse);
