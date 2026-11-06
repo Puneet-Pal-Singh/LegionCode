@@ -1,0 +1,79 @@
+{
+  "base_sha": "b7169c36c6ee83da68c3fee9a0a109c0576fb71d",
+  "repository": "Puneet-Pal-Singh/LegionCode",
+  "approved_at": "2026-11-06",
+  "files": {
+    "architecture/HARNESS-INTEGRATION.md": {
+      "sha256": "d882293acb546e2c153b7feaef1bc3fd0e8d297b36f2603bed39a8396788c3d7",
+      "bytes": 41027
+    },
+    "architecture/HARNESS-TRANSPORT-DECISION.md": {
+      "sha256": "6f9b2feae1c97d1c9f1fed02a6eb340d0596692cb1e81c870de7a35a9e3b0582",
+      "bytes": 25514
+    },
+    "plans/rebuild/product-plans/048-PAIRED-LOCAL-HOST-AND-MULTI-HARNESS-ADOPTION-PLAN.md": {
+      "sha256": "e31138a440ab17f190d63f65ee2946c2686d777e39877033b041db27a54ae4c5",
+      "bytes": 19887
+    },
+    "plans/rebuild/product-plans/LLD/048-local-harness-integration-and-chatgpt-plan-usage.md": {
+      "sha256": "46f4a96400788fdfeb4caf45218ca5af4a3293eb3e3778e30c76bfd155cc9860",
+      "bytes": 36629
+    },
+    "plans/rebuild/product-plans/061-CLOUD-HARNESS-INTEGRATION-PLAN.md": {
+      "sha256": "5a1265189db3a7761c24a33131cbcf81e0a634108035a3f709255841778b4f7b",
+      "bytes": 25311
+    },
+    "plans/rebuild/product-plans/057-LOCAL-FIRST-DESKTOP-VERTICAL-SLICES-AND-SHARED-CLIENT-EXTRACTION-PLAN.md": {
+      "sha256": "114ea01b73f098cdbdab95cddaa853a5a77208b0e9ab981aa9f288e1e82daff0",
+      "bytes": 31814
+    },
+    "plans/rebuild/product-plans/LLD/057-local-first-desktop-golden-loop.md": {
+      "sha256": "6e67ee20d886e2e8eac0a73b70c41aef0f9e45d074e51076f9143c11c829326a",
+      "bytes": 42874
+    },
+    "plans/rebuild/product-plans/058-WEB-FIRST-THIN-CLIENT-EXTRACTION-PLAN.md": {
+      "sha256": "075d6cd95da10937849366911e0a00c4daa04985e530148174647bfee0249b63",
+      "bytes": 19587
+    },
+    "local/architecture/RUNTIME-ARCHITECTURE.md": {
+      "sha256": "fd59e1039246ac767b8e8d4f5115fea123c6ea8124418bf3565a1373a9b5f466",
+      "bytes": 12617
+    },
+    "local/Rules/GIT-RULES.md": {
+      "sha256": "7e637571035e48314d5951004e0030e68ec2b122ab25eda428fb97b2e4a534d3",
+      "bytes": 2804
+    },
+    "local/Rules/pr-strategy-checklist.md": {
+      "sha256": "ff46e8c0dcd8727cdaa4ef73777264caedf86a74b542013d6f7eb52d8cdf48ae",
+      "bytes": 2409
+    },
+    "AGENTS.md": {
+      "sha256": "ed906847a482ebc607a7e92e7d128bd6e09720f817e798f59b77945b610ba718",
+      "bytes": 20235
+    },
+    ".agents/skills/git-workflow/SKILL.md": {
+      "sha256": "affe1b95defff520b6e6bc206a8b45ce2ecb36c27032748d92867bb69f40713e",
+      "bytes": 2403
+    },
+    ".agents/skills/security/SKILL.md": {
+      "sha256": "d45756426a180c4acd7559a59c7408db8a2e8183f4c64f1208324c43ca1ac9ea",
+      "bytes": 1412
+    },
+    ".agents/skills/pr-workflow/SKILL.md": {
+      "sha256": "4b60f5686fa469855db9dfddb241dcfb5bf3a5541ecf2dd3cc4941054120b5aa",
+      "bytes": 2218
+    },
+    ".agents/skills/quality-gates/SKILL.md": {
+      "sha256": "fd33bda7ad699eb4e4d2ab4ada101b930a77a2ff1958dc283d4e0f8c75de1809",
+      "bytes": 2051
+    },
+    "architecture/CAPABILITY-OWNERSHIP.md": {
+      "sha256": "d3a843131e73d4ad442b5165828661eadbf79e9c99f23a7da617db92a91c0aab",
+      "bytes": 102976
+    }
+  },
+  "source_changes": [],
+  "excluded": "All unrelated dirty/untracked source changes and provider homes/credentials. Current dev capability ledger retained.",
+  "runtime_architecture": "Tracked architecture/RUNTIME-ARCHITECTURE.md absent. Exact pre-existing local/architecture copy included as provenance; reconcile with current code/ledger before affected edits.",
+  "instructions": "AGENTS uses current dev plus approved Desktop placement and independent harness paragraphs; retain current dev SDK paths and atomic commit guidance."
+}
