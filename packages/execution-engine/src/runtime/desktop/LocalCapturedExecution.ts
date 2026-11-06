@@ -60,8 +60,9 @@ export async function prepareLocalCapturedExecution(
   const assertSettlementCurrent = async () => {
     // Revoke aborts tools, but the host retains this exact writer fence/root until capture finishes.
     await lease.assertSettlementCurrent();
-    if ((await supplied.worker.awaitQuiescence({ turnId: expected.turnId, timeoutMs: 500 })) !== true) {
-      throw new RuntimeKernelError("worker_failed", "Capture requires physical worker quiescence");
+    while (!(await supplied.worker.awaitQuiescence({ turnId: expected.turnId, timeoutMs: 500 }))) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      await lease.assertSettlementCurrent();
     }
     await lease.assertSettlementCurrent();
   };

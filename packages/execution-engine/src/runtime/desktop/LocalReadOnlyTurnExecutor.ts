@@ -208,9 +208,11 @@ export class LocalTurnExecutor<
         return kernelOwner;
       })
       .catch(async (error: unknown) => {
-        if (this.capability.artifactCapture === "required" && workerOwner &&
-            (await workerOwner.awaitQuiescence?.({ turnId: admission.turn.id, timeoutMs: 500 })) !== true) {
-          throw new RuntimeKernelError("worker_failed", "Captured preflight worker remains active; settlement requires physical quiescence");
+        if (this.capability.artifactCapture === "required" && workerOwner) {
+          if (!workerOwner.awaitQuiescence) throw new RuntimeKernelError("worker_failed", "Captured worker has no quiescence port");
+          while (!(await workerOwner.awaitQuiescence({ turnId: admission.turn.id, timeoutMs: 500 }))) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 50));
+          }
         }
         // Preflight is runtime work too. Reuse the canonical lifecycle owner, never a transport status write.
         const lifecycle = new RuntimeLifecycleCoordinator({
