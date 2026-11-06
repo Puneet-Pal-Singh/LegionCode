@@ -241,6 +241,7 @@ describe("useChatCore installed SDK request outcomes", () => {
       runId={`${FIXTURE.runId}_${crypto.randomUUID()}`}
       onChat={(chat) => { result.current = chat; }}
     />);
+    expect(localStorage.getItem(`legioncode:product-mode:${FIXTURE.sessionId}`)).toBeNull();
     fireEvent.click(ui.getByRole("button", { name: "Permission mode" }));
     fireEvent.click(ui.getByRole("menuitemradio", { name: /Supervised/ }));
     expect(ui.getByRole("button", { name: "Permission mode" }).textContent).toContain("Supervised");
