@@ -137,12 +137,11 @@ export class LocalGitService {
     if (
       diff.turnId !== command.turnId ||
       diff.startSnapshot.phase !== "start" ||
-      diff.terminalSnapshot.phase !== "terminal" ||
-      diff.startSnapshot.headSha !== diff.terminalSnapshot.headSha
+      diff.terminalSnapshot.phase !== "terminal"
     ) {
       throw new LocalGitOperationError(
         "artifact_conflict",
-        "Artifact snapshots do not describe one stable captured Turn",
+        "Artifact snapshot phases do not match the selected Turn",
       );
     }
     await this.requireTerminalArtifact(command);
@@ -244,7 +243,6 @@ export class LocalGitService {
           author: validatedAuthor,
           expectedTerminalTreeId: diff.terminalSnapshot.treeId,
           expectedBaselineTreeId: diff.startSnapshot.treeId,
-          expectedHeadSha: diff.terminalSnapshot.headSha,
         });
       },
     );
