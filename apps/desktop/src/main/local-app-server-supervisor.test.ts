@@ -158,12 +158,19 @@ describe("Local App Server supervisor generation safety", () => {
     const firstRestart = supervisor.restart("1.0.0");
     const secondRestart = supervisor.restart("1.0.0");
     expect(mocks.children).toHaveLength(1);
+    firstChild.emit("error", new Error("process channel failed"));
     firstChild.emit("exit");
     await Promise.all([firstRestart, secondRestart]);
 
     expect(mocks.children).toHaveLength(2);
-    const stopping = supervisor.stop();
+    const fatalRestart = supervisor.restart("1.0.0");
+    childAt(1).emit("message", { type: "fatal" });
     childAt(1).emit("exit");
+    await fatalRestart;
+    expect(mocks.children).toHaveLength(3);
+
+    const stopping = supervisor.stop();
+    childAt(2).emit("exit");
     await stopping;
   });
 

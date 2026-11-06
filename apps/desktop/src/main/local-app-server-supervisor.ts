@@ -278,7 +278,7 @@ export class LocalAppServerSupervisor {
   }
 
   private terminateChild(child: UtilityProcess): void {
-    this.generation += 1;
+    if (!this.stopping) this.generation += 1;
     this.stopping = true;
     this.clearStartupTimer();
     this.credential = null;
