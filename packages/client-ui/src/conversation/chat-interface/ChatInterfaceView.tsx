@@ -215,9 +215,6 @@ function Transcript(props: ChatInterfaceViewProps) {
   return (
     <>
       {props.chatEntries.map((entry) => {
-        if (entry.kind === "history-record") {
-          return <ReadOnlyHistoryRecord key={entry.key} record={entry.record} />;
-        }
         if (entry.kind === "workflow") {
           return (
             <TurnWorkflowEntry
@@ -252,44 +249,6 @@ function Transcript(props: ChatInterfaceViewProps) {
       })}
       {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
-  );
-}
-
-function ReadOnlyHistoryRecord({
-  record,
-}: {
-  record: Extract<ChatInterfaceEntry, { kind: "history-record" }>['record'];
-}) {
-  const { source } = record;
-  const disclosureLabel = source.role === "tool"
-    ? "Show saved tool result"
-    : source.role === "system"
-      ? "Show saved system message"
-      : `Show saved ${source.role} message`;
-  return (
-    <div
-      className="flex w-full justify-center px-3 sm:px-6"
-      data-history-record-role={source.role}
-    >
-      <details className="min-w-0 max-w-4xl flex-1 py-1 text-[11px] text-zinc-500">
-        <summary className="w-fit cursor-pointer select-none rounded hover:text-zinc-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400">
-          {disclosureLabel}
-        </summary>
-        <div className="mt-2 min-w-0">
-          <p className="mb-1 text-[10px] text-zinc-500">
-            Imported source record · {source.role} · order{" "}
-            {record.sourceOrder + 1} · ID {source.id}
-          </p>
-          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-3 font-mono text-xs leading-relaxed text-zinc-300">
-            {JSON.stringify(
-              { sourceOrder: record.sourceOrder, source },
-              null,
-              2,
-            )}
-          </pre>
-        </div>
-      </details>
-    </div>
   );
 }
 

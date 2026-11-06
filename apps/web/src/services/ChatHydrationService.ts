@@ -14,8 +14,6 @@ import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 type MessageWithMetadata = Message & { data?: { metadata?: Record<string, unknown> } };
 
-export type { ConversationHistoryDisplayRecord };
-
 interface HistoryPagePayload {
   messages: ConversationHistoryMessage[];
   nextCursor: string | null;
@@ -33,7 +31,6 @@ export type HydrationStatus =
 export interface HydrationResult {
   status: HydrationStatus;
   messages: Message[];
-  displayRecords: ConversationHistoryDisplayRecord[];
   snapshot?: string;
   nextCursor?: string;
   error?: string;
@@ -66,7 +63,6 @@ export class ChatHydrationService {
       return {
         status: messages.length || displayRecords.length ? "readable" : "empty",
         messages,
-        displayRecords,
         snapshot: result.snapshot,
       };
     } catch (error) {
@@ -95,7 +91,6 @@ export class ChatHydrationService {
       return {
         status,
         messages,
-        displayRecords,
         ...(readError.snapshot ? { snapshot: readError.snapshot } : {}),
         error: cancelled ? undefined : readError.message,
       };
@@ -167,10 +162,6 @@ function convertServerMessages(records: ConversationHistoryDisplayRecord[]): Mes
         result: null,
       }];
     });
-    const metadata = {
-      ...(source.data?.metadata ?? {}),
-      conversationHistoryOrder: record.sourceOrder,
-    };
     const converted: Message = {
       id: source.id,
       role: source.role,
@@ -178,7 +169,9 @@ function convertServerMessages(records: ConversationHistoryDisplayRecord[]): Mes
       createdAt: new Date(source.createdAt),
     };
     if (toolInvocations.length > 0) converted.toolInvocations = toolInvocations;
-    return [attachMessageMetadata(converted, metadata)];
+    return source.data?.metadata
+      ? [attachMessageMetadata(converted, source.data.metadata)]
+      : [converted];
   });
 }
 

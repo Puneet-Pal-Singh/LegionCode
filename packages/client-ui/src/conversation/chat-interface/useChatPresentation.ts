@@ -3,7 +3,6 @@ import type { Message } from "@ai-sdk/react";
 import { buildLifecycleTerminalViewModel } from "./LifecycleTerminalViewModel.js";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import type { ConversationTurn } from "@legioncode/sdk";
-import type { ConversationHistoryDisplayRecord } from "@legioncode/sdk";
 import { buildChatEntries } from "./chatEntries.js";
 
 interface ChatPresentationInput {
@@ -21,7 +20,6 @@ interface ChatPresentationInput {
     status: "queued" | "submitting" | "failed";
   } | null;
   hasImmediateUserSubmission?: boolean;
-  historyDisplayRecords?: readonly ConversationHistoryDisplayRecord[];
 }
 
 function buildPresentedChatEntries(input: ChatPresentationInput) {
@@ -29,7 +27,6 @@ function buildPresentedChatEntries(input: ChatPresentationInput) {
     input.conversationTurns,
     input.lifecycleProjectionsByTurnId,
     input.lifecycleProjection?.turnId,
-    input.historyDisplayRecords,
   );
   const submissionId = input.initialPromptSubmission?.id;
   const initialPrompt = input.initialPromptSubmission?.prompt.trim();

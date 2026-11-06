@@ -9,16 +9,12 @@ export function conversationDateMarkers(
     const at =
       entry.kind === "message"
         ? entry.message.createdAt
-        : entry.kind === "workflow"
-          ? entry.projection.startedAt
-          : entry.record.source.createdAt;
+        : entry.projection.startedAt;
     const time = at ? new Date(at).getTime() : NaN;
     const isBoundary =
       entry.kind === "message"
         ? entry.message.role === "user"
-        : entry.kind === "workflow"
-          ? Boolean(entry.projection.continuationOfTurnId)
-          : entry.record.source.role === "user";
+        : Boolean(entry.projection.continuationOfTurnId);
     if (
       isBoundary &&
       Number.isFinite(time) &&

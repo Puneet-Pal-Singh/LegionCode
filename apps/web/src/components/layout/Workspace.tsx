@@ -661,7 +661,6 @@ export function Workspace({
                 stop: handleStopRun,
                 isLoading,
                 hasHydrated,
-                historyDisplayRecords: chat.historyDisplayRecords,
                 hydrationStatus,
                 hydrationError,
                 retryHydration,

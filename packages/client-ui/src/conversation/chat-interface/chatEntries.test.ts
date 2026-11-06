@@ -241,9 +241,7 @@ describe("buildChatEntries", () => {
       ).map((entry) =>
         entry.kind === "message"
           ? entry.message.id
-          : entry.kind === "workflow"
-            ? entry.turnId
-            : entry.key,
+          : entry.turnId,
       ),
     ).toEqual(["user-1", turnId]);
   });

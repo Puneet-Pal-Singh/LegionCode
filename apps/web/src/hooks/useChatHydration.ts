@@ -8,7 +8,6 @@ import {
 import type { Message } from "@ai-sdk/react";
 import {
   ChatHydrationService,
-  type ConversationHistoryDisplayRecord,
   type HydrationStatus,
 } from "../services/ChatHydrationService";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
@@ -20,11 +19,6 @@ interface UseChatHydrationResult {
   status: HydrationStatus | "loading" | "idle";
   error: string | null;
   retry: () => void;
-}
-
-export interface VerifiedTranscriptSnapshot {
-  messages: Message[];
-  displayRecords: ConversationHistoryDisplayRecord[];
 }
 
 const MAX_HYDRATION_ATTEMPTS = 3;
@@ -44,8 +38,6 @@ export function useChatHydration(
   setMessages: (messages: Message[]) => void,
   replayRevision: string | null = null,
   enabled = true,
-  displayRecords: readonly ConversationHistoryDisplayRecord[] = [],
-  setSnapshot?: (snapshot: VerifiedTranscriptSnapshot) => void,
 ): UseChatHydrationResult {
   const normalizedSessionId = sessionId.trim();
   const hydrationKey =
@@ -68,13 +60,9 @@ export function useChatHydration(
   const activeRequestIdentityRef = useRef<string | null>(null);
   const settledRequestIdentityRef = useRef<string | null>(null);
   const messagesRef = useRef(messages);
-  const displayRecordsRef = useRef(displayRecords);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-  useEffect(() => {
-    displayRecordsRef.current = displayRecords;
-  }, [displayRecords]);
 
   const {
     signal: retrySignal,
@@ -97,17 +85,8 @@ export function useChatHydration(
     setManualRetryRevision((revision) => revision + 1);
   }, [normalizedSessionId, resetRetry]);
   const publishSnapshot = useCallback(
-    (
-      nextMessages: Message[],
-      nextDisplayRecords: ConversationHistoryDisplayRecord[],
-    ) => {
-      if (setSnapshot) {
-        setSnapshot({ messages: nextMessages, displayRecords: nextDisplayRecords });
-      } else {
-        setMessages(nextMessages);
-      }
-    },
-    [setMessages, setSnapshot],
+    (nextMessages: Message[]) => setMessages(nextMessages),
+    [setMessages],
   );
 
   useLayoutEffect(() => {
@@ -126,7 +105,6 @@ export function useChatHydration(
     const currentRequestIdentity = requestIdentity;
     activeRequestIdentityRef.current = currentRequestIdentity;
     const requestStartMessages = messagesRef.current;
-    const requestStartDisplayRecords = displayRecordsRef.current;
     settledRequestIdentityRef.current = null;
     logClientEvent("chat/hydration", "requested", {
       sessionId: normalizedSessionId,
@@ -144,19 +122,11 @@ export function useChatHydration(
         if (!isCurrent()) return;
         if (result.status === "readable" || result.status === "empty") {
           // Only a complete pinned read may replace the verified transcript.
-          publishSnapshot(result.messages, result.displayRecords);
+          publishSnapshot(result.messages);
         } else if (result.status === "partial" && result.messages.length > 0) {
           // Verified pages can extend the transcript, but a partial read may
           // never remove rows established by an earlier complete snapshot.
-          publishSnapshot(
-            mergePartialTranscript(requestStartMessages, result.messages),
-            mergePartialDisplayRecords(requestStartDisplayRecords, result.displayRecords),
-          );
-        } else if (result.status === "partial" && result.displayRecords.length > 0) {
-          publishSnapshot(
-            requestStartMessages,
-            mergePartialDisplayRecords(requestStartDisplayRecords, result.displayRecords),
-          );
+          publishSnapshot(mergePartialTranscript(requestStartMessages, result.messages));
         }
         if (result.status === "cancelled") {
           settledRequestIdentityRef.current = currentRequestIdentity;
@@ -226,8 +196,6 @@ export function useChatHydration(
     scheduleRetry,
     resetRetry,
     publishSnapshot,
-    setMessages,
-    setSnapshot,
   ]);
 
   const currentView =
@@ -251,18 +219,5 @@ function mergePartialTranscript(
   return [
     ...verifiedPrefix,
     ...baseline.filter((message) => !prefixIds.has(message.id)),
-  ];
-}
-
-function mergePartialDisplayRecords(
-  baseline: readonly ConversationHistoryDisplayRecord[],
-  verifiedPrefix: readonly ConversationHistoryDisplayRecord[],
-): ConversationHistoryDisplayRecord[] {
-  const prefixIds = new Set(
-    verifiedPrefix.map((record) => `${record.source.role}\u0000${record.source.id}`),
-  );
-  return [
-    ...verifiedPrefix,
-    ...baseline.filter((record) => !prefixIds.has(`${record.source.role}\u0000${record.source.id}`)),
   ];
 }

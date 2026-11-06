@@ -57,12 +57,10 @@ import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { useStableChatLoadingIndicator } from "@legioncode/client-ui";
 import { useChatAutoScroll } from "@legioncode/client-ui";
-import type { ConversationHistoryDisplayRecord } from "@legioncode/sdk";
 
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
-    historyDisplayRecords?: ConversationHistoryDisplayRecord[];
     optimisticUserMessageId?: string | null;
     runId: string;
     input: string;
@@ -448,7 +446,6 @@ export function ChatInterface({
   } = useChatPresentation({
     messages,
     conversationTurns,
-    historyDisplayRecords: chatProps.historyDisplayRecords ?? [],
     hasHydrated:
       hasHydrated &&
       !areHistoricalLifecyclesLoading &&
