@@ -3,8 +3,7 @@ import { TurnIdSchema } from "@legioncode/sdk";
 import type { ConversationTurn, PlatformClient, TurnId } from "@legioncode/sdk";
 import { createWebPlatformClient } from "../services/api/platformClient";
 import {
-  applyConversationLifecycleEvent as applyLifecycleEvent,
-  createLifecycleProjection,
+  replayConversationLifecycleProjection,
   type LifecycleProjection,
 } from "@legioncode/sdk";
 
@@ -87,21 +86,12 @@ async function replaySettledTurn(
   turnId: TurnId,
   abortController: AbortController,
 ): Promise<LifecycleProjection | null> {
-  let projection = createLifecycleProjection(turnId);
   try {
-    let afterSequence = null;
-    do {
-      const replay = await client.replayLifecycleEvents(
-        { turnId, afterSequence, limit: 1_000 },
-        { signal: abortController.signal },
-      );
-      if (abortController.signal.aborted) return null;
-      for (const event of replay.events) {
-        projection = applyLifecycleEvent(projection, event);
-      }
-      afterSequence = replay.nextSequence;
-    } while (afterSequence !== null);
-    return projection;
+    return await replayConversationLifecycleProjection({
+      turnId,
+      lifecycleClient: client,
+      signal: abortController.signal,
+    });
   } catch (error) {
     // The transcript remains usable if an old lifecycle is unavailable.
     // Current-turn failures are surfaced by useActiveTurnProjection.
