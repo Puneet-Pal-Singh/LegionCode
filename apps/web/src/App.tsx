@@ -15,16 +15,19 @@ import { Workspace } from "./components/layout/Workspace";
 import { SessionConversationSurface } from "./components/layout/SessionConversationSurface";
 import { TabType } from "./components/layout/workspace/useWorkspaceState";
 import { AgentSetup } from "./components/agent/AgentSetup";
+import {
+  copySetupDraft,
+  type AgentSetupDraft,
+  type AgentSetupDraftReader,
+} from "./components/agent/setupDraft";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import {
   GitHubContextProvider,
   useGitHub,
 } from "./components/github/GitHubContextProvider";
-import { AuthorizedRepositoryPicker } from "./components/github/AuthorizedRepositoryPicker";
-import type {
-  Repository,
-} from "./services/GitHubService";
+import { RepositoryPickerModal } from "./components/github/RepositoryPickerModal";
+import type { Repository } from "./services/GitHubService";
 import * as WorkspaceSelection from "./services/api/workspaceSelection";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
@@ -32,6 +35,7 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
+import { ProviderStore } from "./services/provider/ProviderStore";
 import {
   isSessionContextPending,
   resolveShellStartupState,
@@ -55,7 +59,6 @@ import {
   type InitialPromptSubmissionId,
   type InitialPromptSubmissionStatus,
 } from "./lib/initial-prompt-submission";
-import { useWorkspaceSelectionBootstrap } from "./hooks/useWorkspaceSelectionBootstrap";
 import { useWorkspaceViewport } from "./hooks/useWorkspaceViewport";
 import {
   retireSessionSubmissionAttempts,
@@ -211,9 +214,9 @@ function AppContent() {
           status: activeSessionId ? "loading" : "ready",
           error: null,
         };
-  const [visibleSessionIds, setVisibleSessionIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [visibleSessionIds, setVisibleSessionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const requestedPullRequestSessionIds = useMemo(() => {
     const requested = new Set(visibleSessionIds);
     if (activeSessionId) requested.add(activeSessionId);
@@ -249,12 +252,12 @@ function AppContent() {
     activeSessionIdRef.current = activeSessionId;
     repoFullNameRef.current = repo?.full_name ?? null;
   }, [activeSessionId, repo?.full_name]);
-  const workspaceSelectionBootstrapStatus = useWorkspaceSelectionBootstrap({
-    enabled: isAuthenticated && !isLoading && !activeSession,
-    currentRepository: repo,
-    setContext,
-  });
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [setupDrafts, setSetupDrafts] = useState<
+    Record<string, AgentSetupDraft>
+  >({});
+  const projectPickerDraftRef = useRef<AgentSetupDraft | undefined>(undefined);
+  const setupDraftReaderRef = useRef<AgentSetupDraftReader | null>(null);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
@@ -296,12 +299,18 @@ function AppContent() {
     },
     [activeSessionId],
   );
-  const { context: sessionWorkspaceContext, isLoading: isWorkspaceContextRepairing,
+  const {
+    context: sessionWorkspaceContext,
+    isLoading: isWorkspaceContextRepairing,
     isResolved: isWorkspaceContextResolved,
-    setContext: setSessionWorkspaceContext } = useSessionWorkspaceContext({
+    setContext: setSessionWorkspaceContext,
+  } = useSessionWorkspaceContext({
     authenticated: isAuthenticated,
     sessionId: activeSession?.id ?? null,
-    persistenceReady: Boolean(activeSession && isSessionPersistenceReady(activeSession.persistenceStatus)),
+    persistenceReady: Boolean(
+      activeSession &&
+      isSessionPersistenceReady(activeSession.persistenceStatus),
+    ),
     updateSession,
   });
 
@@ -328,10 +337,9 @@ function AppContent() {
     providerScopeSession?.activeRunId ??
     providerScopeSession?.latestRunId ??
     setupSession?.activeRunId;
-  const {
-    credentials,
-    reset: resetProviderStore,
-  } = useProviderStore(isAuthenticated ? providerScopeRunId : undefined);
+  const { credentials, reset: resetProviderStore } = useProviderStore(
+    isAuthenticated ? providerScopeRunId : undefined,
+  );
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
@@ -604,7 +612,11 @@ function AppContent() {
     }
   }, [activeSessionId, archiveSession, retireSessionInitialPrompt]);
 
-  const handleOpenRepositoryPicker = () => {
+  const handleOpenRepositoryPicker = (draft?: AgentSetupDraft) => {
+    const currentDraft = draft ?? setupDraftReaderRef.current?.getDraft();
+    projectPickerDraftRef.current = currentDraft
+      ? copySetupDraft(currentDraft)
+      : undefined;
     if (!isAuthenticated) {
       login();
       return;
@@ -619,7 +631,10 @@ function AppContent() {
     });
   }, [openSettingsDialog]);
 
-  const handleNewTask = async (repositoryName?: string) => {
+  const handleNewTask = async (
+    repositoryName?: string,
+    draft?: AgentSetupDraft,
+  ) => {
     if (!isAuthenticated) {
       login();
       return;
@@ -628,85 +643,131 @@ function AppContent() {
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
 
-    // If no repo name provided, try to use the currently active repo.
+    // Only an explicit project-scoped action chooses a repository.
     // Bare sidebar labels cannot load branches or bootstrap git safely.
-    const targetRepo = resolveTaskRepositoryFullName(repositoryName, repo);
+    const targetRepo = repositoryName
+      ? resolveTaskRepositoryFullName(repositoryName, repo)
+      : null;
 
     if (targetRepo) {
       setShowRepoPicker(false);
-      let workspaceId = sessionWorkspaceContext?.sessionId === activeSessionId &&
+      let workspaceId =
+        sessionWorkspaceContext?.sessionId === activeSessionId &&
         sessionWorkspaceContext.workspaceStatus === "active" &&
         doesSessionContextMatchRepository(targetRepo, {
           fullName: sessionWorkspaceContext.repository?.fullName,
           repoName: sessionWorkspaceContext.repository?.name,
-        }) ? sessionWorkspaceContext.workspaceId ?? undefined : undefined;
+        })
+          ? (sessionWorkspaceContext.workspaceId ?? undefined)
+          : undefined;
       if (!workspaceId) {
         const workspaces = await WorkspaceSelection.listWorkspaces();
-        const matches = workspaces.workspaces.filter((item) =>
-          item.workspace.status === "active" &&
-          doesSessionContextMatchRepository(targetRepo, {
-            fullName: item.repository.fullName,
-            repoName: item.repository.name,
-          }),
+        const matches = workspaces.workspaces.filter(
+          (item) =>
+            item.workspace.status === "active" &&
+            doesSessionContextMatchRepository(targetRepo, {
+              fullName: item.repository.fullName,
+              repoName: item.repository.name,
+            }),
         );
         if (matches.length === 1) workspaceId = matches[0]!.workspace.id;
       }
       if (!workspaceId) {
-        handleOpenRepositoryPicker();
+        handleOpenRepositoryPicker(draft);
         return;
       }
       // Create the durable conversation before exposing setup/submit controls.
       const sessionName = `New Task`;
       try {
-        await createSession(sessionName, targetRepo, undefined, workspaceId);
+        const sessionId = await createSession(
+          sessionName,
+          targetRepo,
+          undefined,
+          workspaceId,
+        );
+        if (draft) {
+          inheritComposerSelection(sessionId);
+          setSetupDrafts((current) => ({
+            ...current,
+            [sessionId]: copySetupDraft(draft),
+          }));
+        }
       } catch (error) {
         console.warn("[session/create] Failed to persist session:", error);
         return;
       }
       clearSetupSessionState();
-
     } else {
-      // If absolutely no repo is selected, targetRepo is missing,
-      // or the user has deleted the repo folder
-      handleOpenRepositoryPicker();
-    }
-  };
-
-  const handleChooseExistingProject = (repository: string) => {
-    handleNewTask(repository);
-  };
-
-  const handleChooseNoProject = async () => {
-    try {
-      await createSession("New Task", "New Project");
+      setShowRepoPicker(false);
       clearContext();
       clearSetupSessionState();
-    } catch (error) {
-      console.warn("[session/create] Failed to persist session:", error);
+      try {
+        await createSession("New chat", null);
+      } catch (error) {
+        console.warn("[session/create] Failed to persist session:", error);
+      }
     }
   };
 
-  const handleExplicitBranchSelect = useCallback(async (nextBranch: string) => {
-    if (!repo) return;
-    const sessionId = activeSessionId;
-    const fullName = repo.full_name;
-    await WorkspaceSelection.selectWorkspace(repo, nextBranch);
-    if (activeSessionIdRef.current !== sessionId || repoFullNameRef.current !== fullName) return;
-    switchBranch(nextBranch);
-    if (sessionId) saveSessionBranchPreference(sessionId, fullName, nextBranch);
-    setSessionWorkspaceContext((current) => current?.sessionId === sessionId
-      ? { ...current, selectedBranch: nextBranch }
-      : current);
-  }, [activeSessionId, repo, switchBranch, setSessionWorkspaceContext]);
+  const inheritComposerSelection = (sessionId: string) => {
+    const sourceId = activeSession?.id ?? setupSession?.id;
+    if (sourceId)
+      ProviderStore.getInstance().copySessionSelection(sourceId, sessionId);
+  };
+
+  const handleChooseExistingProject = (
+    repository: string,
+    draft: AgentSetupDraft,
+  ) => {
+    handleNewTask(repository, draft);
+  };
+
+  const handleChooseNoProject = async (draft: AgentSetupDraft) => {
+    if (activeSession?.repository === null) return;
+    const sessionId = await createSession("New chat", null);
+    setShowRepoPicker(false);
+    clearContext();
+    clearSetupSessionState();
+    inheritComposerSelection(sessionId);
+    setSetupDrafts((current) => ({
+      ...current,
+      [sessionId]: copySetupDraft(draft),
+    }));
+  };
+
+  const handleExplicitBranchSelect = useCallback(
+    async (nextBranch: string) => {
+      if (!repo) return;
+      const sessionId = activeSessionId;
+      const fullName = repo.full_name;
+      await WorkspaceSelection.selectWorkspace(repo, nextBranch);
+      if (
+        activeSessionIdRef.current !== sessionId ||
+        repoFullNameRef.current !== fullName
+      )
+        return;
+      switchBranch(nextBranch);
+      if (sessionId)
+        saveSessionBranchPreference(sessionId, fullName, nextBranch);
+      setSessionWorkspaceContext((current) =>
+        current?.sessionId === sessionId
+          ? { ...current, selectedBranch: nextBranch }
+          : current,
+      );
+    },
+    [activeSessionId, repo, switchBranch, setSessionWorkspaceContext],
+  );
 
   const environmentSummary = activeSession
     ? {
-        repo: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
-          ? repo
-          : null,
-        branch: !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
-          ? branch
-          : "",
+        repo:
+          !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+            ? repo
+            : null,
+        branch:
+          !isWorkspaceContextRepairing && hasMatchingActiveWorkspaceContext
+            ? branch
+            : "",
         pullRequestResult: user?.id
           ? pullRequestsBySessionId.get(activeSession.id)
           : { status: "unavailable" as const, sessionId: activeSession.id },
@@ -771,7 +832,10 @@ function AppContent() {
   ): Promise<void> => {
     let selection: WorkspaceSelection.WorkspaceSelection;
     try {
-      selection = await WorkspaceSelection.selectWorkspace(selectedRepo, selectedBranch);
+      selection = await WorkspaceSelection.selectWorkspace(
+        selectedRepo,
+        selectedBranch,
+      );
     } catch (error) {
       console.error("[workspace/select] Failed to persist selection:", error);
       window.dispatchEvent(
@@ -787,12 +851,28 @@ function AppContent() {
 
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
-    setContext(selectedRepo, selectedBranch);
-    setShowRepoPicker(false);
 
     // Publish setup only after the owned conversation exists.
     const sessionName = `New Task`;
-    await createSession(sessionName, selectedRepo.full_name, undefined, selection.workspaceId);
+    const sessionId = await createSession(
+      sessionName,
+      selectedRepo.full_name,
+      undefined,
+      selection.workspaceId,
+    );
+    setContext(selectedRepo, selectedBranch);
+    setShowRepoPicker(false);
+    saveSessionBranchPreference(
+      sessionId,
+      selectedRepo.full_name,
+      selectedBranch,
+    );
+    if (projectPickerDraftRef.current) {
+      inheritComposerSelection(sessionId);
+      const draft = projectPickerDraftRef.current;
+      setSetupDrafts((current) => ({ ...current, [sessionId]: draft }));
+      projectPickerDraftRef.current = undefined;
+    }
     clearSetupSessionState();
   };
 
@@ -801,10 +881,7 @@ function AppContent() {
     isAuthLoading: isLoading,
     sessionHydrationStatus,
   });
-  const isShellContextLoading =
-    isLoading ||
-    isSessionContextLoading ||
-    (workspaceSelectionBootstrapStatus === "loading" && !hasRealSession);
+  const isShellContextLoading = isLoading || isSessionContextLoading;
 
   // Show loading state while auth, session, or workspace context is settling.
   if (isShellContextLoading) {
@@ -835,12 +912,10 @@ function AppContent() {
     return <GitHubSignInPage onLogin={login} />;
   }
 
-  if (!hasRepoContext) {
-    return <AuthorizedRepositoryPicker onRepoSelect={handleRepoSelect} />;
-  }
-
   return (
-    <ClientShell environment={environment.status === "ready" ? undefined : environment}>
+    <ClientShell
+      environment={environment.status === "ready" ? undefined : environment}
+    >
       <WorkspaceFrame
         sidebar={
           <div className="flex h-full">
@@ -934,7 +1009,6 @@ function AppContent() {
         sidebarOpen={isSidebarOpen}
         onSidebarOpenChange={setIsSidebarOpen}
       >
-
         {/* Main Workspace Layer */}
         <div className="flex min-h-0 flex-1 overflow-hidden relative bg-black">
           <AnimatePresence initial={false} mode="wait">
@@ -942,9 +1016,15 @@ function AppContent() {
               <SessionConversationSurface
                 key={activeSessionId}
                 sessionId={activeSessionId}
-                runId={activeSession.activeRunId ?? activeSession.latestRunId ?? ""}
+                runId={
+                  activeSession.activeRunId ?? activeSession.latestRunId ?? ""
+                }
                 mode={activeSession.mode}
-                workspaceContext={sessionWorkspaceContext?.sessionId === activeSession.id ? sessionWorkspaceContext : null}
+                workspaceContext={
+                  sessionWorkspaceContext?.sessionId === activeSession.id
+                    ? sessionWorkspaceContext
+                    : null
+                }
                 isSessionPersistenceReady={isSessionPersistenceReady(
                   activeSession.persistenceStatus,
                 )}
@@ -1073,17 +1153,22 @@ function AppContent() {
                         sessionId={activeSession.id}
                       >
                         <AgentSetup
+                          draftRef={setupDraftReaderRef}
                           sessionId={activeSessionId}
+                          initialDraft={setupDrafts[activeSessionId]}
                           mode={activeSession.mode}
                           onModeChange={(mode) =>
                             updateSession(activeSessionId, { mode })
                           }
                           isRightSidebarOpen={isRightSidebarOpen}
+                          rightSidebarWidth={rightSidebarWidth}
+                          setRightSidebarWidth={setRightSidebarWidth}
+                          onCloseRightSidebar={() =>
+                            setIsRightSidebarOpen(false)
+                          }
                           reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                           onRepoClick={handleOpenRepositoryPicker}
-                          projects={repositories.filter(
-                            (repository) => repository !== "New Project",
-                          )}
+                          projects={repositories}
                           onProjectSelect={handleChooseExistingProject}
                           onBranchSelect={handleExplicitBranchSelect}
                           onNoProject={handleChooseNoProject}
@@ -1135,18 +1220,37 @@ function AppContent() {
                   sessionId={setupSession.id}
                 >
                   <AgentSetup
+                    draftRef={setupDraftReaderRef}
                     sessionId={setupSession.id}
                     isRightSidebarOpen={isRightSidebarOpen}
+                    rightSidebarWidth={rightSidebarWidth}
+                    setRightSidebarWidth={setRightSidebarWidth}
+                    onCloseRightSidebar={() => setIsRightSidebarOpen(false)}
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
-                    requiresRepository
                     onRepoClick={handleOpenRepositoryPicker}
-                    projects={repositories.filter(
-                      (repository) => repository !== "New Project",
-                    )}
+                    projects={repositories}
                     onProjectSelect={handleChooseExistingProject}
                     onNoProject={handleChooseNoProject}
-                    onStart={() => {
-                      handleOpenRepositoryPicker();
+                    onStart={async (config) => {
+                      const sessionId = await createSession(
+                        "New chat",
+                        null,
+                        config.mode,
+                      );
+                      inheritComposerSelection(sessionId);
+                      clearContext();
+                      clearSetupSessionState();
+                      updateInitialPromptSubmissions((current) => ({
+                        ...current,
+                        [sessionId]: {
+                          id: createInitialPromptSubmissionId(
+                            crypto.randomUUID(),
+                          ),
+                          prompt: config.task,
+                          attachments: config.attachments,
+                          status: "queued",
+                        },
+                      }));
                     }}
                   />
                 </RunContextProvider>
@@ -1174,12 +1278,10 @@ function AppContent() {
           </AnimatePresence>
 
           {showRepoPicker && isAuthenticated ? (
-            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-              <AuthorizedRepositoryPicker
-                onRepoSelect={handleRepoSelect}
-                onClose={() => setShowRepoPicker(false)}
-              />
-            </div>
+            <RepositoryPickerModal
+              onRepoSelect={handleRepoSelect}
+              onClose={() => setShowRepoPicker(false)}
+            />
           ) : null}
 
           <SettingsDialog
