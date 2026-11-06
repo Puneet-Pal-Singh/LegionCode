@@ -1132,3 +1132,18 @@ The concrete native runtime/provider factory and renderer consumers must be
 composed before this integration advertises execution. Read-only execution may
 explicitly omit capture; mutating capability requires the canonical permission,
 workspace and real snapshot/artifact owners.
+
+## Plan 057.6C — Atomic native Turn admission persistence
+
+| Responsibility | Canonical owner | Producer and consumer status |
+| --- | --- | --- |
+| Admission records and identity validation | `platform-protocol/conversation` `TurnAdmissionSchema` composing canonical Run, Turn and ThreadItem records | The native runtime supplies the records; no renderer-owned admission schema is introduced. |
+| Atomic admission and durable history | `event-store` `LocalPersistence.turnAdmissions`, composed with `LocalTurnAdmissions` over the existing SQLite writer | One synchronous transaction appends canonical run/turn/prompt events and an identity/request-fingerprint/event-reference index. Matching normalized requests return the original receipt, including after archival. New requests recheck the active canonical Thread's user/workspace identity inside that same transaction; changed requests, inactive or foreign Threads, and reused identities fail closed. The index contains no duplicate Run, Turn, prompt or transcript payload. |
+| Lifecycle and terminal truth | Existing runtime lifecycle producer and canonical lifecycle append | Persistence verifies admitted thread/Turn/attempt identity. An admission without matching terminal evidence remains unsettled across restart and blocks another request; restart does not infer execution or manufacture settlement. |
+| Native App Server and executor wiring | Plan 057 worker01 composition and worker03 runtime executor | Consumer wiring remains pending for this persistence leaf. The local thread projection must handle mixed event streams before integration; no complete Desktop execution or append-to-live proof is claimed here. |
+
+Admission/history reads reconstruct canonical records from validated event
+references. History cursors use the referenced run-created event cursor and are
+scoped to the requested thread. Runtime publication must follow the committed
+admission receipt; persistence does not publish live events or own another
+lifecycle state machine.
