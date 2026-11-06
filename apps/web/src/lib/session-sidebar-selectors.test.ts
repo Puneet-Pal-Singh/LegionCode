@@ -64,9 +64,10 @@ describe("Web session to shared Thread sidebar projection", () => {
     const model = projectAgentSessionsForSidebar({
       sessions: [
         createSession({ id: "selected" }),
-        createSession({ id: "pinned", pinnedAt: "2026-09-26T11:00:00.000Z" }),
+        createSession({ id: "pinned", repository: null, pinnedAt: "2026-09-26T11:00:00.000Z" }),
         createSession({
           id: "archived",
+          repository: null,
           archivedAt: "2026-09-26T11:00:00.000Z",
         }),
       ],
@@ -81,6 +82,7 @@ describe("Web session to shared Thread sidebar projection", () => {
         .flatMap((group) => group.threads)
         .map((thread) => [thread.selectionId, thread.isSelected]),
     ).toContainEqual(["selected", true]);
+    expect(model.workspaceGroups.find((group) => group.workspaceSelectionId === "No repository")?.threads).toEqual([]);
     expect(model.pinned.map((thread) => thread.selectionId)).toEqual([
       "pinned",
     ]);
@@ -127,6 +129,7 @@ describe("Web session to shared Thread sidebar projection", () => {
     ).toEqual([
       ["acme_foo/bar", null, ["session-b"]],
       ["acme/foo_bar", null, ["session-a"]],
+      ["No repository", null, []],
     ]);
   });
 
@@ -137,6 +140,9 @@ describe("Web session to shared Thread sidebar projection", () => {
       activeSessionId: null,
       now: NOW,
     };
+    const empty = projectAgentSessionsForSidebar({ ...input, hydrationStatus: "ready" });
+    expect(empty.status).toBe("empty");
+    expect(empty.workspaceGroups).toEqual([expect.objectContaining({ workspaceSelectionId: "No repository", threads: [] })]);
     expect(
       projectAgentSessionsForSidebar({ ...input, hydrationStatus: "loading" })
         .status,
