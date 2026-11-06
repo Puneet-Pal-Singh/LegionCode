@@ -176,7 +176,7 @@ const ArtifactReviewLookupResultSchema = z.object({
   (result) => (result.status === 200) === (result.source !== null),
   "Artifact review lookup status must match its source",
 );
-const CheckoutReadParamsSchema = z.object({
+export const CheckoutReadParamsSchema = z.object({
   runId: RunIdSchema,
   sessionId: z.string().min(1),
   path: z.string().min(1).max(4096),
