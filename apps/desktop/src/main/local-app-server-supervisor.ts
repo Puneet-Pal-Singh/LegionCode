@@ -24,7 +24,7 @@ import {
   RuntimeCredentialRequestSchema,
   RuntimeCredentialResponseSchema,
   type RuntimeCredentialRequest,
-  type RuntimeProviderCredential,
+  type RuntimeCredentialLease,
 } from "./runtime-credentials";
 import type {
   DesktopEnvironmentConnection,
@@ -47,7 +47,7 @@ export class LocalAppServerSupervisor {
     private readonly requestHeaders?: RequestHeaders,
     private readonly resolveRuntimeCredential?: (
       providerId: ProviderId,
-    ) => Promise<RuntimeProviderCredential | null>,
+    ) => Promise<RuntimeCredentialLease | null>,
   ) {}
 
   // Timed-out deliveries still occupy a slot until their resolver settles.
@@ -220,9 +220,9 @@ export class LocalAppServerSupervisor {
     this.credentialRequests.set(request.requestId, timer);
     const lookup = Symbol();
     this.credentialLookups.add(lookup);
-    let credential: RuntimeProviderCredential | null = null;
+    let lease: RuntimeCredentialLease | null = null;
     try {
-      credential =
+      lease =
         (await this.resolveRuntimeCredential?.(request.providerId)) ?? null;
     } catch {
       // The private channel never forwards vault errors or their data.
@@ -232,14 +232,14 @@ export class LocalAppServerSupervisor {
     if (this.credentialRequests.get(request.requestId) !== timer) return;
     clearTimeout(timer);
     this.credentialRequests.delete(request.requestId);
-    this.replyCredential(child, generation, request, credential);
+    this.replyCredential(child, generation, request, lease);
   }
 
   private replyCredential(
     child: UtilityProcess,
     generation: number,
     request: RuntimeCredentialRequest,
-    credential: RuntimeProviderCredential | null,
+    lease: RuntimeCredentialLease | null,
   ): void {
     if (child !== this.child || generation !== this.generation || this.stopping)
       return;
@@ -247,7 +247,7 @@ export class LocalAppServerSupervisor {
       type: "runtime-credential-response",
       requestId: request.requestId,
       providerId: request.providerId,
-      credential,
+      credential: lease?.credential ?? null,
     });
     const scoped =
       parsed.success &&
@@ -263,6 +263,15 @@ export class LocalAppServerSupervisor {
           credential: null,
         };
     try {
+      if (response.credential !== null && !lease?.canDeliver()) {
+        response.credential = null;
+      }
+      if (
+        child !== this.child ||
+        generation !== this.generation ||
+        this.stopping
+      )
+        return;
       child.postMessage(response);
     } catch {
       // Process loss must not leak the secret-bearing response or fabricate settlement.
