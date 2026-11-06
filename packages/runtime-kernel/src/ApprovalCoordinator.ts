@@ -44,7 +44,7 @@ export class ApprovalCoordinator {
           metadata: request.metadata,
         },
       );
-      const resolution = await raceApprovalResolution(
+      const candidate = await raceApprovalResolution(
         [
           this.approvals.waitForDecision({
             runId: run.id,
@@ -57,7 +57,7 @@ export class ApprovalCoordinator {
         ],
         signal,
       );
-      await this.settle(request.approvalId, pending, resolution);
+      const resolution = await this.settle(request.approvalId, pending, candidate);
       if (resolution.timedOut) {
         throw new RuntimeKernelError(
           "approval_timed_out",
@@ -99,8 +99,7 @@ export class ApprovalCoordinator {
         `Approval ${approvalId} is not active in this runtime kernel`,
       );
     }
-    await this.settle(approvalId, pending, resolution);
-    pending.resolve(resolution);
+    await this.settle(approvalId, pending, resolution, true);
   }
 
   private createPending(
@@ -123,6 +122,7 @@ export class ApprovalCoordinator {
       resolve,
       request,
       settlement: null,
+      selectedResolution: null,
     };
     this.pending.set(approvalId, pending);
     return pending;
@@ -132,7 +132,8 @@ export class ApprovalCoordinator {
     approvalId: ApprovalRequestedPayload["approvalId"],
     pending: PendingApprovalResolution,
     resolution: ApprovalResolution,
-  ): Promise<void> {
+    rejectConflict = false,
+  ): Promise<ApprovalResolution> {
     if (resolution.grantScope) {
       if (resolution.decision !== "approved" || resolution.timedOut) {
         throw new RuntimeKernelError(
@@ -151,20 +152,28 @@ export class ApprovalCoordinator {
         );
       }
     }
+    if (pending.selectedResolution && rejectConflict &&
+      !sameResolution(pending.selectedResolution, resolution)) {
+      throw new RuntimeKernelError("approval_resolution_conflict",
+        `Approval ${approvalId} already has a different winning resolution`);
+    }
+    // Select synchronously before the first append/await; the waiter, persistence
+    // and reply path must all use this same immutable value.
+    pending.selectedResolution ??= Object.freeze({ ...resolution });
+    const selected = pending.selectedResolution;
     pending.settlement ??= this.lifecycle.decideApproval(
       approvalId,
-      resolution.timedOut ? "timed_out" : resolution.decision,
+      selected.timedOut ? "timed_out" : selected.decision,
       {
-        decidedBy: resolution.decidedBy,
-        reason: resolution.reason,
-        ...(resolution.decision === "approved" &&
-        !resolution.timedOut &&
-        resolution.grantScope
-          ? { grantScope: resolution.grantScope }
-          : {}),
+        decidedBy: selected.decidedBy,
+        reason: selected.reason,
+        ...(selected.decision === "approved" && !selected.timedOut && selected.grantScope
+          ? { grantScope: selected.grantScope } : {}),
       },
     );
     await pending.settlement;
+    pending.resolve(selected);
+    return selected;
   }
 }
 
@@ -173,6 +182,7 @@ interface PendingApprovalResolution {
   readonly resolve: (resolution: ApprovalResolution) => void;
   readonly request: ApprovalRequestedPayload;
   settlement: Promise<void> | null;
+  selectedResolution: ApprovalResolution | null;
 }
 
 function raceApprovalResolution(
@@ -195,4 +205,10 @@ function raceApprovalResolution(
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", abort));
   });
+}
+
+function sameResolution(a: ApprovalResolution, b: ApprovalResolution): boolean {
+  return a.decision === b.decision && a.decidedBy === b.decidedBy &&
+    a.reason === b.reason && Boolean(a.timedOut) === Boolean(b.timedOut) &&
+    a.grantScope === b.grantScope;
 }
