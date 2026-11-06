@@ -1,3 +1,4 @@
+import { isDelegatedChat, assertHostedChatEnvironment } from "../../services/chat/ChatExecutionStrategy";
 import { HarnessAdmissionSelectionSchema, type HarnessAdmissionSelection } from "@repo/platform-protocol";
 /**
  * HandleChatRequest Use-Case
@@ -176,7 +177,10 @@ export class HandleChatRequest {
       identity,
     } = input;
 
+    assertHostedChatEnvironment(input.harnessSelection, this.env.APP_SERVER_ENVIRONMENT_ID, correlationId);
+    const delegated = isDelegatedChat(input, correlationId);
     const runtimeSelections = this.resolveRuntimeSelections(input);
+    if (delegated) runtimeSelections.harnessMode = "delegated";
     const mode = input.mode ?? DEFAULT_RUN_MODE;
 
     try {
@@ -189,19 +193,20 @@ export class HandleChatRequest {
         capabilities: input.modelCapabilities,
         inputModalities: input.modelInputModalities,
       };
-      assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
+      if (!delegated) assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
+      else if (Array.isArray(lastUserMessage.content) && lastUserMessage.content.some((part) => part.type === "image")) {
+        throw new ValidationError("The delegated prompt contract does not support image attachments", "HARNESS_IMAGES_UNAVAILABLE", correlationId);
+      }
 
       const repositorySlug =
         repositoryOwner && repositoryName
           ? `${repositoryOwner}/${repositoryName}`
           : undefined;
       const taskId = input.taskId ?? sessionId;
-      const contextWindowTokens = resolveContextWindowTokens(input);
-      const providerRuntimeRoute =
-        input.providerRuntimeRoute ??
-        resolveProviderRuntimeRoute(input.providerId, input.modelId);
-      const normalizedProviderRuntimeRoute =
-        normalizeProviderRuntimeRoute(providerRuntimeRoute);
+      const contextWindowTokens = delegated ? undefined : resolveContextWindowTokens(input);
+      const normalizedProviderRuntimeRoute = delegated ? {} : normalizeProviderRuntimeRoute(
+        input.providerRuntimeRoute ?? resolveProviderRuntimeRoute(input.providerId, input.modelId),
+      );
 
       let persistedRun: RunRecord | undefined;
       if (!userId) {
@@ -235,8 +240,8 @@ export class HandleChatRequest {
           identity,
           message: lastUserMessage,
           mode,
-          providerId: input.providerId ?? null,
-          modelId: input.modelId ?? null,
+          providerId: delegated ? null : input.providerId ?? null,
+          modelId: delegated ? input.harnessSelection?.selection?.modelId : input.modelId ?? null,
           branch: repositoryBranch ?? null,
           harnessSelection: input.harnessSelection,
         });
@@ -252,7 +257,7 @@ export class HandleChatRequest {
         }),
       );
 
-      if (userId && !input.preAdmitted) {
+      if (!delegated && userId && !input.preAdmitted) {
         await scheduleInitialThreadTitle(this.env, this.persistenceService, {
           sessionId,
           userId,
@@ -266,7 +271,7 @@ export class HandleChatRequest {
         });
       }
 
-      const executionMessages = userId
+      const executionMessages = delegated ? [lastUserMessage] : userId
         ? await new DurableConversationContextAssembler(this.env).assemble({
             sessionId,
             userId,
@@ -295,8 +300,8 @@ export class HandleChatRequest {
           agentType,
           prompt,
           sessionId,
-          providerId: input.providerId,
-          modelId: input.modelId,
+          providerId: delegated ? undefined : input.providerId,
+          modelId: delegated ? undefined : input.modelId,
           ...normalizedProviderRuntimeRoute,
           harnessId: input.harnessId,
           ...(input.harnessSelection ? { harnessSelection: HarnessAdmissionSelectionSchema.parse(input.harnessSelection) } : {}),
@@ -306,8 +311,8 @@ export class HandleChatRequest {
           authMode: runtimeSelections.authMode,
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
-            ...(input.pricing ? { pricing: input.pricing } : {}),
-            ...(input.reasoningEffort
+            ...(!delegated && input.pricing ? { pricing: input.pricing } : {}),
+            ...(!delegated && input.reasoningEffort
               ? { reasoningEffort: input.reasoningEffort }
               : {}),
             featureFlags: {
@@ -345,7 +350,7 @@ export class HandleChatRequest {
               : undefined,
         },
         messages: executionMessages,
-        tools: input.tools,
+        tools: delegated ? undefined : input.tools,
       };
 
       console.log(

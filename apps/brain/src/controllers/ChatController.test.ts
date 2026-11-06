@@ -215,7 +215,6 @@ describe("ChatController DO runtime migration", () => {
     const requestWithOverrides = await createChatRequest(env, {
       orchestratorBackend: "cloudflare_agents",
       executionBackend: "e2b",
-      harnessMode: "delegated",
       authMode: "oauth",
     });
 

@@ -1,3 +1,4 @@
+import { isDelegatedChat } from "../../services/chat/ChatExecutionStrategy";
 import type { AgentType } from "@legioncode/execution-engine/runtime";
 import { HandleChatRequest } from "../../application/chat";
 import type { Env } from "../../types/ai";
@@ -109,8 +110,10 @@ export async function submitHostedChat(
 
     const executionStartedAt = Date.now();
     const useCase = new HandleChatRequest(env);
-    const trustedModelMetadata: ChatModelMetadata =
-      await resolveChatModelMetadata({
+    const delegated = isDelegatedChat(body, correlationId);
+    const trustedModelMetadata: ChatModelMetadata | undefined = delegated
+      ? undefined
+      : await resolveChatModelMetadata({
         providerId: body.providerId,
         modelId: body.modelId,
         fetchModels: (_providerId, query) =>
@@ -125,10 +128,9 @@ export async function submitHostedChat(
           }),
       });
 
-    const reasoningEffortError = validateChatReasoningEffort(
-      body.reasoningEffort,
-      trustedModelMetadata,
-    );
+    const reasoningEffortError = trustedModelMetadata
+      ? validateChatReasoningEffort(body.reasoningEffort, trustedModelMetadata)
+      : null;
     if (reasoningEffortError) {
       return errorResponse(
         req,
@@ -151,8 +153,8 @@ export async function submitHostedChat(
         mode: body.mode,
         prompt,
         messages: coreMessages,
-        providerId: body.providerId,
-        modelId: body.modelId,
+        providerId: delegated ? undefined : body.providerId,
+        modelId: delegated ? body.harnessSelection?.selection?.modelId : body.modelId,
         harnessId: body.harnessId,
         harnessSelection: body.harnessSelection,
         orchestratorBackend: body.orchestratorBackend,
@@ -166,13 +168,13 @@ export async function submitHostedChat(
         repositoryName: body.repositoryName,
         repositoryBranch: body.repositoryBranch,
         repositoryBaseUrl: body.repositoryBaseUrl,
-        contextWindowTokens: trustedModelMetadata.contextWindow,
-        pricing: trustedModelMetadata.pricing,
-        providerRuntimeRoute: trustedModelMetadata.runtimeRoute,
-        modelCapabilities: trustedModelMetadata.capabilities,
-        modelInputModalities: trustedModelMetadata.inputModalities,
-        reasoningEffort: body.reasoningEffort,
-        tools: body.tools,
+        contextWindowTokens: trustedModelMetadata?.contextWindow,
+        pricing: trustedModelMetadata?.pricing,
+        providerRuntimeRoute: trustedModelMetadata?.runtimeRoute,
+        modelCapabilities: trustedModelMetadata?.capabilities,
+        modelInputModalities: trustedModelMetadata?.inputModalities,
+        reasoningEffort: delegated ? undefined : body.reasoningEffort,
+        tools: delegated ? undefined : body.tools,
         identity,
         backgroundTaskOwner,
       },
