@@ -12,6 +12,8 @@ import { LocalInterruptionService, LocalInterruptionAttemptNotActiveError } from
 /** Runtime objects and ports only; this host never produces lifecycle events. */
 export type LocalTurnExecutor = {
   execute(admission: TurnAdmission): Promise<unknown>;
+  /** True only after physical quiescence and canonical terminal/capture settlement. */
+  awaitResourceRelease?(turnId: TurnId): Promise<boolean>;
   interrupt(turnId: TurnId, reason: string): Promise<void>;
   resolveApproval: ConstructorParameters<typeof LocalApprovalService>[0]["resolveApproval"];
 };
@@ -84,13 +86,22 @@ export class LocalTurnService {
         // Runtime owns preflight failure and terminal settlement. Never infer a terminal here.
         const execution = Promise.resolve().then(() => executor.execute(admission));
         executionOwnsBinding = true;
+        let executionRejected = false;
         void execution.catch(() => {
+          executionRejected = true;
           console.error("Local runtime execution did not return successfully; canonical replay remains authoritative");
-        }).finally(async () => {
+        }).then(async () => {
+          const releasable = executor.awaitResourceRelease
+            ? await executor.awaitResourceRelease(admission.turn.id)
+            : !executionRejected;
+          if (!releasable) {
+            console.error("Local runtime resources retained pending physical quiescence and settlement");
+            return;
+          }
           if (this.executors.get(admission.turn.id) === executor) this.executors.delete(admission.turn.id);
           await binding.close();
         }).catch(() => {
-          console.error("Local workspace descriptor cleanup failed");
+          console.error("Local runtime resource release was not confirmed; binding retained");
         });
       }
       return admission;
