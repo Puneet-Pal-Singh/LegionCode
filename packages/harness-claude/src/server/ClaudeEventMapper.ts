@@ -21,6 +21,10 @@ function identity(value: string): string {
 export class ClaudeEventMapper {
   private readonly startedTools = new Map<string, string>();
   private readonly completedTools = new Set<string>();
+  private readonly requestedTools = new Map<
+    string,
+    { readonly name: string; readonly input: unknown }
+  >();
   private readonly messages = new Map<string, string>();
   private lastAssistantItem: ReturnType<typeof ItemIdSchema.parse>;
 
@@ -99,8 +103,16 @@ export class ClaudeEventMapper {
             itemId: item,
             text: block.text,
           });
-        // Tool starts come from mandatory PreToolUse with the SDK's validated input,
-        // rather than model-authored input that can still gain SDK defaults.
+        // Tool starts come from mandatory PreToolUse with validated input. Retain
+        // raw requests only to correlate failures denied by SDK validation before hooks.
+        if (block.type === "tool_use") {
+          if (this.requestedTools.size >= 4096)
+            throw new Error("Claude pending tool limit exceeded");
+          this.requestedTools.set(block.id, {
+            name: block.name,
+            input: block.input,
+          });
+        }
       }
       return observations;
     }
@@ -112,13 +124,32 @@ export class ClaudeEventMapper {
           this.completedTools.has(block.tool_use_id)
         )
           continue;
-        if (!this.startedTools.has(block.tool_use_id))
-          throw new Error("Claude tool result has no matching start");
-        // P04 must add tool_failed before SDK tool errors can settle canonically.
-        if (block.is_error)
-          throw new Error(
-            "Claude tool failed; canonical tool_failed observation is required",
+        if (!this.startedTools.has(block.tool_use_id)) {
+          const request = this.requestedTools.get(block.tool_use_id);
+          if (!block.is_error || !request)
+            throw new Error(
+              "Claude successful tool result has no mandatory policy start",
+            );
+          observations.push(
+            ...this.toolStarted(block.tool_use_id, request.name, request.input),
           );
+        }
+        this.requestedTools.delete(block.tool_use_id);
+        if (block.is_error) {
+          observations.push({
+            kind: "tool_failed",
+            itemId: this.item(`tool:${block.tool_use_id}`),
+            failure: {
+              code: "command_failed",
+              message: "Claude reported a failed tool execution",
+              retryable: false,
+              correlationId: null,
+              details: null,
+            },
+          });
+          this.completedTools.add(block.tool_use_id);
+          continue;
+        }
         const output =
           typeof block.content === "string"
             ? block.content
@@ -139,12 +170,14 @@ export class ClaudeEventMapper {
   terminal(
     message: SDKResultMessage,
     stopped: boolean,
+    providerCompletedAt: string,
   ): HarnessObservationPayload {
     if (message.session_id !== this.session.externalSessionId)
       throw new Error("Claude terminal session changed");
     const failed = message.is_error || message.subtype !== "success";
     return {
       kind: "external_terminal",
+      providerCompletedAt,
       status: stopped ? "interrupted" : failed ? "failed" : "completed",
       itemId: this.lastAssistantItem,
       output: message.subtype === "success" && !failed ? message.result : "",

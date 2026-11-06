@@ -68,10 +68,16 @@ export class ClaudeQueryRunner {
   private initialized = false;
   private closed = false;
   private busy = false;
+  private nativeState: "idle" | "running" | "requires_action" | "unavailable" =
+    "unavailable";
   private readonly submitted = new Set<string>();
   private readonly tasks = new Map<string, string | undefined>();
   private readonly backgroundTasks = new Map<string, string | undefined>();
   private stopPromise: Promise<void> | undefined;
+  private readonly workWaiters = new Set<{
+    readonly resolve: () => void;
+    readonly reject: (error: Error) => void;
+  }>();
 
   constructor(options: RunnerOptions) {
     const { beforeTool, ...sdkOptions } = options;
@@ -123,7 +129,7 @@ export class ClaudeQueryRunner {
                 },
               ],
               onFailure: "block",
-              timeout: 30,
+              timeout: 300,
             },
           ],
         },
@@ -209,8 +215,7 @@ export class ClaudeQueryRunner {
           const previous = this.tasks.get(message.task_id);
           if (
             previous === undefined ||
-            message.run_id === undefined ||
-            message.run_id >= previous
+            (message.run_id !== undefined && message.run_id >= previous)
           )
             this.tasks.set(message.task_id, message.run_id);
         }
@@ -223,8 +228,20 @@ export class ClaudeQueryRunner {
               tasks.delete(message.task_id);
           }
         }
+        if (
+          message.type === "system" &&
+          message.subtype === "session_state_changed"
+        )
+          this.nativeState = message.state;
         await sink(message);
         if (message.type === "result") this.busy = false;
+        if (
+          this.nativeState === "idle" &&
+          this.tasks.size === 0 &&
+          this.backgroundTasks.size === 0
+        ) {
+          for (const waiter of this.workWaiters) waiter.resolve();
+        }
       }
     } finally {
       this.close();
@@ -245,7 +262,38 @@ export class ClaudeQueryRunner {
     }
     this.submitted.add(message.uuid);
     this.busy = true;
+    this.nativeState = "running";
     this.input.push(message);
+  }
+
+  /** Native task settlement only. This never replaces the host's OS quiescence proof. */
+  async awaitOwnedWork(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw new Error("Claude work wait cancelled");
+    if (
+      this.nativeState === "idle" &&
+      this.tasks.size === 0 &&
+      this.backgroundTasks.size === 0
+    )
+      return;
+    if (this.closed) throw new Error("Claude task stream is closed");
+    let waiter:
+      | {
+          readonly resolve: () => void;
+          readonly reject: (error: Error) => void;
+        }
+      | undefined;
+    const abort = () => waiter?.reject(new Error("Claude work wait cancelled"));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        waiter = { resolve, reject };
+        this.workWaiters.add(waiter);
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      });
+    } finally {
+      signal.removeEventListener("abort", abort);
+      if (waiter) this.workWaiters.delete(waiter);
+    }
   }
 
   /** Acceptance/cleanup only. The host must separately prove descendant quiescence. */
@@ -304,6 +352,8 @@ export class ClaudeQueryRunner {
 
   close(): void {
     this.closed = true;
+    for (const waiter of this.workWaiters)
+      waiter.reject(new Error("Claude task stream closed before settlement"));
     this.permissions.abort();
     this.input.close();
     this.sdk.close();
