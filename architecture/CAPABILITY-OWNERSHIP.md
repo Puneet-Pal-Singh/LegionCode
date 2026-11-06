@@ -953,6 +953,18 @@ The unused `uiShellStore` writer and persisted shell identity mirror are removed
 
 Legacy session snapshot readers and their preservation checks remain quarantined until the real browser inventory is matched; the downloaded inventory has not yet been reconciled. They are not an active session/history source. No historical browser values are deleted by this slice.
 
+## Runless workspace selection recovery
+
+- `useOwnedWorkspaceSelection` renders the existing authenticated SDK workspace
+  selection read; the server remains the selection and ownership authority.
+  A successful empty response is distinct from an unavailable read. Transient
+  failures retain the same account's last verified selection and expose an
+  explicit setup Retry action instead of requiring reload or project reselection.
+- Each request is abortable and account/generation scoped. A successful explicit
+  server selection invalidates older reads; late reads or selection callbacks
+  from a previous account cannot replace the current selection. No browser
+  persistence, repair write, background retry loop or new product owner is added.
+
 ## Setup permission selection and first submission
 
 - The mounted `SessionConversationSurface` owns one permission selection and
