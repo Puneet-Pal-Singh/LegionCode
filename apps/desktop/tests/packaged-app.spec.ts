@@ -1,15 +1,23 @@
 import { _electron as electron, expect, test } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+import { AppServerEnvironmentSnapshotSchema } from "@repo/platform-protocol";
 
 const releaseDirectory = fileURLToPath(new URL("../release", import.meta.url));
 const execFile = promisify(execFileCallback);
 
+// These are unsigned macOS package regressions. Fixture credentials never invoke
+// a provider and do not constitute selected-provider golden-loop acceptance.
+test.setTimeout(90_000);
+
 async function findPackagedExecutable(): Promise<string> {
+  if (process.platform !== "darwin") {
+    throw new Error("Packaged Desktop acceptance requires macOS and a built .app");
+  }
   const releaseEntries = await readdir(releaseDirectory, {
     withFileTypes: true,
   });
@@ -55,7 +63,19 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     ).toBeVisible();
     await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
-    await expect(page.getByText("2 capability slices unavailable", { exact: true })).toBeVisible();
+    const environment = AppServerEnvironmentSnapshotSchema.parse(
+      await page.evaluate(() => window.desktop.getEnvironment()),
+    );
+    expect(environment.kind).toBe("local");
+    expect(environment.status).toBe("ready");
+    expect(environment.protocolVersion).toBe(APP_SERVER_PROTOCOL_VERSION);
+    // The strict public schema excludes the private listener address/credential.
+    expect(await page.evaluate(() => window.desktop.getBuildInfo())).toMatchObject({
+      packaged: true,
+      platform: "darwin",
+    });
+    const actualUserData = await launchedApplication.evaluate(({ app }) => app.getPath("userData"));
+    expect(await realpath(actualUserData)).toBe(await realpath(join(testRoot, "user-data")));
     await openSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
     await expect(closeSidebar).toBeVisible();
@@ -83,6 +103,29 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     if (!appServerMetric) {
       throw new Error("Packaged Local App Server process was not found");
     }
+    const { stdout: listeners } = await execFile("lsof", [
+      "-nP", "-a", "-p", String(appServerMetric.pid), "-iTCP", "-sTCP:LISTEN", "-Fn",
+    ]);
+    const addresses = listeners.split("\n").filter((line) => line.startsWith("n"));
+    expect(addresses).toHaveLength(1);
+    expect(addresses[0]).toMatch(/^n127\.0\.0\.1:\d+$/);
+    const endpoint = `http://${addresses[0]!.slice(1)}/app-server/request`;
+    const unauthorized = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(5_000),
+    });
+    expect(unauthorized.status).toBe(401);
+    await unauthorized.arrayBuffer();
+    const foreignOrigin = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://example.com" },
+      body: "{}",
+      signal: AbortSignal.timeout(5_000),
+    });
+    expect(foreignOrigin.status).toBe(403);
+    await foreignOrigin.arrayBuffer();
     process.kill(appServerMetric.pid, "SIGKILL");
     await expect(page.getByText("Environment offline", { exact: true })).toBeVisible();
     const restartPromise = page.evaluate(() => window.desktop.restartEnvironment());
@@ -151,6 +194,24 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     });
     await expect.poll(() => launchedApplication.windows().length).toBe(1);
     await expect.poll(() => page.url()).toBe(rendererUrl);
+
+    const restartedMetrics = await launchedApplication.evaluate(({ app }) => app.getAppMetrics());
+    const restartedServers = restartedMetrics.filter(
+      (metric) => metric.name === "LegionCode Local App Server",
+    );
+    expect(restartedServers).toHaveLength(1);
+    expect(restartedServers[0]!.pid).not.toBe(appServerMetric.pid);
+    await launchedApplication.close();
+    application = undefined;
+    await expect.poll(() => {
+      try {
+        process.kill(restartedServers[0]!.pid, 0);
+        return false;
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+        throw error;
+      }
+    }, { timeout: 10_000, message: "Local App Server must exit after Desktop quits" }).toBe(true);
   } finally {
     await application?.close();
     await rm(testRoot, { recursive: true, force: true });

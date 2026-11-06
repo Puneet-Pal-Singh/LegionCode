@@ -5,12 +5,20 @@ on:
     branches: [dev]
     paths:
       - "apps/desktop/**"
+      # Desktop bundles shared workspace source, including transitive dependencies.
+      - "packages/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-package.yml"
   push:
     branches: [dev]
     paths:
       - "apps/desktop/**"
+      # Desktop bundles shared workspace source, including transitive dependencies.
+      - "packages/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-package.yml"
 
@@ -21,6 +29,7 @@ jobs:
   package:
     name: Package unsigned macOS app
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +55,16 @@ jobs:
       - name: Package and smoke-test the app
         run: |
           pnpm --filter @legioncode/desktop package
-          pnpm --filter @legioncode/desktop test:packaged
+          pnpm --filter @legioncode/desktop test:packaged --trace retain-on-failure
+
+      - name: Upload packaged acceptance diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legioncode-desktop-packaged-test-results
+          path: apps/desktop/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload unsigned Desktop artifacts
         uses: actions/upload-artifact@v4
