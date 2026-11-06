@@ -1,3 +1,5 @@
+import { createDesktopAuthController } from "./controllers/DesktopAuthController";
+import { composeDesktopAuthOperations } from "./services/auth/DesktopAuthService";
 // apps/brain/src/index.ts
 import { ChatController } from "./controllers/ChatController";
 import { AuthController } from "./controllers/AuthController";
@@ -93,6 +95,44 @@ function createRouter(): Router {
     /^\/internal\/runtime\/events$/,
     (request, env) =>
       RuntimeEventController.acceptInternalRuntimeEvent(request, env),
+    "POST",
+  );
+
+  // Desktop auth uses the same identity repository and session authority.
+  router.add(
+    /^\/auth\/desktop\/challenges$/,
+    (request, env) =>
+      createDesktopAuthController(composeDesktopAuthOperations(env)).begin(
+        request,
+        env,
+      ),
+    "POST",
+  );
+  router.add(
+    /^\/auth\/desktop\/authorize$/,
+    (request, env) =>
+      createDesktopAuthController(composeDesktopAuthOperations(env)).consent(
+        request,
+        env,
+      ),
+    "GET",
+  );
+  router.add(
+    /^\/auth\/desktop\/authorize$/,
+    (request, env) =>
+      createDesktopAuthController(composeDesktopAuthOperations(env)).authorize(
+        request,
+        env,
+      ),
+    "POST",
+  );
+  router.add(
+    /^\/auth\/desktop\/redeem$/,
+    (request, env) =>
+      createDesktopAuthController(composeDesktopAuthOperations(env)).redeem(
+        request,
+        env,
+      ),
     "POST",
   );
 
