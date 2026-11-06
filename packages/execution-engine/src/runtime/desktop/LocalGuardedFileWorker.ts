@@ -58,6 +58,8 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
         };
         readonly filesystemRoot: string;
         readonly rootDirectory: FileHandle;
+        /** Borrowed canonical shared lease, retained by the native child at FD6. */
+        readonly writerLease: { readonly fd: number };
         readonly signal: AbortSignal;
         assertCurrent(): void | Promise<void>;
       };
@@ -100,6 +102,7 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
     this.filesystem = new NativeFilesystemBridge({
       helperPath: options.helperPath,
       rootDirectory: options.binding.rootDirectory,
+      writerLease: options.binding.writerLease,
     });
   }
 
