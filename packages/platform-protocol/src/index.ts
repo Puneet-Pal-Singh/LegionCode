@@ -97,6 +97,24 @@ export {
   type InterruptTurnRequest,
   type InterruptTurnResponse,
 } from "./turn-scope-bootstrap.js";
+export {
+  ChatRequestBodySchema,
+  type ChatRequestBody,
+  HostedChatSubmissionResultSchema,
+  type HostedChatSubmissionResult,
+} from "./chat-submission.js";
+export {
+  ChatRunModeSchema,
+  type ChatRunMode,
+} from "./run-mode.js";
+export {
+  WORKFLOW_INTENTS,
+  WORKFLOW_ENTRYPOINTS,
+  WorkflowIntentSchema,
+  WorkflowEntrypointSchema,
+  type WorkflowIntent,
+  type WorkflowEntrypoint,
+} from "./workflow.js";
 export { WorkspaceScopeIdSchema } from "./turn-scope-bootstrap.js";
 export {
   FollowLifecycleRequestSchema,
@@ -476,6 +494,35 @@ export {
   type WorkspaceSnapshot,
   type WorkspaceSnapshotProvenance,
 } from "./task-workspaces.js";
+export {
+  RepositoryBranchesRequestSchema,
+  RepositoryBranchesResponseSchema,
+  RepositoryContentsResultSchema,
+  RepositoryContentsResponseSchema,
+  RepositoryContentsRequestSchema,
+  RepositoryListRequestSchema,
+  RepositoryListResponseSchema,
+  RepositoryReadBranchSchema,
+  RepositoryReadContentsSchema,
+  RepositoryReadOwnerSchema,
+  RepositoryReadRepositorySchema,
+  RepositoryReadTreeEntrySchema,
+  RepositoryTreeRequestSchema,
+  RepositoryTreeResponseSchema,
+  type RepositoryBranchesRequest,
+  type RepositoryBranchesResponse,
+  type RepositoryContentsResponse,
+  type RepositoryContentsResult,
+  type RepositoryContentsRequest,
+  type RepositoryListRequest,
+  type RepositoryListResponse,
+  type RepositoryReadBranch,
+  type RepositoryReadContents,
+  type RepositoryReadRepository,
+  type RepositoryReadTreeEntry,
+  type RepositoryTreeRequest,
+  type RepositoryTreeResponse,
+} from "./repository-reads.js";
 export {
   GitCommitShaSchema,
   WorkspaceManifestSchema,

@@ -27,6 +27,7 @@ function createTransport(
   ].sort((a, b) => a.sequence - b.sequence);
 
   return {
+    submitHostedChat: unsupported,
     createThread: unsupported,
     createRun: unsupported,
     startTurn: unsupported,

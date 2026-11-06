@@ -137,15 +137,6 @@ export function getMuscleWsBase(): string {
 }
 
 /**
- * Build the full chat stream endpoint URL
- * Used for streaming chat responses from Brain
- * Path: /chat
- */
-export function chatStreamPath(): string {
-  return `${getBrainHttpBase()}/chat`;
-}
-
-/**
  * Build the run approval decision endpoint URL.
  * Used for resolving pending approval requests from the composer approval dock.
  * Path: /api/run/approval
@@ -155,14 +146,6 @@ export function runApprovalPath(): string {
 }
 
 /**
- * Build the GitHub pull request endpoint URL through Brain.
- * Used for creating and listing pull requests via the authenticated GitHub session.
- * Path: /api/github/pulls
- */
-export function githubPullsPath(): string {
-  return `${getBrainHttpBase()}/api/github/pulls`;
-}
-
 /**
  * Build the artifact endpoint URL
  * Used for loading artifact content from Muscle
