@@ -1,6 +1,6 @@
 import { isUtf8 } from "node:buffer";
 
-import { LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, type CheckoutReadFileResult } from "./protocol.js";
+import { LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, type CheckoutReadFileResult, type LocalWorkspaceListFilesParams, type LocalWorkspaceListFilesResult, type LocalWorkspaceReadFileParams } from "./protocol.js";
 import { AppServerOperationError } from "./server.js";
 import type { WorkspaceId } from "@repo/platform-protocol";
 
@@ -47,15 +47,11 @@ export interface LocalWorkspaceFilesBinding {
 export class LocalWorkspaceFilesService {
   constructor(private readonly binding: LocalWorkspaceFilesBinding) {}
 
-  async listFiles(input: {
-    readonly workspaceId: WorkspaceId;
-    readonly path: string;
-    readonly cursor?: string | null;
-  }) {
+  async listFiles(input: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult> {
     return this.binding.withWorkspace(input.workspaceId, async (reader, signal) => {
       signal.throwIfAborted();
       const page = await reader.listDirectory({
-        path: input.path, limit: 200, cursor: input.cursor, signal,
+        path: input.path, limit: input.limit ?? 200, cursor: input.cursor, signal,
       });
       signal.throwIfAborted();
       if (page.path !== input.path) {
@@ -64,6 +60,7 @@ export class LocalWorkspaceFilesService {
       // Preserve all native kinds and metadata. The bridge validates page size,
       // cursor/version and truncation; stale cursors are errors, never restarts.
       return {
+        path: page.path,
         entries: page.entries.map((entry) => ({ ...entry })),
         truncated: page.truncated,
         nextCursor: page.nextCursor,
@@ -71,10 +68,7 @@ export class LocalWorkspaceFilesService {
     });
   }
 
-  async readFile(input: {
-    readonly workspaceId: WorkspaceId;
-    readonly path: string;
-  }): Promise<CheckoutReadFileResult> {
+  async readFile(input: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult> {
     return this.binding.withWorkspace(input.workspaceId, async (reader, signal) => {
       signal.throwIfAborted();
       // The native reader enforces the canonical 500-byte UTF-8 relative-path
