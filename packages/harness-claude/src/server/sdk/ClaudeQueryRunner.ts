@@ -1,3 +1,4 @@
+import { claudeSandbox } from "./ClaudeSandbox.js";
 import { frozenClaudeLaunchEnvironment } from "../ClaudeAuthentication.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -55,7 +56,11 @@ type RunnerOptions = Required<
     "cwd" | "model" | "env" | "canUseTool" | "spawnClaudeCodeProcess"
   >
 > &
-  Pick<Options, "resume" | "sessionId"> & { readonly beforeTool: HookCallback };
+  Pick<Options, "resume" | "sessionId"> & {
+    readonly beforeTool: HookCallback;
+    readonly instanceDirectory: string;
+    readonly journalDirectory: string;
+  };
 
 /** Private SDK plumbing. Host owns binding, process tree and durable observation delivery. */
 export class ClaudeQueryRunner {
@@ -80,13 +85,21 @@ export class ClaudeQueryRunner {
   }>();
 
   constructor(options: RunnerOptions) {
-    const { beforeTool, ...sdkOptions } = options;
+    const { beforeTool, instanceDirectory, journalDirectory, ...sdkOptions } =
+      options;
     const launchEnvironment = frozenClaudeLaunchEnvironment(options.env);
     this.selectedModel = options.model;
     this.sdk = query({
       prompt: this.input,
       options: {
         ...sdkOptions,
+        ...claudeSandbox({
+          workspaceRoot: options.cwd,
+          homeDirectory: launchEnvironment.HOME!,
+          instanceDirectory,
+          journalDirectory,
+        }),
+        additionalDirectories: [],
         env: { ...launchEnvironment },
         // SDK env handling is version-sensitive. Do not forward its spawn env to the host.
         spawnClaudeCodeProcess: (spawnOptions) =>
