@@ -118,6 +118,17 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     });
     expect(unauthorized.status).toBe(401);
     await unauthorized.arrayBuffer();
+    const wrongCredential = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer fixture-only-invalid-app-server-credential",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(5_000),
+    });
+    expect(wrongCredential.status).toBe(401);
+    await wrongCredential.arrayBuffer();
     const foreignOrigin = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json", origin: "https://example.com" },
