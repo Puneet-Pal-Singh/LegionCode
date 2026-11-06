@@ -30,7 +30,7 @@ describe("useSidebarOrchestration", () => {
         selectedFile: null,
         selectedDiff: null,
         switchBranch: vi.fn(),
-        handleFileClick: vi.fn(),
+        restoreLastViewedFile: vi.fn(),
         explorerRef: { current: null },
         setIsViewingContent,
         setActiveTab,
@@ -46,7 +46,7 @@ describe("useSidebarOrchestration", () => {
 
   it("does not restore the last file over the Open file workspace", () => {
     localStorage.setItem("legioncode_last_viewed_path", "tsconfig.json");
-    const handleFileClick = vi.fn();
+    const restoreLastViewedFile = vi.fn();
 
     renderHook(() =>
       useSidebarOrchestration({
@@ -62,7 +62,7 @@ describe("useSidebarOrchestration", () => {
         selectedFile: null,
         selectedDiff: null,
         switchBranch: vi.fn(),
-        handleFileClick,
+        restoreLastViewedFile,
         explorerRef: { current: null },
         setIsViewingContent: vi.fn(),
         setActiveTab: vi.fn(),
@@ -70,6 +70,6 @@ describe("useSidebarOrchestration", () => {
       }),
     );
 
-    expect(handleFileClick).not.toHaveBeenCalled();
+    expect(restoreLastViewedFile).not.toHaveBeenCalled();
   });
 });

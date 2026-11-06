@@ -252,7 +252,7 @@ export function AgentSetup({
     setActiveTab((current) => (current === "changes" ? "review" : "changes"));
   }, [setActiveTab, setIsViewingContent]);
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
-    sandboxId: sessionId,
+    sessionId,
     runId: activeRunId,
     setIsLoadingContent,
     setContentError,

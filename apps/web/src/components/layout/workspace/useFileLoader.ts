@@ -1,130 +1,80 @@
-import { useCallback } from "react";
-import { z } from "zod";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { useGitHub } from "../../github/GitHubContextProvider";
+import { useAuth } from "../../../contexts/AuthContext";
 import { getFileContent } from "../../../services/GitHubService";
-import { terminalCommandPath } from "../../../lib/platform-endpoints";
+import { readCheckoutFile } from "../../../services/api/checkoutReads";
 import type { SelectedFile } from "./useWorkspaceState";
 import { parseReadFileOutput } from "@legioncode/sdk";
+import { readFileViewPreference, rememberFileView } from "./fileViewPreference";
 
 interface UseFileLoaderProps {
-  sandboxId: string;
+  sessionId: string;
   runId: string;
   setIsLoadingContent: (loading: boolean) => void;
   setContentError: (error: string | null) => void;
   openFileTab: (file: SelectedFile) => void;
 }
 
-export function useFileLoader({
-  sandboxId,
-  runId,
-  setIsLoadingContent,
-  setContentError,
-  openFileTab,
-}: UseFileLoaderProps) {
+export function useFileLoader({ sessionId, runId, setIsLoadingContent, setContentError, openFileTab }: UseFileLoaderProps) {
   const { repo, branch } = useGitHub();
+  const { user, isAuthenticated } = useAuth();
+  const scope = JSON.stringify([isAuthenticated ? user?.id : null, user?.workspaceId, sessionId, runId, repo?.full_name, branch]);
+  const currentScope = useRef(scope);
+  const requestRef = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    currentScope.current = scope;
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setIsLoadingContent(false);
+    setContentError(null);
+    return () => { requestRef.current?.abort(); requestRef.current = null; };
+  }, [scope, setContentError, setIsLoadingContent]);
 
-  const handleFileClick = useCallback(
-    async (path: string) => {
-      setIsLoadingContent(true);
-      setContentError(null);
-      localStorage.setItem("legioncode_last_viewed_path", path);
-      try {
-        const res = await fetch(terminalCommandPath(sandboxId), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            plugin: "filesystem",
-            payload: { action: "read_file", runId, path },
-          }),
-        });
-
-        let data: unknown;
-        try {
-          data = await res.json();
-        } catch (parseError) {
-          console.error("Failed to parse file response:", parseError);
-          setContentError("The file response could not be read.");
-          return;
-        }
-
-        const parsedData = FileReadSuccessSchema.safeParse(data);
-        if (parsedData.success) {
-          if (
-            parsedData.data.isBinary ||
-            parsedData.data.output === "[BINARY_FILE_DETECTED]"
-          ) {
-            openFileTab({
-              path,
-              content:
-                "// [LegionCode] This file is a binary and cannot be displayed in the text editor.",
-            });
-          } else {
-            const parsedOutput = parseReadFileOutput(parsedData.data.output);
-            openFileTab({
-              path,
-              content: parsedOutput?.content ?? parsedData.data.output,
-              startingLineNumber: parsedOutput ? parsedOutput.offset + 1 : 1,
-            });
-          }
-        } else {
-          setContentError("The file could not be opened.");
-        }
-      } catch (e) {
-        console.error("Failed to read file:", e);
-        setContentError("Failed to connect to the workspace file service.");
-      } finally {
-        setIsLoadingContent(false);
-      }
-    },
-    [openFileTab, runId, sandboxId, setContentError, setIsLoadingContent],
-  );
-
-  const handleGitHubFileSelect = useCallback(
-    async (path: string) => {
-      if (!repo) return;
-
-      setIsLoadingContent(true);
-      setContentError(null);
-      localStorage.setItem("legioncode_last_viewed_path", path);
-
-      try {
-        const fileData = await getFileContent(
-          repo.owner.login,
-          repo.name,
+  const load = useCallback(async (path: string, source: "checkout" | "repository", onOpen = openFileTab) => {
+    if (!isAuthenticated || !user) return;
+    requestRef.current?.abort();
+    const request = new AbortController();
+    requestRef.current = request;
+    const isCurrent = () => !request.signal.aborted && currentScope.current === scope && requestRef.current === request;
+    setIsLoadingContent(true);
+    setContentError(null);
+    try {
+      let file: SelectedFile;
+      if (source === "checkout") {
+        const result = await readCheckoutFile(sessionId, runId, path, request.signal);
+        const parsed = parseReadFileOutput(result.output);
+        file = {
           path,
-          branch,
-        );
-
-        if (Array.isArray(fileData) || typeof fileData.content !== "string") {
-          setContentError("The selected GitHub path is not a file.");
-          return;
-        }
-
-        // GitHub API returns base64 encoded content
-        if (fileData.encoding === "base64") {
-          const decoded = atob(fileData.content);
-          openFileTab({ path, content: decoded });
-        } else {
-          openFileTab({ path, content: fileData.content });
-        }
-      } catch (error) {
-        console.error("Failed to fetch GitHub file content:", error);
-        setContentError("Failed to fetch the file content from GitHub.");
-      } finally {
-        setIsLoadingContent(false);
+          content: result.isBinary
+            ? "// [LegionCode] This file is a binary and cannot be displayed in the text editor."
+            : parsed?.content ?? result.output,
+          startingLineNumber: parsed ? parsed.offset + 1 : 1,
+        };
+      } else {
+        if (!repo) throw new Error("Select a repository before opening a file.");
+        const result = await getFileContent(repo.owner.login, repo.name, path, branch, request.signal);
+        if (Array.isArray(result) || typeof result.content !== "string") throw new Error("The selected GitHub path is not a file.");
+        const content = result.encoding === "base64"
+          ? new TextDecoder().decode(Uint8Array.from(atob(result.content.replace(/\s/g, "")), (character) => character.charCodeAt(0)))
+          : result.content;
+        file = { path, content };
       }
-    },
-    [branch, openFileTab, repo, setContentError, setIsLoadingContent],
-  );
+      if (!isCurrent()) return;
+      rememberFileView(scope, { source, path });
+      onOpen(file);
+    } catch (error) {
+      if (isCurrent()) setContentError(error instanceof Error ? error.message : "The file could not be opened.");
+    } finally {
+      if (isCurrent()) setIsLoadingContent(false);
+    }
+  }, [branch, isAuthenticated, openFileTab, repo, runId, scope, sessionId, setContentError, setIsLoadingContent, user]);
 
-  return {
-    handleFileClick,
-    handleGitHubFileSelect,
-  };
+  const handleFileClick = useCallback((path: string, onOpen?: (file: SelectedFile) => void) => load(path, "checkout", onOpen), [load]);
+  const handleGitHubFileSelect = useCallback((path: string, onOpen?: (file: SelectedFile) => void) => load(path, "repository", onOpen), [load]);
+  const restoreLastViewedFile = useCallback(() => {
+    const selection = readFileViewPreference(scope);
+    if (selection) void load(selection.path, selection.source);
+  }, [load, scope]);
+  const rememberSavedPreview = useCallback(() => rememberFileView(scope, null), [scope]);
+  return { handleFileClick, handleGitHubFileSelect, restoreLastViewedFile, rememberSavedPreview };
 }
-
-const FileReadSuccessSchema = z.object({
-  success: z.literal(true),
-  output: z.string(),
-  isBinary: z.boolean().optional(),
-});

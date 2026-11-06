@@ -18,7 +18,7 @@ interface UseSidebarOrchestrationProps {
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
   switchBranch: (branch: string) => void;
-  handleFileClick: (path: string) => Promise<void> | void;
+  restoreLastViewedFile: () => void | void;
   explorerRef: RefObject<FileExplorerHandle | null>;
   setIsViewingContent: (viewing: boolean) => void;
   setActiveTab: (tab: TabType) => void;
@@ -43,7 +43,7 @@ export function useSidebarOrchestration({
   selectedFile,
   selectedDiff,
   switchBranch,
-  handleFileClick,
+  restoreLastViewedFile,
   explorerRef,
   setIsViewingContent,
   setActiveTab,
@@ -95,15 +95,13 @@ export function useSidebarOrchestration({
 
   useEffect(() => {
     if (isHydrating) return;
-    const savedPath = localStorage.getItem("legioncode_last_viewed_path");
     if (
       isViewingContent &&
       activeContentTabId !== "files" &&
-      savedPath &&
       !selectedFile &&
       !selectedDiff
     ) {
-      void handleFileClick(savedPath);
+      restoreLastViewedFile();
     }
   }, [
     isHydrating,
@@ -111,7 +109,7 @@ export function useSidebarOrchestration({
     activeContentTabId,
     selectedFile,
     selectedDiff,
-    handleFileClick,
+    restoreLastViewedFile,
   ]);
 
   return { handleSidebarDiffSelected };
