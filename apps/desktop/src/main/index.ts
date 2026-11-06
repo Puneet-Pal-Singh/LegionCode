@@ -61,11 +61,12 @@ async function resolveRuntimeCredential(
   const vault = credentialVault;
   const state = credentialState(providerId);
   const revision = state.revision;
-  if (!vault || state.activeMutations > 0) {
+  const startSafe = vault !== null && state.activeMutations === 0;
+  if (!startSafe || !vault) {
     throw new Error("Protected provider credential is being changed or is unavailable");
   }
   const credential = await vault.resolveRuntimeCredential(providerId);
-  const isCurrent = () => vault === credentialVault && state.activeMutations === 0 && state.revision === revision;
+  const isCurrent = () => startSafe && vault === credentialVault && state.activeMutations === 0 && state.revision === revision;
   if (!isCurrent()) throw new Error("Protected provider credential changed during delivery");
   return { credential, canDeliver: isCurrent };
 }
