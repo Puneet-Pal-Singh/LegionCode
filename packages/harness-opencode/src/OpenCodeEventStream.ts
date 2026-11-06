@@ -2,6 +2,13 @@ import type { OpenCodeEvent } from "@opencode/client";
 import { OpenCodeEvent as EventSchema } from "@opencode/protocol/groups/event";
 import { Schema } from "effect";
 
+/** Clean EOF is only expected after an independently attested completion barrier. */
+export class OpenCodeStreamEnded extends Error {
+  constructor() {
+    super("OpenCode event continuity ended.");
+  }
+}
+
 const MAX_FRAME_BYTES = 1_048_576;
 const validEvent = Schema.is(Schema.toEncoded(EventSchema));
 
@@ -38,7 +45,7 @@ export async function* readOpenCodeEvents(input: {
   try {
     while (true) {
       const chunk = await reader.read();
-      if (chunk.done) throw new Error("OpenCode event continuity ended.");
+      if (chunk.done) throw new OpenCodeStreamEnded();
       input.activity();
       if (chunk.value.byteLength > MAX_FRAME_BYTES)
         throw new Error("OpenCode event frame bound exceeded.");

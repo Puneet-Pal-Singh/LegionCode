@@ -1,4 +1,7 @@
-import { readOpenCodeEvents } from "./OpenCodeEventStream.js";
+import {
+  readOpenCodeEvents,
+  OpenCodeStreamEnded,
+} from "./OpenCodeEventStream.js";
 import { ServerInfo } from "@opencode/protocol/groups/server";
 import { Schema } from "effect";
 import {
@@ -32,6 +35,9 @@ export class OpenCodeClient {
   ) => AsyncIterable<OpenCodeEvent>;
   private readonly stream = new AbortController();
   private verified = false;
+  private observationSealed = false;
+  private observationLost = false;
+  private processingObservation = false;
   private disconnectedResolve!: (reason: "gap" | "closed") => void;
   readonly disconnected = new Promise<"gap" | "closed">((resolve) => {
     this.disconnectedResolve = resolve;
@@ -106,6 +112,13 @@ export class OpenCodeClient {
         for await (const event of this.events(() => {
           this.lastActivity = Date.now();
         })) {
+          if (this.observationSealed) {
+            this.observationLost = true;
+            throw new OpenCodeTransportError(
+              "event after observation barrier",
+              true,
+            );
+          }
           if (event.type === "server.connected") {
             if (this.state !== "subscribing")
               throw new OpenCodeTransportError("stream continuity", true);
@@ -116,9 +129,20 @@ export class OpenCodeClient {
           }
           if (this.state !== "ready") break;
           // Serial, awaited delivery; the native SSE reader bounds frames without a producer queue.
-          await commit(event);
+          this.processingObservation = true;
+          try {
+            await commit(event);
+          } finally {
+            this.processingObservation = false;
+          }
         }
-      } catch {
+      } catch (error) {
+        if (
+          this.observationSealed &&
+          !(error instanceof OpenCodeStreamEnded) &&
+          !this.stream.signal.aborted
+        )
+          this.observationLost = true;
         this.fail();
       } finally {
         clearTimeout(timeout);
@@ -165,6 +189,22 @@ export class OpenCodeClient {
     }
   }
 
+  get observationIntegrityLost(): boolean {
+    return this.observationLost;
+  }
+
+  /** Only after the host supplies an actual ordered stream/drain barrier. */
+  sealObservationStream(): boolean {
+    if (
+      this.state !== "ready" ||
+      this.processingObservation ||
+      this.observationLost
+    )
+      return false;
+    this.observationSealed = true;
+    return true;
+  }
+
   invalidate(operation: string): never {
     this.fail();
     throw new OpenCodeTransportError(operation, true);
@@ -176,6 +216,7 @@ export class OpenCodeClient {
 
   /** Closing transport is not proof that the provider process or descendants stopped. */
   async close(): Promise<void> {
+    if (!this.observationSealed) this.observationLost = true;
     this.state = "closed";
     this.disconnectedResolve("closed");
     this.stream.abort();
@@ -184,6 +225,7 @@ export class OpenCodeClient {
   }
 
   private fail(): void {
+    if (!this.observationSealed) this.observationLost = true;
     if (this.state !== "closed") {
       this.state = "gap";
       this.disconnectedResolve("gap");
