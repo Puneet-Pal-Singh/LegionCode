@@ -36,10 +36,15 @@ describe("hosted provider AppServer transport", () => {
     },
   );
 
-  it.each([["session_stale_scope", "INVALID_REQUEST_CONTRACT"]] as const)(
+  it.each([
+    [null, "MISSING_RUN_ID"],
+    ["session_stale_scope", "INVALID_REQUEST_CONTRACT"],
+  ] as const)(
     "rejects a non-canonical run id before fetch",
     async (invalidRunId, code) => {
-      const fetchImpl = vi.fn();
+      const fetchImpl = vi.fn(async () =>
+        response("provider/catalog", { providers: [] }),
+      );
       const client = createProviderClient(
         createProviderAppServerTransport({
           appServerBaseUrl: "https://brain.test",
@@ -47,6 +52,12 @@ describe("hosted provider AppServer transport", () => {
           fetchImpl: fetchImpl as unknown as typeof fetch,
         }),
       );
+
+      if (invalidRunId === null) {
+        await expect(client.discoverProviders()).resolves.toEqual([]);
+        expect(fetchImpl).toHaveBeenCalledOnce();
+        return;
+      }
 
       await expect(client.discoverProviders()).rejects.toMatchObject({
         code,
