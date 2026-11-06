@@ -51,6 +51,8 @@ export class LocalAppServerSupervisor {
     ) => Promise<RuntimeProviderCredential | null>,
   ) {}
 
+  // Timed-out deliveries still occupy a slot until their resolver settles.
+  private readonly credentialLookups = new Set<symbol>();
   private readonly credentialRequests = new Map<
     string,
     ReturnType<typeof setTimeout>
@@ -220,7 +222,7 @@ export class LocalAppServerSupervisor {
     if (child !== this.child || generation !== this.generation || this.stopping)
       return;
     if (this.credentialRequests.has(request.requestId)) return;
-    if (this.credentialRequests.size >= 32) {
+    if (this.credentialLookups.size >= 32) {
       this.replyCredential(child, generation, request, null);
       return;
     }
@@ -230,12 +232,16 @@ export class LocalAppServerSupervisor {
       this.replyCredential(child, generation, request, null);
     }, 10_000);
     this.credentialRequests.set(request.requestId, timer);
+    const lookup = Symbol();
+    this.credentialLookups.add(lookup);
     let credential: RuntimeProviderCredential | null = null;
     try {
       credential =
         (await this.resolveRuntimeCredential?.(request.providerId)) ?? null;
     } catch {
       // The private channel never forwards vault errors or their data.
+    } finally {
+      this.credentialLookups.delete(lookup);
     }
     if (this.credentialRequests.get(request.requestId) !== timer) return;
     clearTimeout(timer);
