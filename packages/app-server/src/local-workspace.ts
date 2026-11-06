@@ -33,6 +33,7 @@ export interface LocalWorkspaceExecutionBinding {
 
 export class LocalWorkspaceService {
   private generation = 0;
+  private transitioning = false;
   private executionController = new AbortController();
   private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
   private readonly gitService: Pick<
@@ -46,16 +47,19 @@ export class LocalWorkspaceService {
   }
 
   async getCurrent(): Promise<LocalWorkspaceGrant | null> {
+    if (this.transitioning) return null;
     const generation = this.generation;
     const stored = await this.workspaceGrants.read();
     if (!stored || generation !== this.generation) return null;
     const grant = await this.probeStoredGrant(stored);
-    return generation === this.generation ? grant : null;
+    return generation === this.generation && !this.transitioning ? grant : null;
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
     const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
     const generation = this.invalidateExecutionBindings();
+    this.transitioning = true;
+    try {
     const canonicalPath = await validateSelectedDirectory(path);
     const { repoRoot, probe } = await this.readRepository(canonicalPath);
     if (repoRoot !== canonicalPath) {
@@ -71,14 +75,21 @@ export class LocalWorkspaceService {
     await this.workspaceGrants.write(stored);
     this.assertGeneration(generation);
     return grant;
+    } finally {
+      if (generation === this.generation) this.transitioning = false;
+    }
   }
 
   async revoke(): Promise<void> {
-    this.invalidateExecutionBindings();
-    await this.workspaceGrants.clear();
+    const generation = this.invalidateExecutionBindings();
+    this.transitioning = true;
+    try { await this.workspaceGrants.clear(); } finally {
+      if (generation === this.generation) this.transitioning = false;
+    }
   }
 
   async bindForExecution(workspaceId: WorkspaceId): Promise<LocalWorkspaceExecutionBinding> {
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
     const generation = this.generation;
     const signal = this.executionController.signal;
     const stored = await this.workspaceGrants.read();
@@ -91,7 +102,10 @@ export class LocalWorkspaceService {
     if (workspace.readiness !== "ready") throw new Error("Workspace is not ready for local execution");
     return Object.freeze({
       workspace, filesystemRoot: stored.path, generation, signal,
-      assertCurrent: () => this.assertGeneration(generation),
+      assertCurrent: () => {
+        this.assertGeneration(generation);
+        if (this.transitioning) throw new Error("Local workspace grant is changing");
+      },
     });
   }
 

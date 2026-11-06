@@ -55,12 +55,12 @@ export class LocalTurnService {
     const runtime = this.options.runtime;
     if (!runtime) throw new AppServerOperationError(503, "server_unavailable", "Local turn execution is not configured");
     const binding = await this.options.workspaces.bindForExecution(params.workspaceId);
+    const selection = await this.options.providers.getSelection();
+    if (!selection) throw new AppServerOperationError(409, "conflict", "Select a protected provider and model before starting a turn");
     const thread = await this.options.threads.get(params.threadId);
     if (thread.workspaceId !== params.workspaceId || thread.status !== "active") {
       throw new AppServerOperationError(409, "conflict", "The local thread is not active in this workspace");
     }
-    const selection = await this.options.providers.getSelection();
-    if (!selection) throw new AppServerOperationError(409, "conflict", "Select a protected provider and model before starting a turn");
     binding.assertCurrent();
     const candidate = runtime.createAdmission({
       workspace: binding.workspace, thread, prompt: params.prompt,

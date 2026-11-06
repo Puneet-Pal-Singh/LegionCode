@@ -169,15 +169,16 @@ export class LocalThreadService {
 
   private async collectProjections(events: readonly PlatformEvent[]): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
+    const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
       if (event.type === "thread.created") threadIds.add(event.threadId);
+      let inputs = grouped.get(event.threadId);
+      if (!inputs) { inputs = []; grouped.set(event.threadId, inputs); }
+      inputs.push({ event, projectionSequence: inputs.length + 1 });
     }
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
-      const threadEvents = events
-        .filter((event) => event.threadId === threadId)
-        .map((event, index) => ({ event, projectionSequence: index + 1 }));
-      const snapshot = projectThreadEvents(threadId, threadEvents);
+      const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
       if (snapshot) threads.push(snapshot.thread);
     }
     return threads;

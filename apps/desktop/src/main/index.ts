@@ -37,6 +37,7 @@ const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
 let credentialRevision = 0;
+let credentialMutations = 0;
 const localAppServer = new LocalAppServerSupervisor((request) =>
   providerRequestHeaders(request),
   (providerId) => resolveRuntimeCredential(providerId),
@@ -50,9 +51,9 @@ let environmentGeneration = 0;
 async function resolveRuntimeCredential(providerId: Parameters<DesktopCredentialVault["resolveRuntimeCredential"]>[0]) {
   const vault = credentialVault;
   const revision = credentialRevision;
-  if (!vault) return null;
+  if (!vault || credentialMutations > 0) return null;
   const credential = await vault.resolveRuntimeCredential(providerId);
-  if (vault !== credentialVault || revision !== credentialRevision) {
+  if (vault !== credentialVault || credentialMutations > 0 || revision !== credentialRevision) {
     throw new Error("Protected provider credential changed during delivery");
   }
   return credential;
@@ -144,17 +145,19 @@ handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
       throw new Error("Provider is not available in this Desktop build");
     }
     credentialRevision += 1;
+    credentialMutations += 1;
     try {
       await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
-    } finally { credentialRevision += 1; }
+    } finally { credentialMutations -= 1; credentialRevision += 1; }
     return { ok: true } as const;
   }
   if (command.operation === "delete" || command.operation === "status") {
     if (command.operation === "delete") {
       credentialRevision += 1;
+      credentialMutations += 1;
       try {
         await credentialVault.deleteCredential(command.providerId);
-      } finally { credentialRevision += 1; }
+      } finally { credentialMutations -= 1; credentialRevision += 1; }
       return { ok: true } as const;
     }
     return { providerId: command.providerId, status: await credentialVault.status(command.providerId) };

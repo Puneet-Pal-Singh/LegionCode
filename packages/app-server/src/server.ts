@@ -53,6 +53,7 @@ export type AppServerComposition = {
   environment: "local" | "hosted";
   serverId: string;
   serverVersion: string;
+  localTurnExecutionAvailable?: boolean;
   workspaceService?: LocalWorkspaceService;
   hostedWorkspaceService?: {
     list(): Promise<HostedWorkspaceListResponse>;
@@ -519,6 +520,7 @@ async function dispatch(
           environment: composition.environment,
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
+          localTurnExecutionAvailable: composition.localTurnExecutionAvailable,
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");

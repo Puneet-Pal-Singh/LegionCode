@@ -57,7 +57,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeO
       }),
     });
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, localTurnService);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, localTurnService, Boolean(runtimeOptions?.createRuntime));
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -107,6 +107,7 @@ async function handleRequest(
   threadService: LocalThreadService,
   providerService: LocalProviderService,
   localTurnService: LocalTurnService,
+  localTurnExecutionAvailable: boolean,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -124,6 +125,7 @@ async function handleRequest(
     workspaceService,
     threadService,
     localTurnService,
+    localTurnExecutionAvailable,
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {
