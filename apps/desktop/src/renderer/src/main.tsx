@@ -20,6 +20,7 @@ import type {
 import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
+import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -393,6 +394,10 @@ function DesktopApp(): React.JSX.Element {
               workspace={workspace}
               threadId={selectedThread?.id ?? null}
               review={null}
+              files={appServerClient && sdkReady && environment.kind === "local" && workspace?.readiness === "ready" ? {
+                workspaceId: workspace.workspaceId,
+                content: <DesktopWorkspaceFilesMount client={appServerClient} workspaceId={workspace.workspaceId} />,
+              } : undefined}
               filesUnavailableReason="Local workspace file reads are unavailable in this environment."
               commitUnavailableReason="Choose a completed turn with saved changes before committing."
               onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
