@@ -116,6 +116,7 @@ export class LocalTurnExecutor<
     const controller = new AbortController();
     let workspaceBinding: TBinding | undefined;
     let workerOwner: WorkerProtocolPort | undefined;
+    let preflightSignal: AbortSignal = controller.signal;
     let kernelOwner: RuntimeKernel | undefined;
     let preflightStatus: ReturnType<RuntimeKernel["getTurnTerminalStatus"]> =
       null;
@@ -134,6 +135,7 @@ export class LocalTurnExecutor<
           );
         }
         const signal = AbortSignal.any([controller.signal, binding.signal]);
+        preflightSignal = signal;
         signal.throwIfAborted();
         const capability = this.capability;
         const capturedPorts =
@@ -148,9 +150,11 @@ export class LocalTurnExecutor<
                 capturedPorts!,
               )
             : undefined;
+        if (captured) workerOwner = captured.worker;
         const executionSignal = captured
           ? AbortSignal.any([signal, captured.signal])
           : signal;
+        preflightSignal = executionSignal;
         const executionService = captured
           ? undefined
           : this.options.createReadExecutionService
@@ -204,6 +208,10 @@ export class LocalTurnExecutor<
         return kernelOwner;
       })
       .catch(async (error: unknown) => {
+        if (this.capability.artifactCapture === "required" && workerOwner &&
+            (await workerOwner.awaitQuiescence?.({ turnId: admission.turn.id, timeoutMs: 500 })) !== true) {
+          throw new RuntimeKernelError("worker_failed", "Captured preflight worker remains active; settlement requires physical quiescence");
+        }
         // Preflight is runtime work too. Reuse the canonical lifecycle owner, never a transport status write.
         const lifecycle = new RuntimeLifecycleCoordinator({
           sink: this.options.lifecycleEvents,
@@ -217,7 +225,9 @@ export class LocalTurnExecutor<
           executionCapability: admission.run.executionCapability,
         });
         await lifecycle.start();
-        const stopped = controller.signal.aborted
+        const stopped = preflightSignal.aborted
+          ? preflightSignal
+          : controller.signal.aborted
           ? controller.signal
           : workspaceBinding?.signal;
         if (stopped?.aborted) {

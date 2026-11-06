@@ -315,6 +315,9 @@ export class RuntimeKernel {
               turnId: turn.id,
               timeoutMs: 500,
             })) === true;
+          if (this.dependencies.worker.executionCapability === "guarded_mutation" && !resumeQuiescent) {
+            throw new RuntimeKernelError("worker_failed", "Captured worker remains active; settlement requires physical quiescence");
+          }
           await this.settleArtifacts(
             turn.id,
             lifecycle,
@@ -800,6 +803,9 @@ export class RuntimeKernel {
     reason: string,
     resumeWorkspaceQuiescent: boolean,
   ): Promise<void> {
+    if (this.dependencies.worker.executionCapability === "guarded_mutation" && !resumeWorkspaceQuiescent) {
+      throw new RuntimeKernelError("worker_failed", "Captured worker remains active; interruption requires physical quiescence");
+    }
     try {
       await this.settleArtifacts(
         prepared.turn.id,

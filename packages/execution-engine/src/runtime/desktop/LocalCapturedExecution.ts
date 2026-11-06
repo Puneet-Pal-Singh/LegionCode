@@ -56,6 +56,11 @@ export async function prepareLocalCapturedExecution(
     await lease.assertCurrent();
     lease.signal.throwIfAborted();
   };
+  const assertWorkspace = (workspace: { runId: string; filesystemRoot: string }) => {
+    if (workspace.runId !== expected.runId || workspace.filesystemRoot !== binding.filesystemRoot) {
+      throw new RuntimeKernelError("invalid_turn_identity", "Capture is outside its configured exact attempt");
+    }
+  };
   await assertCurrent();
   const tools = selectLocalCapturedTools(supplied);
   const worker: LocalQuiescentWorker = {
@@ -71,6 +76,7 @@ export async function prepareLocalCapturedExecution(
         input.turnId !== expected.turnId ||
         input.runAttemptId !== expected.runAttemptId ||
         input.workspace.workspaceId !== expected.workspaceId ||
+        input.workspace.runId !== expected.runId ||
         input.workspace.filesystemRoot !== binding.filesystemRoot ||
         !tools[input.toolCall.toolName]
       ) {
@@ -97,7 +103,10 @@ export async function prepareLocalCapturedExecution(
         input: Parameters<typeof supplied.gitSnapshots.captureSnapshot>[0],
       ) => {
         await assertCurrent();
+        assertWorkspace(input.workspace);
+        if (input.snapshotKey !== expected.turnId) throw new RuntimeKernelError("invalid_turn_identity", "Capture key does not match the admitted turn");
         const result = await supplied.gitSnapshots.captureSnapshot(input);
+        assertWorkspace(result);
         await assertCurrent();
         return result;
       },
@@ -105,6 +114,9 @@ export async function prepareLocalCapturedExecution(
         input: Parameters<typeof supplied.gitSnapshots.getSnapshotDiff>[0],
       ) => {
         await assertCurrent();
+        assertWorkspace(input.workspace);
+        assertWorkspace(input.start);
+        assertWorkspace(input.terminal);
         const result = await supplied.gitSnapshots.getSnapshotDiff(input);
         await assertCurrent();
         return result;
@@ -117,6 +129,8 @@ export async function prepareLocalCapturedExecution(
               >[0],
             ) => {
               await assertCurrent();
+              assertWorkspace(input.workspace);
+              assertWorkspace(input.terminal);
               const result =
                 await supplied.gitSnapshots.captureResumeSnapshot!(input);
               await assertCurrent();
