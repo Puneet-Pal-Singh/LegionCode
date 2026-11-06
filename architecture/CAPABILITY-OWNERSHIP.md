@@ -498,18 +498,18 @@ AppServerClient operations through a Web-only presentation adapter. The mixed
 SessionStateService no longer owns their HTTP methods, and old Brain metadata
 routes/controller and Web URL builders are removed with all consumers wired.
 The canonical owners remain TranscriptRepository and ThreadTitleService.
-Browser cache/selection/draft storage is preserved pending actual profile
-inventory. The hosted read-receipt operation and derived active/archived session
-read-state fields are wired through AppServer and SDK. Authenticated Web
+Browser cache/selection/draft bytes are preserved. The available-profile
+metadata inventory and unused-helper retirement are recorded below. The hosted
+read-receipt operation and derived active/archived session read-state fields are wired through AppServer and SDK. Authenticated Web
 read/unread proof passed on 2026-10-13 for session
 `17864ab0-2934-4c7d-a4ee-bff276c10554`: its completed turn appeared unread,
 selecting the session cleared the marker, and a full reload preserved its
 canonical history and read state.
 
 The legacy `legioncode:sessions:v3` snapshot is frozen as read-only recovery
-data: `SessionStateService` may continue reading it during this partial cutover,
-but no Web path writes, clears, or reserializes it. Its records cannot validate
-the per-tab `legioncode:active-session-id:v4` reference or provide active run or
+data. The unused `SessionStateService.loadSessions` reader is now retired;
+no Web product path reads, writes, clears, or reserializes that snapshot. Its
+records cannot validate the per-tab `legioncode:active-session-id:v4` reference or provide active run or
 workspace identity. The saved selector remains pending until the owned hosted
 session list succeeds, then existing reconciliation keeps it only when that
 server snapshot contains the session. A failed list leaves the selector
@@ -517,7 +517,8 @@ inactive and the sidebar reports the existing load error. The repository-folder
 key remains a UI preference; removing a folder only changes the current view
 and never clears in-memory conversation messages. Legacy per-session GitHub
 context remains read-only for branch preference reconstruction. Full browser
-storage retirement and any cache recovery/import policy remain undecided.
+storage-key removal is not authorized; other historical recovery and
+unavailable-profile checks remain separate gates.
 
 The Web authority-first slice binds live session rows only to the owned hosted
 session list and requires create/archive acknowledgements to match the requested
@@ -531,11 +532,10 @@ by that repository ID; folder actions do not mutate session rows or active
 selection. This preference is presentational and cannot create, archive, or
 rebind a hosted session.
 
-The persisted provider-setup shell session still carries a locally generated
-run-shaped identifier for existing provider setup scope. This authority slice
-preserves its bytes and current behavior. Its deletion trigger is a verified
-provider setup flow that resolves and restores setup scope without a fabricated
-run identifier; this change does not alter protocol/runtime run identity.
+Provider setup uses the authenticated account and owned workspace without an
+execution run. The preserved legacy setup record is read only for legitimate
+preference lookup; fresh setup has a local preference scope, as recorded under
+browser shell identity retirement below.
 
 ### Plan 058 authenticated hosted workspace selection
 
@@ -979,7 +979,26 @@ portable timers without a browser global or another lifecycle subscription owner
 
 The unused `uiShellStore` writer and persisted shell identity mirror are removed after a whole-repository caller audit found only the App writer and no restoring consumers. Existing `legioncode_ui_shell` bytes remain untouched. Setup no longer writes `legioncode:setup-session:v1`; a valid existing record is read only to retain its legitimate preference lookup. Fresh setup uses an account/workspace-bound local preference scope, never an execution run or persisted conversation identity. Unknown/malformed legacy setup bytes remain intact. Existing provider preference adapters retain their byte-preserving lookup and explicit-selection writes.
 
-Legacy session snapshot readers and their preservation checks remain quarantined until the real browser inventory is matched; the downloaded inventory has not yet been reconciled. They are not an active session/history source. No historical browser values are deleted by this slice.
+The available authenticated browser profile was inventoried read-only: 85 unique
+cached session IDs across 109 metadata rows resolved against complete owned SDK
+active/archived lists and full history reads. Recursive inspection found no
+messages, content, previews or attachments in those metadata records. All 664
+matching storage keys (660 local, four session; 109,334 raw value bytes) were
+unchanged before/after the audit, with inventory SHA-256
+`e9c857c677ff943f56053eca1738075fc300f1046ee2a3c858e3f680ec3732e8`.
+
+After that preservation gate and a repository-wide caller audit, the unused
+`loadSessions`, `updateSessionStatus` and `addRunToSession` helpers, their private
+legacy normalizers, and unused `SessionStorageSchema` are removed. Their only
+consumers were tests; owned SDK session/history operations already serve the
+product. Existing checks now assert exact raw-byte preservation without parsing
+legacy snapshots, and hosted hydration retains its ownership/selector safeguards.
+
+The legacy v3 keys, shell/setup bytes, drafts, and provider selections remain
+untouched. The active-selector helper still validates against the owned hosted
+snapshot. Legacy GitHub context remains a read-only, exact-repository branch
+preference lookup. This retires unused code, not storage keys, broader archived
+history recovery or unavailable-profile acceptance gates.
 
 ### Unused Web transport retirement
 
