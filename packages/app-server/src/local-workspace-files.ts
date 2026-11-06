@@ -1,11 +1,15 @@
+import { isUtf8 } from "node:buffer";
+
+import type { CheckoutReadFileResult } from "./protocol.js";
+import { AppServerOperationError } from "./server.js";
 import type { WorkspaceId } from "@repo/platform-protocol";
 
 /** Structural subset of the native reader; no filesystem path/root is exposed. */
 export interface LocalWorkspaceFileReader {
-  readFile(input: {
+  readBytes(input: {
     readonly path: string;
     readonly signal: AbortSignal;
-  }): Promise<{ path: string; content: string; bytes: number }>;
+  }): Promise<{ path: string; content: Uint8Array; bytes: number }>;
 }
 
 export interface LocalWorkspaceFilesBinding {
@@ -25,20 +29,33 @@ export class LocalWorkspaceFilesService {
 
   async readFile(input: {
     readonly workspaceId: WorkspaceId;
-    readonly relativePath: string;
-  }): Promise<{ content: string; bytes: number }> {
+    readonly path: string;
+  }): Promise<CheckoutReadFileResult> {
     return this.binding.withWorkspace(input.workspaceId, async (reader, signal) => {
       signal.throwIfAborted();
       // The native reader enforces the canonical 500-byte UTF-8 relative-path
       // policy and FD-relative traversal. Do not add a second path policy here.
-      const result = await reader.readFile({ path: input.relativePath, signal });
+      const result = await reader.readBytes({ path: input.path, signal });
       signal.throwIfAborted();
-      if (result.path !== input.relativePath) {
-        throw new Error("Native workspace read returned a different path");
+      if (result.path !== input.path || result.bytes !== result.content.byteLength) {
+        throw new Error("Native workspace read returned inconsistent path or byte metadata");
       }
-      // Preserve the actual decoded text/byte count. Unsupported/binary/native
-      // failures propagate; none is reclassified as binary or empty content.
-      return { content: result.content, bytes: result.bytes };
+      // Classify actual bounded native bytes, never filenames or caught failures.
+      const isBinary = result.content.includes(0) || !isUtf8(result.content);
+      const response: CheckoutReadFileResult = {
+        output: isBinary ? "" : new TextDecoder("utf-8", { fatal: true }).decode(result.content),
+        isBinary,
+      };
+      // JSON escaping can expand a native text read substantially. Bound the
+      // serialized result, retaining envelope headroom under the 1 MiB transport
+      // cap. This protocol has no truncation field, so refuse rather than slice.
+      if (Buffer.byteLength(JSON.stringify(response), "utf8") > 512 * 1024) {
+        throw new AppServerOperationError(
+          413, "invalid_request", "Workspace file preview exceeds the supported response size",
+          "workspace_file_preview_too_large", false,
+        );
+      }
+      return response;
     });
   }
 }
