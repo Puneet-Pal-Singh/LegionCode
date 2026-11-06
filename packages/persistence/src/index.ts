@@ -377,3 +377,9 @@ export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository
 
 export { PostgresHarnessBindingRepository } from "./harness/PostgresHarnessBindingRepository.js";
 export type { StoredHarnessSelection, StoredHarnessAttachment, StoredHarnessBinding, HarnessObservationCommit, HarnessObservationAck, HarnessBindingRepository, HarnessExecutionClaimResult } from "./harness/types.js";
+
+
+export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDefaultFence.js";
+export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
+export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
+export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";
