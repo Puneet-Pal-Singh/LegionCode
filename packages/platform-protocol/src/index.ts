@@ -626,3 +626,4 @@ export {
   type HarnessBillingRoute, type HarnessQuotaWindow, type HarnessAccountQuota,
   type HarnessActivityMeasurement, type HarnessUsageObservation,
 } from "./harness/usage.js";
+export * from "./harness/operations.js";
