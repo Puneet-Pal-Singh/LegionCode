@@ -157,9 +157,12 @@ export async function loadWorkspacePreference(
     userId: scope.userId,
     workspaceId: scope.workspaceId,
     defaultProviderId,
-    defaultCredentialId: defaultProviderId
-      ? buildVirtualCredentialId(defaultProviderId)
-      : undefined,
+    defaultCredentialId:
+      defaultProviderId === AXIS_PROVIDER_ID
+        ? buildVirtualCredentialId(AXIS_PROVIDER_ID)
+        : defaultProviderId
+          ? runtime.defaultCredentialId
+          : undefined,
     defaultModelId: defaultProviderId ? runtime.defaultModelId : undefined,
     visibleModelIds: runtime.visibleModelIds ?? {},
     updatedAt: runtime.updatedAt,
@@ -469,6 +472,27 @@ export async function updateProviderPreferences(
   if (patch.defaultModelId) {
     runtimePatch.defaultModelId = patch.defaultModelId;
   }
+  if (patch.defaultCredentialId) {
+    const current = await fetchRuntimePreferences(
+      req,
+      env,
+      scope,
+      correlationId,
+    );
+    const providerId = patch.defaultProviderId ?? current.defaultProviderId;
+    if (providerId === AXIS_PROVIDER_ID) {
+      if (
+        patch.defaultCredentialId !== buildVirtualCredentialId(AXIS_PROVIDER_ID)
+      )
+        throw new ValidationError(
+          "Platform credential identity does not match",
+          "INVALID_PROVIDER_SELECTION",
+          correlationId,
+        );
+    } else {
+      runtimePatch.defaultCredentialId = patch.defaultCredentialId;
+    }
+  }
 
   // Add visibleModelIds to patch if provided
   const runtimePatchWithVisibility: typeof runtimePatch & {
@@ -480,6 +504,7 @@ export async function updateProviderPreferences(
 
   let runtimePreference: {
     defaultProviderId?: string;
+    defaultCredentialId?: string;
     defaultModelId?: string;
     visibleModelIds?: Record<string, string[]>;
     updatedAt: string;
@@ -515,9 +540,10 @@ export async function updateProviderPreferences(
     userId: scope.userId,
     workspaceId: scope.workspaceId,
     defaultProviderId: runtimePreference.defaultProviderId,
-    defaultCredentialId: runtimePreference.defaultProviderId
-      ? buildVirtualCredentialId(runtimePreference.defaultProviderId)
-      : undefined,
+    defaultCredentialId:
+      runtimePreference.defaultProviderId === AXIS_PROVIDER_ID
+        ? buildVirtualCredentialId(AXIS_PROVIDER_ID)
+        : runtimePreference.defaultCredentialId,
     defaultModelId: runtimePreference.defaultModelId,
     visibleModelIds: runtimePreference.visibleModelIds ?? {},
     updatedAt: runtimePreference.updatedAt,

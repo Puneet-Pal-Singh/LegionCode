@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  BYOKPreferencesPatchSchema,
   BYOKConnectRequestSchema,
   BYOKConnectResponseSchema,
   BYOKValidateRequestSchema,
@@ -181,19 +182,8 @@ export type {
 /**
  * PATCH /api/byok/preferences
  */
-export const BYOKPreferencesUpdateRequestSchema = z
-  .object({
-    defaultProviderId: z.string().min(1).max(64).optional(),
-    defaultModelId: z.string().min(1).optional(),
-    visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
-  })
-  .refine(
-    (value) =>
-      value.defaultProviderId !== undefined ||
-      value.defaultModelId !== undefined ||
-      value.visibleModelIds !== undefined,
-    { message: "At least one preference field is required" },
-  );
+// Hosted and runtime requests share the canonical credential/default patch.
+export const BYOKPreferencesUpdateRequestSchema = BYOKPreferencesPatchSchema;
 export type BYOKPreferencesUpdateRequest = z.infer<
   typeof BYOKPreferencesUpdateRequestSchema
 >;
