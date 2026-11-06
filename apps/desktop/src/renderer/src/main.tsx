@@ -1,4 +1,5 @@
 import {
+  ChatErrorNotice,
   ClientErrorBoundary,
   ClientShell,
   ClientShellLoading,
@@ -8,24 +9,24 @@ import {
 } from "@legioncode/client-ui";
 import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
 import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
 
 import type {
-  DesktopBuildInfo,
   WorkspaceSelection,
 } from "../../shared/desktop-api";
+import { DesktopConversation } from "./DesktopConversation";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
+import { useDesktopEnvironment } from "./useDesktopEnvironment";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
 
 function DesktopApp(): React.JSX.Element {
-  const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
-  const [environment, setEnvironment] =
-    useState<AppServerEnvironmentSnapshot | null>(null);
+  const workspaceRequest = useRef(0);
+  const workspaceMutation = useRef(false);
+  const { build, environment, error: environmentError } = useDesktopEnvironment(window.desktop);
   const [sdkReady, setSdkReady] = useState(false);
   const [workspace, setWorkspace] = useState<LocalWorkspaceGrant | null>(null);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
@@ -61,13 +62,8 @@ function DesktopApp(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    void window.desktop.getBuildInfo().then(setBuild);
-    void window.desktop.getEnvironment().then(setEnvironment);
-    return window.desktop.onEnvironmentStatus(setEnvironment);
-  }, []);
-
-  useEffect(() => {
     setSdkReady(false);
+    workspaceRequest.current += 1;
     if (!appServerClient || environment?.status !== "ready") return;
     let active = true;
     void appServerClient.initialize().then(() => {
@@ -81,33 +77,42 @@ function DesktopApp(): React.JSX.Element {
   }, [appServerClient, environment?.status]);
 
   useEffect(() => {
-    if (!appServerClient || !sdkReady) {
-      return;
-    }
-    setThreadLoadState("loading");
-    void appServerClient
-      .getWorkspaceGrant()
-      .then(async (nextWorkspace) => {
-        setWorkspace(nextWorkspace);
-        if (nextWorkspace?.readiness === "ready") {
-          await refreshThreads();
-        } else {
-          setThreads([]);
-          setSelectedThread(null);
-          setThreadLoadState("ready");
-        }
-      })
-      .catch(() => {
-        setWorkspaceError("The local workspace grant could not be loaded.");
-        setThreadLoadState("ready");
-      });
+    if (!appServerClient || !sdkReady) return;
+    const request = ++workspaceRequest.current;
+    void loadWorkspace(request);
+    return () => {
+      if (request === workspaceRequest.current) workspaceRequest.current += 1;
+    };
   }, [appServerClient, sdkReady]);
 
+  async function loadWorkspace(request: number): Promise<void> {
+    if (!appServerClient || request !== workspaceRequest.current) return;
+    setThreadLoadState("loading");
+    try {
+      const nextWorkspace = await appServerClient.getWorkspaceGrant();
+      if (request !== workspaceRequest.current) return;
+      setWorkspace(nextWorkspace);
+      if (nextWorkspace?.readiness === "ready") {
+        await refreshThreads();
+      } else {
+        setThreads([]);
+        setSelectedThread(null);
+        setThreadLoadState("ready");
+      }
+    } catch {
+      if (request !== workspaceRequest.current) return;
+      setWorkspaceError("The local workspace grant could not be loaded.");
+      setThreadLoadState("ready");
+    }
+  }
+
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
+    const workspaceScope = workspaceRequest.current;
     setThreadLoadState("loading");
     try {
       if (!appServerClient) return;
       const nextThreads = await appServerClient.listThreads();
+      if (workspaceScope !== workspaceRequest.current) return;
       setThreads(nextThreads);
       setThreadLoadState("ready");
       const selectionId = preferredSelectionId ?? selectedThread?.id;
@@ -119,6 +124,7 @@ function DesktopApp(): React.JSX.Element {
         setThreadTitle(nextSelected?.title ?? "");
       }
     } catch {
+      if (workspaceScope !== workspaceRequest.current) return;
       setThreadLoadState("error");
     }
   }
@@ -227,35 +233,49 @@ function DesktopApp(): React.JSX.Element {
   }
 
   async function grantWorkspace(): Promise<void> {
-    if (!selection) return;
+    if (!selection || !appServerClient || workspaceMutation.current) return;
+    workspaceMutation.current = true;
+    const request = ++workspaceRequest.current;
     setWorkspaceError(null);
-    let granted: LocalWorkspaceGrant;
     try {
-      if (!appServerClient) return;
-      granted = await appServerClient.grantWorkspace({
+      const granted = await appServerClient.grantWorkspace({
         selectionToken: selection.selectionToken,
       });
+      if (request !== workspaceRequest.current) return;
+      setWorkspace(granted);
+      setSelection(null);
+      setThreads([]);
+      setSelectedThread(null);
+      if (granted.readiness === "ready") await refreshThreads();
     } catch {
-      setWorkspaceError("The selected directory is not a Git repository root.");
-      return;
+      if (request === workspaceRequest.current) {
+        setWorkspaceError("The selected directory is not a Git repository root.");
+        await loadWorkspace(request);
+      }
+    } finally {
+      workspaceMutation.current = false;
     }
-
-    setWorkspace(granted);
-    setSelection(null);
-    if (granted.readiness === "ready") await refreshThreads();
   }
 
   async function revokeWorkspace(): Promise<void> {
+    if (!appServerClient || workspaceMutation.current) return;
+    workspaceMutation.current = true;
+    const request = ++workspaceRequest.current;
     setWorkspaceError(null);
     try {
-      if (!appServerClient) return;
       await appServerClient.revokeWorkspace();
+      if (request !== workspaceRequest.current) return;
       setWorkspace(null);
       setThreads([]);
       setSelectedThread(null);
       setThreadLoadState("ready");
     } catch {
-      setWorkspaceError("The local workspace grant could not be revoked.");
+      if (request === workspaceRequest.current) {
+        setWorkspaceError("The local workspace grant could not be revoked.");
+        await loadWorkspace(request);
+      }
+    } finally {
+      workspaceMutation.current = false;
     }
   }
 
@@ -288,6 +308,15 @@ function DesktopApp(): React.JSX.Element {
     }),
     [threadLoadState, workspace, threads, selectedThread?.id],
   );
+
+  if (environmentError) {
+    return <ChatErrorNotice
+      message={environmentError.message}
+      remediation="Retry loading Desktop."
+      actionLabel="Retry"
+      onOpen={() => window.location.reload()}
+    />;
+  }
 
   if (!build || !environment) {
     return <ClientShellLoading label="Loading Desktop" />;
@@ -397,6 +426,13 @@ function DesktopApp(): React.JSX.Element {
                     {selectedThread.status === "active" ? "Archive" : "Unarchive"}
                   </button>
                 </div>
+              ) : null}
+              {selectedThread && appServerClient && sdkReady && environment.status === "ready" ? (
+                <DesktopConversation
+                  client={appServerClient}
+                  thread={selectedThread}
+                  capabilities={environment.capabilities}
+                />
               ) : null}
               {threadError ? <p role="alert">{threadError}</p> : null}
             </section>
