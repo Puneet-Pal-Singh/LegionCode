@@ -9,7 +9,7 @@ import type { AppendEventInput } from "./types.js";
 
 type AdmissionRow = {
   thread_id: string; request_id: string; workspace_id: string; run_id: string;
-  turn_id: string; run_attempt_id: string; fingerprint: string;
+  turn_id: string; run_attempt_id: string; item_id: string; fingerprint: string;
   run_event_id: string; turn_event_id: string; prompt_event_id: string;
 };
 
@@ -36,7 +36,7 @@ export class LocalTurnAdmissions {
       this.database.transaction(() => {
         this.database.exec(`CREATE TABLE turn_admissions (
           thread_id TEXT NOT NULL, request_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
-          run_id TEXT NOT NULL UNIQUE, turn_id TEXT NOT NULL UNIQUE, run_attempt_id TEXT NOT NULL UNIQUE,
+          run_id TEXT NOT NULL UNIQUE, turn_id TEXT NOT NULL UNIQUE, run_attempt_id TEXT NOT NULL UNIQUE, item_id TEXT NOT NULL UNIQUE,
           fingerprint TEXT NOT NULL, run_event_id TEXT NOT NULL UNIQUE,
           turn_event_id TEXT NOT NULL UNIQUE, prompt_event_id TEXT NOT NULL UNIQUE,
           PRIMARY KEY(thread_id, request_id)
@@ -75,9 +75,12 @@ export class LocalTurnAdmissions {
           throw new EventStoreError("idempotency_conflict", "Thread has an unsettled admitted Turn");
         }
       }
-      const duplicate = this.database.prepare(`SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? OR run_attempt_id = ?
-        UNION ALL SELECT 1 FROM events WHERE (family = 'platform' AND stream_type = 'run' AND stream_id = ?) OR (family = 'lifecycle' AND turn_id = ?) LIMIT 1`)
-        .get(candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.run.id, candidate.turn.id);
+      const duplicate = this.database.prepare(`SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? OR run_attempt_id = ? OR item_id = ?
+        UNION ALL SELECT 1 FROM events WHERE (family = 'platform' AND (
+          (stream_type = 'run' AND stream_id = ?) OR json_extract(event_json, '$.payload.turn.id') = ?
+          OR json_extract(event_json, '$.payload.item.id') = ?)) OR (family = 'lifecycle' AND turn_id = ?) LIMIT 1`)
+        .get(candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id,
+          candidate.run.id, candidate.turn.id, candidate.userMessage.id, candidate.turn.id);
       if (duplicate) throw new EventStoreError("event_id_conflict", "Admission identity already has canonical history");
       const base = {
         threadId: candidate.run.threadId, workspaceId: candidate.run.workspaceId, runId: candidate.run.id,
@@ -88,9 +91,9 @@ export class LocalTurnAdmissions {
       const run = this.append({ ...base, type: "run.created", payload: { run: candidate.run }, idempotencyKey: `admission:${candidate.run.id}:run` });
       const turn = this.append({ ...base, type: "turn.started", payload: { turn: candidate.turn }, idempotencyKey: `admission:${candidate.run.id}:turn` });
       const prompt = this.append({ ...base, type: "item.completed", payload: { item: candidate.userMessage }, idempotencyKey: `admission:${candidate.run.id}:prompt` });
-      this.database.prepare(`INSERT INTO turn_admissions(thread_id,request_id,workspace_id,run_id,turn_id,run_attempt_id,fingerprint,run_event_id,turn_event_id,prompt_event_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(candidate.run.threadId, candidate.clientRequestId, candidate.run.workspaceId,
-          candidate.run.id, candidate.turn.id, candidate.runAttemptId, fingerprint, run.eventId, turn.eventId, prompt.eventId);
+      this.database.prepare(`INSERT INTO turn_admissions(thread_id,request_id,workspace_id,run_id,turn_id,run_attempt_id,item_id,fingerprint,run_event_id,turn_event_id,prompt_event_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(candidate.run.threadId, candidate.clientRequestId, candidate.run.workspaceId,
+          candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id, fingerprint, run.eventId, turn.eventId, prompt.eventId);
       const saved = this.findRow(candidate.run.threadId, candidate.clientRequestId);
       if (!saved) throw corrupt("Admission receipt was not stored");
       return { admission: this.reconstruct(saved), newlyAdmitted: true };
@@ -141,7 +144,7 @@ export class LocalTurnAdmissions {
 
   private validateSchema(): void {
     const columns = this.database.pragma("table_info(turn_admissions)") as { name: string; type: string; pk: number; notnull: number }[];
-    const expected = ["thread_id", "request_id", "workspace_id", "run_id", "turn_id", "run_attempt_id", "fingerprint", "run_event_id", "turn_event_id", "prompt_event_id"];
+    const expected = ["thread_id", "request_id", "workspace_id", "run_id", "turn_id", "run_attempt_id", "item_id", "fingerprint", "run_event_id", "turn_event_id", "prompt_event_id"];
     if (columns.length !== expected.length || expected.some((name) => !columns.some((column) => column.name === name && column.type.toUpperCase() === "TEXT" && column.notnull === 1))
       || columns.find(({ name }) => name === "thread_id")?.pk !== 1 || columns.find(({ name }) => name === "request_id")?.pk !== 2
       || columns.filter(({ pk }) => pk > 0).length !== 2) throw corrupt("Admission index columns or primary key are incompatible");
@@ -150,7 +153,7 @@ export class LocalTurnAdmissions {
       const escaped = index.name.replaceAll("'", "''");
       return (this.database.pragma(`index_info('${escaped}')`) as { name: string }[]).map(({ name }) => name).join(",");
     });
-    if (["thread_id,request_id", "run_id", "turn_id", "run_attempt_id", "run_event_id", "turn_event_id", "prompt_event_id"].some((key) => !keys.includes(key))) {
+    if (["thread_id,request_id", "run_id", "turn_id", "run_attempt_id", "item_id", "run_event_id", "turn_event_id", "prompt_event_id"].some((key) => !keys.includes(key))) {
       throw corrupt("Admission index uniqueness constraints are incomplete");
     }
   }
@@ -174,7 +177,7 @@ export class LocalTurnAdmissions {
         runAttemptId: row.run_attempt_id, userMessage: prompt.payload.item });
       const lifecycleRows = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ?").all(row.turn_id) as { event_json: string }[];
       for (const saved of lifecycleRows) this.assertLifecycleIdentity(LifecycleEventSchema.parse(JSON.parse(saved.event_json)));
-      if (admission.run.id !== row.run_id || admission.turn.id !== row.turn_id || requestFingerprint(admission) !== row.fingerprint) throw corrupt("Admission fingerprint is inconsistent");
+      if (admission.run.id !== row.run_id || admission.turn.id !== row.turn_id || admission.userMessage.id !== row.item_id || requestFingerprint(admission) !== row.fingerprint) throw corrupt("Admission fingerprint is inconsistent");
       return admission;
     } catch { throw corrupt("Admission index does not match canonical history"); }
   }

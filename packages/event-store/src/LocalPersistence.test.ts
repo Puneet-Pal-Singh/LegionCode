@@ -141,6 +141,8 @@ describe("LocalPersistence", () => {
     await expect(reopened.lifecycleEvents.append({ ...terminal, runAttemptId: retry.runAttemptId }))
       .rejects.toMatchObject({ code: "corrupt_event_stream" });
     await reopened.lifecycleEvents.append(terminal);
+    await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request", userMessage: { ...retry.userMessage, id: candidate.userMessage.id } }))
+      .rejects.toMatchObject({ code: "event_id_conflict" });
     await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request" }))
       .resolves.toMatchObject({ newlyAdmitted: true });
     const firstPage = await reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: null, limit: 1 });
@@ -166,7 +168,7 @@ describe("LocalPersistence", () => {
     expect(fingerprints.every(({ fingerprint }) => /^[a-f0-9]{64}$/.test(fingerprint))).toBe(true);
     const columns = db.pragma("table_info(turn_admissions)") as { name: string }[];
     expect(columns.map(({ name }) => name).sort()).toEqual([
-      "thread_id", "request_id", "workspace_id", "run_id", "turn_id", "run_attempt_id", "fingerprint",
+      "thread_id", "request_id", "workspace_id", "run_id", "turn_id", "run_attempt_id", "item_id", "fingerprint",
       "run_event_id", "turn_event_id", "prompt_event_id",
     ].sort());
     db.prepare("UPDATE turn_admissions SET run_event_id = 'evt_missingreference' WHERE turn_id = ?").run(candidate.turn.id);
