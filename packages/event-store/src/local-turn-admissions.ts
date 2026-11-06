@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, type PlatformEvent } from "@repo/platform-protocol";
-import { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol/conversation";
+import { TurnAdmissionSchema, type TurnAdmission, type Thread } from "@repo/platform-protocol/conversation";
 import { LifecycleEventSchema, type LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
@@ -66,6 +66,7 @@ export class LocalTurnAdmissions {
         if (existing.fingerprint !== fingerprint) throw new EventStoreError("idempotency_conflict", "Admission request key has different content or configuration");
         return { admission: this.reconstruct(existing), newlyAdmitted: false };
       }
+      this.assertActiveOwnedThread(candidate);
       const prior = this.database.prepare("SELECT * FROM turn_admissions WHERE thread_id = ?").all(candidate.run.threadId) as AdmissionRow[];
       for (const row of prior) {
         const last = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ? ORDER BY sequence DESC LIMIT 1").get(row.turn_id) as { event_json: string } | undefined;
@@ -155,6 +156,38 @@ export class LocalTurnAdmissions {
     });
     if (["thread_id,request_id", "run_id", "turn_id", "run_attempt_id", "item_id", "run_event_id", "turn_event_id", "prompt_event_id"].some((key) => !keys.includes(key))) {
       throw corrupt("Admission index uniqueness constraints are incomplete");
+    }
+  }
+
+  private assertActiveOwnedThread(candidate: TurnAdmission): void {
+    // Read the canonical Thread stream under the same writer transaction as admission.
+    // Its latest full Thread record is authoritative; no admission-owned status is stored.
+    const rows = this.database.prepare(`SELECT event_json FROM events
+      WHERE family = 'platform' AND stream_type = 'thread' AND stream_id = ? ORDER BY sequence`)
+      .all(candidate.run.threadId) as { event_json: string }[];
+    let thread: Thread | null = null;
+    for (const [index, row] of rows.entries()) {
+      const event = PlatformEventSchema.parse(JSON.parse(row.event_json));
+      if (event.threadId !== candidate.run.threadId || event.scopeType !== "thread" || event.scopeId !== candidate.run.threadId
+        || event.sequence !== index + 1 || (index === 0 && event.type !== "thread.created")
+        || (index > 0 && event.type === "thread.created") || (thread && event.workspaceId !== thread.workspaceId)) {
+        throw corrupt("Admission Thread stream identity is inconsistent");
+      }
+      if (event.type === "thread.title.updated") continue;
+      if (event.type !== "thread.created" && event.type !== "thread.pinned" && event.type !== "thread.unpinned"
+        && event.type !== "thread.archived" && event.type !== "thread.unarchived") {
+        throw corrupt("Admission Thread stream contains a non-Thread record");
+      }
+      const record = event.payload.thread;
+      if (record.id !== candidate.run.threadId || event.workspaceId !== record.workspaceId
+        || (thread && (record.workspaceId !== thread.workspaceId || record.userId !== thread.userId))) {
+        throw corrupt("Canonical Thread ownership changed within its stream");
+      }
+      thread = record;
+    }
+    if (!thread || thread.status !== "active" || thread.id !== candidate.run.threadId
+      || thread.workspaceId !== candidate.run.workspaceId || thread.userId !== candidate.run.userId) {
+      throw new EventStoreError("idempotency_conflict", "New admission requires an active canonical Thread with matching owner and workspace");
     }
   }
 

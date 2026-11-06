@@ -10,7 +10,7 @@ import {
   WorkspaceIdSchema,
   type PlatformEvent,
 } from "@repo/platform-protocol";
-import { TurnAdmissionSchema } from "@repo/platform-protocol/conversation";
+import { TurnAdmissionSchema, type Thread } from "@repo/platform-protocol/conversation";
 import { LifecycleEventSchema } from "@repo/platform-protocol/lifecycle";
 import { afterAll, describe, expect, it } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
@@ -115,6 +115,16 @@ describe("LocalPersistence", () => {
 
     const candidate = admission("first");
     const retry = admission("retry");
+    await expect(persistence.turnAdmissions.admit(candidate)).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(persistence.turnAdmissions.findByRequest(candidate.run.threadId, candidate.clientRequestId)).resolves.toBeNull();
+    await expect(persistence.events.listAll()).resolves.toEqual([]);
+    const threadCreated = await persistence.events.append(createThreadInput("admission:thread", candidate.run.threadId));
+    if (threadCreated.type !== "thread.created") throw new Error("Expected canonical Thread fixture");
+    await expect(persistence.turnAdmissions.admit(TurnAdmissionSchema.parse({ ...candidate,
+      run: { ...candidate.run, workspaceId: "wrk_foreignworkspace" } }))).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(persistence.turnAdmissions.admit(TurnAdmissionSchema.parse({ ...candidate,
+      run: { ...candidate.run, userId: "usr_foreignowner" } }))).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(persistence.events.listAll()).resolves.toEqual([threadCreated]);
     await expect(Promise.all([persistence.turnAdmissions.admit(candidate), persistence.turnAdmissions.admit(retry)]))
       .resolves.toEqual([{ admission: candidate, newlyAdmitted: true }, { admission: candidate, newlyAdmitted: false }]);
     await expect(persistence.turnAdmissions.admit(TurnAdmissionSchema.parse({ ...retry, userMessage: { ...retry.userMessage, content: { text: "changed prompt" } } })))
@@ -132,7 +142,7 @@ describe("LocalPersistence", () => {
     await expect(reopened.turnAdmissions.getByTurn(candidate.turn.id)).resolves.toEqual(candidate);
     await expect(reopened.turnAdmissions.admit(retry)).resolves.toEqual({ admission: candidate, newlyAdmitted: false });
     const savedEvents = await reopened.events.listAll();
-    expect(savedEvents.map(({ type }) => type)).toEqual(["run.created", "turn.started", "item.completed"]);
+    expect(savedEvents.map(({ type }) => type)).toEqual(["thread.created", "run.created", "turn.started", "item.completed"]);
     // An admitted Turn with no runtime lifecycle evidence remains unsettled after restart.
     await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request" }))
       .rejects.toMatchObject({ code: "idempotency_conflict" });
@@ -141,13 +151,25 @@ describe("LocalPersistence", () => {
     await expect(reopened.lifecycleEvents.append({ ...terminal, runAttemptId: retry.runAttemptId }))
       .rejects.toMatchObject({ code: "corrupt_event_stream" });
     await reopened.lifecycleEvents.append(terminal);
+    // Simulate a provider-lookup gap: an active Thread read is stale by admission time.
+    const beforeArchive = await reopened.events.replay({ scope: { scopeType: "thread", scopeId: candidate.run.threadId }, afterCursor: null, limit: 10 });
+    expect(beforeArchive.events.at(-1)?.type).toBe("thread.created");
+    await reopened.events.append(admissionThreadStatus(threadCreated.payload.thread, "archived", 2));
+    const archivedEvents = await reopened.events.listAll();
+    await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request" }))
+      .rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(reopened.events.listAll()).resolves.toEqual(archivedEvents);
+    await expect(reopened.turnAdmissions.findByRequest(candidate.run.threadId, "new-request")).resolves.toBeNull();
+    // A matching retry is a read of its original receipt, even after archival.
+    await expect(reopened.turnAdmissions.admit(retry)).resolves.toEqual({ admission: candidate, newlyAdmitted: false });
+    await reopened.events.append(admissionThreadStatus(threadCreated.payload.thread, "active", 3));
     await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request", userMessage: { ...retry.userMessage, id: candidate.userMessage.id } }))
       .rejects.toMatchObject({ code: "event_id_conflict" });
     await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request" }))
       .resolves.toMatchObject({ newlyAdmitted: true });
     const firstPage = await reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: null, limit: 1 });
     expect(firstPage.admissions).toEqual([candidate]);
-    expect(firstPage.nextCursor).toEqual(savedEvents[0]?.cursor);
+    expect(firstPage.nextCursor).toEqual(savedEvents[1]?.cursor);
     const secondPage = await reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: firstPage.nextCursor, limit: 1 });
     expect(secondPage.admissions).toEqual([{ ...retry, clientRequestId: "new-request" }]);
     await expect(reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: secondPage.nextCursor, limit: 1 }))
@@ -450,13 +472,14 @@ describe("LocalPersistence", () => {
     // A collision on the second canonical admission envelope rolls the entire transaction back.
     let admissionId = 0;
     const atomic = new LocalPersistence({ storageDirectory: makeDirectory(), idGenerator: {
-      nextEventId: () => EventIdSchema.parse(`evt_atomicadmission${++admissionId === 2 ? 1 : admissionId}`),
+      nextEventId: () => EventIdSchema.parse(`evt_atomicadmission${++admissionId === 3 ? 2 : admissionId}`),
       nextCursor: () => EventCursorSchema.parse(`cursor_atomicadmission${admissionId}`),
     } });
     stores.push(atomic);
     const candidate = admission("atomic");
+    const threadCreated = await atomic.events.append(createThreadInput("atomic:thread", candidate.run.threadId));
     await expect(atomic.turnAdmissions.admit(candidate)).rejects.toMatchObject({ code: "event_id_conflict" });
-    await expect(atomic.events.listAll()).resolves.toEqual([]);
+    await expect(atomic.events.listAll()).resolves.toEqual([threadCreated]);
     await expect(atomic.turnAdmissions.findByRequest(candidate.run.threadId, candidate.clientRequestId)).resolves.toBeNull();
     await expect(atomic.turnAdmissions.admit(candidate)).resolves.toEqual({ admission: candidate, newlyAdmitted: true });
   });
@@ -703,4 +726,14 @@ function admission(suffix: string) {
       createdAt: now, completedAt: now, eventSequence: 3,
     },
   });
+}
+
+function admissionThreadStatus(thread: Thread, status: "active" | "archived", sequence: number): AppendEventInput {
+  return {
+    threadId: thread.id, workspaceId: thread.workspaceId, runId: null,
+    scopeType: "thread", scopeId: thread.id,
+    type: status === "archived" ? "thread.archived" : "thread.unarchived",
+    payload: { thread: { ...thread, status, archivedAt: status === "archived" ? thread.createdAt : null, lastEventSequence: sequence } },
+    idempotencyKey: `thread-status:${sequence}`, producer: { kind: "control_plane", id: "local-app-server" }, schemaVersion: EVENT_SCHEMA_VERSION,
+  };
 }
