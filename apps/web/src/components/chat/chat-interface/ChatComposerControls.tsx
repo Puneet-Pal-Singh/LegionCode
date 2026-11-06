@@ -79,12 +79,18 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
     props.error ||
     props.continuation ||
     props.resumeUnavailableMessage ||
-    props.queuePanel,
+    (props.layout === "docked" && props.queuePanel),
   );
   return (
     <div className="flex max-h-[min(50vh,28rem)] min-h-0 flex-col">
       {hasAuxiliaryContent ? (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div
+          className={
+            props.layout === "docked"
+              ? "flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+              : "min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          }
+        >
           {props.error ? (
             <div className="mb-4 max-h-28 overflow-y-auto">
               <ChatErrorNotice {...props.error} />
@@ -119,8 +125,10 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
               {props.resumeUnavailableMessage}
             </p>
           ) : null}
-          {props.queuePanel ? (
-            <div className="mb-3 min-h-0 overflow-y-auto overscroll-contain">
+          {props.layout === "docked" && props.queuePanel ? (
+            <div
+              className="relative z-20 mx-auto mt-auto -mb-1 w-full max-w-4xl px-5 empty:hidden sm:px-6"
+            >
               {props.queuePanel}
             </div>
           ) : null}
