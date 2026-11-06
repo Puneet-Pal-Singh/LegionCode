@@ -16,6 +16,7 @@ export {
 } from "./platform/app-server-client.js";
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
 export type { ConversationScope } from "./platform/conversation-scope.js";
+export { createConversationInputCommands } from "./platform/conversation-input-commands.js";
 export { interruptAndAwaitTerminal } from "./platform/conversation-interruption.js";
 export {
   followConversationLifecycleProjection,
