@@ -1149,6 +1149,9 @@ archive, unarchive, pin and unpin. Its composed `LocalThreadPinService` reuses t
 existing workspace-authorized Thread read and canonical `thread.pinned` /
 `thread.unpinned` events. Matching actions append nothing; changed actions preserve
 the current full Thread metadata, including archived status, and use the actual
-thread-stream sequence for their event key. No pin store or inferred activity
-status is introduced. The service methods are wired; App Server dispatch, SDK and
+thread-stream sequence for their event key. Canonical projection applies pin and
+archive events only to their owned metadata fields, preserving runtime/admission
+active Run, active leaf and terminal identity when admission interleaves. Only
+`thread.created` initializes a full Thread snapshot. No pin store or inferred
+activity status is introduced. The service methods are wired; App Server dispatch, SDK and
 Desktop presentation remain worker01/client integration dependencies.
