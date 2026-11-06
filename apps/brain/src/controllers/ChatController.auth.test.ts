@@ -1,3 +1,4 @@
+import { createWorkspaceRepository } from "../test-utils/identityTestHelpers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MemoryEventStore,
@@ -36,7 +37,7 @@ describe("ChatController auth contract", () => {
 
   it("returns typed AUTH_FAILED when chat request has no auth token", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(createChatRequest(), env);
 
@@ -50,7 +51,7 @@ describe("ChatController auth contract", () => {
 
   it("accepts authenticated chat requests and forwards resolved scope", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       createChatRequest({
@@ -75,7 +76,7 @@ describe("ChatController auth contract", () => {
 
   it("rejects client-owned context and pricing metadata", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       createChatRequest({
@@ -98,7 +99,7 @@ describe("ChatController auth contract", () => {
 
   it("accepts the AI SDK transport id without using it as lifecycle identity", async () => {
     const runtime = createMockRuntimeNamespace();
-    const env = createEnv(runtime.namespace);
+    const env = await createEnv(runtime.namespace);
 
     const response = await ChatController.handle(
       createChatRequest({
@@ -263,9 +264,10 @@ function createMockRuntimeNamespace() {
   return { namespace, fetch };
 }
 
-function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
+async function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Promise<Env> {
   const oauthState = new Map<string, string>();
   const transcripts = new MemoryTranscriptRepository();
+  await transcripts.ensureSession({ sessionId: "session-1", userId: TEST_USER_ID, workspaceId: TEST_WORKSPACE_ID, threadId: "thr_test001" });
   const runs = new MemoryRunRepository();
   const events = new MemoryEventStore();
 
@@ -281,6 +283,7 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
       revokeSession: async () => undefined,
     },
     AUTH_TRANSCRIPT_REPOSITORY: transcripts,
+    AUTH_WORKSPACE_REPOSITORY: createWorkspaceRepository(TEST_USER_ID, TEST_WORKSPACE_ID, "123e4567-e89b-42d3-a456-426614174088"),
     AUTH_RUN_REPOSITORY: runs,
     AUTH_LIFECYCLE_EVENT_STORE: new MemoryLifecycleEventStore(),
     AUTH_TURN_ADMISSION_REPOSITORY: createAdmissionFixture(transcripts, runs),
@@ -327,9 +330,9 @@ function createIdentitySessionRecord() {
     },
     createdAt: Date.now(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    workspaceId: TEST_WORKSPACE_ID,
-    defaultWorkspaceId: TEST_WORKSPACE_ID,
-    workspaceIds: [TEST_WORKSPACE_ID],
+    workspaceId: "123e4567-e89b-42d3-a456-426614174088",
+    defaultWorkspaceId: "123e4567-e89b-42d3-a456-426614174088",
+    workspaceIds: ["123e4567-e89b-42d3-a456-426614174088"],
   };
 }
 
