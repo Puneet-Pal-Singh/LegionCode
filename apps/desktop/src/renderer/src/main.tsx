@@ -10,22 +10,19 @@ import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
 import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
 
 import type {
-  DesktopBuildInfo,
   WorkspaceSelection,
 } from "../../shared/desktop-api";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
+import { useDesktopEnvironment } from "./useDesktopEnvironment";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
 
 function DesktopApp(): React.JSX.Element {
-  const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
-  const [environment, setEnvironment] =
-    useState<AppServerEnvironmentSnapshot | null>(null);
+  const { build, environment, error: environmentError } = useDesktopEnvironment(window.desktop);
   const [sdkReady, setSdkReady] = useState(false);
   const [workspace, setWorkspace] = useState<LocalWorkspaceGrant | null>(null);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
@@ -58,12 +55,6 @@ function DesktopApp(): React.JSX.Element {
     };
     compactLayout.addEventListener("change", closeSidebarOnCompact);
     return () => compactLayout.removeEventListener("change", closeSidebarOnCompact);
-  }, []);
-
-  useEffect(() => {
-    void window.desktop.getBuildInfo().then(setBuild);
-    void window.desktop.getEnvironment().then(setEnvironment);
-    return window.desktop.onEnvironmentStatus(setEnvironment);
   }, []);
 
   useEffect(() => {
@@ -288,6 +279,8 @@ function DesktopApp(): React.JSX.Element {
     }),
     [threadLoadState, workspace, threads, selectedThread?.id],
   );
+
+  if (environmentError) throw environmentError;
 
   if (!build || !environment) {
     return <ClientShellLoading label="Loading Desktop" />;
