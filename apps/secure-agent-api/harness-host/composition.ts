@@ -23,6 +23,27 @@ type HostConfiguration = Omit<
   "workspaceRoot" | "launchPolicy"
 >;
 
+type CodexDriverOptions = NonNullable<
+  ConstructorParameters<typeof CodexDriver>[1]
+>;
+/** Trusted selected-connection setup supplies these before registration. Never
+ * derive the fingerprint by blessing the first account observed at runtime.
+ */
+export type CloudCodexInstanceOptions = Omit<
+  CodexDriverOptions,
+  "policy" | "accountBinding"
+> & {
+  readonly policy: NonNullable<CodexDriverOptions["policy"]>;
+  readonly accountBinding: NonNullable<CodexDriverOptions["accountBinding"]>;
+};
+
+/** Native policy resolution/attestation and physical quiescence are required
+ * authority callbacks. They do not replace the independent OS launch policy.
+ */
+export type CloudOpenCodeInstanceOptions = ConstructorParameters<
+  typeof OpenCodeV2Driver
+>[0];
+
 /** Concrete current-backend policy. There is no unrestricted/UID fallback. */
 export class SandboxHarnessLaunchPolicy implements HarnessLaunchPolicy {
   async assertEnforced(): Promise<void> {
@@ -58,9 +79,29 @@ export class CloudHarnessComposition {
   async registerCodex(
     scope: HarnessInstanceScope & { readonly harness: "codex" },
     executable: string,
+    options: CloudCodexInstanceOptions,
   ): Promise<void> {
+    if (!options.policy || !options.accountBinding)
+      throw new Error("Codex admitted policy/account binding is required");
+    const admittedScope = Object.freeze({ ...scope });
+    const configured = Object.freeze({
+      ...options,
+      policy: Object.freeze({ ...options.policy }),
+      accountBinding: Object.freeze({ ...options.accountBinding }),
+    });
+    if (
+      configured.accountBinding.instanceId !== admittedScope.instanceId ||
+      configured.accountBinding.connectionId !== admittedScope.connectionId ||
+      configured.accountBinding.authOwnerGeneration !==
+        admittedScope.authOwnerGeneration ||
+      !/^[a-f0-9]{64}$/.test(configured.accountBinding.identityFingerprint)
+    ) {
+      throw new Error(
+        "Codex selected account binding does not match the configured instance",
+      );
+    }
     const { CodexDriver } = await import("@repo/harness-codex/server");
-    this.register(scope, new CodexDriver(executable));
+    this.register(admittedScope, new CodexDriver(executable, configured));
   }
   async registerClaude(
     scope: HarnessInstanceScope & { readonly harness: "claude" },
@@ -70,10 +111,17 @@ export class CloudHarnessComposition {
   }
   async registerOpenCode(
     scope: HarnessInstanceScope & { readonly harness: "opencode" },
-    options: ConstructorParameters<typeof OpenCodeV2Driver>[0],
+    options: CloudOpenCodeInstanceOptions,
   ): Promise<void> {
+    if (
+      typeof options.resolvePolicy !== "function" ||
+      typeof options.assertEffectivePolicy !== "function"
+    )
+      throw new Error("OpenCode native policy authority is required");
+    const admittedScope = Object.freeze({ ...scope });
+    const configured = Object.freeze({ ...options });
     const { OpenCodeV2Driver } = await import("@repo/harness-opencode/server");
-    this.register(scope, new OpenCodeV2Driver(options));
+    this.register(admittedScope, new OpenCodeV2Driver(configured));
   }
   private register(
     scope: HarnessInstanceScope,

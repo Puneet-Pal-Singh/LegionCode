@@ -13,6 +13,9 @@ import { CloudHarnessSupervisor } from "./CloudHarnessSupervisor";
 
 /** Real Worker-side kernel consumer. No concrete driver or Node runtime imports. */
 export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
+  // Deliberately retained for this composition's lifetime: eviction requires
+  // canonical terminal + physical quiescence + immutable artifact settlement,
+  // plus a durable command tombstone requery. No such release port is supplied.
   private readonly clients = new Map<string, CloudHarnessBridgeClient>();
   private readonly dispatched = new Set<string>();
 
@@ -100,6 +103,11 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
   async observeExisting(
     input: Parameters<DelegatedHarnessPort["observeExisting"]>[0],
   ): Promise<void> {
+    const key = JSON.stringify(HarnessSessionSchema.parse(input.session));
+    if (input.signal.aborted) {
+      this.clients.get(key)?.fence();
+      throw new Error("Cloud harness observation aborted; recovery required");
+    }
     const request = CloudHarnessRequestSchema.parse({
       type: "request",
       requestId: crypto.randomUUID(),
@@ -108,7 +116,6 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
     });
     encodeCloudHarnessBridgeFrame(request);
     // Explicit reattachment only. Never retry open/execute/control after loss.
-    const key = JSON.stringify(HarnessSessionSchema.parse(input.session));
     let client = this.clients.get(key);
     if (!client || client.isClosed) {
       if (!client && this.clients.size >= 128)
@@ -124,7 +131,20 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
     } else {
       client.setObserver(input.session, input.observe);
     }
-    await client.request(request);
+    // This is the canonical recovery operation's signal, not a browser socket.
+    // A reused connection must honor the new caller just like a new connection.
+    const activeClient = client;
+    const abort = () => activeClient.fence();
+    input.signal.addEventListener("abort", abort, { once: true });
+    try {
+      if (input.signal.aborted) {
+        activeClient.fence();
+        throw new Error("Cloud harness observation aborted; recovery required");
+      }
+      await activeClient.request(request);
+    } finally {
+      input.signal.removeEventListener("abort", abort);
+    }
   }
 
   async control(
