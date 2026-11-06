@@ -317,6 +317,19 @@ describe("secure-agent-api plugin hardening", () => {
     expect(absolute.success).toBe(false);
     expect(absolute.error).toMatch(/absolute paths are not allowed/i);
     expect(errorSpy).toHaveBeenCalledTimes(2);
+    const borrowedContext = { ...pluginTestExecutionContext({ runId: "run-safe-3" }), borrowedLease: true };
+    const borrowedExec = vi.fn(async () => ({ exitCode: 0, stdout: "/etc/passwd\n", stderr: "" }));
+    const escaped = { ...createSandboxMock(), execIfRunning: borrowedExec };
+    const symlink = await plugin.execute(asSandbox(escaped), { action: "read_file", runId: "run-safe-3", path: "linked.txt" }, undefined, borrowedContext);
+    expect(symlink.success).toBe(false);
+    expect(symlink.error).toMatch(/escapes workspace root/);
+    expect(escaped.execCalls).toHaveLength(0);
+    expect(borrowedExec).toHaveBeenCalledTimes(1);
+    expect(borrowedExec).toHaveBeenCalledWith(expect.stringContaining("'realpath'"), expect.anything());
+    const deniedWrite = await plugin.execute(asSandbox(escaped), { action: "write_file", runId: "run-safe-3", path: "a.txt", content: "denied" }, undefined, borrowedContext);
+    expect(deniedWrite.success).toBe(false);
+    expect(borrowedExec).toHaveBeenCalledTimes(1);
+    expect(escaped.execCalls.some((command) => command.includes("'mkdir'"))).toBe(false);
     errorSpy.mockRestore();
   });
 
@@ -524,13 +537,14 @@ function installScopedExecutionFixture<T extends { prototype: IPlugin }>(
     sandbox,
     payload,
     onLog,
+    context,
   ) {
     return execute.call(
       this,
       sandbox,
       payload,
       onLog,
-      pluginTestExecutionContext(payload),
+      context ?? pluginTestExecutionContext(payload),
     );
   });
 }
