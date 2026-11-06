@@ -7,6 +7,7 @@ import type { GitRepositoryProbeResult } from "@repo/git-service";
 import { LocalPersistence } from "@repo/event-store/local";
 
 import { LocalWorkspaceService } from "./local-workspace.js";
+import { createLocalArtifactCapture } from "./local-artifact-capture.js";
 
 class FakeGitService {
   constructor(private readonly repositoryRoot: string) {}
@@ -46,6 +47,30 @@ describe("LocalWorkspaceService", () => {
       }).getCurrent();
       expect(reopened).toMatchObject({ workspaceId: granted.workspaceId, readiness: "ready" });
 
+      const capture = createLocalArtifactCapture({
+        workspaceGrants: persistence.workspaceGrants, storageDirectory,
+        scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
+        git: {
+          probeRepository: (input) => gitService.probeRepository(input),
+          captureSnapshot: async ({ workspace }) => ({ ...workspace, headSha: "a".repeat(40), treeId: "b".repeat(40) }),
+          getSnapshotDiff: async () => ({ files: [], patch: "" }),
+        },
+      });
+      const captureInput = { workspace: { runId: "run_capture001", filesystemRoot: repositoryRoot }, snapshotKey: "trn_capture001" };
+      await expect(capture.captureSnapshot(captureInput)).resolves.toMatchObject({ treeId: "b".repeat(40) });
+      await expect(capture.captureSnapshot({ ...captureInput, workspace: { ...captureInput.workspace, runId: "run_other001" } })).rejects.toThrow("run mismatch");
+      const stored = await persistence.workspaceGrants.read();
+      if (!stored) throw new Error("Missing test grant");
+      await persistence.workspaceGrants.write({ ...stored, grant: { ...stored.grant, grantedAt: "2026-06-16T00:00:00.000Z" } });
+      await expect(capture.captureSnapshot(captureInput)).rejects.toThrow("grant changed");
+      const unsafe = createLocalArtifactCapture({
+        workspaceGrants: persistence.workspaceGrants, storageDirectory: repositoryRoot,
+        scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
+        git: { probeRepository: (input) => gitService.probeRepository(input),
+          captureSnapshot: async ({ workspace }) => ({ ...workspace, headSha: "a".repeat(40), treeId: "b".repeat(40) }),
+          getSnapshotDiff: async () => ({ files: [], patch: "" }) },
+      });
+      await expect(unsafe.captureSnapshot(captureInput)).rejects.toThrow("outside the captured repository");
       const reopenedService = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants });
       await reopenedService.revoke();
       await expect(reopenedService.getCurrent()).resolves.toBeNull();
