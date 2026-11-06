@@ -1294,8 +1294,8 @@ export function getCodingToolIds(): CodingToolId[] {
   return [...CODING_TOOL_IDS];
 }
 
-export function getCodingCoreToolRegistry(): Record<string, CoreTool> {
-  return codingToolRegistry.toCoreToolRegistry();
+export function getCodingCoreToolRegistry(backendCapabilities: readonly ToolBackendCapability[] = []): Record<string, CoreTool> {
+  return codingToolRegistry.toCoreToolRegistry(backendCapabilities);
 }
 
 export function isCodingToolId(value: string): value is CodingToolId {
