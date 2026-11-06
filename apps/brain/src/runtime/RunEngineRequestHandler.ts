@@ -1,3 +1,4 @@
+import { claimExecutionWithStartupInterrupt } from "./RunExecutionStartup";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
@@ -425,6 +426,13 @@ export class RunEngineRequestHandler {
           409,
         );
       }
+      // Completion may already have submitted its serialized terminal commit.
+      // Report that durable result instead of claiming Stop won that race.
+      const afterInterrupt = await readAllLifecycleEvents(store, payload.turnId);
+      const completed = afterInterrupt.find((event) => event.type === "turn.completed");
+      if (completed) return runEngineJsonResponse(request, this.env, {
+        runId: payload.runId, accepted: false, status: "settled", terminalEvent: completed,
+      });
       return runEngineJsonResponse(request, this.env, {
         runId: payload.runId,
         accepted: true,
@@ -1345,7 +1353,7 @@ export class RunEngineRequestHandler {
           );
         }
         const claimId = crypto.randomUUID();
-        const claimResult = await withTurnAdmissionRepository(
+        const claimResult = await claimExecutionWithStartupInterrupt(this.interruptRegistry, turnId, () => withTurnAdmissionRepository(
           this.env,
           (repository) =>
             repository.claimExecution({
@@ -1358,7 +1366,7 @@ export class RunEngineRequestHandler {
               threadId,
               claimId,
             }),
-        );
+        ));
         if (claimResult.status !== "claimed") {
           const recovery =
             claimResult.status === "already_claimed" ||
@@ -1376,7 +1384,6 @@ export class RunEngineRequestHandler {
           );
         }
         executionClaim = { turnId, claimId };
-        this.interruptRegistry.beginStartup(turnId);
         const runtimeState = this.createRuntimeState();
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
@@ -1417,6 +1424,7 @@ export class RunEngineRequestHandler {
           this.contextCompactionRegistry.register(turnId, async () => {
             await runtimeRunner.compact(turnId);
           });
+          taskCheckoutLifecycle?.beginRuntimeExecution({ turnId, runAttemptId });
           const executionResponse = await runtimeRunner.execute({
             input: payload.input,
             messages: payload.messages as CoreMessage[],
@@ -1481,6 +1489,7 @@ export class RunEngineRequestHandler {
               payload.correlationId,
             );
           }
+          taskCheckoutLifecycle?.observeRuntimeSettlement(lifecycleEvents);
           await taskCheckoutLifecycle?.settle(
             terminalLifecycleEvent.type === "turn.completed"
               ? { status: "settled" }
@@ -1493,7 +1502,7 @@ export class RunEngineRequestHandler {
                 },
           );
           console.log(
-            formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
+            formatDiagnosticLogLine("run/runtime", taskCheckoutLifecycle?.requiresRecovery ? "checkout-retained-for-recovery" : "artifacts-settled", {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
@@ -1508,6 +1517,11 @@ export class RunEngineRequestHandler {
         } catch (error) {
           if (taskCheckoutLifecycle && !taskCheckoutLifecycle.isSettled) {
             try {
+              // A persistence/transport error must not turn uncertain worker
+              // state into permission to release its checkout.
+              try {
+                taskCheckoutLifecycle.observeRuntimeSettlement(await readAllLifecycleEvents(this.createLifecycleEventStore(), turnId));
+              } catch { /* Unreadable commit evidence retains the execution lease. */ }
               await taskCheckoutLifecycle?.settle({
                 status: "failed",
                 failureCode: "RUN_PIPELINE_FAILED",

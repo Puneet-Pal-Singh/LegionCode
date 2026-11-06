@@ -1,3 +1,9 @@
+import { hasImmutableRuntimeSettlement } from "./TaskCheckoutSettlementEvidence";
+import type {
+  LifecycleEvent,
+  TurnId,
+  RunAttemptId,
+} from "@repo/platform-protocol";
 import type { TaskCheckout } from "@repo/platform-protocol";
 import type { SecureExecutionSessionPort } from "../../services/secure-execution/SecureExecutionSessionClient";
 import type { TaskCheckoutSettlementPort } from "./TaskCheckoutExecutionOrchestrator";
@@ -16,6 +22,34 @@ export type TaskCheckoutTerminalOutcome =
 export class TaskCheckoutRunLifecycle {
   private settled = false;
   private retainedUntilLeaseExpiry = false;
+  private runtimeIdentity: {
+    readonly turnId: TurnId;
+    readonly runAttemptId: RunAttemptId;
+  } | null = null;
+  private recoveryRequired = false;
+
+  /** Called immediately before any runtime work can start, including startup hooks. */
+  beginRuntimeExecution(identity: {
+    readonly turnId: TurnId;
+    readonly runAttemptId: RunAttemptId;
+  }): void {
+    if (this.runtimeIdentity)
+      throw new Error("Checkout runtime ownership already started");
+    this.runtimeIdentity = identity;
+    this.recoveryRequired = true;
+  }
+
+  observeRuntimeSettlement(events: readonly LifecycleEvent[]): void {
+    if (!this.runtimeIdentity) return;
+    this.recoveryRequired = !hasImmutableRuntimeSettlement(
+      events,
+      this.runtimeIdentity,
+    );
+  }
+
+  get requiresRecovery(): boolean {
+    return this.recoveryRequired;
+  }
 
   constructor(
     private readonly checkoutId: TaskCheckout["checkoutId"],
@@ -27,7 +61,11 @@ export class TaskCheckoutRunLifecycle {
     return this.settled;
   }
 
-  async settle(outcome: TaskCheckoutTerminalOutcome): Promise<TaskCheckout> {
+  async settle(
+    outcome: TaskCheckoutTerminalOutcome,
+  ): Promise<TaskCheckout | null> {
+    // Unknown mutation state keeps both active checkout ownership and its lease.
+    if (this.recoveryRequired) return null;
     if (this.settled) {
       throw new Error("Task checkout has already settled");
     }
@@ -42,7 +80,11 @@ export class TaskCheckoutRunLifecycle {
   }
 
   async release(): Promise<void> {
-    if (this.settled && this.retainedUntilLeaseExpiry) return;
+    if (
+      this.recoveryRequired ||
+      (this.settled && this.retainedUntilLeaseExpiry)
+    )
+      return;
     await this.executionSession.release();
   }
 }
