@@ -154,6 +154,7 @@ export async function submitHostedChat(
         providerId: body.providerId,
         modelId: body.modelId,
         harnessId: body.harnessId,
+        harnessSelection: body.harnessSelection,
         orchestratorBackend: body.orchestratorBackend,
         executionBackend: body.executionBackend,
         harnessMode: body.harnessMode,

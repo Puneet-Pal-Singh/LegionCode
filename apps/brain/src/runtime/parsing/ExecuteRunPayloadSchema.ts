@@ -1,3 +1,4 @@
+import { HarnessAdmissionSelectionSchema } from "@repo/platform-protocol";
 /**
  * ExecuteRunPayloadSchema - Zod schema for runtime execute requests.
  *
@@ -98,6 +99,7 @@ export const ExecuteRunPayloadSchema = z.object({
       providerTransport: ProviderModelTransportSchema.optional(),
       providerEndpoint: z.string().trim().min(1).url().optional(),
       harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
+      harnessSelection: HarnessAdmissionSelectionSchema.optional(),
       orchestratorBackend: OrchestratorBackendSchema,
       executionBackend: ExecutionBackendSchema,
       harnessMode: HarnessModeSchema,

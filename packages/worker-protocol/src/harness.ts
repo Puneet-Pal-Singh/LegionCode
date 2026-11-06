@@ -13,6 +13,9 @@ import {
   ToolCallItemContentSchema,
   UsageCostSnapshotSchema,
   TurnWorkspaceSnapshotSchema,
+  TurnInputAcceptedPayloadSchema,
+  TurnInputAppliedPayloadSchema,
+  EventSequenceSchema,
 } from "@repo/platform-protocol";
 
 const OpaqueId = z.string().min(1).max(256);
@@ -66,6 +69,13 @@ export const HarnessQuiescenceSchema = z.discriminatedUnion("status", [
 export type HarnessQuiescence = z.infer<typeof HarnessQuiescenceSchema>;
 
 export const HarnessObservationPayloadSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("thread_input_applied"),
+      background: z.literal(true).optional(),
+      input: TurnInputAppliedPayloadSchema,
+    })
+    .strict(),
   z
     .object({
       kind: z.literal("assistant_text"),
@@ -175,6 +185,7 @@ export type HarnessReply = z.infer<typeof HarnessReplySchema>;
 
 export const HarnessStartCommandSchema = z
   .object({
+    mode: z.enum(["start", "recover_same_attempt"]),
     commandId: OpaqueId,
     selection: HarnessSelectionSchema,
     leaseId: LeaseIdSchema,
@@ -209,6 +220,9 @@ export const HarnessControlCommandSchema = z.discriminatedUnion("kind", [
       commandId: OpaqueId,
       session: HarnessSessionSchema,
       expectedExternalTurnId: OpaqueId,
+      accepted: TurnInputAcceptedPayloadSchema.extend({
+        acceptedSequence: EventSequenceSchema,
+      }),
       text: z.string().min(1).max(1_048_576),
     })
     .strict(),

@@ -116,6 +116,7 @@ export class RuntimeLifecycleCoordinator {
   private harnessFenced = false;
   private terminalOutcome: TurnTerminalOutcome["status"] | null = null;
   private readonly acceptedInputSequences = new Map<string, number>();
+  private readonly appliedInputs = new Map<string, { acceptedSequence: number; modelStep: number; contextRevision: number; sequence: number }>();
   private sequence: number;
   private operationQueue: Promise<void> = Promise.resolve();
 
@@ -178,6 +179,8 @@ export class RuntimeLifecycleCoordinator {
       "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents", "userInputItems"] as const) {
       Object.assign(this[key], source[key]);
     }
+    this.appliedInputs.clear();
+    for (const [key, value] of source.appliedInputs) this.appliedInputs.set(key, { ...value });
     this.acceptedInputSequences.clear();
     for (const [key, value] of source.acceptedInputSequences) this.acceptedInputSequences.set(key, value);
   }
@@ -495,6 +498,9 @@ export class RuntimeLifecycleCoordinator {
         );
       } else if (!requireIsolatedApproval && event.type === "user_input.requested") {
         this.userInputItems[event.requestId] = event.itemId;
+      } else if (!requireIsolatedApproval && event.type === "turn.input.applied") {
+        if (this.acceptedInputSequences.get(event.payload.inputId) !== event.payload.acceptedSequence) throw new Error("Recovered input application has no matching canonical acceptance");
+        this.appliedInputs.set(event.payload.inputId, { ...event.payload, sequence: event.sequence });
       } else if (!requireIsolatedApproval && event.type === "turn.input.accepted") {
         this.acceptedInputSequences.set(event.payload.inputId, event.sequence);
       } else if (requireIsolatedApproval && (
@@ -1016,7 +1022,7 @@ export class RuntimeLifecycleCoordinator {
     readonly inputId: string;
     readonly clientInputId: string;
     readonly transcriptMessageId: string;
-  }, afterAppend: (acceptedSequence: number) => void): Promise<number> {
+  }, afterAppend: (acceptedSequence: number) => void, canAccept: () => boolean = () => true, fenceOnAppendFailure = false): Promise<number> {
     let acceptedSequence: number | undefined;
     await this.enqueue(async () => {
       const existingSequence = this.acceptedInputSequences.get(input.inputId);
@@ -1024,7 +1030,7 @@ export class RuntimeLifecycleCoordinator {
         acceptedSequence = existingSequence;
         return;
       }
-      if (this.completionReserved || this.isTerminal) {
+      if (this.completionReserved || this.isTerminalDecided || !canAccept()) {
         throw new LifecycleTransitionError(
           "turn",
           this.status,
@@ -1032,7 +1038,12 @@ export class RuntimeLifecycleCoordinator {
           "the turn is already settling",
         );
       }
-      await this.emit({ type: "turn.input.accepted", payload: input });
+      try {
+        await this.emit({ type: "turn.input.accepted", payload: input });
+      } catch (error) {
+        if (fenceOnAppendFailure) this.harnessFenced = true;
+        throw error;
+      }
       acceptedSequence = this.sequence;
       this.acceptedInputSequences.set(input.inputId, this.sequence);
       afterAppend(this.sequence);
@@ -1041,6 +1052,10 @@ export class RuntimeLifecycleCoordinator {
       throw new Error("Accepted thread input did not append a lifecycle event.");
     }
     return acceptedSequence;
+  }
+
+  hasPendingThreadInputs(): boolean {
+    return [...this.acceptedInputSequences.keys()].some((inputId) => !this.appliedInputs.has(inputId));
   }
 
   async reserveCompletion(hasPendingInputs: () => boolean): Promise<boolean> {
@@ -1061,8 +1076,18 @@ export class RuntimeLifecycleCoordinator {
   }): Promise<number> {
     let appliedSequence: number | undefined;
     await this.enqueue(async () => {
+      if (this.acceptedInputSequences.get(input.inputId) !== input.acceptedSequence) {
+        throw new LifecycleTransitionError("turn", "input_not_accepted", "input_applied", "Input application does not match canonical acceptance");
+      }
+      const prior = this.appliedInputs.get(input.inputId);
+      if (prior) {
+        if (prior.modelStep !== input.modelStep || prior.contextRevision !== input.contextRevision) throw new LifecycleTransitionError("turn", "input_applied", "input_applied", "Conflicting input application evidence");
+        appliedSequence = prior.sequence;
+        return;
+      }
       await this.emit({ type: "turn.input.applied", payload: input });
       appliedSequence = this.sequence;
+      this.appliedInputs.set(input.inputId, { ...input, sequence: this.sequence });
     });
     if (appliedSequence === undefined) {
       throw new Error("Applied thread input did not append a lifecycle event.");

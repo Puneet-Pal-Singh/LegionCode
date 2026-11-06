@@ -1,3 +1,4 @@
+import { HarnessAdmissionSelectionSchema, type HarnessAdmissionSelection } from "@repo/platform-protocol";
 /**
  * HandleChatRequest Use-Case
  * Single Responsibility: Orchestrate chat request processing
@@ -68,6 +69,7 @@ export interface HandleChatRequestInput {
   providerId?: string;
   modelId?: string;
   harnessId?: RuntimeHarnessId;
+  harnessSelection?: HarnessAdmissionSelection;
   orchestratorBackend?: RuntimeOrchestratorBackend;
   executionBackend?: RuntimeExecutionBackend;
   harnessMode?: RuntimeHarnessMode;
@@ -121,6 +123,7 @@ export interface HandleChatRequestOutput {
       providerTransport?: import("@repo/shared-types").ProviderModelTransport;
       providerEndpoint?: string;
       harnessId?: RuntimeHarnessId;
+      harnessSelection?: HarnessAdmissionSelection;
       orchestratorBackend: RuntimeOrchestratorBackend;
       executionBackend: RuntimeExecutionBackend;
       harnessMode: RuntimeHarnessMode;
@@ -235,6 +238,7 @@ export class HandleChatRequest {
           providerId: input.providerId ?? null,
           modelId: input.modelId ?? null,
           branch: repositoryBranch ?? null,
+          harnessSelection: input.harnessSelection,
         });
         persistedRun = admittedTurn.run;
         persistedUserMessageId = admittedTurn.id;
@@ -295,6 +299,7 @@ export class HandleChatRequest {
           modelId: input.modelId,
           ...normalizedProviderRuntimeRoute,
           harnessId: input.harnessId,
+          ...(input.harnessSelection ? { harnessSelection: HarnessAdmissionSelectionSchema.parse(input.harnessSelection) } : {}),
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
           harnessMode: runtimeSelections.harnessMode,
