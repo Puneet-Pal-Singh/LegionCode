@@ -314,7 +314,7 @@ async function requireAdmission(
 ): Promise<void> {
   const selection = StoredHarnessSelectionSchema.parse(value);
   const result = await tx.query(
-    `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id=a.session_id
+    `SELECT a.turn_id,a.harness_admission_receipt_json FROM canonical_turn_admissions a JOIN sessions s ON s.id=a.session_id
     WHERE a.turn_id=$1 AND a.run_attempt_id=$2 AND a.session_id::text=$3 AND a.run_id=$4 AND a.workspace_id=$5
       AND a.thread_id=$6 AND s.user_id=$7 AND a.admission_state='admitted' AND a.execution_state IN ('running','recovery_required')
       AND a.execution_claim_id IS NOT NULL FOR UPDATE OF a`,
@@ -333,6 +333,16 @@ async function requireAdmission(
       "admission_required",
       "Harness binding requires a matching claimed admission",
     );
+  const receiptValue=result.rows[0].harness_admission_receipt_json;
+  if(receiptValue==null)throw new HarnessPersistenceError("admission_required","Frozen admission selection receipt is missing");
+  const receipt=(typeof receiptValue==="string"?JSON.parse(receiptValue):receiptValue) as {capture:{environmentId:string;selection:{harness:string;instanceId:string;connectionId:string;modelId:string}|null};authOwnerGeneration:number;binding:unknown};
+  const binding=JSON.parse(selection.selectionJson) as Record<string,unknown>;
+  const chosen=receipt.capture?.selection;
+  if(!chosen || binding.environmentId!==receipt.capture.environmentId || binding.harness!==chosen.harness || binding.instanceId!==chosen.instanceId || binding.connectionId!==chosen.connectionId || binding.modelId!==chosen.modelId || binding.authOwnerGeneration!==receipt.authOwnerGeneration)
+    throw new HarnessPersistenceError("binding_conflict","Runtime binding differs from admitted selection");
+  if(receipt.binding!=null && JSON.stringify(receipt.binding)!==JSON.stringify(binding))
+    throw new HarnessPersistenceError("binding_conflict","Full admitted binding is immutable");
+  if(receipt.binding==null)await tx.query("UPDATE canonical_turn_admissions SET harness_admission_receipt_json=jsonb_set(harness_admission_receipt_json,'{binding}',$2::jsonb) WHERE turn_id=$1",[selection.turnId,JSON.stringify(binding)]);
 }
 async function requiredBinding(
   tx: SqlClient,

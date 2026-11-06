@@ -3,6 +3,7 @@ import type { RunRecord, RunStatus } from "../runs/types.js";
 import type { TranscriptMessagePartType } from "../sessions/types.js";
 
 export interface TurnAdmissionRecord {
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection | null;
   userId: string;
   sessionId: string;
   clientMessageId: string;
@@ -39,6 +40,7 @@ export interface ReserveTurnAdmissionInput {
 }
 
 export interface AdmitTurnWithPromptInput {
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   sessionId: string;
   clientMessageId: string;
   turnId: string;

@@ -387,3 +387,7 @@ export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDe
 export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
 export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
 export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";
+
+export { PostgresHarnessControlPlaneRepository, HarnessControlPlaneConflictError } from "./harness/PostgresHarnessControlPlaneRepository.js";
+export type { HarnessControlPlaneScope, StoredHarnessInstance, FreezeHarnessAdmissionInput } from "./harness/PostgresHarnessControlPlaneRepository.js";
+export { harnessControlPlaneMigration } from "./migrations/0038-harness-control-plane.js";

@@ -1,3 +1,4 @@
+import { harnessControlPlaneMigration } from "./0038-harness-control-plane.js";
 import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
 import { desktopAuthChallengesMigration } from "./0036-desktop-auth-challenges.js";
 import { harnessBindingsMigration } from "./0035-harness-bindings.js";
@@ -120,4 +121,5 @@ export const persistenceMigrations = [
   harnessBindingsMigration,
   desktopAuthChallengesMigration,
   providerConnectionCustodyMigration,
+  harnessControlPlaneMigration,
 ] as const;
