@@ -1113,3 +1113,34 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+
+
+## Plan 057 — Native root-FD filesystem primitive
+
+The runtime-private `NativeFilesystemBridge` in execution-engine launches the
+POSIX C `legioncode-fs-helper` with no arguments, an empty environment and the
+trusted grant directory object inherited at FD 3. The bounded LCFM/1 pipe
+protocol supports a 4 MiB regular-file read and staged file replacement/creation.
+The helper traverses components with `openat(O_DIRECTORY | O_NOFOLLOW)`, retains
+the same parent FD, and rewalks the relative parent before commit. Staged inode
+and bytes are checked through a held FD; publication uses `renameat` or an
+exclusive `linkat` for new files. It preserves existing ordinary mode/group.
+This is atomic entry publication with optimistic conflict checks, not CAS against
+arbitrary external writers; no sandbox or ACL/xattr preservation is claimed.
+
+The root FD authorizes the selected directory object, not a mutable path alias.
+Worker01 supplies the main-only trusted executable path; worker12 compiles and
+packages that executable. Worker03 owns the actual read/executor consumer, root
+FD grant binding, canonical permission admission and runtime lifecycle. Reads
+must use that bound FD, and mutation composition must retain the real writer
+lease through native close and final capture. Worker05 owns only this private
+filesystem implementation and its guarded file worker. The helper receives no
+provider keys and writes no lifecycle events. There is no `/dev/fd`, path-magic,
+Python or JavaScript mutation fallback. Abort signals request native cleanup;
+actual process/pipe closure, never acknowledgement alone, establishes quiescence.
+
+The primitive alone advertises no Desktop capability. Native read integration,
+installed Mac proof, and guarded edit/command enablement remain separate consumer
+boundaries. Mutators must not use `omitted_read_only` capture. Their full-capture
+and lease gates remain with worker03/07. The source is independently compiled and
+its bridge exercised against real Linux files in cloud; no new test code is added.
