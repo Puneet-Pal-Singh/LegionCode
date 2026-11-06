@@ -3,7 +3,7 @@ import {
   type HarnessObservation, type HarnessRequestOrigin, type HarnessSession,
   type HarnessCommitAck, type HarnessQuiescence,
 } from "@repo/worker-protocol";
-import { LifecycleEventSchema, HarnessSelectionSchema, type LifecycleEvent } from "@repo/platform-protocol";
+import { LifecycleEventSchema, HarnessSelectionSchema, userIdFromExternalId, workspaceIdFromExternalId, type LifecycleEvent } from "@repo/platform-protocol";
 import {
   HarnessPersistenceError, StoredHarnessSelectionSchema, assertHarnessOrigin,
   assertHarnessSelection, createStableEventFingerprint, fingerprintHarnessObservation,
@@ -21,7 +21,7 @@ export class PostgresHarnessObservationCommitPort {
   constructor(private readonly client:SqlClient,selection:StoredHarnessSelection){
     this.selection=StoredHarnessSelectionSchema.parse(selection);
     const binding=HarnessSelectionSchema.parse(JSON.parse(this.selection.selectionJson));
-    if(binding.turnId!==selection.turnId || binding.runAttemptId!==selection.runAttemptId || binding.threadId!==selection.threadId || binding.runId!==selection.runId)reject("Frozen runtime binding identity mismatch");
+    if(binding.userId!==userIdFromExternalId(selection.userId) || binding.workspaceId!==workspaceIdFromExternalId(selection.workspaceId) || binding.turnId!==selection.turnId || binding.runAttemptId!==selection.runAttemptId || binding.threadId!==selection.threadId || binding.runId!==selection.runId)reject("Frozen runtime binding identity mismatch");
   }
   async lookup(value:HarnessObservation):Promise<HarnessCommitAck|null>{
     const observation=HarnessObservationSchema.parse(value);

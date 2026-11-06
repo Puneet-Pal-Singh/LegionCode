@@ -45,3 +45,5 @@ export type {
   HarnessBindingRepository,
   HarnessExecutionClaimResult,
 } from "./local/harness-bindings.js";
+
+export { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";

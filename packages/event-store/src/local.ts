@@ -1,3 +1,5 @@
+import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
+import type { StoredHarnessSelection } from "./local/harness-bindings.js";
 import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
 import Database from "better-sqlite3";
 import { LocalTurnAdmissions } from "./local-turn-admissions.js";
@@ -119,6 +121,16 @@ export class LocalPersistence {
     write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
     clear(): Promise<void>;
   };
+
+  createHarnessObservationCommitPort(selection:StoredHarnessSelection) {
+    const port=new LocalHarnessObservationCommitPort(this.database,event=>this.appendLifecycleWithin(event),selection);
+    return {
+      recover:(session:Parameters<typeof port.recover>[0])=>this.guardHarnessStorage(()=>port.recover(session)),
+      claimReply:(origin:Parameters<typeof port.claimReply>[0])=>this.guardHarnessStorage(()=>port.claimReply(origin)),
+      lookup:(observation:Parameters<typeof port.lookup>[0])=>this.guardHarnessStorage(()=>port.lookup(observation)),
+      commit:(input:Parameters<typeof port.commit>[0])=>this.guardHarnessStorage(()=>port.commit(input)),
+    };
+  }
 
   private readonly database!: Database.Database;
   private readonly storageDirectory: string;
