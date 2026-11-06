@@ -13,6 +13,7 @@ import { composeHostedThreadInputOperations } from "../integration/app-server/Ho
 import { composeHostedSessionPullRequests } from "../integration/app-server/HostedSessionPullRequests";
 import { composeHostedEditArtifactReads } from "../integration/app-server/HostedEditArtifactReads";
 import { composeHostedGitOperations } from "../integration/app-server/HostedGitOperations";
+import { composeHostedCodeArtifactReads } from "../integration/app-server/HostedCodeArtifactReads";
 import { composeHostedRepositoryReads } from "../integration/app-server/HostedRepositoryReads";
 import { AppServerOperationError, handleAppServerHttpRequest } from "@legioncode/app-server/server";
 import type { AppServerError, ChatRequestBody, HostedChatSubmissionResult } from "@repo/platform-protocol";
@@ -104,6 +105,7 @@ export const AppServerController = {
     let hostedLifecycleOperationsService: ReturnType<typeof composeHostedLifecycleOperations> | undefined;
     let hostedEditArtifactReadsService: ReturnType<typeof composeHostedEditArtifactReads> | undefined;
     let hostedGitOperationsService: ReturnType<typeof composeHostedGitOperations> | undefined;
+    let hostedCodeArtifactReadsService: ReturnType<typeof composeHostedCodeArtifactReads> | undefined;
     let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
     let hostedChatSubmissionService:
       | { execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult> }
@@ -135,6 +137,7 @@ export const AppServerController = {
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
         hostedGitOperationsService = composeHostedGitOperations(request, env, auth.userId);
+        hostedCodeArtifactReadsService = composeHostedCodeArtifactReads(env, auth.userId);
         hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
         hostedChatSubmissionService = {
           execute: async (params) => {
@@ -226,6 +229,7 @@ export const AppServerController = {
         hostedLifecycleOperationsService,
         hostedEditArtifactReadsService,
         hostedGitOperationsService,
+        hostedCodeArtifactReadsService,
         hostedRepositoryReadService,
         hostedChatSubmissionService,
       },
@@ -241,7 +245,7 @@ export const AppServerController = {
 };
 
 function isArtifactReadMethod(method: string): boolean {
-  return method === "artifact/reviewLatest" || method === "artifact/reviewByMessage" || method === "artifact/diff";
+  return method === "artifact/reviewLatest" || method === "artifact/reviewByMessage" || method === "artifact/diff" || method === "artifact/codeContent";
 }
 
 function turnAuthFailureDetails(method: string, statusCode: number) {

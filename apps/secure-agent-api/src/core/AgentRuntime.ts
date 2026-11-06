@@ -833,9 +833,6 @@ export class AgentRuntime extends DurableObject {
     });
   }
 
-  async getArtifact(key: string): Promise<string | null> {
-    return await this.storageService.getArtifact(key);
-  }
 }
 
 async function destroySandboxWithTimeout(

@@ -116,15 +116,19 @@ binary/no-line-change, known-stat preservation and hunk context behavior remain.
 
 | Responsibility | Canonical owner | Active consumers |
 | --- | --- | --- |
-| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and cold-storage loader. |
+| ChatMessage, visible-content/redaction helpers and artifact preview presentation | `client-ui/src/conversation` | Web ChatInterfaceView renders shared messages for history and lifecycle entries, supplies existing image URL resolver and session-bound artifact content loader. |
 | Artifact-open callback types | `client-ui/src/conversation/artifactOpen.ts` | Shared message/artifact UI and Web workflow/conversation callers use the same type. |
 | Hosted hydrated-image URL binding | Web `chatMessageImagePresentation.ts` | Existing scoped-path validation and Brain base resolution supplied explicitly to ChatMessage. |
-| Existing cold-storage artifact transport | Web `services/ArtifactService.ts` until 058.3E | Existing Muscle artifact fetch supplied as callback; move required typed operation to SDK/App Server during the artifact operation slice, then delete this Web transport. |
+| Existing code-artifact preview reads | Brain `HostedCodeArtifactReads` composed after authenticated App Server dispatch; SDK `artifact/codeContent` is the typed client boundary | Web ChatInterface captures the authenticated session and supplies a cancellable loader; shared ArtifactPreview/MessageArtifacts display inline strings and exact persisted `r2_ref` values, opening resolved content. Brain authorizes only exact genuine persisted `create_code_artifact.args.content` membership in that principal's pinned transcript pages, then reads the unchanged object through Secure's internal service binding. Receipt-backed imported history uses its server-verified provenance mapping. |
 
 Replaced Web message/rendering/helpers are deleted. Only active host URL/HTTP
-bindings remain, with the artifact transport deletion trigger above. Existing
-message integration safeguards stay at the Web boundary to cover its bindings.
-No product HTTP/storage authority or Web imports enter shared presentation.
+bindings remain. The old `loadColdStorageArtifact` Web transport and public
+key-only `/artifact` reader are removed only after real consumers and every
+known inventoried preview reference have replacement coverage. Existing
+ArtifactService state methods remain. Every inventoried R2 object, DO record,
+key, and byte stays preserved; unmatched objects receive no key-prefix or
+first-viewer authorization, and the local inventory does not establish cloud
+coverage. Shared preview presentation owns no fetch/auth/SDK composition.
 
 ## Plan 058.2D — Full diff and review renderers
 
@@ -183,6 +187,25 @@ existing owners until the command slices.
 | --- | --- | --- |
 | Authorized session transcript pages and committed snapshot watermark | Existing persistence TranscriptRepository and Brain TranscriptController | Web ChatHydrationService reads the same session-scoped contract, independent of execution-run filtering. |
 | Validated complete/partial paginated reads | `sdk/src/platform/conversation-history.ts` | Web ChatHydrationService retains verified pages, rejects invalid identity/timestamp/cursor data, and no longer fabricates message identities or truncates after ten pages. |
+| Source-preserving hydrated transcript content | One framework-neutral projection beside `sdk/src/platform/conversation-history.ts` | Web adapts validated SDK transcript records to React; source roles, order, IDs, tool results and JSON parts stay inspectable without becoming AI-SDK messages or lifecycle state. |
+
+`PostgresTranscriptRepository` projects stored JSONB message-part content as SQL
+text before strict JSON parsing, so JSON scalar strings retain their value after
+the PostgreSQL driver decodes JSONB on normal reads. Legacy-import duplicate
+checks compare the driver's decoded JSON values directly.
+
+### Fixed-inventory legacy transcript recovery
+
+| Responsibility | Canonical owner | Active consumers and boundary |
+| --- | --- | --- |
+| Operator import of the approved fixed legacy inventory and its immutable provenance | Existing `PostgresTranscriptRepository` import method plus one `legacy_history_import_receipts` table | One operator-only dry-run-by-default command resolves GitHub subject `46601256` against target `accounts/users`, imports transcript and receipt atomically, and retains raw source bytes. Durable Object exports keep the actual logical DO ID; local Wrangler SQLite uses `source_kind` plus the frozen source-instance locator and leaves `source_do_id` null. Local rows group sessions by the exact original producer conversation bucket retained only in receipt provenance; unknown buckets never merge by physical SQLite file. Normal session/message APIs cannot write provenance; Secure Durable Object/R2 records remain untouched. |
+
+The receipt is provenance, not a transcript projection, ownership grant, or
+runtime lifecycle record. Import coverage is limited to the exact frozen
+environment/namespace/source-instance/key manifest. A local SQLite filename is
+never presented as a logical Durable Object ID. Original records are idempotent
+only when bytes, ownership, mapping, and manifest digest match; any mismatch
+aborts for review. No public preview-key reader is retired by this import slice.
 
 This adopts only the pinned session-history portion of the incoming durability
 fix from main. Existing browser hydration scope/live binding remains pending the

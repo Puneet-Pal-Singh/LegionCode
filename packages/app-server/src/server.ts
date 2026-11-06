@@ -134,6 +134,9 @@ export type AppServerComposition = {
     push(params: Extract<AppServerRequest, { method: "git/push" }>['params']): Promise<GitPushMutationResult>;
     pullRequest(params: Extract<AppServerRequest, { method: "git/pullRequest" }>['params']): Promise<GitPullRequestMutationResult>;
   };
+  hostedCodeArtifactReadsService?: {
+    codeContent(params: Extract<AppServerRequest, { method: "artifact/codeContent" }>["params"]): Promise<{ content: string }>;
+  };
 };
 
 export type ArtifactReviewLookupResult = {
@@ -419,6 +422,10 @@ async function dispatch(
     case "git/pullRequest": {
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.pullRequest(request.params);
+    }
+    case "artifact/codeContent": {
+      if (!composition.hostedCodeArtifactReadsService) throw new Error("unsupported");
+      return composition.hostedCodeArtifactReadsService.codeContent(request.params);
     }
     case "session/create": {
       if (!composition.sessionMetadataService) throw new Error("unsupported");

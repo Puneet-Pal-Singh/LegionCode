@@ -639,17 +639,6 @@ export class ExecutionService {
     }
   }
 
-  async getArtifact(key: string): Promise<string> {
-    const res = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/artifact?key=${encodeURIComponent(key)}`,
-      undefined,
-      DEFAULT_EXECUTION_TIMEOUT_MS,
-    );
-    if (!res.ok) return "[Error: Artifact not found]";
-    return await res.text();
-  }
-
   private async getExecutionSession(
     scope: SecureExecutionWorkspaceScope | undefined,
   ) {

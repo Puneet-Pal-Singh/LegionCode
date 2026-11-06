@@ -16,6 +16,8 @@ import {
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
+  CodeArtifactContentRequestSchema,
+  CodeArtifactContentResponseSchema,
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
   LocalWorkspaceGrantResponseSchema,
@@ -240,6 +242,7 @@ export const AppServerMethodSchema = z.enum([
   "git/branch",
   "git/push",
   "git/pullRequest",
+  "artifact/codeContent",
 
   "workspace/list",
   "workspace/select",
@@ -323,6 +326,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("git/branch"), params: GitBranchParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/push"), params: GitPushParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/pullRequest"), params: GitPullRequestParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("artifact/codeContent"), params: CodeArtifactContentRequestSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
@@ -398,6 +402,7 @@ export const AppServerResultSchemas = {
   "git/branch": GitBranchResultSchema,
   "git/push": GitPushResultSchema,
   "git/pullRequest": GitPullRequestResultSchema,
+  "artifact/codeContent": CodeArtifactContentResponseSchema,
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
@@ -473,6 +478,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("git/branch", AppServerResultSchemas["git/branch"]),
   success("git/push", AppServerResultSchemas["git/push"]),
   success("git/pullRequest", AppServerResultSchemas["git/pullRequest"]),
+  success("artifact/codeContent", AppServerResultSchemas["artifact/codeContent"]),
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
