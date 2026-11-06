@@ -569,8 +569,22 @@ function mapGitExecutionError(error: unknown, operation: GitOperationName): GitE
   if (error instanceof CommitIdentityError) return new GitExecutionError(error.status, error.code, error.message, false, error.metadata);
   const message = error instanceof Error ? error.message : getDefaultOperationError(operation);
   if (operation === "commit") {
-    if (/git commit author is not configured/i.test(message)) return new GitExecutionError(400, "COMMIT_IDENTITY_REQUIRED", "Commit author identity is required before LegionCode can commit. Confirm your name and email, then retry.", false);
-    if (/git commit author could not be written/i.test(message)) return new GitExecutionError(500, "COMMIT_IDENTITY_WRITE_FAILED", "LegionCode could not write commit author identity into this workspace. Retry the commit or reconnect the workspace.", false);
+    if (/git commit author is not configured/i.test(message)) {
+      return new GitExecutionError(
+        400,
+        "COMMIT_IDENTITY_REQUIRED",
+        "Commit author identity is required before LegionCode can commit. Confirm your name and email, then retry.",
+        false,
+      );
+    }
+    if (/git commit author could not be written/i.test(message)) {
+      return new GitExecutionError(
+        500,
+        "COMMIT_IDENTITY_WRITE_FAILED",
+        "LegionCode could not write commit author identity into this workspace. Retry the commit or reconnect the workspace.",
+        false,
+      );
+    }
   }
   if (operation === "createBranch") return new GitExecutionError(400, "BRANCH_CREATION_FAILED", "LegionCode could not create or switch to that branch. Try a different branch name or refresh the workspace.", false);
   if (operation === "push") return new GitExecutionError(500, "PUSH_FAILED", "LegionCode could not push this branch to GitHub. Reconnect GitHub or retry the push.", false);
