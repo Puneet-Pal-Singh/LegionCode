@@ -82,7 +82,7 @@ export function SettingsDialog({
     loadManageProviderModels,
     toggleModelVisibility,
     setProviderVisibleModels,
-  } = useProviderStore(runId);
+  } = useProviderStore(runId, undefined, workspaceId);
 
   const [activeSection, setActiveSection] =
     useState<SettingsSection>(initialSection);

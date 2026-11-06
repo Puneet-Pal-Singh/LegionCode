@@ -204,6 +204,7 @@ export class ProviderStore {
   private static instance: ProviderStore;
   private state: ProviderStoreState;
   private activeRunId: string | null = null;
+  private activeWorkspaceId: string | null = null;
   private activeSessionId: string | null = null;
   private hasExplicitSessionSelection = false;
   private apiClient: ProviderApiClientContract;
@@ -235,11 +236,51 @@ export class ProviderStore {
         options?.apiClient ??
         new ProviderApiClient({
           getRunId: () => store?.activeRunId ?? null,
+          getWorkspaceId: () => store?.activeWorkspaceId ?? null,
         });
       store = new ProviderStore(apiClient, options?.enableLogging ?? false);
       ProviderStore.instance = store;
     }
     return ProviderStore.instance;
+  }
+
+  getActiveWorkspaceId(): string | null {
+    return this.activeWorkspaceId;
+  }
+
+  setActiveWorkspaceId(workspaceId: string | null): boolean {
+    if (this.activeWorkspaceId === workspaceId) {
+      if (!workspaceId && this.state.status === "idle") {
+        this.setState({
+          status: "error",
+          error:
+            "Provider setup is unavailable until an owned workspace is selected.",
+        });
+      }
+      return workspaceId !== null && this.state.status === "idle";
+    }
+
+    this.activeWorkspaceId = workspaceId;
+    this.workspaceEpoch += 1;
+    this.runScopeEpoch += 1;
+    this.inflight.clear();
+    this.bootstrapPromise = null;
+    this.lastResolveSelectionKey = null;
+    this.lastResolveError = null;
+    this.activeRunId = null;
+    this.activeSessionId = null;
+    this.hasExplicitSessionSelection = false;
+    this.state = createInitialStoreState();
+    if (!workspaceId) {
+      this.state = {
+        ...this.state,
+        status: "error",
+        error:
+          "Provider setup is unavailable until an owned workspace is selected.",
+      };
+    }
+    this.emit();
+    return workspaceId !== null;
   }
 
   /**
@@ -1568,6 +1609,7 @@ export class ProviderStore {
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
     this.activeRunId = null;
+    this.activeWorkspaceId = null;
     this.activeSessionId = null;
     this.hasExplicitSessionSelection = false;
     this.state = createInitialStoreState();

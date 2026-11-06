@@ -82,6 +82,7 @@ type UseProviderStoreResult = ProviderStoreState & {
 export function useProviderStore(
   runIdOverride?: string,
   sessionIdOverride?: string,
+  workspaceIdOverride?: string | null,
 ): UseProviderStoreResult {
   const store = ProviderStore.getInstance();
   const { runId: contextRunId, sessionId: contextSessionId } =
@@ -105,6 +106,20 @@ export function useProviderStore(
   }, [sessionId, store]);
 
   useEffect(() => {
+    if (workspaceIdOverride === undefined) return;
+    const needsBootstrap = store.setActiveWorkspaceId(workspaceIdOverride);
+    if (!workspaceIdOverride) return;
+    if (isCanonicalRunId(runId)) store.setActiveRunId(runId);
+    if (needsBootstrap) {
+      store.bootstrap().catch((error) => {
+        console.error("[provider/store] bootstrap failed", error);
+      });
+    }
+  }, [runId, store, workspaceIdOverride]);
+
+  useEffect(() => {
+    if (workspaceIdOverride === null) return;
+    if (store.getActiveWorkspaceId() === null) return;
     if (!isCanonicalRunId(runId)) {
       return;
     }
@@ -116,7 +131,7 @@ export function useProviderStore(
         console.error("[provider/store] bootstrap failed", error);
       });
     }
-  }, [runId, store]);
+  }, [runId, store, workspaceIdOverride]);
 
   const bootstrap = useCallback(() => store.bootstrap(), [store]);
   const connectCredential = useCallback(
