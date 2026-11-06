@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { HarnessHostError } from "./errors.js";
 
 export interface ProcessLaunch {
+  readonly processGeneration: string;
   readonly executable: string;
   readonly args: readonly string[];
   /** Already resolved and authorized by host launch policy. */
@@ -26,6 +27,7 @@ export type ProcessExit =
 export type ProcessGroupSettlement =
   | {
       readonly kind: "process_group_quiesced";
+      readonly verification: "group_absent" | "linux_zombie_group";
       readonly processGeneration: string;
       readonly checkedAt: string;
     }
@@ -55,6 +57,9 @@ export class ProcessSupervisor {
     if (process.platform === "win32")
       throw new HarnessHostError("unsupported_platform");
     if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        spec.processGeneration,
+      ) ||
       !isAbsolute(spec.executable) ||
       !isAbsolute(spec.cwd) ||
       spec.executable.includes("\0") ||
@@ -77,7 +82,7 @@ export class ProcessSupervisor {
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    const processGeneration = randomUUID();
+    const processGeneration = spec.processGeneration;
     let stderr = Buffer.alloc(0);
     const maxStderrBytes = 16 * 1024;
     child.stderr.on("data", (chunk: Buffer) => {
@@ -152,18 +157,22 @@ async function terminateGroup(
   if (pid === undefined)
     return {
       kind: "process_group_quiesced",
+      verification: "group_absent",
       processGeneration,
       checkedAt: new Date().toISOString(),
     };
   try {
     signalGroup(pid, "SIGTERM");
-    if (!(await awaitGroupExit(pid, input.graceMs))) {
+    let verification = await awaitGroupExit(pid, input.graceMs);
+    if (!verification) {
       signalGroup(pid, "SIGKILL");
-      if (!(await awaitGroupExit(pid, input.killWaitMs)))
+      verification = await awaitGroupExit(pid, input.killWaitMs);
+      if (!verification)
         return { kind: "unknown", processGeneration, reason: "timeout" };
     }
     return {
       kind: "process_group_quiesced",
+      verification,
       processGeneration,
       checkedAt: new Date().toISOString(),
     };
@@ -186,12 +195,49 @@ function signalGroup(pid: number, signal: NodeJS.Signals | 0): boolean {
 async function awaitGroupExit(
   pid: number,
   timeoutMs: number,
-): Promise<boolean> {
+): Promise<"group_absent" | "linux_zombie_group" | null> {
   const deadline = performance.now() + timeoutMs;
+  let previousZombies: string | undefined;
   while (signalGroup(pid, 0)) {
+    if (process.platform === "linux") {
+      const snapshot = await linuxZombieGroup(pid);
+      // Two identical all-zombie snapshots prevent accepting a fork racing the /proc listing.
+      if (snapshot !== null && snapshot === previousZombies)
+        return "linux_zombie_group";
+      previousZombies = snapshot ?? undefined;
+    }
     const remaining = deadline - performance.now();
-    if (remaining <= 0) return false;
+    if (remaining <= 0) return null;
     await delay(Math.min(25, remaining));
   }
-  return true;
+  return "group_absent";
+}
+
+async function linuxZombieGroup(group: number): Promise<string | null> {
+  const members: string[] = [];
+  for (const pid of await readdir("/proc")) {
+    if (!/^\d+$/.test(pid)) continue;
+    let raw: string;
+    try {
+      raw = await readFile(`/proc/${pid}/stat`, "utf8");
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ESRCH")
+      )
+        continue;
+      throw error;
+    }
+    const fields = raw
+      .slice(raw.lastIndexOf(") ") + 2)
+      .trim()
+      .split(/\s+/);
+    if (fields.length < 20) throw new HarnessHostError("process_not_quiescent");
+    if (Number(fields[2]) !== group) continue;
+    if (fields[0] !== "Z" && fields[0] !== "X") return null;
+    members.push(`${pid}:${fields[19]}:${fields[0]}`);
+  }
+  // kill(0) said the group exists: an empty inspection is not usable evidence.
+  return members.length ? members.sort().join(",") : null;
 }

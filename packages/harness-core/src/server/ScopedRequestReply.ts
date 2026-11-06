@@ -15,7 +15,9 @@ export class ScopedRequestReply<T> {
     if (
       !requestId ||
       !origin ||
-      !processGeneration ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        processGeneration,
+      ) ||
       !Number.isSafeInteger(authOwnerGeneration) ||
       authOwnerGeneration < 0
     ) {

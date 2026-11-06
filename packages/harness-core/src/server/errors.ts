@@ -6,6 +6,7 @@ export type HarnessHostErrorCode =
   | "duplicate_instance"
   | "session_busy"
   | "request_unavailable"
+  | "journal_busy"
   | "journal_overflow"
   | "journal_corrupt";
 
