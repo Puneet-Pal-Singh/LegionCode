@@ -25,11 +25,15 @@ interface HostedHarnessScopes {
   selectionUnavailableReason: string | null;
 }
 interface HostedHarnessBinding extends HostedHarnessScopes {
+  connectionRevision: number;
+  notifyConnectionsChanged: () => void;
   selectionReceipt: HarnessSelectionResponse | null;
   acceptSelectionReceipt: (receipt: HarnessSelectionResponse) => void;
   readAdmissionSelection: () => Promise<CapturedHarnessSelection | undefined>;
 }
 const HostedHarnessScope = createContext<HostedHarnessBinding>({
+  connectionRevision: 0,
+  notifyConnectionsChanged: () => undefined,
   connectionScope: null,
   selectionScope: null,
   sessionId: null,
@@ -44,6 +48,11 @@ export function HostedHarnessScopeProvider({
   children,
   ...scopes
 }: HostedHarnessScopes & { children: ReactNode }) {
+  const [connectionRevision, setConnectionRevision] = useState(0);
+  const notifyConnectionsChanged = useCallback(
+    () => setConnectionRevision((value) => value + 1),
+    [],
+  );
   const client = useMemo(() => createHostedAppServerClient().harness, []);
   const key = JSON.stringify(scopes.selectionScope);
   const currentKey = useRef(key);
@@ -92,6 +101,8 @@ export function HostedHarnessScopeProvider({
     <HostedHarnessScope.Provider
       value={{
         ...scopes,
+        connectionRevision,
+        notifyConnectionsChanged,
         selectionReceipt: observed?.key === key ? observed.receipt : null,
         acceptSelectionReceipt,
         readAdmissionSelection,

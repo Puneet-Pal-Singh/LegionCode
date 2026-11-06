@@ -23,6 +23,7 @@ import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { ProviderIcon, HarnessConnectionSettings } from "@legioncode/client-ui";
 import { useHostedHarnessScope } from "../harness/HostedHarnessScope";
+import { ProviderApiClient } from "../../services/api/providerClient.js";
 import { createHostedAppServerClient } from "../../services/api/appServerClient.js";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
 import { Switch } from "../ui/Switch.js";
@@ -68,7 +69,17 @@ export function SettingsDialog({
   onUnarchiveSession = async () => undefined,
   onClose,
 }: SettingsDialogProps): React.ReactElement | null {
-  const { connectionScope: harnessScope } = useHostedHarnessScope();
+  const { connectionScope: harnessScope, notifyConnectionsChanged } =
+    useHostedHarnessScope();
+  const setupWorkspaceId = harnessScope?.workspaceId;
+  const setupProviderClient = useMemo(
+    () =>
+      new ProviderApiClient({
+        getRunId: () => null,
+        getWorkspaceId: () => setupWorkspaceId ?? null,
+      }),
+    [setupWorkspaceId],
+  );
   const harnessClient = useMemo(
     () => createHostedAppServerClient().harness,
     [],
@@ -87,6 +98,27 @@ export function SettingsDialog({
     toggleModelVisibility,
     setProviderVisibleModels,
   } = useProviderStore(runId, undefined, workspaceId);
+
+  const loadSetupConnections = useCallback(async () => {
+    const [saved, catalog] = await Promise.all([
+      setupProviderClient.getCredentials(),
+      setupProviderClient.getCatalog(),
+    ]);
+    return {
+      catalog,
+      credentials: saved
+        .filter(
+          (credential) =>
+            credential.workspaceId === setupWorkspaceId &&
+            credential.status === "connected",
+        )
+        .map(({ credentialId, providerId, label }) => ({
+          credentialId,
+          providerId,
+          label,
+        })),
+    };
+  }, [setupProviderClient, setupWorkspaceId, credentials]);
 
   const [activeSection, setActiveSection] =
     useState<SettingsSection>(initialSection);
@@ -416,6 +448,8 @@ export function SettingsDialog({
                       key={JSON.stringify(harnessScope)}
                       client={harnessClient}
                       scope={harnessScope}
+                      loadSetupConnections={loadSetupConnections}
+                      onConnectionSetup={notifyConnectionsChanged}
                     />
                   ) : null}
                   <SettingsConnectPanel
