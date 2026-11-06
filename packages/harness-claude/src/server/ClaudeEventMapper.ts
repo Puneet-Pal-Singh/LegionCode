@@ -1,3 +1,5 @@
+import { ClaudeUsageReader } from "./ClaudeUsageReader.js";
+import type { HarnessSelection } from "@repo/platform-protocol";
 import { createHash } from "node:crypto";
 import {
   ItemIdSchema,
@@ -26,9 +28,14 @@ export class ClaudeEventMapper {
     { readonly name: string; readonly input: unknown }
   >();
   private readonly messages = new Map<string, string>();
+  private readonly usage: ClaudeUsageReader;
   private lastAssistantItem: ReturnType<typeof ItemIdSchema.parse>;
 
-  constructor(private readonly session: HarnessSession) {
+  constructor(
+    private readonly session: HarnessSession,
+    selection: HarnessSelection,
+  ) {
+    this.usage = new ClaudeUsageReader(session, selection);
     this.lastAssistantItem = this.item("assistant:result");
   }
 
@@ -74,9 +81,22 @@ export class ClaudeEventMapper {
     return [observation];
   }
 
-  map(message: SDKMessage): HarnessObservationPayload[] {
+  map(message: SDKMessage, observedAt?: string): HarnessObservationPayload[] {
     if (message.session_id !== this.session.externalSessionId)
       throw new Error("Claude observation session changed");
+    if (message.type === "result" || message.type === "rate_limit_event") {
+      const usage = this.usage.read(message, observedAt);
+      return [
+        ...usage.measurements.map((measurement) => ({
+          kind: "activity_measurement" as const,
+          measurement,
+        })),
+        ...usage.notifications.map((notification) => ({
+          kind: "provider_limit" as const,
+          notification,
+        })),
+      ];
+    }
     // Complete content blocks stream independently. Partial deltas are ignored so the
     // following complete block cannot append the same text a second time.
     if (message.type === "assistant") {

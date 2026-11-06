@@ -234,10 +234,22 @@ export class ClaudeUsageReader {
   } {
     if (message.session_id !== this.session.externalSessionId)
       throw new Error("Claude usage session changed");
+    if (
+      typeof message.uuid !== "string" ||
+      !message.uuid ||
+      message.uuid.length > 256
+    )
+      throw new Error("Claude usage identity is unavailable");
     const key = `${message.type}:${message.uuid}`;
-    const fingerprint = JSON.stringify(
-      message.type === "result" ? message.modelUsage : message.rate_limit_info,
-    );
+    const fingerprint = createHash("sha256")
+      .update(
+        JSON.stringify(
+          message.type === "result"
+            ? message.modelUsage
+            : message.rate_limit_info,
+        ),
+      )
+      .digest("hex");
     const previous = this.seen.get(key);
     if (previous !== undefined) {
       if (previous !== fingerprint)
@@ -264,8 +276,14 @@ export class ClaudeUsageReader {
       if (
         measurement.totalTokens !== null &&
         measurement.estimatedCostUsd !== null
-      )
+      ) {
+        if (
+          !this.previous.has(measurement.modelId) &&
+          this.previous.size >= 256
+        )
+          throw new Error("Claude cumulative model limit exceeded");
         this.previous.set(measurement.modelId, measurement);
+      }
     }
     return { measurements, notifications };
   }

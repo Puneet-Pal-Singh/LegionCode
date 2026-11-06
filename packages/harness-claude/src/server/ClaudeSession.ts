@@ -61,7 +61,10 @@ export class ClaudeSession implements HarnessLiveSession {
       externalSessionId: randomUUID(),
       processGeneration: opening.host.processGeneration,
     });
-    this.mapper = new ClaudeEventMapper(this.session);
+    this.mapper = new ClaudeEventMapper(
+      this.session,
+      opening.command.selection,
+    );
     this.questions = new ClaudeQuestionRequests({
       session: this.session,
       authOwnerGeneration: opening.command.selection.authOwnerGeneration,
@@ -141,13 +144,14 @@ export class ClaudeSession implements HarnessLiveSession {
           }, this.opening.host.environment),
         });
         observer = this.runner.observe(async (message) => {
+          const observedAt = new Date().toISOString();
           if (
             "user_message_uuid" in message &&
             message.user_message_uuid !== undefined &&
             message.user_message_uuid !== this.promptId
           )
             throw new HarnessHostError("stale_session");
-          for (const payload of this.mapper.map(message))
+          for (const payload of this.mapper.map(message, observedAt))
             await this.emit(payload);
           if (message.type === "result") {
             if (result !== undefined) {
@@ -158,7 +162,7 @@ export class ClaudeSession implements HarnessLiveSession {
               return;
             }
             result = message;
-            providerCompletedAt = new Date().toISOString();
+            providerCompletedAt = observedAt;
             resolve(message);
           }
         });
