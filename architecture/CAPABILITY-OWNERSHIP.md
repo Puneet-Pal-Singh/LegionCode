@@ -796,3 +796,18 @@ never rendered as a successfully verified closed pull request.
 | Chat title mutation | Authenticated session metadata operation and ThreadTitleService | Sidebar and header rename capture the selected session ID, await the server response, and update only that session's canonical title projection. Errors stay visible to the user; run, workspace and status fields are not copied from a stale response. |
 | Saved image source list | Authenticated transcript image references and ChatMediaStore | Web derives references only from restored user messages in the active `SessionConversationSurface`, validates the shared image-reference schema, deduplicates by attachment ID and resolves the existing authenticated image source. Draft and optimistic images are excluded; loading, partial and failed history remain explicit. Presentation reuses `ChatImageGallery`. |
 | Outputs, subagents and background processes | Their separately scoped capabilities | Summary sections remain hidden until their canonical capabilities exist; Web does not infer runtime state or fabricate counts. |
+
+
+## Queued follow-up and resume command identity
+
+- The SDK `createConversationInputCommands` binding retains one captured queue or
+  steer command per explicit intent fingerprint and the current resume command.
+  Canonical request schemas copy content, image bytes and configuration when
+  allocating client identity. A transport failure retains that exact request for
+  explicit retry; a typed server receipt retires it. Each conversation creates
+  its own binding; there is no global product cache or new lifecycle authority.
+- Web `useConversationInputCommands` keeps composer draft/version and active
+  conversation generation checks, resolves current provider/harness settings,
+  presents receipts/errors and applies server-returned scope. The SDK dispatches
+  only through the existing PlatformClient methods; hosted admission, queue
+  ordering, steering and resume settlement retain their server/runtime owners.

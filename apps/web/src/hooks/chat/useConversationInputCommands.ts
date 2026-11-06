@@ -1,10 +1,7 @@
-import { useCallback, useRef, type MutableRefObject } from "react";
+import { useCallback, useMemo, type MutableRefObject } from "react";
 import {
-  RunAttemptIdSchema,
-  ThreadIdSchema,
+  createConversationInputCommands,
   ThreadInputConfigurationSchema,
-  TurnIdSchema,
-  WorkspaceScopeIdSchema,
 } from "@legioncode/sdk";
 import type { ProductMode, RunMode, ReasoningEffort } from "@repo/shared-types";
 import type { ThreadInputReceipt } from "@legioncode/sdk";
@@ -37,29 +34,7 @@ export function useConversationInputCommands(input: {
   setError: (error: string | null) => void;
   commitScope: (scope: ConversationScope) => void;
 }) {
-  const pendingDeliveryRef = useRef(
-    new Map<
-      string,
-      {
-        fingerprint: string;
-        clientInputId: string;
-        content: {
-          text: string;
-          images: Array<{
-            dataUrl: string;
-            name: string;
-            mediaType: ChatImageAttachment["mediaType"];
-          }>;
-        };
-        configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
-      }
-    >(),
-  );
-  const pendingResumeRef = useRef<{
-    fingerprint: string;
-    clientCommandId: string;
-    configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
-  } | null>(null);
+  const commands = useMemo(() => createConversationInputCommands(), []);
   const submitFollowUp = useCallback(
     async (
       text: string,
@@ -104,43 +79,14 @@ export function useConversationInputCommands(input: {
           mediaType: image.mediaType,
         })),
       });
-      let pending = pendingDeliveryRef.current.get(fingerprint);
-      if (!pending) {
-        pending = {
+      try {
+        const receipt = await commands.submitFollowUp(input.lifecycleClient, {
           fingerprint,
-          clientInputId: crypto.randomUUID(),
+          scope: capturedScope,
+          delivery,
           content: { text: capturedText, images },
           configuration,
-        };
-        pendingDeliveryRef.current.set(fingerprint, pending);
-      }
-      try {
-        const receipt =
-          delivery === "steer"
-            ? await input.lifecycleClient.steerTurn({
-                operation: "turn.steer",
-                clientInputId: pending.clientInputId,
-                threadId: ThreadIdSchema.parse(capturedScope.threadId),
-                workspaceId: WorkspaceScopeIdSchema.parse(
-                  capturedScope.workspaceId,
-                ),
-                expectedTurnId: TurnIdSchema.parse(capturedScope.turnId),
-                expectedRunAttemptId: RunAttemptIdSchema.parse(
-                  capturedScope.runAttemptId,
-                ),
-                content: pending.content,
-              })
-            : await input.lifecycleClient.enqueueThreadInput({
-                operation: "thread.input.enqueue",
-                clientInputId: pending.clientInputId,
-                threadId: ThreadIdSchema.parse(capturedScope.threadId),
-                workspaceId: WorkspaceScopeIdSchema.parse(
-                  capturedScope.workspaceId,
-                ),
-                content: pending.content,
-                configuration: pending.configuration,
-              });
-        pendingDeliveryRef.current.delete(fingerprint);
+        });
         if (
           !input.isActiveRunInvocation(capturedRunScope, capturedGeneration) ||
           input.scopeRef.current?.sessionId !== capturedScope.sessionId ||
@@ -153,7 +99,6 @@ export function useConversationInputCommands(input: {
           return false;
         }
         if (receipt.status === "conflict") {
-          pendingDeliveryRef.current.delete(fingerprint);
           input.setError(receipt.message);
           return false;
         }
@@ -166,7 +111,6 @@ export function useConversationInputCommands(input: {
             receipt.status !== "pending" &&
             receipt.status !== "started")
         ) {
-          pendingDeliveryRef.current.delete(fingerprint);
           input.setError(
             "The server returned an unexpected follow-up receipt.",
           );
@@ -202,7 +146,7 @@ export function useConversationInputCommands(input: {
         return false;
       }
     },
-    [input],
+    [commands, input],
   );
 
   const resumeInterruptedTurn = useCallback(
@@ -228,31 +172,13 @@ export function useConversationInputCommands(input: {
         expectedTerminalSequence,
         configuration,
       });
-      let pendingResume = pendingResumeRef.current;
-      if (!pendingResume || pendingResume.fingerprint !== fingerprint) {
-        pendingResume = {
-          fingerprint,
-          clientCommandId: crypto.randomUUID(),
-          configuration,
-        };
-        pendingResumeRef.current = pendingResume;
-      }
       try {
-        const receipt = await input.lifecycleClient.resumeTurn({
-          operation: "turn.resume",
-          clientCommandId: pendingResume.clientCommandId,
-          threadId: ThreadIdSchema.parse(capturedScope.threadId),
-          workspaceId: WorkspaceScopeIdSchema.parse(capturedScope.workspaceId),
-          expectedTurnId: TurnIdSchema.parse(capturedScope.turnId),
-          expectedRunAttemptId: RunAttemptIdSchema.parse(
-            capturedScope.runAttemptId,
-          ),
+        const receipt = await commands.resumeInterruptedTurn(input.lifecycleClient, {
+          fingerprint,
+          scope: capturedScope,
           expectedTerminalSequence,
-          configuration: pendingResume.configuration,
+          configuration,
         });
-        if (pendingResumeRef.current?.fingerprint === fingerprint) {
-          pendingResumeRef.current = null;
-        }
         if (
           !input.isActiveRunInvocation(capturedRunScope, capturedGeneration) ||
           input.scopeRef.current?.threadId !== capturedScope.threadId ||
@@ -264,7 +190,6 @@ export function useConversationInputCommands(input: {
           return false;
         }
         if (receipt.status === "conflict") {
-          pendingResumeRef.current = null;
           input.setError(receipt.message);
           return false;
         }
@@ -292,7 +217,7 @@ export function useConversationInputCommands(input: {
         return false;
       }
     },
-    [input],
+    [commands, input],
   );
 
   const applyStartedQueueReceipt = useCallback(
