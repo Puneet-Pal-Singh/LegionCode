@@ -4,6 +4,30 @@ import { isAbsolute } from "node:path";
 import type { Writable } from "node:stream";
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_DIRECTORY_BYTES = 64 * 1024;
+const MAX_DIRECTORY_ENTRIES = 200;
+const MAX_CURSOR_CHARS = 16 * 1024;
+
+export interface NativeDirectoryEntry {
+  readonly name: string;
+  readonly path: string;
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  /** The listed object's own stat size, never a symlink target or recursive size. */
+  readonly bytes: number;
+  readonly mode: number;
+}
+export interface NativeDirectoryPage {
+  readonly path: string;
+  readonly entries: readonly NativeDirectoryEntry[];
+  readonly truncated: boolean;
+  readonly nextCursor: string | null;
+}
+interface DirectoryCursor {
+  v: 1;
+  path: string;
+  version: string;
+  after: string;
+}
 
 export class NativeFilesystemError extends Error {
   constructor(
@@ -26,10 +50,10 @@ export class NativeFilesystemBridge {
     },
   ) {}
 
-  async readFile(input: {
+  async readBytes(input: {
     readonly path: string;
     readonly signal: AbortSignal;
-  }): Promise<{ path: string; content: string; bytes: number }> {
+  }): Promise<{ path: string; content: Uint8Array; bytes: number }> {
     return this.withHelper("R", input, async (reader) => {
       const original = await inspect(reader);
       if (!original.exists)
@@ -37,9 +61,119 @@ export class NativeFilesystemBridge {
       input.signal.throwIfAborted();
       return {
         path: input.path,
-        content: decode(original.bytes),
+        content: original.bytes,
         bytes: original.bytes.length,
       };
+    });
+  }
+
+  async readFile(input: {
+    readonly path: string;
+    readonly signal: AbortSignal;
+  }): Promise<{ path: string; content: string; bytes: number }> {
+    const result = await this.readBytes(input);
+    return { ...result, content: decode(result.content) };
+  }
+
+  async listDirectory(input: {
+    readonly path: string;
+    readonly limit?: number;
+    readonly cursor?: string | null;
+    readonly signal: AbortSignal;
+  }): Promise<NativeDirectoryPage> {
+    const limit = input.limit ?? MAX_DIRECTORY_ENTRIES;
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_ENTRIES
+    ) {
+      throw new NativeFilesystemError(
+        1,
+        "Directory limit must be an integer from 1 to 200",
+      );
+    }
+    const cursor = parseDirectoryCursor(input.cursor, input.path);
+    return this.withHelper("D", input, async (reader, stdin) => {
+      const versionBytes = Buffer.from(cursor?.version ?? "", "ascii");
+      const afterBytes = Buffer.from(cursor?.after ?? "", "utf8");
+      await send(
+        stdin,
+        Buffer.concat([
+          u32(limit),
+          u32(versionBytes.length),
+          versionBytes,
+          u32(afterBytes.length),
+          afterBytes,
+        ]),
+      );
+      await reader.tag(68);
+      const truncated = (await reader.read(1))[0];
+      if (truncated !== 0 && truncated !== 1)
+        throw new Error("Invalid directory truncation flag");
+      const versionBuffer = await reader.read(await reader.length(192));
+      const version = versionBuffer.toString("utf8");
+      if (
+        !validDirectoryVersion(version) ||
+        Buffer.byteLength(version) !== versionBuffer.length
+      )
+        throw new Error("Invalid directory version");
+      const count = await reader.length(limit);
+      const entries: NativeDirectoryEntry[] = [];
+      let wireBytes = 10 + versionBuffer.length;
+      for (let index = 0; index < count; index++) {
+        const kindByte = (await reader.read(1))[0];
+        const kind =
+          kindByte === 102
+            ? "file"
+            : kindByte === 100
+              ? "directory"
+              : kindByte === 108
+                ? "symlink"
+                : kindByte === 111
+                  ? "other"
+                  : null;
+        if (!kind) throw new Error("Invalid directory entry kind");
+        const nameBytes = await reader.read(await reader.length(1024));
+        const name = decode(nameBytes);
+        if (!validDirectoryName(name))
+          throw new NativeFilesystemError(
+            5,
+            "Directory contains an unsupported filename",
+          );
+        wireBytes += 17 + nameBytes.length;
+        if (wireBytes > MAX_DIRECTORY_BYTES)
+          throw new Error("Native directory response exceeded its byte budget");
+        const size = (await reader.read(8)).readBigUInt64BE(0);
+        if (size > BigInt(Number.MAX_SAFE_INTEGER))
+          throw new NativeFilesystemError(
+            5,
+            "Directory entry size exceeds safe JSON precision",
+          );
+        const mode = (await reader.read(4)).readUInt32BE(0);
+        if (mode > 0o7777) throw new Error("Invalid directory entry mode");
+        if (
+          entries.length &&
+          Buffer.compare(
+            Buffer.from(entries[entries.length - 1]!.name),
+            nameBytes,
+          ) >= 0
+        )
+          throw new Error("Directory entries are not strictly ordered");
+        const path = input.path === "." ? name : `${input.path}/${name}`;
+        if (Buffer.byteLength(path, "utf8") > 500)
+          throw new NativeFilesystemError(
+            5,
+            "Directory entry exceeds the 500-byte native path limit",
+          );
+        entries.push({ name, path, kind, bytes: Number(size), mode });
+      }
+      input.signal.throwIfAborted();
+      return boundedDirectoryPage(
+        input.path,
+        version,
+        entries,
+        truncated === 1,
+      );
     });
   }
 
@@ -93,11 +227,11 @@ export class NativeFilesystemBridge {
   }
 
   private async withHelper<T>(
-    operation: "R" | "M",
+    operation: "R" | "M" | "D",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
-    validateLocalFilesystemPath(input.path);
+    validateLocalFilesystemPath(input.path, operation === "D");
     if (
       !isAbsolute(this.options.helperPath) ||
       this.options.helperPath.includes("\0")
@@ -206,7 +340,11 @@ export class NativeFilesystemBridge {
   }
 }
 
-export function validateLocalFilesystemPath(path: string): void {
+export function validateLocalFilesystemPath(
+  path: string,
+  allowRoot = false,
+): void {
+  if (allowRoot && path === ".") return;
   if (
     !path ||
     Buffer.byteLength(path, "utf8") > 500 ||
@@ -251,10 +389,17 @@ async function inspect(
   return { exists: exists === 1, bytes: await reader.read(length) };
 }
 
-function decode(bytes: Buffer): string {
-  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-    bytes,
-  );
+function decode(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
+  } catch {
+    throw new NativeFilesystemError(
+      5,
+      "Native filesystem supports UTF-8 text only; use readBytes for binary data",
+    );
+  }
 }
 
 class FrameReader {
@@ -364,4 +509,92 @@ function awaitAuthorization(
       );
     if (signal.aborted) abort();
   });
+}
+
+function validDirectoryVersion(version: string): boolean {
+  return (
+    Buffer.byteLength(version, "utf8") <= 192 &&
+    /^[0-9a-f]+:[0-9a-f]+:-?\d+:\d+:-?\d+:\d+$/.test(version)
+  );
+}
+function validDirectoryName(name: string): boolean {
+  return (
+    !!name &&
+    Buffer.byteLength(name, "utf8") <= 1024 &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("\0") &&
+    name.toLowerCase() !== ".git" &&
+    !/^\.legioncode-edit-[0-9a-f]{32}\.tmp$/i.test(name) &&
+    Buffer.from(name, "utf8").toString("utf8") === name
+  );
+}
+function parseDirectoryCursor(
+  raw: string | null | undefined,
+  path: string,
+): DirectoryCursor | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    if (typeof raw !== "string" || !raw || raw.length > MAX_CURSOR_CHARS)
+      throw new Error();
+    const bytes = Buffer.from(raw, "base64url");
+    if (bytes.toString("base64url") !== raw) throw new Error();
+    const value: unknown = JSON.parse(decode(bytes));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.keys(value).sort().join(",") !== "after,path,v,version"
+    )
+      throw new Error();
+    const candidate = value as Record<string, unknown>;
+    if (
+      candidate.v !== 1 ||
+      candidate.path !== path ||
+      typeof candidate.version !== "string" ||
+      !validDirectoryVersion(candidate.version) ||
+      typeof candidate.after !== "string" ||
+      !validDirectoryName(candidate.after)
+    )
+      throw new Error();
+    return { v: 1, path, version: candidate.version, after: candidate.after };
+  } catch {
+    throw new NativeFilesystemError(
+      1,
+      "Invalid directory cursor for this path",
+    );
+  }
+}
+function boundedDirectoryPage(
+  path: string,
+  version: string,
+  source: NativeDirectoryEntry[],
+  nativeTruncated: boolean,
+): NativeDirectoryPage {
+  const entries = [...source];
+  for (;;) {
+    const truncated = nativeTruncated || entries.length < source.length;
+    if (truncated && !entries.length)
+      throw new NativeFilesystemError(
+        5,
+        "Directory entry cannot fit the response byte budget",
+      );
+    const cursor: DirectoryCursor | null = truncated
+      ? { v: 1, path, version, after: entries[entries.length - 1]!.name }
+      : null;
+    const nextCursor = cursor
+      ? Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url")
+      : null;
+    if (nextCursor && nextCursor.length > MAX_CURSOR_CHARS)
+      throw new NativeFilesystemError(
+        5,
+        "Directory cursor exceeds its supported bound",
+      );
+    const page = { path, entries, truncated, nextCursor };
+    if (Buffer.byteLength(JSON.stringify(page), "utf8") <= MAX_DIRECTORY_BYTES)
+      return page;
+    entries.pop();
+  }
 }
