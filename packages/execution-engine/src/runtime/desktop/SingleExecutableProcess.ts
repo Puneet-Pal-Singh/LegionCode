@@ -1,6 +1,7 @@
 import type { SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
 export { SingleProcessMacCapabilityError, type SingleProcessMacSandbox } from "./SingleProcessMacSandbox.js";
-import { BoundedLocalProcess, type LocalProcessOutput } from "./BoundedLocalProcess.js";
+import type { LocalProcessOutput } from "./BoundedLocalProcess.js";
+import { GuardianProcess } from "./GuardianProcess.js";
 
 export type SingleExecutableProcessInput = {
   /** Absolute executable path. No shell parsing, translation or expansion. */
@@ -9,6 +10,8 @@ export type SingleExecutableProcessInput = {
   cwd: string;
   signal: AbortSignal;
   sandbox: SingleProcessMacSandbox;
+  /** Trusted packaged guardian path supplied only by the private runtime composition. */
+  processHelperPath: string;
 };
 
 export interface SingleProcessMacExecution {
@@ -33,16 +36,16 @@ export const executeSingleProcessMac: SingleProcessMacExecutor = (input) =>
  */
 export class SingleExecutableProcess implements SingleProcessMacExecution {
   readonly scope = "single_executable_nofork" as const;
-  private readonly process: BoundedLocalProcess;
+  private readonly process: GuardianProcess;
   readonly result: Promise<LocalProcessOutput>;
 
   constructor(input: SingleExecutableProcessInput) {
-    this.process = new BoundedLocalProcess(input);
+    this.process = new GuardianProcess(input);
     this.result = this.process.result;
   }
 
   stop(): void { this.process.stop(); }
 
-  /** True only after observed closure of the one sandboxed PID and its output. */
+  /** True only after verified guardian receipt, clean guardian exit and closed output. */
   get quiescent(): boolean { return this.process.quiescent; }
 }
