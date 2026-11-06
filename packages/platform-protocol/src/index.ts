@@ -630,3 +630,4 @@ export {
 export * from "./harness/operations.js";
 
 export { AppServerEnvironmentIdSchema } from "./app-server.js";
+export * from "./harness/observation-events.js";

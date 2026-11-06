@@ -313,21 +313,26 @@ export class DelegatedTurnCoordinator {
   }
 
   async requireQuiescence(): Promise<Quiescent> {
-    if (this.quiescent) return this.quiescent;
     if (!this.session)
       throw new RuntimeKernelError(
         "worker_failed",
         "Harness process identity is unknown; retain lease for recovery",
       );
+    this.quiescent = null;
     const evidence = HarnessQuiescenceSchema.parse(
       await this.options.dependencies.harness.awaitQuiescence({
         session: this.session,
         timeoutMs: 2_000,
       }),
     );
+    if (sameHarnessSession(evidence.session, this.session) &&
+      ((evidence.status === "unknown" && evidence.reason === "observation_integrity_lost") ||
+       (evidence.status === "quiescent" && evidence.observationIntegrity === "lost"))) {
+      await this.resolveObservationIntegrity({ command: this.options.command, session: this.session, signal: this.options.signal });
+    }
     if (
       !sameHarnessSession(evidence.session, this.session) ||
-      evidence.status !== "quiescent"
+      evidence.status !== "quiescent" || evidence.observationIntegrity !== "complete"
     ) {
       throw new RuntimeKernelError(
         "worker_failed",
@@ -336,6 +341,17 @@ export class DelegatedTurnCoordinator {
     }
     this.quiescent = evidence;
     return evidence;
+  }
+
+  async resolveObservationIntegrity(input: {
+    readonly command: HarnessStartCommand;
+    readonly session: import("@repo/worker-protocol").HarnessSession;
+    readonly signal: AbortSignal;
+  }): Promise<import("./DelegatedHarnessPort.js").HarnessObservationRecovery> {
+    if (!this.session || !sameHarnessSession(this.session, input.session) ||
+      JSON.stringify(input.command.selection) !== JSON.stringify(this.options.command.selection)) throw new RuntimeKernelError("invalid_turn_identity", "Integrity recovery has a stale binding");
+    this.stopRequested = true;
+    return this.options.lifecycle.resolveObservationIntegrity({ ...input, persistence: this.options.dependencies.observations });
   }
 
   async respondUserInput(

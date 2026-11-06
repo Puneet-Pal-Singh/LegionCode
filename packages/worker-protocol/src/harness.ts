@@ -4,6 +4,8 @@ import {
   ApprovalGrantScopeSchema,
   ApprovalRequestedPayloadSchema,
   HarnessSelectionSchema,
+  HarnessActivityMeasuredPayloadSchema,
+  HarnessProviderLimitNotifiedPayloadSchema,
   JsonRecordSchema,
   ItemIdSchema,
   LeaseIdSchema,
@@ -51,6 +53,7 @@ export const HarnessQuiescenceSchema = z.discriminatedUnion("status", [
       observedAt: ProtocolTimestampSchema,
       evidenceId: OpaqueId,
       scope: z.literal("process_tree_and_background_work"),
+      observationIntegrity: z.enum(["complete", "lost"]),
     })
     .strict(),
   z
@@ -62,6 +65,7 @@ export const HarnessQuiescenceSchema = z.discriminatedUnion("status", [
         "transport_lost",
         "unsupported",
         "work_still_running",
+        "observation_integrity_lost",
       ]),
     })
     .strict(),
@@ -69,6 +73,14 @@ export const HarnessQuiescenceSchema = z.discriminatedUnion("status", [
 export type HarnessQuiescence = z.infer<typeof HarnessQuiescenceSchema>;
 
 export const HarnessObservationPayloadSchema = z.discriminatedUnion("kind", [
+  HarnessActivityMeasuredPayloadSchema.extend({
+    kind: z.literal("activity_measurement"),
+    background: z.literal(true).optional(),
+  }).strict(),
+  HarnessProviderLimitNotifiedPayloadSchema.extend({
+    kind: z.literal("provider_limit"),
+    background: z.literal(true).optional(),
+  }).strict(),
   z
     .object({
       kind: z.literal("thread_input_applied"),

@@ -14,7 +14,7 @@ export class ApprovalCoordinator {
   private readonly pending = new Map<string, PendingApprovalResolution>();
 
   constructor(
-    private readonly approvals: ApprovalWaitPort,
+    private readonly approvals: ApprovalWaitPort | undefined,
     private readonly lifecycle: RuntimeLifecycleCoordinator,
   ) {}
 
@@ -47,13 +47,13 @@ export class ApprovalCoordinator {
       );
       const candidate = await raceApprovalResolution(
         [
-          this.approvals.waitForDecision({
+          ...(this.approvals ? [this.approvals.waitForDecision({
             runId: run.id,
             runAttemptId,
             turnId: turn.id,
             request,
             signal,
-          }),
+          })] : []),
           pending.resolution,
         ],
         signal,
