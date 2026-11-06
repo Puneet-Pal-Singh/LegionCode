@@ -1,3 +1,10 @@
+import { createHash } from "node:crypto";
+import { ApprovalIdSchema, ItemIdSchema } from "@repo/platform-protocol";
+import type { ItemId } from "@repo/platform-protocol";
+import type {
+  HarnessObservationPayload,
+  HarnessRequestOrigin,
+} from "@repo/worker-protocol";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 
 /** The host callback must commit the canonical decision for this exact origin. */
@@ -45,5 +52,32 @@ export function fencedClaudePermission(
       sessionSignal.removeEventListener("abort", abort);
       origin.signal.removeEventListener("abort", abort);
     }
+  };
+}
+
+/** Only one-shot choices are offered. Replies are consumed by core's scoped request handle. */
+export function claudePermissionObservation(input: {
+  readonly replyTo: HarnessRequestOrigin;
+  readonly parentItemId: ItemId;
+  readonly toolName: string;
+}): Extract<HarnessObservationPayload, { kind: "approval_requested" }> {
+  const identity = createHash("sha256")
+    .update(JSON.stringify(input.replyTo))
+    .digest("hex")
+    .slice(0, 40);
+  return {
+    kind: "approval_requested",
+    parentItemId: input.parentItemId,
+    replyTo: input.replyTo,
+    request: {
+      approvalId: ApprovalIdSchema.parse(`appr_${identity}`),
+      itemId: ItemIdSchema.parse(`itm_approval_${identity}`),
+      question: `Allow Claude to use ${input.toolName}?`,
+      options: [
+        { id: "allow_once", label: "Allow once", description: null },
+        { id: "deny", label: "Deny", description: null },
+      ],
+      metadata: { harness: "claude", nativeOrigin: input.replyTo.origin },
+    },
   };
 }

@@ -23,6 +23,10 @@ class ClaudeInput implements AsyncIterable<SDKUserMessage> {
     this.wake?.();
   }
 
+  discardPending(): void {
+    this.pending = undefined;
+  }
+
   close(): void {
     this.closed = true;
     this.pending = undefined;
@@ -51,7 +55,7 @@ type RunnerOptions = Required<
     "cwd" | "model" | "env" | "canUseTool" | "spawnClaudeCodeProcess"
   >
 > &
-  Pick<Options, "resume"> & { readonly beforeTool: HookCallback };
+  Pick<Options, "resume" | "sessionId"> & { readonly beforeTool: HookCallback };
 
 /** Private SDK plumbing. Host owns binding, process tree and durable observation delivery. */
 export class ClaudeQueryRunner {
@@ -59,17 +63,20 @@ export class ClaudeQueryRunner {
   private readonly permissions = new AbortController();
   private readonly abort = new AbortController();
   private readonly sdk: Query;
+  private readonly selectedModel: string;
   private observing = false;
   private initialized = false;
   private closed = false;
   private busy = false;
   private readonly submitted = new Set<string>();
-  private readonly tasks = new Set<string>();
+  private readonly tasks = new Map<string, string | undefined>();
+  private readonly backgroundTasks = new Map<string, string | undefined>();
   private stopPromise: Promise<void> | undefined;
 
   constructor(options: RunnerOptions) {
     const { beforeTool, ...sdkOptions } = options;
     const launchEnvironment = frozenClaudeLaunchEnvironment(options.env);
+    this.selectedModel = options.model;
     this.sdk = query({
       prompt: this.input,
       options: {
@@ -145,8 +152,15 @@ export class ClaudeQueryRunner {
       if (
         result.claude_code_version !== CLAUDE_CODE_VERSION ||
         result.account.apiKeySource !== "ANTHROPIC_API_KEY" ||
+        result.account.apiProvider !== "firstParty" ||
         result.hooks_applied !== true ||
-        result.hook_on_failure_supported !== true
+        result.hook_on_failure_supported !== true ||
+        !result.models.some(
+          (model) =>
+            model.resolvedModel === this.selectedModel ||
+            (model.value === this.selectedModel &&
+              model.resolvedModel === undefined),
+        )
       ) {
         throw new Error(
           "Claude runtime version or selected payer does not match",
@@ -171,7 +185,8 @@ export class ClaudeQueryRunner {
           // A different payer must never be accepted just because a prompt can run.
           if (
             message.apiKeySource !== "ANTHROPIC_API_KEY" ||
-            message.claude_code_version !== CLAUDE_CODE_VERSION
+            message.claude_code_version !== CLAUDE_CODE_VERSION ||
+            message.model !== this.selectedModel
           ) {
             throw new Error(
               "Claude did not select the explicitly supplied API key",
@@ -184,21 +199,32 @@ export class ClaudeQueryRunner {
         ) {
           if (message.tasks.length > 4096)
             throw new Error("Claude task tracking limit exceeded");
-          this.tasks.clear();
-          for (const task of message.tasks) this.tasks.add(task.task_id);
+          this.backgroundTasks.clear();
+          for (const task of message.tasks)
+            this.backgroundTasks.set(task.task_id, task.run_id);
         }
-        await sink(message);
-        if (message.type === "result") this.busy = false;
         if (message.type === "system" && message.subtype === "task_started") {
           if (this.tasks.size >= 4096)
             throw new Error("Claude task tracking limit exceeded");
-          this.tasks.add(message.task_id);
+          const previous = this.tasks.get(message.task_id);
+          if (
+            previous === undefined ||
+            message.run_id === undefined ||
+            message.run_id >= previous
+          )
+            this.tasks.set(message.task_id, message.run_id);
         }
         if (
           message.type === "system" &&
           message.subtype === "task_notification"
-        )
-          this.tasks.delete(message.task_id);
+        ) {
+          for (const tasks of [this.tasks, this.backgroundTasks]) {
+            if (tasks.get(message.task_id) === message.run_id)
+              tasks.delete(message.task_id);
+          }
+        }
+        await sink(message);
+        if (message.type === "result") this.busy = false;
       }
     } finally {
       this.close();
@@ -230,7 +256,7 @@ export class ClaudeQueryRunner {
 
   private async stopOnce(): Promise<void> {
     this.permissions.abort();
-    this.input.close();
+    this.input.discardPending();
     this.closed = true;
     try {
       await this.withDeadline(
@@ -238,13 +264,21 @@ export class ClaudeQueryRunner {
           // The published typed API takes no options. Queued UUID receipts are not quiescence.
           await this.sdk.interrupt();
           await Promise.all(
-            [...this.tasks].map((task) => this.sdk.stopTask(task)),
+            [
+              ...new Set([
+                ...this.tasks.keys(),
+                ...this.backgroundTasks.keys(),
+              ]),
+            ].map((task) => this.sdk.stopTask(task)),
           );
         })(),
         5_000,
       );
-    } finally {
+      // EOF permits final task notifications to drain through observe().
+      this.input.close();
+    } catch {
       this.close();
+      throw new Error("Claude Stop controls failed or timed out");
     }
   }
 
