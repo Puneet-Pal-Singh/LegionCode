@@ -244,8 +244,12 @@ export type CheckoutListFilesResult = z.infer<typeof CheckoutListFilesResultSche
 export type CheckoutReadFileResult = z.infer<typeof CheckoutReadFileResultSchema>;
 
 /** Grant-scoped live reads: no synthetic Turn, Run or hosted Session identity. */
-const LocalWorkspaceRelativePathSchema = z.string().min(1).max(500).refine(
-  (path) => new TextEncoder().encode(path).byteLength <= 500 &&
+export const LOCAL_WORKSPACE_PATH_MAX_BYTES = 500;
+// At six JSON bytes per raw control byte this remains below the 1 MiB transport cap.
+// Services reject larger files with 413/workspace_file_too_large, never partial content.
+export const LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES = 64 * 1024;
+const LocalWorkspaceRelativePathSchema = z.string().min(1).max(LOCAL_WORKSPACE_PATH_MAX_BYTES).refine(
+  (path) => new TextEncoder().encode(path).byteLength <= LOCAL_WORKSPACE_PATH_MAX_BYTES &&
     !path.includes("\0") && !path.includes("\\") &&
     (path === "." || path.split("/").every((part) => part !== "" && part !== "." && part !== "..")),
   "Workspace path must be relative and at most 500 UTF-8 bytes",
@@ -259,6 +263,14 @@ export const LocalWorkspaceReadFileParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   path: LocalWorkspaceRelativePathSchema.refine((path) => path !== ".", "Read requires a file path"),
 }).strict();
+export const LocalWorkspaceListFilesResultSchema = CheckoutListFilesResultSchema.refine(
+  (result) => result.entries.every((entry) => new TextEncoder().encode(entry.name).byteLength <= LOCAL_WORKSPACE_PATH_MAX_BYTES),
+  "Workspace directory names must fit the native path byte bound",
+);
+export const LocalWorkspaceReadFileResultSchema = CheckoutReadFileResultSchema.refine(
+  (result) => new TextEncoder().encode(result.output).byteLength <= LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES,
+  "Workspace file exceeds the 64 KiB preview limit",
+);
 export type LocalWorkspaceListFilesParams = z.infer<typeof LocalWorkspaceListFilesParamsSchema>;
 export type LocalWorkspaceReadFileParams = z.infer<typeof LocalWorkspaceReadFileParamsSchema>;
 
@@ -512,8 +524,8 @@ export const AppServerResultSchemas = {
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
-  "workspace/listFiles": CheckoutListFilesResultSchema,
-  "workspace/readFile": CheckoutReadFileResultSchema,
+  "workspace/listFiles": LocalWorkspaceListFilesResultSchema,
+  "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
   "workspace/revoke": z.object({ revoked: z.literal(true) }).strict(),
