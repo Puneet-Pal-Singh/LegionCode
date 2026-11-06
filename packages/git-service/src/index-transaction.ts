@@ -89,6 +89,11 @@ const { spawn } = require("node:child_process");
     if (guard.expectedTerminalTreeId) {
       const conflict = () => { throw Object.assign(new Error("Immutable artifact content conflict"), { result: { exitCode: 1, stdout: "", stderr: "Immutable artifact content conflict", artifactConflict: true } }); };
       if (guard.expectedHeadSha && beforeHead !== guard.expectedHeadSha) conflict();
+      // Preserve native partial-commit refusal during an unfinished Git operation.
+      for (const state of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]) {
+        const statePath = await required(["rev-parse", "--path-format=absolute", "--git-path", state]);
+        if (fs.existsSync(statePath)) conflict();
+      }
       const absentPaths = guard.paths.filter(candidate => !presentPaths.includes(candidate));
       if (absentPaths.length) await required(["--literal-pathspecs", "update-index", "--force-remove", "--", ...absentPaths], privateIndex);
       for (const tree of [guard.expectedTerminalTreeId, guard.expectedBaselineTreeId].filter(Boolean)) {
