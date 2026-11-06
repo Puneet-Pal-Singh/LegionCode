@@ -1173,6 +1173,35 @@ describe("RuntimeKernel canonical lifecycle", () => {
       sink.events.map((_, index) => index + 1),
     );
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+
+    // Artifact capture is awaited after provider completion. A Stop accepted
+    // while that capture is pending must still win canonical terminal outcome.
+    const captureSink = createLifecycleSink();
+    const capturePorts = createPorts();
+    const captureArtifacts = createArtifactPorts();
+    const captureGate = deferred<Awaited<ReturnType<typeof captureArtifacts.gitSnapshots.captureSnapshot>>>();
+    const originalCapture = captureArtifacts.gitSnapshots.captureSnapshot;
+    let terminalCaptureStarted = false;
+    let captureCount = 0;
+    captureArtifacts.gitSnapshots.captureSnapshot = vi.fn(async (input) => {
+      captureCount += 1;
+      if (captureCount === 2) {
+        terminalCaptureStarted = true;
+        return captureGate.promise;
+      }
+      return originalCapture(input);
+    });
+    const captureKernel = await createKernel(captureSink, capturePorts, captureArtifacts);
+    const capturing = captureKernel.startTurn({ run, turn, runAttemptId });
+    const rejectedCapture = expect(capturing).rejects.toMatchObject({ code: "turn_cancelled" });
+    await vi.waitFor(() => expect(terminalCaptureStarted).toBe(true));
+    const stoppingCapture = captureKernel.interruptTurn(turn.id, "Stop during snapshot capture");
+    captureGate.resolve({ runId: run.id, filesystemRoot: manifest.filesystemRoot, headSha: "a".repeat(40), treeId: "b".repeat(40) });
+    await stoppingCapture;
+    await rejectedCapture;
+    expect(captureSink.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(captureSink.events.some((event) => event.type === "turn.completed")).toBe(false);
+
   });
 });
 

@@ -933,8 +933,8 @@ export class RuntimeLifecycleCoordinator {
     );
   }
 
-  async complete(output: string, itemId: ItemId): Promise<void> {
-    await this.enqueue(async () => this.completeNow(output, itemId));
+  async complete(output: string, itemId: ItemId, canComplete: () => boolean = () => true): Promise<void> {
+    await this.enqueue(async () => this.completeNow(output, itemId, canComplete));
   }
 
   async acceptThreadInput(input: {
@@ -995,7 +995,8 @@ export class RuntimeLifecycleCoordinator {
     return appliedSequence;
   }
 
-  private async completeNow(output: string, itemId: ItemId): Promise<void> {
+  private async completeNow(output: string, itemId: ItemId, canComplete: () => boolean): Promise<void> {
+    this.assertCompletionAllowed(canComplete);
     await this.startItem(itemId, "assistant_message", {});
     for (const delta of splitLifecycleOutput(output)) {
       await this.emit({
@@ -1005,7 +1006,12 @@ export class RuntimeLifecycleCoordinator {
       });
     }
     await this.settleItem(itemId, "completed", { result: { output } });
+    this.assertCompletionAllowed(canComplete);
     await this.settleTurn({ status: "completed" });
+  }
+
+  private assertCompletionAllowed(canComplete: () => boolean): void {
+    if (!canComplete()) throw new LifecycleTransitionError("turn", "interrupted", "completed", "Stop was accepted before terminal settlement");
   }
 
   async fail(failure: ProtocolError): Promise<void> {
