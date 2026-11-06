@@ -167,7 +167,11 @@ export class RuntimeKernel {
         this.assertTurnIdentity(run, turn);
         const lifecycle = this.createLifecycle(run, turn, attempt, input);
         await lifecycle.start();
-        await this.recoverFailedTurn(lifecycle, error);
+        if (this.dependencies.signal?.aborted) {
+          await lifecycle.interrupt(cancellationReason(this.dependencies.signal) ?? "Turn interrupted during preparation");
+        } else {
+          await this.recoverFailedTurn(lifecycle, error);
+        }
         this.pendingInterrupts.delete(turn.id);
       }
       throw error;
