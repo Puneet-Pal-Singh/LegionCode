@@ -6,7 +6,7 @@ import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { ChatMediaController } from "./controllers/ChatMediaController";
 import { HookDefinitionController } from "./controllers/HookDefinitionController";
-import { AppServerController } from "./controllers/AppServerController";
+import { handleHostedHarnessAppServerRequest } from "./services/harness/PostgresHostedHarnessControlPlane";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -77,7 +77,11 @@ function createRouter(): Router {
   const router = new Router();
 
   // Chat routes
-  router.add(/^\/app-server\/request$/, AppServerController.request, "POST");
+  router.add(
+    /^\/app-server\/request$/,
+    handleHostedHarnessAppServerRequest,
+    "POST",
+  );
   router.add(
     /^\/api\/chat(?:\/.*)?$/,
     ChatController.handleLegacyRoute,

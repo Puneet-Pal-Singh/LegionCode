@@ -97,7 +97,12 @@ export class CloudCredentialVault implements CredentialVault {
   async getConnectionConfig(
     providerId: ProviderId,
   ): Promise<ProviderConnectionConfig | undefined> {
-    return (await this.resolveRuntimeCredential(providerId))?.connectionConfig;
+    const record = await this.getConnectionMetadata(providerId);
+    return record &&
+      this.isUsableCredential(record, providerId) &&
+      record.credentialKind === "api_key"
+      ? record.connectionConfig
+      : undefined;
   }
   async getConnectionMetadata(
     providerId: ProviderId,

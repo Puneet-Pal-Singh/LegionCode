@@ -142,14 +142,6 @@ export function createHostedHarnessConnectionService(
       params.instanceId,
       params.connectionId,
     );
-    if (status.state !== "ready")
-      return HarnessModelsResponseSchema.parse({
-        ...params,
-        models: [],
-        availability: "unavailable",
-        reason: "Harness host is unavailable",
-        observedAt: status.observedAt,
-      });
     const result = HarnessModelsResponseSchema.parse(
       await ports.models(context, params),
     );
@@ -183,7 +175,8 @@ export function createHostedHarnessConnectionService(
       const owned = await ports.setupInstance(context, params, connection);
       const status = await validateInstance(context, owned);
       if (
-        status.instanceId !== params.instanceId ||
+        (params.instanceId !== undefined &&
+          status.instanceId !== params.instanceId) ||
         status.harness !== params.harness ||
         status.connectionId !== params.connectionId
       )
@@ -259,18 +252,15 @@ export function createHostedHarnessConnectionService(
           chosen.instanceId,
           chosen.connectionId,
         );
-        if (status.harness !== chosen.harness || status.state !== "ready")
-          throw unavailable("Selected harness is not ready");
+        if (status.harness !== chosen.harness)
+          throw unavailable("Selected harness does not match the instance");
         const catalog = await models(context, {
           workspaceId: params.workspaceId,
           environmentId: params.environmentId,
           instanceId: chosen.instanceId,
           connectionId: chosen.connectionId,
         });
-        if (
-          catalog.availability !== "available" ||
-          !catalog.models.some((model) => model.id === chosen.modelId)
-        )
+        if (!catalog.models.some((model) => model.id === chosen.modelId))
           throw unavailable("Selected harness model is unavailable");
       }
       return selection(params, await ports.select(context, params));
