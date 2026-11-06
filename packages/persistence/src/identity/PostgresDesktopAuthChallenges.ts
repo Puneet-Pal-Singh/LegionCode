@@ -149,6 +149,13 @@ export class PostgresDesktopAuthChallenges {
             "redeem_outcome_unknown",
             "Desktop authentication session was not returned",
           );
+        // The issuance receipt must identify the exact locked source principal.
+        // Fail inside this transaction if storage returns a different principal.
+        if (session.user_id !== source.user_id)
+          throw new DesktopAuthChallengeError(
+            "redeem_outcome_unknown",
+            "Desktop authentication session principal did not match",
+          );
         const consumed = await tx.query(
           `UPDATE desktop_auth_challenges SET consumed_at=$2
           WHERE challenge_hash=$1 AND consumed_at IS NULL RETURNING challenge_hash`,
@@ -162,7 +169,7 @@ export class PostgresDesktopAuthChallenges {
         return {
           status: "issued",
           authSessionId: session.id,
-          userId: session.user_id,
+          userId: source.user_id,
           expiresAt: iso(session.expires_at),
         };
       });
