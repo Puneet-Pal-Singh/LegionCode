@@ -1,3 +1,4 @@
+import { omitsReadOnlyArtifacts } from "./ReadOnlyArtifactPolicy.js";
 import {
   ItemIdSchema,
   RunAttemptIdSchema,
@@ -48,6 +49,8 @@ export interface RuntimeKernelDependencies {
   readonly lifecycleEvents: RuntimeLifecycleEventStore;
   readonly gitSnapshots?: RuntimeGitSnapshotPort;
   readonly turnArtifacts?: RuntimeTurnArtifactPort;
+  /** Explicit opt-in for a backend that cannot mutate the workspace. */
+  readonly artifactCapture?: "required" | "omitted_read_only";
   readonly workspaceManifests?: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
   readonly contextCompaction?: ContextCompactionPort;
@@ -152,7 +155,23 @@ export class RuntimeKernel {
   }
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
-    const prepared = await this.prepareTurn(input);
+    let prepared: PreparedTurn;
+    try {
+      prepared = await this.prepareTurn(input);
+    } catch (error) {
+      // A durable local admission must settle even if its workspace was revoked before start.
+      if (this.dependencies.artifactCapture === "omitted_read_only" && !this.lifecycles.has(input.turn.id)) {
+        const run = RunSchema.parse(input.run);
+        const turn = TurnSchema.parse(input.turn);
+        const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
+        this.assertTurnIdentity(run, turn);
+        const lifecycle = this.createLifecycle(run, turn, attempt, input);
+        await lifecycle.start();
+        await this.recoverFailedTurn(lifecycle, error);
+        this.pendingInterrupts.delete(turn.id);
+      }
+      throw error;
+    }
     this.preparedTurns.set(prepared.turn.id, prepared);
     const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
     if (pendingReason) {
@@ -186,7 +205,8 @@ export class RuntimeKernel {
     this.assertTurnAvailable(turn);
     const workspace = run.executionCapability === "conversation"
       ? null : await this.requireWorkspace(run);
-    const artifactSettlement = workspace
+    const omitArtifacts = omitsReadOnlyArtifacts(this.dependencies, run);
+    const artifactSettlement = workspace && !omitArtifacts
       ? this.createArtifactSettlement(run, turn, workspace) : null;
     const startArtifacts = await artifactSettlement?.begin();
     const lifecycle = this.createLifecycle(run, turn, runAttemptId, input);
@@ -239,6 +259,7 @@ export class RuntimeKernel {
           workspace,
         };
       }
+      prepared.executionSignal.throwIfAborted();
       await this.runHooks(prepared);
       const context = await this.assembleContext(
         run,
@@ -266,6 +287,7 @@ export class RuntimeKernel {
         );
       }
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
+      prepared.executionSignal.throwIfAborted();
       await lifecycle.complete(result.output, result.finalItemId);
       return {
         status: result.status,
@@ -453,6 +475,7 @@ export class RuntimeKernel {
       toolCallCount <= this.maxToolCalls;
       toolCallCount += 1
     ) {
+      prepared.executionSignal.throwIfAborted();
       const currentContext = this.activeContexts.get(turn.id) ?? context;
       const effectiveContext = this.compactedContexts.has(turn.id)
         ? currentContext
@@ -498,7 +521,9 @@ export class RuntimeKernel {
       };
       let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
       try {
+        prepared.executionSignal.throwIfAborted();
         step = await this.dependencies.provider.generateNext(providerInput);
+        prepared.executionSignal.throwIfAborted();
       } catch (error) {
         if (error instanceof RuntimeKernelError) throw error;
         throw new RuntimeKernelError(
