@@ -25,7 +25,9 @@ import type {
   LocalAppServerMessage,
 } from "../shared/desktop-api";
 
-type RequestHeaders = NonNullable<AppServerHttpTransportOptions["requestHeaders"]>;
+type RequestHeaders = NonNullable<
+  AppServerHttpTransportOptions["requestHeaders"]
+>;
 
 const STARTUP_TIMEOUT_MS = 5_000;
 const LIVENESS_CHECK_MS = 250;
@@ -64,6 +66,7 @@ export class LocalAppServerSupervisor {
   }
 
   async start(serverVersion: string, storageDirectory: string): Promise<void> {
+    if (this.child) throw new Error("Local App Server child has not exited");
     const generation = ++this.generation;
     this.stopping = false;
     this.childPid = null;
@@ -90,7 +93,11 @@ export class LocalAppServerSupervisor {
     child.on("message", (message) => {
       void this.handleMessage(child, generation, message, serverVersion);
     });
-    child.on("error", () => this.handleChildExit(child));
+    child.on("error", () => {
+      if (child !== this.child) return;
+      this.update(createSnapshot("offline", "Local App Server process failed"));
+      this.terminateChild(child);
+    });
     child.on("exit", () => this.handleChildExit(child));
     child.postMessage({
       type: "start",
@@ -111,28 +118,45 @@ export class LocalAppServerSupervisor {
     this.clearStartupTimer();
     this.clearLivenessTimer();
     const child = this.child;
-    this.child = null;
-    this.childPid = null;
     this.credential = null;
     this.transport = null;
     if (!child) {
-      this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      this.update(
+        createSnapshot("stopped", "Local App Server stopped cleanly"),
+      );
       return;
     }
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout>;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        resolve();
-      };
-      child.once("exit", finish);
-      child.once("error", finish);
-      timeout = setTimeout(finish, STARTUP_TIMEOUT_MS);
-      child.kill();
-    });
+    this.update(
+      createSnapshot("offline", "Waiting for Local App Server to exit"),
+    );
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const finish = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+        const timeout = setTimeout(() => {
+          child.removeListener("exit", finish);
+          reject(new Error("Local App Server exit could not be confirmed"));
+        }, STARTUP_TIMEOUT_MS);
+        child.once("exit", finish);
+        try {
+          child.kill();
+        } catch (error) {
+          clearTimeout(timeout);
+          child.removeListener("exit", finish);
+          reject(error);
+        }
+      });
+    } catch (error) {
+      this.update(
+        createSnapshot(
+          "offline",
+          "Local App Server exit could not be confirmed",
+        ),
+      );
+      throw error;
+    }
     this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
   }
 
@@ -182,14 +206,21 @@ export class LocalAppServerSupervisor {
       generation !== this.generation ||
       !isReadyMessage(message)
     ) {
-      if (isFatalMessage(message)) this.handleChildExit(child);
+      if (child === this.child && isFatalMessage(message)) {
+        this.update(
+          createSnapshot("offline", "Local App Server process failed"),
+        );
+        this.terminateChild(child);
+      }
       return;
     }
     const baseUrl = message.baseUrl;
     this.clearStartupTimer();
     const credential = this.credential;
     if (!isLoopbackBaseUrl(baseUrl) || !credential) {
-      this.update(createSnapshot("degraded", "Local App Server address was rejected"));
+      this.update(
+        createSnapshot("degraded", "Local App Server address was rejected"),
+      );
       this.terminateChild(child);
       return;
     }
@@ -241,11 +272,17 @@ export class LocalAppServerSupervisor {
     this.credential = null;
     this.transport = null;
     if (this.stopping) return;
-    this.update(createSnapshot("offline", "Local App Server stopped unexpectedly"));
+    this.update(
+      createSnapshot("offline", "Local App Server stopped unexpectedly"),
+    );
   }
 
   private terminateChild(child: UtilityProcess): void {
+    this.generation += 1;
     this.stopping = true;
+    this.clearStartupTimer();
+    this.credential = null;
+    this.transport = null;
     child.kill();
   }
 

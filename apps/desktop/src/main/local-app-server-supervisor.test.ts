@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
 const mocks = vi.hoisted(() => ({
@@ -74,6 +74,10 @@ function childAt(index: number): FakeChild {
 }
 
 describe("Local App Server supervisor generation safety", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     mocks.children.length = 0;
     mocks.initialize.mockReset();
@@ -95,6 +99,29 @@ describe("Local App Server supervisor generation safety", () => {
     handshakeResult.resolve(handshake);
     await settleMessages();
 
+    expect(supervisor.getEnvironment().status).toBe("stopped");
+
+    // An error or elapsed kill timeout is not evidence that the child exited.
+    vi.useFakeTimers();
+    await supervisor.start("1.0.0", "/private/user-data");
+    const unconfirmedChild = childAt(1);
+    const failedRestart = supervisor.restart("1.0.0");
+    const failure = expect(failedRestart).rejects.toThrow(
+      "exit could not be confirmed",
+    );
+    unconfirmedChild.emit("error", new Error("process channel failed"));
+    expect(supervisor.getEnvironment().status).toBe("offline");
+    await vi.advanceTimersByTimeAsync(5_000);
+    await failure;
+    expect(supervisor.getEnvironment().status).toBe("offline");
+    expect(mocks.children).toHaveLength(2);
+    await expect(
+      supervisor.start("1.0.0", "/private/user-data"),
+    ).rejects.toThrow("child has not exited");
+
+    const retryStop = supervisor.stop();
+    unconfirmedChild.emit("exit");
+    await retryStop;
     expect(supervisor.getEnvironment().status).toBe("stopped");
   });
 
@@ -118,7 +145,9 @@ describe("Local App Server supervisor generation safety", () => {
     child.emit("exit");
     await stopping;
     requestResult.resolve({ ok: true });
-    await expect(request).rejects.toThrow("Local App Server changed during the request");
+    await expect(request).rejects.toThrow(
+      "Local App Server changed during the request",
+    );
   });
 
   it("coalesces concurrent restart requests around the same child", async () => {
