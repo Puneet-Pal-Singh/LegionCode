@@ -108,6 +108,12 @@ function toUsageSnapshot(
   });
 }
 
+export interface NativeModelStepProgress {
+  readonly turnId: ProviderCallInput["turn"]["id"];
+  readonly step: number;
+  readonly requiresMutation: boolean;
+}
+
 export class KernelAgenticProvider implements ProviderPort {
   private readonly messages: CoreMessage[];
   private readonly activeTaskStartIndex: number;
@@ -168,6 +174,10 @@ export class KernelAgenticProvider implements ProviderPort {
         RunEventRecorder,
         "recordRunProgress" | "recordMessageEmitted" | "recordToolRequested"
       >;
+      modelStepObserver?: {
+        started(progress: NativeModelStepProgress): Promise<void>;
+        completed(progress: NativeModelStepProgress): Promise<void>;
+      };
       isRunCancelled: () => Promise<boolean>;
       maxSteps: number;
       rootPromptId?: string;
@@ -546,21 +556,11 @@ export class KernelAgenticProvider implements ProviderPort {
   private async recordModelStepStarted(
     input: ProviderCallInput,
   ): Promise<void> {
-    await this.options.legacyObserver?.recordRunProgress(
-      RUN_WORKFLOW_STEPS.EXECUTION,
-      "Thinking",
-      "",
-      "active",
-      {
-        displayMode: "visible",
-        metadata: {
-          owner: "runtime-kernel-native",
-          step: this.stepsExecuted + 1,
-          turnId: input.turn.id,
-          requiresMutation: this.requiresMutation,
-        },
-      },
-    );
+    await this.options.modelStepObserver?.started({
+      turnId: input.turn.id,
+      step: this.stepsExecuted + 1,
+      requiresMutation: this.requiresMutation,
+    });
     console.log(
       formatRuntimeDiagnosticLogLine(
         "runtime-kernel/native",
@@ -578,20 +578,11 @@ export class KernelAgenticProvider implements ProviderPort {
   private async recordModelStepCompleted(
     input: ProviderCallInput,
   ): Promise<void> {
-    await this.options.legacyObserver?.recordRunProgress(
-      RUN_WORKFLOW_STEPS.EXECUTION,
-      "Thinking",
-      "",
-      "completed",
-      {
-        displayMode: "debug",
-        metadata: {
-          owner: "runtime-kernel-native",
-          step: this.stepsExecuted,
-          turnId: input.turn.id,
-        },
-      },
-    );
+    await this.options.modelStepObserver?.completed({
+      turnId: input.turn.id,
+      step: this.stepsExecuted,
+      requiresMutation: this.requiresMutation,
+    });
     console.log(
       formatRuntimeDiagnosticLogLine(
         "runtime-kernel/native",

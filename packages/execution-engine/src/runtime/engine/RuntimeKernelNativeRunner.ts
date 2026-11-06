@@ -124,7 +124,7 @@ import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
-import { KernelAgenticProvider } from "./KernelAgenticProvider.js";
+import { KernelAgenticProvider, type NativeModelStepProgress } from "./KernelAgenticProvider.js";
 import { toProtocolId } from "./NativeProtocolIdentity.js";
 import {
   NativeRunCancelledError,
@@ -272,6 +272,35 @@ export class RuntimeKernelNativeRunner {
     }
   }
 
+  private async recordModelStepStarted(progress: NativeModelStepProgress): Promise<void> {
+    await this.runEventRecorder.recordRunProgress(
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "Thinking",
+      "",
+      "active",
+      {
+        displayMode: "visible",
+        metadata: {
+          owner: "runtime-kernel-native", step: progress.step,
+          turnId: progress.turnId, requiresMutation: progress.requiresMutation,
+        },
+      },
+    );
+  }
+
+  private async recordModelStepCompleted(progress: NativeModelStepProgress): Promise<void> {
+    await this.runEventRecorder.recordRunProgress(
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "Thinking",
+      "",
+      "completed",
+      {
+        displayMode: "debug",
+        metadata: { owner: "runtime-kernel-native", step: progress.step, turnId: progress.turnId },
+      },
+    );
+  }
+
   private async executeActiveTurn(
     input: RuntimeKernelNativeRunnerInput,
   ): Promise<Response> {
@@ -340,6 +369,10 @@ export class RuntimeKernelNativeRunner {
       llmGateway: this.llmGateway,
       budget: this.budgetManager,
       legacyObserver: this.runEventRecorder,
+      modelStepObserver: {
+        started: this.recordModelStepStarted.bind(this),
+        completed: this.recordModelStepCompleted.bind(this),
+      },
       isRunCancelled: this.isRunCancelled.bind(this),
       maxSteps,
       rootPromptId: input.originalPromptId,
