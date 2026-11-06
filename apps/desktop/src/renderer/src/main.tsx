@@ -8,7 +8,7 @@ import {
 } from "@legioncode/client-ui";
 import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
 import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
@@ -23,6 +23,8 @@ import "./styles.css";
 type ThreadLoadState = "loading" | "ready" | "error";
 
 function DesktopApp(): React.JSX.Element {
+  const selectionRequest = useRef(0);
+  const threadListRequest = useRef(0);
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot | null>(null);
@@ -68,6 +70,9 @@ function DesktopApp(): React.JSX.Element {
 
   useEffect(() => {
     setSdkReady(false);
+    selectionRequest.current += 1;
+    threadListRequest.current += 1;
+    setSelectedThread(null);
     if (!appServerClient || environment?.status !== "ready") return;
     let active = true;
     void appServerClient.initialize().then(() => {
@@ -84,10 +89,12 @@ function DesktopApp(): React.JSX.Element {
     if (!appServerClient || !sdkReady) {
       return;
     }
+    let active = true;
     setThreadLoadState("loading");
     void appServerClient
       .getWorkspaceGrant()
       .then(async (nextWorkspace) => {
+        if (!active) return;
         setWorkspace(nextWorkspace);
         if (nextWorkspace?.readiness === "ready") {
           await refreshThreads();
@@ -98,63 +105,80 @@ function DesktopApp(): React.JSX.Element {
         }
       })
       .catch(() => {
+        if (!active) return;
         setWorkspaceError("The local workspace grant could not be loaded.");
         setThreadLoadState("ready");
       });
+    return () => { active = false; };
   }, [appServerClient, sdkReady]);
 
+  useEffect(() => {
+    setThreadTitle(selectedThread?.title ?? "");
+  }, [selectedThread?.id, selectedThread?.title]);
+
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
+    const request = ++threadListRequest.current;
+    const selection = selectionRequest.current;
     setThreadLoadState("loading");
     try {
       if (!appServerClient) return;
       const nextThreads = await appServerClient.listThreads();
+      if (request !== threadListRequest.current) return;
       setThreads(nextThreads);
       setThreadLoadState("ready");
-      const selectionId = preferredSelectionId ?? selectedThread?.id;
-      if (selectionId) {
-        const nextSelected = nextThreads.find(
-          (thread) => thread.id === selectionId,
-        ) ?? null;
-        setSelectedThread(nextSelected);
-        setThreadTitle(nextSelected?.title ?? "");
+      if (selection === selectionRequest.current) {
+        setSelectedThread((current) => {
+          const selectionId = preferredSelectionId ?? current?.id;
+          return nextThreads.find((thread) => thread.id === selectionId) ?? null;
+        });
       }
     } catch {
+      if (request !== threadListRequest.current) return;
       setThreadLoadState("error");
     }
   }
 
   async function createThread(title?: string): Promise<void> {
+    const request = ++selectionRequest.current;
     setThreadError(null);
     try {
       if (!appServerClient) return;
       const created = await appServerClient.createThread(
         title?.trim() || undefined,
       );
+      if (request !== selectionRequest.current) return;
       setNewThreadTitle("");
       setSelectedThread(created);
       setThreadTitle(created.title);
       await refreshThreads(created.id);
     } catch {
-      setThreadError("The local thread could not be created.");
+      if (request === selectionRequest.current) {
+        setThreadError("The local thread could not be created.");
+      }
     }
   }
 
   async function openThread(threadId: string): Promise<void> {
     const knownThread = threads.find((thread) => thread.id === threadId);
     if (!knownThread) return;
+    const request = ++selectionRequest.current;
     setThreadError(null);
     try {
       if (!appServerClient) return;
       const opened = await appServerClient.getThread(knownThread.id);
+      if (request !== selectionRequest.current) return;
       setSelectedThread(opened);
       setThreadTitle(opened.title);
     } catch {
-      setThreadError("The local thread could not be opened.");
+      if (request === selectionRequest.current) {
+        setThreadError("The local thread could not be opened.");
+      }
     }
   }
 
   async function renameThread(): Promise<void> {
     if (!selectedThread) return;
+    const request = selectionRequest.current;
     setThreadError(null);
     try {
       if (!appServerClient) return;
@@ -162,23 +186,28 @@ function DesktopApp(): React.JSX.Element {
         selectedThread.id,
         threadTitle,
       );
-      setSelectedThread(renamed);
-      await refreshThreads(renamed.id);
+      if (request !== selectionRequest.current) return;
+      setSelectedThread((current) => current?.id === renamed.id ? renamed : current);
+      await refreshThreads();
     } catch {
+      if (request !== selectionRequest.current) return;
       setThreadError("Thread titles must contain 1 to 80 characters.");
     }
   }
 
   async function setThreadArchived(archived: boolean): Promise<void> {
     if (!selectedThread || !appServerClient) return;
+    const request = selectionRequest.current;
     setThreadError(null);
     try {
       const updated = archived
         ? await appServerClient.archiveThread(selectedThread.id)
         : await appServerClient.unarchiveThread(selectedThread.id);
-      setSelectedThread(updated);
-      await refreshThreads(updated.id);
+      if (request !== selectionRequest.current) return;
+      setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      await refreshThreads();
     } catch {
+      if (request !== selectionRequest.current) return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -186,16 +215,17 @@ function DesktopApp(): React.JSX.Element {
   async function archiveThread(threadId: string): Promise<void> {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
+    const request = selectionRequest.current;
     try {
       if (!appServerClient) return;
       const updated = await appServerClient.archiveThread(thread.id);
+      if (request !== selectionRequest.current) return;
       if (selectedThread?.id === updated.id) {
-        setSelectedThread(updated);
+        setSelectedThread((current) => current?.id === updated.id ? updated : current);
       }
-      await refreshThreads(
-        selectedThread?.id === updated.id ? updated.id : undefined,
-      );
+      await refreshThreads();
     } catch {
+      if (request !== selectionRequest.current) return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -203,16 +233,17 @@ function DesktopApp(): React.JSX.Element {
   async function unarchiveThread(threadId: string): Promise<void> {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
+    const request = selectionRequest.current;
     try {
       if (!appServerClient) return;
       const updated = await appServerClient.unarchiveThread(thread.id);
+      if (request !== selectionRequest.current) return;
       if (selectedThread?.id === updated.id) {
-        setSelectedThread(updated);
+        setSelectedThread((current) => current?.id === updated.id ? updated : current);
       }
-      await refreshThreads(
-        selectedThread?.id === updated.id ? updated.id : undefined,
-      );
+      await refreshThreads();
     } catch {
+      if (request !== selectionRequest.current) return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -240,6 +271,10 @@ function DesktopApp(): React.JSX.Element {
       return;
     }
 
+    selectionRequest.current += 1;
+    threadListRequest.current += 1;
+    setSelectedThread(null);
+    setThreads([]);
     setWorkspace(granted);
     setSelection(null);
     if (granted.readiness === "ready") await refreshThreads();
@@ -250,6 +285,8 @@ function DesktopApp(): React.JSX.Element {
     try {
       if (!appServerClient) return;
       await appServerClient.revokeWorkspace();
+      selectionRequest.current += 1;
+      threadListRequest.current += 1;
       setWorkspace(null);
       setThreads([]);
       setSelectedThread(null);
