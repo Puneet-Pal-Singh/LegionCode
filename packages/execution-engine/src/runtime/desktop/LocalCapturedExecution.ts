@@ -27,6 +27,7 @@ export async function prepareLocalCapturedExecution(
     !supplied.turnArtifacts.putTurnDiff ||
     !supplied.mutationLease?.attempt ||
     !supplied.mutationLease.assertCurrent ||
+    !supplied.mutationLease.assertSettlementCurrent ||
     !supplied.mutationLease.signal
   ) {
     throw new RuntimeKernelError(
@@ -55,6 +56,14 @@ export async function prepareLocalCapturedExecution(
     await binding.assertCurrent();
     await lease.assertCurrent();
     lease.signal.throwIfAborted();
+  };
+  const assertSettlementCurrent = async () => {
+    // Revoke aborts tools, but the host retains this exact writer fence/root until capture finishes.
+    await lease.assertSettlementCurrent();
+    if ((await supplied.worker.awaitQuiescence({ turnId: expected.turnId, timeoutMs: 500 })) !== true) {
+      throw new RuntimeKernelError("worker_failed", "Capture requires physical worker quiescence");
+    }
+    await lease.assertSettlementCurrent();
   };
   const assertWorkspace = (workspace: { runId: string; filesystemRoot: string }) => {
     if (workspace.runId !== expected.runId || workspace.filesystemRoot !== binding.filesystemRoot) {
@@ -102,23 +111,23 @@ export async function prepareLocalCapturedExecution(
       captureSnapshot: async (
         input: Parameters<typeof supplied.gitSnapshots.captureSnapshot>[0],
       ) => {
-        await assertCurrent();
+        await assertSettlementCurrent();
         assertWorkspace(input.workspace);
         if (input.snapshotKey !== expected.turnId) throw new RuntimeKernelError("invalid_turn_identity", "Capture key does not match the admitted turn");
         const result = await supplied.gitSnapshots.captureSnapshot(input);
         assertWorkspace(result);
-        await assertCurrent();
+        await assertSettlementCurrent();
         return result;
       },
       getSnapshotDiff: async (
         input: Parameters<typeof supplied.gitSnapshots.getSnapshotDiff>[0],
       ) => {
-        await assertCurrent();
+        await assertSettlementCurrent();
         assertWorkspace(input.workspace);
         assertWorkspace(input.start);
         assertWorkspace(input.terminal);
         const result = await supplied.gitSnapshots.getSnapshotDiff(input);
-        await assertCurrent();
+        await assertSettlementCurrent();
         return result;
       },
       ...(supplied.gitSnapshots.captureResumeSnapshot
@@ -128,12 +137,12 @@ export async function prepareLocalCapturedExecution(
                 NonNullable<typeof supplied.gitSnapshots.captureResumeSnapshot>
               >[0],
             ) => {
-              await assertCurrent();
+              await assertSettlementCurrent();
               assertWorkspace(input.workspace);
               assertWorkspace(input.terminal);
               const result =
                 await supplied.gitSnapshots.captureResumeSnapshot!(input);
-              await assertCurrent();
+              await assertSettlementCurrent();
               return result;
             },
           }

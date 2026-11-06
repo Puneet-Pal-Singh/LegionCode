@@ -13,7 +13,13 @@ import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBind
 export interface LocalMutationLease {
   readonly attempt: LocalTurnAttemptIdentity;
   readonly signal: AbortSignal;
+  /** Active grant generation and writer fence; used only to authorize new tools. */
   assertCurrent(): void | Promise<void>;
+  /** Retained same-attempt writer fence and held root, valid through settlement after revoke.
+   * Must reject after release or authority loss; must not consult the revoked UI grant.
+   * This does not authorize tool execution or acquire another lease.
+   */
+  assertSettlementCurrent(): void | Promise<void>;
 }
 
 export type LocalQuiescentWorker = WorkerProtocolPort &
