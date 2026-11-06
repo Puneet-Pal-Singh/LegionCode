@@ -247,7 +247,8 @@ describe("ProviderStore", () => {
       await store.bootstrap();
       await store.loadProviderModels("openai");
 
-      expect(store.setActiveRunId("run-2")).toBe(false);
+      expect(store.clearActiveRunId()).toBe(true);
+      expect(store.clearActiveRunId()).toBe(false);
 
       const state = store.getState();
       expect(state.catalog).toHaveLength(2);
@@ -260,6 +261,7 @@ describe("ProviderStore", () => {
       expect(mockApiClient.getCatalog).toHaveBeenCalledTimes(1);
       expect(mockApiClient.getCredentials).toHaveBeenCalledTimes(1);
       expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
+      expect(store.setActiveRunId("run-2")).toBe(false);
     });
 
     it("does not carry a previous chat selection into a new chat", async () => {
@@ -275,6 +277,9 @@ describe("ProviderStore", () => {
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.selectedModelId).toBe("gpt-4-turbo");
+
+      store.clearActiveRunId();
+      expect(store.getState().selectedModelId).toBe("gpt-4-turbo");
 
       store.setActiveSessionId("session-2");
       expect(store.getState().selectedModelId).toBe("gpt-4");

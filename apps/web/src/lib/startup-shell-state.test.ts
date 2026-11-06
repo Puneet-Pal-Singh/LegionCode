@@ -9,7 +9,6 @@ describe("resolveShellStartupState", () => {
     expect(
       resolveShellStartupState({
         isAuthenticated: false,
-        hasSetupRun: false,
         hasProviderConnection: false,
         hasRepoContext: false,
         hasRealSession: false,
@@ -21,7 +20,6 @@ describe("resolveShellStartupState", () => {
     expect(
       resolveShellStartupState({
         isAuthenticated: true,
-        hasSetupRun: true,
         hasProviderConnection: false,
         hasRepoContext: false,
         hasRealSession: false,
@@ -33,7 +31,6 @@ describe("resolveShellStartupState", () => {
     expect(
       resolveShellStartupState({
         isAuthenticated: true,
-        hasSetupRun: true,
         hasProviderConnection: true,
         hasRepoContext: false,
         hasRealSession: false,
@@ -45,7 +42,6 @@ describe("resolveShellStartupState", () => {
     expect(
       resolveShellStartupState({
         isAuthenticated: true,
-        hasSetupRun: false,
         hasProviderConnection: true,
         hasRepoContext: true,
         hasRealSession: true,

@@ -1,10 +1,10 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { ProviderError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
+import type { ProviderRuntimeScopeInput } from "../../types/provider-scope";
 import {
   normalizeProviderScope,
   sanitizeScopeSegment,
-  type ProviderStoreScopeInput,
 } from "./provider-scope";
 
 type ByokRateLimitAction = "connect" | "validate";
@@ -32,7 +32,7 @@ export class ProviderRateLimitService {
 
   constructor(
     private readonly state: DurableObjectState,
-    scopeInput: ProviderStoreScopeInput,
+    scopeInput: ProviderRuntimeScopeInput,
     config: ByokRateLimitConfig,
   ) {
     this.scope = normalizeProviderScope(scopeInput);
@@ -41,7 +41,7 @@ export class ProviderRateLimitService {
 
   static fromEnv(
     state: DurableObjectState,
-    scopeInput: ProviderStoreScopeInput,
+    scopeInput: ProviderRuntimeScopeInput,
     env: Env,
   ): ProviderRateLimitService {
     return new ProviderRateLimitService(

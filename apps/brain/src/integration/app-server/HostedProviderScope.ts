@@ -1,6 +1,9 @@
 import { RunIdSchema, type RunId } from "@repo/platform-protocol";
 import { AppServerProviderOperationError } from "@legioncode/app-server/server";
-import { parseProviderAuthScopeRequest, type AuthorizedProviderScope } from "../../controllers/provider/ProviderAuthScopeService";
+import {
+  parseProviderAuthScopeRequest,
+  type AuthorizedProviderScope,
+} from "../../controllers/provider/ProviderAuthScopeService";
 import {
   DomainError,
   isDomainError,
@@ -10,15 +13,16 @@ import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../../services/sessions/TranscriptPersistenceFactory";
 import { withWorkspaceRepository } from "../../services/workspaces/WorkspacePersistenceFactory";
 import type { Env } from "../../types/ai";
+import { validateWithSchema } from "../../http/validation";
 
-/** Bind hosted provider operations to the authenticated run/session/workspace records. */
+/** Bind hosted provider operations to an owned run or the authenticated workspace for setup. */
 export function createHostedProviderOperation(
   request: Request,
   env: Env,
   userId: string,
 ) {
   return async <T>(
-    runId: string,
+    runId: string | undefined,
     action: (
       scope: AuthorizedProviderScope,
       correlationId: string,
@@ -31,7 +35,9 @@ export function createHostedProviderOperation(
         env,
         userId,
         correlationId,
-        RunIdSchema.parse(runId),
+        runId === undefined
+          ? undefined
+          : validateWithSchema<RunId>(runId, RunIdSchema, correlationId),
       );
       return await action(scope, correlationId);
     } catch (error) {
@@ -48,16 +54,24 @@ async function resolveHostedProviderScope(
   env: Env,
   userId: string,
   correlationId: string,
-  runId: RunId,
+  runId: RunId | undefined,
 ): Promise<AuthorizedProviderScope> {
   const parsed = parseProviderAuthScopeRequest(request, correlationId, runId);
   if (parsed.requestedUserId && parsed.requestedUserId !== userId) {
     throw unauthorized(correlationId);
   }
 
-  const run = await readScopeRepository(correlationId, () =>
-    withRunRepository(env, (repository) => repository.getRun(parsed.runId)),
-  );
+  const run =
+    parsed.runId === undefined
+      ? null
+      : await readScopeRepository(correlationId, () =>
+          withRunRepository(env, (repository) =>
+            repository.getRun(parsed.runId!),
+          ),
+        );
+
+  // A supplied run is authoritative. Never turn a missing or foreign run into setup.
+  if (parsed.runId !== undefined && !run) throw unauthorized(correlationId);
 
   let boundWorkspaceId: string | null = null;
   if (run) {
@@ -69,44 +83,56 @@ async function resolveHostedProviderScope(
           (candidate) => candidate.id === run.sessionId,
         );
         if (active) return active;
-        return (await repository.listArchivedSessions(userId)).find(
-          (candidate) => candidate.id === run.sessionId,
-        ) ?? null;
+        return (
+          (await repository.listArchivedSessions(userId)).find(
+            (candidate) => candidate.id === run.sessionId,
+          ) ?? null
+        );
       }),
     );
-    if (!session || session.userId !== userId) throw unauthorized(correlationId);
+    if (!session || session.userId !== userId)
+      throw unauthorized(correlationId);
 
     if (
-      run.workspaceId && session.workspaceId &&
+      run.workspaceId &&
+      session.workspaceId &&
       run.workspaceId !== session.workspaceId
     ) {
       throw unauthorized(correlationId);
     }
     boundWorkspaceId = run.workspaceId ?? session.workspaceId;
+    if (!boundWorkspaceId) throw unauthorized(correlationId);
   }
 
-  const workspaceId = boundWorkspaceId ?? await readCurrentWorkspaceSelection(
-    env,
-    userId,
-    correlationId,
-  );
-  if (parsed.requestedWorkspaceId && parsed.requestedWorkspaceId !== workspaceId) {
+  const workspaceId =
+    boundWorkspaceId ??
+    (await readCurrentWorkspaceSelection(env, userId, correlationId));
+  if (
+    parsed.requestedWorkspaceId &&
+    parsed.requestedWorkspaceId !== workspaceId
+  ) {
     throw unauthorized(correlationId);
   }
 
-  const workspaceIsOwnedAndActive = await readScopeRepository(correlationId, () =>
-    withWorkspaceRepository(env, async (repository) =>
-      (await repository.listWorkspaces(userId)).some(
-        ({ workspace }) =>
-          workspace.id === workspaceId &&
-          workspace.userId === userId &&
-          workspace.status === "active",
+  const workspaceIsOwnedAndActive = await readScopeRepository(
+    correlationId,
+    () =>
+      withWorkspaceRepository(env, async (repository) =>
+        (await repository.listWorkspaces(userId)).some(
+          ({ workspace }) =>
+            workspace.id === workspaceId &&
+            workspace.userId === userId &&
+            workspace.status === "active",
+        ),
       ),
-    ),
   );
   if (!workspaceIsOwnedAndActive) throw unauthorized(correlationId);
 
-  return { runId: parsed.runId, userId, workspaceId };
+  return {
+    ...(parsed.runId === undefined ? {} : { runId: parsed.runId }),
+    userId,
+    workspaceId,
+  };
 }
 
 async function readCurrentWorkspaceSelection(
@@ -115,7 +141,9 @@ async function readCurrentWorkspaceSelection(
   correlationId: string,
 ): Promise<string> {
   const selection = await readScopeRepository(correlationId, () =>
-    withWorkspaceRepository(env, (repository) => repository.findWorkspaceSelection(userId)),
+    withWorkspaceRepository(env, (repository) =>
+      repository.findWorkspaceSelection(userId),
+    ),
   );
   if (
     !selection ||

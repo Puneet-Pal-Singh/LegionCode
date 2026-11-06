@@ -186,12 +186,21 @@ describe("SessionStateService", () => {
 
   describe("Setup Session Persistence", () => {
     it("should save and load setup session state", () => {
-      const setupSession = SessionStateService.createSetupSession();
+      const freshSetupSession = SessionStateService.loadOrCreateSetupSession();
+      expect(freshSetupSession).not.toHaveProperty("activeRunId");
+      expect(SessionStateService.loadSetupSession()).toEqual(freshSetupSession);
+      expect(
+        JSON.parse(localStorage.getItem("legioncode:setup-session:v1") ?? "{}"),
+      ).not.toHaveProperty("activeRunId");
 
-      SessionStateService.saveSetupSession(setupSession);
-      const storedBytes = localStorage.getItem("legioncode:setup-session:v1");
+      const storedBytes = JSON.stringify({
+        ...freshSetupSession,
+        activeRunId: "run_550e8400e29b41d4a716446655440001",
+      });
+      localStorage.setItem("legioncode:setup-session:v1", storedBytes);
+      const setupSession = SessionStateService.loadSetupSession();
 
-      expect(SessionStateService.loadSetupSession()).toEqual(setupSession);
+      expect(setupSession).not.toHaveProperty("activeRunId");
       expect(SessionStateService.loadOrCreateSetupSession()).toEqual(setupSession);
       expect(localStorage.getItem("legioncode:setup-session:v1")).toBe(storedBytes);
     });

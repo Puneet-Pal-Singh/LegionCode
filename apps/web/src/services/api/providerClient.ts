@@ -94,6 +94,7 @@ export interface ProviderModelsPageResult {
 
 export interface RunIdResolver {
   getRunId(): string | null;
+  getWorkspaceId?(): string | null;
 }
 
 export type ResolveChatRequest = BYOKResolveRequest;
@@ -260,7 +261,15 @@ export class ProviderApiClient {
   }
 
   private resolveAuthHeaders(): Record<string, string> {
-    return {};
+    const workspaceId = this.runIdResolver.getWorkspaceId?.();
+    if (this.runIdResolver.getWorkspaceId && !workspaceId) {
+      throw new ProviderApiError(
+        409,
+        "MISSING_SCOPE_IDENTIFIER",
+        "Provider setup is unavailable until an owned workspace is selected.",
+      );
+    }
+    return workspaceId ? { "X-Workspace-Id": workspaceId } : {};
   }
 
   private async call<T>(operation: () => Promise<T>): Promise<T> {

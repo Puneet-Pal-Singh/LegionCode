@@ -35,13 +35,17 @@ export async function proxyProviderOperation(
     body?: unknown;
   },
 ): Promise<Response> {
-  const id = env.RUN_ENGINE_RUNTIME.idFromName(operation.scope.runId);
+  const runtimeName =
+    operation.scope.runId ??
+    `provider-setup:v1:${operation.scope.userId}:${operation.scope.workspaceId}`;
+  const id = env.RUN_ENGINE_RUNTIME.idFromName(runtimeName);
   const stub = env.RUN_ENGINE_RUNTIME.get(id);
   const headers = new Headers({
-    "X-Run-Id": operation.scope.runId,
     "X-User-Id": operation.scope.userId,
     "X-Workspace-Id": operation.scope.workspaceId,
   });
+  if (operation.scope.runId !== undefined)
+    headers.set("X-Run-Id", operation.scope.runId);
 
   let body: string | undefined;
   if (operation.body !== undefined) {
