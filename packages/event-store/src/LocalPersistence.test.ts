@@ -43,6 +43,23 @@ describe("LocalPersistence", () => {
     const reopened = openPersistence(persistenceDirectory(persistence));
     await expect(reopened.events.append(input)).resolves.toEqual(first);
     await expect(reopened.events.listAll()).resolves.toEqual([first]);
+    const second = await reopened.events.append({ ...input, idempotencyKey: "thread:second" });
+    const third = await reopened.events.append({ ...input, idempotencyKey: "thread:third" });
+    const scope = { scopeType: "thread" as const, scopeId: first.threadId };
+    await expect(reopened.events.replay({ scope, afterCursor: null, limit: 1 }))
+      .resolves.toEqual({ events: [first], nextCursor: first.cursor });
+    await expect(reopened.events.replay({ scope, afterCursor: first.cursor, limit: 1 }))
+      .resolves.toEqual({ events: [second], nextCursor: second.cursor });
+    reopened.close();
+    const restarted = openPersistence(persistenceDirectory(persistence));
+    await expect(restarted.events.replay({ scope, afterCursor: second.cursor, limit: 1 }))
+      .resolves.toEqual({ events: [third], nextCursor: third.cursor });
+    await expect(restarted.events.replay({ scope, afterCursor: third.cursor, limit: 1 }))
+      .resolves.toEqual({ events: [], nextCursor: null });
+    const other = await restarted.events.append(createThreadInput("thread:other", "thr_otherreplay"));
+    await expect(restarted.events.replay({ scope, afterCursor: other.cursor, limit: 1 }))
+      .rejects.toMatchObject({ code: "cursor_not_found" });
+
   });
 
   it("persists only the provider/model selection across restart and supports clearing it", async () => {
@@ -106,11 +123,19 @@ describe("LocalPersistence", () => {
   it("retries lifecycle envelopes exactly after restart and rolls back a bad batch", async () => {
     const persistence = createPersistence();
     const queued = lifecycle(1, "turn.queued");
-    await persistence.lifecycleEvents.append(queued);
+    const started = lifecycle(2, "turn.started");
+    await persistence.lifecycleEvents.appendBatch([queued, started]);
     const directory = persistenceDirectory(persistence);
     persistence.close();
 
     const reopened = openPersistence(directory);
+    // Restart replays the unfinished attempt without manufacturing settlement.
+    await expect(reopened.lifecycleEvents.replay({ turnId: queued.turnId, afterSequence: null, limit: 1 }))
+      .resolves.toEqual({ events: [queued], nextSequence: 1 });
+    await expect(reopened.lifecycleEvents.replay({ turnId: queued.turnId, afterSequence: 1, limit: 1 }))
+      .resolves.toEqual({ events: [started], nextSequence: 2 });
+    await expect(reopened.lifecycleEvents.replay({ turnId: queued.turnId, afterSequence: 2, limit: 1 }))
+      .resolves.toEqual({ events: [], nextSequence: null });
     await expect(reopened.lifecycleEvents.append(queued)).resolves.toEqual(queued);
     await expect(reopened.lifecycleEvents.append({ ...queued, producer: { kind: "runtime_kernel", id: "changed" } }))
       .rejects.toMatchObject({ code: "idempotency_conflict" });

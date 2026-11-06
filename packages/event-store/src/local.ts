@@ -454,15 +454,23 @@ export class LocalPersistence {
     const scope = EventScopeSchema.parse(input.scope);
     validateReplayLimit(input.limit);
     const afterCursor = input.afterCursor === null ? null : EventCursorSchema.parse(input.afterCursor);
-    const rows = this.database.prepare(`
-      SELECT event_json FROM events WHERE family = 'platform' AND stream_type = ? AND stream_id = ? ORDER BY sequence
-    `).all(scope.scopeType, scope.scopeId) as { event_json: string }[];
-    const events = rows.map(({ event_json }) => parseStoredPlatformEvent(event_json));
-    const start = afterCursor === null ? 0 : events.findIndex((event) => event.cursor === afterCursor) + 1;
-    if (afterCursor !== null && start === 0) {
-      throw new EventStoreError("cursor_not_found", "Replay cursor does not exist in the requested scope");
+    let afterSequence = 0;
+    if (afterCursor !== null) {
+      const anchor = this.database.prepare(`
+        SELECT sequence FROM events
+        WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND cursor = ?
+      `).get(scope.scopeType, scope.scopeId, afterCursor) as { sequence: number } | undefined;
+      if (!anchor) {
+        throw new EventStoreError("cursor_not_found", "Replay cursor does not exist in the requested scope");
+      }
+      afterSequence = anchor.sequence;
     }
-    const page = events.slice(start, start + input.limit);
+    const rows = this.database.prepare(`
+      SELECT event_json FROM events
+      WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND sequence > ?
+      ORDER BY sequence LIMIT ?
+    `).all(scope.scopeType, scope.scopeId, afterSequence, input.limit) as { event_json: string }[];
+    const page = rows.map(({ event_json }) => parseStoredPlatformEvent(event_json));
     return { events: page, nextCursor: page.at(-1)?.cursor ?? null };
   }
 
