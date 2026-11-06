@@ -1,5 +1,15 @@
+import { useMemo } from "react";
+import type {
+  HarnessSelectionReadRequest,
+  HarnessSelectionResponse,
+} from "@legioncode/sdk";
+import { createHostedAppServerClient } from "../../services/api/appServerClient.js";
 import type { ProviderId } from "@repo/shared-types";
-import { ChatInputBar, type ChatInputBarProps } from "@legioncode/client-ui";
+import {
+  ChatInputBar,
+  HarnessSelection,
+  type ChatInputBarProps,
+} from "@legioncode/client-ui";
 import { useComposerPreferences } from "../../lib/composer-preferences";
 import { useWebComposerProviderControls } from "./useWebComposerProviderControls.js";
 
@@ -11,6 +21,8 @@ type WebChatInputBarProps = Omit<
   | "providerDialog"
   | "showContextWindowUsage"
 > & {
+  harnessSelectionScope?: HarnessSelectionReadRequest;
+  onHarnessSelectionChange?: (selection: HarnessSelectionResponse) => void;
   runId?: string;
   hasMessages?: boolean;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
@@ -18,11 +30,17 @@ type WebChatInputBarProps = Omit<
 
 export function WebChatInputBar({
   runId,
+  harnessSelectionScope,
+  onHarnessSelectionChange,
   hasMessages,
   onModelSelect,
   ...props
 }: WebChatInputBarProps) {
   const preferences = useComposerPreferences();
+  const harnessClient = useMemo(
+    () => createHostedAppServerClient().harness,
+    [],
+  );
   const providerControls = useWebComposerProviderControls({
     runId,
     sessionId: props.sessionId,
@@ -35,6 +53,19 @@ export function WebChatInputBar({
     <ChatInputBar
       {...props}
       {...providerControls}
+      renderModelPicker={(onWarning) => (
+        <>
+          {providerControls.renderModelPicker(onWarning)}
+          {!props.isHidden && harnessSelectionScope ? (
+            <HarnessSelection
+              key={JSON.stringify(harnessSelectionScope)}
+              client={harnessClient}
+              scope={harnessSelectionScope}
+              onSelectionChange={onHarnessSelectionChange}
+            />
+          ) : null}
+        </>
+      )}
       providerDialog={props.isHidden ? null : providerControls.providerDialog}
       composerPreferences={preferences}
       showContextWindowUsage={preferences.showContextWindowUsage}
