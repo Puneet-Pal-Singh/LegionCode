@@ -1140,6 +1140,36 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(eventTypes(sink).indexOf("artifact.created")).toBeLessThan(
       eventTypes(sink).indexOf("turn.failed"),
     );
+    for (const failure of ["diff", "snapshot"] as const) {
+      const failedSink = createLifecycleSink();
+      const failedPorts = createPorts();
+      failedPorts.provider.generateNext = vi.fn(async () => { throw new Error("provider disconnected"); });
+      const failedArtifacts = createArtifactPorts(partialDiff());
+      if (failure === "diff") {
+        vi.mocked(failedArtifacts.gitSnapshots.getSnapshotDiff).mockRejectedValue(new Error("diff unavailable"));
+      } else {
+        vi.mocked(failedArtifacts.turnArtifacts.putSnapshot)
+          .mockResolvedValueOnce({ artifactId: "art_snapshot001" })
+          .mockRejectedValueOnce(new Error("snapshot persistence unavailable"));
+      }
+      const failedKernel = await createKernel(failedSink, failedPorts, failedArtifacts);
+      await expect(failedKernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow("provider disconnected");
+      expect(failedArtifacts.turnArtifacts.putSnapshot).toHaveBeenCalledTimes(2);
+      expect(failedArtifacts.turnArtifacts.putTurnDiff).not.toHaveBeenCalled();
+      expect(eventTypes(failedSink).filter((type) => type === "turn.failed")).toHaveLength(1);
+      const snapshots = failedSink.events.filter((event) => event.type === "workspace.snapshot_captured");
+      if (failure === "diff") {
+        expect(snapshots).toHaveLength(2);
+        expect(snapshots.at(-1)?.payload).toMatchObject({ snapshot: { artifact: { artifactId: "art_snapshot002" } } });
+        expect(vi.mocked(failedArtifacts.turnArtifacts.putSnapshot).mock.invocationCallOrder[1])
+          .toBeLessThan(vi.mocked(failedArtifacts.gitSnapshots.getSnapshotDiff).mock.invocationCallOrder[0]!);
+      } else {
+        expect(snapshots).toHaveLength(1);
+        expect(eventTypes(failedSink)).toContain("workspace.snapshot_unavailable");
+        expect(failedArtifacts.gitSnapshots.getSnapshotDiff).not.toHaveBeenCalled();
+      }
+    }
+
   });
 
   it("serializes an interrupt racing tool completion without conflicting settlement", async () => {

@@ -107,23 +107,7 @@ export class TurnArtifactSettlementCoordinator {
       );
       return { resumeUnavailableReason: "snapshot_unavailable" };
     }
-    let diff: Awaited<ReturnType<RuntimeGitSnapshotPort["getSnapshotDiff"]>>;
-    try {
-      diff = await this.options.git.getSnapshotDiff({
-      workspace: this.gitWorkspace(),
-      start: toGitSnapshot(startSnapshot, this.options),
-      terminal: toGitSnapshot(terminalSnapshot, this.options),
-      });
-    } catch {
-      if (!input.interrupted) throw new RuntimeKernelError(
-        "turn_artifact_settlement_failed",
-        "Terminal workspace diff is unavailable.",
-      );
-      return {
-        terminalSnapshot,
-        resumeUnavailableReason: "snapshot_unavailable",
-      };
-    }
+    // A diff failure must not discard a capture that can still be persisted.
     let terminalSnapshotArtifact: unknown;
     try {
       terminalSnapshotArtifact = await this.options.artifacts.putSnapshot({
@@ -137,7 +121,24 @@ export class TurnArtifactSettlementCoordinator {
         "Terminal workspace snapshot artifact could not be persisted.",
       );
       return {
+        resumeUnavailableReason: "snapshot_unavailable",
+      };
+    }
+    let diff: Awaited<ReturnType<RuntimeGitSnapshotPort["getSnapshotDiff"]>>;
+    try {
+      diff = await this.options.git.getSnapshotDiff({
+        workspace: this.gitWorkspace(),
+        start: toGitSnapshot(startSnapshot, this.options),
+        terminal: toGitSnapshot(terminalSnapshot, this.options),
+      });
+    } catch {
+      if (!input.interrupted) throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Terminal workspace diff is unavailable.",
+      );
+      return {
         terminalSnapshot,
+        terminalSnapshotArtifact,
         resumeUnavailableReason: "snapshot_unavailable",
       };
     }
