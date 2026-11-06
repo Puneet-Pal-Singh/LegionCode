@@ -31,6 +31,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
   constructor(
     private readonly options: {
       readonly executable: string;
+      /** Exact canonical compatibility tag from the pinned runtime manifest. */
+      readonly protocolVersion: HarnessStartCommand["selection"]["protocolVersion"];
       /** Resolve only the admitted connection/model/policy through existing authorities. */
       readonly resolveConfiguration: (command: HarnessStartCommand) => Promise<{
         readonly model: ModelRef;
@@ -59,7 +61,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
     if (
       command.selection.harness !== this.kind ||
       command.selection.transport !== OPENCODE_TRANSPORT ||
-      command.selection.protocolVersion !== "2.2.5" ||
+      command.selection.protocolVersion !== this.options.protocolVersion ||
       command.filesystemRoot !== host.workspaceRoot ||
       command.startSnapshot.turnId !== command.selection.turnId ||
       command.startSnapshot.phase !== "start"
