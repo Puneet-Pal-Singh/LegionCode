@@ -401,8 +401,8 @@ export class HandleChatRequest {
     return {
       orchestratorBackend: input.orchestratorBackend ?? "execution-engine-v1",
       executionBackend: input.executionBackend ?? "cloudflare_sandbox",
-      harnessMode: isDelegatedHarnessRoute(input) ? "delegated" : input.harnessMode ?? "platform_owned",
-      authMode: isDelegatedHarnessRoute(input) ? undefined : input.authMode ?? "api_key",
+      harnessMode: isDelegatedChat(input) ? "delegated" : input.harnessMode ?? "platform_owned",
+      authMode: isDelegatedChat(input) ? undefined : input.authMode ?? "api_key",
     };
   }
 

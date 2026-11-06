@@ -210,6 +210,8 @@ export type {
 } from "./identity/types.js";
 export type {
   CredentialStore,
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   ProviderAuditEvent,
   ProviderAuditLog,
   ProviderAuditEventType,

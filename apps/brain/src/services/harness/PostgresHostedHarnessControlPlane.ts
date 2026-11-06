@@ -120,13 +120,7 @@ export function createPostgresHostedHarnessControlPlane(
                 stored.selection.threadId !== admission.threadId
               )
                 throw missing();
-              const selected = HarnessSelectionSchema.unwrap()
-                .pick({
-                  connectionId: true,
-                  authOwnerGeneration: true,
-                  environmentId: true,
-                })
-                .parse(JSON.parse(stored.selection.selectionJson));
+              const selected = HarnessSelectionSchema.unwrap().parse(JSON.parse(stored.selection.selectionJson));
               if (
                 selected.connectionId !== binding.connectionId ||
                 selected.authOwnerGeneration !== binding.ownerGeneration ||
@@ -203,9 +197,7 @@ export function createPostgresHostedHarnessControlPlane(
                 }),
             );
             if (!stored) continue;
-            const selected = HarnessSelectionSchema.unwrap()
-              .pick({ connectionId: true, authOwnerGeneration: true })
-              .parse(JSON.parse(stored.selection.selectionJson));
+            const selected = HarnessSelectionSchema.unwrap().parse(JSON.parse(stored.selection.selectionJson));
             if (
               selected.connectionId === connectionId &&
               selected.authOwnerGeneration < ownerGeneration
