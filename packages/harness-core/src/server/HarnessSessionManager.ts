@@ -62,6 +62,7 @@ interface Attachment {
   externalTurnId: string | null;
   integrityError?: HarnessHostError;
   integrityPersistence?: Promise<void>;
+  quiescence?: Extract<HarnessQuiescence, { status: "quiescent" }>;
 }
 
 /** Live attachments only. Admission, recovery decisions, canonical history and leases remain runtime-owned. */
@@ -380,6 +381,7 @@ export class HarnessSessionManager {
     readonly timeoutMs: number;
   }): Promise<HarnessQuiescence> {
     const attachment = this.requireSession(input.session);
+    attachment.quiescence = undefined;
     if (
       !Number.isSafeInteger(input.timeoutMs) ||
       input.timeoutMs < 0 ||
@@ -421,6 +423,7 @@ export class HarnessSessionManager {
       const evidence = HarnessQuiescenceSchema.parse(result);
       assertSession(input.session, evidence.session);
       // Drivers/composition must prove the full execution boundary; group exit is never promoted here.
+      if (evidence.status === "quiescent") attachment.quiescence = evidence;
       return evidence;
     } catch {
       return {
@@ -436,6 +439,8 @@ export class HarnessSessionManager {
   /** Canonical owner calls only after terminal artifact settlement; no checkout lease is released here. */
   async release(session: HarnessSession): Promise<void> {
     const attachment = this.requireSession(session);
+    if (!attachment.quiescence)
+      throw new HarnessHostError("process_not_quiescent");
     this.beginStop(attachment);
     await this.drainObservations(attachment);
     await attachment.cleanup;
@@ -450,6 +455,8 @@ export class HarnessSessionManager {
     if (attachment.journal) {
       if ((await attachment.journal.pending()).length)
         throw new HarnessHostError("journal_corrupt");
+      attachment.retired = true;
+      await attachment.journal.markCanonicalSettlement();
       await attachment.journal.close();
     }
     // Keep journal files for commit reconciliation. They contain no command replay.
@@ -495,10 +502,11 @@ export class HarnessSessionManager {
     attachment: Attachment,
     input: Omit<HarnessObservation, "sequence">,
   ): Promise<HarnessCommitAck> {
-    if (attachment.integrityError)
-      return this.loseIntegrity(attachment, attachment.integrityError);
     if (attachment.retired)
       return Promise.reject(new HarnessHostError("stale_session"));
+    attachment.quiescence = undefined;
+    if (attachment.integrityError)
+      return this.loseIntegrity(attachment, attachment.integrityError);
     if (attachment.pendingObservations >= 32) {
       return this.loseIntegrity(
         attachment,
@@ -649,12 +657,24 @@ export class HarnessSessionManager {
       "observation_integrity_lost",
     );
     this.beginStop(attachment);
-    attachment.integrityPersistence ??=
-      attachment.journal?.markIntegrityLost().catch(() => undefined) ??
-      Promise.resolve();
-    return attachment.integrityPersistence.then(() => {
-      throw attachment.integrityError!;
-    });
+    if (!attachment.integrityPersistence) {
+      const persistence =
+        attachment.journal?.markIntegrityLost() ??
+        Promise.reject(attachment.integrityError);
+      attachment.integrityPersistence = persistence;
+      void persistence.catch(() => {
+        if (attachment.integrityPersistence === persistence)
+          attachment.integrityPersistence = undefined;
+      });
+    }
+    return attachment.integrityPersistence.then(
+      () => {
+        throw attachment.integrityError!;
+      },
+      () => {
+        throw attachment.integrityError!;
+      },
+    );
   }
 
   private openJournal(
