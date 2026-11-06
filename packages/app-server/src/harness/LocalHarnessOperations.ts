@@ -65,7 +65,7 @@ export class LocalHarnessOperations implements HarnessOperations {
       throw new AppServerOperationError(503, "server_unavailable", "Local instance metadata returned a different workspace");
     }
     const configured = this.options.readInstances();
-    if (result.instances.some((instance) => !configured.some((known) =>
+    if (result.instances.some((instance) => instance.state === "ready" && !configured.some((known) =>
       known.instanceId === instance.instanceId && known.harness === instance.harness &&
       known.connectionId === instance.connectionId && known.workspaceId === instance.workspaceId &&
       known.environmentId === instance.environmentId && known.runtimeVersion === instance.runtimeVersion &&
@@ -104,14 +104,14 @@ export class LocalHarnessOperations implements HarnessOperations {
     const store = this.requireSelectionStore();
     if (params.selection !== null) {
       const selection = params.selection;
-      const instance = this.options.readInstances().find((known) =>
-        known.environmentId === params.environmentId && known.workspaceId === params.workspaceId &&
-        known.instanceId === selection.instanceId && known.connectionId === selection.connectionId);
+      const instance = await this.requireInstance({ environmentId: params.environmentId, workspaceId: params.workspaceId,
+        instanceId: selection.instanceId, connectionId: selection.connectionId });
       if (!instance || instance.harness !== selection.harness) {
         throw new AppServerOperationError(404, "not_found", "The selected local harness reference is not configured");
       }
       // This writes a preference for a future attempt, not a readiness claim or
-      // execution admission. Account/model eligibility is rechecked at admission.
+      // execution admission. Persisted unavailable instances may be selected before
+      // their first driver registration; account/model eligibility is checked at admission.
       // Avoid health/catalog I/O before durable command dedupe: a committed retry
       // must not change outcome merely because readiness changed afterward.
     }
