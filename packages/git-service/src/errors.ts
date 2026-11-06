@@ -1,4 +1,5 @@
 export type GitServiceErrorCode =
+  | "git_commit_indeterminate"
   | "git_command_failed"
   | "invalid_branch_ref"
   | "invalid_git_input"

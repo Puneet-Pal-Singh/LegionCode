@@ -14,7 +14,8 @@ import {
   workspaceIdFromExternalId,
   type LocalWorkspaceGrant,
 } from "@repo/platform-protocol";
-import { DefaultGitService, type GitCommandExecutor } from "@repo/git-service";
+import { DefaultGitService } from "@repo/git-service";
+import { createNodeGitExecutor } from "./local-node-git-executor.js";
 
 export type LocalWorkspaceServiceOptions = {
   workspaceGrants: LocalPersistence["workspaceGrants"];
@@ -129,41 +130,4 @@ async function validateSelectedDirectory(path: string): Promise<string> {
 function workspaceIdForPath(path: string) {
   const digest = createHash("sha256").update(path).digest("hex").slice(0, 24);
   return WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${digest}`));
-}
-
-function createNodeGitExecutor(): GitCommandExecutor {
-  return {
-    execute: async ({ cwd, args, environment, timeoutMs }) => {
-      const { spawn } = await import("node:child_process");
-      return await new Promise((resolve) => {
-        const child = spawn("git", [...args], {
-          cwd,
-          env: environment ? { ...process.env, ...environment } : process.env,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        let settled = false;
-        const finish = (result: { exitCode: number; stdout: string; stderr: string }) => {
-          if (settled) return;
-          settled = true;
-          resolve(result);
-        };
-        const timer = setTimeout(() => {
-          child.kill();
-          finish({ exitCode: 124, stdout: Buffer.concat(stdout).toString(), stderr: "git probe timed out" });
-        }, timeoutMs ?? 30_000);
-        child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-        child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-        child.once("error", (error) => {
-          clearTimeout(timer);
-          finish({ exitCode: 1, stdout: "", stderr: error.message });
-        });
-        child.once("close", (exitCode) => {
-          clearTimeout(timer);
-          finish({ exitCode: exitCode ?? 1, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() });
-        });
-      });
-    },
-  };
 }

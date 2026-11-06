@@ -298,6 +298,9 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const message = validateCommitMessage(input.message);
+    if (this.executor.supportsIndexTransactions !== true) {
+      throw new GitServiceError("invalid_git_input", "Git executor does not advertise atomic index transactions");
+    }
     const args = [
       "-c", `user.name=${input.author.name}`,
       "-c", `user.email=${input.author.email}`,
@@ -308,29 +311,20 @@ export class DefaultGitService {
       runId,
       cwd: workspaceRoot,
       args,
+      indexTransaction: { paths },
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
+    if (result.indexPublication === "indeterminate") {
+      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically");
+    }
     if (result.exitCode !== 0) {
-      throw createGitCommandFailedError(
-        args,
-        result.exitCode,
-        getCommandErrorText(result),
-      );
+      throw createGitCommandFailedError(args, result.exitCode, getCommandErrorText(result));
     }
 
-    const commitSha = await this.readRequiredGitValue(input.workspace, [
-      "rev-parse",
-      "HEAD",
-    ]);
-    const branchName = await this.readRequiredGitValue(input.workspace, [
-      "branch",
-      "--show-current",
-    ]);
-    return {
-      commitSha,
-      branchName,
-      committedPaths: paths,
-    };
+    if (!result.commitSha || !result.branchName) {
+      throw new GitServiceError("git_commit_indeterminate", "Git committed but result verification failed; do not retry automatically");
+    }
+    return { commitSha: result.commitSha, branchName: result.branchName, committedPaths: paths };
   }
 
   async push(input: GitPushInput): Promise<GitPushResult> {

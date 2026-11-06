@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunId } from "@repo/platform-protocol";
@@ -11,6 +11,7 @@ import type {
   GitCommandExecutionResult,
   GitCommandExecutor,
 } from "./executor.js";
+import { gitIndexTransactionArgs, parseGitIndexTransactionResult } from "./executor.js";
 import { GIT_STATUS_PORCELAIN_V2_ARGS } from "./status.js";
 import { DefaultGitService } from "./GitService.js";
 
@@ -319,9 +320,7 @@ describe("DefaultGitService", () => {
 
   it("stages files before committing with an explicit author", async () => {
     const executor = new QueueGitExecutor([
-      { exitCode: 0, stdout: "[feat abc123] update\n", stderr: "" },
-      { exitCode: 0, stdout: "abc123\n", stderr: "" },
-      { exitCode: 0, stdout: "feat/canonical-git\n", stderr: "" },
+      { exitCode: 0, stdout: "[feat abc123] update\n", stderr: "", commitSha: "abc123", branchName: "feat/canonical-git" },
     ]);
     const service = new DefaultGitService(executor);
 
@@ -340,8 +339,6 @@ describe("DefaultGitService", () => {
     expect(executor.calls.map((call) => call.args)).toEqual([
       ["-c", "user.name=Legion", "-c", "user.email=legion@example.com",
         "--literal-pathspecs", "commit", "--only", "-m", "update app", "--", "src/app.ts"],
-      ["rev-parse", "HEAD"],
-      ["branch", "--show-current"],
     ]);
     const root = mkdtempSync(join(tmpdir(), "legion-git-commit-"));
     const git = (args: readonly string[]) => execFileSync("git", [...args], {
@@ -359,10 +356,12 @@ describe("DefaultGitService", () => {
       writeFileSync(join(root, "unstaged.txt"), "unstaged\n");
       writeFileSync(join(root, "selected1.txt"), "unrelated glob match\n");
       git(["add", "--", "unrelated.txt"]);
+      let transactionTimeout = 30_000;
       const service = new DefaultGitService({
+        supportsIndexTransactions: true,
         async execute(input) {
-          const result = spawnSync("git", [...input.args], { cwd: input.cwd, encoding: "utf8" });
-          return { exitCode: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+          const result = spawnSync(input.indexTransaction ? process.execPath : "git", input.indexTransaction ? gitIndexTransactionArgs({ ...input, timeoutMs: transactionTimeout }) : [...input.args], { cwd: input.cwd, encoding: "utf8" });
+          return input.indexTransaction ? parseGitIndexTransactionResult(result.stdout) : { exitCode: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
         },
       });
       await service.commit({
@@ -394,15 +393,27 @@ describe("DefaultGitService", () => {
       expect(readFileSync(join(root, "selected[1].txt"), "utf8")).toBe("worktree later\n");
       rmSync(join(root, ".git", "hooks", "pre-commit"));
 
-      // Untracked content is never staged as a side effect of a failed commit.
-      writeFileSync(join(root, "new.txt"), "new content\n");
+      // New untracked files are staged only in the private index; hook rejection
+      // leaves both the real index and HEAD untouched, and success needs no repair.
+      writeFileSync(join(root, "untracked.txt"), "new content\n");
+      writeFileSync(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
       await expect(service.commit({
         workspace: { runId: RUN_ID, filesystemRoot: root },
-        paths: ["new.txt"], message: "requires explicit staging",
+        paths: ["untracked.txt"], message: "reject untracked file",
         author: { name: "Legion", email: "legion@example.com" },
       })).rejects.toMatchObject({ code: "git_command_failed" });
       expect(git(["ls-files", "--stage", "-z"])).toBe(beforeIndex);
       expect(git(["rev-parse", "HEAD"])).toBe(beforeHead);
+      rmSync(join(root, ".git", "hooks", "pre-commit"));
+      await service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["untracked.txt"], message: "commit untracked file",
+        author: { name: "Legion", email: "legion@example.com" },
+      });
+      expect(git(["show", "HEAD:untracked.txt"])).toBe("new content\n");
+      expect(git(["diff", "--cached", "--name-only"])).not.toContain("untracked.txt");
+      const newFileHead = git(["rev-parse", "HEAD"]);
+      writeFileSync(join(root, "new.txt"), "new content\n");
       git(["add", "--", "new.txt"]);
       const stagedNewIndex = git(["ls-files", "--stage", "-z"]);
       writeFileSync(join(root, "new.txt"), "later new content\n");
@@ -413,7 +424,7 @@ describe("DefaultGitService", () => {
         author: { name: "Legion", email: "legion@example.com" },
       })).rejects.toMatchObject({ code: "git_command_failed" });
       expect(git(["ls-files", "--stage", "-z"])).toBe(stagedNewIndex);
-      expect(git(["rev-parse", "HEAD"])).toBe(beforeHead);
+      expect(git(["rev-parse", "HEAD"])).toBe(newFileHead);
       expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("later new content\n");
       rmSync(join(root, ".git", "hooks", "pre-commit"));
       await service.commit({
@@ -434,6 +445,14 @@ describe("DefaultGitService", () => {
       expect(git(["ls-files", "--stage", "-z"])).toBe(deletionIndex);
       expect(git(["rev-parse", "HEAD"])).toBe(deletionHead);
       expect(git(["diff", "--name-only"])).toContain("new.txt");
+      git(["add", "--", "new.txt"]);
+      const stagedDeletionIndex = git(["ls-files", "--stage", "-z"]);
+      await expect(service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root }, paths: ["new.txt"],
+        message: "reject already-staged deletion", author: { name: "Legion", email: "legion@example.com" },
+      })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(git(["ls-files", "--stage", "-z"])).toBe(stagedDeletionIndex);
+      expect(git(["rev-parse", "HEAD"])).toBe(deletionHead);
       rmSync(join(root, ".git", "hooks", "pre-commit"));
       await service.commit({
         workspace: { runId: RUN_ID, filesystemRoot: root },
@@ -443,6 +462,32 @@ describe("DefaultGitService", () => {
       expect(git(["diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD"]).trim()).toBe("D\tnew.txt");
       expect(git(["show", ":selected[1].txt"])).toBe("staged prior\n");
       expect(readFileSync(join(root, "selected[1].txt"), "utf8")).toBe("worktree later\n");
+
+      const stableIndex = git(["ls-files", "--stage", "-z"]);
+      const stableHead = git(["rev-parse", "HEAD"]);
+      const lock = join(root, ".git", "index.lock");
+      writeFileSync(lock, "other Git owner");
+      await expect(service.commit({ workspace: { runId: RUN_ID, filesystemRoot: root }, paths: ["selected1.txt"], message: "locked", author: { name: "Legion", email: "legion@example.com" } })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(readFileSync(lock, "utf8")).toBe("other Git owner");
+      expect(git(["ls-files", "--stage", "-z"])).toBe(stableIndex);
+      rmSync(lock);
+
+      transactionTimeout = 100;
+      writeFileSync(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nsleep 0.4\ntouch late-marker\n", { mode: 0o755 });
+      await expect(service.commit({ workspace: { runId: RUN_ID, filesystemRoot: root }, paths: ["selected1.txt"], message: "timeout", author: { name: "Legion", email: "legion@example.com" } })).rejects.toMatchObject({ code: "git_command_failed" });
+      expect(existsSync(lock)).toBe(false);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      expect(existsSync(join(root, "late-marker"))).toBe(false);
+      expect(git(["ls-files", "--stage", "-z"])).toBe(stableIndex);
+      expect(git(["rev-parse", "HEAD"])).toBe(stableHead);
+      transactionTimeout = 30_000;
+
+      // Force publication ownership loss after Git commits. No global rollback or retry.
+      writeFileSync(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nrm .git/index.lock\nmkdir .git/index.lock\n", { mode: 0o755 });
+      await expect(service.commit({ workspace: { runId: RUN_ID, filesystemRoot: root }, paths: ["selected1.txt"], message: "publication failure", author: { name: "Legion", email: "legion@example.com" } })).rejects.toMatchObject({ code: "git_commit_indeterminate" });
+      expect(git(["rev-parse", "HEAD"])).not.toBe(stableHead);
+      expect(git(["ls-files", "--stage", "-z"])).toBe(stableIndex);
+      expect(readdirSync(join(root, ".git")).some(name => name.startsWith("legion-index-"))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -563,6 +608,7 @@ registerGitServiceConformance(
 );
 
 class QueueGitExecutor implements GitCommandExecutor {
+  readonly supportsIndexTransactions = true as const;
   readonly calls: GitCommandExecutionInput[] = [];
 
   constructor(private readonly results: GitCommandExecutionResult[]) {}

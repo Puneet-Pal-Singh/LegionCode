@@ -1,3 +1,8 @@
+import {
+  gitIndexTransactionArgs,
+  parseGitIndexTransactionResult,
+} from "@repo/git-service/executor";
+import { GitServiceError } from "@repo/git-service/errors";
 import type { Sandbox } from "@cloudflare/sandbox";
 import type {
   GitCommandExecutionInput,
@@ -10,6 +15,7 @@ import type { ToolboxCommandContext } from "../security/ToolboxCommandContext";
 import { withToolboxCommandContext } from "../security/ToolboxCommandContext";
 
 export class SandboxGitCommandExecutor implements GitCommandExecutor {
+  readonly supportsIndexTransactions = true as const;
   constructor(
     private readonly sandbox: Sandbox,
     private readonly toolboxContext: ToolboxCommandContext,
@@ -19,6 +25,33 @@ export class SandboxGitCommandExecutor implements GitCommandExecutor {
   async execute(
     input: GitCommandExecutionInput,
   ): Promise<GitCommandExecutionResult> {
+    if (input.indexTransaction) {
+      let result;
+      try {
+        result = await runSafeCommand(
+          this.sandbox,
+          withToolboxCommandContext(
+            {
+              command: "node",
+              args: gitIndexTransactionArgs(input),
+              cwd: input.cwd,
+              runId: input.runId,
+              timeoutMs: 0,
+              borrowedLease: true,
+            },
+            this.toolboxContext,
+            this.operation,
+          ),
+          ["node"],
+        );
+        return parseGitIndexTransactionResult(result.stdout);
+      } catch {
+        throw new GitServiceError(
+          "git_commit_indeterminate",
+          "Git transaction outcome is unavailable; do not retry automatically",
+        );
+      }
+    }
     if (input.stdin !== undefined) {
       return {
         exitCode: 1,
