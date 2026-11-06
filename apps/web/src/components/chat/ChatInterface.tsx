@@ -46,7 +46,10 @@ import { useChatPresentation } from "@legioncode/client-ui";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import { mergeLifecycleProjections } from "@legioncode/sdk";
-import { updateComposerPreferences } from "../../lib/composer-preferences";
+import {
+  updateComposerPreferences,
+  useComposerPreferences,
+} from "../../lib/composer-preferences";
 import {
   type ChatErrorNoticeProps,
   ThreadInputQueuePanel,
@@ -148,6 +151,7 @@ export function ChatInterface({
   onProjectClick,
   onPresentationReadyChange,
 }: ChatInterfaceProps) {
+  const composerPreferences = useComposerPreferences();
   const loadArtifactContent = useCallback(
     (key: string, signal?: AbortSignal) =>
       loadCodeArtifactContent(sessionId, key, signal),
@@ -498,6 +502,7 @@ export function ChatInterface({
       }
       queuePanel={
         <ThreadInputQueuePanel
+          queuingEnabled={composerPreferences.followUpBehavior === "queue"}
           onDisableQueuing={() =>
             updateComposerPreferences({ followUpBehavior: "steer" })
           }
