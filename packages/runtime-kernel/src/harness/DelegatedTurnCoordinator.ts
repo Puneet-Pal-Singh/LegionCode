@@ -308,6 +308,7 @@ export class DelegatedTurnCoordinator {
         "approval_resolution_conflict",
         "Harness reply was already durably consumed",
       );
+    this.assertNotStopped();
     await dependencies.harness.control({
       kind: "reply",
       commandId: `${command.commandId}:reply:${this.replies.size}`,
