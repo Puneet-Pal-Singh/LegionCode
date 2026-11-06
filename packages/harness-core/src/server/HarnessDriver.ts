@@ -35,7 +35,8 @@ export interface HarnessLiveSession {
   control(
     command: HarnessControlCommand,
   ): Promise<{ readonly accepted: boolean }>;
-  /** Must include child/background work under the actual enforced execution boundary. */
+  /** Must prove child/background quiescence AND explicitly report observation integrity.
+   * Physical cleanup never implies observationIntegrity:"complete". Lost integrity stays lost. */
   awaitQuiescence(input: {
     readonly timeoutMs: number;
   }): Promise<HarnessQuiescence>;
