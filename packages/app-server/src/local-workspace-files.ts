@@ -1,11 +1,31 @@
 import { isUtf8 } from "node:buffer";
 
-import type { CheckoutReadFileResult } from "./protocol.js";
+import { LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, type CheckoutReadFileResult } from "./protocol.js";
 import { AppServerOperationError } from "./server.js";
 import type { WorkspaceId } from "@repo/platform-protocol";
 
+interface DirectoryPage {
+  readonly path: string;
+  readonly entries: readonly {
+    readonly name: string;
+    readonly path: string;
+    readonly kind: "file" | "directory" | "symlink" | "other";
+    readonly bytes: number;
+    readonly mode: number;
+    readonly unavailableReason?: "reserved_path";
+  }[];
+  readonly truncated: boolean;
+  readonly nextCursor: string | null;
+}
+
 /** Structural subset of the native reader; no filesystem path/root is exposed. */
 export interface LocalWorkspaceFileReader {
+  listDirectory(input: {
+    readonly path: string;
+    readonly limit?: number;
+    readonly cursor?: string | null;
+    readonly signal: AbortSignal;
+  }): Promise<DirectoryPage>;
   readBytes(input: {
     readonly path: string;
     readonly signal: AbortSignal;
@@ -27,6 +47,30 @@ export interface LocalWorkspaceFilesBinding {
 export class LocalWorkspaceFilesService {
   constructor(private readonly binding: LocalWorkspaceFilesBinding) {}
 
+  async listFiles(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly path: string;
+    readonly cursor?: string | null;
+  }) {
+    return this.binding.withWorkspace(input.workspaceId, async (reader, signal) => {
+      signal.throwIfAborted();
+      const page = await reader.listDirectory({
+        path: input.path, limit: 200, cursor: input.cursor, signal,
+      });
+      signal.throwIfAborted();
+      if (page.path !== input.path) {
+        throw new Error("Native directory read returned a different path");
+      }
+      // Preserve all native kinds and metadata. The bridge validates page size,
+      // cursor/version and truncation; stale cursors are errors, never restarts.
+      return {
+        entries: page.entries.map((entry) => ({ ...entry })),
+        truncated: page.truncated,
+        nextCursor: page.nextCursor,
+      };
+    });
+  }
+
   async readFile(input: {
     readonly workspaceId: WorkspaceId;
     readonly path: string;
@@ -40,21 +84,19 @@ export class LocalWorkspaceFilesService {
       if (result.path !== input.path || result.bytes !== result.content.byteLength) {
         throw new Error("Native workspace read returned inconsistent path or byte metadata");
       }
+      if (result.bytes > LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES) {
+        throw new AppServerOperationError(
+          413, "invalid_request", "Workspace file exceeds the 64 KiB preview limit",
+          "workspace_file_too_large", false,
+        );
+      }
       // Classify actual bounded native bytes, never filenames or caught failures.
       const isBinary = result.content.includes(0) || !isUtf8(result.content);
       const response: CheckoutReadFileResult = {
         output: isBinary ? "" : new TextDecoder("utf-8", { fatal: true }).decode(result.content),
         isBinary,
       };
-      // JSON escaping can expand a native text read substantially. Bound the
-      // serialized result, retaining envelope headroom under the 1 MiB transport
-      // cap. This protocol has no truncation field, so refuse rather than slice.
-      if (Buffer.byteLength(JSON.stringify(response), "utf8") > 512 * 1024) {
-        throw new AppServerOperationError(
-          413, "invalid_request", "Workspace file preview exceeds the supported response size",
-          "workspace_file_preview_too_large", false,
-        );
-      }
+      // The canonical raw bound also caps worst-case escaped JSON below 1 MiB.
       return response;
     });
   }
