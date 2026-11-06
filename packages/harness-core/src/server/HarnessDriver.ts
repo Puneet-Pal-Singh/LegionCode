@@ -29,6 +29,8 @@ export interface HarnessLiveSession {
     readonly command: HarnessStartCommand;
     readonly signal: AbortSignal;
   }): Promise<void>;
+  /** Reattach/replay only; must never send provider start, steer or reply effects. */
+  observeExisting(input: { readonly signal: AbortSignal }): Promise<void>;
   /** Receipt means acceptance only. A lost response is not permission to retry. */
   control(
     command: HarnessControlCommand,
