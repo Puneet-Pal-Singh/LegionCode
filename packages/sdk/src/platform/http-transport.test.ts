@@ -440,16 +440,6 @@ describe("createPlatformHttpTransport", () => {
           }
           return appServerResult("turn/diff", { diff: createTurnDiff() });
         }
-        if (String(input).includes("user-input")) {
-          return createJsonResponse(
-            createLifecycleEvent(3, {
-              type: "user_input.responded",
-              itemId: TEST_IDS.userInputItemId,
-              requestId: "input_123456",
-              payload: { value: "continue" },
-            }),
-          );
-        }
         return createJsonResponse({ diff: createTurnDiff() });
       }),
     });
@@ -462,12 +452,18 @@ describe("createPlatformHttpTransport", () => {
       decidedBy: TEST_IDS.userId,
       reason: null,
     });
-    await client.submitUserInputResponse({
+    const callsBeforeQuestionReply = calls.length;
+    await expect(client.submitUserInputResponse({
       turnId: TEST_IDS.turnId,
       requestId: "input_123456",
       respondedBy: TEST_IDS.userId,
       response: { value: "continue" },
+    })).rejects.toMatchObject({
+      code: "capability_unsupported",
+      retryable: false,
+      statusCode: 501,
     });
+    expect(calls).toHaveLength(callsBeforeQuestionReply);
     await client.getTurnDiff({ turnId: TEST_IDS.turnId });
     await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toBeInstanceOf(PlatformClientContractError);
     await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toBeInstanceOf(PlatformClientContractError);
@@ -478,7 +474,6 @@ describe("createPlatformHttpTransport", () => {
 
     expect(calls.map((call) => call.url)).toEqual([
       "https://control-plane.test/app-server/request",
-      "https://control-plane.test/turns/trn_123456/user-input/input_123456",
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
@@ -488,7 +483,7 @@ describe("createPlatformHttpTransport", () => {
       method: "turn/approval",
       params: { turnId: TEST_IDS.turnId, approvalId: TEST_IDS.approvalId },
     });
-    expect(JSON.parse(String(calls[2]?.init.body))).toMatchObject({
+    expect(JSON.parse(String(calls[1]?.init.body))).toMatchObject({
       method: "turn/diff",
       params: { turnId: TEST_IDS.turnId },
     });
