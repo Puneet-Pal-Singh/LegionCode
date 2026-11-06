@@ -16,10 +16,10 @@ export interface DesktopReviewProps {
   availability: { available: true } | { available: false; reason: string };
 }
 
-type ReviewRead =
+type ReviewRead = { client: DesktopReviewProps["client"] } & (
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; diff: TurnDiffPayload | null };
+  | { status: "ready"; diff: TurnDiffPayload | null });
 
 /** The parent supplies a replay-selected turn and the actual advertised capability. */
 export function DesktopReview({ client, selection, availability }: DesktopReviewProps) {
@@ -38,27 +38,27 @@ function SelectedTurnReview({ client, turnId }: {
   client: DesktopReviewProps["client"];
   turnId: TurnId;
 }) {
-  const [read, setRead] = useState<ReviewRead>({ status: "loading" });
+  const [read, setRead] = useState<ReviewRead>({ client, status: "loading" });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [request, setRequest] = useState(0);
 
   useEffect(() => {
     let active = true;
-    setRead({ status: "loading" });
+    setRead({ client, status: "loading" });
     void client.getTurnDiff({ turnId }).then(({ diff }) => {
       if (!active) return;
       if (diff && diff.turnId !== turnId) {
-        setRead({ status: "error" });
+        setRead({ client, status: "error" });
         return;
       }
-      setRead({ status: "ready", diff });
+      setRead({ client, status: "ready", diff });
     }).catch(() => {
-      if (active) setRead({ status: "error" });
+      if (active) setRead({ client, status: "error" });
     });
     return () => { active = false; };
   }, [client, turnId, request]);
 
-  if (read.status === "loading") return <p role="status">Loading saved turn changes…</p>;
+  if (read.client !== client || read.status === "loading") return <p role="status">Loading saved turn changes…</p>;
   if (read.status === "error") return (
     <div role="alert">
       <p>Saved turn changes could not be loaded.</p>
