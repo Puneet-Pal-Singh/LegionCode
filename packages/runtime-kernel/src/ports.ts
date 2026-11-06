@@ -65,6 +65,8 @@ export interface ToolAuthorizationPort {
 }
 
 export interface WorkerProtocolPort {
+  /** A hard backend restriction: all mutating and unclassified routes are unavailable. */
+  readonly executionCapability?: "read_only";
   /** Resolves only after every workspace-mutating tool operation has stopped. */
   awaitQuiescence?(input: {
     readonly turnId: Turn["id"];

@@ -1,5 +1,51 @@
 # Capability ownership
 
+## Plan 057 — Local read-only Turn execution
+
+`RuntimeKernel` owns local lifecycle and terminal settlement. Its explicit
+`artifactCapture: "omitted_read_only"` capability requires a read-only run mode,
+a restricted read-only worker and no executable hooks. Default repository turns
+continue to require real Git/artifact capture. Omitted capture emits no snapshot,
+diff or artifact event.
+
+`execution-engine/src/runtime/desktop/LocalReadOnlyTurnExecutor` creates canonical
+initial admission records and owns one kernel handle per admitted attempt.
+`LocalReadOnlyToolWorker` dispatches only `read_file` through the
+existing registry and gateway; `LocalReadOnlyExecutionService` resolves the
+same generation-bound grant handle before each operation and before returning bounded output.
+The host's private `LocalWorkspaceService.bindForExecution` owns grant/regrant
+invalidation. Its handle is shared with capture ports for the attempt, never a
+renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
+terminal retries cannot enqueue a later Stop.
+
+`engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
+owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
+The local factory reuses native context assembly/compaction and connects the same
+provider's tool tracker to the local worker. It creates no legacy Run repository
+or recorder; hosted callers retain their existing optional budget and projection
+observer ports. Protected provider adaptation stays behind the supplied text
+gateway, with canonical Turn/Thread identity.
+
+The App Server consumer/composition and protected provider resolution remain
+integration dependencies owned by workers01/04. Durable admission uses worker02's
+canonical `TurnAdmission` contract; the executor does not own a prompt store.
+The real Desktop acceptance loop is pending that wiring and installed Mac proof.
+The default Node descriptor reader is Linux-only. Mac supplies the actual
+`NativeFilesystemBridge.readFile` bound to the same held-root-FD grant handle via
+`createNativeReadExecutionService({attempt, binding, readFile})`, returned from
+`createReadExecutionService(admission, theSameBinding, signal)`. This read-only
+adapter has no helper-path, framing, file-opening or mutation authority. Both
+backends share `formatLocalReadFile`; no pathname fallback or directory-read
+capability is exposed. Helper compile/package and protected startup path remain
+owned by the native helper/packaging/private host composition.
+
+Sources inspected: [Codex isolated ghost-commit capture](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/git-utils/src/ghost_commits.rs#L302)
+keeps capture indexing isolated; [T3 checkpoint service](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/server/src/orchestration-v2/CheckpointCaptureService.ts#L68)
+checks persisted terminal/checkpoint state before retrying capture.
+[OpenCode read tool at 3729fd57068445104ea464a952d41798ed30ea20](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/tool/read.ts)
+uses bounded text reads. These references support keeping capture ownership and
+local execution behind existing ports; they introduce no external harness driver.
+
 ## Unused Web run-summary reader retirement
 
 The unreferenced `useRunSummary` hook, its implementation-only tests and its
