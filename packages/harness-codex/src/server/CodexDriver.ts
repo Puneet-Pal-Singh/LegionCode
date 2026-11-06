@@ -11,7 +11,7 @@ import {
   HarnessControlCommandSchema,
   type HarnessObservationPayload,
 } from "@repo/worker-protocol";
-import { codexRuntime } from "./runtime.js";
+import { codexRuntime, codexRuntimePin } from "./runtime.js";
 import {
   CodexStdioTransport,
   type CodexServerRequest,
@@ -71,6 +71,7 @@ export class CodexDriver implements HarnessDriver {
   ): Promise<HarnessLiveSession> {
     const { command, host, signal, observe } = input;
     const { selection } = command;
+    const runtimePin = codexRuntimePin(process.platform, process.arch);
     if (
       !this.options.accountBinding ||
       this.options.accountBinding.instanceId !== selection.instanceId ||
@@ -88,9 +89,7 @@ export class CodexDriver implements HarnessDriver {
       selection.protocolVersion !== codexRuntime.schemaSha256 ||
       selection.transport !== "codex_app_server_stdio" ||
       command.filesystemRoot !== host.workspaceRoot ||
-      host.environment.CODEX_HOME !== host.instanceDirectory ||
-      process.platform !== "linux" ||
-      process.arch !== "x64"
+      host.environment.CODEX_HOME !== host.instanceDirectory
     )
       throw new Error("Codex binding/runtime unavailable");
     if (
@@ -115,7 +114,7 @@ export class CodexDriver implements HarnessDriver {
     const digest = createHash("sha256")
       .update(await readFile(this.executable))
       .digest("hex");
-    if (digest !== codexRuntime.linuxX64BinarySha256)
+    if (digest !== runtimePin.binarySha256)
       throw new Error("Codex executable pin mismatch");
     if (signal.aborted) throw new Error("Codex opening interrupted");
     const child = await host.launch({

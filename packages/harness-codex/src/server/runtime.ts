@@ -1,15 +1,27 @@
-/** Investigation pin; host admission must verify the installed version before use. */
+import manifest from "../runtime-manifest.json" with { type: "json" };
+
+const platforms = Object.freeze({
+  "linux-x64": Object.freeze(manifest.platforms["linux-x64"]),
+  "darwin-arm64": Object.freeze(manifest.platforms["darwin-arm64"]),
+});
+
+/** Binary/schema evidence only. Host policy and installed product acceptance remain separate gates. */
 export const codexRuntime = Object.freeze({
-  version: "0.167.0",
-  transport: "codex-app-server-stdio",
-  schemaSha256:
-    "021462a9bacd117f4cd40c256a4888619d059cec6a65b795198d521ba660e554",
-  linuxX64BinarySha256:
-    "cdcb45aaa01d0f14e298985e09465aebccd47f64ecd298aea44814af7b62bbda",
-  npmPackage: "@openai/codex@0.167.0-linux-x64",
-  npmIntegrity:
-    "sha512-FNc7danfUng9Sp6w+Fh7kofNHHZpA6VMyNKWsWrS3OwHly69gywTWeiuwrUPXpJSho8Df4xqRsHfHRPzj7zYQg==",
-  // No cross-version resume compatibility is asserted by this transport checkpoint.
+  version: manifest.version,
+  transport: manifest.transport,
+  schemaSha256: manifest.schemaSha256,
+  platforms,
+  linuxX64BinarySha256: platforms["linux-x64"].binarySha256,
+  npmPackage: platforms["linux-x64"].npmPackage,
+  npmIntegrity: platforms["linux-x64"].npmIntegrity,
+  // Resume still requires the exact admitted version/schema and canonical generation binding.
   resumeCompatibility: "exact-version-and-schema-only",
   experimentalApi: false,
 } as const);
+
+/** Never use a different architecture, an ambient executable or a previous CLI version. */
+export function codexRuntimePin(platform: string, architecture: string) {
+  const key = `${platform}-${architecture}`;
+  if (key === "linux-x64" || key === "darwin-arm64") return platforms[key];
+  throw new Error("Codex binary/schema pin unavailable for this platform");
+}
