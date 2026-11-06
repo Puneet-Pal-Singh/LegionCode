@@ -102,6 +102,16 @@ describe("PostgresTranscriptRepository", () => {
       true,
       true,
     ]);
+
+    client.queries.length = 0;
+    await repository.ensureSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174000",
+      userId: "123e4567-e89b-42d3-a456-426614174001",
+      initialThreadId: "thr_server_candidate",
+    });
+    expect(client.queries[1]?.params[3]).toBe("thr_server_candidate");
+    // The INSERT candidate never enables thread_id replacement on conflict.
+    expect(client.queries[1]?.params[13]).toBe(false);
   });
 
   it("uses session-level archive metadata", async () => {

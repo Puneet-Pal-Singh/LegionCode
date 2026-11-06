@@ -46,7 +46,9 @@ describe("TranscriptController", () => {
       }),
     });
     const created = await client.createSession({ sessionId: TEST_SESSION_ID, title: "Task" });
-    expect(created).toMatchObject({ id: TEST_SESSION_ID, threadId: null, activeRunId: null, titleVersion: 1 });
+    expect(created).toMatchObject({ id: TEST_SESSION_ID, threadId: expect.stringMatching(/^thr_/), activeRunId: null, titleVersion: 1 });
+    const retried = await client.createSession({ sessionId: TEST_SESSION_ID, title: "Task" });
+    expect(retried.threadId).toBe(created.threadId);
     await ensureCanonicalTitleScope(repository);
     const renamed = await client.renameSession(TEST_SESSION_ID, "Saved title");
     expect(renamed).toMatchObject({ id: TEST_SESSION_ID, title: "Saved title", titleSource: "user", titleVersion: 2 });
@@ -161,7 +163,7 @@ describe("TranscriptController", () => {
 
   it("renames, pins, and unarchives session metadata", async () => {
     await requestHostedSession("session/create", createSessionRequest(), env);
-    await ensureCanonicalTitleScope(repository);
+    const threadId = await ensureCanonicalTitleScope(repository);
 
     const renameResponse = await requestHostedSession("session/rename",
       authenticatedRequest(
@@ -206,7 +208,7 @@ describe("TranscriptController", () => {
     });
     await expect(
       titleEvents.replay({
-        scope: { scopeType: "thread", scopeId: "thr_title_scope" },
+        scope: { scopeType: "thread", scopeId: threadId },
         afterCursor: null,
         limit: 10,
       }),
@@ -465,12 +467,14 @@ function authenticatedRequest(url: string, init: RequestInit = {}): Request {
 
 async function ensureCanonicalTitleScope(
   repository: MemoryTranscriptRepository,
-): Promise<void> {
+): Promise<string> {
+  const persisted = (await repository.listSessions(TEST_USER_ID)).sessions.find((session) => session.id === TEST_SESSION_ID);
+  const threadId = persisted?.threadId ?? "thr_title_scope";
   await repository.ensureSession({
     sessionId: TEST_SESSION_ID,
     userId: TEST_USER_ID,
     workspaceId: TEST_WORKSPACE_ID,
-    threadId: "thr_title_scope",
+    threadId,
     activeRunId: TEST_RUN_ID,
   });
   await repository.appendMessage({
@@ -482,6 +486,7 @@ async function ensureCanonicalTitleScope(
     dedupeKey: "first-user-message",
     parts: [{ type: "text", content: "Rename this task" }],
   });
+  return threadId;
 }
 
 function createEnv(
