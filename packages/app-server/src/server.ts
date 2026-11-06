@@ -115,6 +115,9 @@ export type AppServerComposition = {
   hostedThreadInputOperationsService?: {
     execute(command: ThreadInputCommand): Promise<AppServerMethodOutcome>;
   };
+  localLifecycleReplayService?: {
+    replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+  };
   hostedLifecycleOperationsService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
     getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
@@ -373,6 +376,10 @@ async function dispatch(
       return composition.hostedThreadInputOperationsService.execute(request.params);
     }
     case "turn/lifecycleEvents": {
+      if (composition.environment === "local") {
+        if (!composition.localLifecycleReplayService) throw new Error("unsupported");
+        return composition.localLifecycleReplayService.replayLifecycleEvents(request.params);
+      }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
     }

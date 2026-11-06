@@ -51,7 +51,7 @@ export function ChangesPanel({
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
   const files = useMemo(() => review.reviewFiles, [review.reviewFiles]);
-  const isSavedEditMode = review.reviewSource.kind === "prompt_artifact";
+  const isSavedEditMode = review.reviewSource.kind === "prompt_artifact" || review.reviewSource.kind === "unavailable_saved_artifact";
   const showStackedReview = layout === "stacked";
   const showChangesList =
     showChangesRail &&
@@ -83,7 +83,7 @@ export function ChangesPanel({
   }, [files, review]);
 
   if (
-    review.reviewSource.kind !== "turn_diff" &&
+    review.reviewSource.kind === "live_git" &&
     (review.statusLoading || review.isGitWorkspaceRecovering) &&
     !review.status
   ) {
@@ -96,7 +96,7 @@ export function ChangesPanel({
   }
 
   if (
-    review.reviewSource.kind !== "turn_diff" &&
+    review.reviewSource.kind === "live_git" &&
     review.statusError &&
     !review.status
   ) {
@@ -105,7 +105,7 @@ export function ChangesPanel({
     );
   }
 
-  if (review.reviewSource.kind !== "turn_diff" && !review.gitAvailable) {
+  if (review.reviewSource.kind === "live_git" && !review.gitAvailable) {
     return (
       <GitUnavailableState
         className={className}
