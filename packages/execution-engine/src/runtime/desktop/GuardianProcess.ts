@@ -160,7 +160,7 @@ export class GuardianProcess {
   }
 
   stop(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.closed || this.receipt) return;
     this.stopped = true;
     // Closing this pipe is also the owner-loss signal when the utility host dies.
     // Never kill the guardian: it must keep ownership until waitpid completes.
