@@ -105,14 +105,19 @@ export class PostgresDesktopAuthChallenges {
       const active = source.rows[0];
       if (!active) return false;
       const result = await tx.query(
-        `UPDATE desktop_auth_challenges SET authorized_source_session_id=$2,authorized_at=$3
-          WHERE challenge_hash=$1 AND consent_session_id=$2 AND consent_csrf_hash=$4
-            AND origin=$5 AND intent=$6 AND expires_at>$3
-            AND consumed_at IS NULL AND authorized_at IS NULL RETURNING challenge_hash`,
+        `WITH authority AS MATERIALIZED (SELECT clock_timestamp() AS checked_at)
+          UPDATE desktop_auth_challenges AS c
+          SET authorized_source_session_id=s.id,authorized_at=a.checked_at
+          FROM auth_sessions AS s, authority AS a
+          WHERE c.challenge_hash=$1 AND s.id=$2 AND s.session_hash=$3
+            AND c.consent_session_id=s.id AND c.consent_csrf_hash=$4
+            AND c.origin=$5 AND c.intent=$6 AND c.expires_at>a.checked_at
+            AND s.revoked_at IS NULL AND s.expires_at>a.checked_at
+            AND c.consumed_at IS NULL AND c.authorized_at IS NULL RETURNING c.challenge_hash`,
         [
           input.challengeIdHash,
           active.id,
-          input.now,
+          input.sourceSessionHash,
           input.csrfHash,
           input.origin,
           input.intent,
@@ -141,6 +146,14 @@ export class PostgresDesktopAuthChallenges {
         );
         const approved = challenge.rows[0];
         if (!approved) return { status: "invalid" };
+        // A challenge may expire while SELECT FOR UPDATE waits. A new statement
+        // checks the database clock after that lock before reporting pending.
+        const challengeTime = await tx.query<{ active: boolean }>(
+          "SELECT expires_at>clock_timestamp() AS active FROM desktop_auth_challenges WHERE challenge_hash=$1",
+          [input.challengeIdHash],
+        );
+        if (challengeTime.rows[0]?.active !== true)
+          return { status: "invalid" };
         if (approved.authorized_at === null) return { status: "pending" };
         if (approved.authorized_source_session_id === null)
           return { status: "invalid" };
@@ -154,23 +167,29 @@ export class PostgresDesktopAuthChallenges {
         const source = sourceResult.rows[0];
         if (!source || source.session_hash === input.sessionHash)
           return { status: "invalid" };
-        const expiresAt = new Date(
-          Math.min(
-            Date.parse(input.sessionExpiresAt),
-            Date.parse(iso(source.expires_at)),
-          ),
-        ).toISOString();
+        // Both locks are held. Recheck both expiries against one fresh database
+        // timestamp at the actual mint statement, never request/transaction time.
         const created = await tx.query<NewSessionRow>(
-          `INSERT INTO auth_sessions(user_id,session_hash,expires_at,created_at,last_seen_at)
-          VALUES ($1,$2,$3,$4,$4) RETURNING id,user_id,expires_at`,
-          [source.user_id, input.sessionHash, expiresAt, input.now],
+          `WITH authority AS MATERIALIZED (SELECT clock_timestamp() AS checked_at)
+            INSERT INTO auth_sessions(user_id,session_hash,expires_at,created_at,last_seen_at)
+            SELECT s.user_id,$2,LEAST($3::timestamptz,s.expires_at),a.checked_at,a.checked_at
+            FROM desktop_auth_challenges AS c,auth_sessions AS s,authority AS a
+            WHERE c.challenge_hash=$4 AND s.id=$5 AND s.user_id=$1
+              AND c.authorized_source_session_id=s.id AND c.consent_session_id=s.id
+              AND c.authorized_at IS NOT NULL AND c.consumed_at IS NULL
+              AND c.expires_at>a.checked_at AND s.revoked_at IS NULL AND s.expires_at>a.checked_at
+              AND $3::timestamptz>a.checked_at
+            RETURNING id,user_id,expires_at`,
+          [
+            source.user_id,
+            input.sessionHash,
+            input.sessionExpiresAt,
+            input.challengeIdHash,
+            source.id,
+          ],
         );
         const session = created.rows[0];
-        if (!session)
-          throw new DesktopAuthChallengeError(
-            "redeem_outcome_unknown",
-            "Desktop authentication session was not returned",
-          );
+        if (!session) return { status: "invalid" };
         // The issuance receipt must identify the exact locked source principal.
         // Fail inside this transaction if storage returns a different principal.
         if (session.user_id !== source.user_id)
@@ -179,9 +198,9 @@ export class PostgresDesktopAuthChallenges {
             "Desktop authentication session principal did not match",
           );
         const consumed = await tx.query(
-          `UPDATE desktop_auth_challenges SET consumed_at=$2
+          `UPDATE desktop_auth_challenges SET consumed_at=clock_timestamp()
           WHERE challenge_hash=$1 AND consumed_at IS NULL RETURNING challenge_hash`,
-          [input.challengeIdHash, input.now],
+          [input.challengeIdHash],
         );
         if (consumed.rows.length !== 1)
           throw new DesktopAuthChallengeError(
