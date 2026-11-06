@@ -47,7 +47,23 @@ export function buildSingleProcessMacSandbox(
     // Codex's base policy permits process-info* for same-sandbox targets.
     // No-fork execution needs only its own runtime/code-signing metadata.
     "(allow process-info* (target self))",
+    // Codex restricted defaults permit this specific OS container-expectation
+    // query during bootstrap; it does not grant filesystem or network access.
+    '(allow system-mac-syscall (require-all (mac-policy-name "Sandbox") (mac-syscall-number 67)))',
+    // Resolve only ancestors of already declared roots/executable, without
+    // granting directory contents or file data outside those roots.
+    '(allow file-read-metadata file-test-existence (literal "/")',
+    '  (path-ancestors (param "WORKSPACE_ROOT")) (path-ancestors (param "EXECUTABLE"))',
+    ...sandbox.runtimeReadRoots.map((_, index) => `  (path-ancestors (param "RUNTIME_READ_${index}"))`),
+    ")",
     '(allow file-read* (subpath (param "WORKSPACE_ROOT")) (literal (param "EXECUTABLE"))',
+    '  (subpath "/System/Library") (subpath "/usr/lib") (subpath "/usr/share/locale")',
+    '  (subpath "/usr/share/zoneinfo") (subpath "/private/var/db/dyld")',
+    ...sandbox.runtimeReadRoots.map((_, index) => `  (subpath (param "RUNTIME_READ_${index}"))`),
+    ")",
+    // Codex restricted platform defaults separately permit executable mappings
+    // for the loader. Keep them within the very same declared read authority.
+    '(allow file-map-executable (subpath (param "WORKSPACE_ROOT")) (literal (param "EXECUTABLE"))',
     '  (subpath "/System/Library") (subpath "/usr/lib") (subpath "/usr/share/locale")',
     '  (subpath "/usr/share/zoneinfo") (subpath "/private/var/db/dyld")',
     ...sandbox.runtimeReadRoots.map((_, index) => `  (subpath (param "RUNTIME_READ_${index}"))`),
