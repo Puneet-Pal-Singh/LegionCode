@@ -526,6 +526,7 @@ async function dispatch(
           environment: composition.environment,
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
+          localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");
