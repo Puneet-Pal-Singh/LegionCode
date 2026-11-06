@@ -15,35 +15,35 @@ export function resolveComposerKeyboardAction(input: {
   readonly shiftKey: boolean;
   readonly metaKey: boolean;
   readonly ctrlKey: boolean;
+  readonly altKey?: boolean;
   readonly isComposing: boolean;
   readonly isActive: boolean;
-  readonly preferences: Pick<
-    ComposerPreferences,
-    "sendShortcut" | "followUpBehavior"
-  >;
+  readonly preferences: Pick<ComposerPreferences, "sendShortcut">;
 }): ComposerKeyboardAction {
-  if (input.key !== "Enter" || input.shiftKey || input.isComposing) {
+  if (
+    input.key !== "Enter" ||
+    input.shiftKey ||
+    input.isComposing ||
+    input.altKey
+  ) {
     return { type: "ignore" };
   }
 
   const modifierPressed = input.metaKey || input.ctrlKey;
-  if (input.isActive && modifierPressed) {
+  if (input.isActive) {
     return {
       type: "submit",
-      delivery: input.preferences.followUpBehavior === "queue" ? "steer" : "queue",
+      delivery: modifierPressed ? "steer" : "queue",
     };
   }
 
   const shouldSubmit =
-    input.preferences.sendShortcut === "enter"
-      ? true
-      : modifierPressed;
+    input.preferences.sendShortcut === "enter" ? true : modifierPressed;
   if (!shouldSubmit) {
     return { type: "ignore" };
   }
 
   return {
     type: "submit",
-    ...(input.isActive ? { delivery: input.preferences.followUpBehavior } : {}),
   };
 }

@@ -340,6 +340,8 @@ describe("ProviderStore", () => {
     });
 
     it("resetAll clears workspace-global and run-scoped state", async () => {
+      const sessionId = "session-provider-preferences-survive-reset";
+      store.setActiveSessionId(sessionId);
       store.setActiveRunId("run-1");
       await store.bootstrap();
       await store.loadProviderModels("openai");
@@ -348,8 +350,12 @@ describe("ProviderStore", () => {
         credentialId: credential1Id,
         modelId: "gpt-4-turbo",
       });
+      const preferenceKey = `provider:session-scoped-selection:${sessionId}`;
+      const persistedSelection = localStorage.getItem(preferenceKey);
+      expect(persistedSelection).not.toBeNull();
 
       store.resetAll();
+      expect(localStorage.getItem(preferenceKey)).toBe(persistedSelection);
 
       const state = store.getState();
       expect(state.catalog).toEqual([]);
@@ -365,9 +371,10 @@ describe("ProviderStore", () => {
         apiClient: mockApiClient,
       });
       expect(restoredStore.setActiveRunId("run-1")).toBe(true);
-      expect(restoredStore.getState().selectedProviderId).toBeNull();
-      expect(restoredStore.getState().selectedCredentialId).toBeNull();
-      expect(restoredStore.getState().selectedModelId).toBeNull();
+      restoredStore.setActiveSessionId(sessionId);
+      expect(restoredStore.getState().selectedProviderId).toBe("openai");
+      expect(restoredStore.getState().selectedCredentialId).toBe(credential1Id);
+      expect(restoredStore.getState().selectedModelId).toBe("gpt-4-turbo");
     });
   });
 
@@ -983,6 +990,8 @@ describe("ProviderStore", () => {
       restoredStore.setActiveRunId("run-1");
       await restoredStore.bootstrap();
 
+      restoredStore.copySessionSelection("session-restore", "session-from-composer");
+      restoredStore.setActiveSessionId("session-from-composer");
       const state = restoredStore.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);

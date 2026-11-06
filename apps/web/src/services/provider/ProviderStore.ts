@@ -1,7 +1,6 @@
 import {
   readSessionScopedSelection,
   writeSessionScopedSelection,
-  clearPersistedSessionScopedSelections,
 } from "./ProviderSelectionPreferences.js";
 import {
   deriveSelectionSnapshot,
@@ -318,6 +317,16 @@ export class ProviderStore {
       ...this.state,
       visibleModelIds: this.copyVisibleModelIds(this.state.visibleModelIds),
     };
+  }
+
+  /** Carry an unsent composer's explicit choice into the chat it creates. */
+  copySessionSelection(sourceSessionId: string, destinationSessionId: string): void {
+    const source = this.getStateForSession(sourceSessionId);
+    writeSessionScopedSelection(destinationSessionId, {
+      selectedProviderId: source.selectedProviderId,
+      selectedCredentialId: source.selectedCredentialId,
+      selectedModelId: source.selectedModelId,
+    });
   }
 
   getStateForSession(sessionId: string): ProviderStoreState {
@@ -1561,7 +1570,6 @@ export class ProviderStore {
     this.activeRunId = null;
     this.activeSessionId = null;
     this.hasExplicitSessionSelection = false;
-    clearPersistedSessionScopedSelections();
     this.state = createInitialStoreState();
     this.emit();
   }

@@ -7,12 +7,16 @@ import {
 
 type AttachmentSource = "paste" | "upload";
 
-export function useChatImageAttachmentDraft(enabled = true) {
+export function useChatImageAttachmentDraft(
+  enabled = true,
+  initialAttachments: ChatImageAttachment[] = [],
+) {
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
-  const attachmentsRef = useRef<ChatImageAttachment[]>([]);
+  const attachmentsRef = useRef<ChatImageAttachment[]>(initialAttachments);
   const detachedAttachmentsRef = useRef(new Map<string, ChatImageAttachment>());
-  const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
+  const [attachments, setAttachments] =
+    useState<ChatImageAttachment[]>(initialAttachments);
   const [error, setError] = useState<string | null>(null);
   const [isDraggingImages, setIsDraggingImages] = useState(false);
 

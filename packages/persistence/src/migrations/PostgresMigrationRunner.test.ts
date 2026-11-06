@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
+import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
 import type { MigrationLedger, SqlMigration } from "./types.js";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
@@ -73,17 +74,21 @@ describe("PostgresMigrationRunner", () => {
     const result = await runner.runPending([
       { id: "0001_done", description: "done", statements: ["SELECT 1"] },
       { id: "0002_pending", description: "pending", statements: ["SELECT 2"] },
+      projectlessSessionRepositoryMigration,
     ]);
 
     expect(result).toEqual({
-      applied: ["0002_pending"],
+      applied: ["0002_pending", "0034_projectless_session_repository"],
       skipped: ["0001_done"],
     });
     expect(client.statements).toEqual([
       "SELECT pg_advisory_xact_lock(hashtext('legioncode:persistence:migrations')::bigint)",
       "SELECT 2",
+      "UPDATE sessions SET repository = NULL WHERE repository = 'New Project'",
     ]);
-    expect(ledger.recorded).toEqual(["0002_pending"]);
+    expect(ledger.recorded).toEqual(["0002_pending", "0034_projectless_session_repository"]);
+    const alreadyApplied = new PostgresMigrationRunner(client, new FakeLedger(new Set(ledger.recorded)));
+    expect(await alreadyApplied.runPending([projectlessSessionRepositoryMigration])).toEqual({ applied: [], skipped: ["0034_projectless_session_repository"] });
   });
 
   it("adds migration context to statement failures", async () => {
