@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AnthropicMessagesAdapter } from "./AnthropicMessagesAdapter";
+import { AnthropicMessagesAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/AnthropicMessagesAdapter";
 
 const mockGenerateText = vi.fn();
 const mockStreamText = vi.fn();
