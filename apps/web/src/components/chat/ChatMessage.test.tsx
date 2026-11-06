@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Message } from "@ai-sdk/react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
 import { ChatMessage } from "@legioncode/client-ui";
+import { ChatHydrationService } from "../../services/ChatHydrationService";
+import { loadCodeArtifactContent } from "../../services/api/codeArtifactReads";
 
 describe("ChatMessage", () => {
   it("renders assistant content as markdown", () => {
@@ -334,7 +336,7 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("Build · Gemma 4 31B · 12:40 AM")).toBeNull();
   });
 
-  it("renders code artifacts and forwards the open callback", () => {
+  it("renders code artifacts and forwards the open callback", async () => {
     const onArtifactOpen = vi.fn();
     const message = {
       id: "assistant-artifact",
@@ -350,7 +352,9 @@ describe("ChatMessage", () => {
       ],
     } as Message;
 
-    render(<ChatMessage message={message} onArtifactOpen={onArtifactOpen} />);
+    const { rerender, unmount } = render(
+      <ChatMessage message={message} onArtifactOpen={onArtifactOpen} />,
+    );
 
     expect(screen.getByText("src/index.ts")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Open Full View"));
@@ -358,6 +362,90 @@ describe("ChatMessage", () => {
       "src/index.ts",
       "export const value = 1;",
     );
+
+    const sessionId = "550e8400-e29b-41d4-a716-446655440001";
+    const key = "artifacts/original-session/original-agent/legacy.ts";
+    const content = "export const restored = true;";
+    const requests: Array<{ method: string; params: unknown }> = [];
+    let previewSignal: AbortSignal | null | undefined;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const envelope = JSON.parse(String(init?.body));
+      requests.push(envelope);
+      if (envelope.method === "artifact/codeContent") previewSignal = init?.signal;
+      return Response.json({
+        protocolVersion: "1.0.0",
+        method: envelope.method,
+        ok: true,
+        result: envelope.method === "session/history"
+          ? {
+              messages: [{
+                id: "original-message",
+                role: "assistant",
+                content: [{
+                  type: "function",
+                  id: "original-call",
+                  function: {
+                    name: "create_code_artifact",
+                    arguments: JSON.stringify({
+                      path: "src/legacy.ts",
+                      content: { type: "r2_ref", key },
+                    }),
+                  },
+                }],
+                createdAt: "2026-10-03T00:00:00.000Z",
+              }],
+              snapshot: "1",
+              nextCursor: null,
+            }
+          : { content },
+      });
+    });
+
+    try {
+      const history = await new ChatHydrationService().hydrateMessages(sessionId);
+      expect(history.status).toBe("readable");
+      expect(history.messages[0]?.id).toBe("original-message");
+      expect(history.messages[0]?.toolInvocations?.[0]?.toolCallId).toBe("original-call");
+      rerender(
+        <ChatMessage
+          message={history.messages[0]!}
+          onArtifactOpen={onArtifactOpen}
+          loadArtifactContent={(reference, signal) =>
+            loadCodeArtifactContent(sessionId, reference, signal)
+          }
+        />,
+      );
+      await waitFor(() => expect(screen.getByTitle("Open Full View")).toBeInTheDocument());
+      fireEvent.click(screen.getByTitle("Open Full View"));
+      expect(onArtifactOpen).toHaveBeenLastCalledWith("src/legacy.ts", content);
+      expect(requests.map((request) => request.method)).toEqual([
+        "session/history",
+        "artifact/codeContent",
+      ]);
+      expect(requests[1]?.params).toEqual({ sessionId, key });
+      expect(previewSignal?.aborted).toBe(false);
+
+      let pendingSignal: AbortSignal | null | undefined;
+      fetchSpy.mockImplementationOnce((_input, init) => new Promise<Response>((_resolve, reject) => {
+        pendingSignal = init?.signal;
+        pendingSignal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }));
+      rerender(
+        <ChatMessage
+          message={history.messages[0]!}
+          onArtifactOpen={onArtifactOpen}
+          loadArtifactContent={(reference, signal) =>
+            loadCodeArtifactContent(sessionId, reference, signal)
+          }
+        />,
+      );
+      await waitFor(() => expect(pendingSignal).toBeInstanceOf(AbortSignal));
+      unmount();
+      expect(pendingSignal?.aborted).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("forwards the changed-file review callback", () => {

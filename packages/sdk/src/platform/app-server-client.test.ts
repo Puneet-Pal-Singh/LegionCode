@@ -56,6 +56,14 @@ describe("AppServerClient", () => {
               },
             };
           }
+          if (envelope.method === "artifact/codeContent") {
+            return {
+              protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+              method: envelope.method,
+              ok: true,
+              result: { content: "export const value = 1;" },
+            };
+          }
           return {
             protocolVersion: APP_SERVER_PROTOCOL_VERSION,
             method: "initialize",
@@ -137,6 +145,19 @@ describe("AppServerClient", () => {
         params: { artifactId: "550e8400-e29b-41d4-a716-446655440002", path: "src/example.ts", ...artifactIdentity },
       },
     ]);
+
+    const codeContentRequest = {
+      sessionId: "550e8400-e29b-41d4-a716-446655440001",
+      key: "artifacts/legacy/session/index.ts",
+    };
+    await expect(client.getCodeArtifactContent(codeContentRequest)).resolves.toEqual({
+      content: "export const value = 1;",
+    });
+    expect(sent.at(-1)).toEqual({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "artifact/codeContent",
+      params: codeContentRequest,
+    });
   });
 
   it("acknowledges a canonical terminal turn through the typed session operation", async () => {

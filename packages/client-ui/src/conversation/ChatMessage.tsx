@@ -25,7 +25,7 @@ export interface ChatMessageProps {
   hookAudits?: readonly HookInvocationAuditEvent[];
   onEdit?: (content: string) => Promise<boolean>;
   resolveHydratedImageSource?: (source: string) => string | undefined;
-  loadArtifactContent?: (key: string) => Promise<string>;
+  loadArtifactContent?: (key: string, signal?: AbortSignal) => Promise<string>;
   historyStatus?: "revised" | "edited";
 }
 
