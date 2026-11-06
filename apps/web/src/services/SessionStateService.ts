@@ -115,7 +115,6 @@ export class SessionStateService {
       if (
         parsed.kind !== "setup" ||
         !parsed.id ||
-        !isCanonicalRunId(parsed.activeRunId) ||
         !parsed.createdAt ||
         !parsed.updatedAt
       ) {
@@ -125,7 +124,6 @@ export class SessionStateService {
       return {
         id: parsed.id,
         kind: "setup",
-        activeRunId: parsed.activeRunId,
         createdAt: parsed.createdAt,
         updatedAt: parsed.updatedAt,
       };
@@ -152,19 +150,14 @@ export class SessionStateService {
     if (saved) return saved;
 
     const created = this.createSetupSession();
-    if (!hasStoredValue) this.saveSetupSession(created);
-    return created;
-  }
-
-  /**
-   * Save the current setup session so provider-scoped setup survives refreshes.
-   */
-  static saveSetupSession(session: SetupSessionState): void {
-    try {
-      localStorage.setItem(SETUP_SESSION_KEY, JSON.stringify(session));
-    } catch (e) {
-      console.error("[SessionStateService] Failed to save setup session:", e);
+    if (!hasStoredValue) {
+      try {
+        localStorage.setItem(SETUP_SESSION_KEY, JSON.stringify(created));
+      } catch (e) {
+        console.error("[SessionStateService] Failed to save setup session:", e);
+      }
     }
+    return created;
   }
 
   /**
@@ -268,17 +261,13 @@ export class SessionStateService {
     };
   }
 
-  /**
-   * Create a setup-scoped shell session that can back provider setup before a
-   * repo-backed session exists.
-   */
+  /** Create local shell identity before a repo-backed session exists. */
   static createSetupSession(): SetupSessionState {
     const timestamp = new Date().toISOString();
 
     return {
       id: crypto.randomUUID(),
       kind: "setup",
-      activeRunId: createRunId(),
       createdAt: timestamp,
       updatedAt: timestamp,
     };

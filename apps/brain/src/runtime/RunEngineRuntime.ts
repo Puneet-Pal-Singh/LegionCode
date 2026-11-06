@@ -35,7 +35,7 @@ import { AXIS_PROVIDER_ID } from "../services/providers/axis";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
-  type ProviderStoreScopeInput,
+  type ProviderRuntimeScopeInput,
 } from "../types/provider-scope";
 import {
   RunEngineRequestHandler,
@@ -375,13 +375,14 @@ export class RunEngineRuntime extends DurableObject {
   private resolveProviderScope(
     request: Request,
     correlationId: string,
-  ): ProviderStoreScopeInput {
-    const runId = this.parseRequiredRunId(
-      request.headers.get("X-Run-Id"),
-      correlationId,
-    );
+  ): ProviderRuntimeScopeInput {
+    const rawRunId = request.headers.get("X-Run-Id");
+    const runId =
+      rawRunId === null
+        ? undefined
+        : this.parseRequiredRunId(rawRunId, correlationId);
     return {
-      runId,
+      ...(runId === undefined ? {} : { runId }),
       userId: this.parseRequiredScopeHeader(
         request.headers.get("X-User-Id"),
         "X-User-Id",
@@ -396,22 +397,20 @@ export class RunEngineRuntime extends DurableObject {
   }
 
   private createProviderConfigService(
-    scope: ProviderStoreScopeInput,
+    scope: ProviderRuntimeScopeInput,
     _correlationId: string,
   ): ProviderConfigService {
     const env = this.env as Env;
-    const userId = scope.userId || "anonymous";
-    const workspaceId = scope.workspaceId || "default";
     return createPostgresProviderConfigService(
       env,
-      userId,
-      workspaceId,
+      scope.userId,
+      scope.workspaceId,
       scope.runId,
     );
   }
 
   private createProviderRateLimitService(
-    scope: ProviderStoreScopeInput,
+    scope: ProviderRuntimeScopeInput,
   ): ProviderRateLimitService {
     return ProviderRateLimitService.fromEnv(
       this.ctx as unknown as LegacyDurableObjectState,

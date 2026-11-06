@@ -343,9 +343,99 @@ function AppContent() {
   const providerScopeRunId =
     providerScopeSession?.activeRunId ??
     providerScopeSession?.latestRunId ??
-    setupSession?.activeRunId;
+    undefined;
+  const [workspaceSelectionResolution, setWorkspaceSelectionResolution] =
+    useState<{
+      userId: string;
+      selection: WorkspaceSelection.WorkspaceSelection | null;
+      ready: boolean;
+    } | null>(null);
+  const workspaceSelectionRequestId = useRef(0);
+  const authenticatedUserId = user?.id;
+
+  useEffect(() => {
+    if (!isAuthenticated || !authenticatedUserId) return;
+
+    let cancelled = false;
+    const requestId = ++workspaceSelectionRequestId.current;
+    void WorkspaceSelection.listWorkspaces()
+      .then((response) => {
+        if (cancelled || requestId !== workspaceSelectionRequestId.current)
+          return;
+        const selection = response.selection;
+        const selectedWorkspaceIsOwnedAndActive =
+          selection !== null &&
+          response.workspaces.some(
+            ({ selected, workspace }) =>
+              selected &&
+              workspace.id === selection.workspaceId &&
+              workspace.status === "active",
+          );
+        setWorkspaceSelectionResolution({
+          userId: authenticatedUserId,
+          selection: selectedWorkspaceIsOwnedAndActive ? selection : null,
+          ready: true,
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled || requestId !== workspaceSelectionRequestId.current)
+          return;
+        setWorkspaceSelectionResolution({
+          userId: authenticatedUserId,
+          selection: null,
+          ready: true,
+        });
+        console.warn(
+          "[workspace/selection] Failed to resolve provider setup scope:",
+          error,
+        );
+      })
+
+    return () => {
+      cancelled = true;
+      if (workspaceSelectionRequestId.current === requestId)
+        workspaceSelectionRequestId.current += 1;
+    };
+  }, [authenticatedUserId, isAuthenticated]);
+
+  const workspaceSelectionIsResolved = Boolean(
+    isAuthenticated &&
+    authenticatedUserId &&
+    workspaceSelectionResolution?.userId === authenticatedUserId &&
+    workspaceSelectionResolution.ready,
+  );
+  const ownedWorkspaceSelection = workspaceSelectionIsResolved
+    ? (workspaceSelectionResolution?.selection ?? null)
+    : null;
+  const recordOwnedWorkspaceSelection = useCallback(
+    (selection: WorkspaceSelection.WorkspaceSelection) => {
+      workspaceSelectionRequestId.current += 1;
+      if (!authenticatedUserId) return;
+      setWorkspaceSelectionResolution({
+        userId: authenticatedUserId,
+        selection,
+        ready: true,
+      });
+    },
+    [authenticatedUserId],
+  );
+
+  const providerScopeWorkspaceId = providerScopeSession
+    ? providerScopeSession.id === activeSession?.id &&
+      sessionWorkspaceContext?.sessionId === providerScopeSession.id
+      ? sessionWorkspaceContext.workspaceStatus === "active"
+        ? sessionWorkspaceContext.workspaceId
+        : null
+      : providerScopeSession.workspaceId
+    : workspaceSelectionIsResolved
+      ? (ownedWorkspaceSelection?.workspaceId ?? null)
+      : undefined;
   const { credentials, reset: resetProviderStore } = useProviderStore(
     isAuthenticated ? providerScopeRunId : undefined,
+    isAuthenticated
+      ? (providerScopeSession?.id ?? setupSession?.id)
+      : undefined,
+    isAuthenticated ? providerScopeWorkspaceId : undefined,
   );
 
   // Convert sessions to run inbox items for shell navigation
@@ -535,12 +625,10 @@ function AppContent() {
       repoName: repo.name,
     }),
   );
-  const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(
     () =>
       resolveShellStartupState({
         isAuthenticated,
-        hasSetupRun,
         hasProviderConnection,
         hasRepoContext,
         hasRealSession,
@@ -549,7 +637,6 @@ function AppContent() {
       hasProviderConnection,
       hasRealSession,
       hasRepoContext,
-      hasSetupRun,
       isAuthenticated,
     ],
   );
@@ -716,7 +803,11 @@ function AppContent() {
       if (!repo) return;
       const sessionId = activeSessionId;
       const fullName = repo.full_name;
-      await WorkspaceSelection.selectWorkspace(repo, nextBranch);
+      const selection = await WorkspaceSelection.selectWorkspace(
+        repo,
+        nextBranch,
+      );
+      recordOwnedWorkspaceSelection(selection);
       if (
         activeSessionIdRef.current !== sessionId ||
         repoFullNameRef.current !== fullName
@@ -731,7 +822,13 @@ function AppContent() {
           : current,
       );
     },
-    [activeSessionId, repo, switchBranch, setSessionWorkspaceContext],
+    [
+      activeSessionId,
+      repo,
+      switchBranch,
+      setSessionWorkspaceContext,
+      recordOwnedWorkspaceSelection,
+    ],
   );
 
   const environmentSummary = activeSession
@@ -812,6 +909,7 @@ function AppContent() {
         selectedRepo,
         selectedBranch,
       );
+      recordOwnedWorkspaceSelection(selection);
     } catch (error) {
       console.error("[workspace/select] Failed to persist selection:", error);
       window.dispatchEvent(
@@ -1174,7 +1272,7 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <RunContextProvider
-                  runId={setupSession.activeRunId}
+                  runId={null}
                   sessionId={setupSession.id}
                 >
                   <AgentSetup
@@ -1245,14 +1343,10 @@ function AppContent() {
             isOpen={isSettingsDialogOpen}
             runId={
               isAuthenticated
-                ? (activeSessionId ?? providerScopeRunId)
+                ? providerScopeRunId
                 : undefined
             }
-            workspaceId={
-              hookSettingsContext?.sessionId === activeSessionId
-                ? hookSettingsContext.workspaceId
-                : null
-            }
+            workspaceId={providerScopeWorkspaceId ?? null}
             hookAudits={
               hookSettingsContext?.sessionId === activeSessionId
                 ? hookSettingsContext.audits

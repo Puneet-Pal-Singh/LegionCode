@@ -225,15 +225,15 @@ export type AppServerClient = {
   unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
   getProviderCatalog(runId?: string): Promise<ProviderRegistryEntry[]>;
   getProviderModels(providerId: string, runId?: string, query?: BYOKDiscoveredProviderModelsQuery): Promise<BYOKDiscoveredProviderModelsResponse>;
-  refreshProviderModels(providerId: string, runId: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
-  listProviderCredentials(runId: string): Promise<BYOKCredential[]>;
-  connectProviderCredential(runId: string, request: BYOKCredentialConnectRequest): Promise<BYOKCredential>;
-  updateProviderCredential(runId: string, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
-  disconnectProviderCredential(runId: string, credentialId: string): Promise<void>;
-  validateProviderCredential(runId: string, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
-  readProviderPreferences(runId: string): Promise<BYOKPreference>;
-  updateProviderPreferences(runId: string, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
-  resolveProviderPreferences(runId: string, request: BYOKResolveRequest): Promise<BYOKResolution>;
+  refreshProviderModels(providerId: string, runId?: string): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
+  listProviderCredentials(runId?: string): Promise<BYOKCredential[]>;
+  connectProviderCredential(runId: string | undefined, request: BYOKCredentialConnectRequest): Promise<BYOKCredential>;
+  updateProviderCredential(runId: string | undefined, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
+  disconnectProviderCredential(runId: string | undefined, credentialId: string): Promise<void>;
+  validateProviderCredential(runId: string | undefined, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
+  readProviderPreferences(runId?: string): Promise<BYOKPreference>;
+  updateProviderPreferences(runId: string | undefined, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
+  resolveProviderPreferences(runId: string | undefined, request: BYOKResolveRequest): Promise<BYOKResolution>;
   getProviderSelection(): Promise<ProviderSelection | null>;
   selectProvider(providerId: string, modelId: string): Promise<ProviderSelection>;
   clearProviderSelection(): Promise<null>;
@@ -513,15 +513,15 @@ export function createAppServerClient(
       }, AppServerResultSchemas["provider/models"]);
       return result;
     },
-    refreshProviderModels: async (providerId, runId) => request(options, { method: "provider/models/refresh", params: { providerId, runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/models/refresh"]),
-    listProviderCredentials: async (runId) => request(options, { method: "provider/credentials/list", params: { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/credentials/list"]),
-    connectProviderCredential: async (runId, payload) => request(options, { method: "provider/credentials/connect", params: { runId: RunIdSchema.parse(runId), request: payload } }, AppServerResultSchemas["provider/credentials/connect"]),
-    updateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/update", params: { runId: RunIdSchema.parse(runId), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/update"]),
-    disconnectProviderCredential: async (runId, credentialId) => { await request(options, { method: "provider/credentials/disconnect", params: { runId: RunIdSchema.parse(runId), credentialId } }, AppServerResultSchemas["provider/credentials/disconnect"]); },
-    validateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/validate", params: { runId: RunIdSchema.parse(runId), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/validate"]),
-    readProviderPreferences: async (runId) => request(options, { method: "provider/preferences/read", params: { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/preferences/read"]),
-    updateProviderPreferences: async (runId, payload) => request(options, { method: "provider/preferences/update", params: { runId: RunIdSchema.parse(runId), request: payload } }, AppServerResultSchemas["provider/preferences/update"]),
-    resolveProviderPreferences: async (runId, payload) => request(options, { method: "provider/resolve", params: { runId: RunIdSchema.parse(runId), request: payload } }, AppServerResultSchemas["provider/resolve"]),
+    refreshProviderModels: async (providerId, runId) => request(options, { method: "provider/models/refresh", params: { providerId, ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }) } }, AppServerResultSchemas["provider/models/refresh"]),
+    listProviderCredentials: async (runId) => request(options, { method: "provider/credentials/list", params: runId === undefined ? {} : { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/credentials/list"]),
+    connectProviderCredential: async (runId, payload) => request(options, { method: "provider/credentials/connect", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/credentials/connect"]),
+    updateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/update"]),
+    disconnectProviderCredential: async (runId, credentialId) => { await request(options, { method: "provider/credentials/disconnect", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId } }, AppServerResultSchemas["provider/credentials/disconnect"]); },
+    validateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/validate", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/validate"]),
+    readProviderPreferences: async (runId) => request(options, { method: "provider/preferences/read", params: runId === undefined ? {} : { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/preferences/read"]),
+    updateProviderPreferences: async (runId, payload) => request(options, { method: "provider/preferences/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/preferences/update"]),
+    resolveProviderPreferences: async (runId, payload) => request(options, { method: "provider/resolve", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/resolve"]),
     getProviderSelection: async () => {
       const result = await request(options, { method: "provider/current", params: {} }, AppServerResultSchemas["provider/current"]);
       return result.selection;

@@ -6,7 +6,6 @@ export type ShellStartupState =
 
 export interface ResolveShellStartupStateInput {
   isAuthenticated: boolean;
-  hasSetupRun: boolean;
   hasProviderConnection: boolean;
   hasRepoContext: boolean;
   hasRealSession: boolean;
@@ -44,10 +43,6 @@ export function resolveShellStartupState(
 
   if (input.hasProviderConnection && !input.hasRepoContext) {
     return "shell_authenticated_repo_missing";
-  }
-
-  if (input.hasSetupRun || input.hasRepoContext || input.hasRealSession) {
-    return "shell_authenticated_setup";
   }
 
   return "shell_authenticated_setup";
