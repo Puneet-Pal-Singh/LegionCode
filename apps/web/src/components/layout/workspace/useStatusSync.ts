@@ -8,7 +8,7 @@ interface UseStatusSyncProps {
   pendingApprovalRequestId: string | null;
   stop: () => void;
   refetchGitStatus: (force?: boolean) => Promise<unknown>;
-  onSessionStatusChange?: (status: SessionStatus) => void;
+  onSessionStatusChange?: (runId: string, status: SessionStatus) => void;
 }
 
 export interface UseStatusSyncResult {
@@ -67,7 +67,7 @@ export function useStatusSync({
         activeRunId,
         "APPROVAL_WAITING",
         () => {
-          onSessionStatusChange?.("waiting_for_approval");
+          onSessionStatusChange?.(activeRunId, "waiting_for_approval");
           void refetchGitStatus(true);
         },
         pendingApprovalRequestId,
@@ -80,6 +80,7 @@ export function useStatusSync({
       canonicalRunStatus,
       () =>
         dispatchCanonicalStatus({
+          activeRunId,
           canonicalRunStatus,
           onSessionStatusChange,
           refetchGitStatus,
@@ -98,27 +99,29 @@ export function useStatusSync({
 }
 
 interface DispatchCanonicalStatusArgs {
+  activeRunId: string;
   canonicalRunStatus: string;
-  onSessionStatusChange?: (status: SessionStatus) => void;
+  onSessionStatusChange?: (runId: string, status: SessionStatus) => void;
   refetchGitStatus: (force?: boolean) => Promise<unknown>;
 }
 
 function dispatchCanonicalStatus({
+  activeRunId,
   canonicalRunStatus,
   onSessionStatusChange,
   refetchGitStatus,
 }: DispatchCanonicalStatusArgs): void {
   if (canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED") {
-    onSessionStatusChange?.("running");
+    onSessionStatusChange?.(activeRunId, "running");
     return;
   }
   if (canonicalRunStatus === "PAUSED") {
-    onSessionStatusChange?.("paused");
+    onSessionStatusChange?.(activeRunId, "paused");
     void refetchGitStatus(true);
     return;
   }
   if (canonicalRunStatus === "FAILED") {
-    onSessionStatusChange?.("failed");
+    onSessionStatusChange?.(activeRunId, "failed");
     void refetchGitStatus(true);
     return;
   }
@@ -126,7 +129,7 @@ function dispatchCanonicalStatus({
     canonicalRunStatus === "COMPLETED" ||
     canonicalRunStatus === "CANCELLED"
   ) {
-    onSessionStatusChange?.("completed");
+    onSessionStatusChange?.(activeRunId, "completed");
     void refetchGitStatus(true);
   }
 }

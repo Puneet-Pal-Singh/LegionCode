@@ -426,6 +426,24 @@ and never clears in-memory conversation messages. Legacy per-session GitHub
 context remains read-only for branch preference reconstruction. Full browser
 storage retirement and any cache recovery/import policy remain undecided.
 
+The Web authority-first slice binds live session rows only to the owned hosted
+session list and requires create/archive acknowledgements to match the requested
+session identity before publication. The v3 recovery snapshot remains read-only
+and byte-preserved. Provider session selections remain durable UI preferences
+across auth reset; reset clears only volatile provider/session scope state.
+Repository folder IDs remain the existing canonical repository strings in
+`legioncode_repositories`. Sidebar labels and hidden-folder state use the
+narrow UI preference key `legioncode:repository-folder-preferences:v1`, keyed
+by that repository ID; folder actions do not mutate session rows or active
+selection. This preference is presentational and cannot create, archive, or
+rebind a hosted session.
+
+The persisted provider-setup shell session still carries a locally generated
+run-shaped identifier for existing provider setup scope. This authority slice
+preserves its bytes and current behavior. Its deletion trigger is a verified
+provider setup flow that resolves and restores setup scope without a fabricated
+run identifier; this change does not alter protocol/runtime run identity.
+
 ### Plan 058 authenticated hosted workspace selection
 
 Hosted workspace list/select use the existing WorkspaceSelectionService and
