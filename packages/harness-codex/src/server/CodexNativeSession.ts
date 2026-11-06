@@ -38,6 +38,12 @@ export class CodexNativeSession {
     this.opening = true;
     const response = await this.transport.request(method, params);
     const threadId = this.readIdentity(response, "thread");
+    if (
+      !record(response) ||
+      (params.model != null && response.model !== params.model) ||
+      (params.cwd != null && response.cwd !== params.cwd)
+    )
+      this.invalidResponse();
     if (expectedId !== undefined && threadId !== expectedId)
       this.invalidResponse();
     this.externalThreadId = threadId;

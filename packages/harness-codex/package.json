@@ -16,5 +16,11 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "5.9.2"
+  },
+  "dependencies": {
+    "@repo/harness-core": "workspace:*",
+    "@repo/platform-protocol": "workspace:*",
+    "@repo/worker-protocol": "workspace:*",
+    "zod": "^3.25.0"
   }
 }
