@@ -64,7 +64,8 @@ export function GitReviewProvider({
     runId: runId ?? undefined,
     sessionId: sessionId ?? undefined,
     canonicalTurnReview,
-    liveGitEnabled: isReviewDataEnabled && (isReviewOpen || isReviewActive),
+    defaultLiveGitEnabled: isReviewDataEnabled && (isReviewOpen || isReviewActive),
+    explicitLiveGitEnabled: isReviewOpen || isReviewActive,
     artifactIdentity,
     enabled: shouldLoadReviewData,
   });

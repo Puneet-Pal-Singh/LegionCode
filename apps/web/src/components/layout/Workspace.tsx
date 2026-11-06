@@ -607,7 +607,7 @@ export function Workspace({
         isReviewActive={
           isGitReviewOpen || activeTab === "review" || activeTab === "changes"
         }
-        isReviewDataEnabled={explicitReviewOpen}
+        isReviewDataEnabled={liveGitReviewEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={false}
         artifactIdentity={conversationScope}

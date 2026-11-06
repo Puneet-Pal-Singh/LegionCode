@@ -17,7 +17,8 @@ import {
 interface UseReviewSourceStateInput {
   runId?: string;
   sessionId?: string;
-  liveGitEnabled: boolean;
+  defaultLiveGitEnabled: boolean;
+  explicitLiveGitEnabled: boolean;
   canonicalTurnReview?: CanonicalTurnReviewSource | null;
   enabled?: boolean;
   artifactIdentity?: EditArtifactIdentity | null;
@@ -26,7 +27,8 @@ interface UseReviewSourceStateInput {
 export function useReviewSourceState({
   runId,
   sessionId,
-  liveGitEnabled,
+  defaultLiveGitEnabled,
+  explicitLiveGitEnabled,
   canonicalTurnReview = null,
   enabled = true,
   artifactIdentity = null,
@@ -66,9 +68,10 @@ export function useReviewSourceState({
   const gitStatus = useGitStatus(
     runId,
     sessionId,
-    liveGitEnabled &&
-      (requestedScope === "git-changes" ||
-        (requestedScope === null && !canonicalTurnReview && !openedArtifact)),
+    requestedScope === "git-changes"
+      ? explicitLiveGitEnabled
+      : defaultLiveGitEnabled && requestedScope === null &&
+        !canonicalTurnReview && !openedArtifact,
   );
   const liveGitFiles = gitStatus.status?.files ?? EMPTY_FILE_STATUSES;
 

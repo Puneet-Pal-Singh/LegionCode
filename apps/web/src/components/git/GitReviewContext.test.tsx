@@ -459,6 +459,7 @@ describe("GitReviewProvider", () => {
     rerender(
       <GitReviewProvider
         isReviewOpen={true}
+        isReviewDataEnabled={false}
         canonicalTurnReview={{
           turnId: "trn_review001",
           files: [buildFileStatus("src/app.ts")],
