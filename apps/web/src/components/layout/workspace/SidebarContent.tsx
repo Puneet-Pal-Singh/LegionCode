@@ -1,3 +1,4 @@
+import type { CheckoutTurnIdentity } from "../../../services/api/checkoutReads";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useRef, type RefObject } from "react";
 import type { DiffContent } from "@repo/shared-types";
@@ -44,7 +45,7 @@ interface SidebarContentProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
   runId: string;
-  hasOwnedTurn?: boolean;
+  checkoutTurn?: CheckoutTurnIdentity;
   onOpenFiles: () => void;
   onCloseTree: () => void;
   onToggleChanges: () => void;
@@ -73,7 +74,7 @@ export function SidebarContent({
   explorerRef,
   sandboxId,
   runId,
-  hasOwnedTurn,
+  checkoutTurn,
   onOpenFiles,
   onCloseTree,
   onToggleChanges,
@@ -119,7 +120,7 @@ export function SidebarContent({
       explorerRef={explorerRef}
       sandboxId={sandboxId}
       runId={runId}
-      hasOwnedTurn={hasOwnedTurn}
+      checkoutTurn={checkoutTurn}
       onGitHubFileSelect={handleGitHubFileSelect}
       onLocalFileSelect={handleFileClick}
       onChangedFileSelect={handleChangedFileSelect}

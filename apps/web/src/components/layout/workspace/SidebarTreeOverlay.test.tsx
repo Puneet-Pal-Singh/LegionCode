@@ -57,7 +57,7 @@ const baseProps = {
   explorerRef: { current: null },
   sandboxId: "session-1",
   runId: "run-1",
-  hasOwnedTurn: true,
+  checkoutTurn: { turnId: "trn_original", runAttemptId: "attempt_original" },
   onGitHubFileSelect: vi.fn(),
   onLocalFileSelect: vi.fn(),
   onChangedFileSelect: vi.fn(),
@@ -91,7 +91,7 @@ describe("SidebarTreeOverlay", () => {
     expect(screen.getByText("repository files")).toBeInTheDocument();
     rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" sandboxId="another-session" />);
     expect(screen.getByText("workspace files")).toBeInTheDocument();
-    rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" sandboxId="new-session" hasOwnedTurn={false} />);
+    rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" sandboxId="new-session" checkoutTurn={undefined} />);
     expect(screen.getByText("repository files")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Task checkout" })).toBeDisabled();
   });

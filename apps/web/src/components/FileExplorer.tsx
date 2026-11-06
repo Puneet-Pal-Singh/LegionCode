@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { Folder, File, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '@legioncode/client-ui';
-import { listCheckoutFiles } from '../services/api/checkoutReads';
+import { type CheckoutTurnIdentity, listCheckoutFiles } from '../services/api/checkoutReads';
 import { useAuth } from '../contexts/AuthContext';
 
 interface FileItem {
@@ -15,11 +15,12 @@ export interface FileExplorerHandle { refresh: () => void; }
 interface FileExplorerProps {
   sessionId: string;
   runId: string;
+  checkoutTurn?: CheckoutTurnIdentity;
   onFileClick?: (path: string) => void;
   filterQuery?: string;
 }
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
-  ({ sessionId, runId, onFileClick, filterQuery = '' }, ref) => {
+  ({ sessionId, runId, checkoutTurn, onFileClick, filterQuery = '' }, ref) => {
     const { user, isAuthenticated } = useAuth();
     const [files, setFiles] = useState<FileItem[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
       setExpandedPaths(new Set(['.']));
       setLoadingPaths(new Set());
       return cancel;
-    }, [cancel, sessionId, runId, user?.id, user?.workspaceId, isAuthenticated]);
+    }, [cancel, sessionId, runId, checkoutTurn?.turnId, checkoutTurn?.runAttemptId, user?.id, user?.workspaceId, isAuthenticated]);
 
     const fetchFilesForPath = useCallback(async (path: string, depth: number): Promise<FileItem[] | null> => {
       if (!isAuthenticated || !user) return null;
@@ -52,7 +53,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
       const isCurrent = () => !request.signal.aborted && generation.current === capturedGeneration && requests.current.get(path) === request;
       setLoadingPaths((current) => new Set(current).add(path));
       try {
-        const result = await listCheckoutFiles(sessionId, runId, path, request.signal);
+        if (!checkoutTurn) throw new Error("Start a task before browsing its checkout.");
+        const result = await listCheckoutFiles({ sessionId, runId, turnId: checkoutTurn.turnId, runAttemptId: checkoutTurn.runAttemptId, path }, request.signal);
         if (!isCurrent()) return null;
         setError(null);
         if (result.truncated) setTruncated(true);
@@ -66,7 +68,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
           setLoadingPaths((current) => { const next = new Set(current); next.delete(path); return next; });
         }
       }
-    }, [isAuthenticated, user, sessionId, runId]);
+    }, [isAuthenticated, user, sessionId, runId, checkoutTurn]);
 
     const refresh = useCallback(async () => {
       cancel();

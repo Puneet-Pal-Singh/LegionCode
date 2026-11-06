@@ -16,9 +16,12 @@ describe("useSidebarOrchestration", () => {
   it("keeps changed-file diffs in the Review tab", () => {
     const setActiveTab = vi.fn();
     const setIsViewingContent = vi.fn();
-    const { result } = renderHook(() =>
+    const refresh = vi.fn();
+    const explorerRef = { current: { refresh } };
+    const { result, rerender } = renderHook(({ canonicalRunStatus }) =>
       useSidebarOrchestration({
         activeRunId: "run-1",
+        canonicalRunStatus,
         status: null,
         repo: null,
         branch: "main",
@@ -31,17 +34,21 @@ describe("useSidebarOrchestration", () => {
         selectedDiff: null,
         switchBranch: vi.fn(),
         restoreLastViewedFile: vi.fn(),
-        explorerRef: { current: null },
+        explorerRef,
         setIsViewingContent,
         setActiveTab,
         reviewSidebarFocusRequest: 0,
       }),
+      { initialProps: { canonicalRunStatus: "RUNNING" } },
     );
 
     result.current.handleSidebarDiffSelected("src/example.ts", diff);
 
     expect(setActiveTab).toHaveBeenCalledWith("review");
     expect(setIsViewingContent).toHaveBeenCalledWith(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    rerender({ canonicalRunStatus: "COMPLETED" });
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it("does not restore the last file over the Open file workspace", () => {

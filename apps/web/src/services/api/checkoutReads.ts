@@ -1,9 +1,11 @@
 import { createHostedAppServerClient } from "./appServerClient";
 
-export function listCheckoutFiles(sessionId: string, runId: string, path: string, signal: AbortSignal) {
-  return createHostedAppServerClient({ signal }).listCheckoutFiles({ sessionId, runId, path });
-}
+type ReadParams = Parameters<ReturnType<typeof createHostedAppServerClient>["readCheckoutFile"]>[0];
+export type CheckoutTurnIdentity = Pick<ReadParams, "turnId" | "runAttemptId">;
 
-export function readCheckoutFile(sessionId: string, runId: string, path: string, signal: AbortSignal) {
-  return createHostedAppServerClient({ signal }).readCheckoutFile({ sessionId, runId, path });
+export function listCheckoutFiles(params: ReadParams, signal: AbortSignal) {
+  return createHostedAppServerClient({ signal }).listCheckoutFiles(params);
+}
+export function readCheckoutFile(params: ReadParams, signal: AbortSignal) {
+  return createHostedAppServerClient({ signal }).readCheckoutFile(params);
 }

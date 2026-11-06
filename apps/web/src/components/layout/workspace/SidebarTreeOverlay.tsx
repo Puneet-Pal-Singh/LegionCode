@@ -1,3 +1,4 @@
+import type { CheckoutTurnIdentity } from "../../../services/api/checkoutReads";
 import { AnimatePresence, motion } from "framer-motion";
 import { useState, type RefObject } from "react";
 import { Resizer } from "../../ui/Resizer";
@@ -21,7 +22,7 @@ interface SidebarTreeOverlayProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
   runId: string;
-  hasOwnedTurn?: boolean;
+  checkoutTurn?: CheckoutTurnIdentity;
   onGitHubFileSelect: (path: string) => void;
   onLocalFileSelect: (path: string) => void;
   onChangedFileSelect: (path: string) => void;
@@ -109,7 +110,7 @@ export interface WorkspaceFilesTreeProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
   runId: string;
-  hasOwnedTurn?: boolean;
+  checkoutTurn?: CheckoutTurnIdentity;
   onLocalFileSelect: (path: string) => void;
 }
 
@@ -126,11 +127,12 @@ export function WorkspaceFilesTree({
   sandboxId,
   runId,
   onLocalFileSelect,
-  hasOwnedTurn = false,
+  checkoutTurn,
 }: WorkspaceFilesTreeProps) {
   const [query, setQuery] = useState("");
+  const hasOwnedTurn = checkoutTurn !== undefined;
 
-  const scope = JSON.stringify([sandboxId, runId, repo?.full_name, branch]);
+  const scope = JSON.stringify([sandboxId, runId, checkoutTurn?.turnId, checkoutTurn?.runAttemptId, repo?.full_name, branch]);
   const [choice, setChoice] = useState<{ scope: string; source: "checkout" | "repository" } | null>(null);
   const source = choice?.scope === scope ? choice.source : hasOwnedTurn ? "checkout" : repo ? "repository" : "checkout";
   const tree = source === "repository" && repo ? (
@@ -150,6 +152,7 @@ export function WorkspaceFilesTree({
       ref={explorerRef}
       sessionId={sandboxId}
       runId={runId}
+      checkoutTurn={checkoutTurn}
       filterQuery={query}
       onFileClick={onLocalFileSelect}
     />

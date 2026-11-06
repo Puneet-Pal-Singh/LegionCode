@@ -553,6 +553,7 @@ export function Workspace({
   const { handleFileClick, handleGitHubFileSelect, restoreLastViewedFile, rememberSavedPreview } = useFileLoader({
     sessionId,
     runId: activeRunId,
+    checkoutTurn: conversationScope ?? undefined,
     setIsLoadingContent,
     setContentError,
     openFileTab: handleOpenFileTab,
@@ -572,6 +573,7 @@ export function Workspace({
   });
   const { handleSidebarDiffSelected } = useSidebarOrchestration({
     activeRunId,
+    canonicalRunStatus,
     status,
     repo,
     branch,
@@ -797,7 +799,7 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
-                hasOwnedTurn={Boolean(conversationScope)}
+                checkoutTurn={conversationScope ?? undefined}
                 onOpenFiles={toggleFilesPanel}
                 onCloseTree={() => setActiveTab("review")}
                 onToggleChanges={toggleChangesPanel}
@@ -829,7 +831,7 @@ export function Workspace({
                   explorerRef={explorerRef}
                   sandboxId={sandboxId}
                   runId={activeRunId}
-                  hasOwnedTurn={Boolean(conversationScope)}
+                  checkoutTurn={conversationScope ?? undefined}
                   onLocalFileSelect={(path) => {
                     onFileOpened(path);
                     void handleFullscreenFileClick(path);

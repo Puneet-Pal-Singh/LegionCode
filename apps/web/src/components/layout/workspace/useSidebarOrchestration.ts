@@ -7,6 +7,7 @@ import type { SelectedDiff, SelectedFile, TabType } from "./useWorkspaceState";
 
 interface UseSidebarOrchestrationProps {
   activeRunId: string;
+  canonicalRunStatus?: string | null;
   status: { branch?: string } | null | undefined;
   repo: Repository | null;
   branch: string;
@@ -32,6 +33,7 @@ export interface UseSidebarOrchestrationResult {
 
 export function useSidebarOrchestration({
   activeRunId,
+  canonicalRunStatus,
   status,
   repo,
   branch,
@@ -75,7 +77,7 @@ export function useSidebarOrchestration({
 
   useEffect(() => {
     explorerRef.current?.refresh();
-  }, [activeRunId, explorerRef]);
+  }, [activeRunId, canonicalRunStatus, explorerRef]);
 
   useEffect(() => {
     if (isContextMismatch || !isGitHubLoaded || !repo) return;

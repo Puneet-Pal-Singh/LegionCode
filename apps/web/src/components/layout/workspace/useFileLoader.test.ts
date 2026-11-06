@@ -24,18 +24,18 @@ describe("useFileLoader", () => {
       ].join("\n"),
     });
     const openFileTab = vi.fn();
-    const props = { sessionId: "session-1", runId: "run-1", openFileTab, setIsLoadingContent: vi.fn(), setContentError: vi.fn() };
+    const props = { checkoutTurn: { turnId: "trn_original", runAttemptId: "attempt_original" }, sessionId: "session-1", runId: "run-1", openFileTab, setIsLoadingContent: vi.fn(), setContentError: vi.fn() };
     const { result, rerender } = renderHook((current) => useFileLoader(current), { initialProps: props });
     await act(() => result.current.handleFileClick("src/index.ts"));
     expect(openFileTab).toHaveBeenCalledWith({ path: "src/index.ts", content: "const first = true;\nconst second = true;", startingLineNumber: 5 });
-    expect(readCheckoutFile).toHaveBeenCalledWith("session-1", "run-1", "src/index.ts", expect.any(AbortSignal));
+    expect(readCheckoutFile).toHaveBeenCalledWith({ sessionId: "session-1", runId: "run-1", turnId: "trn_original", runAttemptId: "attempt_original", path: "src/index.ts" }, expect.any(AbortSignal));
 
     let resolveOld!: (value: { output: string; isBinary: boolean }) => void;
     vi.mocked(readCheckoutFile).mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
     let oldRead!: Promise<void>;
     act(() => { oldRead = result.current.handleFileClick("old-session.txt"); });
-    const signal = vi.mocked(readCheckoutFile).mock.calls.at(-1)![3];
-    rerender({ ...props, sessionId: "session-2", runId: "run-2" });
+    const signal = vi.mocked(readCheckoutFile).mock.calls.at(-1)![1];
+    rerender({ ...props, checkoutTurn: { turnId: "trn_next", runAttemptId: "attempt_next" } });
     expect(signal.aborted).toBe(true);
     await act(async () => { resolveOld({ output: "old private content", isBinary: false }); await oldRead; });
     expect(openFileTab).toHaveBeenCalledTimes(1);
@@ -46,7 +46,7 @@ describe("useFileLoader", () => {
     const openFileTab = vi.fn();
     const setIsLoadingContent = vi.fn();
     const setContentError = vi.fn();
-    const { result } = renderHook(() => useFileLoader({ sessionId: "session-1", runId: "run-1", openFileTab, setIsLoadingContent, setContentError }));
+    const { result } = renderHook(() => useFileLoader({ checkoutTurn: { turnId: "trn_original", runAttemptId: "attempt_original" }, sessionId: "session-1", runId: "run-1", openFileTab, setIsLoadingContent, setContentError }));
     localStorage.setItem("legioncode_last_viewed_path", "historical-value");
     await act(() => result.current.handleFileClick("tsconfig.json"));
     expect(setIsLoadingContent).toHaveBeenLastCalledWith(false);

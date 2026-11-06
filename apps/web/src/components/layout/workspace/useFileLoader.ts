@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import { useGitHub } from "../../github/GitHubContextProvider";
 import { useAuth } from "../../../contexts/AuthContext";
 import { getFileContent } from "../../../services/GitHubService";
-import { readCheckoutFile } from "../../../services/api/checkoutReads";
+import { type CheckoutTurnIdentity, readCheckoutFile } from "../../../services/api/checkoutReads";
 import type { SelectedFile } from "./useWorkspaceState";
 import { parseReadFileOutput } from "@legioncode/sdk";
 import { readFileViewPreference, rememberFileView } from "./fileViewPreference";
@@ -10,15 +10,16 @@ import { readFileViewPreference, rememberFileView } from "./fileViewPreference";
 interface UseFileLoaderProps {
   sessionId: string;
   runId: string;
+  checkoutTurn?: CheckoutTurnIdentity;
   setIsLoadingContent: (loading: boolean) => void;
   setContentError: (error: string | null) => void;
   openFileTab: (file: SelectedFile) => void;
 }
 
-export function useFileLoader({ sessionId, runId, setIsLoadingContent, setContentError, openFileTab }: UseFileLoaderProps) {
+export function useFileLoader({ sessionId, runId, checkoutTurn, setIsLoadingContent, setContentError, openFileTab }: UseFileLoaderProps) {
   const { repo, branch } = useGitHub();
   const { user, isAuthenticated } = useAuth();
-  const scope = JSON.stringify([isAuthenticated ? user?.id : null, user?.workspaceId, sessionId, runId, repo?.full_name, branch]);
+  const scope = JSON.stringify([isAuthenticated ? user?.id : null, user?.workspaceId, sessionId, runId, checkoutTurn?.turnId, checkoutTurn?.runAttemptId, repo?.full_name, branch]);
   const currentScope = useRef(scope);
   const requestRef = useRef<AbortController | null>(null);
   useLayoutEffect(() => {
@@ -41,7 +42,8 @@ export function useFileLoader({ sessionId, runId, setIsLoadingContent, setConten
     try {
       let file: SelectedFile;
       if (source === "checkout") {
-        const result = await readCheckoutFile(sessionId, runId, path, request.signal);
+        if (!checkoutTurn) throw new Error("Start a task before opening checkout files.");
+        const result = await readCheckoutFile({ sessionId, runId, turnId: checkoutTurn.turnId, runAttemptId: checkoutTurn.runAttemptId, path }, request.signal);
         const parsed = parseReadFileOutput(result.output);
         file = {
           path,
@@ -67,7 +69,7 @@ export function useFileLoader({ sessionId, runId, setIsLoadingContent, setConten
     } finally {
       if (isCurrent()) setIsLoadingContent(false);
     }
-  }, [branch, isAuthenticated, openFileTab, repo, runId, scope, sessionId, setContentError, setIsLoadingContent, user]);
+  }, [branch, checkoutTurn, isAuthenticated, openFileTab, repo, runId, scope, sessionId, setContentError, setIsLoadingContent, user]);
 
   const handleFileClick = useCallback((path: string, onOpen?: (file: SelectedFile) => void) => load(path, "checkout", onOpen), [load]);
   const handleGitHubFileSelect = useCallback((path: string, onOpen?: (file: SelectedFile) => void) => load(path, "repository", onOpen), [load]);
