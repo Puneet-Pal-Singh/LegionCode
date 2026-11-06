@@ -36,3 +36,5 @@ export {
   artifactMetadata,
   artifactMetadataChangedFiles,
 } from "./artifact-metadata.js";
+
+export { harnessBindings, harnessObservationReceipts } from "./harness.js";
