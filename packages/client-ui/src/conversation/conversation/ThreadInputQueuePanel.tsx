@@ -1,5 +1,11 @@
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   CornerDownRight,
   Image as ImageIcon,
@@ -280,27 +286,53 @@ function QueueActionsMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuStyle, setMenuStyle] = useState<{
-    top: number | null;
-    bottom: number | null;
+    top: number;
     left: number;
-  }>({ top: null, bottom: 16, left: 16 });
+    maxHeight: number;
+  } | null>(null);
+  const pendingInitialFocusRef = useRef(false);
 
   const updateMenuPosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const width = Math.min(192, window.innerWidth - 32);
+    const viewportPadding = 8;
+    const gap = 4;
+    const width = Math.min(192, window.innerWidth - viewportPadding * 2);
     const left = Math.min(
-      Math.max(16, rect.right - width),
-      Math.max(16, window.innerWidth - width - 16),
+      Math.max(viewportPadding, rect.right - width),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
     );
-    const menuHeight = queuingEnabled ? 88 : 48;
-    const canOpenBelow = rect.bottom + menuHeight + 8 <= window.innerHeight - 16;
+    const measuredHeight =
+      menuRef.current?.getBoundingClientRect().height ??
+      (queuingEnabled ? 88 : 48);
+    const spaceAbove = Math.max(0, rect.top - viewportPadding - gap);
+    const spaceBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - viewportPadding - gap,
+    );
+    const canFitBelow = spaceBelow >= measuredHeight;
+    const canFitAbove = spaceAbove >= measuredHeight;
+    const openBelow = canFitBelow || (!canFitAbove && spaceBelow >= spaceAbove);
+    const availableHeight = openBelow ? spaceBelow : spaceAbove;
     setMenuStyle(
-      canOpenBelow
-        ? { top: rect.bottom + 4, bottom: null, left }
-        : { top: null, bottom: window.innerHeight - rect.top + 4, left },
+      {
+        top: openBelow
+          ? rect.bottom + gap
+          : Math.max(
+              viewportPadding,
+              rect.top - Math.min(measuredHeight, availableHeight) - gap,
+            ),
+        left,
+        maxHeight: availableHeight,
+      },
     );
   }, [queuingEnabled]);
+
+  const closeMenu = useCallback((restoreFocus = false) => {
+    pendingInitialFocusRef.current = false;
+    setIsOpen(false);
+    if (restoreFocus) triggerRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -311,33 +343,76 @@ function QueueActionsMenu({
         !triggerRef.current?.contains(target) &&
         !menuRef.current?.contains(target)
       ) {
-        setIsOpen(false);
+        closeMenu();
       }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
     };
 
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
     };
-  }, [isOpen, updateMenuPosition]);
+  }, [closeMenu, isOpen, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!isOpen || !menuStyle || !pendingInitialFocusRef.current) return;
+    pendingInitialFocusRef.current = false;
+    menuRef.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+      ?.focus();
+  }, [isOpen, menuStyle]);
 
   const edit = () => {
-    setIsOpen(false);
+    closeMenu();
     onEdit();
   };
   const disableQueuing = () => {
-    setIsOpen(false);
+    closeMenu();
     onDisableQueuing();
+  };
+
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not([disabled])',
+      ),
+    );
+    const currentIndex = items.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % items.length;
+    }
+    if (event.key === "ArrowUp") {
+      nextIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
+    }
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = items.length - 1;
+    if (nextIndex !== null && items.length > 0) {
+      event.preventDefault();
+      items[nextIndex]?.focus();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu(true);
+    }
+  };
+
+  const handleMenuBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (
+      !(nextTarget instanceof Node) ||
+      (!event.currentTarget.contains(nextTarget) &&
+        !triggerRef.current?.contains(nextTarget))
+    ) {
+      closeMenu();
+    }
   };
 
   return (
@@ -350,7 +425,15 @@ function QueueActionsMenu({
         aria-expanded={isOpen}
         title="More actions"
         className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          if (isOpen) {
+            closeMenu();
+          } else {
+            pendingInitialFocusRef.current = true;
+            setMenuStyle(null);
+            setIsOpen(true);
+          }
+        }}
       >
         <MoreHorizontal size={17} aria-hidden="true" />
       </button>
@@ -359,12 +442,10 @@ function QueueActionsMenu({
             <div
               ref={menuRef}
               role="menu"
-              className="ui-surface-popover fixed z-50 w-48 max-w-[calc(100vw-2rem)] overflow-hidden p-1 shadow-2xl"
-              style={{
-                top: menuStyle.top ?? undefined,
-                bottom: menuStyle.bottom ?? undefined,
-                left: menuStyle.left,
-              }}
+              className={`ui-surface-popover fixed z-50 w-48 max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain p-1 shadow-2xl ${menuStyle ? "" : "invisible"}`}
+              style={menuStyle ?? undefined}
+              onKeyDown={handleMenuKeyDown}
+              onBlur={handleMenuBlur}
             >
               <button
                 type="button"
