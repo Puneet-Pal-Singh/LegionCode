@@ -212,7 +212,6 @@ export class ProviderStore {
   private inflight: Map<string, InflightRequest> = new Map();
   private bootstrapPromise: Promise<void> | null = null;
   private lastResolveSelectionKey: string | null = null;
-  private lastResolveError: Error | null = null;
   private workspaceEpoch = 0;
   private runScopeEpoch = 0;
   private enableLogging: boolean;
@@ -266,7 +265,6 @@ export class ProviderStore {
     this.inflight.clear();
     this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
-    this.lastResolveError = null;
     this.activeRunId = null;
     this.activeSessionId = null;
     this.hasExplicitSessionSelection = false;
@@ -334,7 +332,6 @@ export class ProviderStore {
     this.runScopeEpoch += 1;
     this.clearInflightByScope("run");
     this.lastResolveSelectionKey = null;
-    this.lastResolveError = null;
     const defaults = deriveSelectionSnapshot({
       catalog: this.state.catalog,
       credentials: this.state.credentials,
@@ -1290,16 +1287,9 @@ export class ProviderStore {
 
     if (
       this.state.lastResolvedConfig &&
-      this.lastResolveSelectionKey === selectionKey &&
-      !this.lastResolveError
-    ) {
-      return this.state.lastResolvedConfig;
-    }
-    if (
-      this.lastResolveError &&
       this.lastResolveSelectionKey === selectionKey
     ) {
-      throw this.lastResolveError;
+      return this.state.lastResolvedConfig;
     }
 
     // Dedupe only identical selections. A single global key lets a slow
@@ -1406,7 +1396,6 @@ export class ProviderStore {
             : null,
       });
       this.lastResolveSelectionKey = selectionKey;
-      this.lastResolveError = null;
 
       this.log("[resolveForChat] Success", {
         providerId: config.providerId,
@@ -1418,11 +1407,6 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to resolve provider configuration";
-      if (this.currentResolveSelectionKey() === selectionKey) {
-        this.lastResolveSelectionKey = selectionKey;
-        this.lastResolveError =
-          error instanceof Error ? error : new Error(message);
-      }
       this.log("[resolveForChat] Error", { error: message });
       throw error;
     }
@@ -1592,7 +1576,6 @@ export class ProviderStore {
     this.runScopeEpoch += 1;
     this.clearInflightByScope("run");
     this.lastResolveSelectionKey = null;
-    this.lastResolveError = null;
     this.state = {
       ...this.state,
       ...createInitialRunScopedState(),
@@ -1614,7 +1597,6 @@ export class ProviderStore {
     this.inflight.clear();
     this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
-    this.lastResolveError = null;
     this.activeRunId = null;
     this.activeWorkspaceId = null;
     this.activeSessionId = null;
@@ -1634,7 +1616,6 @@ export class ProviderStore {
         : partial;
     if (shouldInvalidateResolution) {
       this.lastResolveSelectionKey = null;
-      this.lastResolveError = null;
     }
     this.state = { ...this.state, ...nextPartial };
     this.emit();
