@@ -1,3 +1,4 @@
+import type { CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
@@ -124,6 +125,10 @@ export type AppServerComposition = {
     reviewLatest(params: Extract<AppServerRequest, { method: "artifact/reviewLatest" }>["params"]): Promise<ArtifactReviewLookupResult>;
     reviewByMessage(params: Extract<AppServerRequest, { method: "artifact/reviewByMessage" }>["params"]): Promise<ArtifactReviewLookupResult>;
     diff(params: Extract<AppServerRequest, { method: "artifact/diff" }>["params"]): Promise<EditArtifactDiffResponse>;
+  };
+  hostedCheckoutReadsService?: {
+    listFiles(params: Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"]): Promise<CheckoutListFilesResult>;
+    readFile(params: Extract<AppServerRequest, { method: "checkout/readFile" }>["params"]): Promise<CheckoutReadFileResult>;
   };
   hostedGitOperationsService?: {
     status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
@@ -394,6 +399,14 @@ async function dispatch(
     case "artifact/diff": {
       if (!composition.hostedEditArtifactReadsService) throw new Error("unsupported");
       return composition.hostedEditArtifactReadsService.diff(request.params);
+    }
+    case "checkout/listFiles": {
+      if (!composition.hostedCheckoutReadsService) throw new Error("unsupported");
+      return composition.hostedCheckoutReadsService.listFiles(request.params);
+    }
+    case "checkout/readFile": {
+      if (!composition.hostedCheckoutReadsService) throw new Error("unsupported");
+      return composition.hostedCheckoutReadsService.readFile(request.params);
     }
     case "git/status": {
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");

@@ -778,9 +778,11 @@ export async function handleExecuteTask(
     console.log(
       `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=validated`,
     );
-    if (validation.data.borrowedLease && validation.data.action !== "git.execute") {
+    const borrowedFilesystemRead = validation.data.action === "filesystem.execute" &&
+      (validation.data.params.action === "list_files" || validation.data.params.action === "read_file");
+    if (validation.data.borrowedLease && validation.data.action !== "git.execute" && !borrowedFilesystemRead) {
       return errorResponse(
-        "Borrowed checkout leases only support server-selected Git execution",
+        "Borrowed checkout leases only support server-selected Git operations and file reads",
         "INVALID_REQUEST",
         400,
       );

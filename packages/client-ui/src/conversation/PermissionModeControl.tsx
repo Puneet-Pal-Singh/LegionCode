@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
 import { cn } from "../classnames.js";
+import { FullAccessConfirmation } from "./FullAccessConfirmation.js";
 
 interface PermissionModeControlProps {
   value: ProductMode;
@@ -54,7 +55,7 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
     value: PRODUCT_MODES.FULL_AGENT,
     label: "Full access",
     shortLabel: "Full access",
-    description: "Allow commands and edits without prompts.",
+    description: "Broader control of this hosted workspace.",
     Icon: ShieldAlert,
   },
 ];
@@ -68,12 +69,18 @@ export function PermissionModeControl({
   menuPlacement = "above",
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
+  const [modeAtConfirmationOpen, setModeAtConfirmationOpen] =
+    useState<ProductMode | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const controlButtonRef = useRef<HTMLButtonElement>(null);
+  const wasConfirmationVisibleRef = useRef(false);
   const selectedOption = resolvePermissionModeOption(value);
   const SelectedIcon = selectedOption.Icon;
   const isMenuOpen = isOpen && !disabled;
   const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
+  const isConfirmationVisible = isConfirmationOpen && !disabled;
   const [menuStyle, setMenuStyle] = useState<{
     top: number | null;
     bottom: number | null;
@@ -124,9 +131,46 @@ export function PermissionModeControl({
     };
   }, [isMenuOpen, updateMenuPosition]);
 
+  useEffect(() => {
+    if (
+      !isConfirmationVisible &&
+      wasConfirmationVisibleRef.current &&
+      !disabled
+    ) {
+      controlButtonRef.current?.focus();
+    }
+    wasConfirmationVisibleRef.current = isConfirmationVisible;
+  }, [isConfirmationVisible, disabled]);
+
+  useEffect(() => {
+    if (disabled && isConfirmationOpen) {
+      setIsConfirmationOpen(false);
+      setModeAtConfirmationOpen(null);
+    }
+  }, [disabled, isConfirmationOpen]);
+
+  const closeConfirmation = () => {
+    setIsConfirmationOpen(false);
+    setModeAtConfirmationOpen(null);
+  };
+
+  const confirmFullAccess = () => {
+    if (
+      disabled ||
+      modeAtConfirmationOpen === null ||
+      modeAtConfirmationOpen !== value
+    ) {
+      closeConfirmation();
+      return;
+    }
+    closeConfirmation();
+    onChange(PRODUCT_MODES.FULL_AGENT);
+  };
+
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={controlButtonRef}
         type="button"
         onClick={() => {
           if (disabled) {
@@ -181,54 +225,69 @@ export function PermissionModeControl({
               }}
               data-testid="permission-mode-menu"
             >
-          {PERMISSION_MODE_OPTIONS.map((option) => {
-            const OptionIcon = option.Icon;
-            const isSelected = option.value === selectedOption.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="menuitemradio"
-                aria-checked={isSelected}
-                onClick={() => {
-                  if (disabled) {
-                    return;
-                  }
-                  onChange(option.value);
-                  setIsOpen(false);
-                }}
-                disabled={disabled}
-                className={cn(
-                  "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition",
-                  isSelected
-                    ? "bg-zinc-800/70 text-zinc-100"
-                    : "text-zinc-200 hover:bg-zinc-800/50",
-                )}
-              >
-                <span className="flex items-start gap-2.5">
-                  <OptionIcon
-                    size={15}
-                    className="mt-0.5 shrink-0 text-zinc-400"
-                  />
-                  <span className="space-y-0.5">
-                    <span className="block text-sm font-medium">
-                      {option.label}
+              {PERMISSION_MODE_OPTIONS.map((option) => {
+                const OptionIcon = option.Icon;
+                const isSelected = option.value === selectedOption.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={isSelected}
+                    onClick={() => {
+                      if (disabled) {
+                        return;
+                      }
+                      setIsOpen(false);
+                      if (option.value === PRODUCT_MODES.FULL_AGENT) {
+                        setModeAtConfirmationOpen(value);
+                        setIsConfirmationOpen(true);
+                        return;
+                      }
+                      onChange(option.value);
+                    }}
+                    disabled={disabled}
+                    className={cn(
+                      "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition",
+                      isSelected
+                        ? "bg-zinc-800/70 text-zinc-100"
+                        : "text-zinc-200 hover:bg-zinc-800/50",
+                    )}
+                  >
+                    <span className="flex items-start gap-2.5">
+                      <OptionIcon
+                        size={15}
+                        className="mt-0.5 shrink-0 text-zinc-400"
+                      />
+                      <span className="space-y-0.5">
+                        <span className="block text-sm font-medium">
+                          {option.label}
+                        </span>
+                        <span className="block text-xs leading-4 text-zinc-400">
+                          {option.description}
+                        </span>
+                      </span>
                     </span>
-                    <span className="block text-xs leading-4 text-zinc-400">
-                      {option.description}
-                    </span>
-                  </span>
-                </span>
-                {isSelected ? (
-                  <Check size={15} className="mt-0.5 shrink-0 text-zinc-100" />
-                ) : null}
-              </button>
-            );
-          })}
+                    {isSelected ? (
+                      <Check
+                        size={15}
+                        className="mt-0.5 shrink-0 text-zinc-100"
+                      />
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>,
             document.body,
           )
         : null}
+
+      {isConfirmationVisible ? (
+        <FullAccessConfirmation
+          onCancel={closeConfirmation}
+          onConfirm={confirmFullAccess}
+        />
+      ) : null}
     </div>
   );
 }

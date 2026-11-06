@@ -30,7 +30,7 @@ describe("hosted session metadata presentation", () => {
                 title: "Server Task",
                 repository: "acme/legioncode",
                 activeRunId: "run_550e8400e29b41d4a716446655440001",
-                mode: "build",
+                mode: "auto_edit",
                 status: "failed",
                 createdAt: "2026-05-14T00:00:00.000Z",
                 updatedAt: "2026-05-15T00:00:00.000Z",
@@ -46,6 +46,10 @@ describe("hosted session metadata presentation", () => {
       const session = sessions["550e8400-e29b-41d4-a716-446655440000"];
       expect(session?.name).toBe("Server Task");
       expect(session?.status).toBe("failed");
+      expect(session?.mode).toBe("build");
+      expect(session?.titleSource).toBe("preview");
+      expect(session?.pinnedAt).toBeNull();
+      expect(session?.archivedAt).toBeNull();
       expect(session?.createdAt).toBe("2026-05-14T00:00:00.000Z");
       expect(session?.lastTerminalTurnId).toBeNull();
       expect(session?.lastAcknowledgedTerminalTurnId).toBeNull();

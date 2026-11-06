@@ -210,9 +210,7 @@ export function Workspace({
     retryRepoTree,
     repo,
     branch,
-    switchBranch,
     isGitHubLoaded,
-    isContextMismatch,
   } = useGitHubTree(repository);
 
   const {
@@ -521,7 +519,7 @@ export function Workspace({
     explicitReviewOpen,
     runUiState.kind,
   ]);
-  const { status, refetch: refetchGitStatus } = useGitStatus(
+  const { refetch: refetchGitStatus } = useGitStatus(
     activeRunId,
     sessionId,
     liveGitReviewEnabled,
@@ -550,23 +548,16 @@ export function Workspace({
     setActiveTab("files");
   }, [activeTab, isViewingContent, openFilesTab, setActiveTab]);
 
-  const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
-    sandboxId,
+  const { handleFileClick, handleGitHubFileSelect, restoreLastViewedFile, rememberSavedPreview } = useFileLoader({
+    sessionId,
     runId: activeRunId,
+    checkoutTurn: conversationScope ?? undefined,
     setIsLoadingContent,
     setContentError,
     openFileTab: handleOpenFileTab,
   });
-  const {
-    handleFileClick: handleFullscreenFileClick,
-    handleGitHubFileSelect: handleFullscreenGitHubFileSelect,
-  } = useFileLoader({
-    sandboxId,
-    runId: activeRunId,
-    setIsLoadingContent,
-    setContentError,
-    openFileTab,
-  });
+  const handleFullscreenFileClick = (path: string) => handleFileClick(path, openFileTab);
+  const handleFullscreenGitHubFileSelect = (path: string) => handleGitHubFileSelect(path, openFileTab);
 
   // Composed orchestration hooks
   const { handleStopRun } = useStatusSync({
@@ -580,18 +571,13 @@ export function Workspace({
   });
   const { handleSidebarDiffSelected } = useSidebarOrchestration({
     activeRunId,
-    status,
-    repo,
-    branch,
-    isContextMismatch,
-    isGitHubLoaded,
+    canonicalRunStatus,
     isHydrating,
     isViewingContent,
     activeContentTabId,
     selectedFile,
     selectedDiff,
-    switchBranch,
-    handleFileClick,
+    restoreLastViewedFile,
     explorerRef,
     setIsViewingContent,
     setActiveTab,
@@ -691,6 +677,7 @@ export function Workspace({
                   void handleFileClick(path);
                   return;
                 }
+                rememberSavedPreview();
                 handleOpenFileTab({
                   path,
                   content,
@@ -804,6 +791,7 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
+                checkoutTurn={conversationScope ?? undefined}
                 onOpenFiles={toggleFilesPanel}
                 onCloseTree={() => setActiveTab("review")}
                 onToggleChanges={toggleChangesPanel}
@@ -835,6 +823,7 @@ export function Workspace({
                   explorerRef={explorerRef}
                   sandboxId={sandboxId}
                   runId={activeRunId}
+                  checkoutTurn={conversationScope ?? undefined}
                   onLocalFileSelect={(path) => {
                     onFileOpened(path);
                     void handleFullscreenFileClick(path);
