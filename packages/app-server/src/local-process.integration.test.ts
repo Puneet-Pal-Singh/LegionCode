@@ -117,6 +117,18 @@ describe("local App Server HTTP integration", () => {
       ok: true,
       result: { threads: [{ id: threadId, title: "Renamed", status: "active" }] },
     });
+    const rediscovered = await send(restartedUrl, "thread/list", {});
+    const discoveredThreadId = (rediscovered as { result: { threads: { id: string }[] } }).result.threads[0]!.id;
+    const workspaceId = (grant as { result: { grant: { workspaceId: string } } }).result.grant.workspaceId;
+    const history = await send(restartedUrl, "thread/history", { workspaceId, threadId: discoveredThreadId, limit: 1 });
+    expect(history).toMatchObject({ ok: true, result: { admissions: [{ turn: { id: turnId }, userMessage: { content: { text: "Read this local repository" } } }] } });
+    const cursor = (history as { result: { nextCursor: string } }).result.nextCursor;
+    const nextHistory = await send(restartedUrl, "thread/history", { workspaceId, threadId: discoveredThreadId, afterCursor: cursor, limit: 1 });
+    expect(nextHistory).toMatchObject({ ok: true, result: { admissions: [{ turn: { id: unfinishedTurnId } }] } });
+    await expect(send(restartedUrl, "turn/get", { turnId })).resolves.toMatchObject({
+      ok: true, result: { admission: { turn: { id: turnId }, runAttemptId, userMessage: { content: { text: "Read this local repository" } } } },
+    });
+    expect(JSON.stringify(history)).not.toContain(workspacePath);
     await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId: unfinishedTurnId })).resolves.toMatchObject({
       ok: true, result: { events: [unfinished], nextSequence: 1 },
     });
@@ -139,6 +151,9 @@ describe("local App Server HTTP integration", () => {
     await send(restartedUrl, "workspace/grant", { path: otherWorkspace.workspacePath });
     await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId })).resolves.toMatchObject({
       ok: false, error: { code: "not_found" },
+    });
+    await expect(send(restartedUrl, "thread/history", { workspaceId, threadId: discoveredThreadId })).resolves.toMatchObject({
+      ok: false,
     });
     await send(restartedUrl, "workspace/revoke", {});
     const revokedReplay = await send(restartedUrl, "turn/lifecycleEvents", { turnId });

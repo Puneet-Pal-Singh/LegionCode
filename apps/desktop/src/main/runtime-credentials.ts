@@ -27,11 +27,14 @@ export class RuntimeCredentialClient {
     resolve: (credential: RuntimeProviderCredential | null) => void;
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
+    signal?: AbortSignal;
+    abort?: () => void;
   }>();
 
   constructor(private readonly postMessage: (message: RuntimeCredentialRequest) => void) {}
 
-  resolveRuntimeCredential(providerId: ProviderId): Promise<RuntimeProviderCredential | null> {
+  resolveRuntimeCredential(providerId: ProviderId, signal?: AbortSignal): Promise<RuntimeProviderCredential | null> {
+    if (signal?.aborted) return Promise.reject(new Error("Protected provider credential request was aborted"));
     if (this.closed || this.pending.size >= 32) {
       return Promise.reject(new Error("Protected provider credential channel is unavailable"));
     }
@@ -41,12 +44,22 @@ export class RuntimeCredentialClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(request.requestId);
+        signal?.removeEventListener("abort", abort);
         reject(new Error("Protected provider credential delivery timed out"));
       }, 10_000);
-      this.pending.set(request.requestId, { providerId, resolve, reject, timer });
+      const abort = () => {
+        clearTimeout(timer);
+        this.pending.delete(request.requestId);
+        signal?.removeEventListener("abort", abort);
+        reject(new Error("Protected provider credential request was aborted"));
+      };
+      this.pending.set(request.requestId, { providerId, resolve, reject, timer, signal, abort });
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) { abort(); return; }
       try { this.postMessage(request); } catch {
         clearTimeout(timer);
         this.pending.delete(request.requestId);
+        signal?.removeEventListener("abort", abort);
         reject(new Error("Protected provider credential delivery is unavailable"));
       }
     });
@@ -60,6 +73,7 @@ export class RuntimeCredentialClient {
     if (!pending) return true;
     this.pending.delete(response.requestId);
     clearTimeout(pending.timer);
+    if (pending.abort) pending.signal?.removeEventListener("abort", pending.abort);
     if (response.providerId !== pending.providerId ||
         (response.credential?.connectionConfig && response.credential.connectionConfig.providerId !== pending.providerId)) {
       pending.reject(new Error("Protected provider credential scope did not match"));
@@ -73,6 +87,7 @@ export class RuntimeCredentialClient {
     this.closed = true;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
+      if (pending.abort) pending.signal?.removeEventListener("abort", pending.abort);
       pending.reject(new Error("Protected provider credential channel closed"));
     }
     this.pending.clear();

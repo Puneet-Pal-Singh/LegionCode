@@ -17,7 +17,7 @@ export type LocalAppServerRuntimeOptions = {
     threads: LocalThreadService;
     providers: LocalProviderService;
   }): NonNullable<LocalTurnServiceOptions["runtime"]>;
-  resolveRuntimeCredential(providerId: ProviderId): Promise<{
+  resolveRuntimeCredential(providerId: ProviderId, signal?: AbortSignal): Promise<{
     apiKey: string;
     connectionConfig?: ProviderConnectionConfig;
   } | null>;

@@ -24,6 +24,7 @@ if (!parentPort) {
 
 const runtimeCredentials = new RuntimeCredentialClient((message) => parentPort.postMessage(message));
 process.once("exit", () => runtimeCredentials.close());
+process.once("disconnect", () => runtimeCredentials.close());
 
 parentPort.on("message", ({ data }) => {
   if (runtimeCredentials.handleMessage(data)) return;
@@ -36,7 +37,7 @@ parentPort.on("message", ({ data }) => {
   }
   started = true;
   runLocalAppServerProcess(parentPort, data, {
-    resolveRuntimeCredential: (providerId) => runtimeCredentials.resolveRuntimeCredential(providerId),
+    resolveRuntimeCredential: (providerId, signal) => runtimeCredentials.resolveRuntimeCredential(providerId, signal),
   });
 });
 
