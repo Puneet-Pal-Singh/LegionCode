@@ -273,6 +273,9 @@ function TurnWorkflowEntry({
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
   const terminal = entry.projection.terminal;
   const terminalViewModel = buildLifecycleTerminalViewModel(entry.projection);
+  const continuationStartedAt = entry.projection.continuationOfTurnId
+    ? parseValidTimestamp(entry.projection.startedAt)
+    : null;
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -280,7 +283,9 @@ function TurnWorkflowEntry({
       data-workspace-id={props.workspaceId ?? undefined}
       data-turn-id={turnId}
       data-run-attempt-id={
-        surfaceId ? (props.runAttemptId ?? undefined) : undefined
+        surfaceId && isCurrentTurn
+          ? (props.runAttemptId ?? undefined)
+          : undefined
       }
       className="space-y-3"
     >
@@ -297,26 +302,36 @@ function TurnWorkflowEntry({
           {workspaceSnapshotNotice(entry.projection)}
         </p>
       ) : null}
+      {entry.workflowHistory?.length ? (
+        <div
+          aria-label={`Earlier workflow activity (${entry.workflowHistory.length} attempts)`}
+          className="space-y-5"
+        >
+          <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Earlier workflow activity
+          </p>
+          {entry.workflowHistory.map((historicalEntry) => (
+            <TurnWorkflowEntry
+              key={historicalEntry.key}
+              entry={historicalEntry}
+              props={props}
+            />
+          ))}
+        </div>
+      ) : null}
+      {continuationStartedAt ? (
+        <div className="my-2 flex items-center justify-center gap-3 text-xs text-zinc-500">
+          <span aria-hidden="true" className="h-px flex-1 bg-zinc-800" />
+          <time dateTime={continuationStartedAt}>
+            {formatContinuationTimestamp(continuationStartedAt)}
+          </time>
+          <span aria-hidden="true" className="h-px flex-1 bg-zinc-800" />
+        </div>
+      ) : null}
       <CanonicalWorkflowSurface
         projection={entry.projection}
         onArtifactOpen={props.onArtifactOpen}
       />
-      {entry.workflowHistory?.length ? (
-        <details className="rounded-lg border border-zinc-800/70 px-3 py-2">
-          <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
-            Earlier workflow activity ({entry.workflowHistory.length})
-          </summary>
-          <div className="mt-3 max-h-80 space-y-5 overflow-y-auto">
-            {entry.workflowHistory.map((historicalEntry) => (
-              <TurnWorkflowEntry
-                key={historicalEntry.key}
-                entry={historicalEntry}
-                props={props}
-              />
-            ))}
-          </div>
-        </details>
-      ) : null}
       {terminal?.state !== "completed" &&
       entry.projection.assistantText.trim() ? (
         <ChatMessage
@@ -370,6 +385,17 @@ function TurnWorkflowEntry({
       ) : null}
     </section>
   );
+}
+
+function parseValidTimestamp(value: string | null): string | null {
+  return value && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function formatContinuationTimestamp(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function resolveMessageChangedFilesSummary(
