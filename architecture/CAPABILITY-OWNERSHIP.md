@@ -946,3 +946,9 @@ admission, not terminal settlement: only a matching completed, failed or
 interrupted lifecycle event finishes the SDK operation. The existing 15-second
 abort, mismatched-attempt rejection and iterator cleanup are preserved, using
 portable timers without a browser global or another lifecycle subscription owner.
+
+### Browser shell identity retirement
+
+The unused `uiShellStore` writer and persisted shell identity mirror are removed after a whole-repository caller audit found only the App writer and no restoring consumers. Existing `legioncode_ui_shell` bytes remain untouched. Setup no longer writes `legioncode:setup-session:v1`; a valid existing record is read only to retain its legitimate preference lookup. Fresh setup uses an account/workspace-bound local preference scope, never an execution run or persisted conversation identity. Unknown/malformed legacy setup bytes remain intact. Existing provider preference adapters retain their byte-preserving lookup and explicit-selection writes.
+
+Legacy session snapshot readers and their preservation checks remain quarantined until the real browser inventory is matched; the downloaded inventory has not yet been reconciled. They are not an active session/history source. No historical browser values are deleted by this slice.
