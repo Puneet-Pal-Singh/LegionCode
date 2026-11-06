@@ -1268,7 +1268,7 @@ export class CodingToolRegistry {
     const registry: Record<string, CoreTool> = {};
     for (const tool of this.definitionsById.values()) {
       if (tool.requiredBackendCapabilities.includes("single_executable_nofork")
-        && !backendCapabilities.includes("single_executable_nofork")) continue;
+        && !tool.requiredBackendCapabilities.every((required) => backendCapabilities.includes(required))) continue;
       registry[tool.id] = {
         description: tool.description,
         parameters: tool.inputSchema,
