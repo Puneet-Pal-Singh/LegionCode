@@ -48,7 +48,13 @@ parentPort.on("message", ({ data }) => {
       const deny = { defaultEffect: "deny", defaultRiskLevel: "high", rules: [] };
       const permissionPolicy = PermissionPolicySchema.parse({
         commands: deny, network: deny, git: deny, packageManagers: deny,
-        secrets: deny, externalServices: deny, tools: deny,
+        secrets: deny, externalServices: deny,
+        tools: {
+          ...deny,
+          rules: ["read_file", "list_files"].map((toolName) => ({
+            id: `local-${toolName}`, pattern: toolName, effect: "allow", riskLevel: "low",
+          })),
+        },
         paths: {
           ...deny,
           rules: [
