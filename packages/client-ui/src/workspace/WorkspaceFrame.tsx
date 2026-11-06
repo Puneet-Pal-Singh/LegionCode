@@ -9,6 +9,8 @@ export interface WorkspaceFrameProps {
   sidebar: ReactNode;
   topBar: ReactNode;
   children: ReactNode;
+  rightPanel?: ReactNode;
+  rightPanelLabel?: string;
   className?: string;
   sidebarOpen?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
@@ -35,6 +37,8 @@ export function WorkspaceFrame({
   sidebar,
   topBar,
   children,
+  rightPanel,
+  rightPanelLabel = "Workspace details",
   className,
   sidebarOpen,
   onSidebarOpenChange,
@@ -142,7 +146,12 @@ export function WorkspaceFrame({
           ) : null}
           {topBar}
         </div>
-        <main className="lc-workspace-content">{children}</main>
+        <div className={`lc-workspace-body${rightPanel ? " lc-workspace-body-with-panel" : ""}`}>
+          <main className="lc-workspace-content">{children}</main>
+          {rightPanel ? (
+            <aside className="lc-workspace-right-panel" aria-label={rightPanelLabel}>{rightPanel}</aside>
+          ) : null}
+        </div>
       </div>
     </div>
   );

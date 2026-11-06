@@ -247,6 +247,14 @@ body {
 .lc-workspace-topbar-title { max-width: 52vw; overflow: hidden; margin: 0; color: var(--lc-color-text-primary); font-size: 0.875rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .lc-workspace-topbar-spacer { flex: 1; }
 .lc-workspace-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.lc-workspace-body { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.lc-workspace-right-panel { display: flex; width: var(--lc-workspace-panel-width, 320px); flex: 0 0 auto; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--lc-color-border); background: var(--lc-color-surface); }
+.lc-workspace-right-panel > * { width: 100%; min-width: 0; }
+@media (max-width: 767px) {
+  .lc-workspace-body-with-panel > .lc-workspace-content { display: none; }
+  .lc-workspace-right-panel { width: 100%; flex: 1; border-left: 0; }
+}
+
 
 @media (min-width: 640px) {
   .lc-workspace-topbar { gap: 0.75rem; padding-inline: 0.75rem; }
