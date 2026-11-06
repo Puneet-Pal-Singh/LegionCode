@@ -1,45 +1,32 @@
-import type { AppServerClient } from "@legioncode/sdk";
 import type { WorkspaceId } from "@repo/platform-protocol";
-import { useEffect, useState } from "react";
-import { DesktopWorkspaceFiles } from "./DesktopWorkspaceFiles";
+import { useLayoutEffect, useState } from "react";
+import { DesktopWorkspaceFiles, type DesktopWorkspaceFilesProps } from "./DesktopWorkspaceFiles";
 
-type FilesClient = Pick<AppServerClient, "listWorkspaceFiles" | "readWorkspaceFile">;
-type Readiness = { client: FilesClient; workspaceId: WorkspaceId } & (
-  | { status: "checking" }
-  | { status: "ready" }
-  | { status: "error"; message: string }
-);
+interface Props {
+  client: DesktopWorkspaceFilesProps["client"];
+  workspaceId: WorkspaceId;
+  availability: DesktopWorkspaceFilesProps["availability"];
+}
 
-/** Confirm the actual granted read service; method presence is not availability. */
-export function DesktopWorkspaceFilesMount({ client, workspaceId }: { client: FilesClient; workspaceId: WorkspaceId }) {
-  const [readiness, setReadiness] = useState<Readiness>({ client, workspaceId, status: "checking" });
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setReadiness({ client, workspaceId, status: "checking" });
-    void client.listWorkspaceFiles({ workspaceId, path: ".", limit: 1 }).then(() => {
-      if (active) setReadiness({ client, workspaceId, status: "ready" });
-    }).catch((error: unknown) => {
-      if (active) setReadiness({ client, workspaceId, status: "error", message: error instanceof Error ? error.message : "Local workspace reads could not be confirmed." });
-    });
-    return () => { active = false; };
-  }, [client, workspaceId, retry]);
+/** Runtime availability comes from the handshake, never from method presence. */
+export function DesktopWorkspaceFilesMount({ client, workspaceId, availability }: Props) {
+  const [scope, setScope] = useState({ client, workspaceId });
+  const [refresh, setRefresh] = useState(0);
+  useLayoutEffect(() => {
+    setScope({ client, workspaceId });
+    setRefresh(0);
+  }, [client, workspaceId]);
 
-  if (readiness.client !== client || readiness.workspaceId !== workspaceId || readiness.status === "checking") {
-    return <p role="status">Opening workspace files…</p>;
-  }
-  if (readiness.status === "error") return (
-    <div className="space-y-3">
-      <p role="alert">{readiness.message}</p>
-      <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry workspace files</button>
-    </div>
-  );
+  // Remove old-client content before allowing its replacement to issue reads.
+  if (scope.client !== client || scope.workspaceId !== workspaceId) return <p role="status">Opening workspace files…</p>;
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <button type="button" className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200" onClick={() => setRetry((value) => value + 1)}>Refresh files</button>
-      </div>
-      <DesktopWorkspaceFiles key={workspaceId} client={client} workspaceId={workspaceId} availability={{ available: true }} />
+      {availability.available ? (
+        <div className="flex justify-end">
+          <button type="button" className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200" onClick={() => setRefresh((value) => value + 1)}>Refresh files</button>
+        </div>
+      ) : null}
+      <DesktopWorkspaceFiles key={refresh} client={client} workspaceId={workspaceId} availability={availability} />
     </div>
   );
 }
