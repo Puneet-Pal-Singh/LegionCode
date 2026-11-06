@@ -1,3 +1,4 @@
+import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import {
@@ -28,7 +29,7 @@ export type LocalTurnAttemptIdentity = {
 type KernelPorts = Omit<
   RuntimeKernelDependencies,
   "worker" | "artifactCapture" | "hooks" | "lifecycleEvents" | "producerId"
->;
+> & { readonly toolTracker?: NativeProviderToolTracker };
 
 /** One kernel handle per canonical admission; admission persistence stays with the host. */
 export class LocalReadOnlyTurnExecutor<
@@ -109,7 +110,7 @@ export class LocalReadOnlyTurnExecutor<
         }
         const signal = AbortSignal.any([controller.signal, binding.signal]);
         signal.throwIfAborted();
-        const ports = await this.options.createKernelPorts(
+        const { toolTracker, ...ports } = await this.options.createKernelPorts(
           admission,
           binding,
           signal,
@@ -125,6 +126,7 @@ export class LocalReadOnlyTurnExecutor<
           worker: new LocalReadOnlyToolWorker(
             new LocalReadOnlyExecutionService({ binding }),
             admission.run.threadId,
+            toolTracker,
           ),
         });
         return kernelOwner;

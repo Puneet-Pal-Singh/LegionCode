@@ -18,6 +18,14 @@ invalidation. Its handle is shared with capture ports for the attempt, never a
 renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
 terminal retries cannot enqueue a later Stop.
 
+`engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
+owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
+The local factory reuses native context assembly/compaction and connects the same
+provider's tool tracker to the local worker. It creates no legacy Run repository
+or recorder; hosted callers retain their existing optional budget and projection
+observer ports. Protected provider adaptation stays behind the supplied text
+gateway, with canonical Turn/Thread identity.
+
 The App Server consumer/composition and protected provider resolution remain
 integration dependencies owned by workers01/04. Durable admission uses worker02's
 canonical `TurnAdmission` contract; the executor does not own a prompt store.

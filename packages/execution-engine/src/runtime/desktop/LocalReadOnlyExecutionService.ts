@@ -27,6 +27,29 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
     payload: Record<string, unknown>,
     options?: Parameters<RuntimeExecutionService["execute"]>[3],
   ): Promise<unknown> {
+    try {
+      return await this.executeRead(plugin, action, payload, options);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error) {
+        const code = error.code;
+        if (code === "ENOENT")
+          throw new Error("Requested workspace file was not found");
+        if (code === "ELOOP")
+          throw new Error("Workspace symbolic links are unavailable");
+        if (typeof code === "string" && code.startsWith("E")) {
+          throw new Error("Workspace read could not be completed safely");
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async executeRead(
+    plugin: string,
+    action: string,
+    payload: Record<string, unknown>,
+    options?: Parameters<RuntimeExecutionService["execute"]>[3],
+  ): Promise<unknown> {
     const binding = this.options.binding;
     const assertActive = () => {
       options?.signal?.throwIfAborted();

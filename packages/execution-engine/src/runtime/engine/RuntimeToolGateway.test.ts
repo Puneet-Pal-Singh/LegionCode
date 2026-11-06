@@ -1,3 +1,5 @@
+import { createLocalNativeProviderPorts } from "../desktop/LocalNativeProviderPorts.js";
+import type { LLMTextRequest, LLMTextResponse } from "../llm/types.js";
 import type { LocalReadOnlyWorkspaceBinding } from "../desktop/LocalReadOnlyWorkspaceBinding.js";
 import { LocalReadOnlyTurnExecutor } from "../desktop/LocalReadOnlyTurnExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
@@ -327,14 +329,18 @@ async function verifyLocalExecutor(root: string, binding: LocalReadOnlyWorkspace
   };
   const allow = { defaultEffect: "allow" as const, defaultRiskLevel: "low" as const, rules: [] };
   const toolAuthorization = new RegistryToolAuthorization({ resolve: async () => ({ commands: allow, paths: allow, network: allow, git: allow, packageManagers: allow, secrets: allow, externalServices: allow, tools: allow }) });
-  const provider = vi.fn(async (call: Parameters<RuntimeKernelDependencies["provider"]["generateNext"]>[0]) => {
-    if (!call.toolResults.length) return { kind: "tool_call" as const, itemId: ItemIdSchema.parse("itm_local_read_tool"), content: { toolCallId: ToolCallIdSchema.parse("toolcall_local_read"), toolName: "read_file", input: { path: "src/a.txt" } } };
-    expect(call.toolResults[0]?.output.content).toContain("1: first");
-    return { kind: "complete" as const, itemId: ItemIdSchema.parse("itm_local_final"), output: "Read completed" };
+  const provider = vi.fn(async (call: LLMTextRequest): Promise<LLMTextResponse> => {
+    expect(Object.keys(call.tools ?? {})).toEqual(["read_file"]);
+    expect(call.context.sessionId).toBe(thread.id);
+    expect(call.context.turnId).toMatch(/^trn_/);
+    const usage = { provider: "openai", model: "gpt-5", promptTokens: 10, completionTokens: 3, totalTokens: 13 };
+    if (!call.messages.some((message) => message.role === "tool")) return { parts: [], usage, toolCalls: [{ id: "provider_read_001", toolName: "read_file", args: { path: "src/a.txt" } }] };
+    expect(JSON.stringify(call.messages)).toContain("1: first");
+    return { parts: [{ id: "part-local-final", schemaVersion: 1, runId: call.context.runId, turnId: call.context.turnId!, sequence: 0, createdAt: now, type: "visible_text", visibility: "visible", text: "Read completed", finalized: false }], usage };
   });
   const executor = new LocalReadOnlyTurnExecutor({
     bindWorkspace: async () => activeBinding, lifecycleEvents, producerId: "local-runtime-test",
-    createKernelPorts: async (admission, attemptBinding) => {
+    createKernelPorts: async (admission, attemptBinding, signal) => {
       expect(attemptBinding).toBe(activeBinding);
       const workspace = {
         runId: admission.run.id, workspaceId: thread.workspaceId, repoOwner: "local", repoName: "fixture",
@@ -345,8 +351,8 @@ async function verifyLocalExecutor(root: string, binding: LocalReadOnlyWorkspace
       };
       return {
         workspaceManifests: { create: async () => workspace, update: async () => workspace, getByWorkspaceId: async () => workspace, getLatestByRunId: async () => workspace },
-        contextAssembly: { assemble: async () => ({ instructions: String(admission.userMessage.content.text), metadata: {} }) },
-        provider: { generateNext: provider }, toolAuthorization,
+        ...createLocalNativeProviderPorts({ admission, messages: [{ role: "user", content: String(admission.userMessage.content.text) }], gateway: { generateText: provider }, signal }),
+        toolAuthorization,
         approvals: { waitForDecision: async () => { throw new Error("Read-only tools must not require approval in this policy"); } },
       };
     },

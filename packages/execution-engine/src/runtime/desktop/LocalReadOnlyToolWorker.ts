@@ -1,3 +1,4 @@
+import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import { JsonRecordSchema, type ThreadId } from "@repo/platform-protocol";
 import type {
   WorkerProtocolPort,
@@ -25,6 +26,7 @@ export class LocalReadOnlyToolWorker implements WorkerProtocolPort {
   constructor(
     private readonly executor: LocalReadOnlyExecutionService,
     private readonly threadId: ThreadId,
+    private readonly toolTracker?: NativeProviderToolTracker,
   ) {}
 
   executeTool(
@@ -108,6 +110,7 @@ export class LocalReadOnlyToolWorker implements WorkerProtocolPort {
         root: workspace.filesystemRoot,
       }),
     });
+    this.toolTracker?.recordToolStarted(input.toolCall);
     const result = await gateway.execute({
       taskId: input.toolCall.toolCallId,
       toolName: input.toolCall.toolName,
@@ -119,8 +122,12 @@ export class LocalReadOnlyToolWorker implements WorkerProtocolPort {
     });
     if (result.kind === "cancelled")
       return { kind: "cancelled", reason: "Local read cancelled" };
-    if (result.kind === "failed")
-      return failure(result.result.error?.message ?? "Local read failed");
+    if (result.kind === "failed") {
+      const message = result.result.error?.message ?? "Local read failed";
+      this.toolTracker?.recordToolFailed(input.toolCall, message, true);
+      return failure(message);
+    }
+    this.toolTracker?.recordToolCompleted(input.toolCall, result.result);
     return {
       kind: "completed",
       output: JsonRecordSchema.parse({
