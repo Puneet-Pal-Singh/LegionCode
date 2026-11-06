@@ -38,3 +38,5 @@ export {
 } from "./artifact-metadata.js";
 
 export { harnessBindings, harnessObservationReceipts, harnessProcessGenerations } from "./harness.js";
+
+export { desktopAuthChallenges } from "./desktop-auth.js";

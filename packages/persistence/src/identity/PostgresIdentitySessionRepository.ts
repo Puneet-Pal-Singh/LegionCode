@@ -1,3 +1,5 @@
+import { PostgresDesktopAuthChallenges } from "./PostgresDesktopAuthChallenges.js";
+import type { CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession } from "./desktop-auth-types.js";
 import type { JsonValue } from "@repo/shared-types";
 import type { SqlClient, SqlRow } from "../sql.js";
 import type {
@@ -35,6 +37,19 @@ interface SessionRow extends SqlRow {
 
 export class PostgresIdentitySessionRepository implements IdentitySessionRepository {
   constructor(private readonly client: SqlClient) {}
+
+  createDesktopAuthChallenge(input: CreateDesktopAuthChallengeInput): Promise<void> {
+    return new PostgresDesktopAuthChallenges(this.client).create(input);
+  }
+  prepareDesktopAuthConsent(input: PrepareDesktopAuthConsentInput): Promise<DesktopAuthConsentRecord | null> {
+    return new PostgresDesktopAuthChallenges(this.client).prepare(input);
+  }
+  authorizeDesktopAuthChallenge(input: AuthorizeDesktopAuthChallengeInput): Promise<boolean> {
+    return new PostgresDesktopAuthChallenges(this.client).authorize(input);
+  }
+  redeemDesktopAuthChallenge(input: RedeemDesktopAuthChallengeInput): Promise<DesktopAuthRedeemedSession | null> {
+    return new PostgresDesktopAuthChallenges(this.client).redeem(input);
+  }
 
   async createGitHubSession(
     input: GitHubIdentitySessionInput,

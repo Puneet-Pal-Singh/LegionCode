@@ -1,3 +1,4 @@
+import { desktopAuthChallengesMigration } from "./0036-desktop-auth-challenges.js";
 import { harnessBindingsMigration } from "./0035-harness-bindings.js";
 import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
 import { identitySessionBootstrapMigration } from "./0002-identity-session-bootstrap.js";
@@ -116,4 +117,5 @@ export const persistenceMigrations = [
   legacyHistoryImportReceiptsMigration,
   projectlessSessionRepositoryMigration,
   harnessBindingsMigration,
+  desktopAuthChallengesMigration,
 ] as const;
