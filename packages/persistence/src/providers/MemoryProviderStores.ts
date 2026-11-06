@@ -235,12 +235,16 @@ export class MemoryCredentialStore
     if (before) await this.revokeConnection(acquisition(before));
   }
   async listCredentialProviders(): Promise<ProviderId[]> {
-    return [...this.records.values()]
-      .filter(
-        (r) => r.isDefault && r.status === "connected" && r.deletedAt === null,
-      )
-      .map((r) => r.providerId)
-      .sort();
+    return [
+      ...new Set(
+        [...this.records.values()]
+          .filter(
+            (record) =>
+              record.status === "connected" && record.deletedAt === null,
+          )
+          .map((record) => record.providerId),
+      ),
+    ].sort();
   }
   async updateCredentialMetadata(
     providerId: ProviderId,
@@ -251,7 +255,19 @@ export class MemoryCredentialStore
     if (!before || before.status !== "connected") return;
     this.records.set(before.credentialId, {
       ...before,
-      ...updates,
+      status: updates.status ?? before.status,
+      lastValidatedAt:
+        updates.lastValidatedAt !== undefined
+          ? updates.lastValidatedAt
+          : before.lastValidatedAt,
+      lastErrorCode:
+        updates.lastErrorCode !== undefined
+          ? updates.lastErrorCode
+          : before.lastErrorCode,
+      lastErrorMessage:
+        updates.lastErrorMessage !== undefined
+          ? updates.lastErrorMessage
+          : before.lastErrorMessage,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -337,6 +353,12 @@ export class MemoryPreferenceStore implements PreferenceStore {
     const current = await this.getPreferences();
     const next = this.clonePreferences({
       defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,
+      defaultCredentialId:
+        patch.defaultCredentialId ??
+        (patch.defaultProviderId !== undefined &&
+        patch.defaultProviderId !== current.defaultProviderId
+          ? undefined
+          : current.defaultCredentialId),
       defaultModelId: patch.defaultModelId ?? current.defaultModelId,
       visibleModelIds: patch.visibleModelIds ?? current.visibleModelIds,
       credentialLabels: current.credentialLabels,

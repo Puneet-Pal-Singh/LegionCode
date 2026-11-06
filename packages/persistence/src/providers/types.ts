@@ -94,15 +94,11 @@ export interface CredentialConnectionStore {
     input: CreateCredentialConnectionInput,
   ): Promise<ProviderCredentialRecord>;
   getConnection(connectionId: string): Promise<ProviderCredentialRecord | null>;
-  acquireConnection(
-    expected: CredentialAcquisition,
-  ): Promise<{
+  acquireConnection(expected: CredentialAcquisition): Promise<{
     record: ProviderCredentialRecord;
     secret: CredentialSecret;
   } | null>;
-  claimRefresh(
-    expected: CredentialAcquisition,
-  ): Promise<{
+  claimRefresh(expected: CredentialAcquisition): Promise<{
     claim: CredentialRefreshClaim;
     secret: Extract<CredentialSecret, { type: "oauth" }>;
   } | null>;
@@ -115,7 +111,7 @@ export interface CredentialConnectionStore {
   ): Promise<ProviderCredentialRecord | null>;
 }
 
-export interface CredentialStore {
+export interface CredentialStore extends CredentialConnectionStore {
   getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null>;
