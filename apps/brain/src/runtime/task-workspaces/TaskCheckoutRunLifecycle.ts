@@ -33,8 +33,10 @@ export class TaskCheckoutRunLifecycle {
     readonly turnId: TurnId;
     readonly runAttemptId: RunAttemptId;
   }): void {
-    if (this.runtimeIdentity)
+    if (this.runtimeIdentity) {
+      if (this.runtimeIdentity.turnId === identity.turnId && this.runtimeIdentity.runAttemptId === identity.runAttemptId) return;
       throw new Error("Checkout runtime ownership already started");
+    }
     this.runtimeIdentity = identity;
     this.recoveryRequired = true;
   }

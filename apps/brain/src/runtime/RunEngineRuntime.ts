@@ -1,3 +1,4 @@
+import { CloudDelegatedRunPreparation } from "./CloudDelegatedRunPreparation";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
@@ -500,6 +501,7 @@ export class RunEngineRuntime extends DurableObject {
       this.withExecutionLock,
       undefined,
       {
+        delegatedPreparation: new CloudDelegatedRunPreparation(this.env as Env),
         interruptRegistry: this.interruptRegistry,
         approvalResolutionRegistry: this.approvalResolutionRegistry,
         contextCompactionRegistry: this.contextCompactionRegistry,

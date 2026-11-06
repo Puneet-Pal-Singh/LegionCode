@@ -1,5 +1,32 @@
 # Capability ownership
 
+## Plans 048/061 — Brain external execution routing
+
+`HostedChatSubmission` and queued/resumed `prepareAdmittedTurnModel` branch on
+explicit harness intent before native model discovery. `HandleChatRequest`
+preserves the admission snapshot, skips native provider-route/context-window and
+conversation-context construction for delegated input, and omits native auth-mode
+defaults. Subscription credentials remain with the selected connection authority.
+
+`RunEngineRuntime` supplies the canonical preparation capability to the actual
+`RunEngineRequestHandler` caller. After its existing authenticated execution claim,
+that handler enters `executeDelegatedRun` before `createRuntimeState`,
+`prepareRuntimeExecutionResources` or `RuntimeKernelNativeRunner` construction.
+The delegated helper validates the frozen admitted selection and canonical IDs,
+uses the same `RuntimeKernel`/lifecycle store/approval and steering registries, and
+retains the existing checkout settlement owner. Native execution ports are
+unavailable in that composition. Missing canonical preparation reports unavailable
+before provider work. P09/P11/P12 composition must supply
+`HARNESS_RUN_PREPARATION`; no new provider loop, credential resolver or store is
+introduced by this caller.
+
+The actual initial-title caller passes the execution strategy to
+`InitialThreadTitleScheduler`. External routes persist the existing canonical
+preview with generation unavailable (`titleStatus: failed`), then return before
+native route resolution or `ThreadTitleGenerationCoordinator.schedule`. They do
+not send subscription authentication to native title inference or choose an
+alternate payer. Existing Native title behavior remains with its original owner.
+
 ## Plans 048/061 — delegated kernel and execution safety
 
 | Responsibility | Canonical owner | Actual wiring and integration status |
@@ -1174,3 +1201,31 @@ client configuration. Missing or mismatched captures reject and use canonical
 unclaimed-startup failure settlement before any external command. Explicit Native
 captures retain their environment/revision and `selection:null`; omitted legacy
 Native captures remain omitted. Atomic persistence/freeze is owned by P11/P04.
+## Shared workspace file explorer presentation
+
+The tree renderer, loaded-file filtering, expansion, pagination and stale-request
+isolation move from Web FileExplorer into `client-ui/src/files/FileExplorer.tsx`.
+Web FileExplorer retains AuthContext and the exact hosted checkout identity/offset
+adapter. DesktopWorkspaceFiles supplies the native workspace/cursor SDK adapter;
+its right-panel mount remains pending the Desktop shell owner. Native entry kinds
+remain explicit; symlinks, special and reserved entries are not openable. Runtime,
+workspace grant, file execution and immutable artifact ownership are unchanged.
+The shared read port transports opaque string or numeric cursors without translating
+between native cursor and hosted offset models. No copied Web tree remains.
+
+Source reconciliation: shared presentation extraction is `a6434ebbb4e6123b8a290ca4ce81597206261357`; the Desktop SDK adapter is `75b2686b2c3b4fb656cad3cde61b3140bc5b7634`. These source revisions establish the renderer and adapter wiring described above; they do not establish a mounted Desktop panel or packaged execution acceptance. Subsequent capability-ledger updates remain with the single ledger owner.
+
+## Accepted local execution policy scope — implementation pending
+
+The coordinated Plan 057 scope accepts one explicit `single_executable_nofork`
+policy: OS-enforced fork denial and own-process-only signal protection, with
+canonical exact-executable/argv approval that discloses host file and network
+authority and the absence of subprocesses. The child receives a minimal
+environment without provider secrets. This scope makes no workspace or network
+jail claim and defines no fallback profiles.
+
+This entry records the accepted scope only. Production ownership remains with the
+Plan 057 packaged execution owner. Enablement requires its published implementation
+revision and actual packaged bootstrap, fork, PID, owner-loss and writer-FD proof;
+none is established by the presentation revisions above. Implementation and
+packaged acceptance remain unverified in this ledger until that evidence arrives.

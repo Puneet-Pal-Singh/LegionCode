@@ -1,3 +1,4 @@
+import { isDelegatedHarnessRoute } from "./HarnessExecutionRoute";
 import type {
   IAgent,
   RunEngineDependencies,
@@ -37,6 +38,7 @@ export async function prepareRuntimeExecutionResources(
   env: Env,
   payload: ExecuteRunPayload,
 ): Promise<RuntimeExecutionResources> {
+  if (isDelegatedHarnessRoute(payload.input)) throw new DomainError("DELEGATED_NATIVE_RESOURCE_ACCESS", "Delegated execution cannot construct native provider or context resources.", 409, false, payload.correlationId);
   const { identity, userId, workspaceId, sessionId, runId } = payload;
   if (!identity || !userId || !workspaceId)
     throw new DomainError(

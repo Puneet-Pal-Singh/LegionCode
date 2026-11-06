@@ -95,6 +95,11 @@ export class HarnessObservationIngestor {
     await this.options.lifecycle.restoreHarnessHistory(
       recovered.lifecycleEvents,
     );
+    this.tools.clear();
+    this.toolCount = 0;
+    this.terminal = null;
+    this.quiescent = false;
+    this.requestOrigins.clear();
     this.lastSequence = recovered.lastSequence;
     this.externalTurnId = recovered.externalTurnId;
     for (const event of recovered.lifecycleEvents) {
@@ -247,6 +252,17 @@ export class HarnessObservationIngestor {
       !sameHarnessSession(payload.evidence.session, session)
     )
       this.reject("Stale quiescence evidence");
+    if (payload.kind === "activity_measurement" || payload.kind === "provider_limit") {
+      const fact = payload.kind === "activity_measurement" ? payload.measurement : payload.notification;
+      if (
+        fact.threadId !== selection.threadId ||
+        fact.turnId !== selection.turnId ||
+        fact.runAttemptId !== session.runAttemptId ||
+        fact.instanceId !== session.instanceId ||
+        fact.externalSessionId !== session.externalSessionId ||
+        fact.processGeneration !== session.processGeneration
+      ) this.reject("Measurement identity differs from the admitted process binding");
+    }
     let applied = false;
     const ack = await lifecycle.commitHarnessObservation(
       observation,
@@ -300,6 +316,12 @@ export class HarnessObservationIngestor {
               },
             );
             break;
+          case "activity_measurement":
+            await draft.recordHarnessActivity({ measurement: payload.measurement });
+            break;
+          case "provider_limit":
+            await draft.recordHarnessProviderLimit({ notification: payload.notification });
+            break;
           case "usage":
             await draft.updateUsage(payload.usage);
             break;
@@ -312,6 +334,15 @@ export class HarnessObservationIngestor {
       },
     );
     this.validateAck(ack, observation);
+    if (!applied && observation.sequence > this.lastSequence) {
+      // Another initialized owner committed between the two immutable lookups.
+      // Restore every canonical/pending/terminal fact before acknowledging it.
+      this.fenced = true;
+      await this.hydrate();
+      if (this.lastSequence < observation.sequence)
+        this.reject("Commit-time duplicate is ahead of canonical recovery");
+      this.fenced = false;
+    }
     if (applied) {
       this.lastSequence = observation.sequence;
       this.externalTurnId ??= observation.externalTurnId;

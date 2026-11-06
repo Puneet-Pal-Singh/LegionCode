@@ -112,7 +112,7 @@ describe("runtime kernel integration", () => {
         await observe(terminal);
       }),
       control: vi.fn(async (command) => { if (command.kind === "reply") releaseApproval(); return { accepted: true }; }),
-      awaitQuiescence: vi.fn(async () => ({ status: "quiescent" as const, session, observedAt: timestamp, evidenceId: "tree-proof", scope: "process_tree_and_background_work" as const })),
+      awaitQuiescence: vi.fn(async () => ({ status: "quiescent" as const, session, observedAt: timestamp, evidenceId: "tree-proof", scope: "process_tree_and_background_work" as const, observationIntegrity: "complete" as const })),
     };
     const delegatedPorts = createPorts();
     const delegatedKernel = new RuntimeKernel({ lifecycleEvents: delegatedSink,
