@@ -96,6 +96,7 @@ describe("App Server protocol", () => {
     const harnessSelection = { ...harnessScope, sessionId: "session-123456", threadId: "thr_123456" };
     for (const command of [
       { method: "harness/setup", params: { ...harnessScope, instanceId: "codex-personal", connectionId: "connection-1", harness: "codex", clientCommandId: "setup-1" } },
+      { method: "harness/setup", params: { ...harnessScope, connectionId: "connection-1", harness: "codex", clientCommandId: "create-1" } },
       { method: "harness/status", params: harnessScope },
       { method: "harness/models", params: { ...harnessScope, instanceId: "codex-personal", connectionId: "connection-1" } },
       { method: "harness/selection/read", params: harnessSelection },
@@ -108,6 +109,10 @@ describe("App Server protocol", () => {
       }
     }
     expect(AppServerRequestSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/selection/select", params: { ...harnessSelection, clientCommandId: "select-1", expectedRevision: -1, selection: null } }).success).toBe(false);
+
+    expect(AppServerRequestSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/setup", params: {
+      ...harnessScope, instanceId: "", connectionId: "connection-1", harness: "codex", clientCommandId: "create-1",
+    } }).success).toBe(false);
 
     const status = {
       ...harnessScope, instanceId: "codex-personal", harness: "codex", connectionId: "connection-1", accountLabel: "Personal",

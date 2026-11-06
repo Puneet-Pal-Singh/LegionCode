@@ -1149,3 +1149,14 @@ turn reservation reuses its `session.threadId`. `session/create` and
 `session/workspaceContext` expose that same server-owned ID before any Native or
 external turn starts. No historical Thread migration, extra event store or
 client-generated identity is introduced.
+
+
+## Harness instance creation receipt
+
+Public setup omits `instanceId` for first creation. The control-plane repository
+owns issuance and persistence of the real instance ID with its scoped
+`clientCommandId` receipt; the schema/SDK do not allocate it. Reconnect supplies that persisted ID and cannot turn
+an unknown reference into a new instance. The SDK returns the authoritative
+`instance.instanceId` receipt and never generates a placeholder identity.
+The contract remains run-independent and uses an authorized workspace,
+configured environment, harness kind and verified credential connection.

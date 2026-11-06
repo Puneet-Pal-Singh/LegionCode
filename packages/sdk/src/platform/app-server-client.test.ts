@@ -210,6 +210,7 @@ describe("AppServerClient", () => {
         method: "POST", path: "/app-server/request", contentType: "application/json", rawBody: JSON.stringify(envelope),
       }, { environment: "hosted", serverId: "test", serverVersion: "test", harnessOperations: operations })).payload },
     }).harness;
+    await expect(harnessClient.setup({ ...scope, harness: "codex", connectionId: "connection-1", clientCommandId: "create-1" })).resolves.toEqual({ instance });
     await expect(harnessClient.setup({ ...scope, harness: "codex", instanceId: instance.instanceId, connectionId: "connection-1", clientCommandId: "setup-1" })).resolves.toEqual({ instance });
     await expect(harnessClient.status(scope)).resolves.toEqual({ instances: [instance] });
     await expect(harnessClient.models({ ...scope, instanceId: instance.instanceId, connectionId: "connection-1" })).resolves.toMatchObject({ availability: "available", models: [{ id: "gpt-5" }] });
