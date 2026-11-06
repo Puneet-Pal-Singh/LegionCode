@@ -18,7 +18,7 @@ describe("hosted App Server integration", () => {
               headers: { "content-type": "application/json" },
               body: JSON.stringify(envelope),
             }),
-            {} as Env,
+            { APP_SERVER_ENVIRONMENT_ID: "env_123e4567-e89b-42d3-a456-426614174111" } as Env,
           );
           return await response.json();
         },
@@ -27,6 +27,7 @@ describe("hosted App Server integration", () => {
 
     await expect(client.initialize(["thread-management-v1"])).resolves.toMatchObject({
       environment: "hosted",
+      environmentId: "env_123e4567-e89b-42d3-a456-426614174111",
       server: { id: "legioncode-hosted" },
       unavailableCapabilities: [],
     });

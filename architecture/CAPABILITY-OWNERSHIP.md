@@ -1132,3 +1132,21 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+## Harness environment identity at the App Server boundary
+
+- Local host identity belongs to `LocalPersistence.environmentId`: the existing
+  SQLite metadata writer creates `env_<UUID>` once under
+  `local_environment_id_v1`, validates it before mutation on reopen, and retains
+  it through process restart. `local-process.ts` supplies that value to initialize.
+- Hosted host identity belongs to deployment authority through the explicit
+  `APP_SERVER_ENVIRONMENT_ID` configuration. Each configured execution host
+  environment must receive a distinct `env_<UUID>`; deployment labels, request
+  headers, workspace IDs, connection IDs and sandbox IDs are not substitutes.
+- SDK initialize exposes `environmentId: string | null` in both placements.
+  Missing hosted configuration returns null. Malformed configuration is rejected.
+  Hosted setup/status/model/selection operations validate against that same
+  configured identity before host/provider work.
+- The hosted settings/composer consumer uses the server field for its scope and
+  remains unavailable when it is null. This field identifies a host environment;
+  admission still owns the exact workspace/account/model/runtime binding, and
+  does not gain authority from a renderer echoing the field.

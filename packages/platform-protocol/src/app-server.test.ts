@@ -25,6 +25,7 @@ describe("App Server handshake contract", () => {
       protocolVersion: "1.0.0",
       server: { id: "legioncode-local", version: "0.1.0" },
       environment: "local",
+      environmentId: null,
       capabilities: [],
       unavailableCapabilities: [
         {

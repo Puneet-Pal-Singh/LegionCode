@@ -129,6 +129,8 @@ export interface Env {
   // Environment
   NODE_ENV?: string;
   ENVIRONMENT?: string;
+  /** Stable env_<UUID> assigned by deployment authority, distinct for each execution host environment. */
+  APP_SERVER_ENVIRONMENT_ID?: string;
 }
 
 // export interface Env {

@@ -45,6 +45,8 @@ describe("local App Server HTTP integration", () => {
       requestedCapabilities: ["workspace-selection-v1"],
     });
     expect(initialize).toMatchObject({ ok: true, method: "initialize", result: { environment: "local" } });
+    const environmentId = (initialize as { result: { environmentId: string } }).result.environmentId;
+    expect(environmentId).toMatch(/^env_[a-f0-9-]{36}$/);
 
     const grant = await send(baseUrl, "workspace/grant", { path: workspacePath });
     expect(grant).toMatchObject({ ok: true, method: "workspace/grant", result: { grant: { readiness: "ready" } } });
@@ -124,6 +126,9 @@ describe("local App Server HTTP integration", () => {
     } finally { persisted.close(); }
     const restarted = await start(storageDirectory);
     const restartedUrl = serverUrl(restarted);
+    await expect(send(restartedUrl, "initialize", { client: { id: "test-client", version: "0.1.0" }, requestedCapabilities: [] })).resolves.toMatchObject({
+      ok: true, result: { environmentId },
+    });
     await expect(send(restartedUrl, "thread/list", {})).resolves.toMatchObject({
       ok: true,
       result: { threads: [{ id: threadId, title: "Renamed", status: "active" }] },

@@ -28,6 +28,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
     const composition = {
       environment: "local" as const,
       serverId: "legioncode-local",
+      environmentId: persistence.environmentId,
       serverVersion: config.serverVersion,
       credential: config.credential,
       workspaceService: local.workspaceService,

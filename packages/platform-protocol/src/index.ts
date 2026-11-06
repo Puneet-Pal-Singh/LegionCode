@@ -627,3 +627,5 @@ export {
   type HarnessActivityMeasurement, type HarnessUsageObservation,
 } from "./harness/usage.js";
 export * from "./harness/operations.js";
+
+export { AppServerEnvironmentIdSchema } from "./app-server.js";

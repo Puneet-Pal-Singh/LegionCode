@@ -429,3 +429,5 @@ export {
   type HarnessNextSelection,
   type HarnessInstanceStatus,
 } from "@repo/platform-protocol";
+
+export { AppServerEnvironmentIdSchema } from "@repo/platform-protocol";
