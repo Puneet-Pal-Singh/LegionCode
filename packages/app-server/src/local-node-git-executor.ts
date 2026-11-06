@@ -30,7 +30,13 @@ export type LocalGitMacExecution = {
   readonly scope: "single_executable_nofork";
   run(
     input: LocalGitContainedCommand,
-  ): Promise<GitCommandExecutionResult & { readonly quiescent: boolean }>;
+  ): Promise<
+    GitCommandExecutionResult & {
+      readonly quiescent: boolean;
+      readonly truncated: boolean;
+      readonly outputClosed: boolean;
+    }
+  >;
 };
 
 export function createNodeGitExecutor(
@@ -62,11 +68,18 @@ export function createNodeGitExecutor(
           request: LocalGitContainedCommand,
         ) => {
           const result = await runner.run(request);
-          if (!result.quiescent)
+          if (!result.quiescent || result.outputClosed)
             throw new GitServiceError(
               "git_commit_indeterminate",
               "Canonical Mac Git execution did not prove process closure",
             );
+          if (result.truncated)
+            return {
+              exitCode: 1,
+              stdout: "",
+              stderr: "Contained Git output was truncated",
+              quiescent: true,
+            };
           return result;
         };
         // Compile only fixed canonical implementation source; request data and the
