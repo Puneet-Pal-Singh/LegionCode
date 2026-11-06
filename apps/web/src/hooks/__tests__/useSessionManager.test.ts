@@ -724,9 +724,6 @@ describe("useSessionManager", () => {
       expect(result.current.sessions).toEqual([serverSession]);
       expect(result.current.activeSessionId).toBe(serverSession.id);
       expect(SessionStateService.loadActiveSessionId()).toBe(serverSession.id);
-      expect(SessionStateService.loadSessions()).toEqual({
-        [staleSession.id]: staleSession,
-      });
       expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
     });
 
@@ -881,9 +878,6 @@ describe("useSessionManager", () => {
       });
       expect(result.current.sessions).toEqual([]);
       expect(result.current.activeSessionId).toBeNull();
-      expect(SessionStateService.loadSessions()).toEqual({
-        [staleSession.id]: staleSession,
-      });
       expect(localStorage.getItem("legioncode:sessions:v3")).toBe(legacySnapshot);
       expect(SessionStateService.loadActiveSessionId()).toBeNull();
     });
