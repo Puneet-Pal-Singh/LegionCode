@@ -184,6 +184,7 @@ describe("PostgresTranscriptRepository", () => {
       query.statement.includes("JOIN sessions s2 ON s2.id = p2.session_id"),
     )?.statement ?? "";
     expect(statement).toContain("JOIN sessions s2 ON s2.id = p2.session_id");
+    expect(statement).toContain("p.content_json::text AS content_json");
     expect(statement).toContain("AND p.session_id = $1");
     expect(statement).toContain(
       "AND ($2::text IS NULL OR p.run_id = $2 OR m.run_id = $2)",
