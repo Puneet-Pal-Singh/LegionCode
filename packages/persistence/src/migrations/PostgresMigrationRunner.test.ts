@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
+import { legacyHistoryImportReceiptsMigration } from "./0034-legacy-history-import-receipts.js";
 import type { MigrationLedger, SqlMigration } from "./types.js";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
 
@@ -74,19 +75,41 @@ describe("PostgresMigrationRunner", () => {
     const result = await runner.runPending([
       { id: "0001_done", description: "done", statements: ["SELECT 1"] },
       { id: "0002_pending", description: "pending", statements: ["SELECT 2"] },
+      legacyHistoryImportReceiptsMigration,
       projectlessSessionRepositoryMigration,
     ]);
 
     expect(result).toEqual({
-      applied: ["0002_pending", "0034_projectless_session_repository"],
+      applied: [
+        "0002_pending",
+        "0034_legacy_history_import_receipts",
+        "0034_projectless_session_repository",
+      ],
       skipped: ["0001_done"],
     });
     expect(client.statements).toEqual([
       "SELECT pg_advisory_xact_lock(hashtext('legioncode:persistence:migrations')::bigint)",
       "SELECT 2",
-      "UPDATE sessions SET repository = NULL WHERE repository = 'New Project'",
+      ...legacyHistoryImportReceiptsMigration.statements,
+      ...projectlessSessionRepositoryMigration.statements,
     ]);
-    expect(ledger.recorded).toEqual(["0002_pending", "0034_projectless_session_repository"]);
+    expect(ledger.recorded).toEqual([
+      "0002_pending",
+      "0034_legacy_history_import_receipts",
+      "0034_projectless_session_repository",
+    ]);
+    expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
+      "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
+    );
+    expect(legacyHistoryImportReceiptsMigration.statements[2]).toContain(
+      "WHERE source_kind = 'durable_object_export'",
+    );
+    expect(legacyHistoryImportReceiptsMigration.statements[3]).toContain(
+      "WHERE source_kind = 'local_wrangler_sqlite'",
+    );
+    expect(projectlessSessionRepositoryMigration.statements[0]).toContain(
+      "UPDATE sessions SET repository = NULL WHERE repository = 'New Project'",
+    );
     const alreadyApplied = new PostgresMigrationRunner(client, new FakeLedger(new Set(ledger.recorded)));
     expect(await alreadyApplied.runPending([projectlessSessionRepositoryMigration])).toEqual({ applied: [], skipped: ["0034_projectless_session_repository"] });
   });

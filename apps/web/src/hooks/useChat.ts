@@ -87,7 +87,8 @@ export function useChat(
     [sessionId, transcriptState.messages, transcriptState.sessionId],
   );
   const setVerifiedMessages = useCallback(
-    (messages: Message[]) => setTranscriptState({ sessionId, messages }),
+    (messages: Message[]) =>
+      setTranscriptState({ sessionId, messages }),
     [sessionId],
   );
   const {
