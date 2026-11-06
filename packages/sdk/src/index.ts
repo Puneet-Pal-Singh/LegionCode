@@ -393,6 +393,7 @@ export type {
 
 export {
   projectHarnessUsage,
+  projectHarnessAttemptElapsedMs,
   type HarnessUsageScope,
   type HarnessUsageSample,
 } from "./harness/usage-projection.js";
