@@ -62,6 +62,14 @@ export class LocalHarnessComposition {
       scope,
       driver,
       createHost: async (command) => {
+        const selection = command.selection;
+        const admission = await this.persistence.turnAdmissions.getByTurn(selection.turnId);
+        if (!admission || admission.run.id !== selection.runId ||
+            admission.run.threadId !== selection.threadId || admission.run.userId !== selection.userId ||
+            admission.run.workspaceId !== selection.workspaceId || admission.run.modelId !== selection.modelId ||
+            admission.runAttemptId !== selection.runAttemptId || admission.turn.id !== selection.turnId) {
+          throw new Error("Harness execution does not match a canonical local Turn admission");
+        }
         const thread = await this.threadService.get(command.selection.threadId);
         if (thread.userId !== command.selection.userId || thread.workspaceId !== command.selection.workspaceId) {
           throw new Error("Harness selection does not match the authorized local thread");
