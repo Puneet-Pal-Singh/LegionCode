@@ -390,3 +390,9 @@ export type {
   HostedWorkspaceListItem,
   HostedWorkspaceListResponse,
 } from "@repo/platform-protocol";
+
+export {
+  projectHarnessUsage,
+  type HarnessUsageScope,
+  type HarnessUsageSample,
+} from "./harness/usage-projection.js";

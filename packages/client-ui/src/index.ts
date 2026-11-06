@@ -72,3 +72,5 @@ export { type ComposerDelivery } from "./conversation/conversation/composer-keyb
 export { resumeUnavailableMessage } from "./conversation/chat-interface/workspace-snapshot-status.js";
 
 export { resolveComposerKeyboardAction } from "./conversation/conversation/composer-keyboard.js";
+
+export { HarnessUsage, type HarnessUsageProps } from "./harness/HarnessUsage.js";
