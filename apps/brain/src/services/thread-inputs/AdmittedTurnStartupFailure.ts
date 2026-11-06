@@ -125,4 +125,3 @@ function sanitizeStartupFailure(error: unknown): string {
     "Runtime setup failed before execution began."
   );
 }
-
