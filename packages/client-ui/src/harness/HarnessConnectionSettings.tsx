@@ -6,9 +6,16 @@ import type {
   HarnessStatusRequest,
 } from "@legioncode/sdk";
 
+import {
+  HarnessConnectionSetup,
+  type HarnessConnectionSetupProps,
+} from "./HarnessConnectionSetup.js";
+
 export interface HarnessConnectionSettingsProps {
   client: HarnessClient;
   scope: HarnessStatusRequest;
+  loadSetupConnections?: HarnessConnectionSetupProps["loadConnections"];
+  onConnectionSetup?: (instance: HarnessInstanceStatus) => void;
 }
 
 /** Display-safe host status only. Authentication and installation stay with the host. */
@@ -26,6 +33,8 @@ export function HarnessConnectionSettings(
 function HarnessConnectionSettingsContent({
   client,
   scope,
+  loadSetupConnections,
+  onConnectionSetup,
 }: HarnessConnectionSettingsProps) {
   const mounted = useRef(true);
   useEffect(() => {
@@ -77,7 +86,7 @@ function HarnessConnectionSettingsContent({
     setRetrying(instance.instanceId);
     setError(null);
     try {
-      await client.setup({
+      const result = await client.setup({
         workspaceId: instance.workspaceId,
         environmentId: instance.environmentId,
         instanceId: instance.instanceId,
@@ -85,7 +94,22 @@ function HarnessConnectionSettingsContent({
         connectionId: instance.connectionId,
         clientCommandId: crypto.randomUUID(),
       });
-      if (mounted.current) setRefresh((value) => value + 1);
+      if (
+        result.instance.instanceId !== instance.instanceId ||
+        result.instance.workspaceId !== workspaceId ||
+        result.instance.environmentId !== environmentId ||
+        result.instance.harness !== instance.harness ||
+        (result.instance.connectionId !== null &&
+          result.instance.connectionId !== instance.connectionId)
+      ) {
+        throw new Error(
+          "Reconnect returned a different instance or connection",
+        );
+      }
+      if (mounted.current) {
+        setRefresh((value) => value + 1);
+        onConnectionSetup?.(result.instance);
+      }
     } catch {
       if (mounted.current)
         setError(
@@ -115,6 +139,23 @@ function HarnessConnectionSettingsContent({
       {error ? <p role="alert">{error}</p> : null}
       {!busy && !error && instances.length === 0 ? (
         <p>No agents are connected in this environment.</p>
+      ) : null}
+      {loadSetupConnections ? (
+        <HarnessConnectionSetup
+          client={client}
+          scope={scope}
+          loadConnections={loadSetupConnections}
+          onSetup={(instance) => {
+            setInstances((current) => [
+              ...current.filter(
+                (item) => item.instanceId !== instance.instanceId,
+              ),
+              instance,
+            ]);
+            setRefresh((value) => value + 1);
+            onConnectionSetup?.(instance);
+          }}
+        />
       ) : null}
       {instances.map((instance) => (
         <div

@@ -17,6 +17,7 @@ export function HostedHarnessPicker({ sessionId }: { sessionId: string }) {
   if (!binding.selectionScope) return null;
   return (
     <HarnessSelection
+      key={binding.connectionRevision}
       client={client}
       scope={binding.selectionScope}
       onSelectionChange={binding.acceptSelectionReceipt}
