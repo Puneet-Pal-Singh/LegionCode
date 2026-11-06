@@ -243,4 +243,3 @@ function workspaceIdForPath(path: string) {
   const digest = createHash("sha256").update(path).digest("hex").slice(0, 24);
   return WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${digest}`));
 }
-
