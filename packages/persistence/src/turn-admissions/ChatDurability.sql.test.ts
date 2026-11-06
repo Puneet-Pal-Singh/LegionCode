@@ -1,3 +1,4 @@
+import { PostgresHarnessBindingRepository } from "../harness/PostgresHarnessBindingRepository.js";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -211,12 +212,31 @@ describe("durable admission and canonical append SQL", () => {
       CREATE TRIGGER fail_projection BEFORE INSERT ON messages FOR EACH ROW EXECUTE FUNCTION fail_projection();`);
     const events = [lifecycleTurnStarted(fixture, 1), lifecycleItemStarted(fixture, 2), lifecycleDelta(fixture, 3, "final_answer")];
     const store = new PostgresLifecycleEventStore(client);
-    await expect(store.appendBatch(events)).rejects.toThrow("projection failure");
+    const bindings = new PostgresHarnessBindingRepository(client);
+    const selection = { userId: fixture.userId, sessionId: fixture.sessionId, runId: fixture.admission.runId, workspaceId: fixture.workspaceId, threadId: fixture.admission.threadId, turnId: fixture.admission.turnId, runAttemptId: fixture.admission.runAttemptId, selectionJson: JSON.stringify({ connectionId: "selected", modelId: "pinned" }) };
+    const origin = { instanceId: "instance", externalSessionId: "external", processGeneration: "11111111-1111-4111-8111-111111111111", authOwnerGeneration: 0 };
+    expect((await bindings.freezeAndClaim({ selection, claimId: "harness-claim" })).status).toBe("claimed");
+    expect((await bindings.freezeAndClaim({ selection, claimId: "second-claim" })).status).toBe("already_claimed");
+    await bindings.attach({ selection, origin, expectedProcessGeneration: null });
+    const observation = { selection, origin, sequence: 1, observationFingerprint: "a".repeat(64), events };
+    await expect(bindings.appendObservation(observation)).rejects.toThrow("projection failure");
+    expect((await bindings.read(selection))?.lastObservationSequence).toBe(0);
+    expect((await client.query("SELECT * FROM harness_observation_receipts WHERE turn_id=$1", [selection.turnId])).rows).toEqual([]);
     expect((await store.replay({ turnId: fixture.admission.turnId, afterSequence: null, limit: 10 })).events).toEqual([]);
     expect((await client.query("SELECT last_sequence FROM sessions WHERE id = $1", [fixture.sessionId])).rows[0]?.last_sequence).toBe(1);
     await db.exec("DROP TRIGGER fail_projection ON messages; DROP FUNCTION fail_projection();");
-    await store.appendBatch(events);
+    await expect(bindings.appendObservation(observation)).resolves.toMatchObject({ duplicate: false, eventIds: events.map((event) => event.eventId) });
+    await expect(bindings.appendObservation({ ...observation, events: [] })).resolves.toMatchObject({ duplicate: true });
+    await expect(bindings.appendObservation({ ...observation, observationFingerprint: "b".repeat(64) })).rejects.toMatchObject({ code: "observation_conflict" });
+    await expect(bindings.appendObservation({ ...observation, sequence: 3, events: [] })).rejects.toMatchObject({ code: "sequence_gap" });
+    await expect(bindings.appendObservation({ ...observation, sequence: 2, events: [], origin: { ...origin, externalSessionId: "wrong" } })).rejects.toMatchObject({ code: "stale_origin" });
+    await expect(bindings.read({ ...selection, userId: randomUUID() })).resolves.toBeNull();
+    await expect(bindings.appendObservation({ ...observation, sequence: 2, events: [] })).resolves.toMatchObject({ duplicate: false, eventIds: [] });
     expect((await store.replay({ turnId: fixture.admission.turnId, afterSequence: null, limit: 10 })).events).toEqual(events);
+    const terminal = { ...observation, sequence: 3, observationFingerprint: "c".repeat(64), events: [lifecycleItemCompleted(fixture, 4), lifecycleTurnCompleted(fixture, 5)] };
+    await expect(bindings.appendObservation(terminal)).resolves.toMatchObject({ duplicate: false });
+    await expect(bindings.appendObservation(terminal)).resolves.toMatchObject({ duplicate: true });
+    await expect(bindings.appendObservation({ ...observation, sequence: 4, events: [] })).rejects.toMatchObject({ code: "stale_origin" });
   });
 });
 

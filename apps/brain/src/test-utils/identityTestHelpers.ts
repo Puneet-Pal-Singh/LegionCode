@@ -54,8 +54,15 @@ export function createIdentityRepository(
   githubScopes = ["repo"],
 ): IdentitySessionRepository {
   const record = toIdentitySessionRecord(seed, githubScopes);
+  const desktopAuthNotConfigured = async (): Promise<never> => {
+    throw new Error("Desktop authentication exchange is not configured in this identity fixture");
+  };
 
   return {
+    createDesktopAuthChallenge: desktopAuthNotConfigured,
+    prepareDesktopAuthConsent: desktopAuthNotConfigured,
+    authorizeDesktopAuthChallenge: desktopAuthNotConfigured,
+    redeemDesktopAuthChallenge: desktopAuthNotConfigured,
     createGitHubSession: async () => {
       throw new Error("not used");
     },

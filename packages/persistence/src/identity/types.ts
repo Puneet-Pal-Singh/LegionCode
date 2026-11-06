@@ -1,3 +1,4 @@
+import type { DesktopAuthChallengeRepository } from "./desktop-auth-types.js";
 export interface EncryptedOAuthToken {
   ciphertext: string;
   iv: string;
@@ -35,7 +36,7 @@ export interface IdentitySessionRecord {
   workspaceIds?: string[];
 }
 
-export interface IdentitySessionRepository {
+export interface IdentitySessionRepository extends DesktopAuthChallengeRepository {
   createGitHubSession(
     input: GitHubIdentitySessionInput,
   ): Promise<IdentitySessionRecord>;

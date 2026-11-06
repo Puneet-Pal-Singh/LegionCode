@@ -381,8 +381,24 @@ export {
 export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-receipts.js";
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";
-export type {
-  SessionReadState,
-  SessionReadReceipt,
-  SessionReadReceiptRepository,
-} from "./session-read-receipts/types.js";
+export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";
+
+export { PostgresHarnessBindingRepository } from "./harness/PostgresHarnessBindingRepository.js";
+export type { StoredHarnessSelection, StoredHarnessAttachment, StoredHarnessBinding, HarnessObservationCommit, HarnessObservationAck, HarnessBindingRepository, HarnessExecutionClaimResult } from "./harness/types.js";
+
+export { DESKTOP_AUTH_INTENT, DESKTOP_AUTH_CHALLENGE_MAX_AGE_MS, DesktopAuthChallengeError } from "./identity/desktop-auth-types.js";
+export type { DesktopAuthChallengeScope, CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession, DesktopAuthRedeemResult, DesktopAuthChallengeRepository } from "./identity/desktop-auth-types.js";
+export { desktopAuthChallengesMigration } from "./migrations/0036-desktop-auth-challenges.js";
+export { desktopAuthChallenges } from "./schema/desktop-auth.js";
+
+export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDefaultFence.js";
+export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
+export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
+export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";
+
+export { PostgresHarnessControlPlaneRepository, HarnessControlPlaneConflictError } from "./harness/PostgresHarnessControlPlaneRepository.js";
+export type { HarnessControlPlaneScope, StoredHarnessInstance, FreezeHarnessAdmissionInput } from "./harness/PostgresHarnessControlPlaneRepository.js";
+export { harnessControlPlaneMigration } from "./migrations/0038-harness-control-plane.js";
+
+export { PostgresHarnessObservationCommitPort } from "./harness/PostgresHarnessObservationCommitPort.js";
+export { harnessRecoveryReplyClaimsMigration } from "./migrations/0039-harness-recovery-reply-claims.js";

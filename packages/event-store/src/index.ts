@@ -20,3 +20,28 @@ export type {
   ReplayLifecycleEventsInput,
   ReplayLifecycleEventsResult,
 } from "./lifecycle-types.js";
+
+export {
+  HarnessPersistenceError,
+  StoredHarnessSelectionSchema,
+  StoredHarnessAttachmentSchema,
+  harnessSelectionFingerprint,
+  assertHarnessSelection,
+  assertHarnessOrigin,
+  assertHarnessAttachmentChange,
+  validateHarnessObservation,
+  assertEventScope,
+  assertLearnedExternalTurn,
+  sameHarnessOrigin,
+  fingerprintHarnessObservation,
+  rethrowHarnessCommitFailure,
+} from "./local/harness-bindings.js";
+export type {
+  StoredHarnessSelection,
+  StoredHarnessAttachment,
+  StoredHarnessBinding,
+  HarnessObservationCommit,
+  HarnessObservationAck,
+  HarnessBindingRepository,
+  HarnessExecutionClaimResult,
+} from "./local/harness-bindings.js";
