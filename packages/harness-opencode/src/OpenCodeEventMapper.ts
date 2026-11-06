@@ -114,6 +114,8 @@ export class OpenCodeEventMapper {
       case "session.text.delta": {
         if (event.data.sessionID !== this.options.session.externalSessionId)
           return [];
+        if (this.pendingTerminal)
+          throw new OpenCodeTransportError("root text after terminal", true);
         const key = `${event.data.assistantMessageID}:${event.data.ordinal}`;
         const text = (this.rootText.get(key) ?? "") + event.data.delta;
         this.rememberText(key, text);
@@ -128,6 +130,8 @@ export class OpenCodeEventMapper {
       case "session.text.ended": {
         if (event.data.sessionID !== this.options.session.externalSessionId)
           return [];
+        if (this.pendingTerminal)
+          throw new OpenCodeTransportError("root text after terminal", true);
         const key = `${event.data.assistantMessageID}:${event.data.ordinal}`;
         const previous = this.rootText.get(key) ?? "";
         if (!event.data.text.startsWith(previous))
