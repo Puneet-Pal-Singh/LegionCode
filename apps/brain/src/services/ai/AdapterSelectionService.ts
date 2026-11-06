@@ -70,10 +70,12 @@ export async function selectAdapter(
   }
 
   // Try to get override API key if provider was specified
-  let overrideApiKey = selection.providerId
-    ? ((await providerConfigService?.getApiKey(selection.providerId)) ??
-      undefined)
+  const credential = selection.providerId
+    ? await providerConfigService?.resolveRuntimeCredential(
+        selection.providerId,
+      )
     : undefined;
+  let overrideApiKey = credential?.apiKey;
 
   if (!overrideApiKey && selection.providerId === "axis") {
     const axisApiKey = env.AXIS_OPENROUTER_API_KEY?.trim();
@@ -94,15 +96,8 @@ export async function selectAdapter(
   }
 
   if (route) {
-    const connectionConfig = selection.providerId
-      ? await providerConfigService?.getConnectionConfig(selection.providerId)
-      : undefined;
-    return createTransportAdapter(
-      route,
-      env,
-      overrideApiKey,
-      connectionConfig,
-    );
+    const connectionConfig = credential?.connectionConfig;
+    return createTransportAdapter(route, env, overrideApiKey, connectionConfig);
   }
 
   return createAdapterForProvider(

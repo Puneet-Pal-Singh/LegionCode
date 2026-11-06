@@ -74,6 +74,12 @@ export class ProviderConfigService {
     this.credentialVault = new CloudCredentialVault(
       options.credentialStore,
       options.userId,
+      async (providerId) => {
+        const preferences = await options.preferenceStore.getPreferences();
+        return preferences.defaultProviderId === providerId
+          ? preferences.defaultCredentialId
+          : undefined;
+      },
     );
     this.credentialService = new ProviderCredentialService(
       options.env,
@@ -94,13 +100,48 @@ export class ProviderConfigService {
   async getConnections(): Promise<ProviderConnectionsResponse> {
     await this.ensureStorageReady();
     const connections = await this.connectionService.getConnections();
-    return { connections };
+    return {
+      connections: await Promise.all(
+        connections.map(async (connection) => {
+          const record = await this.credentialVault.getConnectionMetadata(
+            connection.providerId,
+          );
+          if (connection.providerId === "axis") return connection;
+          return record
+            ? {
+                ...connection,
+                status:
+                  record.status === "connected" &&
+                  record.deletedAt === null &&
+                  record.credentialKind === "api_key"
+                    ? ("connected" as const)
+                    : ("disconnected" as const),
+                credentialId: record.credentialId,
+                ownerGeneration: record.authOwnerGeneration,
+                tokenMaterialVersion: record.tokenMaterialVersion,
+              }
+            : { ...connection, status: "disconnected" as const };
+        }),
+      ),
+    };
   }
 
   async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
     await this.ensureStorageReady();
     try {
       const response = await this.credentialService.connect(request);
+      if (response.status === "connected") {
+        const preference = await this.options.preferenceStore.getPreferences();
+        const record = await this.options.credentialStore.getCredential(
+          request.providerId,
+        );
+        if (record && preference.defaultProviderId === request.providerId) {
+          await this.options.preferenceStore.updatePreferences({
+            defaultProviderId: request.providerId,
+            defaultCredentialId: record.credentialId,
+          });
+        }
+      }
       await this.options.auditLog.appendAuditEvent({
         eventType: "connect",
         status: response.status === "connected" ? "success" : "failure",
@@ -178,6 +219,24 @@ export class ProviderConfigService {
   ): Promise<BYOKPreferences> {
     await this.ensureStorageReady();
     try {
+      if (patch.defaultCredentialId !== undefined) {
+        const current = await this.options.preferenceStore.getPreferences();
+        const providerId = patch.defaultProviderId ?? current.defaultProviderId;
+        const record = await this.options.credentialStore.getConnection(
+          patch.defaultCredentialId,
+        );
+        if (
+          !record ||
+          record.userId !== this.options.userId ||
+          record.providerId !== providerId ||
+          record.credentialKind !== "api_key" ||
+          record.status !== "connected" ||
+          record.deletedAt !== null
+        )
+          throw new Error(
+            "Default credential is not an owned connected API-key connection",
+          );
+      }
       const response =
         await this.options.preferenceStore.updatePreferences(patch);
       await this.options.auditLog.appendAuditEvent({
@@ -242,6 +301,11 @@ export class ProviderConfigService {
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
     await this.ensureStorageReady();
     return this.getCatalogService().refreshDiscoveredModels(providerId);
+  }
+
+  async resolveRuntimeCredential(providerId: ProviderId) {
+    await this.ensureStorageReady();
+    return this.credentialVault.resolveRuntimeCredential(providerId);
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
