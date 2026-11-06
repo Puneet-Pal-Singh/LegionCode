@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { CommitPayload } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
 import { commitGitChanges } from "../services/api/gitOperations.js";
-import { GitMutationError } from "@legioncode/sdk";
+import { isGitMutationError } from "../services/api/appServerClient.js";
 import type { GitMutationErrorCode, GitMutationErrorMetadata } from "@repo/shared-types";
 
 interface GitCommitErrorState {
@@ -53,7 +53,7 @@ export function useGitCommit(
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
-      if (err instanceof GitMutationError) {
+      if (isGitMutationError(err)) {
         setErrorState({ code: err.code, metadata: err.metadata });
       }
       console.error("[useGitCommit] Error:", err);

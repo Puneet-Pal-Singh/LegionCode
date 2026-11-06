@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { APP_SERVER_PROTOCOL_VERSION, createAppServerClient } from "@legioncode/sdk";
 
-function createClient(response: unknown, onRequest?: () => void) {
+function createClient(
+  response: unknown,
+  onRequest?: (request: unknown) => void,
+) {
   return createAppServerClient({
     clientId: "web",
     clientVersion: "0.1.0",
     transport: {
-      request: async () => {
-        onRequest?.();
+      request: async (request) => {
+        onRequest?.(request);
         return response as never;
       },
     },
@@ -15,6 +18,45 @@ function createClient(response: unknown, onRequest?: () => void) {
 }
 
 describe("hosted Git operations", () => {
+  it("requests git diff through the canonical Brain endpoint", async () => {
+    const diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+    const requests: unknown[] = [];
+    const client = createClient(
+      {
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+        method: "git/diff",
+        ok: true,
+        result: diff,
+      },
+      (request) => requests.push(request),
+    );
+
+    await expect(
+      client.getGitDiff({
+        runId: "run-123",
+        path: "src/main.ts",
+        staged: true,
+      }),
+    ).resolves.toEqual(diff);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        method: "git/diff",
+        params: {
+          runId: "run-123",
+          path: "src/main.ts",
+          staged: true,
+        },
+      }),
+    ]);
+  });
+
   it("surfaces JSON error payloads for commit failures", async () => {
     const client = createClient({
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
