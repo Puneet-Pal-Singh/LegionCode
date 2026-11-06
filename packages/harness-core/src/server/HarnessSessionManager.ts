@@ -60,6 +60,8 @@ interface Attachment {
   observationQueue: Promise<unknown>;
   pendingObservations: number;
   externalTurnId: string | null;
+  integrityError?: HarnessHostError;
+  integrityPersistence?: Promise<void>;
 }
 
 /** Live attachments only. Admission, recovery decisions, canonical history and leases remain runtime-owned. */
@@ -138,6 +140,7 @@ export class HarnessSessionManager {
         attachment.session = session;
         const directory = host.journalDirectory;
         attachment.journal = await this.openJournal(directory, session);
+        this.assertIntegrity(attachment);
         if (attachment.stopping) {
           this.beginStop(attachment);
           throw new HarnessHostError("stale_session");
@@ -181,6 +184,9 @@ export class HarnessSessionManager {
       this.beginStop(old);
     }
     return this.recovery.reconcile({ ...input, command }, session, {
+      assertIntegrity: () => {
+        if (old) this.assertIntegrity(old);
+      },
       beforeReplay: async () => {
         if (old) {
           if (this.attachments.get(session.runAttemptId) !== old)
@@ -192,8 +198,9 @@ export class HarnessSessionManager {
       acknowledge: async (sequence) => {
         await old?.journal?.acknowledge(sequence);
       },
-      finish: async () => {
+      finish: async (canonicalFailureSettled) => {
         if (!old) return;
+        if (!canonicalFailureSettled) this.assertIntegrity(old);
         await old.journal?.close();
         if (this.attachments.get(session.runAttemptId) !== old)
           throw new HarnessHostError("stale_session");
@@ -216,6 +223,7 @@ export class HarnessSessionManager {
     const { command } = this.registry.resolve(input.command);
     if (attachment.fingerprint !== JSON.stringify(command))
       return Promise.reject(new HarnessHostError("stale_session"));
+    this.assertIntegrity(attachment);
     if (attachment.execution) return attachment.execution;
     if (
       attachment.stopping ||
@@ -230,13 +238,13 @@ export class HarnessSessionManager {
     attachment.execution = (async () => {
       try {
         // Only observations replay. Provider start/steer/reply operations are never replayed here.
-        for (const observation of await attachment.journal!.pending())
-          await this.deliver(attachment, observation);
+        await this.replayPending(attachment);
         if (attachment.stopping) throw new HarnessHostError("stale_session");
         await attachment.live!.execute({
           command,
           signal: attachment.controller.signal,
         });
+        await this.drainObservations(attachment);
       } finally {
         input.signal.removeEventListener("abort", abort);
       }
@@ -258,14 +266,14 @@ export class HarnessSessionManager {
       !attachment.journal
     )
       return Promise.reject(new HarnessHostError("stale_session"));
+    this.assertIntegrity(attachment);
     attachment.observe = input.observe;
     if (attachment.observing) return attachment.observing;
     const abort = () => this.beginStop(attachment);
     input.signal.addEventListener("abort", abort, { once: true });
-    const replay = attachment.observationQueue.then(async () => {
-      for (const observation of await attachment.journal!.pending())
-        await this.deliver(attachment, observation);
-    });
+    const replay = attachment.observationQueue.then(() =>
+      this.replayPending(attachment),
+    );
     attachment.observationQueue = replay.catch(() => undefined);
     attachment.observing = (async () => {
       try {
@@ -275,6 +283,7 @@ export class HarnessSessionManager {
         await attachment.live!.observeExisting({
           signal: attachment.controller.signal,
         });
+        await this.drainObservations(attachment);
       } catch (error) {
         this.beginStop(attachment);
         throw error instanceof HarnessHostError
@@ -377,7 +386,7 @@ export class HarnessSessionManager {
       input.timeoutMs > 60_000
     )
       throw new HarnessHostError("invalid_launch");
-    if (!attachment.live)
+    if (this.hasIntegrityLoss(attachment) || !attachment.live)
       return {
         status: "unknown",
         session: input.session,
@@ -399,6 +408,16 @@ export class HarnessSessionManager {
           );
         }),
       ]);
+      if (
+        attachment.pendingObservations > 0 ||
+        this.hasIntegrityLoss(attachment) ||
+        attachment.retired
+      )
+        return {
+          status: "unknown",
+          session: input.session,
+          reason: "transport_lost",
+        };
       const evidence = HarnessQuiescenceSchema.parse(result);
       assertSession(input.session, evidence.session);
       // Drivers/composition must prove the full execution boundary; group exit is never promoted here.
@@ -418,6 +437,7 @@ export class HarnessSessionManager {
   async release(session: HarnessSession): Promise<void> {
     const attachment = this.requireSession(session);
     this.beginStop(attachment);
+    await this.drainObservations(attachment);
     await attachment.cleanup;
     const cleanup = await attachment.host?.terminateProcesses({
       graceMs: 1000,
@@ -426,6 +446,7 @@ export class HarnessSessionManager {
     if (!cleanup || cleanup.some((result) => result.kind === "unknown"))
       throw new HarnessHostError("process_not_quiescent");
     await attachment.observationQueue;
+    this.assertIntegrity(attachment);
     if (attachment.journal) {
       if ((await attachment.journal.pending()).length)
         throw new HarnessHostError("journal_corrupt");
@@ -474,11 +495,15 @@ export class HarnessSessionManager {
     attachment: Attachment,
     input: Omit<HarnessObservation, "sequence">,
   ): Promise<HarnessCommitAck> {
+    if (attachment.integrityError)
+      return this.loseIntegrity(attachment, attachment.integrityError);
     if (attachment.retired)
       return Promise.reject(new HarnessHostError("stale_session"));
     if (attachment.pendingObservations >= 32) {
-      this.beginStop(attachment);
-      return Promise.reject(new HarnessHostError("journal_overflow"));
+      return this.loseIntegrity(
+        attachment,
+        new HarnessHostError("journal_overflow"),
+      );
     }
     let snapshot: HarnessObservation;
     try {
@@ -487,21 +512,13 @@ export class HarnessSessionManager {
         throw new HarnessHostError("journal_overflow");
       snapshot = HarnessObservationSchema.parse(JSON.parse(encoded));
     } catch (error) {
-      this.beginStop(attachment);
-      return Promise.reject(
-        error instanceof HarnessHostError
-          ? error
-          : new HarnessHostError("journal_corrupt"),
-      );
+      return this.loseIntegrity(attachment, error);
     }
     attachment.pendingObservations++;
     const result = attachment.observationQueue
       .then(() => this.observeNow(attachment, snapshot))
       .catch((error: unknown) => {
-        this.beginStop(attachment);
-        throw error instanceof HarnessHostError
-          ? error
-          : new HarnessHostError("journal_corrupt");
+        return this.loseIntegrity(attachment, error);
       })
       .finally(() => {
         attachment.pendingObservations--;
@@ -514,6 +531,7 @@ export class HarnessSessionManager {
     attachment: Attachment,
     input: Omit<HarnessObservation, "sequence">,
   ): Promise<HarnessCommitAck> {
+    this.assertIntegrity(attachment);
     if (
       !attachment.session ||
       !attachment.live ||
@@ -566,10 +584,7 @@ export class HarnessSessionManager {
       return ack;
     } catch (error) {
       committedReject?.(new HarnessHostError("request_unavailable"));
-      this.beginStop(attachment);
-      throw error instanceof HarnessHostError
-        ? error
-        : new HarnessHostError("journal_corrupt");
+      return this.loseIntegrity(attachment, error);
     }
   }
 
@@ -577,16 +592,69 @@ export class HarnessSessionManager {
     attachment: Attachment,
     observation: HarnessObservation,
   ): Promise<HarnessCommitAck> {
-    if (!attachment.observe || !attachment.journal)
-      throw new HarnessHostError("stale_session");
-    const ack = HarnessCommitAckSchema.parse(
-      await attachment.observe(observation),
+    try {
+      this.assertIntegrity(attachment);
+      if (!attachment.observe || !attachment.journal)
+        throw new HarnessHostError("stale_session");
+      const ack = HarnessCommitAckSchema.parse(
+        await attachment.observe(observation),
+      );
+      this.assertIntegrity(attachment);
+      assertSession(observation.session, ack.session);
+      if (ack.committedSequence !== observation.sequence)
+        throw new HarnessHostError("journal_corrupt");
+      await attachment.journal.acknowledge(ack.committedSequence);
+      return ack;
+    } catch (error) {
+      return this.loseIntegrity(attachment, error);
+    }
+  }
+
+  private async replayPending(attachment: Attachment): Promise<void> {
+    try {
+      this.assertIntegrity(attachment);
+      if (!attachment.journal) throw new HarnessHostError("journal_corrupt");
+      for (const observation of await attachment.journal.pending())
+        await this.deliver(attachment, observation);
+    } catch (error) {
+      await this.loseIntegrity(attachment, error);
+    }
+  }
+
+  private hasIntegrityLoss(attachment: Attachment): boolean {
+    try {
+      this.assertIntegrity(attachment);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  private assertIntegrity(attachment: Attachment): void {
+    if (attachment.integrityError) throw attachment.integrityError;
+    attachment.journal?.assertIntegrity();
+  }
+
+  private async drainObservations(attachment: Attachment): Promise<void> {
+    await attachment.observationQueue;
+    await attachment.integrityPersistence;
+    this.assertIntegrity(attachment);
+  }
+
+  private loseIntegrity(
+    attachment: Attachment,
+    _cause: unknown,
+  ): Promise<never> {
+    attachment.integrityError ??= new HarnessHostError(
+      "observation_integrity_lost",
     );
-    assertSession(observation.session, ack.session);
-    if (ack.committedSequence !== observation.sequence)
-      throw new HarnessHostError("journal_corrupt");
-    await attachment.journal.acknowledge(ack.committedSequence);
-    return ack;
+    this.beginStop(attachment);
+    attachment.integrityPersistence ??=
+      attachment.journal?.markIntegrityLost().catch(() => undefined) ??
+      Promise.resolve();
+    return attachment.integrityPersistence.then(() => {
+      throw attachment.integrityError!;
+    });
   }
 
   private openJournal(
