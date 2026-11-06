@@ -330,14 +330,14 @@ describe("ProviderModelDiscoveryService", () => {
     const metrics = service.getObservabilityMetrics();
     expect(metrics.model_discovery_cache_hits_total.openrouter).toBe(1);
     expect(
-      metrics.model_discovery_requests_total.openrouter_provider_api_success,
+      metrics.model_discovery_requests_total.openrouter_cache_success,
     ).toBe(1);
   });
 
   it("enriches cached OpenAI models with catalog-declared variants", async () => {
     const store = createStoreStub();
     const now = Date.now();
-    await store.setModelCache({
+    const inventory = {
       providerId: "openai",
       models: [
         {
@@ -349,13 +349,13 @@ describe("ProviderModelDiscoveryService", () => {
       fetchedAt: new Date(now - 1_000).toISOString(),
       expiresAt: new Date(now + 60_000).toISOString(),
       source: "provider_api",
-    });
+    };
     const credentialService = {
       getApiKey: vi.fn(async () => "sk-test"),
       getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter: ProviderModelCatalogPort = {
-      fetchAll: vi.fn(),
+      fetchAll: vi.fn(async () => inventory.models),
       fetchPage: vi.fn(),
     };
     const service = new ProviderModelDiscoveryService(
@@ -386,6 +386,8 @@ describe("ProviderModelDiscoveryService", () => {
       },
     );
 
+    await service.getDiscoveredModels("openai", { view: "all", surface: "picker", limit: 50 });
+    const metadataSamples = service.getObservabilityMetrics().model_discovery_stage_latency_ms.openai_metadata?.length;
     const result = await service.getDiscoveredModels("openai", {
       view: "all",
       surface: "picker",
@@ -400,6 +402,9 @@ describe("ProviderModelDiscoveryService", () => {
       "xhigh",
       "max",
     ]);
+    expect(adapter.fetchAll).toHaveBeenCalledTimes(1);
+    expect(service.getObservabilityMetrics().model_discovery_stage_latency_ms.openai_metadata).toHaveLength(metadataSamples ?? 0);
+    expect(result.metadata.source).toBe("cache");
     expect(result.models[0]?.capabilityMetadata).toMatchObject({
       source: "platform_registry",
       confidence: "declared",
