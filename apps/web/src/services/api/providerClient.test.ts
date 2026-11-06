@@ -105,6 +105,19 @@ describe("ProviderApiClient", () => {
         }),
       );
       expect(catalog).toEqual(mockCatalog);
+
+      // Runless provider setup now uses the canonical owned workspace scope.
+      const testWorkspaceId = "550e8400-e29b-41d4-a716-446655440009";
+      const clientWithMissingRunId = new ProviderApiClient({
+        getRunId: () => null,
+        getWorkspaceId: () => testWorkspaceId,
+      });
+      fetchSpy.mockResolvedValueOnce(discoveryResponse("provider/catalog", [], 200));
+      await expect(clientWithMissingRunId.getCatalog()).resolves.toEqual([]);
+      const request = fetchSpy.mock.calls.at(-1)?.[1] as RequestInit | undefined;
+      expect(new Headers(request?.headers).get("X-Run-Id")).toBeNull();
+      expect(new Headers(request?.headers).get("X-Workspace-Id")).toBe(testWorkspaceId);
+      expect(JSON.parse(String(request?.body))).toMatchObject({ method: "provider/catalog", params: {} });
     });
   });
 
@@ -501,17 +514,6 @@ describe("ProviderApiClient", () => {
         expect(error).toBeInstanceOf(ProviderApiError);
         expect((error as ProviderApiError).code).toBe("ABORTED");
       }
-    });
-
-    it("fails fast when run id is missing", async () => {
-      const clientWithMissingRunId = new ProviderApiClient({
-        getRunId: () => null,
-      });
-      await expect(clientWithMissingRunId.getCatalog()).rejects.toMatchObject({
-        code: "MISSING_RUN_ID",
-        statusCode: 400,
-      });
-      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it("rejects a noncanonical resolver scope before issuing a request", async () => {

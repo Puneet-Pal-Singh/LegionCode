@@ -33,6 +33,7 @@ import { Resizer } from "./components/ui/Resizer";
 import type { RunInboxItem } from "./components/run/RunInbox";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
+import { useSessionProductMode } from "./components/agent/hooks/useSessionProductMode";
 import { ProviderStore } from "./services/provider/ProviderStore";
 import {
   isSessionContextPending,
@@ -331,6 +332,7 @@ function AppContent() {
     [setSettingsInitialSection, setIsSettingsDialogOpen],
   );
 
+
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ??
@@ -360,6 +362,10 @@ function AppContent() {
     providerScopeWorkspaceId,
     sessions.length,
   );
+  const {
+    productMode: setupProductMode,
+    setProductMode: setSetupProductMode,
+  } = useSessionProductMode(setupSession?.id);
   const { credentials, reset: resetProviderStore } = useProviderStore(
     isAuthenticated ? providerScopeRunId : undefined,
     isAuthenticated
@@ -1020,6 +1026,16 @@ function AppContent() {
                   activeSession.activeRunId ?? activeSession.latestRunId ?? ""
                 }
                 mode={activeSession.mode}
+                initialProductMode={setupDrafts[activeSessionId]?.productMode}
+                onInitialProductModeConsumed={(mode) => {
+                  setSetupDrafts((current) => {
+                    const draft = current[activeSessionId];
+                    if (draft?.productMode !== mode) return current;
+                    const consumed = { ...draft };
+                    delete consumed.productMode;
+                    return { ...current, [activeSessionId]: consumed };
+                  });
+                }}
                 workspaceContext={
                   sessionWorkspaceContext?.sessionId === activeSession.id
                     ? sessionWorkspaceContext
@@ -1139,6 +1155,8 @@ function AppContent() {
                         <AgentSetup
                           draftRef={setupDraftReaderRef}
                           sessionId={activeSessionId}
+                          productMode={productMode}
+                          onProductModeChange={setProductMode}
                           initialDraft={setupDrafts[activeSessionId]}
                           mode={activeSession.mode}
                           onModeChange={(mode) =>
@@ -1203,6 +1221,8 @@ function AppContent() {
                   <AgentSetup
                     draftRef={setupDraftReaderRef}
                     sessionId={setupSession.id}
+                    productMode={setupProductMode}
+                    onProductModeChange={setSetupProductMode}
                     isRightSidebarOpen={isRightSidebarOpen}
                     rightSidebarWidth={rightSidebarWidth}
                     setRightSidebarWidth={setRightSidebarWidth}
@@ -1220,6 +1240,10 @@ function AppContent() {
                       );
                       inheritComposerSelection(sessionId);
                       clearContext();
+                      setSetupDrafts((current) => ({
+                        ...current,
+                        [sessionId]: { task: "", imageAttachments: [], productMode: config.productMode },
+                      }));
                       updateInitialPromptSubmissions((current) => ({
                         ...current,
                         [sessionId]: {

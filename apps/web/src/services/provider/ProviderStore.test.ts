@@ -18,7 +18,7 @@ import {
   ConnectCredentialRequest,
   ProviderApiClientContract,
 } from "./ProviderStore.js";
-import type { ProviderModelOption } from "../api/providerClient.js";
+import { ProviderApiError, type ProviderModelOption } from "../api/providerClient.js";
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -1299,6 +1299,22 @@ describe("ProviderStore", () => {
 
       expect(first).toEqual(second);
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+
+      for (const failure of [
+        new ProviderApiError(0, "ABORTED", "Request was aborted"),
+        new ProviderApiError(500, "NETWORK_ERROR", "Network unavailable"),
+        new ProviderApiError(503, "PROVIDER_UNAVAILABLE", "Server unavailable"),
+        new ProviderApiError(502, "INVALID_RESPONSE_CONTRACT", "Invalid provider response"),
+        new ProviderApiError(401, "AUTH_FAILED", "Credential needs repair"),
+      ]) {
+        store.resetRunScope(true);
+        vi.mocked(mockApiClient.resolveForChat).mockClear().mockRejectedValueOnce(failure);
+        await expect(store.resolveForChat()).rejects.toBe(failure);
+        expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+        await expect(store.resolveForChat()).resolves.toEqual(first);
+        expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(2);
+        expect(store.getState().selectedModelId).toBe(first.modelId);
+      }
     });
 
     it("requests platform defaults when no provider is connected", async () => {
