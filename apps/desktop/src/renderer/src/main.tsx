@@ -40,6 +40,7 @@ function DesktopApp(): React.JSX.Element {
   const [rightPanelOpen, setRightPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
+  const rightPanelButton = useRef<HTMLButtonElement>(null);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => !window.matchMedia("(max-width: 1023px)").matches,
@@ -331,7 +332,7 @@ function DesktopApp(): React.JSX.Element {
               title={selectedThread?.title ?? "LegionCode Desktop"}
               leading={workspace ? <span className="desktop-topbar-workspace">{workspace.displayName}</span> : undefined}
               actions={(
-                <button type="button" aria-expanded={rightPanelOpen} aria-label="Toggle files and review" onClick={() => setRightPanelOpen((open) => !open)}>
+                <button ref={rightPanelButton} type="button" aria-expanded={rightPanelOpen} aria-label="Toggle files and review" onClick={() => setRightPanelOpen((open) => !open)}>
                   Files and review
                 </button>
               )}
@@ -344,7 +345,7 @@ function DesktopApp(): React.JSX.Element {
               review={null}
               filesUnavailableReason="Local workspace file reads are unavailable in this environment."
               commitUnavailableReason="Choose a completed turn with saved changes before committing."
-              onClose={() => setRightPanelOpen(false)}
+              onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
             />
           ) : undefined}
           rightPanelLabel="Files and saved turn review"
