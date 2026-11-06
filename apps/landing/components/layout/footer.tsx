@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { site } from '@/lib/site';
+import React from "react";
+import { site } from "@/lib/site";
 
 export default function Footer() {
   return (
@@ -11,27 +11,40 @@ export default function Footer() {
       <div className="absolute bottom-0 left-1/4 w-[300px] h-[150px] bg-zinc-800/[0.04] blur-[80px] rounded-full pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-6 relative">
-
         {/* Legal status footer bar */}
         <div className="pt-8 border-t border-white/[0.05] flex flex-col md:flex-row items-center justify-between text-zinc-500 text-[10px] font-mono gap-4">
           <div className="flex items-center gap-3">
-            <span className="text-zinc-650">© 2026 LegionCode. MIT License.</span>
+            <span className="text-zinc-650">
+              © 2026 LegionCode. MIT License.
+            </span>
           </div>
           <div className="flex items-center gap-4">
-            <a 
+            <a
+              href="/terms/"
+              className="py-1 hover:text-white transition-colors"
+            >
+              Terms
+            </a>
+            <a
+              href="/privacy/"
+              className="py-1 hover:text-white transition-colors"
+            >
+              Privacy
+            </a>
+            <a
               href={site.githubUrl}
-              target="_blank" 
-              rel="noopener noreferrer" 
+              target="_blank"
+              rel="noopener noreferrer"
               className="hover:text-white transition-colors relative group py-1"
             >
               <span>GitHub</span>
               <span className="absolute bottom-0 left-0 w-full h-[1px] bg-white scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-200" />
             </a>
             <span className="text-zinc-800 select-none">·</span>
-            <a 
+            <a
               href={site.docsUrl}
-              target="_blank" 
-              rel="noopener noreferrer" 
+              target="_blank"
+              rel="noopener noreferrer"
               className="hover:text-white transition-colors relative group py-1"
             >
               <span>Docs</span>
@@ -39,7 +52,6 @@ export default function Footer() {
             </a>
           </div>
         </div>
-
       </div>
     </footer>
   );

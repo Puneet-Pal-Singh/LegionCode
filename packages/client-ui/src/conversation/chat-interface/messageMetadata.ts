@@ -1,5 +1,9 @@
 import type { Message } from "@ai-sdk/react";
-import { buildConversationTurns, resolveMessageTimestamp, type ConversationTurn as CanonicalConversationTurn } from "@legioncode/sdk";
+import {
+  buildConversationTurns,
+  resolveMessageTimestamp,
+  type ConversationTurn as CanonicalConversationTurn,
+} from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
 import type { ChatMessageMetadata } from "../chat-message/types.js";
 
@@ -35,7 +39,9 @@ export function buildLifecycleMessageMetadata(
   };
 }
 
-type ConversationTurn = CanonicalConversationTurn<Message> & { request?: RequestTiming };
+type ConversationTurn = CanonicalConversationTurn<Message> & {
+  request?: RequestTiming;
+};
 
 interface RequestTiming {
   modelId?: string;
@@ -55,7 +61,9 @@ export function buildChatMessageMetadata(
   return mapTurnsToMessageMetadata(turns, resolveModelLabel, modeLabel);
 }
 
-function buildRequestTimings(debugEvents: MessageTimingEvent[]): RequestTiming[] {
+function buildRequestTimings(
+  debugEvents: MessageTimingEvent[],
+): RequestTiming[] {
   const chronological = [...debugEvents].sort(
     (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
   );
@@ -186,7 +194,7 @@ function resolveTurnDurationMs(turn: ConversationTurn): number | undefined {
   return undefined;
 }
 
-function formatTimestamp(timestampMs?: number): string | undefined {
+export function formatTimestamp(timestampMs?: number): string | undefined {
   if (!timestampMs) {
     return undefined;
   }

@@ -13,8 +13,7 @@ import * as providerHelpersModule from "../../lib/provider-helpers.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
-const ACTIVE_RUN_SWITCH_WARNING =
-  "Stop the current run before changing mode.";
+const ACTIVE_RUN_SWITCH_WARNING = "Stop the current run before changing mode.";
 const HIGH_CONTEXT_BUDGET = {
   providerId: "openai",
   modelId: "gpt-4o",
@@ -173,11 +172,14 @@ describe("ChatInputBar", () => {
     const onStop = vi.fn();
     const onSubmit = vi.fn();
 
-    render(
+    const onResume = vi.fn().mockResolvedValue(true);
+    const { rerender } = render(
       <ChatInputBar
         input=""
         onChange={vi.fn()}
         onSubmit={onSubmit}
+        canResume
+        onResume={onResume}
         onStop={onStop}
         canStop
         isLoading={false}
@@ -189,6 +191,51 @@ describe("ChatInputBar", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText("Resume interrupted turn"),
+    ).not.toBeInTheDocument();
+    rerender(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        canResume
+        onResume={onResume}
+        sessionId="session-1"
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Resume interrupted turn"));
+    expect(onResume).toHaveBeenCalledOnce();
+    rerender(
+      <ChatInputBar
+        input="A new request"
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        canResume
+        onResume={onResume}
+        sessionId="session-1"
+      />,
+    );
+    expect(
+      screen.queryByLabelText("Resume interrupted turn"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Send message"));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onResume).toHaveBeenCalledOnce();
+    rerender(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        canResume
+        onResume={onResume}
+        isLoading
+        sessionId="session-1"
+      />,
+    );
+    expect(
+      screen.queryByLabelText("Resume interrupted turn"),
+    ).not.toBeInTheDocument();
   });
 
   it("submits /compact during an active run once the canonical warning threshold is reached", async () => {
@@ -815,7 +862,9 @@ describe("ChatInputBar", () => {
       dataTransfer: { types: ["Files"], dropEffect: "none" },
     });
 
-    expect(screen.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("chat-composer-drop-overlay"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Drop files to attach")).toBeInTheDocument();
   });
 
@@ -833,7 +882,9 @@ describe("ChatInputBar", () => {
       dataTransfer: { types: ["Files"], dropEffect: "none" },
     });
 
-    expect(screen.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("chat-composer-drop-overlay"),
+    ).toBeInTheDocument();
   });
 
   it("allows sending selected review comments without freeform text", () => {

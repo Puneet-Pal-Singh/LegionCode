@@ -16,9 +16,11 @@ export function useCompletedTurnReview(
   projection: LifecycleProjection | null,
   messageId: string | null,
 ): CompletedTurnReview {
-  const isCompletedTurn = projection?.terminal?.state === "completed";
+  const isCompletedTurn =
+    projection?.terminal?.state === "completed" &&
+    projection.executionCapability !== "conversation";
   const error =
-    projection?.terminal?.state === "completed" && !projection.turnDiff
+    isCompletedTurn && !projection.turnDiff
       ? "Saved changes are unavailable for this reply."
       : null;
   const files = useMemo(
@@ -31,7 +33,9 @@ export function useCompletedTurnReview(
   const loadFileDiff = useCallback(
     async (file: FileStatus): Promise<DiffContent> => {
       if (!isCompletedTurn || !projection?.turnDiff) {
-        throw new Error("Completed-turn review requires a canonical turn diff.");
+        throw new Error(
+          "Completed-turn review requires a canonical turn diff.",
+        );
       }
       const diff = buildDiffContentFromTurnDiff(projection.turnDiff, file.path);
       if (!diff) {

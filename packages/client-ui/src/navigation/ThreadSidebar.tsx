@@ -259,12 +259,12 @@ export function ThreadSidebar({
               <span className="text-sm font-medium text-zinc-500">Projects</span>
               <div className="flex items-center gap-1">
                 {onAddWorkspace ? (
-                  <button type="button" aria-label="Add project" title="Add project" onClick={onAddWorkspace} className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100">
+                  <button type="button" aria-label="Add project" title="Add project" onClick={onAddWorkspace} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200">
                     <FolderPlus size={14} aria-hidden="true" />
                   </button>
                 ) : null}
                 <div className="relative" ref={filterMenuRef}>
-                  <button type="button" aria-label="Filter tasks" title="Filter tasks" aria-haspopup="menu" aria-expanded={isFilterMenuOpen} onClick={() => setIsFilterMenuOpen((open) => !open)} className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100">
+                  <button type="button" aria-label="Filter tasks" title="Filter tasks" aria-haspopup="menu" aria-expanded={isFilterMenuOpen} onClick={() => setIsFilterMenuOpen((open) => !open)} className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200">
                     <MoreHorizontal size={14} aria-hidden="true" className={statusFilter !== "all" ? "text-emerald-300" : undefined} />
                   </button>
                   {isFilterMenuOpen ? (
