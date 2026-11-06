@@ -1,3 +1,4 @@
+import { CLAUDE_AGENT_SDK_VERSION } from "../settings.js";
 import { isAbsolute, normalize, relative, sep } from "node:path";
 
 // Copy transport/runtime necessities, never unrelated provider or cloud auth.
@@ -31,7 +32,7 @@ export function selectedClaudeEnvironment(input: {
   readonly inherited: Readonly<Record<string, string | undefined>>;
   readonly configDirectory: string;
   readonly credential: ClaudeApiKeyCredential;
-}): Record<string, string> {
+}): Readonly<Record<string, string>> {
   const home = input.inherited.HOME;
   const config = normalize(input.configDirectory);
   if (!home || !isAbsolute(home) || !isAbsolute(config)) {
@@ -58,5 +59,21 @@ export function selectedClaudeEnvironment(input: {
   env.CLAUDE_CONFIG_DIR = config;
   env.ANTHROPIC_API_KEY = input.credential.apiKey;
   env.CLAUDE_AGENT_SDK_CLIENT_APP = "legioncode";
-  return env;
+  // Exact controls introduced by the pinned query() implementation for this runner.
+  // Never retain arbitrary CLAUDE_* inherited flags, gateway routing or refresh hooks.
+  env.CLAUDE_CODE_ENTRYPOINT = "sdk-ts";
+  env.CLAUDE_AGENT_SDK_VERSION = CLAUDE_AGENT_SDK_VERSION;
+  env.CLAUDE_CODE_SDK_READS_SESSION_STATE = "1";
+  return Object.freeze(env);
+}
+
+/** Rebuild at the final launch boundary, even if upstream reintroduces ambient variables. */
+export function frozenClaudeLaunchEnvironment(
+  selected: Readonly<Record<string, string | undefined>>,
+): Readonly<Record<string, string>> {
+  return selectedClaudeEnvironment({
+    inherited: selected,
+    configDirectory: selected.CLAUDE_CONFIG_DIR ?? "",
+    credential: { kind: "api-key", apiKey: selected.ANTHROPIC_API_KEY ?? "" },
+  });
 }
