@@ -2,6 +2,8 @@ import type {
   EncryptedOAuthToken,
   IdentitySessionRecord,
   IdentitySessionRepository,
+  WorkspaceRepository,
+  WorkspaceBootstrapRecord,
 } from "@repo/persistence";
 
 export const TEST_ENCRYPTED_OAUTH_TOKEN: EncryptedOAuthToken = {
@@ -79,4 +81,34 @@ function toIdentitySessionRecord(
     githubScopes,
     ...seed,
   });
+}
+
+/** Owned workspace records are independent of the mutable current selection. */
+export function createWorkspaceRepository(
+  userId: string,
+  workspaceId: string,
+  selectedWorkspaceId = workspaceId,
+): WorkspaceRepository {
+  const now = "2026-10-13T00:00:00.000Z";
+  const repository = {
+    id: "repo-fixture", provider: "github", owner: "acme", name: "fixture",
+    fullName: "acme/fixture", repoUrl: "https://github.com/acme/fixture",
+    defaultBranch: "main", providerRepoId: "fixture", createdAt: now, updatedAt: now,
+  };
+  const workspace = {
+    id: workspaceId, userId, repoId: repository.id, name: repository.fullName,
+    defaultBranch: "main", lastSelectedBranch: "main", status: "active" as const,
+    createdAt: now, updatedAt: now, lastOpenedAt: now,
+  };
+  const selected = { ...workspace, id: selectedWorkspaceId };
+  const bootstrap: WorkspaceBootstrapRecord = {
+    repository, workspace: selected,
+    selection: { userId, selectedWorkspaceId, selectedRepoId: repository.id, selectedBranch: "main", updatedAt: now },
+  };
+  return {
+    selectWorkspace: async () => { throw new Error("not used"); },
+    findWorkspaceSelection: async (owner) => owner === userId ? bootstrap : null,
+    listWorkspaces: async (owner) => owner === userId
+      ? [...new Set([workspaceId, selectedWorkspaceId])].map((id) => ({repository, workspace: {...workspace,id}, selected: id === selectedWorkspaceId})) : [],
+  };
 }

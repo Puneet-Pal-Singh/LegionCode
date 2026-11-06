@@ -76,6 +76,7 @@ export async function bindAuthenticatedChatRequest(
     runId,
     correlationId,
     verifiedPrincipal,
+    sessionId,
   );
   if (body.identity.workspaceId !== executionScope.workspaceId) {
     throw new DomainError(

@@ -68,6 +68,23 @@ bootstrap and legacy TranscriptController remain retired. New conversation date
 markers and seeded image-draft presentation live in `packages/client-ui`, alongside
 the existing guarded resume controls and approval composer.
 
+## Plan 058 — Existing conversation workspace binding
+
+`HostedResourceScope` authorizes the authenticated account against the persisted
+session/run workspace and active owned workspace records. Turn reservation,
+reconstruction, chat submission, steering, checkout reads, and provider operations
+share this resource owner. A mutable current selection and cookie workspace claims
+do not rebind an established conversation. Only an unbound owned conversation's
+first admission or runless provider setup uses the owned current selection. A
+reserved admission pins that first workspace through submission even if selection
+changes before prompt persistence.
+Explicit user/workspace/run headers must agree with the canonical resource; foreign
+sessions/runs/workspaces and inconsistent stored tuples still fail closed. No
+history, preference bytes, or existing workspace identities are rewritten.
+
+The obsolete cookie-claim-based execution workspace resolver is deleted. Web keeps
+its SDK bootstrap/replay path and does not choose a recovery workspace.
+
 ## Plan 058.1 — Canonical turn-patch read model
 
 | Responsibility | Canonical owner | Active producer and consumers |
