@@ -4,7 +4,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { constants as osConstants } from "node:os";
 import type { LocalProcessOutput } from "./BoundedLocalProcess.js";
-import { buildSingleProcessMacSandbox, SingleProcessMacCapabilityError } from "./SingleProcessMacSandbox.js";
+import { buildSingleProcessMacSandbox, bindSingleProcessMacSandboxProfile, SingleProcessMacCapabilityError } from "./SingleProcessMacSandbox.js";
 import type { SingleExecutableProcessInput } from "./SingleExecutableProcess.js";
 
 const OUTPUT_BYTES = 64 * 1024;
@@ -61,8 +61,8 @@ export class GuardianProcess {
     try {
       input.signal.throwIfAborted();
       this.guardian = spawn(input.processHelperPath, [
-        "--timeout-ms", String(DEADLINE_MS), "--term-grace-ms", String(GRACE_MS), "--",
-        "/usr/bin/sandbox-exec", ...sandbox.parameters, "-p", sandbox.profile, input.executable, ...input.args,
+        "--timeout-ms", String(DEADLINE_MS), "--term-grace-ms", String(GRACE_MS), "--cwd-fd", "5",
+        "--profile", bindSingleProcessMacSandboxProfile(sandbox), "--", input.executable, ...input.args,
       ], {
         cwd: input.sandbox.filesystemRoot,
         detached: true,
@@ -84,7 +84,7 @@ export class GuardianProcess {
         // Drain available output/status without closing FD4 under the guardian.
         if (stream instanceof Readable && stream !== control) stream.resume();
       }
-      if (control instanceof Writable) control.end("CANCEL\n");
+      if (control instanceof Writable) control.end("C");
       throw new SingleProcessMacCapabilityError("Process guardian channels could not be established");
     }
     this.control = control;
@@ -164,7 +164,7 @@ export class GuardianProcess {
     this.stopped = true;
     // Closing this pipe is also the owner-loss signal when the utility host dies.
     // Never kill the guardian: it must keep ownership until waitpid completes.
-    this.control.end("CANCEL\n");
+    this.control.end("C");
   }
 
   get quiescent(): boolean {
@@ -172,22 +172,38 @@ export class GuardianProcess {
   }
 
   private acceptStatus(line: string): void {
-    const start = /^START ([1-9][0-9]*)$/.exec(line);
-    if (start) {
-      const pid = Number(start[1]);
-      if (this.targetPid !== undefined || this.receipt || !Number.isSafeInteger(pid)) throw new Error("Duplicate or invalid guardian START");
-      this.targetPid = pid;
+    const decoded: unknown = JSON.parse(line);
+    if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("Invalid guardian receipt");
+    const record = decoded as Record<string, unknown>;
+    if (record.v !== 1 || typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid < 1) {
+      throw new Error("Invalid guardian version or PID");
+    }
+    const keys = Object.keys(record).sort().join(",");
+    if (record.event === "started") {
+      if (keys !== "event,gated,pid,v" || record.gated !== true || this.targetPid !== undefined || this.receipt) {
+        throw new Error("Duplicate or invalid guardian started receipt");
+      }
+      this.targetPid = record.pid;
+      // Only the trusted, validated stopped-child receipt can release exec.
+      // Never send a newline: every byte other than the first G cancels.
+      if (!this.stopped && !this.uncertain) this.control.write("G");
       return;
     }
-    const done = /^DONE ([1-9][0-9]*) (-1|[0-9]+) ([0-9]+) (exit|cancel|timeout|parent_lost)$/.exec(line);
-    if (!done || this.receipt) throw new Error("Invalid guardian DONE");
-    const pid = Number(done[1]), exitCode = Number(done[2]), signalNumber = Number(done[3]);
-    if (pid !== this.targetPid || !Number.isSafeInteger(pid) || !Number.isSafeInteger(exitCode) || !Number.isSafeInteger(signalNumber)
-      || !((exitCode >= 0 && exitCode <= 255 && signalNumber === 0) || (exitCode === -1 && signalNumber > 0))) {
-      throw new Error("Guardian DONE identity or wait status mismatch");
+    if (record.event !== "terminal" || keys !== "event,exitCode,pid,reason,signal,v,wait"
+      || this.receipt || record.pid !== this.targetPid || typeof record.reason !== "string"
+      || !["exited", "cancelled", "owner_lost", "deadline", "guardian_error", "guardian_signal"].includes(record.reason)) {
+      throw new Error("Invalid guardian terminal receipt");
     }
-    const signal = signalNumber === 0 ? null : Object.entries(osConstants.signals).find(([, value]) => value === signalNumber)?.[0];
-    if (signal === undefined) throw new Error("Unknown guardian terminal signal");
-    this.receipt = { pid, exitCode: exitCode === -1 ? null : exitCode, signal, timedOut: done[4] === "timeout" };
+    if (record.wait === "exited") {
+      if (typeof record.exitCode !== "number" || !Number.isSafeInteger(record.exitCode)
+        || record.exitCode < 0 || record.exitCode > 255 || record.signal !== null) throw new Error("Invalid guardian exit status");
+      this.receipt = { pid: record.pid, exitCode: record.exitCode, signal: null, timedOut: record.reason === "deadline" };
+      return;
+    }
+    if (record.wait !== "signaled" || record.exitCode !== null || typeof record.signal !== "number"
+      || !Number.isSafeInteger(record.signal) || record.signal < 1) throw new Error("Invalid guardian signal status");
+    const signal = Object.entries(osConstants.signals).find(([, value]) => value === record.signal)?.[0];
+    if (!signal) throw new Error("Unknown guardian terminal signal");
+    this.receipt = { pid: record.pid, exitCode: null, signal, timedOut: record.reason === "deadline" };
   }
 }

@@ -60,3 +60,23 @@ export function buildSingleProcessMacSandbox(
   sandbox.runtimeReadRoots.forEach((path, index) => parameters.push("-D", `RUNTIME_READ_${index}=${path}`));
   return { profile, parameters };
 }
+
+/** The guardian accepts one complete profile rather than sandbox-exec -D flags. */
+export function bindSingleProcessMacSandboxProfile(input: { profile: string; parameters: readonly string[] }): string {
+  const bindings = new Map<string, string>();
+  for (let index = 0; index < input.parameters.length; index += 2) {
+    const entry = input.parameters[index + 1];
+    if (input.parameters[index] !== "-D" || entry === undefined) throw new SingleProcessMacCapabilityError("Invalid sandbox parameter binding");
+    const separator = entry.indexOf("=");
+    const name = entry.slice(0, separator), value = entry.slice(separator + 1);
+    if (separator < 1 || bindings.has(name) || /[\u0000-\u001f\u007f]/.test(value)) {
+      throw new SingleProcessMacCapabilityError("Unsupported sandbox parameter encoding");
+    }
+    bindings.set(name, `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`);
+  }
+  return input.profile.replace(/\(param "([A-Z0-9_]+)"\)/g, (_, name: string) => {
+    const binding = bindings.get(name);
+    if (binding === undefined) throw new SingleProcessMacCapabilityError("Unbound sandbox authority parameter");
+    return binding;
+  });
+}
