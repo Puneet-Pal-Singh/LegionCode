@@ -42,7 +42,7 @@ export function questionPayload(form: NativeQuestion): JsonRecord {
       header: field.title ?? null,
       multiple: field.type === "multiselect",
       required: field.required ?? false,
-      allowCustom: field.custom ?? false,
+      allowCustom: field.custom === true || field.options === undefined,
       options: (field.options ?? []).map((option) => ({
         id: option.value,
         label: option.label,
@@ -94,6 +94,7 @@ export function questionAnswer(
     const selected = value.answers;
     if (
       !field.custom &&
+      field.options !== undefined &&
       selected.some(
         (answer) => !field.options?.some((option) => option.value === answer),
       )
@@ -105,6 +106,18 @@ export function questionAnswer(
       if (selected.length > 1)
         throw new OpenCodeTransportError("question requires one answer", false);
       if (selected[0] !== undefined) native[key] = selected[0];
+    }
+  }
+  for (const field of form.fields) {
+    if (
+      "required" in field &&
+      field.required &&
+      (!native[field.key] || native[field.key]?.length === 0)
+    ) {
+      throw new OpenCodeTransportError(
+        "required question answer missing",
+        false,
+      );
     }
   }
   return native;
