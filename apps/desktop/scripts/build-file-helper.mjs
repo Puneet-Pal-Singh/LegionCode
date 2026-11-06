@@ -15,6 +15,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 export const minimumMacOSVersion = "12.0";
+export const nativeHelperSources = [
+  "legioncode-fs-helper",
+  "legioncode-process-helper",
+].map((name) => ({
+  name,
+  sourcePath: fileURLToPath(
+    new URL(
+      `../../../packages/execution-engine/src/runtime/desktop/native/${name}.c`,
+      import.meta.url,
+    ),
+  ),
+}));
 const compilerEnvironment = {
   PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
   LANG: "C",
@@ -136,8 +148,12 @@ export async function buildNativeFileHelper(
   sourcePath,
   platform,
   architecture,
+  helperName,
 ) {
   assertNativeFileHelperTarget(platform, architecture);
+  if (!nativeHelperSources.some(({ name }) => name === helperName)) {
+    throw new Error("Unsupported native helper build target");
+  }
   const source = await realpath(sourcePath);
   const sourceSha256 = createHash("sha256")
     .update(await readFile(source))
@@ -147,7 +163,7 @@ export async function buildNativeFileHelper(
   const temporaryDirectory = await mkdtemp(
     join(outputDirectory, ".file-helper-"),
   );
-  const temporaryExecutable = join(temporaryDirectory, "legioncode-fs-helper");
+  const temporaryExecutable = join(temporaryDirectory, helperName);
   try {
     const compiler = platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc";
     const args = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"];
@@ -174,10 +190,7 @@ export async function buildNativeFileHelper(
       architecture,
     );
     await chmod(temporaryExecutable, 0o755);
-    await rename(
-      temporaryExecutable,
-      join(outputDirectory, "legioncode-fs-helper"),
-    );
+    await rename(temporaryExecutable, join(outputDirectory, helperName));
     return { ...diagnostics, sourceSha256 };
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -263,22 +276,17 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   try {
-    const source = fileURLToPath(
-      new URL(
-        "../../../packages/execution-engine/src/runtime/desktop/native/legioncode-fs-helper.c",
-        import.meta.url,
-      ),
-    );
-    const diagnostics = await buildNativeFileHelper(
-      source,
-      process.platform,
-      process.arch,
-    );
-    console.log(
-      JSON.stringify({ helper: "legioncode-fs-helper", ...diagnostics }),
-    );
+    for (const { name, sourcePath } of nativeHelperSources) {
+      const diagnostics = await buildNativeFileHelper(
+        sourcePath,
+        process.platform,
+        process.arch,
+        name,
+      );
+      console.log(JSON.stringify({ helper: name, ...diagnostics }));
+    }
   } catch {
-    console.error("Native filesystem helper build failed");
+    console.error("Native helper build failed");
     process.exitCode = 1;
   }
 }

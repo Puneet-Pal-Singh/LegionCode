@@ -1,4 +1,8 @@
 export const minimumMacOSVersion: string;
+export const nativeHelperSources: ReadonlyArray<{
+  name: string;
+  sourcePath: string;
+}>;
 export function verifyPackagedMacOSMinimum(
   infoPlistPath: string,
 ): Promise<void>;
@@ -21,6 +25,7 @@ export function buildNativeFileHelper(
   sourcePath: string,
   platform: string,
   architecture: string,
+  helperName: string,
 ): Promise<NativeFileHelperDiagnostics & { sourceSha256: string }>;
 export function verifyBundledFileHelper(
   executablePath: string,

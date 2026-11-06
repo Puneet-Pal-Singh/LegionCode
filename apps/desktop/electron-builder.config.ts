@@ -1,19 +1,14 @@
 import { Arch, type Configuration } from "electron-builder";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   buildNativeFileHelper,
   minimumMacOSVersion,
+  nativeHelperSources,
   verifyPackagedMacOSMinimum,
   verifyBundledFileHelper,
 } from "./scripts/build-file-helper.mjs";
 
-const sourcePath = fileURLToPath(
-  new URL(
-    "../../packages/execution-engine/src/runtime/desktop/native/legioncode-fs-helper.c",
-    import.meta.url,
-  ),
-);
+import { verifyBundledProcessHelper } from "./scripts/verify-process-helper.mjs";
 
 const config: Configuration = {
   appId: "dev.legioncode.desktop",
@@ -21,28 +16,25 @@ const config: Configuration = {
   asar: true,
   beforePack: async (context) => {
     try {
-      const diagnostics = await buildNativeFileHelper(
-        sourcePath,
-        context.electronPlatformName,
-        Arch[context.arch],
-      );
-      console.info(
-        JSON.stringify({
-          helper: "legioncode-fs-helper",
-          stage: "compiled",
-          ...diagnostics,
-        }),
-      );
+      for (const { name, sourcePath } of nativeHelperSources) {
+        const diagnostics = await buildNativeFileHelper(
+          sourcePath,
+          context.electronPlatformName,
+          Arch[context.arch],
+          name,
+        );
+        console.info(
+          JSON.stringify({ helper: name, stage: "compiled", ...diagnostics }),
+        );
+      }
     } catch {
-      throw new Error("Native filesystem helper compilation failed");
+      throw new Error("Native helper compilation failed");
     }
   },
-  extraResources: [
-    {
-      from: "native-bin/legioncode-fs-helper",
-      to: "native/legioncode-fs-helper",
-    },
-  ],
+  extraResources: nativeHelperSources.map(({ name }) => ({
+    from: `native-bin/${name}`,
+    to: `native/${name}`,
+  })),
   afterPack: async (context) => {
     const helperPath = join(
       context.appOutDir,
@@ -73,8 +65,27 @@ const config: Configuration = {
           ...diagnostics,
         }),
       );
+      const processDiagnostics = await verifyBundledProcessHelper(
+        join(
+          context.appOutDir,
+          `${context.packager.appInfo.productFilename}.app`,
+          "Contents",
+          "Resources",
+          "native",
+          "legioncode-process-helper",
+        ),
+        context.electronPlatformName,
+        Arch[context.arch],
+      );
+      console.info(
+        JSON.stringify({
+          helper: "legioncode-process-helper",
+          stage: "bundled-before-signing",
+          ...processDiagnostics,
+        }),
+      );
     } catch {
-      throw new Error("Packaged native filesystem helper verification failed");
+      throw new Error("Packaged native helper verification failed");
     }
   },
   npmRebuild: true,
