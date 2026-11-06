@@ -40,3 +40,5 @@ export {
 export { harnessBindings, harnessObservationReceipts, harnessProcessGenerations } from "./harness.js";
 
 export { desktopAuthChallenges } from "./desktop-auth.js";
+
+export { providerCredentialDefaultEpochs } from "./credential-default-epochs.js";

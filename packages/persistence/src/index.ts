@@ -382,3 +382,8 @@ export { DESKTOP_AUTH_INTENT, DESKTOP_AUTH_CHALLENGE_MAX_AGE_MS, DesktopAuthChal
 export type { DesktopAuthChallengeScope, CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession, DesktopAuthRedeemResult, DesktopAuthChallengeRepository } from "./identity/desktop-auth-types.js";
 export { desktopAuthChallengesMigration } from "./migrations/0036-desktop-auth-challenges.js";
 export { desktopAuthChallenges } from "./schema/desktop-auth.js";
+
+export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDefaultFence.js";
+export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
+export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
+export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";

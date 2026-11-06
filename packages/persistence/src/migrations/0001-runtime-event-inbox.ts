@@ -1,3 +1,4 @@
+import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
 import { desktopAuthChallengesMigration } from "./0036-desktop-auth-challenges.js";
 import { harnessBindingsMigration } from "./0035-harness-bindings.js";
 import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
@@ -118,4 +119,5 @@ export const persistenceMigrations = [
   projectlessSessionRepositoryMigration,
   harnessBindingsMigration,
   desktopAuthChallengesMigration,
+  providerConnectionCustodyMigration,
 ] as const;
