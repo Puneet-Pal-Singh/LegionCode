@@ -1,13 +1,26 @@
+import {
+  CredentialSecretSchema,
+  CredentialAcquisitionSchema,
+  ProviderConnectionConfigSchema,
+  type CredentialAcquisition,
+  type CredentialRefreshClaim,
+  type CredentialSecret,
+} from "@repo/shared-types";
+import {
+  ConnectionSecretCodec,
+  acquisition,
+  matches,
+  sameOAuthAccount,
+} from "./connection-custody.js";
 import type {
   BYOKPreferences,
   BYOKPreferencesPatch,
   ProviderId,
 } from "@repo/shared-types";
-import {
-  CredentialEncryptionService,
-  EncryptedSecretSchema,
-} from "./credential-encryption.js";
+import { CredentialEncryptionService } from "./credential-encryption.js";
 import type {
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   CredentialStore,
   PreferenceStore,
   ProviderAuditEvent,
@@ -20,152 +33,287 @@ import type {
   UserScopedCacheKey,
 } from "./types.js";
 
-export class MemoryCredentialStore implements CredentialStore {
+export class MemoryCredentialStore
+  implements CredentialStore, CredentialConnectionStore
+{
   private readonly encryption = new CredentialEncryptionService();
+  private readonly codec: ConnectionSecretCodec;
   private readonly records = new Map<string, ProviderCredentialRecord>();
-
+  private readonly epochs = new Map<ProviderId, number>();
   constructor(
     private readonly userId: string,
     private readonly workspaceId: string,
-    private readonly masterKey: string,
+    masterKey: string,
     private readonly keyVersion: string,
-    private readonly previousMasterKey?: string,
-  ) {}
-
+    previousMasterKey?: string,
+  ) {
+    this.codec = new ConnectionSecretCodec(
+      masterKey,
+      keyVersion,
+      previousMasterKey,
+    );
+  }
   async getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null> {
-    return this.cloneRecord(this.findActive(providerId));
+    return this.clone(this.findDefault(providerId));
   }
-
+  async getConnection(
+    connectionId: string,
+  ): Promise<ProviderCredentialRecord | null> {
+    return this.clone(this.records.get(connectionId));
+  }
   async getCredentialWithKey(
     providerId: ProviderId,
   ): Promise<{ record: ProviderCredentialRecord; apiKey: string } | null> {
-    const record = this.findActive(providerId);
-    if (!record) {
+    const record = this.findDefault(providerId);
+    if (
+      !record ||
+      record.status !== "connected" ||
+      record.credentialKind !== "api_key" ||
+      record.refreshClaimId
+    )
       return null;
+    const secret = await this.codec.decode(record, true);
+    if (secret.type !== "api_key") return null;
+    if (!this.codec.isLegacy(record)) {
+      if (this.records.get(record.credentialId) !== record) return null;
+      return { record: structuredClone(record), apiKey: secret.apiKey };
     }
-
-    const encrypted = EncryptedSecretSchema.parse(
-      JSON.parse(record.encryptedSecretJson) as unknown,
-    );
-    const apiKey = await this.encryption.decrypt(encrypted, {
-      masterKey: this.masterKey,
-      previousMasterKey: this.previousMasterKey,
-    });
-
-    return { record: { ...record }, apiKey };
+    const encryptedSecretJson = await this.codec.encode(secret, record);
+    if (this.records.get(record.credentialId) !== record) return null;
+    const migrated = {
+      ...record,
+      encryptedSecretJson,
+      keyVersion: this.keyVersion,
+    };
+    this.records.set(record.credentialId, migrated);
+    return { record: structuredClone(migrated), apiKey: secret.apiKey };
   }
-
   async setCredential(
     input: SetCredentialInput,
   ): Promise<ProviderCredentialRecord> {
-    if (!this.encryption.isValidKeyFormat(input.apiKey)) {
+    this.authorize(input.userId);
+    if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
+    const before = this.findDefault(input.providerId);
+    const epoch = this.epochs.get(input.providerId) ?? 0;
+    const next = this.newRecord(
+      input,
+      before?.credentialId ?? input.credentialId ?? crypto.randomUUID(),
+      true,
+    );
+    if (before) {
+      next.authOwnerGeneration = before.authOwnerGeneration + 1;
+      next.tokenMaterialVersion = before.tokenMaterialVersion + 1;
+      next.createdAt = before.createdAt;
     }
-
-    const existing = this.findActive(input.providerId);
-    const now = new Date().toISOString();
-    const encrypted = await this.encryption.encrypt(input.apiKey, {
-      masterKey: this.masterKey,
+    next.encryptedSecretJson = await this.codec.encode(
+      { type: "api_key", apiKey: input.apiKey },
+      next,
+    );
+    next.keyFingerprint = await this.encryption.generateFingerprint(
+      input.apiKey,
+    );
+    if (
+      (this.epochs.get(input.providerId) ?? 0) !== epoch ||
+      this.findDefault(input.providerId) !== before ||
+      (!before && this.records.has(next.credentialId))
+    )
+      throw new Error(
+        "Credential replacement conflicted with revocation or rotation",
+      );
+    this.records.set(next.credentialId, next);
+    return structuredClone(next);
+  }
+  async createConnection(
+    input: CreateCredentialConnectionInput,
+  ): Promise<ProviderCredentialRecord> {
+    this.authorize(input.userId);
+    const secret = CredentialSecretSchema.parse(input.secret);
+    const next = this.newRecord(input, crypto.randomUUID(), false);
+    next.credentialKind = secret.type;
+    next.encryptedSecretJson = await this.codec.encode(secret, next);
+    if (secret.type === "api_key")
+      next.keyFingerprint = await this.encryption.generateFingerprint(
+        secret.apiKey,
+      );
+    this.records.set(next.credentialId, next);
+    return structuredClone(next);
+  }
+  async acquireConnection(expected: CredentialAcquisition) {
+    this.authorize(expected.userId);
+    CredentialAcquisitionSchema.parse(expected);
+    const before = this.records.get(expected.connectionId);
+    if (!before || !matches(before, expected) || before.refreshClaimId)
+      return null;
+    const secret = await this.codec.decode(before);
+    if (this.records.get(expected.connectionId) !== before) return null;
+    return { record: structuredClone(before), secret };
+  }
+  async claimRefresh(expected: CredentialAcquisition) {
+    this.authorize(expected.userId);
+    CredentialAcquisitionSchema.parse(expected);
+    const before = this.records.get(expected.connectionId);
+    if (
+      !before ||
+      !matches(before, expected) ||
+      before.credentialKind !== "oauth" ||
+      before.refreshClaimId
+    )
+      return null;
+    const refreshClaimId = crypto.randomUUID();
+    const next = { ...before, refreshClaimId };
+    this.records.set(next.credentialId, next);
+    const secret = await this.codec.decode(next);
+    if (secret.type !== "oauth" || this.records.get(next.credentialId) !== next)
+      return null;
+    return { claim: { ...expected, refreshClaimId }, secret };
+  }
+  async completeRefresh(
+    claim: CredentialRefreshClaim,
+    secret: Extract<CredentialSecret, { type: "oauth" }>,
+  ): Promise<ProviderCredentialRecord | null> {
+    this.authorize(claim.userId);
+    const before = this.records.get(claim.connectionId);
+    if (
+      !before ||
+      !matches(before, claim) ||
+      before.refreshClaimId !== claim.refreshClaimId
+    )
+      return null;
+    const previous = await this.codec.decode(before);
+    const parsed = CredentialSecretSchema.parse(secret);
+    if (!sameOAuthAccount(previous, parsed))
+      throw new Error("Refresh cannot change credential ownership or scope");
+    const next = {
+      ...before,
+      tokenMaterialVersion: before.tokenMaterialVersion + 1,
+      refreshClaimId: null,
       keyVersion: this.keyVersion,
-    });
-    const record = await this.buildRecord(input, existing, encrypted, now);
-
-    this.records.set(this.key(input.providerId), record);
-    return { ...record };
+      updatedAt: new Date().toISOString(),
+    };
+    next.encryptedSecretJson = await this.codec.encode(parsed, next);
+    if (this.records.get(next.credentialId) !== before) return null;
+    this.records.set(next.credentialId, next);
+    return structuredClone(next);
   }
-
-  async deleteCredential(providerId: ProviderId): Promise<void> {
-    const existing = this.findActive(providerId);
-    if (!existing) {
-      return;
-    }
-
+  async revokeConnection(
+    expected: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord | null> {
+    this.authorize(expected.userId);
+    const before = this.records.get(expected.connectionId);
+    if (
+      !before ||
+      before.userId !== expected.userId ||
+      before.providerId !== expected.providerId ||
+      before.authOwnerGeneration !== expected.ownerGeneration ||
+      before.deletedAt !== null
+    )
+      return null;
     const now = new Date().toISOString();
-    this.records.set(this.key(providerId), {
-      ...existing,
-      status: "revoked",
-      updatedAt: now,
+    const next = {
+      ...before,
+      authOwnerGeneration: before.authOwnerGeneration + 1,
+      status: "revoked" as const,
       deletedAt: now,
-    });
+      updatedAt: now,
+      encryptedSecretJson: "{}",
+      refreshClaimId: null,
+      isDefault: false,
+    };
+    this.epochs.set(
+      before.providerId,
+      (this.epochs.get(before.providerId) ?? 0) + 1,
+    );
+    this.records.set(next.credentialId, next);
+    return structuredClone(next);
   }
-
+  async deleteCredential(providerId: ProviderId): Promise<void> {
+    this.epochs.set(providerId, (this.epochs.get(providerId) ?? 0) + 1);
+    const before = this.findDefault(providerId);
+    if (before) await this.revokeConnection(acquisition(before));
+  }
   async listCredentialProviders(): Promise<ProviderId[]> {
     return [...this.records.values()]
-      .filter((record) => record.deletedAt === null)
-      .map((record) => record.providerId)
+      .filter(
+        (r) => r.isDefault && r.status === "connected" && r.deletedAt === null,
+      )
+      .map((r) => r.providerId)
       .sort();
   }
-
   async updateCredentialMetadata(
     providerId: ProviderId,
     updates: Parameters<CredentialStore["updateCredentialMetadata"]>[1],
   ): Promise<void> {
-    const existing = this.findActive(providerId);
-    if (!existing) {
-      return;
-    }
-
-    this.records.set(this.key(providerId), {
-      ...existing,
-      status: updates.status ?? existing.status,
-      lastValidatedAt:
-        updates.lastValidatedAt !== undefined
-          ? updates.lastValidatedAt
-          : existing.lastValidatedAt,
-      lastErrorCode:
-        updates.lastErrorCode !== undefined
-          ? updates.lastErrorCode
-          : existing.lastErrorCode,
-      lastErrorMessage:
-        updates.lastErrorMessage !== undefined
-          ? updates.lastErrorMessage
-          : existing.lastErrorMessage,
+    if (updates.status === "revoked") return this.deleteCredential(providerId);
+    const before = this.findDefault(providerId);
+    if (!before || before.status !== "connected") return;
+    this.records.set(before.credentialId, {
+      ...before,
+      ...updates,
       updatedAt: new Date().toISOString(),
     });
   }
-
-  private async buildRecord(
-    input: SetCredentialInput,
-    existing: ProviderCredentialRecord | null,
-    encrypted: unknown,
-    now: string,
-  ): Promise<ProviderCredentialRecord> {
+  private authorize(userId: string) {
+    if (!userId || userId !== this.userId)
+      throw new Error("Credential scope mismatch");
+  }
+  private findDefault(providerId: ProviderId): ProviderCredentialRecord | null {
+    return (
+      [...this.records.values()].find(
+        (r) =>
+          r.providerId === providerId &&
+          r.userId === this.userId &&
+          r.isDefault &&
+          r.deletedAt === null,
+      ) ?? null
+    );
+  }
+  private clone(
+    r: ProviderCredentialRecord | null | undefined,
+  ): ProviderCredentialRecord | null {
+    return r ? structuredClone(r) : null;
+  }
+  private newRecord(
+    input: {
+      providerId: ProviderId;
+      label: string;
+      connectionConfig?: ProviderCredentialRecord["connectionConfig"];
+    },
+    id: string,
+    isDefault: boolean,
+  ): ProviderCredentialRecord {
+    if (
+      input.connectionConfig &&
+      ProviderConnectionConfigSchema.parse(input.connectionConfig)
+        .providerId !== input.providerId
+    )
+      throw new Error("Credential configuration scope mismatch");
+    const now = new Date().toISOString();
     return {
-      credentialId:
-        existing?.credentialId ?? input.credentialId ?? crypto.randomUUID(),
+      credentialId: id,
       userId: this.userId,
-      workspaceId: input.workspaceId ?? this.workspaceId,
+      workspaceId: this.workspaceId,
       providerId: input.providerId,
       label: input.label,
-      keyFingerprint: await this.encryption.generateFingerprint(input.apiKey),
-      encryptedSecretJson: JSON.stringify(encrypted),
+      authOwnerGeneration: 1,
+      tokenMaterialVersion: 1,
+      credentialKind: "api_key",
+      refreshClaimId: null,
+      isDefault,
+      keyFingerprint: "unavailable",
+      encryptedSecretJson: "{}",
       connectionConfig: input.connectionConfig,
       keyVersion: this.keyVersion,
       status: "connected",
       lastValidatedAt: null,
       lastErrorCode: null,
       lastErrorMessage: null,
-      createdAt: existing?.createdAt ?? now,
+      createdAt: now,
       updatedAt: now,
       deletedAt: null,
     };
-  }
-
-  private findActive(providerId: ProviderId): ProviderCredentialRecord | null {
-    const record = this.records.get(this.key(providerId));
-    return record && record.deletedAt === null ? record : null;
-  }
-
-  private cloneRecord(
-    record: ProviderCredentialRecord | null,
-  ): ProviderCredentialRecord | null {
-    return record ? { ...record } : null;
-  }
-
-  private key(providerId: ProviderId): string {
-    return `${this.userId}:${providerId}`;
   }
 }
 

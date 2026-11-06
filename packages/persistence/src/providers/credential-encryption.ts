@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  CredentialAcquisitionSchema,
+  type CredentialAcquisition,
+} from "@repo/shared-types";
 
 export const EncryptedSecretSchema = z.object({
   alg: z.literal("AES-256-GCM"),
@@ -6,6 +10,7 @@ export const EncryptedSecretSchema = z.object({
   iv: z.string().min(1),
   tag: z.string().min(1),
   keyVersion: z.string().min(1),
+  contextVersion: z.literal(1).optional(),
 });
 
 export type EncryptedSecret = z.infer<typeof EncryptedSecretSchema>;
@@ -13,11 +18,15 @@ export type EncryptedSecret = z.infer<typeof EncryptedSecretSchema>;
 export interface EncryptionOptions {
   keyVersion: string;
   masterKey: string;
+  context?: CredentialAcquisition;
 }
 
 export interface DecryptionOptions {
   masterKey: string;
   previousMasterKey?: string;
+  keyVersion?: string;
+  context?: CredentialAcquisition;
+  allowLegacy?: boolean;
 }
 
 export interface ICredentialEncryptionService {
@@ -63,6 +72,10 @@ export class CredentialEncryptionService {
           name: "AES-GCM",
           iv,
           tagLength: this.TAG_LENGTH,
+          additionalData: authenticatedContext(
+            options.keyVersion,
+            options.context,
+          ),
         },
         masterKey,
         plaintextBytes,
@@ -73,6 +86,7 @@ export class CredentialEncryptionService {
 
       return {
         alg: "AES-256-GCM",
+        contextVersion: 1,
         ciphertext: this.arrayBufferToBase64(ciphertext),
         iv: this.arrayBufferToBase64(iv),
         tag: this.arrayBufferToBase64(tag),
@@ -91,6 +105,15 @@ export class CredentialEncryptionService {
   ): Promise<string> {
     try {
       const parsed = EncryptedSecretSchema.parse(encrypted);
+      if (
+        options.keyVersion !== undefined &&
+        parsed.keyVersion !== options.keyVersion
+      ) {
+        throw new Error("Credential key version mismatch");
+      }
+      if (parsed.contextVersion === undefined && !options.allowLegacy) {
+        throw new Error("Legacy credential requires explicit migration");
+      }
       if (!options.masterKey) {
         throw new Error("No master key available for decryption");
       }
@@ -102,21 +125,17 @@ export class CredentialEncryptionService {
 
       for (const key of keysToTry) {
         try {
-          plaintext = await this.decryptWithKey(parsed, key);
+          plaintext = await this.decryptWithKey(parsed, key, options.context);
           break;
-        } catch (attemptError) {
-          console.warn(
-            "[CredentialEncryptionService/decrypt] key attempt failed; trying next",
-            attemptError instanceof Error
-              ? attemptError.message
-              : String(attemptError),
-          );
+        } catch {
           continue;
         }
       }
 
       if (plaintext === null) {
-        throw new Error("Decryption failed: unable to decrypt with available keys");
+        throw new Error(
+          "Decryption failed: unable to decrypt with available keys",
+        );
       }
 
       return plaintext;
@@ -149,6 +168,7 @@ export class CredentialEncryptionService {
   private async decryptWithKey(
     encrypted: EncryptedSecret,
     masterKey: string,
+    context?: CredentialAcquisition,
   ): Promise<string> {
     const key = await this.importKey(masterKey);
     const iv = this.base64ToArrayBuffer(encrypted.iv);
@@ -163,6 +183,14 @@ export class CredentialEncryptionService {
         name: "AES-GCM",
         iv: iv.buffer as ArrayBuffer,
         tagLength: this.TAG_LENGTH,
+        ...(encrypted.contextVersion === 1
+          ? {
+              additionalData: authenticatedContext(
+                encrypted.keyVersion,
+                context,
+              ),
+            }
+          : {}),
       },
       key,
       ciphertextWithTag.buffer as ArrayBuffer,
@@ -201,4 +229,26 @@ export class CredentialEncryptionService {
     }
     return bytes;
   }
+}
+
+function authenticatedContext(
+  keyVersion: string,
+  context?: CredentialAcquisition,
+): Uint8Array<ArrayBuffer> {
+  const owner =
+    context === undefined ? null : CredentialAcquisitionSchema.parse(context);
+  return new TextEncoder().encode(
+    JSON.stringify([
+      "legioncode-credential",
+      1,
+      keyVersion,
+      owner && [
+        owner.connectionId,
+        owner.userId,
+        owner.providerId,
+        owner.ownerGeneration,
+        owner.tokenMaterialVersion,
+      ],
+    ]),
+  );
 }

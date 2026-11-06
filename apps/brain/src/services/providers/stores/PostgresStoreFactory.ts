@@ -1,4 +1,8 @@
 import {
+  HarnessConnectionService,
+  type HarnessConnectionPolicy,
+} from "../../harness/HarnessConnectionService";
+import {
   DatabaseConfigurationError,
   persistenceMigrations,
   PostgresMigrationLedger,
@@ -55,8 +59,7 @@ export function createPostgresProviderConfigService(
     modelCacheStore: new PostgresProviderModelCacheStore(sqlClient, userId),
     auditLog: new PostgresProviderAuditLog(sqlClient, userId, workspaceId),
     quotaStore: new PostgresProviderQuotaStore(sqlClient, userId, workspaceId),
-    ensureReady: () =>
-      runAutomaticMigrations(databaseConfig, sqlClient),
+    ensureReady: () => runAutomaticMigrations(databaseConfig, sqlClient),
   });
 }
 
@@ -88,4 +91,30 @@ async function runPendingMigrations(client: SqlClient): Promise<void> {
     new PostgresMigrationLedger(),
   );
   await runner.runPending(persistenceMigrations);
+}
+
+/** P13 supplies existing authenticated workspace/admission/fencing policy. */
+export function createPostgresHarnessConnectionService(
+  env: Env,
+  userId: string,
+  workspaceId: string,
+  policy: Omit<HarnessConnectionPolicy, "ensureReady">,
+): HarnessConnectionService {
+  const databaseConfig = readBrainDatabaseConfig(env);
+  const client = createPostgresSqlClient(databaseConfig.connectionString);
+  const encryption = getProviderEncryptionConfig(
+    env as unknown as Record<string, unknown>,
+  );
+  const store = new PostgresCredentialStore(
+    client,
+    userId,
+    workspaceId,
+    encryption.masterKey,
+    encryption.keyVersion,
+    encryption.previousMasterKey,
+  );
+  return new HarnessConnectionService(store, {
+    ...policy,
+    ensureReady: () => runAutomaticMigrations(databaseConfig, client),
+  });
 }

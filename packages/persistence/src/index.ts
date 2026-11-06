@@ -70,7 +70,10 @@ export type {
   LegacyHistoryImportRecord,
   LegacyHistoryImportResult,
 } from "./sessions/types.js";
-export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
+export {
+  PostgresTurnAdmissionRepository,
+  TurnAdmissionConflictError,
+} from "./turn-admissions/PostgresTurnAdmissionRepository.js";
 export type {
   AdmitContinuationInput,
   AdmitTurnWithPromptInput,
@@ -111,7 +114,10 @@ export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title
 export { chatDurabilityMigration } from "./migrations/0032-chat-durability.js";
 export { threadInputsAndContinuationsMigration } from "./migrations/0033-thread-inputs-and-continuations.js";
 export { legacyHistoryImportReceiptsMigration } from "./migrations/0034-legacy-history-import-receipts.js";
-export { PostgresThreadInputRepository, ThreadInputConflictError } from "./thread-inputs/PostgresThreadInputRepository.js";
+export {
+  PostgresThreadInputRepository,
+  ThreadInputConflictError,
+} from "./thread-inputs/PostgresThreadInputRepository.js";
 export type {
   CreateThreadInput,
   StoredThreadInput,
@@ -209,6 +215,8 @@ export type {
   IdentitySessionRepository,
 } from "./identity/types.js";
 export type {
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   CredentialStore,
   ProviderAuditEvent,
   ProviderAuditLog,
@@ -373,6 +381,7 @@ export {
 export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-receipts.js";
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";
+<<<<<<< HEAD
 export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";
 
 export { PostgresHarnessBindingRepository } from "./harness/PostgresHarnessBindingRepository.js";
@@ -390,3 +399,10 @@ export { harnessControlPlaneMigration } from "./migrations/0038-harness-control-
 
 export { PostgresHarnessObservationCommitPort } from "./harness/PostgresHarnessObservationCommitPort.js";
 export { harnessRecoveryReplyClaimsMigration } from "./migrations/0039-harness-recovery-reply-claims.js";
+=======
+export type {
+  SessionReadState,
+  SessionReadReceipt,
+  SessionReadReceiptRepository,
+} from "./session-read-receipts/types.js";
+>>>>>>> 368d37cd (feat(credentials): add typed connection custody and fenced refresh)
