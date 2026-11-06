@@ -6,6 +6,7 @@ import {
 import {
   CloudHarnessRequestSchema,
   sameCloudHarnessSession,
+  cloudHarnessRequestTarget,
 } from "./CloudHarnessBridgeProtocol";
 import { encodeCloudHarnessBridgeFrame } from "./CloudHarnessBridgeLimits";
 import { CloudHarnessBridgeClient } from "./CloudHarnessBridgeClient";
@@ -47,15 +48,16 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
     encodeCloudHarnessBridgeFrame(request); // preflight BEFORE bootstrap or credential resolution
     if (this.clients.size >= 128)
       throw new Error("Cloud harness session capacity reached");
-    this.claim(`open:${input.command.commandId}`);
     const client = new CloudHarnessBridgeClient(
       this.supervisor,
-      { command: input.command },
+      { operation: "open", command: input.command },
       this.requestTimeoutMs,
     );
     try {
       await client.connect(input.signal);
-      const result = await client.request(request);
+      const result = await client.request(request, () =>
+        this.claim(`open:${input.command.commandId}`),
+      );
       if (result.operation !== "open")
         throw new Error("Cloud harness open correlation mismatch");
       const session = HarnessSessionSchema.parse(result.value);
@@ -64,7 +66,7 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
         session.instanceId !== input.command.selection.instanceId
       )
         throw new Error("Cloud harness learned binding mismatch");
-      await this.supervisor.assertActive({ session });
+      await this.supervisor.authorize({ operation: "observe", session });
       this.clients.set(JSON.stringify(session), client);
       return session;
     } catch {
@@ -84,17 +86,24 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       session: input.session,
     });
     encodeCloudHarnessBridgeFrame(request);
-    this.claim(`execute:${input.command.commandId}`);
     const client = this.requireClient(input.session);
     client.setObserver(input.session, input.observe);
-    await this.supervisor.assertActive({ command: input.command });
-    await this.supervisor.assertActive({ session: input.session });
+    await this.supervisor.authorize({
+      operation: "execute",
+      command: input.command,
+    });
+    await this.supervisor.authorize({
+      operation: "execute",
+      session: input.session,
+    });
     if (input.signal.aborted)
       throw new Error("Cloud harness execution aborted; recovery required");
     const abort = () => client.fence();
     input.signal.addEventListener("abort", abort, { once: true });
     try {
-      await client.request(request);
+      await client.request(request, () =>
+        this.claim(`execute:${input.command.commandId}`),
+      );
     } finally {
       input.signal.removeEventListener("abort", abort);
     }
@@ -122,7 +131,7 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
         throw new Error("Cloud harness session capacity reached");
       client = new CloudHarnessBridgeClient(
         this.supervisor,
-        { session: input.session },
+        { operation: "observe", session: input.session },
         this.requestTimeoutMs,
       );
       client.setObserver(input.session, input.observe);
@@ -157,16 +166,39 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       command,
     });
     encodeCloudHarnessBridgeFrame(request);
-    this.claim(`control:${command.commandId}`);
+    const target = cloudHarnessRequestTarget(request);
+    await this.supervisor.authorize(target);
+    const cleanup = command.kind === "interrupt" || command.kind === "dispose";
     const session =
       command.kind === "reply" || command.kind === "user_input_reply"
         ? command.reply.replyTo.session
         : command.session;
-    await this.supervisor.assertActive({ session });
-    const result = await this.requireClient(session).request(request);
-    if (result.operation !== "control")
-      throw new Error("Cloud harness control correlation mismatch");
-    return result.value;
+    if (!cleanup) {
+      const result = await this.requireClient(session).request(request, () =>
+        this.claim(`control:${command.commandId}`),
+      );
+      if (result.operation !== "control")
+        throw new Error("Cloud harness control correlation mismatch");
+      return result.value;
+    }
+    // Dedicated cleanup connection: revoked-auth observations on an old active
+    // stream cannot block Stop's independently authorized response.
+    const client = new CloudHarnessBridgeClient(
+      this.supervisor,
+      target,
+      this.requestTimeoutMs,
+    );
+    try {
+      await client.connect(new AbortController().signal);
+      const result = await client.request(request, () =>
+        this.claim(`control:${command.commandId}`),
+      );
+      if (result.operation !== "control")
+        throw new Error("Cloud harness control correlation mismatch");
+      return result.value;
+    } finally {
+      client.fence();
+    }
   }
 
   async awaitQuiescence(
@@ -179,9 +211,15 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       ...input,
     });
     encodeCloudHarnessBridgeFrame(request);
+    const target = cloudHarnessRequestTarget(request);
+    const client = new CloudHarnessBridgeClient(
+      this.supervisor,
+      target,
+      this.requestTimeoutMs,
+    );
     try {
-      await this.supervisor.assertActive({ session: input.session });
-      const result = await this.requireClient(input.session).request(request);
+      await client.connect(new AbortController().signal);
+      const result = await client.request(request);
       if (
         result.operation !== "quiescence" ||
         !sameCloudHarnessSession(result.value.session, input.session)
@@ -194,6 +232,8 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
         session: input.session,
         reason: "transport_lost" as const,
       };
+    } finally {
+      client.fence();
     }
   }
 
