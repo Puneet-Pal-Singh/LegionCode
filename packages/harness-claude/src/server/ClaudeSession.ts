@@ -1,0 +1,378 @@
+import { randomUUID } from "node:crypto";
+import {
+  HarnessHostError,
+  ScopedRequestReply,
+} from "@repo/harness-core/server";
+import type {
+  HarnessDriver,
+  HarnessLiveSession,
+} from "@repo/harness-core/server";
+import {
+  HarnessControlCommandSchema,
+  HarnessSessionSchema,
+  HarnessStartCommandSchema,
+} from "@repo/worker-protocol";
+import type {
+  HarnessControlCommand,
+  HarnessSession,
+  HarnessObservationPayload,
+  HarnessQuiescence,
+  HarnessRequestOrigin,
+} from "@repo/worker-protocol";
+import type {
+  HookCallback,
+  SDKResultMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import { ClaudeEventMapper } from "./ClaudeEventMapper.js";
+import { claudePermissionObservation } from "./ClaudePermissionMapper.js";
+import { claudeProcessAdapter } from "./sdk/ClaudeProcessAdapter.js";
+import { ClaudeQueryRunner } from "./sdk/ClaudeQueryRunner.js";
+
+type Opening = Parameters<HarnessDriver["open"]>[0];
+interface NativePermission {
+  readonly reply: ScopedRequestReply<boolean>;
+  readonly committed: Promise<void>;
+  readonly cancel: () => void;
+}
+
+/** One admitted attempt's native handles. No canonical state store, event sequencer or lease owner. */
+export class ClaudeSession implements HarnessLiveSession {
+  readonly session: HarnessSession;
+  private readonly mapper: ClaudeEventMapper;
+  private readonly permissions = new Map<string, NativePermission>();
+  private readonly fingerprint: string;
+  private readonly promptId = randomUUID();
+  private runner: ClaudeQueryRunner | undefined;
+  private execution: Promise<void> | undefined;
+  private stopped = false;
+  private finished = false;
+  private deliveryFailed = false;
+
+  constructor(private readonly opening: Opening) {
+    this.session = HarnessSessionSchema.parse({
+      runAttemptId: opening.command.selection.runAttemptId,
+      instanceId: opening.command.selection.instanceId,
+      externalSessionId: randomUUID(),
+      processGeneration: opening.host.processGeneration,
+    });
+    this.mapper = new ClaudeEventMapper(this.session);
+    this.fingerprint = JSON.stringify(opening.command);
+  }
+
+  execute(input: Parameters<HarnessLiveSession["execute"]>[0]): Promise<void> {
+    const command = HarnessStartCommandSchema.parse(input.command);
+    if (JSON.stringify(command) !== this.fingerprint)
+      return Promise.reject(new HarnessHostError("stale_session"));
+    if (this.execution) return this.execution;
+    if (input.signal.aborted || this.opening.signal.aborted || this.stopped)
+      return Promise.reject(new HarnessHostError("stale_session"));
+    this.execution = this.run(input.signal);
+    return this.execution;
+  }
+
+  private async run(signal: AbortSignal): Promise<void> {
+    let result: SDKResultMessage | undefined;
+    let observer: Promise<void> | undefined;
+    const abort = () => this.beginStop();
+    signal.addEventListener("abort", abort, { once: true });
+    this.opening.signal.addEventListener("abort", abort, { once: true });
+    try {
+      const foreground = new Promise<SDKResultMessage>((resolve, reject) => {
+        this.runner = new ClaudeQueryRunner({
+          cwd: this.opening.host.workspaceRoot,
+          env: this.opening.host.environment,
+          model: this.opening.command.selection.modelId,
+          sessionId: this.session.externalSessionId,
+          // Mandatory policy lives in PreToolUse, including calls the SDK would auto-allow.
+          beforeTool: this.beforeTool,
+          canUseTool: async () => ({
+            behavior: "deny",
+            message: "No canonical grant for this native permission origin",
+          }),
+          spawnClaudeCodeProcess: claudeProcessAdapter(async (options) => {
+            if (
+              this.stopped ||
+              options.signal.aborted ||
+              options.cwd !== this.opening.host.workspaceRoot
+            )
+              throw new HarnessHostError("stale_session");
+            const supervised = await this.opening.host.launch({
+              executable: options.command,
+              args: options.args,
+            });
+            await supervised.ready;
+            return supervised.child;
+          }, this.opening.host.environment),
+        });
+        observer = this.runner.observe(async (message) => {
+          if (
+            "user_message_uuid" in message &&
+            message.user_message_uuid !== undefined &&
+            message.user_message_uuid !== this.promptId
+          )
+            throw new HarnessHostError("stale_session");
+          for (const payload of this.mapper.map(message))
+            await this.emit(payload);
+          if (message.type === "result") {
+            if (result !== undefined)
+              throw new HarnessHostError("stale_session");
+            result = message;
+            resolve(message);
+          }
+        });
+        void observer.then(
+          () => {
+            if (!result) reject(new HarnessHostError("stale_session"));
+          },
+          () => reject(new HarnessHostError("stale_session")),
+        );
+      });
+      // Rejection can precede startup completion; attach immediately, never replay input.
+      void foreground.catch(() => undefined);
+      await this.runner!.initialize();
+      if (this.stopped || signal.aborted)
+        throw new HarnessHostError("stale_session");
+      this.runner!.submit({
+        type: "user",
+        message: { role: "user", content: this.opening.command.prompt },
+        parent_tool_use_id: null,
+        uuid: this.promptId,
+        session_id: this.session.externalSessionId,
+      });
+      const terminalResult = await foreground;
+      await this.runner!.stop();
+      await this.opening.host.terminateProcesses({
+        graceMs: 1000,
+        killWaitMs: 1000,
+      });
+      if (observer) await this.withDeadline(observer, 2500);
+      // No lifecycle observation follows this terminal; late child frames were drained first.
+      await this.emit(this.mapper.terminal(terminalResult, this.stopped));
+    } catch {
+      const interrupted = this.stopped || signal.aborted;
+      this.beginStop();
+      await this.opening.host.terminateProcesses({
+        graceMs: 1000,
+        killWaitMs: 1000,
+      });
+      this.runner?.close();
+      if (observer)
+        await this.withDeadline(observer, 2500).catch(() => undefined);
+      if (!this.deliveryFailed) {
+        await this.emit({
+          kind: "external_terminal",
+          status: interrupted ? "interrupted" : "failed",
+          itemId: this.mapper.toolItem("terminal"),
+          output: "",
+          error: {
+            code: interrupted ? "command_cancelled" : "provider_unavailable",
+            message: interrupted
+              ? "Claude execution was interrupted"
+              : "Claude execution or observation delivery failed",
+            retryable: false,
+            correlationId: null,
+            details: null,
+          },
+        });
+        return;
+      }
+      throw new HarnessHostError("journal_corrupt");
+    } finally {
+      this.finished = true;
+      this.runner?.close();
+      this.cancelPermissions();
+      signal.removeEventListener("abort", abort);
+      this.opening.signal.removeEventListener("abort", abort);
+    }
+  }
+
+  private readonly beforeTool: HookCallback = async (
+    input,
+    _toolUseId,
+    context,
+  ) => {
+    if (
+      input.hook_event_name !== "PreToolUse" ||
+      this.stopped ||
+      context.signal.aborted
+    )
+      return { continue: false, decision: "block" };
+    for (const payload of this.mapper.toolStarted(
+      input.tool_use_id,
+      input.tool_name,
+      input.tool_input,
+    ))
+      await this.emit(payload);
+    if (input.tool_name === "AskUserQuestion")
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            "Question replies are unavailable on this connection",
+        },
+      };
+    const replyTo: HarnessRequestOrigin = {
+      session: this.session,
+      origin: "claude.PreToolUse",
+      requestId: input.tool_use_id,
+      authOwnerGeneration: this.opening.command.selection.authOwnerGeneration,
+    };
+    const approved = await this.ask(replyTo, input.tool_name, context.signal);
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: approved ? "allow" : "deny",
+        permissionDecisionReason: "Canonical one-shot approval decision",
+      },
+    };
+  };
+
+  private async ask(
+    origin: HarnessRequestOrigin,
+    toolName: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (
+      this.stopped ||
+      signal.aborted ||
+      this.permissions.has(origin.requestId) ||
+      this.permissions.size >= 128
+    )
+      return false;
+    let request: NativePermission | undefined;
+    const approved = new Promise<boolean>((resolve) => {
+      const reply = new ScopedRequestReply<boolean>(
+        origin.requestId,
+        origin.origin,
+        this.opening.host.processGeneration,
+        origin.authOwnerGeneration,
+        async (value) => {
+          resolve(value);
+        },
+        () => !this.stopped && !this.finished && !signal.aborted,
+      );
+      const cancel = () => {
+        reply.fence();
+        resolve(false);
+      };
+      const committed = Promise.resolve().then(() =>
+        this.emit(
+          claudePermissionObservation({
+            replyTo: origin,
+            parentItemId: this.mapper.toolItem(origin.requestId),
+            toolName,
+          }),
+        ),
+      );
+      request = { reply, committed, cancel };
+      this.permissions.set(origin.requestId, request);
+      void committed.catch(cancel);
+    });
+    const abort = () => request?.cancel();
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      return await approved;
+    } finally {
+      signal.removeEventListener("abort", abort);
+      this.permissions.delete(origin.requestId);
+    }
+  }
+
+  async control(
+    raw: HarnessControlCommand,
+  ): Promise<{ readonly accepted: boolean }> {
+    const command = HarnessControlCommandSchema.parse(raw);
+    const session =
+      command.kind === "reply"
+        ? command.reply.replyTo.session
+        : command.session;
+    if (JSON.stringify(session) !== JSON.stringify(this.session))
+      throw new HarnessHostError("stale_session");
+    if (command.kind === "interrupt" || command.kind === "dispose") {
+      this.beginStop();
+      return { accepted: true };
+    }
+    if (command.kind === "steer") return { accepted: false };
+    const origin = command.reply.replyTo;
+    if (
+      this.stopped ||
+      this.finished ||
+      command.reply.grantScope !== undefined ||
+      origin.authOwnerGeneration !==
+        this.opening.command.selection.authOwnerGeneration
+    )
+      throw new HarnessHostError("request_unavailable");
+    const request = this.permissions.get(origin.requestId);
+    if (!request) throw new HarnessHostError("request_unavailable");
+    await request.committed;
+    await request.reply.reply({
+      requestId: origin.requestId,
+      origin: origin.origin,
+      processGeneration: this.opening.host.processGeneration,
+      authOwnerGeneration: origin.authOwnerGeneration,
+      value: command.reply.decision === "approved",
+    });
+    return { accepted: true };
+  }
+
+  async awaitQuiescence(input: {
+    readonly timeoutMs: number;
+  }): Promise<HarnessQuiescence> {
+    if (
+      !Number.isSafeInteger(input.timeoutMs) ||
+      input.timeoutMs < 0 ||
+      input.timeoutMs > 60_000
+    )
+      throw new HarnessHostError("invalid_launch");
+    await this.opening.host.terminateProcesses({
+      graceMs: Math.floor(input.timeoutMs / 2),
+      killWaitMs: Math.floor(input.timeoutMs / 2),
+    });
+    // P05/composition must supply full-boundary evidence. Group exit cannot fabricate it.
+    return { status: "unknown", session: this.session, reason: "unsupported" };
+  }
+
+  private beginStop(): void {
+    this.stopped = true;
+    this.opening.host.fence();
+    this.cancelPermissions();
+    void this.runner?.stop().catch(() => undefined);
+  }
+  private cancelPermissions(): void {
+    for (const request of this.permissions.values()) request.cancel();
+  }
+
+  private async emit(payload: HarnessObservationPayload): Promise<void> {
+    try {
+      await this.opening.observe({
+        session: this.session,
+        externalTurnId: this.promptId,
+        payload,
+      });
+    } catch {
+      this.deliveryFailed = true;
+      throw new HarnessHostError("journal_corrupt");
+    }
+  }
+
+  private async withDeadline<T>(
+    operation: Promise<T>,
+    timeoutMs: number,
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new HarnessHostError("process_not_quiescent")),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+}
