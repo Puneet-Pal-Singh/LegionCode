@@ -401,5 +401,6 @@ export {
 
 export {
   HarnessUsageObservationSchema, type HarnessUsageObservation,
+  HarnessProviderLimitNotificationSchema, type HarnessProviderLimitNotification,
   type HarnessActivityMeasurement, type HarnessAccountQuota, type HarnessBillingRoute,
 } from "@repo/platform-protocol";
