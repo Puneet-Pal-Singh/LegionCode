@@ -9,13 +9,19 @@ class CapturingSqlClient implements SqlClient {
   public readonly queries: Array<{
     statement: string;
     params: readonly SqlValue[];
+    inTransaction: boolean;
   }> = [];
+  private inTransaction = false;
 
   async query<Row extends SqlRow = SqlRow>(
     statement: string,
     params: readonly SqlValue[] = [],
   ): Promise<SqlQueryResult<Row>> {
-    this.queries.push({ statement, params });
+    this.queries.push({ statement, params, inTransaction: this.inTransaction });
+
+    if (statement.includes("FOR UPDATE OF tasks") || statement.includes("FOR UPDATE OF s")) {
+      return createResult<Row>({ task_id: "task-1", inherited_archived_at: NOW });
+    }
 
     if (statement.includes("INSERT INTO tasks")) {
       return createResult<Row>(createTaskRow(params));
@@ -39,7 +45,12 @@ class CapturingSqlClient implements SqlClient {
   async transaction<T>(
     callback: (client: SqlClient) => Promise<T>,
   ): Promise<T> {
-    return await callback(this);
+    this.inTransaction = true;
+    try {
+      return await callback(this);
+    } finally {
+      this.inTransaction = false;
+    }
   }
 }
 
@@ -121,13 +132,22 @@ describe("PostgresTranscriptRepository", () => {
       ),
     ).resolves.toBe(true);
 
-    expect(client.queries[0]?.statement).toContain("archived_at IS NOT NULL");
+    expect(client.queries).toHaveLength(4);
+    expect(client.queries.every((query) => query.inTransaction)).toBe(true);
+    expect(client.queries[0]?.statement).toContain("FOR UPDATE OF tasks");
+    expect(client.queries[0]?.statement).toContain("tasks.user_id = $1 AND s.user_id = $1");
+    expect(client.queries[0]?.statement).not.toContain("archived_at");
     expect(client.queries[0]?.params).toEqual([
       "123e4567-e89b-42d3-a456-426614174001",
       "123e4567-e89b-42d3-a456-426614174000",
     ]);
-    expect(client.queries[1]?.statement).toContain("NOT EXISTS");
-    expect(client.queries[1]?.params).toEqual([
+    expect(client.queries[1]?.statement).toContain("COALESCE(s.archived_at, tasks.archived_at) IS NOT NULL");
+    expect(client.queries[1]?.statement).toContain("FOR UPDATE OF s");
+    expect(client.queries[1]?.params).toEqual([...client.queries[0]!.params, "task-1"]);
+    expect(client.queries[2]?.statement).toContain("DELETE FROM sessions");
+    expect(client.queries[2]?.params).toEqual(client.queries[1]?.params);
+    expect(client.queries[3]?.statement).toContain("NOT EXISTS");
+    expect(client.queries[3]?.params).toEqual([
       "123e4567-e89b-42d3-a456-426614174001",
       "task-1",
     ]);
@@ -352,16 +372,41 @@ describe("PostgresTranscriptRepository", () => {
       await db.query(`INSERT INTO sessions
         SELECT $1, user_id, workspace_id, NULL, NULL, task_id, 'Sibling', 'generated', 1, 'ready', repository, NULL, mode, 'idle', NULL, NULL, created_at, updated_at
         FROM sessions WHERE id = $2`, [siblingId, sessionId]);
+      await db.exec(`CREATE TABLE messages (
+        id TEXT PRIMARY KEY, session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        content_json JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL
+      )`);
+      await db.query(`INSERT INTO messages VALUES
+        ('target-message', $1, '{"text":"Original transcript ✓"}', $3),
+        ('sibling-message', $2, '{"text":"Sibling transcript"}', $3)`, [sessionId, siblingId, NOW]);
+      const originalMessages = (await db.query("SELECT * FROM messages ORDER BY id")).rows;
       await db.query("UPDATE tasks SET archived_at = $1, status = 'archived'", [NOW]);
       expect((await repository.listSessions(owner)).sessions).toEqual([]);
       const inherited = await repository.listArchivedSessions(owner);
       expect(inherited.map((session) => session.id).sort()).toEqual([sessionId, siblingId]);
       expect(inherited.every((session) => session.archivedAt === NOW.toISOString())).toBe(true);
       expect(await repository.pinSession(owner, sessionId)).toBeNull();
+      expect(await repository.archiveSession(owner, sessionId)).toBeNull();
+      const foreignOwner = "123e4567-e89b-42d3-a456-426614174099";
+      await db.query("UPDATE tasks SET user_id = $1", [foreignOwner]);
+      const foreignParent = (await db.query("SELECT * FROM tasks")).rows;
+      expect(await repository.unarchiveSession(owner, sessionId)).toBeNull();
+      expect(await repository.deleteArchivedSession(owner, sessionId)).toBe(false);
+      expect((await db.query("SELECT * FROM tasks")).rows).toEqual(foreignParent);
+      await db.query("UPDATE tasks SET user_id = $1", [owner]);
+      await db.query("UPDATE sessions SET user_id = $1 WHERE id = $2", [foreignOwner, siblingId]);
+      expect(await repository.unarchiveSession(owner, sessionId)).toBeNull();
+      expect((await db.query("SELECT archived_at FROM tasks")).rows[0]?.archived_at).toEqual(NOW);
+      expect((await db.query("SELECT archived_at FROM sessions WHERE id = $1", [sessionId])).rows[0]?.archived_at).toBeNull();
+      await db.query("UPDATE sessions SET user_id = $1 WHERE id = $2", [owner, siblingId]);
       expect(await repository.unarchiveSession("123e4567-e89b-42d3-a456-426614174099", sessionId)).toBeNull();
       const restored = await repository.unarchiveSession(owner, sessionId);
       expect(restored?.archivedAt).toBeNull();
       expect(restored?.activeRunId).toBe("run_abc123");
+      expect(await repository.deleteArchivedSession(owner, sessionId)).toBe(false);
+      expect(await repository.deleteArchivedSession("123e4567-e89b-42d3-a456-426614174099", siblingId)).toBe(false);
+      expect(await repository.deleteArchivedSession(owner, "123e4567-e89b-42d3-a456-426614174099")).toBe(false);
+      expect((await db.query("SELECT * FROM messages ORDER BY id")).rows).toEqual(originalMessages);
       expect((await repository.listSessions(owner)).sessions.map((session) => session.id)).toEqual([sessionId]);
       expect((await repository.listArchivedSessions(owner)).map((session) => [session.id, session.archivedAt])).toEqual([[siblingId, NOW.toISOString()]]);
       const parent = await db.query("SELECT archived_at, status FROM tasks");
@@ -369,6 +414,42 @@ describe("PostgresTranscriptRepository", () => {
       await repository.unarchiveSession(owner, siblingId);
       expect((await repository.listSessions(owner)).sessions).toHaveLength(2);
       expect(await repository.listArchivedSessions(owner)).toEqual([]);
+      expect((await db.query("SELECT * FROM messages ORDER BY id")).rows).toEqual(originalMessages);
+
+      await db.query("UPDATE tasks SET archived_at = $1, status = 'archived'", [NOW]);
+      const parentBeforeDelete = (await db.query("SELECT * FROM tasks")).rows;
+      const targetBeforeDelete = (await db.query("SELECT * FROM sessions WHERE id = $1", [sessionId])).rows;
+      expect(await repository.deleteArchivedSession(owner, siblingId)).toBe(true);
+      expect((await db.query("SELECT * FROM tasks")).rows).toEqual(parentBeforeDelete);
+      expect((await db.query("SELECT * FROM sessions WHERE id = $1", [sessionId])).rows).toEqual(targetBeforeDelete);
+      expect((await db.query("SELECT * FROM messages ORDER BY id")).rows).toEqual(
+        originalMessages.filter((message) => message.session_id === sessionId),
+      );
+      // Fail after the session delete to prove transcript cascades roll back too.
+      await db.exec(`
+        CREATE FUNCTION reject_task_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN RAISE EXCEPTION 'isolated delete failure'; END;
+        $$;
+        CREATE TRIGGER reject_task_delete BEFORE DELETE ON tasks
+          FOR EACH ROW EXECUTE FUNCTION reject_task_delete();
+      `);
+      await expect(repository.deleteArchivedSession(owner, sessionId)).rejects.toThrow("isolated delete failure");
+      expect((await db.query("SELECT * FROM tasks")).rows).toEqual(parentBeforeDelete);
+      expect((await db.query("SELECT * FROM sessions WHERE id = $1", [sessionId])).rows).toEqual(targetBeforeDelete);
+      expect((await db.query("SELECT * FROM messages ORDER BY id")).rows).toEqual(
+        originalMessages.filter((message) => message.session_id === sessionId),
+      );
+      await db.exec("DROP TRIGGER reject_task_delete ON tasks");
+      expect((await repository.unarchiveSession(owner, sessionId))?.archivedAt).toBeNull();
+      const restoredRows = (await db.query("SELECT * FROM sessions")).rows;
+      expect(await repository.deleteArchivedSession(owner, sessionId)).toBe(false);
+      expect((await db.query("SELECT * FROM sessions")).rows).toEqual(restoredRows);
+      expect((await db.query("SELECT * FROM messages")).rows).toHaveLength(1);
+      await repository.archiveSession(owner, sessionId);
+      expect(await repository.deleteArchivedSession(owner, sessionId)).toBe(true);
+      expect((await db.query("SELECT * FROM tasks")).rows).toEqual([]);
+      expect((await db.query("SELECT * FROM sessions")).rows).toEqual([]);
+      expect((await db.query("SELECT * FROM messages")).rows).toEqual([]);
 
     } finally {
       await db.close();

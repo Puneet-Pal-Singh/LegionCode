@@ -1,4 +1,7 @@
-import { prepareOwnedSessionUnarchive } from "./sessionArchive.js";
+import {
+  lockOwnedArchivedSession,
+  prepareOwnedSessionUnarchive,
+} from "./sessionArchive.js";
 import type { ChatTitleSource, JsonValue } from "@repo/shared-types";
 
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
@@ -993,9 +996,11 @@ async function deleteArchivedSessionWithClient(
   userId: string,
   sessionId: string,
 ): Promise<boolean> {
+  const target = await lockOwnedArchivedSession(client, userId, sessionId);
+  if (!target) return false;
   const deleted = await client.query<TranscriptRow>(
     DELETE_ARCHIVED_SESSION_SQL,
-    [userId, sessionId],
+    [userId, sessionId, target.task_id],
   );
   const taskId = deleted.rows[0]?.task_id;
   if (!taskId) {
@@ -1696,10 +1701,7 @@ const DELETE_ARCHIVED_SESSION_SQL = `
   DELETE FROM sessions
   WHERE user_id = $1
     AND id = $2
-    AND (archived_at IS NOT NULL OR EXISTS (
-      SELECT 1 FROM tasks WHERE tasks.id = sessions.task_id
-        AND tasks.user_id = $1 AND tasks.archived_at IS NOT NULL
-    ))
+    AND task_id = $3
   RETURNING task_id
 `;
 
