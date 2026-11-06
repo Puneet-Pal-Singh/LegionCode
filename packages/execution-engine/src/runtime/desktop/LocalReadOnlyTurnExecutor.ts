@@ -1,3 +1,9 @@
+import type {
+  LocalTurnExecutionCapability,
+  LocalCapturedExecutionPorts,
+  LocalQuiescentWorker,
+} from "./LocalTurnExecutionCapability.js";
+import { prepareLocalCapturedExecution } from "./LocalCapturedExecution.js";
 import type { RuntimeExecutionService } from "../types.js";
 import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
@@ -15,6 +21,7 @@ import {
   type RuntimeKernelDependencies,
   type StartTurnInput,
   type StartTurnResult,
+  type WorkerProtocolPort,
 } from "@repo/runtime-kernel";
 import { LocalReadOnlyExecutionService } from "./LocalReadOnlyExecutionService.js";
 import { LocalReadOnlyToolWorker } from "./LocalReadOnlyToolWorker.js";
@@ -33,10 +40,11 @@ type KernelPorts = Omit<
 > & { readonly toolTracker?: NativeProviderToolTracker };
 
 /** One kernel handle per canonical admission; admission persistence stays with the host. */
-export class LocalReadOnlyTurnExecutor<
+export class LocalTurnExecutor<
   TBinding extends LocalReadOnlyWorkspaceBinding =
     LocalReadOnlyWorkspaceBinding,
 > {
+  private readonly capability: LocalTurnExecutionCapability<TBinding>;
   private readonly turns = new Map<
     string,
     {
@@ -49,11 +57,13 @@ export class LocalReadOnlyTurnExecutor<
         RuntimeKernel["getTurnTerminalStatus"]
       >;
       readonly controller: AbortController;
+      readonly awaitQuiescence: (timeoutMs: number) => Promise<boolean>;
     }
   >();
 
   constructor(
     private readonly options: {
+      readonly capability?: LocalTurnExecutionCapability<TBinding>;
       readonly bindWorkspace: (
         admission: TurnAdmission,
         signal: AbortSignal,
@@ -69,12 +79,20 @@ export class LocalReadOnlyTurnExecutor<
         admission: TurnAdmission,
         binding: TBinding,
         signal: AbortSignal,
+        execution?: LocalCapturedExecutionPorts,
       ) => Promise<KernelPorts>;
     },
-  ) {}
+  ) {
+    this.capability = options.capability
+      ? Object.freeze({ ...options.capability })
+      : { artifactCapture: "omitted_read_only" };
+  }
 
   createAdmission(input: LocalTurnAdmissionInput): TurnAdmission {
-    return createLocalTurnAdmission(input);
+    return createLocalTurnAdmission(
+      input,
+      this.capability.artifactCapture === "required" ? "auto_edit" : "ask",
+    );
   }
 
   execute(admission: TurnAdmission): Promise<StartTurnResult> {
@@ -97,6 +115,7 @@ export class LocalReadOnlyTurnExecutor<
     }
     const controller = new AbortController();
     let workspaceBinding: TBinding | undefined;
+    let workerOwner: WorkerProtocolPort | undefined;
     let kernelOwner: RuntimeKernel | undefined;
     let preflightStatus: ReturnType<RuntimeKernel["getTurnTerminalStatus"]> =
       null;
@@ -116,31 +135,71 @@ export class LocalReadOnlyTurnExecutor<
         }
         const signal = AbortSignal.any([controller.signal, binding.signal]);
         signal.throwIfAborted();
-        const executionService = this.options.createReadExecutionService
-          ? await this.options.createReadExecutionService(
-              admission,
-              binding,
-              signal,
-            )
-          : new LocalReadOnlyExecutionService({ binding });
+        const capability = this.capability;
+        const capturedPorts =
+          capability?.artifactCapture === "required"
+            ? await capability.createExecutionPorts(admission, binding, signal)
+            : undefined;
+        const captured =
+          capability.artifactCapture === "required"
+            ? await prepareLocalCapturedExecution(
+                admission,
+                binding,
+                capturedPorts!,
+              )
+            : undefined;
+        const executionSignal = captured
+          ? AbortSignal.any([signal, captured.signal])
+          : signal;
+        const executionService = captured
+          ? undefined
+          : this.options.createReadExecutionService
+            ? await this.options.createReadExecutionService(
+                admission,
+                binding,
+                executionSignal,
+              )
+            : new LocalReadOnlyExecutionService({ binding });
         const { toolTracker, ...ports } = await this.options.createKernelPorts(
           admission,
           binding,
-          signal,
+          executionSignal,
+          capturedPorts && captured
+            ? { ...capturedPorts, tools: captured.tools }
+            : undefined,
         );
+        if (
+          captured &&
+          (!ports.toolAuthorization?.authorize ||
+            !ports.approvals?.waitForDecision)
+        ) {
+          throw new RuntimeKernelError(
+            "tool_policy_denied",
+            "Captured execution requires canonical permission and approval ports",
+          );
+        }
+        workerOwner = captured
+          ? trackCapturedWorker(captured.worker, toolTracker)
+          : new LocalReadOnlyToolWorker(
+              executionService!,
+              admission.run.threadId,
+              toolTracker,
+            );
         kernelOwner = new RuntimeKernel({
           ...ports,
+          ...(captured
+            ? {
+                gitSnapshots: captured.gitSnapshots,
+                turnArtifacts: captured.turnArtifacts,
+              }
+            : {}),
           lifecycleEvents: this.options.lifecycleEvents,
           producerId: this.options.producerId,
-          artifactCapture: "omitted_read_only",
+          artifactCapture: captured ? "required" : "omitted_read_only",
           signal: ports.signal
-            ? AbortSignal.any([signal, ports.signal])
-            : signal,
-          worker: new LocalReadOnlyToolWorker(
-            executionService,
-            admission.run.threadId,
-            toolTracker,
-          ),
+            ? AbortSignal.any([executionSignal, ports.signal])
+            : executionSignal,
+          worker: workerOwner,
         });
         return kernelOwner;
       })
@@ -184,6 +243,11 @@ export class LocalReadOnlyTurnExecutor<
       result,
       finished: false,
       controller,
+      awaitQuiescence: (timeoutMs) =>
+        workerOwner?.awaitQuiescence?.({
+          turnId: admission.turn.id,
+          timeoutMs,
+        }) ?? Promise.resolve(false),
       isTerminal: () =>
         (kernelOwner?.getTurnTerminalStatus(admission.turn.id) ??
           preflightStatus) !== null,
@@ -281,6 +345,15 @@ export class LocalReadOnlyTurnExecutor<
       : "already_settled";
   }
 
+  /** The host must retain the binding/lease resources until this confirms real worker closure. */
+  async awaitQuiescence(
+    turnId: StartTurnInput["turn"]["id"],
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const owned = this.turns.get(turnId);
+    return owned ? owned.awaitQuiescence(timeoutMs) : false;
+  }
+
   readonly resolveApproval: RuntimeKernel["resolveApproval"] = async (
     turnId,
     approvalId,
@@ -299,4 +372,50 @@ export class LocalReadOnlyTurnExecutor<
       );
     return owned.kernel;
   }
+}
+
+/** Existing read-only consumers retain the same default capability and single executor implementation. */
+export { LocalTurnExecutor as LocalReadOnlyTurnExecutor };
+
+function trackCapturedWorker(
+  worker: LocalQuiescentWorker,
+  tracker?: NativeProviderToolTracker,
+): LocalQuiescentWorker {
+  if (!tracker) return worker;
+  return {
+    executionCapability: worker.executionCapability,
+    awaitQuiescence: (input) => worker.awaitQuiescence(input),
+    executeTool: async (input) => {
+      tracker.recordToolStarted(input.toolCall);
+      try {
+        const result = await worker.executeTool(input);
+        if (result.kind === "completed")
+          tracker.recordToolCompleted(input.toolCall, {
+            taskId: input.toolCall.toolCallId,
+            status: "DONE",
+            completedAt: new Date(),
+            output: {
+              content:
+                typeof result.output.content === "string"
+                  ? result.output.content
+                  : JSON.stringify(result.output),
+            },
+          });
+        else if (result.kind === "failed")
+          tracker.recordToolFailed(
+            input.toolCall,
+            result.failure.message,
+            result.disposition === "terminal",
+          );
+        return result;
+      } catch (error) {
+        tracker.recordToolFailed(
+          input.toolCall,
+          error instanceof Error ? error.message : "Captured tool failed",
+          true,
+        );
+        throw error;
+      }
+    },
+  };
 }

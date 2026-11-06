@@ -160,7 +160,7 @@ export class RuntimeKernel {
       prepared = await this.prepareTurn(input);
     } catch (error) {
       // A durable local admission must settle even if its workspace was revoked before start.
-      if (this.dependencies.artifactCapture === "omitted_read_only" && !this.lifecycles.has(input.turn.id)) {
+      if ((this.dependencies.artifactCapture === "omitted_read_only" || this.dependencies.worker.executionCapability === "guarded_mutation") && !this.lifecycles.has(input.turn.id)) {
         const run = RunSchema.parse(input.run);
         const turn = TurnSchema.parse(input.turn);
         const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
@@ -290,6 +290,10 @@ export class RuntimeKernel {
           "turn was interrupted before successful settlement",
         );
       }
+      if (this.dependencies.worker.executionCapability === "guarded_mutation" &&
+          (await this.dependencies.worker.awaitQuiescence?.({ turnId: turn.id, timeoutMs: 500 })) !== true) {
+        throw new RuntimeKernelError("worker_failed", "Captured worker quiescence is not confirmed");
+      }
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
       prepared.executionSignal.throwIfAborted();
       await lifecycle.complete(result.output, result.finalItemId);
@@ -304,8 +308,9 @@ export class RuntimeKernel {
         if (!isArtifactSettlementError(error)) {
           const interrupted =
             isTurnCancelled(error) || prepared.executionSignal.aborted;
+          const requiresQuiescence = interrupted || this.dependencies.worker.executionCapability === "guarded_mutation";
           const resumeQuiescent =
-            interrupted &&
+            requiresQuiescence &&
             (await this.dependencies.worker.awaitQuiescence?.({
               turnId: turn.id,
               timeoutMs: 500,
@@ -316,7 +321,7 @@ export class RuntimeKernel {
             artifacts,
             true,
             resumeQuiescent,
-            interrupted && !resumeQuiescent
+            requiresQuiescence && !resumeQuiescent
               ? "worker_not_quiescent"
               : undefined,
           );
