@@ -153,6 +153,7 @@ export function AgentSetup({
     catalog,
     credentials,
     status,
+    error,
     selectedProviderId,
     selectedModelId,
     selectedModelView,
@@ -848,6 +849,9 @@ export function AgentSetup({
       ) : null}
       {!hasProviderConnection ? (
         <ProviderRequiredInline onConnect={openProviderConnection} />
+      ) : null}
+      {status === "error" && error ? (
+        <div className="mt-2 pl-2 text-xs text-amber-300">{error}</div>
       ) : null}
     </motion.div>
   );
