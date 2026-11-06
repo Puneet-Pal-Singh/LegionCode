@@ -11,6 +11,7 @@
  *
  * Only a terminal receipt following exact-child waitpid proves reaping. Missing
  * receipt/abnormal guardian death must never be interpreted as quiescence.
+ * Terminal preStart:true means no complete started receipt and no G release.
  */
 #if defined(__APPLE__)
 #define _DARWIN_C_SOURCE 1
@@ -98,19 +99,20 @@ static bool started(pid_t child) {
   return size > 0 && (size_t)size < sizeof(data) && receipt(data, (size_t)size);
 }
 
-static bool terminal(pid_t child, int status, const char *reason) {
+static bool terminal(pid_t child, int status, const char *reason, bool pre_start) {
+  const char *phase = pre_start ? ",\"preStart\":true" : "";
   char data[256];
   int size;
   if (WIFEXITED(status)) {
     size = snprintf(data, sizeof(data),
       "{\"v\":1,\"event\":\"terminal\",\"pid\":%ld,\"reason\":\"%s\","
-      "\"wait\":\"exited\",\"exitCode\":%d,\"signal\":null}\n",
-      (long)child, reason, WEXITSTATUS(status));
+      "\"wait\":\"exited\",\"exitCode\":%d,\"signal\":null%s}\n",
+      (long)child, reason, WEXITSTATUS(status), phase);
   } else if (WIFSIGNALED(status)) {
     size = snprintf(data, sizeof(data),
       "{\"v\":1,\"event\":\"terminal\",\"pid\":%ld,\"reason\":\"%s\","
-      "\"wait\":\"signaled\",\"exitCode\":null,\"signal\":%d}\n",
-      (long)child, reason, WTERMSIG(status));
+      "\"wait\":\"signaled\",\"exitCode\":null,\"signal\":%d%s}\n",
+      (long)child, reason, WTERMSIG(status), phase);
   } else return false;
   return size > 0 && (size_t)size < sizeof(data) && receipt(data, (size_t)size);
 }
@@ -300,14 +302,14 @@ int main(int argc, char **argv) {
         signal_child(child, SIGKILL);
         do { observed = waitpid(child, &status, 0); } while (observed < 0 && errno == EINTR);
         if (observed == child && (WIFEXITED(status) || WIFSIGNALED(status))) {
-          (void)terminal(child, status, "guardian_error");
+          (void)terminal(child, status, "guardian_error", !announced);
         }
       }
       return 71;
     }
     if (stopped && !announced && !terminating) {
-      announced = true;
-      if (!started(child)) { status_ok = false; reason = "guardian_error"; }
+      if (started(child)) announced = true;
+      else { status_ok = false; reason = "guardian_error"; }
     }
     if (!terminating && reason == NULL) {
       unsigned char commands[32];
@@ -352,7 +354,7 @@ int main(int argc, char **argv) {
     }
   }
   /* waitpid has reaped the exact direct child. Output never comes from it. */
-  if (!terminal(child, status, reason == NULL ? "exited" : reason)) status_ok = false;
+  if (!terminal(child, status, reason == NULL ? "exited" : reason, !announced)) status_ok = false;
   (void)close(CONTROL_FD);
   (void)close(STATUS_FD);
   /* Reaping precedes the guardian's final fence close; never call LOCK_UN. */
