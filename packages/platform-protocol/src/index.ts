@@ -618,3 +618,10 @@ export {
   type HostedWorkspaceListItem,
   type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";
+
+export {
+  HarnessBillingRouteSchema, HarnessQuotaWindowSchema, HarnessAccountQuotaSchema,
+  HarnessActivityMeasurementSchema, HarnessUsageObservationSchema,
+  type HarnessBillingRoute, type HarnessQuotaWindow, type HarnessAccountQuota,
+  type HarnessActivityMeasurement, type HarnessUsageObservation,
+} from "./harness/usage.js";
