@@ -110,7 +110,11 @@ export function useProviderStore(
     const needsBootstrap = store.setActiveWorkspaceId(workspaceIdOverride);
     if (!workspaceIdOverride) return;
     if (sessionId) store.setActiveSessionId(sessionId);
-    if (isCanonicalRunId(runId)) store.setActiveRunId(runId);
+    if (isCanonicalRunId(runId)) {
+      store.setActiveRunId(runId);
+    } else if (runId === null) {
+      store.clearActiveRunId();
+    }
     if (needsBootstrap) {
       store.bootstrap().catch((error) => {
         console.error("[provider/store] bootstrap failed", error);
@@ -121,6 +125,10 @@ export function useProviderStore(
   useEffect(() => {
     if (workspaceIdOverride === null) return;
     if (store.getActiveWorkspaceId() === null) return;
+    if (runId === null) {
+      store.clearActiveRunId();
+      return;
+    }
     if (!isCanonicalRunId(runId)) {
       return;
     }

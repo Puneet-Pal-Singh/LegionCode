@@ -315,6 +315,18 @@ export class ProviderStore {
     return true;
   }
 
+  clearActiveRunId(): boolean {
+    if (this.activeRunId === null) {
+      return false;
+    }
+
+    const previousRunId = this.activeRunId;
+    this.activeRunId = null;
+    this.log("[run] cleared active run scope", { previousRunId });
+    this.resetRunScope(true);
+    return true;
+  }
+
   setActiveSessionId(sessionId: string): void {
     if (!sessionId || this.activeSessionId === sessionId) return;
     const previousSessionId = this.activeSessionId;
