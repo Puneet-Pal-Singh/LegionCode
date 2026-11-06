@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildNativeFileHelper,
+  minimumMacOSVersion,
+  verifyPackagedMacOSMinimum,
   verifyBundledFileHelper,
 } from "./scripts/build-file-helper.mjs";
 
@@ -51,6 +53,14 @@ const config: Configuration = {
       "legioncode-fs-helper",
     );
     try {
+      await verifyPackagedMacOSMinimum(
+        join(
+          context.appOutDir,
+          `${context.packager.appInfo.productFilename}.app`,
+          "Contents",
+          "Info.plist",
+        ),
+      );
       const diagnostics = await verifyBundledFileHelper(
         helperPath,
         context.electronPlatformName,
@@ -74,6 +84,7 @@ const config: Configuration = {
   },
   files: ["out/**/*", "package.json"],
   mac: {
+    minimumSystemVersion: minimumMacOSVersion,
     category: "public.app-category.developer-tools",
     target: ["dmg", "zip"],
   },

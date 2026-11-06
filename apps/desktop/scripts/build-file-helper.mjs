@@ -14,6 +14,12 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+export const minimumMacOSVersion = "12.0";
+const compilerEnvironment = {
+  PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+  LANG: "C",
+  LC_ALL: "C",
+};
 const execute = promisify(execFile);
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
 
@@ -34,11 +40,13 @@ export async function inspectNativeFileHelper(path, platform, architecture) {
   assertNativeFileHelperTarget(platform, architecture);
   const bytes = await readFile(path);
   let matches = false;
-  if (platform === "darwin" && bytes.length >= 8) {
+  let macOSMinimum;
+  if (platform === "darwin" && bytes.length >= 32) {
     matches =
       bytes.readUInt32LE(0) === 0xfeedfacf &&
       bytes.readUInt32LE(4) ===
         (architecture === "arm64" ? 0x0100000c : 0x01000007);
+    if (matches) macOSMinimum = inspectMacOSMinimum(bytes);
   } else if (platform === "linux" && bytes.length >= 20) {
     matches =
       bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) &&
@@ -51,8 +59,77 @@ export async function inspectNativeFileHelper(path, platform, architecture) {
   return {
     platform,
     architecture,
+    ...(macOSMinimum ? { minimumMacOSVersion: macOSMinimum } : {}),
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
+}
+
+function encodedMacOSVersion(version) {
+  if (!/^\d+\.\d+(?:\.\d+)?$/.test(version))
+    throw new Error("Native helper macOS minimum is invalid");
+  const [major, minor, patch = 0] = version.split(".").map(Number);
+  if (major > 65535 || minor > 255 || patch > 255)
+    throw new Error("Native helper macOS minimum is invalid");
+  return major * 65536 + minor * 256 + patch;
+}
+
+function inspectMacOSMinimum(bytes) {
+  const commands = bytes.readUInt32LE(16);
+  const end = 32 + bytes.readUInt32LE(20);
+  if (end > bytes.length || commands > (end - 32) / 8)
+    throw new Error("Native helper Mach-O load commands are invalid");
+  let offset = 32;
+  let minimum;
+  for (let index = 0; index < commands; index++) {
+    if (offset + 8 > end)
+      throw new Error("Native helper Mach-O load commands are invalid");
+    const command = bytes.readUInt32LE(offset);
+    const size = bytes.readUInt32LE(offset + 4);
+    if (size < 8 || size % 8 !== 0 || offset + size > end)
+      throw new Error("Native helper Mach-O load commands are invalid");
+    if (command === 0x32 || command === 0x24) {
+      if (
+        size < (command === 0x32 ? 24 : 16) ||
+        minimum !== undefined ||
+        (command === 0x32 && bytes.readUInt32LE(offset + 8) !== 1)
+      ) {
+        throw new Error("Native helper Mach-O deployment target is invalid");
+      }
+      minimum = bytes.readUInt32LE(offset + (command === 0x32 ? 12 : 8));
+    }
+    offset += size;
+  }
+  if (
+    offset !== end ||
+    minimum === undefined ||
+    minimum === 0 ||
+    minimum > encodedMacOSVersion(minimumMacOSVersion)
+  ) {
+    throw new Error(
+      "Native helper requires a newer macOS version than the app advertises",
+    );
+  }
+  return `${minimum >>> 16}.${(minimum >>> 8) & 255}.${minimum & 255}`;
+}
+
+export async function verifyPackagedMacOSMinimum(infoPlistPath) {
+  const { stdout } = await execute(
+    "/usr/libexec/PlistBuddy",
+    ["-c", "Print :LSMinimumSystemVersion", infoPlistPath],
+    {
+      env: compilerEnvironment,
+      timeout: 5_000,
+      maxBuffer: 256,
+    },
+  );
+  if (
+    encodedMacOSVersion(stdout.trim()) !==
+    encodedMacOSVersion(minimumMacOSVersion)
+  ) {
+    throw new Error(
+      "Packaged app macOS minimum does not match native helper configuration",
+    );
+  }
 }
 
 export async function buildNativeFileHelper(
@@ -75,10 +152,18 @@ export async function buildNativeFileHelper(
     const compiler = platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc";
     const args = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"];
     if (platform === "darwin")
-      args.push("-arch", architecture === "x64" ? "x86_64" : "arm64");
+      args.push(
+        "-arch",
+        architecture === "x64" ? "x86_64" : "arm64",
+        `-mmacosx-version-min=${minimumMacOSVersion}`,
+      );
     args.push(source, "-o", temporaryExecutable);
     try {
-      await execute(compiler, args, { timeout: 60_000, maxBuffer: 64 * 1024 });
+      await execute(compiler, args, {
+        env: compilerEnvironment,
+        timeout: 60_000,
+        maxBuffer: 64 * 1024,
+      });
     } catch {
       // Compiler errors can contain source paths and source text. Keep CI output bounded and private.
       throw new Error("Native file helper compilation failed");

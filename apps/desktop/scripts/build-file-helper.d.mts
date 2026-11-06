@@ -1,7 +1,12 @@
+export const minimumMacOSVersion: string;
+export function verifyPackagedMacOSMinimum(
+  infoPlistPath: string,
+): Promise<void>;
 export type NativeFileHelperDiagnostics = {
   platform: string;
   architecture: string;
   sha256: string;
+  minimumMacOSVersion?: string;
 };
 export function assertNativeFileHelperTarget(
   platform: string,
