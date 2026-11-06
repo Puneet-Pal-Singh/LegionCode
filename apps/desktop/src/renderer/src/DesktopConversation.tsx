@@ -2,6 +2,7 @@ import { ChatErrorNotice } from "@legioncode/client-ui";
 import type { AppServerClient } from "@legioncode/sdk";
 import type { Thread } from "@repo/platform-protocol";
 import { useState } from "react";
+import { DesktopApproval } from "./DesktopApproval";
 import { DesktopComposer } from "./DesktopComposer";
 import { DesktopReview } from "./DesktopReview";
 import { DesktopTurnTranscript } from "./DesktopTurnTranscript";
@@ -20,9 +21,13 @@ export function DesktopConversation(props: DesktopConversationProps) {
 function SelectedConversation({ client, thread, capabilities }: DesktopConversationProps) {
   const conversation = useDesktopConversation(client, thread);
   const [reviewTurnId, setReviewTurnId] = useState<string | null>(null);
+  const activeAdmission = conversation.admissions.at(-1);
+  const activeProjection = activeAdmission ? conversation.projections[activeAdmission.turn.id] : null;
+  const pendingApproval = !conversation.loading && !conversation.hasNewerPages && activeProjection?.pendingApproval;
   const review = conversation.admissions.find((admission) => admission.turn.id === reviewTurnId);
   const executionAvailable = capabilities.includes("turn-execution-v1");
   const reviewAvailable = capabilities.includes("artifact-review-v1");
+  const approvalVisible = executionAvailable && Boolean(pendingApproval);
 
   return (
     <section aria-label="Local conversation" data-thread-id={thread.id} className="space-y-5">
@@ -65,15 +70,29 @@ function SelectedConversation({ client, thread, capabilities }: DesktopConversat
           }}
         />
       ) : null}
+      {executionAvailable && activeAdmission && activeProjection && pendingApproval ? (
+        <DesktopApproval
+          key={`${activeAdmission.turn.id}:${activeAdmission.runAttemptId}:${pendingApproval.approvalId}`}
+          client={client}
+          admission={activeAdmission}
+          projection={activeProjection}
+          canStop={conversation.canStop}
+          onStop={conversation.stop}
+          refresh={conversation.retry}
+        />
+      ) : null}
+      <div hidden={approvalVisible}>
       {executionAvailable && thread.status === "active" ? (
         <DesktopComposer
           workspaceId={thread.workspaceId}
           threadId={thread.id}
           busy={conversation.busy}
+          hidden={approvalVisible}
           onSubmit={conversation.submit}
           onStop={conversation.canStop ? conversation.stop : undefined}
         />
       ) : <p role="status">{thread.status === "active" ? "Local turn execution is unavailable in this environment." : "Unarchive this thread before sending another prompt."}</p>}
+      </div>
     </section>
   );
 }

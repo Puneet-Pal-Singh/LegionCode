@@ -6,6 +6,7 @@ export interface DesktopComposerProps {
   workspaceId: WorkspaceId;
   threadId: ThreadId;
   busy: boolean;
+  hidden?: boolean;
   onSubmit: (prompt: string) => Promise<boolean>;
   onStop?: () => Promise<void>;
 }
@@ -15,7 +16,7 @@ export function DesktopComposer(props: DesktopComposerProps) {
   return <ThreadComposer key={`${props.workspaceId}:${props.threadId}`} {...props} />;
 }
 
-function ThreadComposer({ threadId, busy, onSubmit, onStop }: DesktopComposerProps) {
+function ThreadComposer({ threadId, busy, hidden = false, onSubmit, onStop }: DesktopComposerProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -27,6 +28,7 @@ function ThreadComposer({ threadId, busy, onSubmit, onStop }: DesktopComposerPro
     <div>
       {error ? <p role="alert">{error}</p> : null}
       <ChatInputBar
+        isHidden={hidden}
         sessionId={threadId}
         input={input}
         onChange={setInput}

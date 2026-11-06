@@ -182,7 +182,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
 
   async function stop(): Promise<void> {
     const controller = scope.current;
-    if (!scopeMatches || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
+    if (!scopeMatches || !historyReady || loading || nextCursor !== null || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
     if (stopCommand.current) return stopCommand.current;
     setInterrupting(true);
     const request = client.interruptLocalTurn({
@@ -220,7 +220,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread) 
     firstPage: afterCursor !== null ? () => setAfterCursor(null) : null,
     hasNewerPages: nextCursor !== null,
     submit, stop, interrupting: scopeMatches && interrupting,
-    canStop: Boolean(scopeMatches && nextCursor === null && !interrupting && latest && !projections[latest.turn.id]?.terminal),
+    canStop: Boolean(scopeMatches && historyReady && !loading && nextCursor === null && !interrupting && latest && !projections[latest.turn.id]?.terminal),
     retry: () => { setLiveError(null); setRetry((value) => value + 1); },
     reload: () => setReload((value) => value + 1),
   };
