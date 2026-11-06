@@ -1011,3 +1011,19 @@ credential and model through that owner, including after an abort or a repaired
 server/credential failure. Client-known invalid/hidden selections still fail
 before submission. No automatic retries, timeout increase, fallback provider or
 new scope owner is introduced.
+
+## Setup permission selection and first submission
+
+- The mounted `SessionConversationSurface` owns one permission selection and
+  supplies it to both controlled `AgentSetup` and `useChat`/`useChatCore`. Setup
+  no longer maintains a second same-session selection that only writes storage.
+- The runless shell owns its own setup choice. Explicit project/draft transfer
+  carries that selected `productMode` into the saved session. The session owner
+  applies and consumes that one-shot draft handoff before later chat remounts
+  can reuse it. The existing SDK request capture freezes retry mode separately;
+  an initial-prompt record never reseeds the composer's later choice. The owner
+  retains the selected mode after the initial intent retires. Browser preference storage is
+  not an event bus or permission authority.
+- The existing canonical chat request `productMode` and runtime permission policy
+  retain their owners. A transition to the conversation cannot substitute the
+  default Auto edits mode for an explicitly selected Supervised mode.
