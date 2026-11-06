@@ -1,5 +1,13 @@
 import { constants } from "node:fs";
-import { open, realpath, rename, stat, unlink } from "node:fs/promises";
+import {
+  open,
+  realpath,
+  rename,
+  stat,
+  lstat,
+  unlink,
+  type FileHandle,
+} from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { HarnessHostError } from "./errors.js";
@@ -8,6 +16,14 @@ export interface ObservationJournalCodec<T> {
   /** Use the canonical worker-protocol schema, including the exact stream binding. */
   parse(value: unknown): T;
   sequence(frame: T): number;
+}
+
+export interface ObservationJournalOptions<T> {
+  readonly directory: string;
+  readonly streamKey: string;
+  readonly codec: ObservationJournalCodec<T>;
+  readonly maxBytes: number;
+  readonly maxFrames: number;
 }
 
 interface JournalState<T> {
@@ -21,6 +37,9 @@ interface JournalState<T> {
 export class ObservationDeliveryJournal<T> {
   private queue: Promise<unknown> = Promise.resolve();
   private failed = false;
+  private queuedOperations = 0;
+  private closed = false;
+  private closing?: Promise<void>;
 
   private constructor(
     private readonly path: string,
@@ -31,80 +50,69 @@ export class ObservationDeliveryJournal<T> {
       readonly maxFrames: number;
     },
     private state: JournalState<T>,
+    private readonly writer: FileHandle,
   ) {}
 
-  static async open<T>(input: {
-    readonly directory: string;
-    /** Exact canonical attempt/instance/external-session/process-generation identity. */
-    readonly streamKey: string;
-    readonly codec: ObservationJournalCodec<T>;
-    readonly maxBytes: number;
-    readonly maxFrames: number;
-  }): Promise<ObservationDeliveryJournal<T>> {
-    if (
-      !input.streamKey ||
-      !Number.isSafeInteger(input.maxBytes) ||
-      input.maxBytes < 256 ||
-      input.maxBytes > 64 * 1024 * 1024 ||
-      !Number.isSafeInteger(input.maxFrames) ||
-      input.maxFrames < 1 ||
-      input.maxFrames > 100_000
-    ) {
-      throw new HarnessHostError("journal_corrupt");
-    }
-    // Composition supplies a private instance directory, outside workspace/artifact roots.
-    const directory = await realpath(input.directory);
-    const info = await stat(directory);
-    if (
-      !info.isDirectory() ||
-      (info.mode & 0o077) !== 0 ||
-      (process.getuid && info.uid !== process.getuid())
-    ) {
-      throw new HarnessHostError("journal_corrupt");
-    }
-    const path = join(
-      directory,
-      `${createHash("sha256").update(input.streamKey).digest("hex")}.json`,
-    );
-    let state: JournalState<T> = {
-      version: 1,
-      streamKey: input.streamKey,
-      nextSequence: 1,
-      frames: [],
-    };
+  static async open<T>(
+    input: ObservationJournalOptions<T>,
+  ): Promise<ObservationDeliveryJournal<T>> {
+    const { path, directory } = await journalLocation(input);
+    let writer: FileHandle;
     try {
-      const handle = await open(
-        path,
-        constants.O_RDONLY | constants.O_NOFOLLOW,
-      );
-      try {
-        const metadata = await handle.stat();
-        if (
-          !metadata.isFile() ||
-          metadata.size > input.maxBytes ||
-          (metadata.mode & 0o077) !== 0
-        ) {
-          throw new HarnessHostError("journal_corrupt");
-        }
-        state = parseState(
-          JSON.parse(await handle.readFile("utf8")),
-          input.streamKey,
-          input.codec,
-          input.maxFrames,
-        );
-      } finally {
-        await handle.close();
-      }
-    } catch (error) {
-      if (!isMissing(error)) throw new HarnessHostError("journal_corrupt");
+      // Persistent exclusive creation also excludes another Node process. Never steal a stale lock.
+      writer = await open(`${path}.writer`, "wx", 0o600);
+    } catch {
+      throw new HarnessHostError("journal_busy");
     }
-    return new ObservationDeliveryJournal(
-      path,
-      directory,
-      input.codec,
-      input,
-      state,
-    );
+    try {
+      await writer.writeFile(
+        JSON.stringify({ pid: process.pid, token: randomUUID() }),
+      );
+      await writer.sync();
+      const state = await readState(path, input);
+      return new ObservationDeliveryJournal(
+        path,
+        directory,
+        input.codec,
+        input,
+        state,
+        writer,
+      );
+    } catch {
+      await writer.close();
+      await unlink(`${path}.writer`);
+      throw new HarnessHostError("journal_corrupt");
+    }
+  }
+
+  /** Read-only crash/recovery evidence. Never removes a lock, allocates a sequence or enables work.
+   * The canonical owner fences the old generation, commits/deduplicates these frames, then starts
+   * a new UUID generation. A dead process's journal is never reopened as a new writer. */
+  static async readPending<T>(
+    input: ObservationJournalOptions<T>,
+  ): Promise<readonly T[]> {
+    const { path } = await journalLocation(input);
+    return (await readState(path, input)).frames;
+  }
+
+  /** Drain accepted writes before releasing this exact writer's ownership. */
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    this.closed = true;
+    this.closing = (async () => {
+      await this.queue;
+      const [held, current] = await Promise.all([
+        this.writer.stat(),
+        lstat(`${this.path}.writer`),
+      ]);
+      if (held.dev !== current.dev || held.ino !== current.ino) {
+        await this.writer.close();
+        throw new HarnessHostError("journal_corrupt");
+      }
+      await unlink(`${this.path}.writer`);
+      await this.writer.close();
+    })();
+    return this.closing;
   }
 
   /** Allocate and persist the sequence before the frame can be sent. */
@@ -161,10 +169,20 @@ export class ObservationDeliveryJournal<T> {
   }
 
   private serialize<R>(action: () => Promise<R>): Promise<R> {
-    const result = this.queue.then(() => {
-      if (this.failed) throw new HarnessHostError("journal_corrupt");
-      return action();
-    });
+    if (this.closed)
+      return Promise.reject(new HarnessHostError("journal_busy"));
+    // Provider callbacks can outpace disk. Bound closures/promises as well as persisted frames.
+    if (this.queuedOperations >= 32)
+      return Promise.reject(new HarnessHostError("journal_overflow"));
+    this.queuedOperations++;
+    const result = this.queue
+      .then(() => {
+        if (this.failed) throw new HarnessHostError("journal_corrupt");
+        return action();
+      })
+      .finally(() => {
+        this.queuedOperations--;
+      });
     this.queue = result.catch(() => undefined);
     return result;
   }
@@ -198,6 +216,85 @@ export class ObservationDeliveryJournal<T> {
         if (!isMissing(error)) this.failed = true;
       });
     }
+  }
+}
+
+async function journalLocation<T>(
+  input: ObservationJournalOptions<T>,
+): Promise<{ path: string; directory: string }> {
+  if (
+    !input.streamKey ||
+    !Number.isSafeInteger(input.maxBytes) ||
+    input.maxBytes < 256 ||
+    input.maxBytes > 64 * 1024 * 1024 ||
+    !Number.isSafeInteger(input.maxFrames) ||
+    input.maxFrames < 1 ||
+    input.maxFrames > 100_000
+  )
+    throw new HarnessHostError("journal_corrupt");
+  const directory = await realpath(input.directory);
+  const info = await stat(directory);
+  if (
+    !info.isDirectory() ||
+    (info.mode & 0o077) !== 0 ||
+    (process.getuid && info.uid !== process.getuid())
+  )
+    throw new HarnessHostError("journal_corrupt");
+  return {
+    directory,
+    path: join(
+      directory,
+      `${createHash("sha256").update(input.streamKey).digest("hex")}.json`,
+    ),
+  };
+}
+
+async function readState<T>(
+  path: string,
+  input: ObservationJournalOptions<T>,
+): Promise<JournalState<T>> {
+  try {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const metadata = await handle.stat();
+      if (
+        !metadata.isFile() ||
+        metadata.size > input.maxBytes ||
+        (metadata.mode & 0o077) !== 0
+      )
+        throw new HarnessHostError("journal_corrupt");
+      // Bound reads even if an invalid external writer grows a file after stat.
+      const bytes = Buffer.alloc(input.maxBytes + 1);
+      let length = 0;
+      while (length < bytes.length) {
+        const read = await handle.read(
+          bytes,
+          length,
+          bytes.length - length,
+          null,
+        );
+        if (read.bytesRead === 0) break;
+        length += read.bytesRead;
+      }
+      if (length > input.maxBytes)
+        throw new HarnessHostError("journal_corrupt");
+      return parseState(
+        JSON.parse(bytes.subarray(0, length).toString("utf8")),
+        input.streamKey,
+        input.codec,
+        input.maxFrames,
+      );
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (!isMissing(error)) throw new HarnessHostError("journal_corrupt");
+    return {
+      version: 1,
+      streamKey: input.streamKey,
+      nextSequence: 1,
+      frames: [],
+    };
   }
 }
 
