@@ -1,5 +1,4 @@
 import { lstat, realpath } from "node:fs/promises";
-import type { TurnArtifactRepository } from "@repo/artifact-store";
 import type { LifecycleEventStore } from "@repo/event-store";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { DefaultGitService, GitCommitResult } from "@repo/git-service";
@@ -10,11 +9,15 @@ import {
   RunIdSchema,
   TurnIdSchema,
   RunAttemptIdSchema,
-  TurnDiffPayloadSchema,
+  TurnWorkspaceSnapshotSchema,
+  type TurnWorkspaceSnapshot,
   type LocalWorkspaceGrant,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { TurnAdmissionSchema } from "@repo/platform-protocol/conversation";
+import {
+  TurnAdmissionSchema,
+  type TurnAdmission,
+} from "@repo/platform-protocol/conversation";
 import { z } from "zod";
 
 const CommandSchema = z
@@ -53,11 +56,33 @@ export type LocalGitWorkspaceBinding = {
   readonly signal: AbortSignal;
   assertCurrent(): void;
 };
+/** Narrow structural port implemented directly by the existing local artifact
+ * store's forAttempt(scope). No new artifact record, schema or persistence owner. */
+export type LocalGitArtifactScope = {
+  userId: TurnAdmission["run"]["userId"];
+  workspaceId: TurnAdmission["run"]["workspaceId"];
+  threadId: TurnAdmission["run"]["threadId"];
+  runId: TurnAdmission["run"]["id"];
+  turnId: TurnAdmission["turn"]["id"];
+  runAttemptId: TurnAdmission["runAttemptId"];
+};
+export type LocalGitArtifactAttempt = {
+  getCommitSource(artifactId: string): Promise<{
+    readonly scope: LocalGitArtifactScope;
+    readonly artifactId: LocalArtifactCommitCommand["artifactId"];
+    readonly terminalSnapshot: TurnWorkspaceSnapshot;
+    readonly expectedTerminalTreeId: string;
+    readonly paths: readonly string[];
+  } | null>;
+  getSnapshot(
+    phase: "start",
+  ): Promise<{ readonly snapshot: TurnWorkspaceSnapshot } | null>;
+};
 export type LocalGitServiceOptions = {
   workspaceGrants: LocalPersistence["workspaceGrants"];
   getAdmission: LocalPersistence["turnAdmissions"]["getByTurn"];
   lifecycleEvents: Pick<LifecycleEventStore, "replay">;
-  artifacts: Pick<TurnArtifactRepository, "getTurnDiff">;
+  artifactForAttempt(scope: LocalGitArtifactScope): LocalGitArtifactAttempt;
   gitService: Pick<
     DefaultGitService,
     "commit" | "readConfigValue" | "probeRepository"
@@ -109,53 +134,51 @@ export class LocalGitService {
         "Commit identity does not match the admitted Turn",
       );
     }
-    const stored = await this.options.artifacts.getTurnDiff(command.turnId, {
+    const scope: LocalGitArtifactScope = {
       userId: admission.run.userId,
       workspaceId: command.workspaceId,
       threadId: command.threadId,
       runId: command.runId,
-    });
-    if (!stored)
+      turnId: command.turnId,
+      runAttemptId: command.runAttemptId,
+    };
+    const artifacts = this.options.artifactForAttempt(scope);
+    const source = await artifacts.getCommitSource(command.artifactId);
+    const start = await artifacts.getSnapshot("start");
+    if (!source || !start)
       throw new LocalGitOperationError(
         "artifact_unavailable",
-        "Immutable Turn diff is unavailable",
+        "Immutable captured commit source is unavailable",
       );
-    const owner = stored.metadata.ownership;
     if (
-      stored.metadata.artifactId !== command.artifactId ||
-      owner.createdBy !== admission.run.userId ||
-      owner.workspaceId !== command.workspaceId ||
-      owner.threadId !== command.threadId ||
-      owner.runId !== command.runId
+      source.artifactId !== command.artifactId ||
+      (Object.keys(scope) as (keyof LocalGitArtifactScope)[]).some(
+        (key) => source.scope[key] !== scope[key],
+      )
     ) {
       throw new LocalGitOperationError(
         "identity_mismatch",
-        "Selected artifact does not belong to this Turn",
+        "Selected artifact does not belong to this admitted attempt",
       );
     }
-    const diff = TurnDiffPayloadSchema.parse(stored.payload);
+    const terminalSnapshot = TurnWorkspaceSnapshotSchema.parse(
+      source.terminalSnapshot,
+    );
+    const startSnapshot = TurnWorkspaceSnapshotSchema.parse(start.snapshot);
     if (
-      diff.turnId !== command.turnId ||
-      diff.startSnapshot.phase !== "start" ||
-      diff.terminalSnapshot.phase !== "terminal"
+      terminalSnapshot.turnId !== command.turnId ||
+      terminalSnapshot.phase !== "terminal" ||
+      startSnapshot.turnId !== command.turnId ||
+      startSnapshot.phase !== "start" ||
+      source.expectedTerminalTreeId !== terminalSnapshot.treeId
     ) {
       throw new LocalGitOperationError(
         "artifact_conflict",
-        "Artifact snapshot phases do not match the selected Turn",
+        "Artifact snapshots do not match the selected Turn",
       );
     }
     await this.requireTerminalArtifact(command);
-    const paths = [
-      ...new Set(
-        diff.files
-          .filter((file) => file.status !== "unchanged")
-          .flatMap((file) =>
-            file.status === "renamed" && file.previousPath
-              ? [file.previousPath, file.path]
-              : [file.path],
-          ),
-      ),
-    ];
+    const paths = [...new Set(source.paths)];
     if (paths.length === 0)
       throw new LocalGitOperationError(
         "artifact_unavailable",
@@ -241,8 +264,8 @@ export class LocalGitService {
           paths,
           message: command.message,
           author: validatedAuthor,
-          expectedTerminalTreeId: diff.terminalSnapshot.treeId,
-          expectedBaselineTreeId: diff.startSnapshot.treeId,
+          expectedTerminalTreeId: source.expectedTerminalTreeId,
+          expectedBaselineTreeId: startSnapshot.treeId,
         });
       },
     );
