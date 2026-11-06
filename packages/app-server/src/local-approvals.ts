@@ -146,25 +146,42 @@ export class LocalApprovalService {
     ) {
       throw conflict("A reusable approval scope requires an approved decision");
     }
-    await this.options.resolveApproval(request.turnId, request.approvalId, {
-      decision: request.decision,
-      decidedBy: request.decidedBy,
-      reason: request.reason,
-      ...(request.grantScope === "matching_in_chat"
-        ? { grantScope: request.grantScope }
-        : {}),
-    });
+    try {
+      await this.options.resolveApproval(request.turnId, request.approvalId, {
+        decision: request.decision,
+        decidedBy: request.decidedBy,
+        reason: request.reason,
+        ...(request.grantScope === "matching_in_chat"
+          ? { grantScope: request.grantScope }
+          : {}),
+      });
+    } catch (error) {
+      // Another runtime delivery may have persisted this exact decision meanwhile.
+      const receipt = await this.persistedReceipt(request, approval);
+      if (receipt) return receipt;
+      throw error;
+    }
+    const receipt = await this.persistedReceipt(request, approval);
+    if (!receipt)
+      throw conflict("Runtime has not recorded this approval decision");
+    return receipt;
+  }
+
+  private async persistedReceipt(
+    request: SubmitLifecycleApprovalRequest,
+    approval: Extract<LifecycleEvent, { type: "approval.requested" }>,
+  ): Promise<DecisionEvent | null> {
     const settled = (await this.replay(request.turnId)).find(
       (event) =>
         event.type === "approval.decided" &&
         event.approvalId === request.approvalId,
     );
+    if (settled?.type !== "approval.decided") return null;
     if (
-      settled?.type !== "approval.decided" ||
       settled.runAttemptId !== approval.runAttemptId ||
       settled.itemId !== approval.itemId
     ) {
-      throw conflict("Runtime has not recorded this approval decision");
+      throw conflict("Approval decision identity does not match its request");
     }
     return this.receipt(settled, request);
   }

@@ -229,6 +229,57 @@ describe("LocalThreadService", () => {
         receipts[0],
       );
       expect(resolutions).toBe(1);
+
+      for (const event of original.events) {
+        await store.append(
+          LifecycleEventSchema.parse({
+            ...event,
+            turnId: "trn_receiptrecovery",
+            eventId: `${event.eventId}recovery`,
+            idempotencyKey: `${event.idempotencyKey}:recovery`,
+          }),
+        );
+      }
+      const deliveryError = new Error(
+        "Runtime delivery lost its acknowledgement",
+      );
+      const recoveryRequest = { ...request, turnId: "trn_receiptrecovery" };
+      const noReceipt = new LocalApprovalService({
+        lifecycleEvents: store,
+        threads: service,
+        resolveApproval: async () => {
+          throw deliveryError;
+        },
+      });
+      await expect(
+        noReceipt.submitLifecycleApproval(recoveryRequest),
+      ).rejects.toBe(deliveryError);
+      const recovering = new LocalApprovalService({
+        lifecycleEvents: store,
+        threads: service,
+        resolveApproval: async () => {
+          await append(4, {
+            turnId: recoveryRequest.turnId,
+            eventId: "evt_recovereddecision4",
+            type: "approval.decided",
+            itemId: "itm_localapproval",
+            approvalId: request.approvalId,
+            payload: {
+              status: request.decision,
+              decidedBy: request.decidedBy,
+              reason: request.reason,
+            },
+          });
+          throw deliveryError;
+        },
+      });
+      await expect(
+        recovering.submitLifecycleApproval(recoveryRequest),
+      ).resolves.toMatchObject({
+        type: "approval.decided",
+        turnId: recoveryRequest.turnId,
+        payload: { status: "denied" },
+      });
     } finally {
       persistence?.close();
       await rm(storageDirectory, { recursive: true, force: true });
