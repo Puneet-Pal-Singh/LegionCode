@@ -1160,3 +1160,17 @@ an unknown reference into a new instance. The SDK returns the authoritative
 `instance.instanceId` receipt and never generates a placeholder identity.
 The contract remains run-independent and uses an authorized workspace,
 configured environment, harness kind and verified credential connection.
+
+
+## One harness verifier and admitted receipt across public starts
+
+Direct submission, resume and queued starts share `verifyHostedHarnessAdmission`
+through the authenticated P12-backed operation dependency. Resume inherits only
+from the interrupted admission receipt when no explicit replacement was supplied;
+queue start verifies its persisted queue capture before admission. Both send the
+verified capture into the canonical admission transaction. Dispatch consumes the
+returned admission capture and persisted queue configuration, not the original
+client configuration. Missing or mismatched captures reject and use canonical
+unclaimed-startup failure settlement before any external command. Explicit Native
+captures retain their environment/revision and `selection:null`; omitted legacy
+Native captures remain omitted. Atomic persistence/freeze is owned by P11/P04.

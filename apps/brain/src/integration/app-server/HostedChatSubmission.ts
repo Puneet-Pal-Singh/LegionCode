@@ -1,3 +1,4 @@
+import type { HarnessOperations } from "@legioncode/app-server/server";
 import { isDelegatedChat } from "../../services/chat/ChatExecutionStrategy";
 import type { AgentType } from "@legioncode/execution-engine/runtime";
 import { HandleChatRequest } from "../../application/chat";
@@ -68,6 +69,7 @@ export async function submitHostedChat(
   env: Env,
   backgroundTaskOwner?: BackgroundTaskOwner,
   executionContext?: ExecutionContext,
+  harnessOperations?: HarnessOperations,
 ): Promise<Response> {
   const {
     body,
@@ -199,7 +201,7 @@ export async function submitHostedChat(
       runId,
       useCaseResult.executionPayload,
     );
-    new ThreadInputCommandService(env).scheduleTerminalReconciliation({
+    new ThreadInputCommandService(env, harnessOperations).scheduleTerminalReconciliation({
       response: doResponse,
       request: req,
       executionContext,
