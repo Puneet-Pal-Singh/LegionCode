@@ -62,7 +62,9 @@ interface Attachment {
   externalTurnId: string | null;
   integrityError?: HarnessHostError;
   integrityPersistence?: Promise<void>;
-  quiescence?: Extract<HarnessQuiescence, { status: "quiescent" }>;
+  quiescence?: Extract<HarnessQuiescence, { status: "quiescent" }> & {
+    observationIntegrity: "complete";
+  };
 }
 
 /** Live attachments only. Admission, recovery decisions, canonical history and leases remain runtime-owned. */
@@ -79,6 +81,8 @@ export class HarnessSessionManager {
     readonly signal: AbortSignal;
   }): Promise<HarnessSession> {
     const { command, instance } = this.registry.resolve(input.command);
+    if (command.mode !== "start")
+      return Promise.reject(new HarnessHostError("stale_session"));
     const signal = input.signal;
     const fingerprint = JSON.stringify(command);
     const key = command.selection.runAttemptId;
@@ -222,6 +226,8 @@ export class HarnessSessionManager {
   }): Promise<void> {
     const attachment = this.requireSession(input.session);
     const { command } = this.registry.resolve(input.command);
+    if (command.mode !== "start")
+      return Promise.reject(new HarnessHostError("stale_session"));
     if (attachment.fingerprint !== JSON.stringify(command))
       return Promise.reject(new HarnessHostError("stale_session"));
     this.assertIntegrity(attachment);
@@ -388,7 +394,13 @@ export class HarnessSessionManager {
       input.timeoutMs > 60_000
     )
       throw new HarnessHostError("invalid_launch");
-    if (this.hasIntegrityLoss(attachment) || !attachment.live)
+    if (this.hasIntegrityLoss(attachment))
+      return {
+        status: "unknown",
+        session: input.session,
+        reason: "observation_integrity_lost",
+      };
+    if (!attachment.live)
       return {
         status: "unknown",
         session: input.session,
@@ -418,18 +430,40 @@ export class HarnessSessionManager {
         return {
           status: "unknown",
           session: input.session,
-          reason: "transport_lost",
+          reason: this.hasIntegrityLoss(attachment)
+            ? "observation_integrity_lost"
+            : "work_still_running",
         };
       const evidence = HarnessQuiescenceSchema.parse(result);
       assertSession(input.session, evidence.session);
       // Drivers/composition must prove the full execution boundary; group exit is never promoted here.
-      if (evidence.status === "quiescent") attachment.quiescence = evidence;
+      if (
+        (evidence.status === "quiescent" &&
+          evidence.observationIntegrity === "lost") ||
+        (evidence.status === "unknown" &&
+          evidence.reason === "observation_integrity_lost")
+      ) {
+        void this.loseIntegrity(
+          attachment,
+          new HarnessHostError("observation_integrity_lost"),
+        ).catch(() => undefined);
+      }
+      if (
+        evidence.status === "quiescent" &&
+        evidence.observationIntegrity === "complete"
+      )
+        attachment.quiescence = {
+          ...evidence,
+          observationIntegrity: evidence.observationIntegrity,
+        };
       return evidence;
     } catch {
       return {
         status: "unknown",
         session: input.session,
-        reason: "transport_lost",
+        reason: this.hasIntegrityLoss(attachment)
+          ? "observation_integrity_lost"
+          : "transport_lost",
       };
     } finally {
       if (timer) clearTimeout(timer);
@@ -439,7 +473,10 @@ export class HarnessSessionManager {
   /** Canonical owner calls only after terminal artifact settlement; no checkout lease is released here. */
   async release(session: HarnessSession): Promise<void> {
     const attachment = this.requireSession(session);
-    if (!attachment.quiescence)
+    if (
+      !attachment.quiescence ||
+      attachment.quiescence.observationIntegrity !== "complete"
+    )
       throw new HarnessHostError("process_not_quiescent");
     this.beginStop(attachment);
     await this.drainObservations(attachment);
@@ -455,7 +492,10 @@ export class HarnessSessionManager {
     if (attachment.journal) {
       if ((await attachment.journal.pending()).length)
         throw new HarnessHostError("journal_corrupt");
-      if (!attachment.quiescence)
+      if (
+        !attachment.quiescence ||
+        attachment.quiescence.observationIntegrity !== "complete"
+      )
         throw new HarnessHostError("process_not_quiescent");
       attachment.retired = true;
       await attachment.journal.markCanonicalSettlement();
@@ -521,6 +561,18 @@ export class HarnessSessionManager {
       if (Buffer.byteLength(encoded) > 8 * 1024 * 1024)
         throw new HarnessHostError("journal_overflow");
       snapshot = HarnessObservationSchema.parse(JSON.parse(encoded));
+      if (
+        snapshot.payload.kind === "quiescence" &&
+        ((snapshot.payload.evidence.status === "quiescent" &&
+          snapshot.payload.evidence.observationIntegrity === "lost") ||
+          (snapshot.payload.evidence.status === "unknown" &&
+            snapshot.payload.evidence.reason === "observation_integrity_lost"))
+      ) {
+        return this.loseIntegrity(
+          attachment,
+          new HarnessHostError("observation_integrity_lost"),
+        );
+      }
     } catch (error) {
       return this.loseIntegrity(attachment, error);
     }

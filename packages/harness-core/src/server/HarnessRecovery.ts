@@ -107,6 +107,8 @@ export class HarnessRecovery {
         }
         let canonicalFailureSettled = false;
         try {
+          if (evidence.observationIntegrity !== "complete")
+            throw new HarnessHostError("observation_integrity_lost");
           live.assertIntegrity();
           await ObservationDeliveryJournal.assertPersistedIntegrity({
             directory: input.host.journalDirectory,
