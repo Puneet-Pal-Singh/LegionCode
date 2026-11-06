@@ -214,7 +214,7 @@ describe("durable admission and canonical append SQL", () => {
     const store = new PostgresLifecycleEventStore(client);
     const bindings = new PostgresHarnessBindingRepository(client);
     const selection = { userId: fixture.userId, sessionId: fixture.sessionId, runId: fixture.admission.runId, workspaceId: fixture.workspaceId, threadId: fixture.admission.threadId, turnId: fixture.admission.turnId, runAttemptId: fixture.admission.runAttemptId, selectionJson: JSON.stringify({ connectionId: "selected", modelId: "pinned" }) };
-    const origin = { instanceId: "instance", externalSessionId: "external", processGeneration: 1, authOwnerGeneration: 0 };
+    const origin = { instanceId: "instance", externalSessionId: "external", processGeneration: "11111111-1111-4111-8111-111111111111", authOwnerGeneration: 0 };
     expect((await bindings.freezeAndClaim({ selection, claimId: "harness-claim" })).status).toBe("claimed");
     expect((await bindings.freezeAndClaim({ selection, claimId: "second-claim" })).status).toBe("already_claimed");
     await bindings.attach({ selection, origin, expectedProcessGeneration: null });

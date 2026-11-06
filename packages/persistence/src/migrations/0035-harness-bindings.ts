@@ -15,9 +15,15 @@ export const harnessBindingsMigration: SqlMigration = {
       external_turn_id TEXT,
       last_observation_sequence BIGINT NOT NULL DEFAULT 0 CHECK(last_observation_sequence >= 0)
     )`,
+    `CREATE TABLE harness_process_generations (
+      turn_id TEXT NOT NULL REFERENCES harness_bindings(turn_id) ON DELETE CASCADE,
+      process_generation TEXT NOT NULL CHECK(length(process_generation) = 36),
+      origin_json JSONB NOT NULL,
+      PRIMARY KEY(turn_id, process_generation)
+    )`,
     `CREATE TABLE harness_observation_receipts (
       turn_id TEXT NOT NULL REFERENCES harness_bindings(turn_id) ON DELETE CASCADE,
-      process_generation BIGINT NOT NULL CHECK(process_generation >= 0),
+      process_generation TEXT NOT NULL CHECK(length(process_generation) = 36),
       sequence BIGINT NOT NULL CHECK(sequence > 0),
       observation_fingerprint TEXT NOT NULL,
       event_ids_json JSONB NOT NULL,
