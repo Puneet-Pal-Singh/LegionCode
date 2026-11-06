@@ -1,0 +1,475 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  HarnessCommitAckSchema,
+  HarnessControlCommandSchema,
+  HarnessObservationSchema,
+  HarnessQuiescenceSchema,
+  HarnessSessionSchema,
+  type HarnessCommitAck,
+  type HarnessControlCommand,
+  type HarnessObservation,
+  type HarnessQuiescence,
+  type HarnessSession,
+  type HarnessStartCommand,
+} from "@repo/worker-protocol";
+import type { HarnessLiveSession } from "./HarnessDriver.js";
+import type { ProcessGroupSettlement } from "./ProcessSupervisor.js";
+import type { HarnessHost } from "./HarnessHost.js";
+import { HarnessRegistry } from "./HarnessRegistry.js";
+import { ObservationDeliveryJournal } from "./ObservationDeliveryJournal.js";
+import { HarnessHostError } from "./errors.js";
+
+type Observe = (observation: HarnessObservation) => Promise<HarnessCommitAck>;
+interface Attachment {
+  readonly command: HarnessStartCommand;
+  readonly fingerprint: string;
+  readonly controller: AbortController;
+  readonly requests: Map<
+    string,
+    { committed: Promise<void>; consume: boolean }
+  >;
+  opening?: Promise<HarnessSession>;
+  host?: HarnessHost;
+  live?: HarnessLiveSession;
+  journal?: ObservationDeliveryJournal<HarnessObservation>;
+  observe?: Observe;
+  execution?: Promise<void>;
+  stopping: boolean;
+  cleanup?: Promise<readonly ProcessGroupSettlement[]>;
+  readonly controls: Map<
+    string,
+    {
+      readonly fingerprint: string;
+      readonly result: Promise<{ readonly accepted: boolean }>;
+    }
+  >;
+  observationQueue: Promise<unknown>;
+  pendingObservations: number;
+  externalTurnId: string | null;
+}
+
+/** Live attachments only. Admission, recovery decisions, canonical history and leases remain runtime-owned. */
+export class HarnessSessionManager {
+  private readonly attachments = new Map<string, Attachment>();
+  private readonly instanceDirectories = new Set<string>();
+
+  constructor(private readonly registry: HarnessRegistry) {}
+
+  open(input: {
+    readonly command: HarnessStartCommand;
+    readonly signal: AbortSignal;
+  }): Promise<HarnessSession> {
+    const { command, instance } = this.registry.resolve(input.command);
+    const fingerprint = JSON.stringify(command);
+    const key = command.selection.runAttemptId;
+    const existing = this.attachments.get(key);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint || !existing.opening)
+        return Promise.reject(new HarnessHostError("session_busy"));
+      return existing.opening;
+    }
+    if (this.attachments.size >= 128)
+      return Promise.reject(new HarnessHostError("session_busy"));
+    const attachment: Attachment = {
+      command,
+      fingerprint,
+      controller: new AbortController(),
+      requests: new Map(),
+      stopping: false,
+      controls: new Map(),
+      observationQueue: Promise.resolve(),
+      pendingObservations: 0,
+      externalTurnId: null,
+    };
+    // Register before async host creation or any driver/provider I/O so immediate Stop cannot miss it.
+    this.attachments.set(key, attachment);
+    const abort = () => this.beginStop(attachment);
+    if (input.signal.aborted) abort();
+    else input.signal.addEventListener("abort", abort, { once: true });
+    attachment.opening = (async () => {
+      try {
+        if (attachment.stopping) throw new HarnessHostError("stale_session");
+        const host = await instance.createHost(command);
+        attachment.host = host;
+        if (attachment.stopping) {
+          this.beginStop(attachment);
+          throw new HarnessHostError("stale_session");
+        }
+        if (this.instanceDirectories.has(host.instanceDirectory))
+          throw new HarnessHostError("session_busy");
+        this.instanceDirectories.add(host.instanceDirectory);
+        const live = await instance.driver.open({
+          command,
+          host,
+          signal: attachment.controller.signal,
+          observe: (observation) => this.observe(attachment, observation),
+        });
+        const session = HarnessSessionSchema.parse(live.session);
+        if (
+          session.runAttemptId !== key ||
+          session.instanceId !== command.selection.instanceId ||
+          !Object.is(session.processGeneration, host.processGeneration)
+        ) {
+          throw new HarnessHostError("stale_session");
+        }
+        attachment.live = live;
+        const directory = join(host.instanceDirectory, ".legioncode-delivery");
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        attachment.journal = await this.openJournal(directory, session);
+        if (attachment.stopping) {
+          this.beginStop(attachment);
+          throw new HarnessHostError("stale_session");
+        }
+        return session;
+      } catch (error) {
+        this.beginStop(attachment);
+        // Retain the failed attempt. Repeating an ambiguous open must not launch another process/store.
+        throw error instanceof HarnessHostError
+          ? error
+          : new HarnessHostError("stale_session");
+      }
+    })();
+    void attachment.opening.catch(() => undefined);
+    return attachment.opening;
+  }
+
+  execute(input: {
+    readonly command: HarnessStartCommand;
+    readonly session: HarnessSession;
+    readonly signal: AbortSignal;
+    readonly observe: Observe;
+  }): Promise<void> {
+    const attachment = this.requireSession(input.session);
+    const { command } = this.registry.resolve(input.command);
+    if (attachment.fingerprint !== JSON.stringify(command))
+      return Promise.reject(new HarnessHostError("stale_session"));
+    if (attachment.execution) return attachment.execution;
+    if (
+      attachment.stopping ||
+      input.signal.aborted ||
+      !attachment.live ||
+      !attachment.journal
+    )
+      return Promise.reject(new HarnessHostError("stale_session"));
+    attachment.observe = input.observe;
+    const abort = () => this.beginStop(attachment);
+    input.signal.addEventListener("abort", abort, { once: true });
+    attachment.execution = (async () => {
+      try {
+        // Only observations replay. Provider start/steer/reply operations are never replayed here.
+        for (const observation of await attachment.journal!.pending())
+          await this.deliver(attachment, observation);
+        if (attachment.stopping) throw new HarnessHostError("stale_session");
+        await attachment.live!.execute({
+          command,
+          signal: attachment.controller.signal,
+        });
+      } finally {
+        input.signal.removeEventListener("abort", abort);
+      }
+    })();
+    void attachment.execution.catch(() => undefined);
+    return attachment.execution;
+  }
+
+  control(raw: HarnessControlCommand): Promise<{ readonly accepted: boolean }> {
+    const command = HarnessControlCommandSchema.parse(raw);
+    const session =
+      command.kind === "reply"
+        ? command.reply.replyTo.session
+        : command.session;
+    const attachment = this.requireSession(session);
+    const fingerprint = JSON.stringify(command);
+    const prior = attachment.controls.get(command.commandId);
+    if (prior) {
+      if (prior.fingerprint !== fingerprint)
+        return Promise.reject(new HarnessHostError("stale_session"));
+      return prior.result;
+    }
+    if (attachment.controls.size >= 128) {
+      this.beginStop(attachment);
+      return Promise.reject(new HarnessHostError("session_busy"));
+    }
+    const result = Promise.resolve().then(() =>
+      this.applyControl(attachment, command),
+    );
+    attachment.controls.set(command.commandId, { fingerprint, result });
+    void result.catch(() => undefined);
+    return result;
+  }
+
+  private async applyControl(
+    attachment: Attachment,
+    command: HarnessControlCommand,
+  ): Promise<{ readonly accepted: boolean }> {
+    if (!attachment.live) throw new HarnessHostError("stale_session");
+    if (command.kind === "reply") {
+      const origin = command.reply.replyTo;
+      if (
+        attachment.stopping ||
+        origin.authOwnerGeneration !==
+          attachment.command.selection.authOwnerGeneration
+      )
+        throw new HarnessHostError("request_unavailable");
+      const request = attachment.requests.get(requestKey(origin));
+      if (!request || request.consume)
+        throw new HarnessHostError("request_unavailable");
+      await request.committed;
+      // A Stop, revoke, or competing reply can win while the commit ACK is in flight.
+      if (attachment.stopping || request.consume)
+        throw new HarnessHostError("request_unavailable");
+      request.consume = true;
+      return attachment.live.control(command);
+    }
+    if (
+      command.kind === "steer" &&
+      (attachment.stopping ||
+        !attachment.execution ||
+        attachment.externalTurnId !== command.expectedExternalTurnId)
+    )
+      throw new HarnessHostError("stale_session");
+    if (command.kind === "interrupt" || command.kind === "dispose") {
+      attachment.stopping = true;
+      attachment.host?.fence();
+      // Host acceptance is separate from the provider receipt and quiescence.
+      // A hung provider RPC cannot block the bounded host cleanup.
+      try {
+        const nativeReceipt = attachment.live.control(command);
+        void nativeReceipt.catch(() => undefined); // The driver reports transport loss; never resend.
+      } finally {
+        this.beginStop(attachment);
+      }
+      return { accepted: true };
+    }
+    return attachment.live.control(command);
+  }
+
+  async awaitQuiescence(input: {
+    readonly session: HarnessSession;
+    readonly timeoutMs: number;
+  }): Promise<HarnessQuiescence> {
+    const attachment = this.requireSession(input.session);
+    if (
+      !Number.isSafeInteger(input.timeoutMs) ||
+      input.timeoutMs < 0 ||
+      input.timeoutMs > 60_000
+    )
+      throw new HarnessHostError("invalid_launch");
+    if (!attachment.live)
+      return {
+        status: "unknown",
+        session: input.session,
+        reason: "transport_lost",
+      };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        attachment.live.awaitQuiescence({ timeoutMs: input.timeoutMs }),
+        new Promise<HarnessQuiescence>((resolve) => {
+          timer = setTimeout(
+            () =>
+              resolve({
+                status: "unknown",
+                session: input.session,
+                reason: "timeout",
+              }),
+            input.timeoutMs,
+          );
+        }),
+      ]);
+      const evidence = HarnessQuiescenceSchema.parse(result);
+      assertSession(input.session, evidence.session);
+      // Drivers/composition must prove the full execution boundary; group exit is never promoted here.
+      return evidence;
+    } catch {
+      return {
+        status: "unknown",
+        session: input.session,
+        reason: "transport_lost",
+      };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Canonical owner calls only after terminal artifact settlement; no checkout lease is released here. */
+  async release(session: HarnessSession): Promise<void> {
+    const attachment = this.requireSession(session);
+    this.beginStop(attachment);
+    await attachment.cleanup;
+    const cleanup = await attachment.host?.terminateProcesses({
+      graceMs: 1000,
+      killWaitMs: 1000,
+    });
+    if (!cleanup || cleanup.some((result) => result.kind === "unknown"))
+      throw new HarnessHostError("process_not_quiescent");
+    await attachment.observationQueue;
+    if (attachment.journal) {
+      if ((await attachment.journal.pending()).length)
+        throw new HarnessHostError("journal_corrupt");
+      await attachment.journal.close();
+    }
+    // Keep journal files for commit reconciliation. They contain no command replay.
+    this.attachments.delete(session.runAttemptId);
+    if (attachment.host)
+      this.instanceDirectories.delete(attachment.host.instanceDirectory);
+  }
+
+  /** Connection revocation prevents both late replies and new instance admissions synchronously. */
+  fenceInstance(instanceId: string): void {
+    this.registry.unregister(instanceId);
+    for (const attachment of this.attachments.values()) {
+      if (attachment.command.selection.instanceId === instanceId)
+        this.beginStop(attachment);
+    }
+  }
+
+  private beginStop(attachment: Attachment): void {
+    attachment.stopping = true;
+    attachment.controller.abort();
+    attachment.host?.fence();
+    if (attachment.host && !attachment.cleanup) {
+      attachment.cleanup = attachment.host.terminateProcesses({
+        graceMs: 1000,
+        killWaitMs: 1000,
+      });
+      void attachment.cleanup.catch(() => undefined);
+    }
+  }
+
+  private requireSession(raw: HarnessSession): Attachment {
+    const session = HarnessSessionSchema.parse(raw);
+    const attachment = this.attachments.get(session.runAttemptId);
+    if (!attachment?.live) throw new HarnessHostError("stale_session");
+    assertSession(session, attachment.live.session);
+    return attachment;
+  }
+
+  private observe(
+    attachment: Attachment,
+    input: Omit<HarnessObservation, "sequence">,
+  ): Promise<HarnessCommitAck> {
+    if (attachment.pendingObservations >= 32) {
+      this.beginStop(attachment);
+      return Promise.reject(new HarnessHostError("journal_overflow"));
+    }
+    const snapshot = HarnessObservationSchema.parse({ ...input, sequence: 1 });
+    attachment.pendingObservations++;
+    const result = attachment.observationQueue
+      .then(() => this.observeNow(attachment, snapshot))
+      .finally(() => {
+        attachment.pendingObservations--;
+      });
+    attachment.observationQueue = result.catch(() => undefined);
+    return result;
+  }
+
+  private async observeNow(
+    attachment: Attachment,
+    input: Omit<HarnessObservation, "sequence">,
+  ): Promise<HarnessCommitAck> {
+    if (!attachment.live || !attachment.journal || !attachment.observe)
+      throw new HarnessHostError("stale_session");
+    assertSession(attachment.live.session, input.session);
+    if (input.externalTurnId !== null) {
+      if (
+        attachment.externalTurnId !== null &&
+        attachment.externalTurnId !== input.externalTurnId
+      )
+        throw new HarnessHostError("stale_session");
+      attachment.externalTurnId = input.externalTurnId;
+    }
+    const payload = input.payload;
+    let committedResolve: (() => void) | undefined;
+    let committedReject: ((error: unknown) => void) | undefined;
+    if (payload.kind === "approval_requested") {
+      assertSession(input.session, payload.replyTo.session);
+      if (
+        attachment.stopping ||
+        payload.replyTo.authOwnerGeneration !==
+          attachment.command.selection.authOwnerGeneration ||
+        attachment.requests.has(requestKey(payload.replyTo)) ||
+        attachment.requests.size >= 128
+      )
+        throw new HarnessHostError("request_unavailable");
+      const committed = new Promise<void>((resolve, reject) => {
+        committedResolve = resolve;
+        committedReject = reject;
+      });
+      void committed.catch(() => undefined);
+      attachment.requests.set(requestKey(payload.replyTo), {
+        committed,
+        consume: false,
+      });
+    }
+    try {
+      const observation = await attachment.journal.append((sequence) =>
+        HarnessObservationSchema.parse({ ...input, sequence }),
+      );
+      const ack = await this.deliver(attachment, observation);
+      committedResolve?.();
+      return ack;
+    } catch (error) {
+      committedReject?.(new HarnessHostError("request_unavailable"));
+      this.beginStop(attachment);
+      throw error instanceof HarnessHostError
+        ? error
+        : new HarnessHostError("journal_corrupt");
+    }
+  }
+
+  private async deliver(
+    attachment: Attachment,
+    observation: HarnessObservation,
+  ): Promise<HarnessCommitAck> {
+    if (!attachment.observe || !attachment.journal)
+      throw new HarnessHostError("stale_session");
+    const ack = HarnessCommitAckSchema.parse(
+      await attachment.observe(observation),
+    );
+    assertSession(observation.session, ack.session);
+    if (ack.committedSequence !== observation.sequence)
+      throw new HarnessHostError("journal_corrupt");
+    await attachment.journal.acknowledge(ack.committedSequence);
+    return ack;
+  }
+
+  private openJournal(
+    directory: string,
+    session: HarnessSession,
+  ): Promise<ObservationDeliveryJournal<HarnessObservation>> {
+    return ObservationDeliveryJournal.open({
+      directory,
+      streamKey: JSON.stringify(session),
+      maxBytes: 8 * 1024 * 1024,
+      maxFrames: 256,
+      codec: {
+        parse: (value) => {
+          const observation = HarnessObservationSchema.parse(value);
+          assertSession(session, observation.session);
+          return observation;
+        },
+        sequence: (observation) => observation.sequence,
+      },
+    });
+  }
+}
+
+function assertSession(expected: HarnessSession, actual: HarnessSession): void {
+  const a = HarnessSessionSchema.parse(expected),
+    b = HarnessSessionSchema.parse(actual);
+  if (
+    a.runAttemptId !== b.runAttemptId ||
+    a.instanceId !== b.instanceId ||
+    a.externalSessionId !== b.externalSessionId ||
+    a.processGeneration !== b.processGeneration
+  )
+    throw new HarnessHostError("stale_session");
+}
+function requestKey(origin: {
+  readonly origin: string;
+  readonly requestId: string;
+}): string {
+  return JSON.stringify([origin.origin, origin.requestId]);
+}
