@@ -123,6 +123,22 @@ export function HarnessUsage({
               <dl>
                 <Metric label="Input tokens" value={measurement.inputTokens} />
                 <Metric
+                  label="Uncached input tokens"
+                  value={measurement.uncachedInputTokens}
+                />
+                <Metric
+                  label="Cache read input tokens"
+                  value={measurement.cacheReadInputTokens}
+                />
+                <Metric
+                  label="Cache creation input tokens"
+                  value={measurement.cacheCreationInputTokens}
+                />
+                <Metric
+                  label="Estimated cost (USD)"
+                  value={measurement.estimatedCostUsd}
+                />
+                <Metric
                   label="Output tokens"
                   value={measurement.outputTokens}
                 />
@@ -148,7 +164,59 @@ export function HarnessUsage({
             </div>
           ))}
           {activity.length > 50 ? <p>Showing up to 50 measurements.</p> : null}
-          <p>Samples are not summed across requests, sessions or children.</p>
+          <p>
+            Samples are not summed across requests, sessions or children.
+            Reasoning tokens are included in output. Monetary estimates are not
+            subscription charges.
+          </p>
+          <h3>Provider limit notifications</h3>
+          <p>
+            Limit notifications do not establish remaining subscription
+            allowance.
+          </p>
+          {account.conflictingLimitNotificationCount > 0 ? (
+            <p>
+              {account.conflictingLimitNotificationCount} conflicting limit
+              notifications excluded.
+            </p>
+          ) : null}
+          {account.providerLimits.length === 0 ? (
+            <p>No limit notifications reported.</p>
+          ) : null}
+          {account.providerLimits
+            .filter(
+              (notification) =>
+                !scope ||
+                (notification.threadId === scope.threadId &&
+                  notification.turnId === scope.turnId &&
+                  notification.runAttemptId === scope.runAttemptId),
+            )
+            .slice(0, 50)
+            .map((notification) => (
+              <div
+                key={JSON.stringify([
+                  notification.runAttemptId,
+                  notification.instanceId,
+                  notification.externalSessionId,
+                  notification.processGeneration,
+                  notification.sequence,
+                  notification.source,
+                  notification.notificationId,
+                ])}
+              >
+                <p>
+                  {notification.status} · Scope: {notification.scope} ·{" "}
+                  {notification.limitKind ?? "Limit kind unavailable"}
+                </p>
+                <p>Resets: {notification.resetsAt ?? "Unavailable"}</p>
+                <p>
+                  Source: {notification.source} ·{" "}
+                  <time dateTime={notification.observedAt}>
+                    {notification.observedAt}
+                  </time>
+                </p>
+              </div>
+            ))}
         </>
       ) : null}
       {!account ? (

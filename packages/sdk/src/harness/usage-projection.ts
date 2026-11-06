@@ -131,11 +131,39 @@ export function projectHarnessAccountUsage(
       conflicts.add(key);
     } else measurements.set(key, measurement);
   }
+  const limits = new Map<
+    string,
+    HarnessUsageObservation["providerLimits"][number]
+  >();
+  const limitConflicts = new Set<string>();
+  for (const notification of parsed.providerLimits) {
+    const key = JSON.stringify([
+      notification.threadId,
+      notification.turnId,
+      notification.runAttemptId,
+      notification.instanceId,
+      notification.externalSessionId,
+      notification.processGeneration,
+      notification.source,
+      notification.sequence,
+      notification.notificationId,
+    ]);
+    if (limitConflicts.has(key)) continue;
+    const previous = limits.get(key);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(notification)) {
+      limits.delete(key);
+      limitConflicts.add(key);
+    } else limits.set(key, notification);
+  }
   return {
     ...parsed,
     activity: [...measurements.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([, value]) => value),
     conflictingMeasurementCount: conflicts.size,
+    providerLimits: [...limits.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, value]) => value),
+    conflictingLimitNotificationCount: limitConflicts.size,
   };
 }

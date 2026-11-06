@@ -623,6 +623,7 @@ export * from "./harness/index.js";
 export {
   HarnessBillingRouteSchema, HarnessQuotaWindowSchema, HarnessAccountQuotaSchema,
   HarnessActivityMeasurementSchema, HarnessUsageObservationSchema,
+  HarnessProviderLimitNotificationSchema, type HarnessProviderLimitNotification,
   type HarnessBillingRoute, type HarnessQuotaWindow, type HarnessAccountQuota,
   type HarnessActivityMeasurement, type HarnessUsageObservation,
 } from "./harness/usage.js";
