@@ -13,7 +13,12 @@ import type { CodexDriver } from "@repo/harness-codex/server";
 import type { ClaudeDriver } from "@repo/harness-claude/server";
 import type { OpenCodeV2Driver } from "@repo/harness-opencode/server";
 import type { HarnessStartCommand } from "@repo/worker-protocol";
-import type { CloudHarnessTarget } from "../src/harness/CloudHarnessBridgeProtocol";
+import {
+  isCloudHarnessCleanup,
+  type CloudHarnessTarget,
+  type CloudHarnessActiveTarget,
+  type CloudHarnessCleanupTarget,
+} from "../src/harness/CloudHarnessBridgeProtocol";
 import {
   assertCloudHarnessLaunchAvailable,
   CLOUD_HARNESS_AVAILABILITY,
@@ -68,7 +73,9 @@ export class CloudHarnessComposition {
   readonly launchPolicy = new SandboxHarnessLaunchPolicy();
   constructor(
     private readonly authority: {
-      assertActive(target: CloudHarnessTarget): Promise<void>;
+      assertActive(target: CloudHarnessActiveTarget): Promise<void>;
+      /** Cleanup is authorized by durable lease/process ownership, not provider reauthentication. */
+      assertCleanup(target: CloudHarnessCleanupTarget): Promise<void>;
       /** Resolve selected credentials only AFTER the enforcing capability gate. */
       configureHost(command: HarnessStartCommand): Promise<HostConfiguration>;
       /** Canonical failed/interrupted settlement plus durable replay. No physical-
@@ -102,8 +109,10 @@ export class CloudHarnessComposition {
   status() {
     return CLOUD_HARNESS_AVAILABILITY;
   }
-  assertActive(target: CloudHarnessTarget): Promise<void> {
-    return this.authority.assertActive(target);
+  authorize(target: CloudHarnessTarget): Promise<void> {
+    return isCloudHarnessCleanup(target)
+      ? this.authority.assertCleanup(target)
+      : this.authority.assertActive(target);
   }
   async registerCodex(
     scope: HarnessInstanceScope & { readonly harness: "codex" },
@@ -160,12 +169,12 @@ export class CloudHarnessComposition {
       scope,
       driver,
       createHost: async (command) => {
-        await this.authority.assertActive({ command });
+        await this.authority.assertActive({ operation: "open", command });
         // OpenCode boot can auto-resume claims. Gate even open, BEFORE resolving
         // credentials/configuration or touching any provider-owned state.
         assertCloudHarnessLaunchAvailable();
         const configuration = await this.authority.configureHost(command);
-        await this.authority.assertActive({ command });
+        await this.authority.assertActive({ operation: "open", command });
         return createHarnessHost({
           ...configuration,
           workspaceRoot: command.filesystemRoot,

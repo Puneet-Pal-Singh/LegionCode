@@ -18,6 +18,7 @@ export type BridgeDisconnectReason =
 export interface CloudHarnessBridgeOptions {
   /** A fresh private bridge credential; never a provider credential. */
   credential: string;
+  cleanupOnly?: boolean;
   /** Revalidate the durable lease and frozen binding, including generation. */
   authorize: () => Promise<void>;
   signal: AbortSignal;
@@ -77,6 +78,9 @@ export class CloudHarnessBridgeTransport {
             Upgrade: "websocket",
             Connection: "Upgrade",
             Authorization: `Bearer ${options.credential}`,
+            "X-Legion-Harness-Intent": options.cleanupOnly
+              ? "cleanup"
+              : "active",
           },
         }),
         BRIDGE_PORT,

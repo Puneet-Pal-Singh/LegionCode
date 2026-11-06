@@ -9,19 +9,27 @@ import {
   type CloudHarnessBridgeOptions,
 } from "./CloudHarnessBridgeTransport";
 
-import type { CloudHarnessTarget } from "./CloudHarnessBridgeProtocol";
+import {
+  isCloudHarnessCleanup,
+  type CloudHarnessTarget,
+  type CloudHarnessActiveTarget,
+  type CloudHarnessCleanupTarget,
+} from "./CloudHarnessBridgeProtocol";
 export type { CloudHarnessTarget } from "./CloudHarnessBridgeProtocol";
 
 export interface CloudHarnessSupervisorAuthority {
   /** Existing durable admission, lease, credential-generation and workspace owners.
    * Must validate the immutable selection and learned process/session separately.
    */
-  assertActive(target: CloudHarnessTarget): Promise<void>;
+  assertActive(target: CloudHarnessActiveTarget): Promise<void>;
+  /** Durable lease/process ownership; MUST NOT require the revoked provider auth generation. */
+  assertCleanup(target: CloudHarnessCleanupTarget): Promise<void>;
   sandbox(
     target: CloudHarnessTarget,
   ): Promise<Pick<Sandbox, "startProcess" | "getProcess" | "wsConnect">>;
   /** Private bridge token only, bound to this admission/lease/generation. */
-  bridgeCredential(target: CloudHarnessTarget): Promise<string>;
+  bridgeCredential(target: CloudHarnessActiveTarget): Promise<string>;
+  cleanupBridgeCredential(target: CloudHarnessCleanupTarget): Promise<string>;
 }
 
 /** Worker-safe sandbox bootstrap. Never imports a Node driver or executes provider commands. */
@@ -39,8 +47,8 @@ export class CloudHarnessSupervisor {
    * provider environment or external session is supplied to this process.
    */
   async bootstrapStatus(command: HarnessStartCommand): Promise<void> {
-    const target = { command };
-    await this.assertActive(target);
+    const target = { command, operation: "bootstrap" as const };
+    await this.authorize(target);
     const key = command.selection.runAttemptId;
     const prior = this.statusBoots.get(key);
     if (prior) return prior;
@@ -48,7 +56,7 @@ export class CloudHarnessSupervisor {
       throw new Error("Cloud harness bootstrap capacity reached");
     const boot = (async () => {
       const sandbox = await this.authority.sandbox(target);
-      await this.assertActive(target);
+      await this.authorize(target);
       const processId = "legioncode-harness-status-v1";
       const existing = await sandbox.getProcess(processId);
       if (existing) {
@@ -72,7 +80,7 @@ export class CloudHarnessSupervisor {
           timeout: 10_000,
         });
       }
-      await this.assertActive(target);
+      await this.authorize(target);
     })().catch(() => {
       throw new Error(
         "Cloud harness status bootstrap failed; recovery required",
@@ -89,22 +97,27 @@ export class CloudHarnessSupervisor {
       "signal" | "receive" | "disconnected"
     >,
   ): Promise<CloudHarnessBridgeTransport> {
-    await this.assertActive(target);
+    await this.authorize(target);
     // Gate BEFORE bridge/provider credential resolution or any execution bootstrap.
     // The current backend has no reviewed enforcing launch policy.
-    assertCloudHarnessLaunchAvailable();
+    if (!isCloudHarnessCleanup(target)) assertCloudHarnessLaunchAvailable();
     const sandbox = await this.authority.sandbox(target);
-    const credential = await this.authority.bridgeCredential(target);
+    const credential = isCloudHarnessCleanup(target)
+      ? await this.authority.cleanupBridgeCredential(target)
+      : await this.authority.bridgeCredential(target);
     return CloudHarnessBridgeTransport.connect(sandbox, {
       ...callbacks,
       credential,
-      authorize: () => this.assertActive(target),
+      cleanupOnly: isCloudHarnessCleanup(target),
+      authorize: () => this.authorize(target),
     });
   }
 
-  async assertActive(target: CloudHarnessTarget): Promise<void> {
+  async authorize(target: CloudHarnessTarget): Promise<void> {
     try {
-      await this.authority.assertActive(target);
+      if (isCloudHarnessCleanup(target))
+        await this.authority.assertCleanup(target);
+      else await this.authority.assertActive(target);
     } catch {
       throw new Error("Cloud harness binding unavailable; recovery required");
     }

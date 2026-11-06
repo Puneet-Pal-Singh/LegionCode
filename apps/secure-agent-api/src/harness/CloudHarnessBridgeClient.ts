@@ -7,6 +7,7 @@ import {
 } from "@repo/worker-protocol";
 import {
   CloudHarnessHostFrameSchema,
+  cloudHarnessRequestTarget,
   CloudHarnessRequestSchema,
   sameCloudHarnessSession,
   type CloudHarnessHostFrame,
@@ -34,6 +35,7 @@ export class CloudHarnessBridgeClient {
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
       bytes: number;
+      target: CloudHarnessTarget;
     }
   >();
   private observer?: { session: HarnessSession; observe: Observe };
@@ -66,11 +68,15 @@ export class CloudHarnessBridgeClient {
     this.observer = { session, observe };
   }
 
-  async request(raw: CloudHarnessRequest): Promise<Result> {
+  async request(
+    raw: CloudHarnessRequest,
+    beforeSend?: () => void,
+  ): Promise<Result> {
     const request = CloudHarnessRequestSchema.parse(raw);
     const encoded = encodeCloudHarnessBridgeFrame(request);
     const bytes = new TextEncoder().encode(encoded).byteLength;
-    await this.supervisor.assertActive(this.target);
+    const target = cloudHarnessRequestTarget(request);
+    await this.supervisor.authorize(target);
     if (
       this.closed ||
       !this.transport ||
@@ -78,6 +84,7 @@ export class CloudHarnessBridgeClient {
       this.pendingBytes + bytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes
     )
       throw new Error("Cloud harness transport unavailable; recovery required");
+    beforeSend?.();
     return new Promise<Result>((resolve, reject) => {
       const timer = setTimeout(() => this.fence(), this.timeoutMs);
       this.pending.set(request.requestId, {
@@ -86,6 +93,7 @@ export class CloudHarnessBridgeClient {
         reject,
         timer,
         bytes,
+        target,
       });
       this.pendingBytes += bytes;
       try {
@@ -98,7 +106,6 @@ export class CloudHarnessBridgeClient {
 
   private async receive(encoded: string): Promise<void> {
     const frame = CloudHarnessHostFrameSchema.parse(JSON.parse(encoded));
-    await this.supervisor.assertActive(this.target);
     if (this.closed) throw new Error("Cloud harness transport fenced");
     if (frame.type === "observation") {
       const observation = HarnessObservationSchema.parse(frame.observation);
@@ -108,7 +115,10 @@ export class CloudHarnessBridgeClient {
         !sameCloudHarnessSession(observer.session, observation.session)
       )
         throw new Error("Cloud harness observation binding mismatch");
-      await this.supervisor.assertActive({ session: observation.session });
+      await this.supervisor.authorize({
+        operation: "observation",
+        session: observation.session,
+      });
       const ack = HarnessCommitAckSchema.parse(
         await observer.observe(observation),
       );
@@ -117,7 +127,10 @@ export class CloudHarnessBridgeClient {
         ack.committedSequence !== observation.sequence
       )
         throw new Error("Cloud harness commit acknowledgement mismatch");
-      await this.supervisor.assertActive({ session: observation.session });
+      await this.supervisor.authorize({
+        operation: "commit_ack",
+        session: observation.session,
+      });
       if (this.closed) throw new Error("Cloud harness transport fenced");
       // Only the canonical durable commit callback can produce this ACK.
       this.transport!.send(
@@ -135,6 +148,7 @@ export class CloudHarnessBridgeClient {
       (frame.type === "result" && frame.operation !== pending.operation)
     )
       throw new Error("Cloud harness response correlation mismatch");
+    await this.supervisor.authorize(pending.target);
     this.pending.delete(frame.requestId);
     this.pendingBytes -= pending.bytes;
     clearTimeout(pending.timer);

@@ -23,6 +23,9 @@ export function startCloudHarnessHost(options?: {
 }) {
   const disabled = new CloudHarnessComposition({
     assertActive: async () => assertCloudHarnessLaunchAvailable(),
+    assertCleanup: async () => {
+      throw new CloudHarnessUnavailableError();
+    },
     configureHost: async () => {
       throw new CloudHarnessUnavailableError();
     },
@@ -69,14 +72,20 @@ export function startCloudHarnessHost(options?: {
     void (async () => {
       // Deny BEFORE calling credential/custody authority or accepting a private
       // execution connection. The status-only entry never boots provider state.
-      assertCloudHarnessLaunchAvailable();
+      const cleanupOnly =
+        request.headers["x-legion-harness-intent"] === "cleanup";
+      if (!cleanupOnly) assertCloudHarnessLaunchAvailable();
       if (!options) throw new Error("Cloud harness authority unavailable");
       const context = await options.authenticate(request);
+      if (context.cleanupOnly !== cleanupOnly)
+        throw new Error("Cloud harness capability intent mismatch");
       sockets.handleUpgrade(request, socket, head, (connection) =>
         attachCloudHarnessBridge(
           connection,
           context.composition,
           context.command,
+          context.cleanupOnly,
+          context.cleanupSession,
         ),
       );
     })()

@@ -124,6 +124,8 @@
 // solid compliant
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
+import { CLOUD_HARNESS_AVAILABILITY } from "./harness/CloudHarnessAvailability";
+import { handleCloudHarnessDispatch } from "./harness/CloudHarnessService";
 import { Sandbox } from "@cloudflare/sandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
@@ -251,7 +253,20 @@ export default {
       // 3. Route to proper Durable Object methods
       let response: Response;
 
-      if (url.pathname === "/api/debug/runtime" && request.method === "GET") {
+      if (
+        url.pathname === "/api/v1/internal/harness/capabilities" &&
+        request.method === "GET"
+      ) {
+        // Actual SECURE_API Fetcher boundary, guarded by existing service auth.
+        const authResponse = enforceInternalServiceBinding(request, env);
+        response = authResponse ?? Response.json(CLOUD_HARNESS_AVAILABILITY);
+      } else if (
+        url.pathname === "/api/v1/internal/harness/dispatch" &&
+        request.method === "POST"
+      ) {
+        const authResponse = enforceInternalServiceBinding(request, env);
+        response = authResponse ?? await handleCloudHarnessDispatch(request, env);
+      } else if (url.pathname === "/api/debug/runtime" && request.method === "GET") {
         response = Response.json(buildSecureRuntimeDebugPayload(env));
       } else if (
         url.pathname === "/api/v1/session" &&

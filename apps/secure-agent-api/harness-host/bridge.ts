@@ -12,6 +12,8 @@ import {
   CloudHarnessWorkerFrameSchema,
   CloudHarnessResultSchema,
   sameCloudHarnessSession,
+  cloudHarnessRequestTarget,
+  isCloudHarnessCleanup,
   type CloudHarnessRequest,
 } from "../src/harness/CloudHarnessBridgeProtocol";
 import {
@@ -30,9 +32,16 @@ export function attachCloudHarnessBridge(
   socket: WebSocket,
   composition: CloudHarnessComposition,
   admission: HarnessStartCommand,
+  cleanupOnly = false,
+  cleanupSession?: HarnessSession,
 ): void {
   const admittedCommand = JSON.stringify(admission);
   const assertSessionScope = (session: HarnessSession): void => {
+    if (
+      cleanupOnly &&
+      (!cleanupSession || !sameCloudHarnessSession(session, cleanupSession))
+    )
+      throw new Error("Cloud harness cleanup process mismatch");
     if (
       session.runAttemptId !== admission.selection.runAttemptId ||
       session.instanceId !== admission.selection.instanceId
@@ -91,7 +100,10 @@ export function attachCloudHarnessBridge(
   ): Promise<HarnessCommitAck> => {
     const observation = HarnessObservationSchema.parse(raw);
     assertSessionScope(observation.session);
-    await composition.assertActive({ session: observation.session });
+    await composition.authorize({
+      operation: "observation",
+      session: observation.session,
+    });
     const deliveryId = randomUUID();
     const frame = { type: "observation", deliveryId, observation };
     const bytes = Buffer.byteLength(encodeCloudHarnessBridgeFrame(frame));
@@ -121,33 +133,27 @@ export function attachCloudHarnessBridge(
   };
   const dispatch = async (request: CloudHarnessRequest): Promise<void> => {
     const operation = request.operation;
-    const target =
-      operation === "open" || operation === "execute"
-        ? { command: request.command }
-        : operation === "control"
-          ? {
-              session:
-                request.command.kind === "reply" ||
-                request.command.kind === "user_input_reply"
-                  ? request.command.reply.replyTo.session
-                  : request.command.session,
-            }
-          : { session: request.session };
+    const target = cloudHarnessRequestTarget(request);
+    if (cleanupOnly && !isCloudHarnessCleanup(target))
+      throw new Error("Cleanup capability cannot authorize provider work");
     if ("command" in target) {
       if (JSON.stringify(target.command) !== admittedCommand)
         throw new Error("Cloud harness bridge admission mismatch");
     } else assertSessionScope(target.session);
-    await composition.assertActive(target);
+    await composition.authorize(target);
     if (request.operation === "open" && request.command.resumeSession !== null)
       throw new Error(
         "Cloud harness prior-generation resume unavailable; recovery required",
       );
     if (request.operation === "execute") {
       assertSessionScope(request.session);
-      await composition.assertActive({ session: request.session });
+      await composition.authorize({
+        operation: "execute",
+        session: request.session,
+      });
     }
     // Gate before provider process/session boot, credentials, or external replies.
-    assertCloudHarnessLaunchAvailable();
+    if (!isCloudHarnessCleanup(target)) assertCloudHarnessLaunchAvailable();
     const signal = new AbortController().signal;
     let result: unknown;
     switch (request.operation) {
@@ -209,7 +215,7 @@ export function attachCloudHarnessBridge(
         };
         break;
     }
-    await composition.assertActive(target);
+    await composition.authorize(target);
     send(CloudHarnessResultSchema.parse(result));
   };
   socket.on("message", (data, binary) => {
@@ -246,7 +252,7 @@ export function attachCloudHarnessBridge(
       }
       pending.acknowledging = true;
       void composition
-        .assertActive({ session: ackFrame.ack.session })
+        .authorize({ operation: "commit_ack", session: ackFrame.ack.session })
         .then(() => {
           if (closed || waitingAcks.get(ackFrame.deliveryId) !== pending)
             return;

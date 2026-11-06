@@ -124,13 +124,17 @@ export function composeRuntime(input: ComposeRuntimeInput): ComposedRuntime {
   };
 }
 
-/** Hosted canonical runtime receives this delegated port through its existing
- * execution composition. The authority must come from durable admission/leases;
- * plugin task leases and browser connections cannot substitute for it.
+/** Assembly INSIDE the secure Worker only. Brain calls authenticated SECURE_API
+ * HTTP routes; this object is never a JavaScript environment binding across
+ * Workers. The service handler constructs its authority from the persisted lease.
  */
 export function composeCloudHarnessRuntime(
   authority: CloudHarnessSupervisorAuthority,
+  requestTimeoutMs = 60_000,
 ) {
   const supervisor = new CloudHarnessSupervisor(authority);
-  return { supervisor, execution: new CloudHarnessExecutionPort(supervisor) };
+  return {
+    supervisor,
+    execution: new CloudHarnessExecutionPort(supervisor, requestTimeoutMs),
+  };
 }
