@@ -57,6 +57,8 @@ async function reserve(
       env,
       params.runId,
       correlationId,
+      undefined,
+      params.sessionId,
     );
     if (scope.userId !== userId)
       throw new Error(
@@ -142,6 +144,8 @@ async function read(
       env,
       query.runId,
       correlationId,
+      undefined,
+      query.sessionId,
     );
     if (scope.userId !== userId)
       throw new Error("Authenticated principal changed during turn scope read");

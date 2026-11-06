@@ -1,16 +1,11 @@
 import { z } from "zod";
-import type { Env } from "../../types/ai";
-import { DomainError, ValidationError } from "../../domain/errors";
+import { ValidationError } from "../../domain/errors";
 import { validateWithSchema } from "../../http/validation";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderRuntimeScopeInput,
 } from "../../types/provider-scope";
-import {
-  getAuthenticatedUserSession,
-  type UserSessionRecord,
-} from "../../services/AuthService";
 import { RunIdSchema, type RunId } from "@repo/platform-protocol";
 
 const ScopeIdSchema = z
@@ -25,53 +20,6 @@ export interface ParsedProviderAuthScopeRequest {
   runId?: RunId;
   requestedUserId?: string;
   requestedWorkspaceId?: string;
-}
-
-interface SessionClaims {
-  userId: string;
-  workspaceIds: string[];
-  defaultWorkspaceId: string;
-}
-
-export async function resolveAuthorizedProviderScope(
-  request: Request,
-  env: Env,
-  correlationId: string,
-  validatedRunId?: RunId,
-  verifiedPrincipal?: { userId: string; session: UserSessionRecord },
-  options: { ignoreLegacyQueryScope?: boolean } = {},
-): Promise<AuthorizedProviderScope> {
-  const { runId } = parseProviderAuthScopeIdentity(
-    request,
-    correlationId,
-    validatedRunId,
-    options.ignoreLegacyQueryScope,
-  );
-  const claims = verifiedPrincipal
-    ? buildSessionClaims(
-        verifiedPrincipal.userId,
-        verifiedPrincipal.session,
-        correlationId,
-      )
-    : await loadSessionClaims(request, env, correlationId);
-  const requestedUserId = parseRequestedProviderUserId(request, correlationId);
-
-  if (requestedUserId && requestedUserId !== claims.userId) {
-    throw new DomainError(
-      "AUTH_FAILED",
-      "Forbidden: requested user scope does not match authenticated user.",
-      403,
-      false,
-      correlationId,
-    );
-  }
-
-  const workspaceId = resolveWorkspaceScope(
-    parseRequestedProviderWorkspaceId(request, correlationId),
-    claims,
-    correlationId,
-  );
-  return { runId, userId: claims.userId, workspaceId };
 }
 
 /** Parse hosted-provider request identity and header intent without authorizing resources. */
@@ -100,18 +48,6 @@ export function parseProviderAuthScopeRequest(
   return {
     runId: validatedRunId ?? requestedRunId,
     ...parseProviderAuthScopeHeaders(request, correlationId),
-  };
-}
-
-function parseProviderAuthScopeIdentity(
-  request: Request,
-  correlationId: string,
-  validatedRunId?: RunId,
-  ignoreLegacyQueryScope = false,
-): Pick<ParsedProviderAuthScopeRequest, "runId"> {
-  if (!ignoreLegacyQueryScope) rejectLegacyQueryScope(request, correlationId);
-  return {
-    runId: validatedRunId ?? parseRequiredRunId(request, correlationId),
   };
 }
 
@@ -165,146 +101,6 @@ function rejectLegacyQueryScope(request: Request, correlationId: string): void {
   }
 }
 
-function parseRequiredRunId(request: Request, correlationId: string): RunId {
-  const runIdHeader = request.headers.get("X-Run-Id");
-  if (!runIdHeader || runIdHeader.trim().length === 0) {
-    throw new ValidationError(
-      "Missing required X-Run-Id header.",
-      "MISSING_RUN_ID",
-      correlationId,
-    );
-  }
-
-  return validateWithSchema<RunId>(
-    runIdHeader.trim(),
-    RunIdSchema,
-    correlationId,
-  );
-}
-
-async function loadSessionClaims(
-  request: Request,
-  env: Env,
-  correlationId: string,
-): Promise<SessionClaims> {
-  try {
-    const authenticatedSession = await getAuthenticatedUserSession(
-      request,
-      env,
-    );
-    if (!authenticatedSession) {
-      throw unauthorized(correlationId);
-    }
-
-    return buildSessionClaims(
-      authenticatedSession.userId,
-      authenticatedSession.session,
-      correlationId,
-    );
-  } catch (error) {
-    if (error instanceof DomainError) {
-      throw error;
-    }
-
-    console.warn(
-      `[provider/auth-scope] ${correlationId}: session store read failed`,
-      error,
-    );
-    throw new DomainError(
-      "PROVIDER_UNAVAILABLE",
-      "Session store is temporarily unavailable. Please retry.",
-      503,
-      true,
-      correlationId,
-    );
-  }
-}
-
-function buildSessionClaims(
-  verifiedUserId: string,
-  session: UserSessionRecord,
-  correlationId: string,
-): SessionClaims {
-  const workspaceIds = collectWorkspaceIds(session, correlationId);
-  const defaultWorkspaceId = workspaceIds[0];
-  if (!defaultWorkspaceId) {
-    throw new ValidationError(
-      "Missing default workspace claim.",
-      "VALIDATION_ERROR",
-      correlationId,
-    );
-  }
-
-  return {
-    userId: parseRequiredScopeId(
-      verifiedUserId,
-      "verifiedUserId",
-      correlationId,
-    ),
-    workspaceIds,
-    defaultWorkspaceId,
-  };
-}
-
-function collectWorkspaceIds(
-  session: UserSessionRecord,
-  correlationId: string,
-): string[] {
-  const scoped = new Set<string>();
-  for (const value of session.workspaceIds ?? []) {
-    const parsed = parseOptionalScopeId(
-      value,
-      "session.workspaceIds",
-      correlationId,
-    );
-    if (parsed) {
-      scoped.add(parsed);
-    }
-  }
-
-  const explicitWorkspace = parseOptionalScopeId(
-    session.workspaceId,
-    "session.workspaceId",
-    correlationId,
-  );
-  if (explicitWorkspace) {
-    scoped.add(explicitWorkspace);
-  }
-
-  const defaultWorkspace = parseOptionalScopeId(
-    session.defaultWorkspaceId,
-    "session.defaultWorkspaceId",
-    correlationId,
-  );
-  if (defaultWorkspace) {
-    scoped.add(defaultWorkspace);
-  }
-
-  return Array.from(scoped);
-}
-
-function resolveWorkspaceScope(
-  requestedWorkspace: string | undefined,
-  claims: SessionClaims,
-  correlationId: string,
-): string {
-  if (!requestedWorkspace) {
-    return claims.defaultWorkspaceId;
-  }
-
-  if (!claims.workspaceIds.includes(requestedWorkspace)) {
-    throw new DomainError(
-      "AUTH_FAILED",
-      "Forbidden: requested workspace scope is not authorized.",
-      403,
-      false,
-      correlationId,
-    );
-  }
-
-  return requestedWorkspace;
-}
-
 function parseOptionalScopeHeader(
   value: string | null,
   fieldName: string,
@@ -335,30 +131,4 @@ function parseOptionalScopeId(
       correlationId,
     );
   }
-}
-
-function parseRequiredScopeId(
-  value: string,
-  fieldName: string,
-  correlationId: string,
-): string {
-  const parsed = parseOptionalScopeId(value, fieldName, correlationId);
-  if (!parsed) {
-    throw new ValidationError(
-      `Missing required ${fieldName}.`,
-      "VALIDATION_ERROR",
-      correlationId,
-    );
-  }
-  return parsed;
-}
-
-function unauthorized(correlationId: string): DomainError {
-  return new DomainError(
-    "AUTH_FAILED",
-    "Unauthorized: missing or invalid authentication.",
-    401,
-    false,
-    correlationId,
-  );
 }
