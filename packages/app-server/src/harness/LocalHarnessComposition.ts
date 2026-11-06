@@ -1,4 +1,6 @@
 import { createHarnessHost, HarnessExecutionPort, HarnessRegistry, HarnessSessionManager, type HarnessDriver, type HarnessInstance, type HarnessInstanceScope, type HarnessHost } from "@repo/harness-core/server";
+import { CodexDriver } from "@repo/harness-codex/server";
+import { RuntimeKernel, type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
 import type { ReplayLifecycleEventsRequest, ThreadId } from "@repo/platform-protocol";
@@ -9,6 +11,7 @@ import { LocalThreadNotFoundError, LocalThreadService } from "../local-threads.j
 import { LocalWorkspaceService } from "../local-workspace.js";
 
 type HostConfiguration = Omit<Parameters<typeof createHarnessHost>[0], "workspaceRoot">;
+type ConfigureHost = (command: Parameters<HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>;
 
 /** Node-only local composition. Persistence remains the process's single SQLite writer. */
 export class LocalHarnessComposition {
@@ -52,36 +55,73 @@ export class LocalHarnessComposition {
     });
   }
 
+  /** The canonical kernel exclusively selects delegated versus native execution.
+   * Observation recovery/commit/reply claims and lease/auth fencing must come from
+   * the same local persistence and custody authorities; none has an in-memory default.
+   */
+  createRuntime(
+    dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">,
+    execution: Omit<DelegatedExecutionDependencies, "harness">,
+  ): RuntimeKernel {
+    return new RuntimeKernel({
+      ...dependencies,
+      lifecycleEvents: this.persistence.lifecycleEvents,
+      delegated: {
+        ...execution,
+        harness: this.harnessExecution,
+        assertActive: async (input) => {
+          await this.assertLocalExecution(input);
+          await execution.assertActive(input);
+        },
+      },
+    });
+  }
+
+  /** Uses the final driver package unchanged. Its pinned platform/auth gates remain authoritative. */
+  registerCodexInstance(
+    scope: HarnessInstanceScope & { readonly harness: "codex" },
+    executable: string,
+    configureHost: ConfigureHost,
+  ): void {
+    this.registerInstance(scope, new CodexDriver(executable), configureHost);
+  }
+
   /** Trusted local setup only. Runtime must durably admit/claim before opening this port. */
   registerInstance(
     scope: HarnessInstanceScope,
     driver: HarnessDriver,
-    configureHost: (command: Parameters<HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>,
+    configureHost: ConfigureHost,
   ): void {
     this.registry.register({
       scope,
       driver,
       createHost: async (command) => {
-        const selection = command.selection;
-        const admission = await this.persistence.turnAdmissions.getByTurn(selection.turnId);
-        if (!admission || admission.run.id !== selection.runId ||
-            admission.run.threadId !== selection.threadId || admission.run.userId !== selection.userId ||
-            admission.run.workspaceId !== selection.workspaceId || admission.run.modelId !== selection.modelId ||
-            admission.runAttemptId !== selection.runAttemptId || admission.turn.id !== selection.turnId) {
-          throw new Error("Harness execution does not match a canonical local Turn admission");
-        }
-        const thread = await this.threadService.get(command.selection.threadId);
-        if (thread.userId !== command.selection.userId || thread.workspaceId !== command.selection.workspaceId) {
-          throw new Error("Harness selection does not match the authorized local thread");
-        }
-        const grant = await this.workspaceService.requireExecutionGrant(thread.workspaceId);
-        if (grant.path !== command.filesystemRoot) {
-          throw new Error("Harness execution root does not match the local workspace grant");
-        }
+        const { thread, grant } = await this.assertLocalExecution(command);
         // Resolve the selected instance's protected environment only after local scope checks.
         return this.createGrantedHost(thread.id, grant, await configureHost(command));
       },
     });
+  }
+
+  private async assertLocalExecution(input: Parameters<DelegatedExecutionDependencies["assertActive"]>[0]) {
+    const selection = input.selection;
+    const admission = await this.persistence.turnAdmissions.getByTurn(selection.turnId);
+    if (!admission || admission.run.id !== selection.runId ||
+        admission.run.threadId !== selection.threadId || admission.run.userId !== selection.userId ||
+        admission.run.workspaceId !== selection.workspaceId || admission.run.modelId !== selection.modelId ||
+        admission.run.permissionProfileId !== selection.policyId || admission.run.executionCapability === "conversation" ||
+        admission.runAttemptId !== selection.runAttemptId || admission.turn.id !== selection.turnId) {
+      throw new Error("Harness execution does not match a canonical local Turn admission");
+    }
+    const thread = await this.threadService.get(selection.threadId);
+    if (thread.status !== "active" || thread.userId !== selection.userId || thread.workspaceId !== selection.workspaceId) {
+      throw new Error("Harness selection does not match the authorized local thread");
+    }
+    const grant = await this.workspaceService.requireExecutionGrant(thread.workspaceId);
+    if (grant.path !== input.filesystemRoot) {
+      throw new Error("Harness execution root does not match the local workspace grant");
+    }
+    return { thread, grant };
   }
 
   /** Host setup is private plumbing, not admission or permission to start a Turn.
@@ -125,7 +165,7 @@ export class LocalHarnessComposition {
   private async assertCurrentGrant(threadId: ThreadId, expected: StoredLocalWorkspaceGrant): Promise<void> {
     const thread = await this.threadService.get(threadId);
     const current = await this.workspaceService.requireExecutionGrant(thread.workspaceId);
-    if (current.path !== expected.path ||
+    if (thread.status !== "active" || current.path !== expected.path ||
         current.grant.workspaceId !== expected.grant.workspaceId ||
         current.grant.grantedAt !== expected.grant.grantedAt) {
       throw new Error("The local workspace grant changed before process launch");
