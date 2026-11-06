@@ -39,23 +39,34 @@ describe("hosted provider AppServer transport", () => {
   it.each([
     [null, "MISSING_RUN_ID"],
     ["session_stale_scope", "INVALID_REQUEST_CONTRACT"],
-  ] as const)("rejects a non-canonical run id before fetch", async (invalidRunId, code) => {
-    const fetchImpl = vi.fn();
-    const client = createProviderClient(
-      createProviderAppServerTransport({
-        appServerBaseUrl: "https://brain.test",
-        getRunId: () => invalidRunId,
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    );
+  ] as const)(
+    "rejects a non-canonical run id before fetch",
+    async (invalidRunId, code) => {
+      const fetchImpl = vi.fn(async () =>
+        response("provider/catalog", { providers: [] }),
+      );
+      const client = createProviderClient(
+        createProviderAppServerTransport({
+          appServerBaseUrl: "https://brain.test",
+          getRunId: () => invalidRunId,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      );
 
-    await expect(client.discoverProviders()).rejects.toMatchObject({
-      code,
-      statusCode: 400,
-      retryable: false,
-    });
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
+      if (invalidRunId === null) {
+        await expect(client.discoverProviders()).resolves.toEqual([]);
+        expect(fetchImpl).toHaveBeenCalledOnce();
+        return;
+      }
+
+      await expect(client.discoverProviders()).rejects.toMatchObject({
+        code,
+        statusCode: 400,
+        retryable: false,
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps caller headers and explicit authorization while protecting canonical headers", async () => {
     const fetchImpl = vi.fn<

@@ -101,19 +101,20 @@ export function errorResponse(
  * @param request - The incoming HTTP request (for CORS origin)
  * @param env - Cloudflare environment (for CORS configuration)
  * @param response - The base response to enhance
- * @param runId - The run ID to include in headers
+ * @param runId - The run ID to include in headers when this operation belongs to a run
  * @returns New Response with engine headers merged with base response
  */
 export function withEngineHeaders(
   request: Request,
   env: Env,
   response: Response,
-  runId: string,
+  runId?: string,
   runtime: string = response.headers.get("X-Run-Engine-Runtime") ?? "do",
 ): Response {
   const headers = new Headers(response.headers);
   headers.set("X-Engine-Version", "3.0");
-  headers.set("X-Run-Id", runId);
+  if (runId !== undefined) headers.set("X-Run-Id", runId);
+  else headers.delete("X-Run-Id");
   headers.set("X-Run-Engine-Runtime", runtime);
   forwardRunEngineRuntimeHeaders(response.headers, headers);
   const runtimeHeaders = getBrainRuntimeHeaders(env);

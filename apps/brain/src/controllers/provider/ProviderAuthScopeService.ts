@@ -5,7 +5,7 @@ import { validateWithSchema } from "../../http/validation";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
-  type ProviderStoreScopeInput,
+  type ProviderRuntimeScopeInput,
 } from "../../types/provider-scope";
 import {
   getAuthenticatedUserSession,
@@ -19,13 +19,10 @@ const ScopeIdSchema = z
   .max(MAX_SCOPE_IDENTIFIER_LENGTH)
   .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
 
-export interface AuthorizedProviderScope extends ProviderStoreScopeInput {
-  userId: string;
-  workspaceId: string;
-}
+export interface AuthorizedProviderScope extends ProviderRuntimeScopeInput {}
 
 export interface ParsedProviderAuthScopeRequest {
-  runId: RunId;
+  runId?: RunId;
   requestedUserId?: string;
   requestedWorkspaceId?: string;
 }
@@ -83,8 +80,25 @@ export function parseProviderAuthScopeRequest(
   correlationId: string,
   validatedRunId?: RunId,
 ): ParsedProviderAuthScopeRequest {
+  rejectLegacyQueryScope(request, correlationId);
+  const runIdHeader = request.headers.get("X-Run-Id");
+  const requestedRunId =
+    runIdHeader === null
+      ? undefined
+      : validateWithSchema<RunId>(
+          runIdHeader.trim(),
+          RunIdSchema,
+          correlationId,
+        );
+  if (validatedRunId && requestedRunId && validatedRunId !== requestedRunId) {
+    throw new ValidationError(
+      "Provider request run ID does not match its canonical run header.",
+      "INVALID_SCOPE_IDENTIFIER",
+      correlationId,
+    );
+  }
   return {
-    ...parseProviderAuthScopeIdentity(request, correlationId, validatedRunId),
+    runId: validatedRunId ?? requestedRunId,
     ...parseProviderAuthScopeHeaders(request, correlationId),
   };
 }
@@ -96,7 +110,9 @@ function parseProviderAuthScopeIdentity(
   ignoreLegacyQueryScope = false,
 ): Pick<ParsedProviderAuthScopeRequest, "runId"> {
   if (!ignoreLegacyQueryScope) rejectLegacyQueryScope(request, correlationId);
-  return { runId: validatedRunId ?? parseRequiredRunId(request, correlationId) };
+  return {
+    runId: validatedRunId ?? parseRequiredRunId(request, correlationId),
+  };
 }
 
 function parseProviderAuthScopeHeaders(
@@ -105,12 +121,22 @@ function parseProviderAuthScopeHeaders(
 ): Omit<ParsedProviderAuthScopeRequest, "runId"> {
   return {
     requestedUserId: parseRequestedProviderUserId(request, correlationId),
-    requestedWorkspaceId: parseRequestedProviderWorkspaceId(request, correlationId),
+    requestedWorkspaceId: parseRequestedProviderWorkspaceId(
+      request,
+      correlationId,
+    ),
   };
 }
 
-function parseRequestedProviderUserId(request: Request, correlationId: string): string | undefined {
-  return parseOptionalScopeHeader(request.headers.get("X-User-Id"), "X-User-Id", correlationId);
+function parseRequestedProviderUserId(
+  request: Request,
+  correlationId: string,
+): string | undefined {
+  return parseOptionalScopeHeader(
+    request.headers.get("X-User-Id"),
+    "X-User-Id",
+    correlationId,
+  );
 }
 
 function parseRequestedProviderWorkspaceId(
