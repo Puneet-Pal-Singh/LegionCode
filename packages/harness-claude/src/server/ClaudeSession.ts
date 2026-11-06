@@ -23,6 +23,7 @@ import type {
   HookCallback,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { ClaudeQuestionRequests } from "./ClaudeQuestionMapper.js";
 import { ClaudeEventMapper } from "./ClaudeEventMapper.js";
 import { claudePermissionObservation } from "./ClaudePermissionMapper.js";
 import { claudeProcessAdapter } from "./sdk/ClaudeProcessAdapter.js";
@@ -39,6 +40,9 @@ interface NativePermission {
 export class ClaudeSession implements HarnessLiveSession {
   readonly session: HarnessSession;
   private readonly mapper: ClaudeEventMapper;
+  private readonly questions: ClaudeQuestionRequests;
+  private interactionTail: Promise<unknown> = Promise.resolve();
+  private pendingInteractions = 0;
   private readonly permissions = new Map<string, NativePermission>();
   private readonly fingerprint: string;
   private readonly promptId = randomUUID();
@@ -47,6 +51,8 @@ export class ClaudeSession implements HarnessLiveSession {
   private stopped = false;
   private finished = false;
   private deliveryFailed = false;
+  private foregroundTerminalStarted = false;
+  private readonly stoppedSignal = new AbortController();
 
   constructor(private readonly opening: Opening) {
     this.session = HarnessSessionSchema.parse({
@@ -56,6 +62,12 @@ export class ClaudeSession implements HarnessLiveSession {
       processGeneration: opening.host.processGeneration,
     });
     this.mapper = new ClaudeEventMapper(this.session);
+    this.questions = new ClaudeQuestionRequests({
+      session: this.session,
+      authOwnerGeneration: opening.command.selection.authOwnerGeneration,
+      active: () => !this.stopped && !this.finished,
+      observe: (payload) => this.emit(payload),
+    });
     this.fingerprint = JSON.stringify(opening.command);
   }
 
@@ -70,8 +82,24 @@ export class ClaudeSession implements HarnessLiveSession {
     return this.execution;
   }
 
+  async observeExisting(
+    input: Parameters<HarnessLiveSession["observeExisting"]>[0],
+  ): Promise<void> {
+    if (input.signal.aborted || !this.execution)
+      throw new HarnessHostError("stale_session");
+    const abort = () => this.beginStop();
+    input.signal.addEventListener("abort", abort, { once: true });
+    try {
+      await this.execution;
+    } finally {
+      input.signal.removeEventListener("abort", abort);
+    }
+  }
+
   private async run(signal: AbortSignal): Promise<void> {
     let result: SDKResultMessage | undefined;
+    let backgroundFailure = false;
+    let providerCompletedAt = new Date().toISOString();
     let observer: Promise<void> | undefined;
     const abort = () => this.beginStop();
     signal.addEventListener("abort", abort, { once: true });
@@ -85,10 +113,16 @@ export class ClaudeSession implements HarnessLiveSession {
           sessionId: this.session.externalSessionId,
           // Mandatory policy lives in PreToolUse, including calls the SDK would auto-allow.
           beforeTool: this.beforeTool,
-          canUseTool: async () => ({
-            behavior: "deny",
-            message: "No canonical grant for this native permission origin",
-          }),
+          canUseTool: async (name, input, origin) => {
+            if (name === "AskUserQuestion")
+              return this.interact(origin.signal, () =>
+                this.questions.request(input, origin),
+              );
+            return {
+              behavior: "deny",
+              message: "No canonical grant for this native permission origin",
+            };
+          },
           spawnClaudeCodeProcess: claudeProcessAdapter(async (options) => {
             if (
               this.stopped ||
@@ -114,9 +148,15 @@ export class ClaudeSession implements HarnessLiveSession {
           for (const payload of this.mapper.map(message))
             await this.emit(payload);
           if (message.type === "result") {
-            if (result !== undefined)
-              throw new HarnessHostError("stale_session");
+            if (result !== undefined) {
+              // Native background completion can drive another root meta turn.
+              // It stays in this admitted attempt; never accept another client UUID.
+              backgroundFailure ||=
+                message.is_error || message.subtype !== "success";
+              return;
+            }
             result = message;
+            providerCompletedAt = new Date().toISOString();
             resolve(message);
           }
         });
@@ -140,14 +180,20 @@ export class ClaudeSession implements HarnessLiveSession {
         session_id: this.session.externalSessionId,
       });
       const terminalResult = await foreground;
+      // Canonical ingress permits explicit background observations after this fact.
+      // Keep the native query and approval/question callbacks alive for owned children.
+      await this.emit(
+        this.mapper.terminal(terminalResult, this.stopped, providerCompletedAt),
+      );
+      await this.runner!.awaitOwnedWork(this.stoppedSignal.signal);
+      if (backgroundFailure) throw new HarnessHostError("stale_session");
       await this.runner!.stop();
       await this.opening.host.terminateProcesses({
         graceMs: 1000,
         killWaitMs: 1000,
       });
       if (observer) await this.withDeadline(observer, 2500);
-      // No lifecycle observation follows this terminal; late child frames were drained first.
-      await this.emit(this.mapper.terminal(terminalResult, this.stopped));
+      // All native observations drained. Runtime still requires independent OS evidence.
     } catch {
       const interrupted = this.stopped || signal.aborted;
       this.beginStop();
@@ -158,9 +204,10 @@ export class ClaudeSession implements HarnessLiveSession {
       this.runner?.close();
       if (observer)
         await this.withDeadline(observer, 2500).catch(() => undefined);
-      if (!this.deliveryFailed) {
+      if (!this.deliveryFailed && !this.foregroundTerminalStarted) {
         await this.emit({
           kind: "external_terminal",
+          providerCompletedAt: new Date().toISOString(),
           status: interrupted ? "interrupted" : "failed",
           itemId: this.mapper.toolItem("terminal"),
           output: "",
@@ -176,7 +223,13 @@ export class ClaudeSession implements HarnessLiveSession {
         });
         return;
       }
-      throw new HarnessHostError("journal_corrupt");
+      throw new HarnessHostError(
+        this.deliveryFailed
+          ? "journal_corrupt"
+          : interrupted
+            ? "stale_session"
+            : "process_not_quiescent",
+      );
     } finally {
       this.finished = true;
       this.runner?.close();
@@ -207,9 +260,9 @@ export class ClaudeSession implements HarnessLiveSession {
       return {
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
-          permissionDecision: "deny",
+          permissionDecision: "ask",
           permissionDecisionReason:
-            "Question replies are unavailable on this connection",
+            "Question answers require the native scoped input callback",
         },
       };
     const replyTo: HarnessRequestOrigin = {
@@ -218,7 +271,9 @@ export class ClaudeSession implements HarnessLiveSession {
       requestId: input.tool_use_id,
       authOwnerGeneration: this.opening.command.selection.authOwnerGeneration,
     };
-    const approved = await this.ask(replyTo, input.tool_name, context.signal);
+    const approved = await this.interact(context.signal, () =>
+      this.ask(replyTo, input.tool_name, context.signal),
+    );
     return {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -284,7 +339,7 @@ export class ClaudeSession implements HarnessLiveSession {
   ): Promise<{ readonly accepted: boolean }> {
     const command = HarnessControlCommandSchema.parse(raw);
     const session =
-      command.kind === "reply"
+      command.kind === "reply" || command.kind === "user_input_reply"
         ? command.reply.replyTo.session
         : command.session;
     if (JSON.stringify(session) !== JSON.stringify(this.session))
@@ -294,6 +349,10 @@ export class ClaudeSession implements HarnessLiveSession {
       return { accepted: true };
     }
     if (command.kind === "steer") return { accepted: false };
+    if (command.kind === "user_input_reply") {
+      await this.questions.respond(command.reply);
+      return { accepted: true };
+    }
     const origin = command.reply.replyTo;
     if (
       this.stopped ||
@@ -335,20 +394,55 @@ export class ClaudeSession implements HarnessLiveSession {
 
   private beginStop(): void {
     this.stopped = true;
+    this.stoppedSignal.abort();
     this.opening.host.fence();
     this.cancelPermissions();
     void this.runner?.stop().catch(() => undefined);
   }
   private cancelPermissions(): void {
     for (const request of this.permissions.values()) request.cancel();
+    this.questions.cancel();
+  }
+
+  private interact<T>(
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (
+      this.pendingInteractions >= 32 ||
+      this.stopped ||
+      this.finished ||
+      signal.aborted
+    )
+      return Promise.reject(new HarnessHostError("request_unavailable"));
+    this.pendingInteractions++;
+    // Current canonical blocking state admits one user interaction at a time.
+    const pending = this.interactionTail.then(() => {
+      if (this.stopped || this.finished || signal.aborted)
+        throw new HarnessHostError("request_unavailable");
+      return operation();
+    });
+    this.interactionTail = pending.catch(() => undefined);
+    return pending.finally(() => {
+      this.pendingInteractions--;
+    });
   }
 
   private async emit(payload: HarnessObservationPayload): Promise<void> {
     try {
+      const background = this.foregroundTerminalStarted;
+      if (payload.kind === "external_terminal")
+        this.foregroundTerminalStarted = true;
+      const observation =
+        background &&
+        payload.kind !== "external_terminal" &&
+        payload.kind !== "quiescence"
+          ? { ...payload, background: true as const }
+          : payload;
       await this.opening.observe({
         session: this.session,
         externalTurnId: this.promptId,
-        payload,
+        payload: observation,
       });
     } catch {
       this.deliveryFailed = true;

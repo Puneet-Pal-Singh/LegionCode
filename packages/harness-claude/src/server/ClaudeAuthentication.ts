@@ -67,6 +67,9 @@ export function selectedClaudeEnvironment(input: {
   env.CLAUDE_CODE_ENTRYPOINT = "sdk-ts";
   env.CLAUDE_AGENT_SDK_VERSION = CLAUDE_AGENT_SDK_VERSION;
   env.CLAUDE_CODE_SDK_READS_SESSION_STATE = "1";
+  // The SDK filters sdk_host_only state frames. Explicit public state events are
+  // required for our native idle wait (verified in pinned CLI + SDK source).
+  env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = "1";
   return Object.freeze(env);
 }
 
