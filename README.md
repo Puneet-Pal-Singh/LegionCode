@@ -16,7 +16,9 @@ LegionCode is open source so you can inspect how it works, run it yourself, and 
 
 ## Demo
 
-[**Watch the LegionCode demo →**](https://drive.google.com/file/d/19-WzmcB3nmhzkmBg2PpKwjtN7GGTHR8r/view?usp=sharing)
+https://github.com/user-attachments/assets/63b74e6a-b3c3-48ca-aae9-7ad1ac99cce8
+
+[Watch the original 4K demo on Google Drive](https://drive.google.com/file/d/19-WzmcB3nmhzkmBg2PpKwjtN7GGTHR8r/view?usp=sharing)
 
 ## Getting started
 
