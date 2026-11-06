@@ -4,6 +4,7 @@ import {
   HarnessObservationSchema,
   HarnessQuiescenceSchema,
   HarnessSessionSchema,
+  HarnessStartCommandSchema,
   type HarnessCommitAck,
   type HarnessControlCommand,
   type HarnessObservation,
@@ -19,13 +20,24 @@ import { ObservationDeliveryJournal } from "./ObservationDeliveryJournal.js";
 import { HarnessHostError } from "./errors.js";
 
 type Observe = (observation: HarnessObservation) => Promise<HarnessCommitAck>;
+
+export type { HarnessRecoveryInput } from "./HarnessRecovery.js";
+import {
+  HarnessRecovery,
+  type HarnessRecoveryInput,
+} from "./HarnessRecovery.js";
+
 interface Attachment {
   readonly command: HarnessStartCommand;
   readonly fingerprint: string;
   readonly controller: AbortController;
   readonly requests: Map<
     string,
-    { committed: Promise<void>; consume: boolean }
+    {
+      committed: Promise<void>;
+      consume: boolean;
+      kind: HarnessObservation["payload"]["kind"];
+    }
   >;
   opening?: Promise<HarnessSession>;
   host?: HarnessHost;
@@ -34,7 +46,9 @@ interface Attachment {
   journal?: ObservationDeliveryJournal<HarnessObservation>;
   observe?: Observe;
   execution?: Promise<void>;
+  observing?: Promise<void>;
   stopping: boolean;
+  retired: boolean;
   cleanup?: Promise<readonly ProcessGroupSettlement[]>;
   readonly controls: Map<
     string,
@@ -53,6 +67,7 @@ export class HarnessSessionManager {
   private readonly attachments = new Map<string, Attachment>();
   private readonly instanceDirectories = new Set<string>();
   private readonly journalDirectories = new Set<string>();
+  private readonly recovery = new HarnessRecovery();
 
   constructor(private readonly registry: HarnessRegistry) {}
 
@@ -61,6 +76,7 @@ export class HarnessSessionManager {
     readonly signal: AbortSignal;
   }): Promise<HarnessSession> {
     const { command, instance } = this.registry.resolve(input.command);
+    const signal = input.signal;
     const fingerprint = JSON.stringify(command);
     const key = command.selection.runAttemptId;
     const existing = this.attachments.get(key);
@@ -77,6 +93,7 @@ export class HarnessSessionManager {
       controller: new AbortController(),
       requests: new Map(),
       stopping: false,
+      retired: false,
       controls: new Map(),
       observationQueue: Promise.resolve(),
       pendingObservations: 0,
@@ -85,8 +102,8 @@ export class HarnessSessionManager {
     // Register before async host creation or any driver/provider I/O so immediate Stop cannot miss it.
     this.attachments.set(key, attachment);
     const abort = () => this.beginStop(attachment);
-    if (input.signal.aborted) abort();
-    else input.signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
     attachment.opening = (async () => {
       try {
         if (attachment.stopping) throw new HarnessHostError("stale_session");
@@ -138,6 +155,57 @@ export class HarnessSessionManager {
     return attachment.opening;
   }
 
+  /** Reconcile before open/rebind. Never resumes provider work or steals a dead writer lock. */
+  reconcilePriorGeneration(
+    input: HarnessRecoveryInput,
+  ): Promise<HarnessQuiescence> {
+    const command = HarnessStartCommandSchema.parse(input.command);
+    const session = command.resumeSession;
+    if (
+      !session ||
+      session.instanceId !== command.selection.instanceId ||
+      Object.is(session.processGeneration, input.host.processGeneration)
+    )
+      throw new HarnessHostError("stale_session");
+    if (
+      !Number.isSafeInteger(input.timeoutMs) ||
+      input.timeoutMs < 1 ||
+      input.timeoutMs > 60_000
+    )
+      throw new HarnessHostError("invalid_launch");
+    const old = this.attachments.get(session.runAttemptId);
+    if (old) {
+      if (old.session) assertSession(session, old.session);
+      if (old.host && old.host.journalDirectory !== input.host.journalDirectory)
+        throw new HarnessHostError("stale_session");
+      this.beginStop(old);
+    }
+    return this.recovery.reconcile({ ...input, command }, session, {
+      beforeReplay: async () => {
+        if (old) {
+          if (this.attachments.get(session.runAttemptId) !== old)
+            throw new HarnessHostError("stale_session");
+          old.retired = true;
+          await old.observationQueue;
+        }
+      },
+      acknowledge: async (sequence) => {
+        await old?.journal?.acknowledge(sequence);
+      },
+      finish: async () => {
+        if (!old) return;
+        await old.journal?.close();
+        if (this.attachments.get(session.runAttemptId) !== old)
+          throw new HarnessHostError("stale_session");
+        this.attachments.delete(session.runAttemptId);
+        if (old.host) {
+          this.instanceDirectories.delete(old.host.instanceDirectory);
+          this.journalDirectories.delete(old.host.journalDirectory);
+        }
+      },
+    });
+  }
+
   execute(input: {
     readonly command: HarnessStartCommand;
     readonly session: HarnessSession;
@@ -177,10 +245,53 @@ export class HarnessSessionManager {
     return attachment.execution;
   }
 
+  observeExisting(input: {
+    readonly session: HarnessSession;
+    readonly signal: AbortSignal;
+    readonly observe: Observe;
+  }): Promise<void> {
+    const attachment = this.requireSession(input.session);
+    if (
+      attachment.retired ||
+      input.signal.aborted ||
+      !attachment.live ||
+      !attachment.journal
+    )
+      return Promise.reject(new HarnessHostError("stale_session"));
+    attachment.observe = input.observe;
+    if (attachment.observing) return attachment.observing;
+    const abort = () => this.beginStop(attachment);
+    input.signal.addEventListener("abort", abort, { once: true });
+    const replay = attachment.observationQueue.then(async () => {
+      for (const observation of await attachment.journal!.pending())
+        await this.deliver(attachment, observation);
+    });
+    attachment.observationQueue = replay.catch(() => undefined);
+    attachment.observing = (async () => {
+      try {
+        await replay;
+        input.signal.throwIfAborted();
+        // This native method has no prompt, steer or reply argument. It may only observe/reconcile.
+        await attachment.live!.observeExisting({
+          signal: attachment.controller.signal,
+        });
+      } catch (error) {
+        this.beginStop(attachment);
+        throw error instanceof HarnessHostError
+          ? error
+          : new HarnessHostError("stale_session");
+      } finally {
+        input.signal.removeEventListener("abort", abort);
+      }
+    })();
+    void attachment.observing.catch(() => undefined);
+    return attachment.observing;
+  }
+
   control(raw: HarnessControlCommand): Promise<{ readonly accepted: boolean }> {
     const command = HarnessControlCommandSchema.parse(raw);
     const session =
-      command.kind === "reply"
+      command.kind === "reply" || command.kind === "user_input_reply"
         ? command.reply.replyTo.session
         : command.session;
     const attachment = this.requireSession(session);
@@ -208,7 +319,7 @@ export class HarnessSessionManager {
     command: HarnessControlCommand,
   ): Promise<{ readonly accepted: boolean }> {
     if (!attachment.live) throw new HarnessHostError("stale_session");
-    if (command.kind === "reply") {
+    if (command.kind === "reply" || command.kind === "user_input_reply") {
       const origin = command.reply.replyTo;
       if (
         attachment.stopping ||
@@ -217,7 +328,13 @@ export class HarnessSessionManager {
       )
         throw new HarnessHostError("request_unavailable");
       const request = attachment.requests.get(requestKey(origin));
-      if (!request || request.consume)
+      if (
+        !request ||
+        request.consume ||
+        (command.kind === "reply"
+          ? request.kind !== "approval_requested"
+          : request.kind !== "user_input_requested")
+      )
         throw new HarnessHostError("request_unavailable");
       await request.committed;
       // A Stop, revoke, or competing reply can win while the commit ACK is in flight.
@@ -357,6 +474,8 @@ export class HarnessSessionManager {
     attachment: Attachment,
     input: Omit<HarnessObservation, "sequence">,
   ): Promise<HarnessCommitAck> {
+    if (attachment.retired)
+      return Promise.reject(new HarnessHostError("stale_session"));
     if (attachment.pendingObservations >= 32) {
       this.beginStop(attachment);
       return Promise.reject(new HarnessHostError("journal_overflow"));
@@ -414,7 +533,10 @@ export class HarnessSessionManager {
     const payload = input.payload;
     let committedResolve: (() => void) | undefined;
     let committedReject: ((error: unknown) => void) | undefined;
-    if (payload.kind === "approval_requested") {
+    if (
+      payload.kind === "approval_requested" ||
+      payload.kind === "user_input_requested"
+    ) {
       assertSession(input.session, payload.replyTo.session);
       if (
         attachment.stopping ||
@@ -432,6 +554,7 @@ export class HarnessSessionManager {
       attachment.requests.set(requestKey(payload.replyTo), {
         committed,
         consume: false,
+        kind: payload.kind,
       });
     }
     try {
@@ -470,20 +593,26 @@ export class HarnessSessionManager {
     directory: string,
     session: HarnessSession,
   ): Promise<ObservationDeliveryJournal<HarnessObservation>> {
-    return ObservationDeliveryJournal.open({
+    return ObservationDeliveryJournal.open(
+      this.journalOptions(directory, session),
+    );
+  }
+
+  private journalOptions(directory: string, session: HarnessSession) {
+    return {
       directory,
       streamKey: JSON.stringify(session),
       maxBytes: 8 * 1024 * 1024,
       maxFrames: 256,
       codec: {
-        parse: (value) => {
+        parse: (value: unknown) => {
           const observation = HarnessObservationSchema.parse(value);
           assertSession(session, observation.session);
           return observation;
         },
-        sequence: (observation) => observation.sequence,
+        sequence: (observation: HarnessObservation) => observation.sequence,
       },
-    });
+    };
   }
 }
 
