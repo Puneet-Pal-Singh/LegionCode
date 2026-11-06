@@ -13,6 +13,8 @@ export type SingleExecutableProcessInput = {
   sandbox: SingleProcessMacSandbox;
   /** Trusted packaged guardian path supplied only by the private runtime composition. */
   processHelperPath: string;
+  /** Optional private writer-fence open description; never model or renderer input. */
+  writerLeaseFd?: number;
 };
 
 export interface SingleProcessMacExecution {

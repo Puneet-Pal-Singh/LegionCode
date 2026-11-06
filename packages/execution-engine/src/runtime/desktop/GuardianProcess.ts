@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, constants, openSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { constants as osConstants } from "node:os";
@@ -57,17 +57,31 @@ export class GuardianProcess {
     if (cwd !== input.cwd || cwdRelative === ".." || cwdRelative.startsWith(`..${sep}`) || isAbsolute(cwdRelative)) {
       throw new SingleProcessMacCapabilityError("Single-executable cwd must be canonical and inside the granted root");
     }
+    if (input.writerLeaseFd !== undefined) {
+      try {
+        if (!Number.isSafeInteger(input.writerLeaseFd) || input.writerLeaseFd < 3 || !fstatSync(input.writerLeaseFd).isFile()) {
+          throw new SingleProcessMacCapabilityError("A valid private writer-fence descriptor is required");
+        }
+      } catch (error) {
+        if (error instanceof SingleProcessMacCapabilityError) throw error;
+        throw new SingleProcessMacCapabilityError("The private writer-fence descriptor is unavailable", error);
+      }
+    }
     const cwdFd = openSync(cwd, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try {
       input.signal.throwIfAborted();
       this.guardian = spawn(input.processHelperPath, [
         "--timeout-ms", String(DEADLINE_MS), "--term-grace-ms", String(GRACE_MS), "--cwd-fd", "5",
+        ...(input.writerLeaseFd === undefined ? [] : ["--lease-fd", "6"]),
         "--profile", sandbox.profile, "--", input.executable, ...input.args,
       ], {
         cwd: input.sandbox.filesystemRoot,
         detached: true,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: input.sandbox.filesystemRoot, TMPDIR: input.sandbox.filesystemRoot, LANG: "C.UTF-8" },
-        stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", cwdFd],
+        // The guardian retains this same open description through waitpid;
+        // its target closes FD6 before exec. Never reopen/unlock the fence here.
+        stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", cwdFd,
+          ...(input.writerLeaseFd === undefined ? [] : [input.writerLeaseFd])],
       });
     } finally { closeSync(cwdFd); }
     // spawn can return a ChildProcess with missing pipes and report EMFILE or
