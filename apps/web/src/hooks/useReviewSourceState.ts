@@ -142,11 +142,11 @@ export function useReviewSourceState({
     promptArtifactSource,
     reviewScope,
     reviewSource,
-    reviewSourceError: shouldLoadArtifactSource
-      ? artifactSourceError ?? (reviewSource.kind === "unavailable_saved_artifact" && artifactSourceResolved
+    reviewSourceError:
+      (shouldLoadArtifactSource ? artifactSourceError : null) ??
+      (reviewSource.kind === "unavailable_saved_artifact" && !reviewSourceLoading
         ? "Saved review is unavailable for this turn."
-        : null)
-      : null,
+        : null),
     reviewSourceLoading,
     ...controls,
   };

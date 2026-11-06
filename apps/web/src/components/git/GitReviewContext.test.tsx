@@ -450,6 +450,15 @@ describe("GitReviewProvider", () => {
     expect(latestArtifactHookInput()).toEqual(
       expect.objectContaining({ enabled: false }),
     );
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("none");
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
+    expect(screen.getByTestId("review-source")).toHaveTextContent("unavailable_saved_artifact:explicit");
+    expect(screen.getByTestId("review-source-error")).toHaveTextContent("Saved review is unavailable for this turn.");
+    expect(screen.getByTestId("review-diff-error")).toHaveTextContent("Saved review is unavailable for this turn.");
+    expect(screen.getByTestId("review-source-loading")).toHaveTextContent("idle");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+    expect(latestGitStatusHookInput()).toEqual(expect.objectContaining({ enabled: false }));
+    expect(latestArtifactHookInput()).toEqual(expect.objectContaining({ enabled: false }));
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
     expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
   });
