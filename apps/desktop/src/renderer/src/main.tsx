@@ -394,7 +394,7 @@ function DesktopApp(): React.JSX.Element {
               workspace={workspace}
               threadId={selectedThread?.id ?? null}
               review={null}
-              files={appServerClient && sdkReady && environment.kind === "local" && workspace?.readiness === "ready" ? {
+              files={appServerClient && sdkReady && environment.status === "ready" && environment.kind === "local" && workspace?.readiness === "ready" ? {
                 workspaceId: workspace.workspaceId,
                 content: <DesktopWorkspaceFilesMount
                   client={appServerClient}
