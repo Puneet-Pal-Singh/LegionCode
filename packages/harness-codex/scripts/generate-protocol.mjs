@@ -11,6 +11,17 @@ import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const manifest = JSON.parse(
+  readFileSync(
+    new URL("../src/runtime-manifest.json", import.meta.url),
+    "utf8",
+  ),
+);
+const platform = `${process.platform}-${process.arch}`;
+if (!Object.hasOwn(manifest.platforms, platform))
+  throw new Error("No verified Codex binary/schema pin for this platform");
+const pin = manifest.platforms[platform];
+
 // Use an explicitly supplied executable. Never resolve an ambient CLI or credentials.
 const binary = process.argv[2];
 if (!binary)
@@ -20,15 +31,12 @@ if (!binary)
 if (resolve(binary) !== binary)
   throw new Error("Codex executable must be absolute");
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
-if (
-  digest(readFileSync(binary)) !==
-  "cdcb45aaa01d0f14e298985e09465aebccd47f64ecd298aea44814af7b62bbda"
-) {
-  throw new Error("Executable does not match the pinned Linux x64 build");
+if (digest(readFileSync(binary)) !== pin.binarySha256) {
+  throw new Error("Executable does not match the pinned platform build");
 }
 if (
   execFileSync(binary, ["--version"], { encoding: "utf8" }).trim() !==
-  "codex-cli 0.167.0"
+  `codex-cli ${manifest.version}`
 ) {
   throw new Error("Unexpected Codex version");
 }
@@ -50,7 +58,7 @@ try {
   if (
     digest(
       readFileSync(join(schemas, "codex_app_server_protocol.schemas.json")),
-    ) !== "021462a9bacd117f4cd40c256a4888619d059cec6a65b795198d521ba660e554"
+    ) !== manifest.schemaSha256
   ) {
     throw new Error("Generated schema does not match the pinned schema");
   }
