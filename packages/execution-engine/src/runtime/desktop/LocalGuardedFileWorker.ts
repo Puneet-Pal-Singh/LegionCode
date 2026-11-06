@@ -17,6 +17,7 @@ import {
   WRITE_FILE_TOOL_INPUT_SCHEMA,
 } from "../tools/CodingToolRegistry.js";
 import { replaceExactText } from "../tools/ExactTextEdit.js";
+import { RuntimeWorkspaceScope } from "../engine/RuntimeWorkspaceScope.js";
 import {
   NativeFilesystemBridge,
   NativeFilesystemError,
@@ -187,6 +188,8 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
         input.workspace.workspaceId !== run.workspaceId ||
         input.workspace.filesystemRoot !== this.filesystemRoot ||
         input.workspace.permissionProfileId !== run.permissionProfileId ||
+        input.workspace.executionLocation !== "desktop_local" ||
+        input.workspace.workerId !== run.workerId ||
         run.executionCapability !== "repository" ||
         run.mode === "ask" ||
         run.mode === "review" ||
@@ -216,8 +219,15 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
     };
     await assertReady();
     let replacements = 0;
+    const scope = new RuntimeWorkspaceScope({
+      ...this.identity,
+      root: this.filesystemRoot,
+    });
+    const normalized = scope.normalizeToolInput(parsed);
+    if (typeof normalized.path !== "string")
+      throw new Error("Canonical mutation path is missing");
     const result = await this.filesystem.mutate({
-      path: parsed.path,
+      path: normalized.path,
       signal,
       beforeCommit: assertReady,
       prepare: (current) => {
@@ -234,10 +244,16 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
     return {
       kind: "completed",
       output: {
-        path: result.path,
-        bytes: result.bytes,
-        created: result.created,
-        ...(name === "edit_file" ? { replacementCount: replacements } : {}),
+        content:
+          name === "edit_file"
+            ? `Edited ${result.path} (${replacements} replacement(s))`
+            : `Wrote ${result.bytes} bytes to ${result.path}`,
+        metadata: {
+          path: result.path,
+          bytes: result.bytes,
+          created: result.created,
+          ...(name === "edit_file" ? { replacementCount: replacements } : {}),
+        },
       },
     };
   }
