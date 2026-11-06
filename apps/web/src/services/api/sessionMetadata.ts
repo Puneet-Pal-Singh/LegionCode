@@ -4,6 +4,8 @@ import { isCanonicalRunId } from "../../lib/run-id";
 import { normalizeSessionRunMode } from "../sessionRunMode";
 import { createHostedAppServerClient } from "./appServerClient";
 
+export type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
+
 // Retain the lifetime and response-body contract of the replaced hosted fetches.
 function client() {
   return createHostedAppServerClient({ timeoutMs: null, maxResponseBytes: null });

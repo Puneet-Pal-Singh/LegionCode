@@ -12,7 +12,6 @@ import * as SessionMetadata from "../services/api/sessionMetadata";
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
-import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
 import { createRunId, isCanonicalRunId } from "../lib/run-id";
@@ -967,7 +966,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     (
       id: string,
       projection: Pick<
-        HostedSessionWorkspaceContext,
+        SessionMetadata.HostedSessionWorkspaceContext,
         "sessionId" | "workspaceId" | "threadId"
       >,
     ) => {
