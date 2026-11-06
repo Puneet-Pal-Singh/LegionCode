@@ -9,3 +9,4 @@ export type {
 } from "./server/transport/CodexStdioTransport.js";
 export { initializeCodex } from "./server/initialize.js";
 export { codexRuntime } from "./server/runtime.js";
+export { CodexNativeSession } from "./server/CodexNativeSession.js";
