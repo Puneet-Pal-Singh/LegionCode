@@ -260,6 +260,15 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         if (admission.state !== "admitted" || admission.requestFingerprint !== input.requestFingerprint) {
           throw new TurnAdmissionConflictError("Queued input admission is incomplete or has a different fingerprint", "fingerprint_conflict");
         }
+        if(input.harnessSelection){
+          await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx,{
+            scope:{userId:input.userId,workspaceId:input.workspaceId!,environmentId:input.harnessSelection.environmentId},
+            sessionId:input.sessionId,threadId:admission.threadId,turnId:admission.turnId,
+            capture:input.harnessSelection,requestFingerprint:input.requestFingerprint,admitted:true,
+          });
+        } else if(admission.harnessSelection){
+          throw new TurnAdmissionConflictError("Frozen harness selection cannot be omitted","harness_selection_conflict");
+        }
         const itemResult = await tx.query<AdmissionRow>(READ_QUEUED_START_SQL, [
           input.sessionId, input.userId, input.threadId, input.workspaceId, input.itemId,
         ]);
@@ -343,6 +352,13 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         null,
         null,
       ]);
+      if(input.harnessSelection){
+        await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx,{
+          scope:{userId:input.userId,workspaceId:input.workspaceId!,environmentId:input.harnessSelection.environmentId},
+          sessionId:input.sessionId,threadId:input.threadId,turnId:input.turnId,
+          capture:input.harnessSelection,requestFingerprint:input.requestFingerprint,admitted:false,
+        });
+      }
       const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
       const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
       const run = await new PostgresRunRepository(tx).ensureRun({

@@ -72,6 +72,7 @@ export interface AdmitContinuationInput extends Omit<AdmitTurnWithPromptInput, "
 }
 
 export interface ReserveQueuedStartInput extends Omit<ReserveTurnAdmissionInput, "clientMessageId" | "continuationOfTurnId" | "originalPromptId" | "continuationTerminalSequence"> {
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   readonly expectedRevision: number;
   readonly itemId: string;
   readonly expectedVersion: number;
