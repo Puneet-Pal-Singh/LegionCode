@@ -1,7 +1,12 @@
 import { AppServerController } from "../../controllers/AppServerController";
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import { describe, it, expect } from "vitest";
-import { MemoryRunRepository, type WorkspaceBootstrapRecord, type WorkspaceRepository } from "@repo/persistence";
+import {
+  MemoryRunRepository,
+  MemoryTranscriptRepository,
+  type WorkspaceBootstrapRecord,
+  type WorkspaceRepository,
+} from "@repo/persistence";
 import type { Env } from "../../types/ai";
 import type {
   BYOKModelPricing,
@@ -33,6 +38,24 @@ function createMockEnv(options?: {
 }): Env {
   const axisConnected = options?.axisConnected ?? true;
   const environment = options?.environment ?? "development";
+  const runRepository = new MemoryRunRepository();
+  const transcriptRepository = new MemoryTranscriptRepository();
+  const testTaskId = "task-provider-scope";
+  void runRepository.ensureRun({
+    id: TEST_RUN_ID,
+    userId: TEST_USER_ID,
+    workspaceId: TEST_WORKSPACE_ID,
+    sessionId: "session-1",
+    taskId: testTaskId,
+  });
+  void transcriptRepository.ensureSession({
+    sessionId: "session-1",
+    userId: TEST_USER_ID,
+    workspaceId: TEST_WORKSPACE_ID,
+    activeRunId: TEST_RUN_ID,
+    taskId: testTaskId,
+    title: "Provider scope test",
+  });
   const providerState = new Map<string, Set<ProviderId>>();
   const preferencesState = new Map<
     string,
@@ -457,7 +480,8 @@ function createMockEnv(options?: {
 
   return {
     RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
-    AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_RUN_REPOSITORY: runRepository,
+    AUTH_TRANSCRIPT_REPOSITORY: transcriptRepository,
     AUTH_WORKSPACE_REPOSITORY: createWorkspaceRepository(),
     AUTH_IDENTITY_REPOSITORY: {
       createGitHubSession: async () => {
