@@ -1,6 +1,11 @@
+import { sameNativePermissions } from "./OpenCodePermissionPolicy.js";
 import { questionPayload } from "./OpenCodeQuestionMapper.js";
 import { createHash } from "node:crypto";
-import type { ModelRef, OpenCodeEvent } from "@opencode/client";
+import type {
+  ModelRef,
+  OpenCodeEvent,
+  SessionCreateInput,
+} from "@opencode/client";
 import {
   ApprovalIdSchema,
   ItemIdSchema,
@@ -38,6 +43,7 @@ export class OpenCodeEventMapper {
       readonly selection: HarnessSelection;
       readonly session: HarnessSession;
       readonly model: ModelRef;
+      readonly permissions: NonNullable<SessionCreateInput["permissions"]>;
       readonly priorThreadTokens: number;
     },
   ) {
@@ -98,6 +104,15 @@ export class OpenCodeEventMapper {
     event: OpenCodeEvent,
   ): ReadonlyArray<HarnessObservationPayload> {
     switch (event.type) {
+      case "session.permissions":
+        if (
+          !sameNativePermissions(
+            this.options.permissions,
+            event.data.permissions,
+          )
+        )
+          throw new OpenCodeTransportError("native policy changed", true);
+        return [];
       case "session.execution.started":
         if (event.data.sessionID === this.options.session.externalSessionId)
           this.pendingTerminal = undefined;
