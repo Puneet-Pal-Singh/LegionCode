@@ -16,6 +16,7 @@ import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
 import type {
   WorkspaceSelection,
 } from "../../shared/desktop-api";
+import { DesktopConversation } from "./DesktopConversation";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
 import { useDesktopEnvironment } from "./useDesktopEnvironment";
 import "./styles.css";
@@ -425,6 +426,13 @@ function DesktopApp(): React.JSX.Element {
                     {selectedThread.status === "active" ? "Archive" : "Unarchive"}
                   </button>
                 </div>
+              ) : null}
+              {selectedThread && appServerClient && sdkReady && environment.status === "ready" ? (
+                <DesktopConversation
+                  client={appServerClient}
+                  thread={selectedThread}
+                  capabilities={environment.capabilities}
+                />
               ) : null}
               {threadError ? <p role="alert">{threadError}</p> : null}
             </section>
