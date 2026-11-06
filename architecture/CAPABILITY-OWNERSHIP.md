@@ -1000,3 +1000,13 @@ storage or recovery data and introduces no replacement transport.
   server selection invalidates older reads; late reads or selection callbacks
   from a previous account cannot replace the current selection. No browser
   persistence, repair write, background retry loop or new product owner is added.
+
+## Missing explicitly selected saved review
+
+Web's existing review-source projection keeps an explicit saved-artifact choice
+separate from Current Git when the authenticated saved lookup is missing or
+fails. The local unavailable kind carries no invented artifact identity, exposes
+the existing lookup error/empty-state surface, and cannot stage, commit, or fetch
+live Git as a replacement. Default unselected empty review and an explicit
+Current Git choice retain their existing presentation. SDK/server ownership and
+artifact authorization are unchanged.

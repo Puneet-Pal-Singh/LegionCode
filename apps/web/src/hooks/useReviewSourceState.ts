@@ -102,9 +102,14 @@ export function useReviewSourceState({
         liveGitFiles,
         latestArtifactSource: promptArtifactSource,
         canonicalTurnReview,
+        savedArtifactLookup: artifactSourceError || (artifactSourceResolved && !promptArtifactSource)
+          ? "unavailable"
+          : promptArtifactSource ? "available" : "pending",
       }),
     [
       canonicalTurnReview,
+      artifactSourceError,
+      artifactSourceResolved,
       liveGitFiles,
       openedArtifact,
       promptArtifactSource,
@@ -138,7 +143,11 @@ export function useReviewSourceState({
     promptArtifactSource,
     reviewScope,
     reviewSource,
-    reviewSourceError: shouldLoadArtifactSource ? artifactSourceError : null,
+    reviewSourceError: shouldLoadArtifactSource
+      ? artifactSourceError ?? (reviewSource.kind === "unavailable_saved_artifact" && artifactSourceResolved
+        ? "Saved review is unavailable for this turn."
+        : null)
+      : null,
     reviewSourceLoading,
     ...controls,
   };
@@ -231,9 +240,9 @@ function resolveOpenedArtifact(
 }
 
 function sourceKindToScope(
-  kind: "live_git" | "prompt_artifact" | "turn_diff",
+  kind: ReturnType<typeof resolveReviewSource>["kind"],
 ): ReviewScope {
-  if (kind === "prompt_artifact") return "prompt-artifact";
+  if (kind === "prompt_artifact" || kind === "unavailable_saved_artifact") return "prompt-artifact";
   if (kind === "turn_diff") return "turn-diff";
   return "git-changes";
 }
