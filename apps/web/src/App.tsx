@@ -30,9 +30,7 @@ import { RepositoryPickerModal } from "./components/github/RepositoryPickerModal
 import type { Repository } from "./services/GitHubService";
 import * as WorkspaceSelection from "./services/api/workspaceSelection";
 import { Resizer } from "./components/ui/Resizer";
-import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
-import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
 import { ProviderStore } from "./services/provider/ProviderStore";
@@ -42,7 +40,7 @@ import {
 } from "./lib/startup-shell-state";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
-import type { SetupSessionState } from "./types/session";
+import { useSetupPreferenceScope } from "./hooks/useSetupPreferenceScope";
 import { GitHubSignInPage } from "./components/onboarding/GitHubSignInPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import {
@@ -52,6 +50,7 @@ import {
 import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
 import { initializeHostedAppServer } from "./services/api/appServerClient";
 import { useSessionWorkspaceContext } from "./hooks/useSessionWorkspaceContext";
+import { useOwnedWorkspaceSelection } from "./hooks/useOwnedWorkspaceSelection";
 import { saveSessionBranchPreference } from "./lib/session-branch-preference";
 import {
   createInitialPromptSubmissionId,
@@ -332,93 +331,19 @@ function AppContent() {
     [setSettingsInitialSection, setIsSettingsDialogOpen],
   );
 
-  const setupSession = useMemo<SetupSessionState | null>(() => {
-    if (!isAuthenticated || sessions.length > 0) {
-      return null;
-    }
-
-    return SessionStateService.loadOrCreateSetupSession();
-  }, [isAuthenticated, sessions.length]);
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ??
     providerScopeSession?.latestRunId ??
     undefined;
-  const [workspaceSelectionResolution, setWorkspaceSelectionResolution] =
-    useState<{
-      userId: string;
-      selection: WorkspaceSelection.WorkspaceSelection | null;
-      ready: boolean;
-    } | null>(null);
-  const workspaceSelectionRequestId = useRef(0);
   const authenticatedUserId = user?.id;
-
-  useEffect(() => {
-    if (!isAuthenticated || !authenticatedUserId) return;
-
-    let cancelled = false;
-    const requestId = ++workspaceSelectionRequestId.current;
-    void WorkspaceSelection.listWorkspaces()
-      .then((response) => {
-        if (cancelled || requestId !== workspaceSelectionRequestId.current)
-          return;
-        const selection = response.selection;
-        const selectedWorkspaceIsOwnedAndActive =
-          selection !== null &&
-          response.workspaces.some(
-            ({ selected, workspace }) =>
-              selected &&
-              workspace.id === selection.workspaceId &&
-              workspace.status === "active",
-          );
-        setWorkspaceSelectionResolution({
-          userId: authenticatedUserId,
-          selection: selectedWorkspaceIsOwnedAndActive ? selection : null,
-          ready: true,
-        });
-      })
-      .catch((error: unknown) => {
-        if (cancelled || requestId !== workspaceSelectionRequestId.current)
-          return;
-        setWorkspaceSelectionResolution({
-          userId: authenticatedUserId,
-          selection: null,
-          ready: true,
-        });
-        console.warn(
-          "[workspace/selection] Failed to resolve provider setup scope:",
-          error,
-        );
-      })
-
-    return () => {
-      cancelled = true;
-      if (workspaceSelectionRequestId.current === requestId)
-        workspaceSelectionRequestId.current += 1;
-    };
-  }, [authenticatedUserId, isAuthenticated]);
-
-  const workspaceSelectionIsResolved = Boolean(
-    isAuthenticated &&
-    authenticatedUserId &&
-    workspaceSelectionResolution?.userId === authenticatedUserId &&
-    workspaceSelectionResolution.ready,
-  );
-  const ownedWorkspaceSelection = workspaceSelectionIsResolved
-    ? (workspaceSelectionResolution?.selection ?? null)
-    : null;
-  const recordOwnedWorkspaceSelection = useCallback(
-    (selection: WorkspaceSelection.WorkspaceSelection) => {
-      workspaceSelectionRequestId.current += 1;
-      if (!authenticatedUserId) return;
-      setWorkspaceSelectionResolution({
-        userId: authenticatedUserId,
-        selection,
-        ready: true,
-      });
-    },
-    [authenticatedUserId],
-  );
+  const {
+    selection: ownedWorkspaceSelection,
+    isResolved: workspaceSelectionIsResolved,
+    error: workspaceSelectionError,
+    recordSelection: recordOwnedWorkspaceSelection,
+    retry: retryOwnedWorkspaceSelection,
+  } = useOwnedWorkspaceSelection(isAuthenticated ? authenticatedUserId : undefined);
 
   const providerScopeWorkspaceId = providerScopeSession
     ? providerScopeSession.id === activeSession?.id &&
@@ -430,6 +355,11 @@ function AppContent() {
     : workspaceSelectionIsResolved
       ? (ownedWorkspaceSelection?.workspaceId ?? null)
       : undefined;
+  const setupSession = useSetupPreferenceScope(
+    isAuthenticated ? authenticatedUserId : undefined,
+    providerScopeWorkspaceId,
+    sessions.length,
+  );
   const { credentials, reset: resetProviderStore } = useProviderStore(
     isAuthenticated ? providerScopeRunId : undefined,
     isAuthenticated
@@ -480,22 +410,6 @@ function AppContent() {
       ];
     });
   };
-
-  // Sync UI shell store with active session
-  useEffect(() => {
-    if (!activeSessionId) return;
-
-    const storeState = uiShellStore.getState();
-
-    if (storeState.activeSessionId !== activeSessionId) {
-      uiShellStore.setActiveSessionId(activeSessionId);
-    }
-
-    // Keep the selected run in sync when resume or queue admission creates a new run.
-    if (activeSession && storeState.activeRunId !== activeSession.activeRunId) {
-      uiShellStore.setActiveRunId(activeSession.activeRunId);
-    }
-  }, [activeSessionId, activeSession]);
 
   useEffect(() => {
     if (isLoading || !hasVerifiedSession || isAuthenticated) return;
@@ -1044,6 +958,17 @@ function AppContent() {
         }
         topBar={
           <>
+            {!providerScopeSession && workspaceSelectionError ? (
+              <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
+                <ChatErrorNotice
+                  message="Workspace setup could not be loaded."
+                  remediation="Retry the workspace selection read to continue provider setup."
+                  technicalDetails={workspaceSelectionError}
+                  actionLabel="Retry workspace setup"
+                  onOpen={retryOwnedWorkspaceSelection}
+                />
+              </div>
+            ) : null}
             {activeSession?.persistenceStatus === "failed" ? (
               <div
                 role="alert"

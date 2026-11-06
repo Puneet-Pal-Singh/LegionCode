@@ -15,8 +15,8 @@ function client() {
   return createHostedAppServerClient({ timeoutMs: null, maxResponseBytes: null });
 }
 
-export function listWorkspaces(): Promise<WorkspaceListResponse> {
-  return client().listHostedWorkspaces();
+export function listWorkspaces(signal?: AbortSignal): Promise<WorkspaceListResponse> {
+  return createHostedAppServerClient({ signal, timeoutMs: null, maxResponseBytes: null }).listHostedWorkspaces();
 }
 
 export function selectWorkspace(repository: { owner: Pick<Repository["owner"], "login">; name: string }, selectedBranch: string): Promise<WorkspaceSelection> {

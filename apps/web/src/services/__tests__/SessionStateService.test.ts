@@ -186,12 +186,14 @@ describe("SessionStateService", () => {
 
   describe("Setup Session Persistence", () => {
     it("should save and load setup session state", () => {
-      const freshSetupSession = SessionStateService.loadOrCreateSetupSession();
+      const scope = { userId: "owned-account", workspaceId: "owned-workspace" };
+      const freshSetupSession = SessionStateService.loadOrCreateSetupSession(scope);
       expect(freshSetupSession).not.toHaveProperty("activeRunId");
-      expect(SessionStateService.loadSetupSession()).toEqual(freshSetupSession);
-      expect(
-        JSON.parse(localStorage.getItem("legioncode:setup-session:v1") ?? "{}"),
-      ).not.toHaveProperty("activeRunId");
+      expect(SessionStateService.loadSetupSession()).toBeNull();
+      expect(localStorage.getItem("legioncode:setup-session:v1")).toBeNull();
+      expect(SessionStateService.loadOrCreateSetupSession(scope).id).toBe(freshSetupSession.id);
+      expect(SessionStateService.loadOrCreateSetupSession({ ...scope, userId: "other-account" }).id).not.toBe(freshSetupSession.id);
+      expect(SessionStateService.loadOrCreateSetupSession({ ...scope, workspaceId: "other-workspace" }).id).not.toBe(freshSetupSession.id);
 
       const storedBytes = JSON.stringify({
         ...freshSetupSession,
@@ -203,6 +205,11 @@ describe("SessionStateService", () => {
       expect(setupSession).not.toHaveProperty("activeRunId");
       expect(SessionStateService.loadOrCreateSetupSession()).toEqual(setupSession);
       expect(localStorage.getItem("legioncode:setup-session:v1")).toBe(storedBytes);
+      const errorSpy = silenceConsoleError();
+      localStorage.setItem("legioncode:setup-session:v1", "unmatched historical bytes");
+      expect(SessionStateService.loadOrCreateSetupSession(scope).id).toBe(freshSetupSession.id);
+      expect(localStorage.getItem("legioncode:setup-session:v1")).toBe("unmatched historical bytes");
+      expect(errorSpy).toHaveBeenCalled();
     });
   });
 
