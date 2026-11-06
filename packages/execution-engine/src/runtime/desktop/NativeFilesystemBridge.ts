@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { fstatSync } from "node:fs";
 import { lstat, type FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { Writable } from "node:stream";
@@ -23,6 +24,8 @@ export class NativeFilesystemBridge {
     private readonly options: {
       readonly helperPath: string;
       readonly rootDirectory: FileHandle;
+      /** Borrowed canonical writer lease; never acquired, unlocked or closed here. */
+      readonly writerLease?: { readonly fd: number };
     },
   ) {}
 
@@ -124,9 +127,19 @@ export class NativeFilesystemBridge {
         "Native filesystem requires the trusted grant root directory FD",
       );
     }
+    const leaseFd = this.options.writerLease?.fd;
+    if (operation === "M") {
+      if (!Number.isSafeInteger(leaseFd) || leaseFd! < 4 || !fstatSync(leaseFd!).isFile()) {
+        throw new NativeFilesystemError(5, "Mutation requires the trusted canonical writer lease descriptor");
+      }
+    }
     input.signal.throwIfAborted();
     const child = spawn(this.options.helperPath, [], {
-      stdio: ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
+      // FD6 duplicates the SAME open description, retaining its physical lock
+      // through native cleanup even if the utility process dies. No new lease.
+      stdio: operation === "M"
+        ? ["pipe", "pipe", "pipe", this.options.rootDirectory.fd, "ignore", "ignore", leaseFd!]
+        : ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
       env: {},
       shell: false,
       windowsHide: true,

@@ -184,6 +184,14 @@ static int run(void) {
   parent_fd = open_parent(requested_path, name);
   if (parent_fd < 0) return fail(5, "Workspace parent must exist without symlinks or protected components");
   unsigned char *original = NULL; uint32_t original_length = 0; struct stat original_stat; int existed = 0;
+  /* Composition lends the canonical writer open description at FD6. Keep it
+   * inherited through ALL stage/commit/cleanup work until process exit. Never
+   * unlock, unlink, acquire another lock, or explicitly close this descriptor. */
+  if (header[5] == 'M') {
+    struct stat lease;
+    if (fstat(6, &lease) || !S_ISREG(lease.st_mode))
+      return fail(5, "Mutation requires the trusted canonical writer lease FD6");
+  }
   if (read_target(name, &original, &original_length, &original_stat, &existed, header[5] == 'M'))
     return stopped ? cancelled() : fail(5, "Target is not a stable supported regular file");
   if (!parent_still_rooted()) { free(original); return fail(2, "Read parent no longer belongs to the granted root"); }
