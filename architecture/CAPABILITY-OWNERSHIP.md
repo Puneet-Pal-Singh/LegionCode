@@ -1146,6 +1146,39 @@ protected provider delivery and the renderer binding remain separate integration
 dependencies. The mounted end-to-end Desktop execution path is not yet complete.
 
 
+## Plan 057 — Native turn binding and revocable workspace handles
+
+The local App Server delegates initial Run/Turn/prompt construction to the native
+runtime builder and writes those canonical records through the atomic admission
+store. The store owns retry fingerprints and admission references; the host owns
+no lifecycle or terminal state. Only a newly admitted request executes. Start,
+get, paged thread-history discovery and exact-attempt interruption use SDK/App
+Server operations; hosted operations retain their separate dispatch.
+
+Lifecycle replay authorizes the durable admission and its granted thread, so an
+acknowledged turn with no lifecycle events yet yields an honest empty page. This
+replaces the earlier first-event-only local replay authorizer. SDK continuation
+retains the last accepted sequence, uses the existing error classifier, bounds
+IPC reads, and suppresses late results after cancellation. Runtime append remains
+the only settlement source.
+
+LocalWorkspaceService owns one runtime-only root binding per grant generation.
+Revoke/regrant aborts old bindings, including the same physical path, and binding
+creation is unavailable during selection transitions. Physical roots stay in the
+trusted host. Thread projections preserve canonical insertion order across
+streams while metadata writers retain their own stream sequence.
+
+Protected provider requests use correlated private main/utility messages only.
+Keys are never carried in HTTP or renderer responses. The channel bounds pending
+requests, validates provider scope and disposes cancellation/timeouts; main rejects
+lookups overlapping credential replacement/deletion. Quit waits for confirmed
+host shutdown and remains retryable after failure.
+
+The concrete native runtime/provider factory and renderer consumers must be
+composed before this integration advertises execution. Read-only execution may
+explicitly omit capture; mutating capability requires the canonical permission,
+workspace and real snapshot/artifact owners.
+
 ## Plan 057 — Canonical local turn command contracts
 
 Local start/get/paged thread-history intent uses canonical TurnAdmission records;

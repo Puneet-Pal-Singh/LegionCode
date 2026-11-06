@@ -78,9 +78,19 @@ export type LocalAppServerMessage =
   | LocalAppServerReadyMessage
   | LocalAppServerFatalMessage;
 
+/** Main/supervisor/utility only. Never exposed through DesktopApi. */
+export type LocalAppServerHostConfig = {
+  protectedHostRoots: readonly string[];
+  nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
+};
+
 export type LocalAppServerStartMessage = {
   type: "start";
   credential: string;
   serverVersion: string;
   storageDirectory: string;
+  protectedHostRoots?: readonly string[];
+  nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };

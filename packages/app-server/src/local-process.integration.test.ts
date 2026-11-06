@@ -16,6 +16,7 @@ import { LocalPersistenceError } from "@repo/event-store/errors";
 import {
   EVENT_SCHEMA_VERSION,
   LifecycleEventSchema,
+  TurnAdmissionSchema,
   createTurnId,
   createRunAttemptId,
   LocalWorkspaceGrantSchema,
@@ -81,8 +82,34 @@ describe("local App Server HTTP integration", () => {
       runAttemptId: createRunAttemptId(),
     });
     const persisted = new LocalPersistence({ storageDirectory });
+    const admitFixture = (admittedTurnId: string, attemptId: string) => {
+      const now = new Date().toISOString();
+      const runId = `run_${crypto.randomUUID().replaceAll("-", "")}`;
+      const workspaceId = (grant as { result: { grant: { workspaceId: string } } }).result.grant.workspaceId;
+      return TurnAdmissionSchema.parse({
+        clientRequestId: `request-${admittedTurnId}`,
+        runAttemptId: attemptId,
+        run: {
+          id: runId, threadId, workspaceId, userId: "usr_localdesktop", status: "queued", mode: "ask",
+          providerId: "openai", modelId: "gpt-4o", workerId: "worker_localtest", permissionProfileId: "perm_readonly",
+          startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 0,
+        },
+        turn: {
+          id: admittedTurnId, threadId, runId, parentTurnId: null, status: "queued",
+          startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 0,
+        },
+        userMessage: {
+          id: `itm_${crypto.randomUUID().replaceAll("-", "")}`, threadId, runId, turnId: admittedTurnId,
+          parentItemId: null, branchId: null, role: "user", type: "user_message", status: "completed",
+          content: { text: "Read this local repository" }, createdAt: now, completedAt: now, eventSequence: 0,
+        },
+      });
+    };
     try {
-      await persisted.lifecycleEvents.appendBatch([...events, unfinished]);
+      await persisted.turnAdmissions.admit(admitFixture(turnId, runAttemptId));
+      await persisted.lifecycleEvents.appendBatch(events);
+      await persisted.turnAdmissions.admit(admitFixture(unfinishedTurnId, unfinished.runAttemptId));
+      await persisted.lifecycleEvents.append(unfinished);
     } finally { persisted.close(); }
     const restarted = await start(storageDirectory);
     const restartedUrl = serverUrl(restarted);
@@ -90,6 +117,18 @@ describe("local App Server HTTP integration", () => {
       ok: true,
       result: { threads: [{ id: threadId, title: "Renamed", status: "active" }] },
     });
+    const rediscovered = await send(restartedUrl, "thread/list", {});
+    const discoveredThreadId = (rediscovered as { result: { threads: { id: string }[] } }).result.threads[0]!.id;
+    const workspaceId = (grant as { result: { grant: { workspaceId: string } } }).result.grant.workspaceId;
+    const history = await send(restartedUrl, "thread/history", { workspaceId, threadId: discoveredThreadId, limit: 1 });
+    expect(history).toMatchObject({ ok: true, result: { admissions: [{ turn: { id: turnId }, userMessage: { content: { text: "Read this local repository" } } }] } });
+    const cursor = (history as { result: { nextCursor: string } }).result.nextCursor;
+    const nextHistory = await send(restartedUrl, "thread/history", { workspaceId, threadId: discoveredThreadId, afterCursor: cursor, limit: 1 });
+    expect(nextHistory).toMatchObject({ ok: true, result: { admissions: [{ turn: { id: unfinishedTurnId } }] } });
+    await expect(send(restartedUrl, "turn/get", { turnId })).resolves.toMatchObject({
+      ok: true, result: { admission: { turn: { id: turnId }, runAttemptId, userMessage: { content: { text: "Read this local repository" } } } },
+    });
+    expect(JSON.stringify(history)).not.toContain(workspacePath);
     await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId: unfinishedTurnId })).resolves.toMatchObject({
       ok: true, result: { events: [unfinished], nextSequence: 1 },
     });
@@ -112,6 +151,9 @@ describe("local App Server HTTP integration", () => {
     await send(restartedUrl, "workspace/grant", { path: otherWorkspace.workspacePath });
     await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId })).resolves.toMatchObject({
       ok: false, error: { code: "not_found" },
+    });
+    await expect(send(restartedUrl, "thread/history", { workspaceId, threadId: discoveredThreadId })).resolves.toMatchObject({
+      ok: false,
     });
     await send(restartedUrl, "workspace/revoke", {});
     const revokedReplay = await send(restartedUrl, "turn/lifecycleEvents", { turnId });

@@ -1,18 +1,35 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
+import type { ProviderId, ProviderConnectionConfig } from "@repo/shared-types";
 import { LocalPersistence } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
-import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
+import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
-import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
+import { LocalTurnService, type LocalTurnServiceOptions } from "./local-turns.js";
+import { LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
+
+export type LocalAppServerRuntimeOptions = {
+  createRuntime?(context: {
+    persistence: LocalPersistence;
+    workspaces: LocalWorkspaceService;
+    threads: LocalThreadService;
+    providers: LocalProviderService;
+  }): NonNullable<LocalTurnServiceOptions["runtime"]>;
+  resolveRuntimeCredential(providerId: ProviderId, signal?: AbortSignal): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null>;
+};
 
 export type LocalAppServerStartConfig = {
   credential: string;
   serverVersion: string;
   storageDirectory: string;
+  protectedHostRoots?: readonly string[];
+  nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };
 
 export type LocalAppServerMessage =
@@ -23,11 +40,20 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig) {
+export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeOptions?: LocalAppServerRuntimeOptions) {
+  if (runtimeOptions?.createRuntime && !config.protectedHostRoots?.length) {
+    throw new Error("Native execution requires trusted protected host roots");
+  }
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
     const workspaceService = new LocalWorkspaceService({
       workspaceGrants: persistence.workspaceGrants,
+      protectedHostRoots: [
+        config.storageDirectory,
+        ...(config.protectedHostRoots ?? []),
+        ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),
+        ...(config.nativeProcessHelperPath ? [config.nativeProcessHelperPath] : []),
+      ],
     });
     const threadService = new LocalThreadService({
       events: persistence.events,
@@ -36,8 +62,14 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
     });
+    const localTurnService = new LocalTurnService({
+      persistence, workspaces: workspaceService, threads: threadService, providers: providerService,
+      runtime: runtimeOptions?.createRuntime?.({
+        persistence, workspaces: workspaceService, threads: threadService, providers: providerService,
+      }),
+    });
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, localTurnService, Boolean(runtimeOptions?.createRuntime));
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -51,10 +83,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
+  runtimeOptions?: LocalAppServerRuntimeOptions,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config);
+    server = createLocalAppServer(config, runtimeOptions);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
@@ -85,7 +118,8 @@ async function handleRequest(
   workspaceService: LocalWorkspaceService,
   threadService: LocalThreadService,
   providerService: LocalProviderService,
-  persistence: LocalPersistence,
+  localTurnService: LocalTurnService,
+  localTurnExecutionAvailable: boolean,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -102,10 +136,8 @@ async function handleRequest(
     credential: config.credential,
     workspaceService,
     threadService,
-    localLifecycleReplayService: {
-      replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
-        replayLocalLifecycle(persistence, threadService, params),
-    },
+    localTurnService,
+    localTurnExecutionAvailable,
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {
@@ -143,35 +175,6 @@ async function handleRequest(
     { ...composition, providerService, providerConfiguration },
   );
   writeJson(response, result.statusCode, result.payload, result.headers);
-}
-
-/** Read canonical runtime bytes only after resolving their thread in the current grant. */
-async function replayLocalLifecycle(
-  persistence: LocalPersistence,
-  threadService: LocalThreadService,
-  params: ReplayLifecycleEventsRequest,
-) {
-  if (params.backend && params.backend !== "execution-engine-v1") {
-    throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
-  }
-  const first = await persistence.lifecycleEvents.replay({
-    turnId: params.turnId, afterSequence: null, limit: 1,
-  });
-  const event = first.events[0];
-  if (!event) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-  try {
-    await threadService.get(event.threadId);
-  } catch (error) {
-    if (error instanceof LocalThreadNotFoundError) {
-      throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
-    }
-    throw error;
-  }
-  return persistence.lifecycleEvents.replay({
-    turnId: params.turnId,
-    afterSequence: params.afterSequence ?? null,
-    limit: params.limit ?? 1_000,
-  });
 }
 
 function readBody(

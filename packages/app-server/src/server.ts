@@ -53,6 +53,7 @@ export type AppServerComposition = {
   environment: "local" | "hosted";
   serverId: string;
   serverVersion: string;
+  localTurnExecutionAvailable?: boolean;
   workspaceService?: LocalWorkspaceService;
   hostedWorkspaceService?: {
     list(): Promise<HostedWorkspaceListResponse>;
@@ -69,6 +70,7 @@ export type AppServerComposition = {
     startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
     getTurn(turnId: TurnId): Promise<TurnAdmission>;
     readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
+    replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
     interruptTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
   };
@@ -122,9 +124,6 @@ export type AppServerComposition = {
   };
   hostedThreadInputOperationsService?: {
     execute(command: ThreadInputCommand): Promise<AppServerMethodOutcome>;
-  };
-  localLifecycleReplayService?: {
-    replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
   };
   hostedLifecycleOperationsService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
@@ -404,8 +403,8 @@ async function dispatch(
     }
     case "turn/lifecycleEvents": {
       if (composition.environment === "local") {
-        if (!composition.localLifecycleReplayService) throw new Error("unsupported");
-        return composition.localLifecycleReplayService.replayLifecycleEvents(request.params);
+        if (!composition.localTurnService) throw new Error("unsupported");
+        return composition.localTurnService.replayLifecycleEvents(request.params);
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
@@ -521,6 +520,7 @@ async function dispatch(
           environment: composition.environment,
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
+          localTurnExecutionAvailable: composition.localTurnExecutionAvailable,
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");

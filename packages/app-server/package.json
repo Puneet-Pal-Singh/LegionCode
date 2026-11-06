@@ -10,7 +10,9 @@
     "./protocol": "./src/protocol.ts",
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
-    "./local-process": "./src/local-process.ts"
+    "./local-process": "./src/local-process.ts",
+    "./local-native-runtime": "./src/local-native-runtime.ts",
+    "./local-node-git-executor": "./src/local-node-git-executor.ts"
   },
   "scripts": {
     "build": "tsc",
@@ -18,6 +20,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@legioncode/execution-engine": "workspace:*",
+    "@repo/permission-policy": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
     "@repo/persistence": "workspace:*",

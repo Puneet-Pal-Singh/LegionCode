@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
-import { basename } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ProviderIdSchema,
@@ -24,6 +25,7 @@ import {
 import { createWindowOptions } from "./window-options";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
+import type { RuntimeCredentialLease } from "./runtime-credentials";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
   resolveDesktopAppServerRequest,
@@ -36,14 +38,38 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
+type CredentialMutationState = { revision: number; activeMutations: number };
+const credentialStates = new Map<string, CredentialMutationState>();
+function credentialState(providerId: string): CredentialMutationState {
+  let state = credentialStates.get(providerId);
+  if (!state) { state = { revision: 0, activeMutations: 0 }; credentialStates.set(providerId, state); }
+  return state;
+}
 const localAppServer = new LocalAppServerSupervisor((request) =>
   providerRequestHeaders(request),
+  (providerId) => resolveRuntimeCredential(providerId),
 );
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let environmentGeneration = 0;
+
+async function resolveRuntimeCredential(
+  providerId: Parameters<DesktopCredentialVault["resolveRuntimeCredential"]>[0],
+): Promise<RuntimeCredentialLease> {
+  const vault = credentialVault;
+  const state = credentialState(providerId);
+  const revision = state.revision;
+  const startSafe = vault !== null && state.activeMutations === 0;
+  if (!startSafe || !vault) {
+    throw new Error("Protected provider credential is being changed or is unavailable");
+  }
+  const credential = await vault.resolveRuntimeCredential(providerId);
+  const isCurrent = () => startSafe && vault === credentialVault && state.activeMutations === 0 && state.revision === revision;
+  if (!isCurrent()) throw new Error("Protected provider credential changed during delivery");
+  return { credential, canDeliver: isCurrent };
+}
 
 async function providerRequestHeaders(
   request: AppServerRequest,
@@ -130,12 +156,22 @@ handleNativeInvoke(CREDENTIAL_COMMAND_CHANNEL, async (_event, value) => {
     if (!provider || !isLaunchSupportedProvider(provider) || !provider.authModes.includes("api_key")) {
       throw new Error("Provider is not available in this Desktop build");
     }
-    await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
+    const state = credentialState(request.providerId);
+    state.revision += 1;
+    state.activeMutations += 1;
+    try {
+      await credentialVault.setCredential(request.providerId, request.apiKey, request.config);
+    } finally { state.activeMutations -= 1; state.revision += 1; }
     return { ok: true } as const;
   }
   if (command.operation === "delete" || command.operation === "status") {
     if (command.operation === "delete") {
-      await credentialVault.deleteCredential(command.providerId);
+      const state = credentialState(command.providerId);
+      state.revision += 1;
+      state.activeMutations += 1;
+      try {
+        await credentialVault.deleteCredential(command.providerId);
+      } finally { state.activeMutations -= 1; state.revision += 1; }
       return { ok: true } as const;
     }
     return { providerId: command.providerId, status: await credentialVault.status(command.providerId) };
@@ -214,7 +250,21 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
-  void localAppServer.start(app.getVersion(), app.getPath("userData"));
+  const protectedHostRoots = [
+    app.getPath("userData"), app.getAppPath(), process.resourcesPath,
+    fileURLToPath(new URL(".", import.meta.url)),
+  ].map((path) => realpathSync(path));
+  const helperCandidate = app.isPackaged
+    ? join(process.resourcesPath, "native", "legioncode-fs-helper")
+    : join(app.getAppPath(), "native-bin", "legioncode-fs-helper");
+  let nativeFilesystemHelperPath: string | undefined;
+  try {
+    const helperPath = realpathSync(helperCandidate);
+    if (statSync(helperPath).isFile()) nativeFilesystemHelperPath = helperPath;
+  } catch { /* Missing helper keeps native I/O unavailable. */ }
+  void localAppServer.start(app.getVersion(), app.getPath("userData"), {
+    protectedHostRoots: [...new Set(protectedHostRoots)], nativeFilesystemHelperPath,
+  });
   createWindow();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
     isEncryptionAvailable: () =>

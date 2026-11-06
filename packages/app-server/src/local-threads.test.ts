@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { LocalWorkspaceGrantSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
+import { EVENT_SCHEMA_VERSION, LocalWorkspaceGrantSchema, WorkspaceIdSchema, RunSchema } from "@repo/platform-protocol";
 import { LocalPersistence } from "@repo/event-store/local";
 
 import { LocalThreadService } from "./local-threads.js";
@@ -30,9 +30,27 @@ describe("LocalThreadService", () => {
         getWorkspace: async () => workspace,
       });
       const created = await first.create({ title: "Local work" });
+      const now = new Date().toISOString();
+      const run = RunSchema.parse({
+        id: `run_${crypto.randomUUID().replaceAll("-", "")}`, threadId: created.id,
+        userId: created.userId, workspaceId: created.workspaceId, status: "queued", mode: "ask",
+        providerId: "openai", modelId: "gpt-4o", workerId: "worker_localtest", permissionProfileId: "perm_readonly",
+        startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 0,
+      });
+      await persistence.events.append({
+        threadId: created.id, workspaceId: created.workspaceId, runId: run.id,
+        scopeType: "run", scopeId: run.id, type: "run.created", payload: { run },
+        idempotencyKey: `run-created:${run.id}`, producer: { kind: "runtime_kernel", id: "local-test" },
+        schemaVersion: EVENT_SCHEMA_VERSION,
+      });
       const renamed = await first.rename(created.id, { title: "Renamed work" });
       const archived = await first.archive(renamed.id);
       expect(archived.status).toBe("archived");
+      const archivedEvent = (await persistence.events.listAll()).find((event) => event.type === "thread.archived");
+      expect(archivedEvent).toMatchObject({
+        sequence: 3, idempotencyKey: `thread-status:${created.id}:3`,
+        payload: { thread: { lastEventSequence: 3 } },
+      });
 
       persistence.close();
       persistence = new LocalPersistence({ storageDirectory });

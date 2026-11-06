@@ -21,6 +21,7 @@ export function initializeAppServer(
     environment: AppServerHandshakeEnvironment;
     serverId: string;
     serverVersion: string;
+    localTurnExecutionAvailable?: boolean;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -51,11 +52,11 @@ export function initializeAppServer(
       environment: options.environment,
       capabilities:
         options.environment === "local"
-          ? [...LOCAL_APP_SERVER_CAPABILITIES]
+          ? [...LOCAL_APP_SERVER_CAPABILITIES, ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : [])]
           : [],
       unavailableCapabilities:
         options.environment === "local"
-          ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.map((capability) => ({
+          ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) => !options.localTurnExecutionAvailable || capability !== "turn-execution-v1").map((capability) => ({
               capability,
               reason: "This local capability is planned for a later slice",
             }))

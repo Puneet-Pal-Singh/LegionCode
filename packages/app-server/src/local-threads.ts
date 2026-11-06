@@ -127,12 +127,16 @@ export class LocalThreadService {
     const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
     if ((thread.status === "archived") === archived) return thread;
     const timestamp = new Date().toISOString();
+    const metadataEvents = await this.eventStore.listAll();
+    const nextMetadataSequence = metadataEvents.reduce((last, event) =>
+      event.scopeType === "thread" && event.scopeId === thread.id
+        ? Math.max(last, event.sequence) : last, 0) + 1;
     const next = ThreadSchema.parse({
       ...thread,
       status: archived ? "archived" : "active",
       archivedAt: archived ? timestamp : null,
       updatedAt: timestamp,
-      lastEventSequence: thread.lastEventSequence + 1,
+      lastEventSequence: nextMetadataSequence,
     });
     await this.eventStore.append({
       threadId: thread.id,
@@ -142,7 +146,7 @@ export class LocalThreadService {
       scopeId: thread.id,
       type: archived ? "thread.archived" : "thread.unarchived",
       payload: { thread: next },
-      idempotencyKey: `thread-status:${thread.id}:${next.lastEventSequence}`,
+      idempotencyKey: `thread-status:${thread.id}:${nextMetadataSequence}`,
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
@@ -153,8 +157,7 @@ export class LocalThreadService {
     const allEvents = await this.eventStore.listAll();
     const events = allEvents
       .filter((event) => event.threadId === threadId)
-      .sort((left, right) => left.sequence - right.sequence)
-      .map((event) => ({ event, projectionSequence: event.sequence }));
+      .map((event, index) => ({ event, projectionSequence: index + 1 }));
     const snapshot = projectThreadEvents(threadId, events);
     if (!snapshot || snapshot.thread.workspaceId !== workspaceId) {
       throw new LocalThreadNotFoundError();
@@ -170,16 +173,16 @@ export class LocalThreadService {
 
   private async collectProjections(events: readonly PlatformEvent[]): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
+    const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
       if (event.type === "thread.created") threadIds.add(event.threadId);
+      let inputs = grouped.get(event.threadId);
+      if (!inputs) { inputs = []; grouped.set(event.threadId, inputs); }
+      inputs.push({ event, projectionSequence: inputs.length + 1 });
     }
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
-      const threadEvents = events
-        .filter((event) => event.threadId === threadId)
-        .sort((left, right) => left.sequence - right.sequence)
-        .map((event) => ({ event, projectionSequence: event.sequence }));
-      const snapshot = projectThreadEvents(threadId, threadEvents);
+      const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
       if (snapshot) threads.push(snapshot.thread);
     }
     return threads;
