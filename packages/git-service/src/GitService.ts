@@ -298,18 +298,24 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const message = validateCommitMessage(input.message);
-    await this.stageFiles({ workspace: input.workspace, paths });
-    await this.writeCommitAuthor(input);
+    await this.executeRequired(input.workspace, [
+      "--literal-pathspecs", "add", "--", ...paths,
+    ]);
+    const args = [
+      "-c", `user.name=${input.author.name}`,
+      "-c", `user.email=${input.author.email}`,
+      "--literal-pathspecs", "commit", "--only", "-m", message, "--", ...paths,
+    ];
 
     const result = await this.executor.execute({
       runId,
       cwd: workspaceRoot,
-      args: ["commit", "-m", message],
+      args,
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     if (result.exitCode !== 0) {
       throw createGitCommandFailedError(
-        ["commit", "-m", message],
+        args,
         result.exitCode,
         getCommandErrorText(result),
       );
@@ -676,42 +682,6 @@ export class DefaultGitService {
       return new Map();
     }
     return parseNullDelimitedConfig(result.stdout);
-  }
-
-  private async writeCommitAuthor(input: GitCommitInput): Promise<void> {
-    await this.writeGitConfigValue(
-      input.workspace,
-      "user.name",
-      input.author.name,
-    );
-    await this.writeGitConfigValue(
-      input.workspace,
-      "user.email",
-      input.author.email,
-    );
-  }
-
-  private async writeGitConfigValue(
-    workspace: GitCommitInput["workspace"],
-    key: "user.name" | "user.email",
-    value: string,
-  ): Promise<void> {
-    const runId = RunIdSchema.parse(workspace.runId);
-    const workspaceRoot = validateWorkspaceRoot(workspace.filesystemRoot);
-    const args = ["config", key, value];
-    const result = await this.executor.execute({
-      runId,
-      cwd: workspaceRoot,
-      args,
-      timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
-    });
-    if (result.exitCode !== 0) {
-      throw createGitCommandFailedError(
-        args,
-        result.exitCode,
-        getCommandErrorText(result),
-      );
-    }
   }
 
   private async readRequiredGitValue(

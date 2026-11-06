@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RunId } from "@repo/platform-protocol";
 import { registerGitServiceConformance } from "@repo/contract-conformance";
 import { describe, expect, it } from "vitest";
@@ -316,9 +320,6 @@ describe("DefaultGitService", () => {
   it("stages files before committing with an explicit author", async () => {
     const executor = new QueueGitExecutor([
       { exitCode: 0, stdout: "", stderr: "" },
-      { exitCode: 0, stdout: "# branch.head feat/canonical-git\0", stderr: "" },
-      { exitCode: 0, stdout: "", stderr: "" },
-      { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: "[feat abc123] update\n", stderr: "" },
       { exitCode: 0, stdout: "abc123\n", stderr: "" },
       { exitCode: 0, stdout: "feat/canonical-git\n", stderr: "" },
@@ -338,14 +339,46 @@ describe("DefaultGitService", () => {
       committedPaths: ["src/app.ts"],
     });
     expect(executor.calls.map((call) => call.args)).toEqual([
-      ["add", "--", "src/app.ts"],
-      GIT_STATUS_PORCELAIN_V2_ARGS,
-      ["config", "user.name", "Legion"],
-      ["config", "user.email", "legion@example.com"],
-      ["commit", "-m", "update app"],
+      ["--literal-pathspecs", "add", "--", "src/app.ts"],
+      ["-c", "user.name=Legion", "-c", "user.email=legion@example.com",
+        "--literal-pathspecs", "commit", "--only", "-m", "update app", "--", "src/app.ts"],
       ["rev-parse", "HEAD"],
       ["branch", "--show-current"],
     ]);
+    const root = mkdtempSync(join(tmpdir(), "legion-git-commit-"));
+    const git = (args: readonly string[]) => execFileSync("git", [...args], {
+      cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+    try {
+      git(["init", "-b", "main"]);
+      for (const path of ["selected[1].txt", "selected1.txt", "unrelated.txt", "unstaged.txt"]) {
+        writeFileSync(join(root, path), "before\n");
+      }
+      git(["add", "--", "selected[1].txt", "selected1.txt", "unrelated.txt", "unstaged.txt"]);
+      git(["-c", "user.name=Original", "-c", "user.email=original@example.com", "commit", "-m", "initial"]);
+      writeFileSync(join(root, "selected[1].txt"), "selected\n");
+      writeFileSync(join(root, "unrelated.txt"), "staged\n");
+      writeFileSync(join(root, "unstaged.txt"), "unstaged\n");
+      writeFileSync(join(root, "selected1.txt"), "unrelated glob match\n");
+      git(["add", "--", "unrelated.txt"]);
+      const service = new DefaultGitService({
+        async execute(input) {
+          return { exitCode: 0, stdout: git(input.args), stderr: "" };
+        },
+      });
+      await service.commit({
+        workspace: { runId: RUN_ID, filesystemRoot: root },
+        paths: ["selected[1].txt"], message: "selected change",
+        author: { name: "Legion", email: "legion@example.com" },
+      });
+      expect(git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).trim()).toBe("selected[1].txt");
+      expect(git(["diff", "--cached", "--name-only"]).trim()).toBe("unrelated.txt");
+      expect(git(["diff", "--name-only"]).trim()).toBe("selected1.txt\nunstaged.txt");
+      expect(git(["config", "--local", "--list"])).not.toContain("user.name=");
+      expect(git(["config", "--local", "--list"])).not.toContain("user.email=");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("pushes HEAD only to the declared working branch", async () => {
