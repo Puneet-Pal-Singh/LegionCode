@@ -11,4 +11,7 @@ export { initializeCodex } from "./server/initialize.js";
 export { codexRuntime } from "./server/runtime.js";
 export { CodexNativeSession } from "./server/CodexNativeSession.js";
 export { CodexDriver } from "./server/CodexDriver.js";
-export { CodexUsageReader } from "./server/CodexUsageReader.js";
+export {
+  CodexUsageReader,
+  codexAccountIdentityFingerprint,
+} from "./server/CodexUsageReader.js";
