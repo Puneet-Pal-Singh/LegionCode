@@ -25,7 +25,7 @@ export interface ProjectAgentSessionsForSidebarInput {
   now?: number;
 }
 
-const NO_REPOSITORY = "No repository";
+export const PROJECTLESS_SELECTION_ID = "No repository";
 const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
 
 export function selectSessionUnread(session: AgentSession): boolean {
@@ -70,12 +70,10 @@ export function projectAgentSessionsForSidebar({
       });
     }
   }
-  if (sessions.some((session) => !session.repository?.trim())) {
-    repositoryById.set(NO_REPOSITORY, {
-      id: NO_REPOSITORY,
-      label: NO_REPOSITORY,
-    });
-  }
+  repositoryById.set(PROJECTLESS_SELECTION_ID, {
+    id: PROJECTLESS_SELECTION_ID,
+    label: PROJECTLESS_SELECTION_ID,
+  });
 
   const workspaceByRepository = new Map<string, string>();
   const workspaces: ThreadSidebarWorkspaceInput[] = Array.from(
@@ -93,7 +91,7 @@ export function projectAgentSessionsForSidebar({
   const threads: ThreadSidebarThreadInput[] = sessions
     .filter((session) => !hiddenRepositories.has(session.repository?.trim() ?? ""))
     .map((session) => {
-      const repository = session.repository?.trim() || NO_REPOSITORY;
+      const repository = session.repository?.trim() || PROJECTLESS_SELECTION_ID;
       return {
         selectionId: session.id,
         threadId: ThreadIdSchema.safeParse(session.id).data ?? null,
@@ -162,7 +160,7 @@ function hasRecentUnreadTerminal(
 }
 
 function repositoryLabel(repository: string): string {
-  if (repository === NO_REPOSITORY) return repository;
+  if (repository === PROJECTLESS_SELECTION_ID) return repository;
   const [, name] = repository.split("/");
   return name || repository;
 }
