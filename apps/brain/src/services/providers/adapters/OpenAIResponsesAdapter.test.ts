@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter";
+import { OpenAIResponsesAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/OpenAIResponsesAdapter";
 import { PNG_DATA_URL } from "../../chat/__tests__/ImageFixtures";
 
 describe("OpenAIResponsesAdapter", () => {

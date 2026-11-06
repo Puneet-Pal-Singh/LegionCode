@@ -1,6 +1,6 @@
 import type { Env } from "../../types/ai";
 import { createOpenAIAdapter } from "../ai/ProviderAdapterFactory";
-import { OPENROUTER_BASE_URL } from "../ai/defaults";
+import { OPENROUTER_BASE_URL } from "@legioncode/execution-engine/runtime/provider/ProviderEndpoints";
 import { generateText } from "../ai/TextGenerationService";
 import type { ThreadTitleGenerator } from "./ThreadTitleGenerationCoordinator";
 

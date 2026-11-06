@@ -1,14 +1,14 @@
 import { z } from "zod";
-import zodToJsonSchema from "zod-to-json-schema";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import type { CoreMessage, CoreTool } from "ai";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import type { LLMUsage } from "../../cost/types.js";
 import type {
   GenerationParams,
   GenerationResult,
   ProviderAdapter,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import { ProviderError } from "../base/ProviderAdapter";
+} from "../base/ProviderAdapter.js";
+import { ProviderError } from "../base/ProviderAdapter.js";
 
 interface OpenAIResponsesConfig {
   apiKey: string;
@@ -18,6 +18,13 @@ interface OpenAIResponsesConfig {
 }
 
 const OPENAI_RESPONSES_TIMEOUT_MS = 150_000;
+
+// The converter validates its own schema input; keep the package boundary free
+// of recursively expanding Zod types from different supported entry points.
+const convertToolSchema = zodToJsonSchema as unknown as (
+  schema: unknown,
+  options: { $refStrategy: "none" },
+) => unknown;
 
 const ResponsesUsageSchema = z
   .object({
@@ -416,7 +423,7 @@ function readJsonSchemaRecord(value: unknown): Record<string, unknown> | null {
   }
   const record = value as Record<string, unknown>;
   if (typeof record.safeParse === "function" && "_def" in record) {
-    const schema = zodToJsonSchema(value as z.ZodTypeAny, {
+    const schema = convertToolSchema(value, {
       $refStrategy: "none",
     });
     if (!schema || typeof schema !== "object" || Array.isArray(schema)) {

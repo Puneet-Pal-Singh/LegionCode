@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
-import { GoogleAdapter } from "../providers/adapters/GoogleAdapter";
+import { GoogleAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/GoogleAdapter";
 import {
   createTransportAdapter,
   toOpenAICompatibleBaseURL,

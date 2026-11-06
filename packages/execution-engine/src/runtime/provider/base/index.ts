@@ -1,4 +1,4 @@
-// apps/brain/src/services/providers/base/index.ts
+// Shared runtime provider adapter.
 // Barrel export for provider base types
 
 export {
@@ -7,4 +7,4 @@ export {
   type GenerationParams,
   type GenerationResult,
   type StreamChunk,
-} from "./ProviderAdapter";
+} from "./ProviderAdapter.js";

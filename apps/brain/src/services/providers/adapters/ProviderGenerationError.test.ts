@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APICallError, RetryError } from "ai";
-import { normalizeProviderGenerationError } from "./ProviderGenerationError";
+import { normalizeProviderGenerationError } from "@legioncode/execution-engine/runtime/provider/adapters/ProviderGenerationError";
 
 describe("normalizeProviderGenerationError", () => {
   it("unwraps AI SDK retries and preserves safe HTTP diagnostics", () => {

@@ -7,6 +7,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@legioncode/execution-engine/runtime/provider": path.resolve(
+        __dirname,
+        "../../packages/execution-engine/src/runtime/provider",
+      ),
       "@legioncode/github-bridge": path.resolve(
         __dirname,
         "../../packages/github-bridge/src/index.ts",

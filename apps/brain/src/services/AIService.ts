@@ -34,7 +34,7 @@ import {
 } from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
 import type { ChatStreamInput } from "./ai/ChatStreamInput";
-import { PROVIDER_SDK_MAX_RETRIES } from "./providers/ProviderRequestPolicy";
+import { PROVIDER_SDK_MAX_RETRIES } from "@legioncode/execution-engine/runtime/provider/ProviderRequestPolicy";
 
 export class AIService {
   private adapter: ProviderAdapter;

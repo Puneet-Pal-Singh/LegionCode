@@ -1,16 +1,16 @@
-// apps/brain/src/services/providers/adapters/LiteLLMAdapter.ts
+// Shared runtime provider adapter.
 // Phase 3.1: LiteLLM provider adapter with standardized usage
 
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
+import type { LLMUsage } from "../../cost/types.js";
 import {
   OpenAICompatibleAdapter,
   type OpenAICompatibleConfig,
-} from "./OpenAICompatibleAdapter";
+} from "./OpenAICompatibleAdapter.js";
 import {
   OPENAI_BASE_URL,
   OPENROUTER_BASE_URL,
   GROQ_BASE_URL,
-} from "../../ai/defaults";
+} from "../ProviderEndpoints.js";
 
 interface LiteLLMConfig {
   apiKey: string;
