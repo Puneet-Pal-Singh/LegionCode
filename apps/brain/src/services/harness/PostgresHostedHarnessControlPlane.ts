@@ -12,10 +12,14 @@ import {
   PostgresTurnAdmissionRepository,
   HarnessControlPlaneConflictError,
 } from "@repo/persistence";
+import { AppServerController } from "../../controllers/AppServerController";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { builtinProviderRegistry } from "@repo/provider-core";
 import type { Env } from "../../types/ai";
-import type { HostedHarnessOperationContext } from "../../integration/app-server/HostedHarnessOperations";
+import type {
+  HostedHarnessConnectionService,
+  HostedHarnessOperationContext,
+} from "../../integration/app-server/HostedHarnessOperations";
 import { composeHostedTurnCommands } from "../../integration/app-server/HostedTurnCommands";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
@@ -25,7 +29,7 @@ import { createPostgresHarnessConnectionService } from "../providers/stores/Post
 import { resolveBrainProviderProductPolicy } from "../../lib/provider-product-policy";
 import { canUseProviderAtRuntime } from "@repo/shared-types";
 import {
-  createHostedHarnessRequestHandler,
+  createHostedHarnessConnectionService,
   type HostedHarnessControlPlane,
   type OwnedHarnessInstance,
 } from "./HostedHarnessConnectionService";
@@ -44,7 +48,15 @@ export function createPostgresHostedHarnessControlPlane(
       undefined,
       (client) => new PostgresHarnessControlPlaneRepository(client),
       action,
-    );
+    ).catch((error: unknown) => {
+      if (error instanceof HarnessControlPlaneConflictError) {
+        if (error.code === "not_found") throw missing();
+        if (error.code === "connection_unavailable")
+          throw unavailable("Selected connection is unavailable");
+        throw conflict();
+      }
+      throw error;
+    });
   const authorizeEnvironment = async (
     context: HostedHarnessOperationContext,
   ) => {
@@ -330,15 +342,27 @@ export function createPostgresHostedHarnessControlPlane(
   };
 }
 
-/** Server route caller: P13 authenticates the principal before invoking these methods. */
+/** Direct env-backed service export for P13's authenticated fourth argument. */
+export function createHostedHarnessService(
+  env: Env,
+): HostedHarnessConnectionService {
+  return createHostedHarnessConnectionService(
+    createPostgresHostedHarnessControlPlane(env),
+  );
+}
+
+/** Server route caller: P13 authenticates the principal before invoking methods. */
 export function handleHostedHarnessAppServerRequest(
   request: Request,
   env: Env,
   executionContext?: ExecutionContext,
 ) {
-  return createHostedHarnessRequestHandler(
-    createPostgresHostedHarnessControlPlane(env),
-  )(request, env, executionContext);
+  return AppServerController.request(
+    request,
+    env,
+    executionContext,
+    createHostedHarnessService(env),
+  );
 }
 function unavailableInstance(record: ConfiguredInstance): OwnedHarnessInstance {
   const reason =
