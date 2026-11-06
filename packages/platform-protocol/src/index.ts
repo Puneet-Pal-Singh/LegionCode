@@ -624,3 +624,10 @@ export * from "./harness/operations.js";
 
 export { AppServerEnvironmentIdSchema } from "./app-server.js";
 export * from "./harness/observation-events.js";
+
+export {
+  HarnessBillingRouteSchema, HarnessQuotaWindowSchema, HarnessAccountQuotaSchema,
+  HarnessActivityMeasurementSchema, HarnessUsageObservationSchema,
+  type HarnessBillingRoute, type HarnessQuotaWindow, type HarnessAccountQuota,
+  type HarnessActivityMeasurement, type HarnessUsageObservation,
+} from "./harness/usage.js";

@@ -418,3 +418,15 @@ export {
 } from "@repo/platform-protocol";
 
 export { AppServerEnvironmentIdSchema } from "@repo/platform-protocol";
+export {
+  projectHarnessUsage,
+  projectHarnessAccountUsage,
+  projectHarnessAttemptElapsedMs,
+  type HarnessUsageScope,
+  type HarnessUsageSample,
+} from "./harness/usage-projection.js";
+
+export {
+  HarnessUsageObservationSchema, type HarnessUsageObservation,
+  type HarnessActivityMeasurement, type HarnessAccountQuota, type HarnessBillingRoute,
+} from "@repo/platform-protocol";
