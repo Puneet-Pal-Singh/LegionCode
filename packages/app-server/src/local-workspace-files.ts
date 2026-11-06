@@ -4,6 +4,8 @@ import { LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, type CheckoutReadFileResult, ty
 import { AppServerOperationError } from "./server.js";
 import type { WorkspaceId } from "@repo/platform-protocol";
 
+const MAX_ACTIVE_WORKSPACE_FILE_READS = 4;
+
 interface DirectoryPage {
   readonly path: string;
   readonly entries: readonly {
@@ -45,10 +47,12 @@ export interface LocalWorkspaceFilesBinding {
 
 /** Current workspace reads only. Immutable review uses the saved artifact owner. */
 export class LocalWorkspaceFilesService {
+  private activeReads = 0;
+
   constructor(private readonly binding: LocalWorkspaceFilesBinding) {}
 
   async listFiles(input: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult> {
-    return this.binding.withWorkspace(input.workspaceId, async (reader, signal) => {
+    return this.withWorkspace(input.workspaceId, async (reader, signal) => {
       signal.throwIfAborted();
       const page = await reader.listDirectory({
         path: input.path, limit: input.limit ?? 200, cursor: input.cursor, signal,
@@ -69,7 +73,7 @@ export class LocalWorkspaceFilesService {
   }
 
   async readFile(input: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult> {
-    return this.binding.withWorkspace(input.workspaceId, async (reader, signal) => {
+    return this.withWorkspace(input.workspaceId, async (reader, signal) => {
       signal.throwIfAborted();
       // The native reader enforces the canonical 500-byte UTF-8 relative-path
       // policy and FD-relative traversal. Do not add a second path policy here.
@@ -94,4 +98,26 @@ export class LocalWorkspaceFilesService {
       return response;
     });
   }
+
+  private async withWorkspace<T>(
+    workspaceId: WorkspaceId,
+    operation: (reader: LocalWorkspaceFileReader, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    // Reserve synchronously, before grant/Git binding or native child creation.
+    if (this.activeReads >= MAX_ACTIVE_WORKSPACE_FILE_READS) {
+      throw new AppServerOperationError(
+        503, "server_unavailable", "Workspace file queries are busy",
+        "workspace_files_busy", false,
+      );
+    }
+    this.activeReads += 1;
+    try {
+      // Await the whole trusted binding: its finally closes the grant FD only
+      // after native child/pipe cleanup. UI cancellation does not free a slot.
+      return await this.binding.withWorkspace(workspaceId, operation);
+    } finally {
+      this.activeReads -= 1;
+    }
+  }
+
 }
