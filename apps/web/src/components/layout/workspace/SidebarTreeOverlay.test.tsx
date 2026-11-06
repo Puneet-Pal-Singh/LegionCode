@@ -87,7 +87,7 @@ describe("SidebarTreeOverlay", () => {
     rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" />);
     expect(screen.getByText("workspace files")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Task checkout" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Repository", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /^Repository$/ }));
     expect(screen.getByText("repository files")).toBeInTheDocument();
     rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" sandboxId="another-session" />);
     expect(screen.getByText("workspace files")).toBeInTheDocument();
