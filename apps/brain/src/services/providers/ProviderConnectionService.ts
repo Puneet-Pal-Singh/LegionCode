@@ -67,10 +67,9 @@ export class ProviderConnectionService {
         capabilities,
         config,
       };
-    } catch (error) {
+    } catch {
       console.warn(
         `[provider/connections] failed to read connection status for ${providerId}`,
-        error,
       );
       return {
         providerId,
