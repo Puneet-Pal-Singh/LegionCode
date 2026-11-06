@@ -797,6 +797,7 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
+                hasOwnedTurn={Boolean(conversationScope)}
                 onOpenFiles={toggleFilesPanel}
                 onCloseTree={() => setActiveTab("review")}
                 onToggleChanges={toggleChangesPanel}
@@ -828,6 +829,7 @@ export function Workspace({
                   explorerRef={explorerRef}
                   sandboxId={sandboxId}
                   runId={activeRunId}
+                  hasOwnedTurn={Boolean(conversationScope)}
                   onLocalFileSelect={(path) => {
                     onFileOpened(path);
                     void handleFullscreenFileClick(path);

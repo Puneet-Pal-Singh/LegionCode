@@ -1,3 +1,4 @@
+import type { Repository } from "../../../services/GitHubService";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
@@ -56,6 +57,7 @@ const baseProps = {
   explorerRef: { current: null },
   sandboxId: "session-1",
   runId: "run-1",
+  hasOwnedTurn: true,
   onGitHubFileSelect: vi.fn(),
   onLocalFileSelect: vi.fn(),
   onChangedFileSelect: vi.fn(),
@@ -77,10 +79,21 @@ describe("SidebarTreeOverlay", () => {
   });
 
   it("renders the workspace explorer for the files overlay", () => {
-    render(<SidebarTreeOverlay {...baseProps} activeTab="files" />);
+    const { rerender } = render(<SidebarTreeOverlay {...baseProps} activeTab="files" />);
 
     expect(screen.getByText("workspace files")).toBeInTheDocument();
     expect(screen.getByRole("complementary")).toHaveClass("top-[60px]");
+    const repo = { name: "repo", full_name: "owner/repo", owner: { login: "owner" } } as Repository;
+    rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" />);
+    expect(screen.getByText("workspace files")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Task checkout" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Repository", exact: true }));
+    expect(screen.getByText("repository files")).toBeInTheDocument();
+    rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" sandboxId="another-session" />);
+    expect(screen.getByText("workspace files")).toBeInTheDocument();
+    rerender(<SidebarTreeOverlay {...baseProps} repo={repo} isGitHubLoaded activeTab="files" sandboxId="new-session" hasOwnedTurn={false} />);
+    expect(screen.getByText("repository files")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Task checkout" })).toBeDisabled();
   });
 
   it("closes when the resize handle is dragged fully right", () => {

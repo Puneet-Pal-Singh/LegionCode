@@ -946,3 +946,5 @@ portable timers without a browser global or another lifecycle subscription owner
 ### Mounted file selection preservation
 
 The global `legioncode_last_viewed_path` bytes remain untouched. They cannot identify an owned conversation or distinguish saved previews from mounted files, so they no longer trigger an automatic file read. Scoped file-view preferences record only explicit successful mounted/repository selections and perform a fresh authorized read when restored; opening a saved preview clears only this new scoped restoration intent. Canonical saved artifact content remains the source for previews. The active terminal feature still uses `terminalCommandPath`; its endpoint is not deleted while that consumer remains.
+
+The file panel explicitly distinguishes Task checkout from Repository. An owned canonical turn selects the task source by default; before admission, the repository source remains available without probing a fabricated run. Checkout read errors remain visible and never silently switch to GitHub contents. Both sidebar and fullscreen consumers receive the same owned-turn binding.

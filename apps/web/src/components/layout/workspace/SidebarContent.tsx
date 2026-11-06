@@ -44,6 +44,7 @@ interface SidebarContentProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
   runId: string;
+  hasOwnedTurn?: boolean;
   onOpenFiles: () => void;
   onCloseTree: () => void;
   onToggleChanges: () => void;
@@ -72,6 +73,7 @@ export function SidebarContent({
   explorerRef,
   sandboxId,
   runId,
+  hasOwnedTurn,
   onOpenFiles,
   onCloseTree,
   onToggleChanges,
@@ -117,6 +119,7 @@ export function SidebarContent({
       explorerRef={explorerRef}
       sandboxId={sandboxId}
       runId={runId}
+      hasOwnedTurn={hasOwnedTurn}
       onGitHubFileSelect={handleGitHubFileSelect}
       onLocalFileSelect={handleFileClick}
       onChangedFileSelect={handleChangedFileSelect}
