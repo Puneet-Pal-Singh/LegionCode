@@ -1,9 +1,10 @@
 import type { Sandbox } from "@cloudflare/sandbox";
+import {
+  assertCloudHarnessBridgeFrame,
+  CLOUD_HARNESS_BRIDGE_LIMITS,
+} from "./CloudHarnessBridgeLimits";
 
 const BRIDGE_PORT = 4319;
-const MAX_FRAME_BYTES = 256 * 1024;
-const MAX_PENDING_BYTES = 1024 * 1024;
-const MAX_PENDING_FRAMES = 64;
 
 export type BridgeDisconnectReason =
   | "closed"
@@ -19,7 +20,10 @@ export interface CloudHarnessBridgeOptions {
   /** Revalidate the durable lease and frozen binding, including generation. */
   authorize: () => Promise<void>;
   signal: AbortSignal;
-  /** Parse canonical worker-protocol frames and await the canonical ingestor here. */
+  /** Revalidate the per-operation lease/process identity using canonical schemas,
+   * correlate commands/ACKs, then await the canonical ingestor. Handshake auth
+   * alone is insufficient. No ACK may be emitted for rejected/failed frames.
+   */
   receive: (frame: string) => Promise<void>;
   disconnected: (reason: BridgeDisconnectReason) => void;
 }
@@ -48,48 +52,55 @@ export class CloudHarnessBridgeTransport {
     sandbox: Pick<Sandbox, "wsConnect">,
     options: CloudHarnessBridgeOptions,
   ): Promise<CloudHarnessBridgeTransport> {
-    options.signal.throwIfAborted();
-    if (!/^[A-Za-z0-9_-]{43,256}$/.test(options.credential)) {
-      throw new Error("Invalid private harness bridge credential");
-    }
-    await options.authorize();
-    options.signal.throwIfAborted();
-    // Construct a private request rather than forwarding browser headers/URL.
-    // wsConnect is provided by getSandbox(), not the Sandbox DO class itself.
-    const response = await sandbox.wsConnect(
-      new Request("https://harness.internal/bridge", {
-        headers: {
-          Upgrade: "websocket",
-          Connection: "Upgrade",
-          Authorization: `Bearer ${options.credential}`,
-        },
-      }),
-      BRIDGE_PORT,
-    );
-    const socket = response.webSocket;
-    if (response.status !== 101 || !socket) {
-      await response.body?.cancel();
-      throw new Error("Private harness bridge upgrade failed");
-    }
+    let socket: WebSocket | null = null;
+    let accepted = false;
     try {
+      options.signal.throwIfAborted();
+      if (!/^[A-Za-z0-9_-]{43,256}$/.test(options.credential)) {
+        throw new Error("Invalid private harness bridge credential");
+      }
+      await options.authorize();
+      options.signal.throwIfAborted();
+      // Never forward browser headers or URLs to the private control endpoint.
+      const response = await sandbox.wsConnect(
+        new Request("https://harness.internal/bridge", {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            Authorization: `Bearer ${options.credential}`,
+          },
+        }),
+        BRIDGE_PORT,
+      );
+      socket = response.webSocket;
+      if (response.status !== 101 || !socket) {
+        await response.body?.cancel();
+        throw new Error("Private harness bridge upgrade failed");
+      }
       // The binding may have been revoked or replaced during the handshake.
       await options.authorize();
       options.signal.throwIfAborted();
-      const transport = new CloudHarnessBridgeTransport(socket, options);
       socket.accept();
-      return transport;
-    } catch (error) {
-      socket.accept();
-      socket.close(1008, "Bridge authorization expired");
-      throw error;
+      accepted = true;
+      return new CloudHarnessBridgeTransport(socket, options);
+    } catch {
+      if (socket) {
+        try {
+          if (!accepted) socket.accept();
+          socket.close(1008, "Private harness bridge handshake failed");
+        } catch {
+          // Best-effort cleanup must not replace the sanitized public failure.
+        }
+      }
+      // Authorization, abort reasons, SDK errors and response-body failures can
+      // contain credentials. Never attach their message, object, stack or cause.
+      throw new Error("Private harness bridge handshake failed");
     }
   }
 
   send(frame: string): void {
     if (this.closed) throw new Error("Private harness bridge is closed");
-    if (new TextEncoder().encode(frame).byteLength > MAX_FRAME_BYTES) {
-      throw new Error("Private harness bridge frame exceeds the size limit");
-    }
+    assertCloudHarnessBridgeFrame(frame);
     try {
       this.socket.send(frame);
     } catch {
@@ -110,13 +121,13 @@ export class CloudHarnessBridgeTransport {
     }
     const frame = event.data;
     const bytes = new TextEncoder().encode(frame).byteLength;
-    if (bytes > MAX_FRAME_BYTES) {
+    if (bytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxFrameBytes) {
       this.finish("invalid_frame");
       return;
     }
     if (
-      this.pendingFrames >= MAX_PENDING_FRAMES ||
-      this.pendingBytes + bytes > MAX_PENDING_BYTES
+      this.pendingFrames >= CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingFrames ||
+      this.pendingBytes + bytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes
     ) {
       // Leave uncommitted observations in the host journal for reconciliation.
       this.finish("overflow");
