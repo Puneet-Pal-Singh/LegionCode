@@ -1154,6 +1154,8 @@ directory description, enumerates through `fdopendir(dup(heldDirectoryFD))`, and
 reads metadata with `fstatat(AT_SYMLINK_NOFOLLOW)`. It never uses pathname opendir
 or follows symlink entries. Dot/Git entries and the reserved native stage-name
 pattern are omitted; other entries retain their real kind, including symlinks.
+Visible non-stage entries in the pre-existing reserved prefix carry
+`unavailableReason: reserved_path`; the established R/M path guard is not widened.
 
 Pages are deterministic bytewise-name prefixes, capped at 200 entries and 64 KiB
 for both native framing and serialized bridge results. Opaque cursors bind the

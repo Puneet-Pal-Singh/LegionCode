@@ -15,6 +15,8 @@ export interface NativeDirectoryEntry {
   /** The listed object's own stat size, never a symlink target or recursive size. */
   readonly bytes: number;
   readonly mode: number;
+  /** Visible user entry in a pre-existing reserved path namespace; not openable. */
+  readonly unavailableReason?: "reserved_path";
 }
 export interface NativeDirectoryPage {
   readonly path: string;
@@ -165,7 +167,16 @@ export class NativeFilesystemBridge {
             5,
             "Directory entry exceeds the 500-byte native path limit",
           );
-        entries.push({ name, path, kind, bytes: Number(size), mode });
+        entries.push({
+          name,
+          path,
+          kind,
+          bytes: Number(size),
+          mode,
+          ...(reservedComponent(name)
+            ? { unavailableReason: "reserved_path" as const }
+            : {}),
+        });
       }
       input.signal.throwIfAborted();
       return boundedDirectoryPage(
@@ -597,4 +608,9 @@ function boundedDirectoryPage(
       return page;
     entries.pop();
   }
+}
+
+function reservedComponent(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === ".git" || lower.startsWith(".legioncode-edit-");
 }
