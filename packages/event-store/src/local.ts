@@ -1,3 +1,4 @@
+import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
 import Database from "better-sqlite3";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -96,6 +97,7 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly harnessBindings: HarnessBindingRepository;
   readonly workspaceGrants: {
     read(): Promise<StoredLocalWorkspaceGrant | null>;
     write(value: StoredLocalWorkspaceGrant): Promise<void>;
@@ -128,17 +130,32 @@ export class LocalPersistence {
       this.database = new Database(databasePath, { timeout: 0 });
       if (!existed) chmodSync(databasePath, 0o600);
       this.assertArchiveMarkerInOpenDatabase();
-      if (existed) this.validateExistingDatabaseBeforeMutation();
+      if (existed) {
+        this.validateExistingDatabaseBeforeMutation();
+        const hasMetadata = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'").get();
+        if (hasMetadata) validateLocalHarnessBindings(this.database);
+      }
       this.configureAndAcquireExclusiveLock();
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
+      initializeLocalHarnessBindings(this.database);
       this.archiveLegacyFilesAfterCommit();
     } catch (error) {
       this.database?.close();
       throw sanitizeOpenError(error);
     }
 
+    const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event));
+    this.harnessBindings = {
+      freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),
+      markRecoveryRequired: (input) => this.guardHarnessStorage(() => harnessBindings.markRecoveryRequired(input)),
+      freeze: (selection, events) => this.guardHarnessStorage(() => harnessBindings.freeze(selection, events)),
+      read: (scope) => this.guardHarnessStorage(() => harnessBindings.read(scope)),
+      attach: (input) => this.guardHarnessStorage(() => harnessBindings.attach(input)),
+      lookupObservation: (input) => this.guardHarnessStorage(() => harnessBindings.lookupObservation(input)),
+      appendObservation: (input) => this.guardHarnessStorage(() => harnessBindings.appendObservation(input)),
+    };
     this.events = {
       append: async (input) => this.appendPlatform(input),
       appendBatch: async (inputs) => this.appendPlatformBatch(inputs),
@@ -551,6 +568,14 @@ export class LocalPersistence {
     this.guardStorage(() => this.database.transaction(() => {
       this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
     }).immediate());
+  }
+
+  private async guardHarnessStorage<T>(operation: () => Promise<T>): Promise<T> {
+    try { return await operation(); }
+    catch (error) {
+      if (error instanceof EventStoreError || error instanceof LocalPersistenceError || error instanceof HarnessPersistenceError) throw error;
+      throw new LocalPersistenceError("unavailable", "Local harness persistence operation failed safely");
+    }
   }
 
   private guardStorage<T>(operation: () => T): T {

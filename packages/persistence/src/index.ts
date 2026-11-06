@@ -374,3 +374,6 @@ export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-rec
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";
 export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";
+
+export { PostgresHarnessBindingRepository } from "./harness/PostgresHarnessBindingRepository.js";
+export type { StoredHarnessSelection, StoredHarnessAttachment, StoredHarnessBinding, HarnessObservationCommit, HarnessObservationAck, HarnessBindingRepository, HarnessExecutionClaimResult } from "./harness/types.js";
