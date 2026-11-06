@@ -1,5 +1,31 @@
 # Capability ownership
 
+## Plan 057 — Local read-only Turn execution
+
+`RuntimeKernel` owns local lifecycle and terminal settlement. Its explicit
+`artifactCapture: "omitted_read_only"` capability requires a read-only run mode,
+a restricted read-only worker and no executable hooks. Default repository turns
+continue to require real Git/artifact capture. Omitted capture emits no snapshot,
+diff or artifact event.
+
+`execution-engine/src/runtime/desktop/LocalReadOnlyTurnExecutor` creates canonical
+initial admission records and owns one kernel handle per admitted attempt.
+`LocalReadOnlyToolWorker` dispatches only `read_file` and `list_files` through the
+existing registry and gateway; `LocalReadOnlyExecutionService` resolves the
+persisted workspace grant for each operation and before returning bounded output.
+`LocalWorkspaceService.resolveRuntimeRoot` is a private runtime port, never a
+renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
+terminal retries cannot enqueue a later Stop.
+
+The App Server consumer/composition and protected provider resolution remain
+integration dependencies owned by workers01/04. Durable admission uses worker02's
+canonical `TurnAdmission` contract; the executor does not own a prompt store.
+The real Desktop acceptance loop is pending that wiring and installed Mac proof.
+
+Source inspected: [OpenCode read tool at 3729fd57068445104ea464a952d41798ed30ea20](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/tool/read.ts)
+uses bounded text reads. Requested Codex/T3 source paths were unavailable (404;
+GitHub tree discovery returned 403); no implementation claim relies on them.
+
 ## Unused Web run-summary reader retirement
 
 The unreferenced `useRunSummary` hook, its implementation-only tests and its

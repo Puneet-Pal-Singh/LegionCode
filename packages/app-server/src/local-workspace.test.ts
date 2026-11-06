@@ -38,6 +38,8 @@ describe("LocalWorkspaceService", () => {
         branch: "main",
         readiness: "ready",
       });
+      await expect(service.resolveRuntimeRoot(granted.workspaceId)).resolves.toBe(await realpath(repositoryRoot));
+      await expect(service.resolveRuntimeRoot("wrk_another_workspace" as typeof granted.workspaceId)).rejects.toThrow("not granted");
       persistence.close();
       persistence = new LocalPersistence({ storageDirectory });
       const reopened = await new LocalWorkspaceService({
@@ -49,6 +51,7 @@ describe("LocalWorkspaceService", () => {
       const reopenedService = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants });
       await reopenedService.revoke();
       await expect(reopenedService.getCurrent()).resolves.toBeNull();
+      await expect(reopenedService.resolveRuntimeRoot(granted.workspaceId)).rejects.toThrow("not granted");
     } finally {
       persistence?.close();
       await rm(storageDirectory, { recursive: true, force: true });

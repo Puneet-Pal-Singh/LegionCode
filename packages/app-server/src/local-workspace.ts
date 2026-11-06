@@ -58,6 +58,30 @@ export class LocalWorkspaceService {
     return grant;
   }
 
+  /** Private runtime port. Never serialize this filesystem root to clients. */
+  async resolveRuntimeRoot(
+    workspaceId: LocalWorkspaceGrant["workspaceId"],
+  ): Promise<string> {
+    const stored = await this.workspaceGrants.read();
+    if (!stored || stored.grant.workspaceId !== workspaceId) {
+      throw new Error("Workspace is not granted");
+    }
+    const current = await this.probeStoredGrant(stored);
+    if (current.readiness !== "ready" || current.workspaceId !== workspaceId) {
+      throw new Error("Granted workspace is no longer executable");
+    }
+    const latest = await this.workspaceGrants.read();
+    if (
+      !latest ||
+      latest.path !== stored.path ||
+      latest.grant.workspaceId !== workspaceId ||
+      latest.grant.grantedAt !== stored.grant.grantedAt
+    ) {
+      throw new Error("Workspace grant changed during resolution");
+    }
+    return stored.path;
+  }
+
   async revoke(): Promise<void> {
     await this.workspaceGrants.clear();
   }
