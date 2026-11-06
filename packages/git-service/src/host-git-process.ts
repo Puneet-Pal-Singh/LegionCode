@@ -32,7 +32,7 @@ export function gitCommandEnvironment(
 
 /** Linux kernel subreaper. No session/process-group heuristic is used as exit proof. */
 export const LINUX_GIT_SUPERVISOR = String.raw`
-import ctypes, errno, glob, json, os, signal, subprocess, sys, time
+import ctypes, errno, glob, json, os, selectors, signal, subprocess, sys, time
 request = json.loads(sys.argv[1])
 if sys.platform != "linux" or not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
     print("Git containment unavailable: Linux subreaper/pidfd required", file=sys.stderr)
@@ -61,7 +61,16 @@ if request.get("trustedAuthEnvironment"):
     environment.update(auth)
 if request.get("indexFile"):
     environment["GIT_INDEX_FILE"] = request["indexFile"]
-child = subprocess.Popen(["git", *request["args"]], cwd=request["cwd"], env=environment, start_new_session=True)
+if request.get("readOnlyProbe"):
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+child = subprocess.Popen(["git", *request["args"]], cwd=request["cwd"], env=environment, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+streams = selectors.DefaultSelector()
+for pipe, target in ((child.stdout, sys.stdout.buffer), (child.stderr, sys.stderr.buffer)):
+    os.set_blocking(pipe.fileno(), False)
+    streams.register(pipe, selectors.EVENT_READ, target)
+output_bytes = 0
+output_limit = False
+MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 deadline = time.monotonic() + request["timeoutMs"] / 1000
 git_status = None
 timed_out = False
@@ -110,19 +119,43 @@ while True:
             break
         if pid == child.pid:
             git_status = os.waitstatus_to_exitcode(status)
+    for key, _ in streams.select(0.005):
+        try:
+            chunk = os.read(key.fileobj.fileno(), 65536)
+        except BlockingIOError:
+            continue
+        if not chunk:
+            streams.unregister(key.fileobj)
+            key.fileobj.close()
+            continue
+        remaining = MAX_OUTPUT_BYTES - output_bytes
+        if len(chunk) > remaining:
+            output_limit = True
+        if remaining > 0:
+            data = chunk[:remaining]
+            key.data.write(data)
+            key.data.flush()
+            output_bytes += len(data)
     if no_children:
-        break
+        if not streams.get_map():
+            break
+        # waitpid is authoritative; proc snapshots may briefly retain reaped PIDs.
+        # Drain remaining bytes/EOF without reclassifying an already-reaped child.
+        continue
     if time.monotonic() >= deadline:
         timed_out = True
     tree = process_tree()
     adopted_children = children(os.getpid(), tree)
-    if any(pid != child.pid for pid in adopted_children) or (git_status is not None and adopted_children):
+    if any(pid != child.pid for pid in adopted_children):
         background = True
-    if timed_out or background:
+    if timed_out or background or output_limit:
         for adopted in adopted_children:
             terminate(adopted, tree)
     time.sleep(0.005)
 os.write(3, b"quiescent")
+if output_limit:
+    print("Git output exceeded bounded capture; all descendants killed and reaped", file=sys.stderr)
+    sys.exit(123)
 if timed_out:
     print("Git command timed out; all descendants killed and reaped", file=sys.stderr)
     sys.exit(124)

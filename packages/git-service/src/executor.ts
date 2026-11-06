@@ -9,6 +9,7 @@ export interface GitCommandExecutionInput {
   readonly stdin?: string;
   readonly environment?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
+  readonly readOnlyProbe?: true;
   readonly indexTransaction?: { readonly paths: readonly string[] };
 }
 

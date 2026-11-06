@@ -204,6 +204,7 @@ export class DefaultGitService {
       cwd: workspaceRoot,
       args: ["rev-parse", "--show-toplevel"],
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+      readOnlyProbe: true,
     });
     if (repositoryRootResult.exitCode !== 0) {
       throw createGitCommandFailedError(
@@ -217,6 +218,7 @@ export class DefaultGitService {
       cwd: workspaceRoot,
       args: GIT_STATUS_PORCELAIN_V2_ARGS,
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+      readOnlyProbe: true,
     });
     if (statusResult.exitCode !== 0) {
       throw createGitCommandFailedError(
@@ -230,6 +232,7 @@ export class DefaultGitService {
       cwd: workspaceRoot,
       args: ["config", "--null", "--list"],
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+      readOnlyProbe: true,
     });
     const remoteUrl =
       configResult.exitCode === 0
@@ -315,7 +318,7 @@ export class DefaultGitService {
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     if (result.indexPublication === "indeterminate") {
-      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically");
+      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically", { reason: result.stderr, exitCode: result.exitCode });
     }
     if (result.exitCode !== 0) {
       throw createGitCommandFailedError(args, result.exitCode, getCommandErrorText(result));

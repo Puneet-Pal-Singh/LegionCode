@@ -25,8 +25,9 @@ let quiescenceProven = true;
 const run = async (args, index, inspection = false) => {
   const remaining = inspection ? 5000 : deadline - Date.now();
   if (remaining <= 0) return { exitCode: 124, stdout: "", stderr: "Git transaction timed out" };
-  const discovery = args.length === 2 && args[0] === "rev-parse" && args[1] === "--show-toplevel";
-  const gitArgs = discovery ? args : ["--work-tree=" + input.cwd, ...args];
+  const discovery = (args.length === 2 && args[0] === "rev-parse" && args[1] === "--show-toplevel") || args[0] === "init";
+  const gitArgs = ["-c", "maintenance.auto=false", "-c", "gc.auto=0", ...(input.readOnlyProbe ? ["-c", "core.fsmonitor=false"] : []), ...(discovery ? args : ["--work-tree=" + input.cwd, ...args])];
+  if (input.readOnlyProbe) environment.GIT_OPTIONAL_LOCKS = "0";
   const request = { cwd: input.cwd, args: gitArgs, environment, indexFile: index, timeoutMs: remaining, stdin: input.stdin };
   if (typeof executeContainedGit === "function") {
     try {
@@ -40,7 +41,7 @@ const run = async (args, index, inspection = false) => {
   }
   if (process.platform !== "linux") return { exitCode: 126, stdout: "", stderr: "Git containment unavailable: canonical OS execution port required" };
   return await new Promise((resolve, reject) => {
-    const wire = { cwd: input.cwd, args: gitArgs, indexFile: index, timeoutMs: remaining, trustedAuthEnvironment: environment.GIT_CONFIG_COUNT === "1" };
+    const wire = { cwd: input.cwd, args: gitArgs, indexFile: index, timeoutMs: remaining, readOnlyProbe: input.readOnlyProbe, trustedAuthEnvironment: environment.GIT_CONFIG_COUNT === "1" };
     const child = spawn("python3", ["-I", "-c", linuxSupervisor, JSON.stringify(wire)], {
       cwd: input.cwd, env: environment,
       stdio: [input.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe", "pipe"],
