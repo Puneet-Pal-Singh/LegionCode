@@ -121,7 +121,9 @@ export class HarnessConnectionService {
       before.userId !== binding.userId ||
       before.providerId !== binding.providerId ||
       before.authOwnerGeneration !== binding.ownerGeneration ||
-      before.status !== "connected"
+      before.status !== "connected" ||
+      before.deletedAt !== null ||
+      before.refreshClaimId !== null
     )
       return null;
     await this.policy.assertRouteAllowed(
@@ -131,13 +133,31 @@ export class HarnessConnectionService {
     );
     const acquired = await this.store.acquireConnection(expected(before));
     if (!acquired) return null;
+    // Decryption/storage I/O can outlive Stop or an execution-claim fence. The
+    // encrypted store checks credential CAS; the admission owner must separately
+    // revalidate the attempt before any material leaves this custody boundary.
+    await this.policy.authorizeAttempt(binding);
+    const current = await this.store.getConnection(binding.connectionId);
+    if (
+      !current ||
+      current.credentialId !== acquired.record.credentialId ||
+      current.userId !== binding.userId ||
+      current.providerId !== binding.providerId ||
+      current.authOwnerGeneration !== binding.ownerGeneration ||
+      current.tokenMaterialVersion !== acquired.record.tokenMaterialVersion ||
+      current.credentialKind !== acquired.secret.type ||
+      current.status !== "connected" ||
+      current.deletedAt !== null ||
+      current.refreshClaimId !== null
+    )
+      return null;
     // Long-lived refresh material never crosses the harness resolver port.
     if (acquired.secret.type === "oauth") {
       const { refreshToken: _, ...secret } = acquired.secret;
       if (secret.expiresAt <= Date.now()) return null;
-      return { metadata: metadata(acquired.record), secret };
+      return { metadata: metadata(current), secret };
     }
-    return { metadata: metadata(acquired.record), secret: acquired.secret };
+    return { metadata: metadata(current), secret: acquired.secret };
   }
   async refresh(
     scope: HarnessConnectionScope,

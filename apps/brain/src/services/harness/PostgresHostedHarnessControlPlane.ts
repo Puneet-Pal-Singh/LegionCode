@@ -9,7 +9,6 @@ import {
 import {
   PostgresHarnessControlPlaneRepository,
   PostgresHarnessBindingRepository,
-  PostgresTurnAdmissionRepository,
   HarnessControlPlaneConflictError,
 } from "@repo/persistence";
 import { AppServerController } from "../../controllers/AppServerController";
@@ -38,6 +37,7 @@ import {
   type OwnedHarnessInstance,
 } from "./HostedHarnessConnectionService";
 import type { HarnessConnectionMetadata } from "./HarnessConnectionService";
+import { authorizeHostedHarnessAttempt } from "./HostedHarnessAttemptAuthority";
 
 type Repository = PostgresHarnessControlPlaneRepository;
 type ConfiguredInstance = Awaited<ReturnType<Repository["setupInstance"]>>;
@@ -97,55 +97,12 @@ export function createPostgresHostedHarnessControlPlane(
         },
         async authorizeAttempt(binding) {
           await authorizeEnvironment(context);
-          if (
-            binding.userId !== context.userId ||
-            binding.workspaceId !== context.workspaceId ||
-            binding.environmentId !== context.environmentId
-          )
-            throw missing();
-          await withBrainPersistenceRepository(
+          const selected = await authorizeHostedHarnessAttempt(
             env,
-            undefined,
-            (client) => ({
-              admission: new PostgresTurnAdmissionRepository(client),
-              binding: new PostgresHarnessBindingRepository(client),
-            }),
-            async (repositories) => {
-              const admission = await repositories.admission.getByTurnId(
-                binding.turnId,
-              );
-              const stored = await repositories.binding.read({
-                userId: binding.userId,
-                turnId: binding.turnId,
-                runAttemptId: binding.runAttemptId,
-              });
-              if (
-                !admission ||
-                admission.userId !== context.userId ||
-                admission.workspaceId !== context.workspaceId ||
-                admission.runAttemptId !== binding.runAttemptId ||
-                admission.state !== "admitted" ||
-                admission.executionState !== "running" ||
-                !stored
-              )
-                throw missing();
-              if (
-                stored.selection.userId !== context.userId ||
-                stored.selection.workspaceId !== context.workspaceId ||
-                stored.selection.runId !== admission.runId ||
-                stored.selection.threadId !== admission.threadId
-              )
-                throw missing();
-              const selected = HarnessSelectionSchema.unwrap().parse(JSON.parse(stored.selection.selectionJson));
-              if (
-                selected.connectionId !== binding.connectionId ||
-                selected.authOwnerGeneration !== binding.ownerGeneration ||
-                selected.environmentId !== binding.environmentId ||
-                selected.environmentId !== context.environmentId
-              )
-                throw missing();
-            },
+            context,
+            binding,
           );
+          validateHarnessProvider(selected.harness, binding);
         },
         async assertRouteAllowed(scope, providerId, kind) {
           if (
@@ -484,7 +441,7 @@ function unavailableInstance(record: ConfiguredInstance): OwnedHarnessInstance {
 }
 function validateHarnessProvider(
   harness: HarnessSetupRequest["harness"],
-  connection: HarnessConnectionMetadata,
+  connection: Pick<HarnessConnectionMetadata, "providerId">,
 ) {
   if (
     (harness === "codex" && connection.providerId !== "openai") ||
