@@ -90,6 +90,7 @@ export interface ModelPickerPopoverProps {
   onConnectProvider: () => void;
   onManageModels: () => void;
   isLoading?: boolean;
+  disabled?: boolean;
   isHydratingVisibleModels?: boolean;
 }
 
@@ -300,9 +301,11 @@ export function ModelPickerPopover({
   onConnectProvider,
   onManageModels,
   isLoading = false,
+  disabled = false,
   isHydratingVisibleModels = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
+  useEffect(() => { if (disabled) setIsOpen(false); }, [disabled]);
   const [placement, setPlacement] = useState<PopoverPlacement>({
     topPx: VIEWPORT_PADDING_PX,
     bottomPx: null,
@@ -656,7 +659,8 @@ export function ModelPickerPopover({
       <button
         ref={triggerButtonRef}
         type="button"
-        onClick={handleToggle}
+        disabled={disabled}
+        onClick={disabled ? undefined : handleToggle}
         className={`
           inline-flex h-8 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-lg
           px-2 text-sm font-medium text-neutral-400
@@ -677,7 +681,7 @@ export function ModelPickerPopover({
       </button>
 
       {/* Popover Content */}
-      {isOpen && typeof document !== "undefined"
+      {isOpen && !disabled && typeof document !== "undefined"
         ? createPortal(
             <div
               ref={popoverContentRef}

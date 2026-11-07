@@ -191,16 +191,19 @@ export function DesktopModelPicker({
   onConnectProvider,
   onManageModels,
   onModelSwitchWarning,
+  disabled = false,
 }: {
   controls: ReturnType<typeof useDesktopModelPicker>;
   onConnectProvider: () => void;
   onManageModels: () => void;
   onModelSwitchWarning?: () => void;
+  disabled?: boolean;
 }) {
   const { current, selection } = controls;
   return (
     <ModelPickerPopover
       policy={DESKTOP_PROVIDER_POLICY}
+      disabled={disabled}
       catalog={current?.catalog ?? []}
       credentials={current?.credentials ?? []}
       providerModels={current?.models ?? {}}
