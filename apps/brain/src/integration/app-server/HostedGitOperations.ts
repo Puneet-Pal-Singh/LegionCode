@@ -2,7 +2,6 @@ import {
   AppServerOperationError,
   type AppServerComposition,
 } from "@legioncode/app-server/server";
-import type { AppServerRequest } from "@legioncode/app-server/protocol";
 import { isDomainError, mapDomainErrorToHttp } from "../../domain/errors";
 import { resolveOwnedCheckoutExecution, type OwnedCheckoutExecution } from "./OwnedCheckoutExecution";
 import {
@@ -11,8 +10,12 @@ import {
 } from "../../services/git/GitExecutionService";
 import type { Env } from "../../types/ai";
 
-type GitRequest = Extract<AppServerRequest, { method: `git/${string}` }>;
-type GitParams = GitRequest["params"];
+type HostedGitOperationsService = NonNullable<
+  AppServerComposition["hostedGitOperationsService"]
+>;
+type GitParams = Parameters<
+  HostedGitOperationsService[keyof HostedGitOperationsService]
+>[0];
 
 export function composeHostedGitOperations(
   request: Request,

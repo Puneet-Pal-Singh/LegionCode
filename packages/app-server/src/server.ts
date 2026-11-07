@@ -26,6 +26,8 @@ import type {
   InterruptTurnResponse,
   GetTurnDiffRequest,
   GetTurnDiffResponse,
+  CommitTurnArtifactRequest,
+  CommitTurnArtifactResponse,
   LifecycleEvent,
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
@@ -145,6 +147,9 @@ export type AppServerComposition = {
   hostedCheckoutReadsService?: {
     listFiles(params: Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"]): Promise<CheckoutListFilesResult>;
     readFile(params: Extract<AppServerRequest, { method: "checkout/readFile" }>["params"]): Promise<CheckoutReadFileResult>;
+  };
+  localTurnArtifactCommitService?: {
+    commitTurnArtifact(request: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
   };
   hostedGitOperationsService?: {
     status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
@@ -463,6 +468,12 @@ async function dispatch(
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.stage(request.params);
     }
+    case "git/commitTurnArtifact": {
+      if (composition.environment !== "local" || !composition.localTurnArtifactCommitService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local Turn artifact commits are unavailable", undefined, false);
+      }
+      return composition.localTurnArtifactCommitService.commitTurnArtifact(request.params);
+    }
     case "git/commit": {
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.commit(request.params);
@@ -584,6 +595,18 @@ async function dispatch(
       return {
         thread: await composition.threadService.rename(request.params.threadId, request.params),
       };
+    }
+    case "thread/pin": {
+      if (composition.environment !== "local" || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.pin(request.params.threadId) };
+    }
+    case "thread/unpin": {
+      if (composition.environment !== "local" || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.unpin(request.params.threadId) };
     }
     case "thread/archive": {
       if (!composition.threadService) throw new Error("unsupported");
