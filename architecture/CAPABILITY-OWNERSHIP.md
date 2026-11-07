@@ -1643,6 +1643,13 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+Saved artifact commit requests explicitly select either all saved changes or a
+nonempty unique subset of saved file entries. The immutable query adapter checks
+membership and expands both sides of a saved rename; the private Git authorizer
+rechecks every derived path against the same artifact. No omitted selection or
+invalid subset falls back to all changes. Native capture and commit remain
+unavailable until the physical metadata namespace and transaction gates are met.
+
 ## Desktop immutable saved-change commit presentation
 
 Web retains Git orchestration and defaults while `GitCommitDialogView` owns its
