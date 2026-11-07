@@ -56,6 +56,7 @@ export interface LocalTurnMediaPort {
   ): Promise<LocalTurnPreparedMedia>;
   resolveForProvider(input: {
     readonly scope: LocalTurnMediaScope;
+    readonly fingerprint: string;
     readonly references: readonly ChatImageAttachmentRef[];
     readonly signal?: AbortSignal;
   }): Promise<readonly LocalProviderImagePart[]>;
