@@ -10,7 +10,8 @@
     "./protocol": "./src/protocol.ts",
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
-    "./local-process": "./src/local-process.ts"
+    "./local-process": "./src/local-process.ts",
+    "./local-native-runtime": "./src/local-native-runtime.ts"
   },
   "scripts": {
     "build": "tsc",
@@ -20,10 +21,13 @@
   "dependencies": {
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
+    "@repo/permission-policy": "workspace:*",
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
