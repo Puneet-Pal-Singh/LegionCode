@@ -1297,8 +1297,19 @@ user, workspace, Thread, Run, Turn and Run Attempt. Reads validate payload hashe
 and the diff's persisted baseline/final captures; startup rejects corrupt records.
 The store produces no lifecycle events and creates no separate database owner.
 Native capture, authorized query and commit consumers remain separate integration
-work. Stored Git tree IDs do not retain their object closure or enable capture or
+work. Stored Git tree IDs alone do not retain their object closure or enable capture or
 Git mutation capabilities.
+
+The local capture composition delegates to the canonical Git snapshot/profile
+and retention ports through the same retained writer authority. Its adapter
+awaits a scoped tree retention ref before returning a capture to the existing
+kernel artifact coordinator; server-derived user identity joins the original
+workspace, Thread, Run, Turn and Run Attempt. Private indexes use the verified
+per-worktree metadata layout, while retention uses the original common object
+store. Nonempty alternates/grafts, replacement refs and non-files ref storage are
+unsupported by the initial mutation profile. These constructors still require
+the real grant callback, host lease, native binding and installed-consumer proof;
+this source composition does not advertise capture or mutation capabilities.
 
 ## Plan 057 — Approved local Git authority contract
 
