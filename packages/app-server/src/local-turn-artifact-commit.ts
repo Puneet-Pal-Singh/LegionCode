@@ -49,6 +49,34 @@ export class LocalTurnArtifactCommitService {
         false,
       );
     }
+    const changed = source.diff.files.filter((file) => file.status !== "unchanged");
+    const selected = request.selection.kind === "all"
+      ? changed
+      : request.selection.paths.map((path) => {
+          const file = changed.find((entry) => entry.path === path);
+          if (!file) {
+            throw new AppServerOperationError(
+              400,
+              "invalid_request",
+              "Selected paths must belong to the saved turn changes",
+              "artifact_selection_invalid",
+              false,
+            );
+          }
+          return file;
+        });
+    // A saved rename is one change: its old and new entries travel together.
+    const paths = [...new Set(selected.flatMap((file) =>
+      file.status === "renamed" && file.previousPath !== null
+        ? [file.path, file.previousPath]
+        : [file.path],
+    ))];
+    if (paths.length === 0) {
+      throw new AppServerOperationError(
+        409, "conflict", "The selected turn has no saved changes to commit",
+        "artifact_unavailable", false,
+      );
+    }
     // The shared read just reauthorized this exact admission. No asynchronous
     // work intervenes before the Git owner's own grant/publication checks.
     try {
@@ -59,6 +87,7 @@ export class LocalTurnArtifactCommitService {
         turnId: source.admission.turn.id,
         runAttemptId: source.admission.runAttemptId,
         artifactId: source.artifactId,
+        paths,
         message: request.message,
         author: request.author,
       });
