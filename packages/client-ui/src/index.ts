@@ -124,3 +124,5 @@ export { readComposerPreferences, updateComposerPreferences, useComposerPreferen
 
 export type { ProviderSettingsPort, ProviderSettingsCredential, ProviderSettingsModel } from "./provider/ProviderSettingsPort.js";
 export { SettingsSwitch } from "./settings/Switch.js";
+
+export { ManageModelsDialog, type ManageModelsDialogProps } from "./provider/ManageModelsDialog.js";
