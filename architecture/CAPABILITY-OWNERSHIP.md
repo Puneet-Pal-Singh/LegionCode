@@ -35,6 +35,9 @@ Grant failures use the existing typed App Server operation error with static
 stage/reason categories; raw paths, Git output and error context stay private.
 Storage failures retain their existing 503 response, and resource uncertainty
 still retains the original pin and quarantine semantics.
+Trusted Mac Git discovery resolves the explicitly selected developer tools to
+their canonical executable without launching a shell or xcrun. Discovery does
+not prove process containment; the same guardian and readiness gate still do.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.

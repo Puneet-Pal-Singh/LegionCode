@@ -1,5 +1,4 @@
-import { realpathSync } from "node:fs";
-import { createVerifiedMacGitExecution } from "@legioncode/app-server/local-mac-git-execution";
+import { createVerifiedMacGitExecution, resolveTrustedMacGitExecutable } from "@legioncode/app-server/local-mac-git-execution";
 import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import { LocalWorkspaceFilesService } from "@legioncode/app-server/local-workspace-files";
 import type { LocalWorkspaceFilesCompositionOptions } from "@legioncode/app-server/local-process";
@@ -12,7 +11,6 @@ export function createWorkspaceFileComposition(
   const filesystemHelperPath = config.nativeFilesystemHelperPath;
   const processHelperPath = config.nativeProcessHelperPath;
   if (process.platform !== "darwin" || !filesystemHelperPath || !processHelperPath) return undefined;
-  const gitExecutable = realpathSync("/usr/bin/git");
   return {
     createMetadataInspector: (rootDirectory, observeExecution) =>
       new NativeFilesystemBridge({
@@ -21,7 +19,7 @@ export function createWorkspaceFileComposition(
         observeExecution,
       }),
     createProbeExecution: (authority) => createVerifiedMacGitExecution({
-      ...authority, purpose: "repo_probe", gitExecutable, processHelperPath,
+      ...authority, purpose: "repo_probe", gitExecutable: resolveTrustedMacGitExecutable(), processHelperPath,
     }),
     createWorkspaceFilesService: (workspaces) => new LocalWorkspaceFilesService({
       withWorkspace: async (workspaceId, operation) => {

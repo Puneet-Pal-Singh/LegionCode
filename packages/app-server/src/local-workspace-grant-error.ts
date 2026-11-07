@@ -33,6 +33,7 @@ const REASONS = new Map<string, string>([
   ["Native filesystem transport or authorization failed; mutation capture must settle actual state", "native_protocol_or_authorization_failed"],
   ["Native filesystem cleanup failed; workspace capture is required", "native_cleanup_uncertain"],
   ["Git and its guardian require trusted canonical paths", "git_executables_untrusted"],
+  ["An installed native Mac Git executable is unavailable", "git_executable_unavailable"],
   ["Canonical Mac Git readiness was not proved", "git_readiness_unproved"],
   ["Canonical Mac Git readiness timed out", "git_readiness_timed_out"],
   ["Canonical Mac Git readiness returned a nonzero exit status", "git_readiness_exit_nonzero"],
