@@ -17,6 +17,8 @@
     "./local-workspace-writer-lease": "./src/local-workspace-writer-lease.ts",
     "./local-captured-execution": "./src/local-captured-execution.ts",
     "./local-capture-git": "./src/local-capture-git.ts",
+    "./local-artifact-git": "./src/local-artifact-git.ts",
+    "./local-artifact-commit-composition": "./src/local-artifact-commit-composition.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {

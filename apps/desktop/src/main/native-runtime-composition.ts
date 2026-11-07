@@ -4,6 +4,8 @@ import { createLocalReadOnlyGitService } from "@legioncode/app-server/local-read
 import { LocalWorkspaceWriterLeaseOwner } from "@legioncode/app-server/local-workspace-writer-lease";
 import { createLocalCapturedExecutionCapability } from "@legioncode/app-server/local-captured-execution";
 import { createCaptureGitService } from "@legioncode/app-server/local-capture-git";
+import { createArtifactGitService } from "@legioncode/app-server/local-artifact-git";
+import { createLocalArtifactCommitComposition } from "@legioncode/app-server/local-artifact-commit-composition";
 import type { LocalAppServerCompositionOptions } from "@legioncode/app-server/local-process";
 import { NativePermissionPolicyResolver } from "@legioncode/execution-engine/runtime/engine/NativePermissionPolicyResolver";
 import { PermissionProfileIdSchema, WorkerIdSchema } from "@repo/platform-protocol";
@@ -27,6 +29,17 @@ export async function createDesktopNativeComposition(
   }) : undefined;
   return {
     ...files,
+    createArtifactCommitService: leases ? (input) => createLocalArtifactCommitComposition({
+      ...input,
+      leases,
+      createGitService: (lease, binding) => createArtifactGitService(lease, {
+        gitExecutable,
+        processHelperPath,
+        filesystemHelperPath,
+        metadataIdentity: binding.metadataIdentity,
+        inspectMetadataLayout: binding.inspectMetadataLayout,
+      }),
+    }) : undefined,
     createTurnRuntime: (persistence, media) => createLocalNativeRuntime({
       persistence,
       media,
