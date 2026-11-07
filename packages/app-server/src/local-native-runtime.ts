@@ -55,7 +55,7 @@ export interface LocalNativeRuntimeOptions {
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
-  /** Canonical Git owner; abort waits for actual child and pipe quiescence. */
+  /** Canonical Git owner. Success requires actual child/pipe closure; rejection is uncertain. */
   readonly createGitService: (
     binding: LocalWorkspaceExecutionBinding,
     signal: AbortSignal,
@@ -108,7 +108,8 @@ export function createLocalNativeRuntime(
         helperPath,
         rootDirectory: binding.rootDirectory,
       });
-      return new LocalTurnExecutor<LocalWorkspaceExecutionBinding>({
+      let manifestGitClosureUnknown = false;
+      const executor = new LocalTurnExecutor<LocalWorkspaceExecutionBinding>({
         capability,
         producerId: workerId,
         lifecycleEvents: options.persistence.lifecycleEvents,
@@ -141,11 +142,18 @@ export function createLocalNativeRuntime(
         },
         async createKernelPorts(admission, bound, signal, execution) {
           signal.throwIfAborted();
-          const git = options.createGitService(bound, signal);
           const manifests = new MemoryWorkspaceManifestRepository();
-          await manifests.create(
-            await readManifest(admission, bound, git, signal),
-          );
+          try {
+            const git = options.createGitService(bound, signal);
+            await manifests.create(
+              await readManifest(admission, bound, git, signal),
+            );
+          } catch (error) {
+            // A Git rejection (including constructor failure after spawn) is not
+            // positive physical closure. Retain this exact host binding/fence.
+            manifestGitClosureUnknown = true;
+            throw error;
+          }
           const messages = await readConversation(
             options.persistence,
             admission,
@@ -179,6 +187,16 @@ export function createLocalNativeRuntime(
           };
         },
       });
+      return {
+        execute: executor.execute.bind(executor),
+        interrupt: executor.interrupt.bind(executor),
+        resolveApproval: executor.resolveApproval,
+        async awaitResourceRelease(turnId) {
+          if (manifestGitClosureUnknown) return false;
+          const releasable = await executor.awaitResourceRelease(turnId);
+          return releasable && !manifestGitClosureUnknown;
+        },
+      };
     },
   };
 }
