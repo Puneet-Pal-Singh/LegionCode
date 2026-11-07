@@ -18,6 +18,18 @@ invalidation. Its handle is shared with capture ports for the attempt, never a
 renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
 terminal retries cannot enqueue a later Stop.
 
+The grant foundation retains the original root `FileHandle` in
+`LocalWorkspaceRootPin`. `LocalWorkspaceService` captures the native Git metadata
+identity on explicit grant, persists it through the existing LocalPersistence
+v2 grant record, and compares it before restored probes or execution binding.
+`LocalWorkspaceMetadataResolver` is the single protected-path owner for ordinary
+and linked repository metadata; the original binding exposes its fresh native
+association/mutation inspection to retained settlement borrowers. Legacy v1
+records remain readable but require an explicit regrant before execution.
+Immutable artifact persistence stays in the same existing SQLite owner. This
+foundation does not activate Desktop startup, captured execution or mutation
+capabilities; those consumers must compose the same binding and native helpers.
+
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
 The local factory reuses native context assembly/compaction and connects the same
