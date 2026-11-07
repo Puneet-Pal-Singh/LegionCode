@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import type { HostedSessionPullRequestsResponse, ThreadSidebarDisplayStatus, ThreadSidebarItem } from "@legioncode/sdk";
 
 export interface ThreadSidebarEntry {
@@ -466,7 +466,7 @@ function ThreadSidebarRow({
     );
   }
 
-  function handlePreviewMouseLeave(event: MouseEvent<HTMLElement>): void {
+  function handlePreviewMouseLeave(event: ReactMouseEvent<HTMLElement>): void {
     if (!ownsPreviewTarget(event.relatedTarget)) schedulePreviewClose();
   }
 
