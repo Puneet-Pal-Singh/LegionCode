@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
+import { HarnessInstanceStatusSchema } from "@repo/platform-protocol";
 
 import {
   APP_SERVER_PROTOCOL_VERSION,
@@ -6,6 +11,9 @@ import {
   AppServerResponseSchema,
 } from "./protocol.js";
 import { AppServerMethodOutcome, handleAppServerHttpRequest } from "./server.js";
+import { LocalHarnessOperations } from "./harness/LocalHarnessOperations.js";
+import type { LocalThreadService } from "./local-threads.js";
+import { LocalWorkspaceService } from "./local-workspace.js";
 
 describe("App Server protocol", () => {
   it("validates hosted session identity and rejects client-supplied tenancy", () => {
@@ -44,7 +52,7 @@ describe("App Server protocol", () => {
       result: { sessionId: request.params.sessionId, lastAcknowledgedTerminalTurnId: "trn_terminal123", acknowledgedAt: "2026-10-12T12:00:00.000Z" },
     }).success).toBe(true);
   });
-  it("accepts only strict, versioned requests with canonical IDs and params", () => {
+  it("accepts only strict, versioned requests with canonical IDs and params", async () => {
     expect(
       AppServerRequestSchema.safeParse({
         protocolVersion: APP_SERVER_PROTOCOL_VERSION,
@@ -136,6 +144,49 @@ describe("App Server protocol", () => {
       { ...usage, quota: { ...usage.quota, windows: [] } },
     ]) {
       expect(AppServerResponseSchema.safeParse(statusEnvelope({ ...status, usage: invalid })).success).toBe(false);
+    }
+
+    const localRoot = await mkdtemp(join(tmpdir(), "legioncode-harness-protocol-"));
+    try {
+      const repositoryRoot = await realpath(localRoot);
+      let storedGrant: StoredLocalWorkspaceGrant | null = null;
+      const workspaceService = new LocalWorkspaceService({
+        workspaceGrants: {
+          read: async () => storedGrant,
+          write: async (value) => { storedGrant = value; },
+          clear: async () => { storedGrant = null; },
+        },
+        gitService: {
+          probeRepository: async () => ({ repositoryRoot, repositoryIdentity: "synthetic/repository", branch: "main", isDirty: false }),
+        },
+      });
+      const grant = await workspaceService.grant({ path: repositoryRoot });
+      expect(grant.workspaceId).toMatch(/^wrk_/);
+      const localScope = { workspaceId: grant.workspaceId, environmentId: "local-protocol-fixture" };
+      const localSelection = { ...harnessSelection, ...localScope };
+      for (const command of [
+        { method: "harness/status", params: localScope },
+        { method: "harness/selection/read", params: localSelection },
+        { method: "harness/selection/select", params: { ...localSelection, clientCommandId: "local-select-1", expectedRevision: 0, selection: null } },
+      ]) {
+        expect(AppServerRequestSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, ...command }).success).toBe(true);
+      }
+      const localStatus = HarnessInstanceStatusSchema.parse({ ...status, ...localScope });
+      expect(AppServerResponseSchema.safeParse(statusEnvelope(localStatus)).success).toBe(true);
+      expect(AppServerResponseSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/selection/read", ok: true,
+        result: { ...localSelection, revision: 0, selection: null } }).success).toBe(true);
+      expect(AppServerRequestSchema.safeParse({ protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "harness/status",
+        params: { ...localScope, workspaceId: "wrk_bad" } }).success).toBe(false);
+
+      // Status needs only the real grant owner; thread storage is outside this check.
+      const threads: Pick<LocalThreadService, "get"> = { get: async () => { throw new Error("Thread lookup is not part of status"); } };
+      const operations = new LocalHarnessOperations({ environmentId: localScope.environmentId,
+        workspaceService, threadService: threads as LocalThreadService, readInstances: () => [localStatus] });
+      await expect(operations.status(localScope)).resolves.toEqual({ instances: [localStatus] });
+      await expect(operations.status({ ...localScope, workspaceId: "wrk_ungranted001" })).rejects.toMatchObject({ statusCode: 403, code: "unauthorized" });
+      await expect(operations.status({ ...localScope, environmentId: "another-environment" })).rejects.toMatchObject({ statusCode: 403, code: "unauthorized" });
+    } finally {
+      await rm(localRoot, { recursive: true, force: true });
     }
 
     const threadScope = {
