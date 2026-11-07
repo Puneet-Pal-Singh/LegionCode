@@ -4,6 +4,7 @@ import type {
   LocalQuiescentWorker,
 } from "./LocalTurnExecutionCapability.js";
 import { prepareLocalCapturedExecution } from "./LocalCapturedExecution.js";
+import { LocalTurnPreparationFailure } from "./LocalTurnPreparationFailure.js";
 import type { RuntimeExecutionService } from "../types.js";
 import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
@@ -62,6 +63,7 @@ export class LocalTurnExecutor<
       >;
       readonly controller: AbortController;
       readonly awaitQuiescence: (timeoutMs: number) => Promise<boolean>;
+      readonly hasPreparationResourceProof: () => boolean;
     }
   >();
 
@@ -120,6 +122,7 @@ export class LocalTurnExecutor<
     const controller = new AbortController();
     let workspaceBinding: TBinding | undefined;
     let workerOwner: WorkerProtocolPort | undefined;
+    let preparationFailure: LocalTurnPreparationFailure | undefined;
     let preflightSignal: AbortSignal = controller.signal;
     let kernelOwner: RuntimeKernel | undefined;
     let preflightStatus: ReturnType<RuntimeKernel["getTurnTerminalStatus"]> =
@@ -142,10 +145,30 @@ export class LocalTurnExecutor<
         preflightSignal = signal;
         signal.throwIfAborted();
         const capability = this.capability;
-        const capturedPorts =
-          capability?.artifactCapture === "required"
-            ? await capability.createExecutionPorts(admission, binding, signal)
-            : undefined;
+        let capturedPorts: LocalCapturedExecutionPorts | undefined;
+        if (capability.artifactCapture === "required") {
+          try {
+            capturedPorts = await capability.createExecutionPorts(
+              admission,
+              binding,
+              signal,
+            );
+          } catch (error) {
+            if (
+              error instanceof LocalTurnPreparationFailure &&
+              error.matchesAttempt({
+                workspaceId: admission.run.workspaceId,
+                threadId: admission.run.threadId,
+                runId: admission.run.id,
+                turnId: admission.turn.id,
+                runAttemptId: admission.runAttemptId,
+              })
+            ) {
+              preparationFailure = error;
+            }
+            throw error;
+          }
+        }
         const captured =
           capability.artifactCapture === "required"
             ? await prepareLocalCapturedExecution(
@@ -259,11 +282,17 @@ export class LocalTurnExecutor<
       result,
       finished: false,
       controller,
+      hasPreparationResourceProof: () => preparationFailure !== undefined,
       awaitQuiescence: (timeoutMs) =>
-        workerOwner?.awaitQuiescence?.({
-          turnId: admission.turn.id,
-          timeoutMs,
-        }) ?? Promise.resolve(false),
+        workerOwner
+          ? workerOwner.awaitQuiescence?.({
+              turnId: admission.turn.id,
+              timeoutMs,
+            }) ?? Promise.resolve(false)
+          : preparationFailure?.awaitQuiescence({
+              turnId: admission.turn.id,
+              timeoutMs,
+            }) ?? Promise.resolve(false),
       isTerminal: () =>
         (kernelOwner?.getTurnTerminalStatus(admission.turn.id) ??
           preflightStatus) !== null,
@@ -372,8 +401,8 @@ export class LocalTurnExecutor<
 
   /**
    * Only a positive result permits the host to close this attempt's binding/fence.
-   * False (including preflight without a known worker) requires retaining the same
-   * executor and quarantining its binding for reconciliation, never a fresh lease.
+   * False (including preflight without a known worker or owner receipt) requires
+   * retaining the same executor and quarantining its binding, never a fresh lease.
    */
   async awaitResourceRelease(
     turnId: StartTurnInput["turn"]["id"],
@@ -385,7 +414,12 @@ export class LocalTurnExecutor<
       // a terminal append committed but its acknowledgement was lost.
       await owned.result.catch(() => undefined);
       if (!owned.finished || !(await owned.awaitQuiescence(500))) return false;
-      if (!(await this.hasDurableSettlement(owned.identity))) return false;
+      if (
+        !(await this.hasDurableSettlement(
+          owned.identity,
+          !owned.hasPreparationResourceProof(),
+        ))
+      ) return false;
       return await owned.awaitQuiescence(500);
     } catch {
       // Unreadable settlement or unknown physical closure is not release proof.
@@ -414,6 +448,7 @@ export class LocalTurnExecutor<
 
   private async hasDurableSettlement(
     identity: LocalTurnAttemptIdentity,
+    allowCompleted = true,
   ): Promise<boolean> {
     let afterSequence: number | null = null;
     let sequence = 0;
@@ -478,7 +513,10 @@ export class LocalTurnExecutor<
     } while (afterSequence !== null);
     // A failed/interrupted canonical terminal can truthfully retain unavailable
     // capture/error references. Completion alone requires successful capture.
-    return terminal !== null && (terminal !== "completed" || captured);
+    return (
+      terminal !== null &&
+      (terminal !== "completed" || (allowCompleted && captured))
+    );
   }
 }
 
