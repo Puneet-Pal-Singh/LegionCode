@@ -824,7 +824,7 @@ function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
       version: z.literal(2),
       path: LocalWorkspaceGrantPathSchema,
       grant: LocalWorkspaceGrantSchema,
-      gitMetadataIdentity: z.string().min(1).max(256),
+      gitMetadataIdentity: z.string().min(1).max(512),
     }).strict(),
   ]).parse(value);
   if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
