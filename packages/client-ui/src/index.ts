@@ -8,7 +8,7 @@ export { ClientShell } from "./shell/ClientShell.js";
 export { ClientShellLoading } from "./shell/ClientShellLoading.js";
 export { WorkspaceFrame, type WorkspaceFrameProps } from "./workspace/WorkspaceFrame.js";
 export { WorkspaceTopBar, type WorkspaceTopBarProps } from "./workspace/WorkspaceTopBar.js";
-export { ThreadSidebar, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
+export { ThreadSidebar, SidebarSettingsButton, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
 export {
   ConnectProviderChooser,
   type ConnectProviderChooserProps,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Check, FolderPlus, MoreHorizontal, Pin, Search, SquarePen, PanelLeftClose, X } from "lucide-react";
+import { Check, FolderPlus, MoreHorizontal, Pin, Search, Settings, SquarePen, PanelLeftClose, X } from "lucide-react";
 import type { HostedSessionPullRequestsResponse, ThreadSidebarDisplayStatus, ThreadSidebarItem, ThreadSidebarReadModel } from "@legioncode/sdk";
 import { ThreadSidebarSectionHeader } from "./ThreadSidebarSectionHeader.js";
 import { ThreadSidebarGroup, type ThreadSidebarEntry } from "./ThreadSidebarGroup.js";
@@ -25,6 +25,8 @@ export interface ThreadSidebarProps {
   visible?: boolean;
   /** Present this host-owned projectless group as a separate Recents section. */
   recentWorkspaceSelectionId?: WorkspaceSelectionId;
+  /** Use the shared collapsible Projects section even without projectless chats. */
+  collapsibleProjects?: boolean;
   onSelect: (selectionId: string) => void;
   onCreate?: (workspaceSelectionId?: WorkspaceSelectionId) => void;
   onAddWorkspace?: () => void;
@@ -42,6 +44,8 @@ export interface ThreadSidebarProps {
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   onPreviewSelectionChange?: (selectionId: string | null) => void;
   onClose?: () => void;
+  onOpenSettings?: () => void;
+  mutationError?: string | null;
   brand?: ReactNode;
   footer?: ReactNode;
   width?: number;
@@ -51,6 +55,7 @@ export function ThreadSidebar({
   model,
   visible = true,
   recentWorkspaceSelectionId,
+  collapsibleProjects = Boolean(recentWorkspaceSelectionId),
   onSelect,
   onCreate,
   onAddWorkspace,
@@ -67,6 +72,8 @@ export function ThreadSidebar({
   onVisibleSelectionChange,
   onPreviewSelectionChange,
   onClose,
+  onOpenSettings,
+  mutationError,
   brand = (
     <div className="truncate pl-2 text-lg font-semibold tracking-tight">
       <span className="text-zinc-100">Legion</span>
@@ -150,7 +157,7 @@ export function ThreadSidebar({
     ? model.archived.filter((thread) => matches(thread, normalizedQuery, statusFilter))
     : [];
   const visiblePinned = visibleItems(pinned, visibleCounts["\0pinned"] ?? INITIAL_VISIBLE_ROWS);
-  const orderedGroups = recentWorkspaceSelectionId
+  const orderedGroups = collapsibleProjects
     ? [...groups.filter((group) => group.workspaceSelectionId !== recentWorkspaceSelectionId && isProjectsOpen),
       ...groups.filter((group) => group.workspaceSelectionId === recentWorkspaceSelectionId)]
     : groups;
@@ -172,7 +179,7 @@ export function ThreadSidebar({
       : []),
   ];
   const activeIndex = entries.length === 0 ? 0 : Math.min(focusedIndex, entries.length - 1);
-  const hasNoMatches = recentWorkspaceSelectionId
+  const hasNoMatches = collapsibleProjects
     ? pinned.length === 0 && groups.every((group) => group.threads.length === 0) && archived.length === 0 && Boolean(normalizedQuery || statusFilter !== "all")
     : entries.length === 0 && archived.length === 0;
 
@@ -308,7 +315,7 @@ export function ThreadSidebar({
         {model.status === "empty" ? <p className="px-2 py-3 text-xs italic text-zinc-600">No tasks yet</p> : null}
         {model.status === "ready" || model.status === "empty" ? (
           <div className="space-y-2">
-            {recentWorkspaceSelectionId ? (
+            {collapsibleProjects ? (
               <ThreadSidebarSectionHeader label="Projects" expanded={isProjectsOpen} onToggle={() => setIsProjectsOpen((open) => !open)}>
                 {projectActions}
               </ThreadSidebarSectionHeader>
@@ -363,7 +370,7 @@ export function ThreadSidebar({
                 />
               </section>
             ) : null}
-            {recentWorkspaceSelectionId && isProjectsOpen && !groups.some((group) => group.workspaceSelectionId !== recentWorkspaceSelectionId) ? (
+            {collapsibleProjects && isProjectsOpen && !groups.some((group) => group.workspaceSelectionId !== recentWorkspaceSelectionId) ? (
               <p className="px-2 py-3 text-xs italic text-zinc-600">{normalizedQuery || statusFilter !== "all" ? "No matching projects" : "Your projects will appear here"}</p>
             ) : null}
             {visibleGroups.map((group) => {
@@ -468,8 +475,28 @@ export function ThreadSidebar({
           </div>
         ) : null}
       </nav>
-      {footer ? <div className="border-t ui-muted-divider px-4 py-2">{footer}</div> : null}
+      {footer || onOpenSettings || mutationError ? (
+        <div className="border-t ui-muted-divider px-4 py-2">
+          {mutationError ? <p role="alert" className="px-2 py-3 text-xs text-red-300">{mutationError}</p> : null}
+          {footer ?? (onOpenSettings ? <SidebarSettingsButton onOpenSettings={onOpenSettings} /> : null)}
+        </div>
+      ) : null}
     </aside>
+  );
+}
+
+export function SidebarSettingsButton({ onOpenSettings }: {
+  onOpenSettings: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onOpenSettings}
+      className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
+    >
+      <Settings size={15} className="text-zinc-400" aria-hidden="true" />
+      Settings
+    </button>
   );
 }
 
