@@ -26,6 +26,7 @@ import {
 import { z } from "zod";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
 import type {
   AppendEventInput,
   EventStore,
@@ -106,6 +107,7 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
@@ -157,6 +159,7 @@ export class LocalPersistence {
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
+      this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
       const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
       admissions.initialize();
       this.admissions = admissions;
@@ -617,6 +620,7 @@ export class LocalPersistence {
     if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
+    validateLocalTurnArtifacts(this.database);
 
     const rows = this.database.prepare(`
       SELECT family, event_json, fingerprint, event_id, thread_id, turn_id,
