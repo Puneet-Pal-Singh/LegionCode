@@ -115,6 +115,12 @@ export async function retainGitWorkspaceSnapshot(
       timeoutMs: checkDeadline(),
       ...(mutating ? {} : { readOnlyProbe: true as const }),
     });
+    if (result.indexPublication === "indeterminate") {
+      throw new GitServiceError(
+        "git_commit_indeterminate",
+        "Git snapshot retention outcome is indeterminate",
+      );
+    }
     checkDeadline();
     if (result.stdout.length > 4096 || result.stderr.length > 4096) {
       throw new GitServiceError(

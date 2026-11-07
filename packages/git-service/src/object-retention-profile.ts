@@ -42,6 +42,12 @@ export async function assertGitObjectRetentionProfile(
       readOnlyProbe: true,
       timeoutMs: remaining,
     });
+    if (result.indexPublication === "indeterminate") {
+      throw new GitServiceError(
+        "git_commit_indeterminate",
+        "Git storage profile outcome is indeterminate",
+      );
+    }
     if (
       performance.now() > deadline ||
       result.stdout.length > 4096 ||
