@@ -183,7 +183,7 @@ export const SharedFileExplorer = forwardRef<FileExplorerHandle, SharedFileExplo
             </span>
             {unavailable ? <span className="ml-auto text-[10px] text-zinc-500">{item.type === 'file' || isDir ? 'Unavailable' : item.type === 'symlink' ? 'Symbolic link' : 'Special entry'}</span> : null}
           </button>
-          
+
           {isDir && isExpanded && item.children && (
             <div className="flex flex-col">
               {item.children.map(child => renderItem({ ...child, depth: item.depth + 1 }))}
