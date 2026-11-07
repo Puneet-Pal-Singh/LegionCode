@@ -10,7 +10,15 @@ import {
   rename,
   rm,
 } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -34,6 +42,99 @@ const compilerEnvironment = {
 };
 const execute = promisify(execFile);
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
+
+function compilerArguments(platform, architecture) {
+  const args = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"];
+  if (platform === "darwin")
+    args.push(
+      "-arch",
+      architecture === "x64" ? "x86_64" : "arm64",
+      `-mmacosx-version-min=${minimumMacOSVersion}`,
+    );
+  return args;
+}
+
+function dependencyPaths(output) {
+  // -MT fixes the target; consume Make's escaped paths/line continuations,
+  // including source directories containing spaces, without invoking a shell.
+  if (!output.startsWith("native-helper:"))
+    throw new Error("Invalid native source dependency receipt");
+  const paths = [];
+  let path = "",
+    escaped = false;
+  for (const character of output.slice("native-helper:".length)) {
+    if (escaped) {
+      if (character !== "\n") path += character;
+      escaped = false;
+    } else if (character === "\\") escaped = true;
+    else if (/\s/u.test(character)) {
+      if (path) paths.push(path);
+      path = "";
+    } else path += character;
+  }
+  if (escaped) throw new Error("Invalid native source dependency escape");
+  if (path) paths.push(path);
+  if (!paths.length || paths.length > 64)
+    throw new Error("Native source dependencies exceed their bound");
+  return paths;
+}
+
+/** Hash the compiler's actual local C/header unit, not just its entry C file.
+ * System SDK headers remain compiler/toolchain provenance; no source bytes log.
+ */
+export async function hashNativeHelperCompilationUnit(
+  sourcePath,
+  platform,
+  architecture,
+) {
+  assertNativeFileHelperTarget(platform, architecture);
+  const source = await realpath(sourcePath),
+    directory = dirname(source);
+  try {
+    const { stdout } = await execute(
+      platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc",
+      [
+        ...compilerArguments(platform, architecture),
+        "-MM",
+        "-MT",
+        "native-helper",
+        source,
+      ],
+      { env: compilerEnvironment, timeout: 10_000, maxBuffer: 64 * 1024 },
+    );
+    const files = new Map();
+    let total = 0;
+    for (const path of dependencyPaths(stdout)) {
+      const canonical = await realpath(resolve(path)),
+        name = relative(directory, canonical);
+      if (
+        !name ||
+        isAbsolute(name) ||
+        name === ".." ||
+        name.startsWith(`..${sep}`) ||
+        !/\.[ch]$/u.test(name)
+      )
+        throw new Error("Native dependency is outside its source unit");
+      const bytes = await readFile(canonical);
+      if ((total += bytes.length) > 1024 * 1024)
+        throw new Error("Native source unit exceeds its byte bound");
+      files.set(name, bytes);
+    }
+    if (!files.has(basename(source)))
+      throw new Error("Native compiler omitted its entry source");
+    const hash = createHash("sha256");
+    for (const [name, bytes] of [...files].sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    )) {
+      hash.update(JSON.stringify([name, bytes.length]));
+      hash.update("\n");
+      hash.update(bytes);
+    }
+    return hash.digest("hex");
+  } catch {
+    throw new Error("Native helper compilation-unit provenance failed");
+  }
+}
 
 export function assertNativeFileHelperTarget(platform, architecture) {
   if (
@@ -155,9 +256,11 @@ export async function buildNativeFileHelper(
     throw new Error("Unsupported native helper build target");
   }
   const source = await realpath(sourcePath);
-  const sourceSha256 = createHash("sha256")
-    .update(await readFile(source))
-    .digest("hex");
+  const sourceSha256 = await hashNativeHelperCompilationUnit(
+    source,
+    platform,
+    architecture,
+  );
   const outputDirectory = join(projectDirectory, "native-bin");
   await mkdir(outputDirectory, { recursive: true });
   const temporaryDirectory = await mkdtemp(
@@ -166,13 +269,7 @@ export async function buildNativeFileHelper(
   const temporaryExecutable = join(temporaryDirectory, helperName);
   try {
     const compiler = platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc";
-    const args = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"];
-    if (platform === "darwin")
-      args.push(
-        "-arch",
-        architecture === "x64" ? "x86_64" : "arm64",
-        `-mmacosx-version-min=${minimumMacOSVersion}`,
-      );
+    const args = compilerArguments(platform, architecture);
     args.push(source, "-o", temporaryExecutable);
     try {
       await execute(compiler, args, {
@@ -189,6 +286,11 @@ export async function buildNativeFileHelper(
       platform,
       architecture,
     );
+    if (
+      sourceSha256 !==
+      (await hashNativeHelperCompilationUnit(source, platform, architecture))
+    )
+      throw new Error("Native source unit changed during compilation");
     await chmod(temporaryExecutable, 0o755);
     await rename(temporaryExecutable, join(outputDirectory, helperName));
     return { ...diagnostics, sourceSha256 };
