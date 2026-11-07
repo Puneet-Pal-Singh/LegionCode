@@ -81,6 +81,7 @@ export type LocalAppServerMessage =
 /** Private main/supervisor/utility configuration, never exposed by DesktopApi. */
 export type LocalAppServerHostConfig = {
   protectedHostRoots: readonly string[];
+  nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
 };
@@ -91,6 +92,7 @@ export type LocalAppServerStartMessage = {
   serverVersion: string;
   storageDirectory: string;
   protectedHostRoots?: readonly string[];
+  nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
 };

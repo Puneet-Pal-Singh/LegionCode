@@ -102,6 +102,7 @@ export class LocalAppServerSupervisor {
     this.storageDirectory = storageDirectory;
     this.hostConfig = hostConfig ? Object.freeze({
       protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
+      nativeWriterFenceDirectory: hostConfig.nativeWriterFenceDirectory,
       nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
       nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
     }) : undefined;
@@ -136,6 +137,7 @@ export class LocalAppServerSupervisor {
       serverVersion,
       storageDirectory,
       protectedHostRoots: this.hostConfig?.protectedHostRoots,
+      nativeWriterFenceDirectory: this.hostConfig?.nativeWriterFenceDirectory,
       nativeFilesystemHelperPath: this.hostConfig?.nativeFilesystemHelperPath,
       nativeProcessHelperPath: this.hostConfig?.nativeProcessHelperPath,
     });
