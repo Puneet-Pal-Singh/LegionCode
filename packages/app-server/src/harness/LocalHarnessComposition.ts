@@ -5,13 +5,14 @@ import { OpenCodeV2Driver } from "@repo/harness-opencode/server";
 import { RuntimeKernel, type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
-import { HarnessSelectionSchema, type HarnessInstanceStatus, type ReplayLifecycleEventsRequest, type ReplayLifecycleEventsResponse, type ThreadId } from "@repo/platform-protocol";
+import { HarnessSelectionSchema, type HarnessSelection, type HarnessInstanceStatus, type ReplayLifecycleEventsRequest, type ReplayLifecycleEventsResponse, type ThreadId } from "@repo/platform-protocol";
 import { AppServerOperationError } from "../server.js";
 import { LocalHarnessOperations } from "./LocalHarnessOperations.js";
 import { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
 import { LocalGitSnapshots } from "./LocalGitSnapshots.js";
 import { LocalTurnArtifacts } from "./LocalTurnArtifacts.js";
 import { LocalTurnService, type LocalHarnessRuntimeServices, type LocalHarnessRuntimeBinding } from "./LocalTurnService.js";
+import { LocalHarnessExecution } from "./LocalHarnessExecution.js";
 
 import { LocalProviderService } from "../local-providers.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "../local-threads.js";
@@ -19,6 +20,18 @@ import { LocalWorkspaceService } from "../local-workspace.js";
 
 type HostConfiguration = Omit<Parameters<typeof createHarnessHost>[0], "workspaceRoot">;
 type ConfigureHost = (command: Parameters<HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>;
+
+/** Private Node bootstrap, constructed after the one local SQLite writer and
+ * grant/lease owners exist. This callback never crosses HTTP or renderer IPC.
+ */
+export type LocalHarnessBootstrap = (context: {
+  readonly persistence: LocalPersistence;
+  readonly environmentId: string;
+  readonly workspaceService: LocalWorkspaceService;
+  readonly threadService: LocalThreadService;
+  readonly leases: LocalWorkspaceLease;
+  readonly fenceConnection: (origin: Pick<HarnessInstanceScope, "connectionId" | "authOwnerGeneration">) => void;
+}) => LocalHarnessRuntimeServices;
 
 /** Node-only local composition. Persistence remains the process's single SQLite writer. */
 export class LocalHarnessComposition {
@@ -80,16 +93,26 @@ export class LocalHarnessComposition {
         // core separately requires the full physical fence and journal ACK drain.
         resolveObservationIntegrity: (origin) => runtime.resolveObservationIntegrity(origin),
       }),
-      composeRuntime: (binding, prepared) => {
+      composeRuntime: (binding, prepared, selection) => {
         this.ensureSelectedDriver(binding);
-        return this.createRuntime(prepared.dependencies, prepared.execution);
+        return this.createRuntime(prepared.dependencies, prepared.execution, selection);
       },
     });
   }
 
   /** Existing private utility-process bootstrap installs canonical local adapters. */
   bindRuntimeServices(services: LocalHarnessRuntimeServices): void {
+    if (this.runtimeServices) throw new Error("Local runtime services are already bound");
+    this.harnessOperations.bindServices(services.operations);
     this.runtimeServices = services;
+  }
+
+  bootstrap(factory: LocalHarnessBootstrap): void {
+    this.bindRuntimeServices(factory({
+      persistence: this.persistence, environmentId: this.environmentId,
+      workspaceService: this.workspaceService, threadService: this.threadService, leases: this.leases,
+      fenceConnection: this.fenceConnection.bind(this),
+    }));
   }
 
   private ensureSelectedDriver(binding: LocalHarnessRuntimeBinding): void {
@@ -144,7 +167,8 @@ export class LocalHarnessComposition {
    */
   createRuntime(
     dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">,
-    execution: Omit<DelegatedExecutionDependencies, "harness">,
+    execution: Omit<DelegatedExecutionDependencies, "harness" | "observations">,
+    selection: HarnessSelection,
   ): RuntimeKernel {
     if (!this.artifacts) throw new AppServerOperationError(503, "server_unavailable", "Local immutable artifact storage is unavailable");
     return new RuntimeKernel({
@@ -154,7 +178,12 @@ export class LocalHarnessComposition {
       lifecycleEvents: this.persistence.lifecycleEvents,
       delegated: {
         ...execution,
-        harness: this.harnessExecution,
+        harness: new LocalHarnessExecution(this.persistence, this.harnessExecution),
+        observations: this.persistence.createHarnessObservationCommitPort({
+          userId: selection.userId, sessionId: selection.threadId, runId: selection.runId,
+          workspaceId: selection.workspaceId, threadId: selection.threadId, turnId: selection.turnId,
+          runAttemptId: selection.runAttemptId, selectionJson: JSON.stringify(selection),
+        }),
         assertActive: async (input) => {
           await this.assertLocalExecution(input);
           await this.leases.assertActive(input);

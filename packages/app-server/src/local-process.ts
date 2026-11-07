@@ -3,8 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { LocalPersistence } from "@repo/event-store/local";
 import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary, type AppServerComposition } from "./server.js";
 import { ProviderConfigurationSchema } from "./local-providers.js";
-import { LocalHarnessComposition } from "./harness/LocalHarnessComposition.js";
-import type { LocalHarnessRuntimeServices } from "./harness/LocalTurnService.js";
+import { LocalHarnessComposition, type LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
+export type { LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -22,11 +22,14 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeServices?: LocalHarnessRuntimeServices) {
+export function createLocalAppServer(config: LocalAppServerStartConfig, bootstrap?: LocalHarnessBootstrap) {
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
     const local = new LocalHarnessComposition(persistence, config.storageDirectory);
-    if (runtimeServices) local.bindRuntimeServices(runtimeServices);
+    if (bootstrap) local.bootstrap(bootstrap);
+    const ready = local.turnService.initialize();
+    let startupSettled = false;
+    void ready.then(() => { startupSettled = true; }, () => { startupSettled = true; });
     const composition = {
       environment: "local" as const,
       serverId: "legioncode-local",
@@ -49,18 +52,33 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeS
       localLifecycleReplayService: local,
     };
     const server = createServer((request, response) => {
-      void handleRequest(request, response, composition);
+      void ready.then(() => handleRequest(request, response, composition)).catch(() => {
+        if (!response.headersSent) writeJson(response, 503, { code: "server_unavailable", message: "Local App Server is unavailable" });
+        else response.destroy();
+      });
     });
+    // Direct embedders may listen immediately; requests still wait for durable
+    // restart fencing. The utility process announces ready only after this resolves.
+    void ready.catch(() => undefined);
     let shutdown: Promise<void> | undefined;
+    let resolveClosed!: () => void;
+    let rejectClosed!: (error: unknown) => void;
+    const closed = new Promise<void>((resolve, reject) => { resolveClosed = resolve; rejectClosed = reject; });
     const closePersistence = () => {
-      if (!local.turnService.hasActiveExecutions) { persistence.close(); return; }
-      shutdown ??= local.turnService.shutdown().then(() => persistence.close());
+      if (shutdown) return;
+      if (startupSettled && !local.turnService.hasActiveExecutions) {
+        persistence.close();
+        shutdown = Promise.resolve();
+      } else {
+        shutdown = ready.catch(() => undefined).then(() => local.turnService.shutdown()).then(() => persistence.close());
+      }
       // Never close the writer while cleanup/lease settlement is unproven.
-      void shutdown.catch(() => server.emit("runtime-shutdown-failed"));
+      void shutdown.then(resolveClosed, rejectClosed);
     };
+    void closed.catch(() => server.emit("runtime-shutdown-failed"));
     server.once("close", closePersistence);
     server.once("error", closePersistence);
-    return server;
+    return Object.assign(server, { ready, closed });
   } catch (error) {
     persistence.close();
     throw error;
@@ -70,32 +88,40 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, runtimeS
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
-  runtimeServices?: LocalHarnessRuntimeServices,
+  bootstrap?: LocalHarnessBootstrap,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config, runtimeServices);
+    server = createLocalAppServer(config, bootstrap);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
     return;
   }
   server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
+  const exitAfterClose = () => {
+    // A socket close is not child/background-work or artifact settlement.
+    // Rejected cleanup leaves this owner alive and reports fatal above.
+    void server.closed.then(() => process.exit(1), () => undefined);
+  };
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
-    server.close(() => process.exit(1));
+    server.close(exitAfterClose);
   });
-  server.listen(0, "127.0.0.1", () => {
+  void server.ready.then(() => server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {
       parentPort.postMessage({ type: "fatal" });
-      server.close(() => process.exit(1));
+      server.close(exitAfterClose);
       return;
     }
     parentPort.postMessage({
       type: "ready",
       baseUrl: `http://127.0.0.1:${address.port}`,
     });
+  })).catch(() => {
+    parentPort.postMessage({ type: "fatal" });
+    server.close(exitAfterClose);
   });
 }
 
