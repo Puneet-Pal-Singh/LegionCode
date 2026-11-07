@@ -219,11 +219,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       assertScope(admission, thread);
       if (admission.clientRequestId !== request.clientRequestId)
         throw new Error("Admission request changed");
-      const visible = admissions.some(
+      const nextAdmissions = admissions.some(
         (item) => item.turn.id === admission.turn.id,
       )
         ? admissions
-        : [...admissions, admission].slice(-HISTORY_PAGE_SIZE);
+        : [...admissions, admission];
+      const visible = nextAdmissions.slice(-HISTORY_PAGE_SIZE);
+      if (nextAdmissions.length > visible.length) setHasEarlier(true);
       const visibleIds = new Set<string>(visible.map((item) => item.turn.id));
       setAdmissions(visible);
       setProjections((current) =>
