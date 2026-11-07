@@ -12,11 +12,12 @@ export interface DesktopTurnTranscriptProps {
   runAttemptId: RunAttemptId;
   userMessage: ThreadItem;
   projection: LifecycleProjection | null;
+  onReview?: () => void;
 }
 
 /** Presentation of canonical admission records and the SDK's replay projection. */
 export function DesktopTurnTranscript({
-  run, turn, runAttemptId, userMessage, projection: replay,
+  run, turn, runAttemptId, userMessage, projection: replay, onReview,
 }: DesktopTurnTranscriptProps) {
   const projection = replay?.turnId === turn.id ? replay : null;
   const terminal = buildLifecycleTerminalViewModel(projection);
@@ -48,6 +49,11 @@ export function DesktopTurnTranscript({
             ) : <span className="sr-only">Turn completed</span>
           ) : <p>{terminal.content || (terminal.state === "interrupted" ? "Turn stopped." : "Turn failed.")}</p>}
         </div>
+      ) : null}
+      {onReview ? (
+        <button type="button" onClick={onReview} aria-label={`Review saved changes for turn ${turn.id}`} className="text-sm text-zinc-300 underline underline-offset-4 hover:text-white">
+          Review saved changes
+        </button>
       ) : null}
     </section>
   );

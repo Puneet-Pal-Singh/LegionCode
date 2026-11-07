@@ -160,7 +160,7 @@ export class RuntimeKernel {
       prepared = await this.prepareTurn(input);
     } catch (error) {
       // A durable local admission must settle even if its workspace was revoked before start.
-      if (this.dependencies.artifactCapture === "omitted_read_only" && !this.lifecycles.has(input.turn.id)) {
+      if ((this.dependencies.artifactCapture === "omitted_read_only" || this.dependencies.worker.executionCapability === "guarded_mutation") && !this.lifecycles.has(input.turn.id)) {
         const run = RunSchema.parse(input.run);
         const turn = TurnSchema.parse(input.turn);
         const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
@@ -290,6 +290,10 @@ export class RuntimeKernel {
           "turn was interrupted before successful settlement",
         );
       }
+      if (this.dependencies.worker.executionCapability === "guarded_mutation") {
+        await this.awaitGuardedQuiescence(turn.id);
+        prepared.executionSignal.throwIfAborted();
+      }
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
       prepared.executionSignal.throwIfAborted();
       await lifecycle.complete(result.output, result.finalItemId);
@@ -304,19 +308,24 @@ export class RuntimeKernel {
         if (!isArtifactSettlementError(error)) {
           const interrupted =
             isTurnCancelled(error) || prepared.executionSignal.aborted;
-          const resumeQuiescent =
-            interrupted &&
+          const requiresQuiescence = interrupted || this.dependencies.worker.executionCapability === "guarded_mutation";
+          let resumeQuiescent =
+            requiresQuiescence &&
             (await this.dependencies.worker.awaitQuiescence?.({
               turnId: turn.id,
               timeoutMs: 500,
             })) === true;
+          if (this.dependencies.worker.executionCapability === "guarded_mutation" && !resumeQuiescent) {
+            await this.awaitGuardedQuiescence(turn.id);
+            resumeQuiescent = true;
+          }
           await this.settleArtifacts(
             turn.id,
             lifecycle,
             artifacts,
             true,
             resumeQuiescent,
-            interrupted && !resumeQuiescent
+            requiresQuiescence && !resumeQuiescent
               ? "worker_not_quiescent"
               : undefined,
           );
@@ -380,7 +389,11 @@ export class RuntimeKernel {
     let executionSettled = !execution;
     if (execution) {
       try {
-        await withBoundedCancellationSettlement(execution);
+        if (this.dependencies.worker.executionCapability === "guarded_mutation") {
+          await execution;
+        } else {
+          await withBoundedCancellationSettlement(execution);
+        }
         executionSettled = true;
       } catch (error) {
         if (!isTurnCancelled(error) && !lifecycle.isTerminal) {
@@ -790,11 +803,26 @@ export class RuntimeKernel {
     }
   }
 
+  /** Keep this kernel continuation and its prepared resources alive until the real worker drains. */
+  private async awaitGuardedQuiescence(turnId: Turn["id"]): Promise<void> {
+    if (!this.dependencies.worker.awaitQuiescence) {
+      throw new RuntimeKernelError("worker_failed", "Captured worker has no physical quiescence port");
+    }
+    while (!(await this.dependencies.worker.awaitQuiescence({ turnId, timeoutMs: 500 }))) {
+      // A backend may return false immediately; yield without abandoning settlement ownership.
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
   private async interruptPreparedTurn(
     prepared: PreparedTurn,
     reason: string,
     resumeWorkspaceQuiescent: boolean,
   ): Promise<void> {
+    if (this.dependencies.worker.executionCapability === "guarded_mutation" && !resumeWorkspaceQuiescent) {
+      await this.awaitGuardedQuiescence(prepared.turn.id);
+      resumeWorkspaceQuiescent = true;
+    }
     try {
       await this.settleArtifacts(
         prepared.turn.id,

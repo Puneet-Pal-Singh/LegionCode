@@ -1,7 +1,18 @@
+import type {
+  LocalTurnExecutionCapability,
+  LocalCapturedExecutionPorts,
+  LocalQuiescentWorker,
+} from "./LocalTurnExecutionCapability.js";
+import { prepareLocalCapturedExecution } from "./LocalCapturedExecution.js";
+import { LocalTurnPreparationFailure } from "./LocalTurnPreparationFailure.js";
 import type { RuntimeExecutionService } from "../types.js";
 import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
+import {
+  LifecycleEventSchema,
+  TurnDiffPayloadSchema,
+} from "@repo/platform-protocol";
 import {
   createLocalTurnAdmission,
   type LocalTurnAdmissionInput,
@@ -15,6 +26,7 @@ import {
   type RuntimeKernelDependencies,
   type StartTurnInput,
   type StartTurnResult,
+  type WorkerProtocolPort,
 } from "@repo/runtime-kernel";
 import { LocalReadOnlyExecutionService } from "./LocalReadOnlyExecutionService.js";
 import { LocalReadOnlyToolWorker } from "./LocalReadOnlyToolWorker.js";
@@ -33,10 +45,11 @@ type KernelPorts = Omit<
 > & { readonly toolTracker?: NativeProviderToolTracker };
 
 /** One kernel handle per canonical admission; admission persistence stays with the host. */
-export class LocalReadOnlyTurnExecutor<
+export class LocalTurnExecutor<
   TBinding extends LocalReadOnlyWorkspaceBinding =
     LocalReadOnlyWorkspaceBinding,
 > {
+  private readonly capability: LocalTurnExecutionCapability<TBinding>;
   private readonly turns = new Map<
     string,
     {
@@ -49,11 +62,14 @@ export class LocalReadOnlyTurnExecutor<
         RuntimeKernel["getTurnTerminalStatus"]
       >;
       readonly controller: AbortController;
+      readonly awaitQuiescence: (timeoutMs: number) => Promise<boolean>;
+      readonly hasPreparationResourceProof: () => boolean;
     }
   >();
 
   constructor(
     private readonly options: {
+      readonly capability?: LocalTurnExecutionCapability<TBinding>;
       readonly bindWorkspace: (
         admission: TurnAdmission,
         signal: AbortSignal,
@@ -69,12 +85,20 @@ export class LocalReadOnlyTurnExecutor<
         admission: TurnAdmission,
         binding: TBinding,
         signal: AbortSignal,
+        execution?: LocalCapturedExecutionPorts,
       ) => Promise<KernelPorts>;
     },
-  ) {}
+  ) {
+    this.capability = options.capability
+      ? Object.freeze({ ...options.capability })
+      : { artifactCapture: "omitted_read_only" };
+  }
 
   createAdmission(input: LocalTurnAdmissionInput): TurnAdmission {
-    return createLocalTurnAdmission(input);
+    return createLocalTurnAdmission(
+      input,
+      this.capability.artifactCapture === "required" ? "auto_edit" : "ask",
+    );
   }
 
   execute(admission: TurnAdmission): Promise<StartTurnResult> {
@@ -97,6 +121,9 @@ export class LocalReadOnlyTurnExecutor<
     }
     const controller = new AbortController();
     let workspaceBinding: TBinding | undefined;
+    let workerOwner: WorkerProtocolPort | undefined;
+    let preparationFailure: LocalTurnPreparationFailure | undefined;
+    let preflightSignal: AbortSignal = controller.signal;
     let kernelOwner: RuntimeKernel | undefined;
     let preflightStatus: ReturnType<RuntimeKernel["getTurnTerminalStatus"]> =
       null;
@@ -115,36 +142,105 @@ export class LocalReadOnlyTurnExecutor<
           );
         }
         const signal = AbortSignal.any([controller.signal, binding.signal]);
+        preflightSignal = signal;
         signal.throwIfAborted();
-        const executionService = this.options.createReadExecutionService
-          ? await this.options.createReadExecutionService(
+        const capability = this.capability;
+        let capturedPorts: LocalCapturedExecutionPorts | undefined;
+        if (capability.artifactCapture === "required") {
+          try {
+            capturedPorts = await capability.createExecutionPorts(
               admission,
               binding,
               signal,
-            )
-          : new LocalReadOnlyExecutionService({ binding });
+            );
+          } catch (error) {
+            if (
+              error instanceof LocalTurnPreparationFailure &&
+              error.matchesAttempt({
+                workspaceId: admission.run.workspaceId,
+                threadId: admission.run.threadId,
+                runId: admission.run.id,
+                turnId: admission.turn.id,
+                runAttemptId: admission.runAttemptId,
+              })
+            ) {
+              preparationFailure = error;
+            }
+            throw error;
+          }
+        }
+        const captured =
+          capability.artifactCapture === "required"
+            ? await prepareLocalCapturedExecution(
+                admission,
+                binding,
+                capturedPorts!,
+              )
+            : undefined;
+        if (captured) workerOwner = captured.worker;
+        const executionSignal = captured
+          ? AbortSignal.any([signal, captured.signal])
+          : signal;
+        preflightSignal = executionSignal;
+        const executionService = captured
+          ? undefined
+          : this.options.createReadExecutionService
+            ? await this.options.createReadExecutionService(
+                admission,
+                binding,
+                executionSignal,
+              )
+            : new LocalReadOnlyExecutionService({ binding });
         const { toolTracker, ...ports } = await this.options.createKernelPorts(
           admission,
           binding,
-          signal,
+          executionSignal,
+          capturedPorts && captured
+            ? { ...capturedPorts, tools: captured.tools }
+            : undefined,
         );
+        if (
+          captured &&
+          (!ports.toolAuthorization?.authorize ||
+            !ports.approvals?.waitForDecision)
+        ) {
+          throw new RuntimeKernelError(
+            "tool_policy_denied",
+            "Captured execution requires canonical permission and approval ports",
+          );
+        }
+        workerOwner = captured
+          ? trackCapturedWorker(captured.worker, toolTracker)
+          : new LocalReadOnlyToolWorker(
+              executionService!,
+              admission.run.threadId,
+              toolTracker,
+            );
         kernelOwner = new RuntimeKernel({
           ...ports,
+          ...(captured
+            ? {
+                gitSnapshots: captured.gitSnapshots,
+                turnArtifacts: captured.turnArtifacts,
+              }
+            : {}),
           lifecycleEvents: this.options.lifecycleEvents,
           producerId: this.options.producerId,
-          artifactCapture: "omitted_read_only",
+          artifactCapture: captured ? "required" : "omitted_read_only",
           signal: ports.signal
-            ? AbortSignal.any([signal, ports.signal])
-            : signal,
-          worker: new LocalReadOnlyToolWorker(
-            executionService,
-            admission.run.threadId,
-            toolTracker,
-          ),
+            ? AbortSignal.any([executionSignal, ports.signal])
+            : executionSignal,
+          worker: workerOwner,
         });
         return kernelOwner;
       })
       .catch(async (error: unknown) => {
+        if (this.capability.artifactCapture === "required" && workerOwner) {
+          if (!workerOwner.awaitQuiescence) throw new RuntimeKernelError("worker_failed", "Captured worker has no quiescence port");
+          while (!(await workerOwner.awaitQuiescence({ turnId: admission.turn.id, timeoutMs: 500 }))) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 50));
+          }
+        }
         // Preflight is runtime work too. Reuse the canonical lifecycle owner, never a transport status write.
         const lifecycle = new RuntimeLifecycleCoordinator({
           sink: this.options.lifecycleEvents,
@@ -158,7 +254,9 @@ export class LocalReadOnlyTurnExecutor<
           executionCapability: admission.run.executionCapability,
         });
         await lifecycle.start();
-        const stopped = controller.signal.aborted
+        const stopped = preflightSignal.aborted
+          ? preflightSignal
+          : controller.signal.aborted
           ? controller.signal
           : workspaceBinding?.signal;
         if (stopped?.aborted) {
@@ -184,6 +282,17 @@ export class LocalReadOnlyTurnExecutor<
       result,
       finished: false,
       controller,
+      hasPreparationResourceProof: () => preparationFailure !== undefined,
+      awaitQuiescence: (timeoutMs) =>
+        workerOwner
+          ? workerOwner.awaitQuiescence?.({
+              turnId: admission.turn.id,
+              timeoutMs,
+            }) ?? Promise.resolve(false)
+          : preparationFailure?.awaitQuiescence({
+              turnId: admission.turn.id,
+              timeoutMs,
+            }) ?? Promise.resolve(false),
       isTerminal: () =>
         (kernelOwner?.getTurnTerminalStatus(admission.turn.id) ??
           preflightStatus) !== null,
@@ -281,6 +390,43 @@ export class LocalReadOnlyTurnExecutor<
       : "already_settled";
   }
 
+  /** The host must retain the binding/lease resources until this confirms real worker closure. */
+  async awaitQuiescence(
+    turnId: StartTurnInput["turn"]["id"],
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const owned = this.turns.get(turnId);
+    return owned ? owned.awaitQuiescence(timeoutMs) : false;
+  }
+
+  /**
+   * Only a positive result permits the host to close this attempt's binding/fence.
+   * False (including preflight without a known worker or owner receipt) requires
+   * retaining the same executor and quarantining its binding, never a fresh lease.
+   */
+  async awaitResourceRelease(
+    turnId: StartTurnInput["turn"]["id"],
+  ): Promise<boolean> {
+    const owned = this.turns.get(turnId);
+    if (!owned) return false;
+    try {
+      // Execution can reject after a durable failed/interrupted terminal, or after
+      // a terminal append committed but its acknowledgement was lost.
+      await owned.result.catch(() => undefined);
+      if (!owned.finished || !(await owned.awaitQuiescence(500))) return false;
+      if (
+        !(await this.hasDurableSettlement(
+          owned.identity,
+          !owned.hasPreparationResourceProof(),
+        ))
+      ) return false;
+      return await owned.awaitQuiescence(500);
+    } catch {
+      // Unreadable settlement or unknown physical closure is not release proof.
+      return false;
+    }
+  }
+
   readonly resolveApproval: RuntimeKernel["resolveApproval"] = async (
     turnId,
     approvalId,
@@ -299,4 +445,123 @@ export class LocalReadOnlyTurnExecutor<
       );
     return owned.kernel;
   }
+
+  private async hasDurableSettlement(
+    identity: LocalTurnAttemptIdentity,
+    allowCompleted = true,
+  ): Promise<boolean> {
+    let afterSequence: number | null = null;
+    let sequence = 0;
+    let terminal: "completed" | "failed" | "interrupted" | null = null;
+    let captured = this.capability.artifactCapture === "omitted_read_only";
+    do {
+      const page = await this.options.lifecycleEvents.replay({
+        turnId: identity.turnId,
+        afterSequence,
+        limit: 1000,
+      });
+      for (const event of page.events) {
+        if (
+          terminal ||
+          event.turnId !== identity.turnId ||
+          event.threadId !== identity.threadId ||
+          event.runAttemptId !== identity.runAttemptId ||
+          event.producer.id !== this.options.producerId ||
+          event.sequence !== sequence + 1
+        ) {
+          return false;
+        }
+        sequence = event.sequence;
+        if (event.type === "turn.diff_updated") {
+          // The canonical kernel emits this only after both immutable artifact
+          // writes settle. Replay recovers that receipt without recapturing.
+          const diff = TurnDiffPayloadSchema.safeParse(event.payload.diff);
+          if (
+            !diff.success ||
+            diff.data.turnId !== identity.turnId ||
+            diff.data.startSnapshot.phase !== "start" ||
+            diff.data.terminalSnapshot.phase !== "terminal" ||
+            diff.data.startSnapshot.snapshotKey !== identity.turnId ||
+            diff.data.terminalSnapshot.snapshotKey !== identity.turnId
+          ) {
+            return false;
+          }
+          captured = true;
+        }
+        if (
+          event.type === "workspace.snapshot_unavailable" &&
+          this.capability.artifactCapture === "required"
+        ) {
+          captured = false;
+        }
+        if (
+          event.type === "turn.completed" ||
+          event.type === "turn.failed" ||
+          event.type === "turn.interrupted"
+        ) {
+          if (!LifecycleEventSchema.safeParse(event).success) return false;
+          terminal = event.payload.outcome.status;
+        }
+      }
+      if (
+        page.nextSequence !== null &&
+        (page.events.length === 0 || page.nextSequence !== sequence)
+      ) {
+        return false;
+      }
+      afterSequence = page.nextSequence;
+    } while (afterSequence !== null);
+    // A failed/interrupted canonical terminal can truthfully retain unavailable
+    // capture/error references. Completion alone requires successful capture.
+    return (
+      terminal !== null &&
+      (terminal !== "completed" || (allowCompleted && captured))
+    );
+  }
+}
+
+/** Existing read-only consumers retain the same default capability and single executor implementation. */
+export { LocalTurnExecutor as LocalReadOnlyTurnExecutor };
+
+function trackCapturedWorker(
+  worker: LocalQuiescentWorker,
+  tracker?: NativeProviderToolTracker,
+): LocalQuiescentWorker {
+  if (!tracker) return worker;
+  return {
+    executionCapability: worker.executionCapability,
+    awaitQuiescence: (input) => worker.awaitQuiescence(input),
+    executeTool: async (input) => {
+      tracker.recordToolStarted(input.toolCall);
+      try {
+        const result = await worker.executeTool(input);
+        if (result.kind === "completed")
+          tracker.recordToolCompleted(input.toolCall, {
+            taskId: input.toolCall.toolCallId,
+            status: "DONE",
+            completedAt: new Date(),
+            output: {
+              content:
+                typeof result.output.content === "string"
+                  ? result.output.content
+                  : JSON.stringify(result.output),
+            },
+          });
+        else if (result.kind === "failed")
+          tracker.recordToolFailed(
+            input.toolCall,
+            result.failure.message,
+            result.disposition === "terminal",
+          );
+        return result;
+      } catch (error) {
+        tracker.recordToolFailed(
+          input.toolCall,
+          error instanceof Error ? error.message : "Captured tool failed",
+          true,
+        );
+        throw error;
+      }
+    },
+  };
 }
