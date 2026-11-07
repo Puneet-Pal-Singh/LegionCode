@@ -130,3 +130,5 @@ export { ManageModelsDialog, type ManageModelsDialogProps } from "./provider/Man
 export { SharedProviderDialog, type ProviderDialogProps, type SharedProviderDialogProps } from "./provider/ProviderDialog.js";
 
 export { ComposerSettingsSection, type ComposerSettingsPreferences } from "./settings/ComposerSettingsSection.js";
+
+export { ArchivedChatsSettingsView, type ArchivedSettingsItem } from "./settings/ArchivedChatsSettings.js";
