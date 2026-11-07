@@ -4,10 +4,10 @@ import type { LocalPersistence } from "@repo/event-store/local";
 import type { DefaultGitService, GitCommitResult } from "@repo/git-service";
 import {
   ArtifactIdSchema,
+  CommitTurnArtifactRequestSchema,
   WorkspaceIdSchema,
   ThreadIdSchema,
   RunIdSchema,
-  TurnIdSchema,
   RunAttemptIdSchema,
   TurnWorkspaceSnapshotSchema,
   type TurnWorkspaceSnapshot,
@@ -18,36 +18,15 @@ import {
   TurnAdmissionSchema,
   type TurnAdmission,
 } from "@repo/platform-protocol/conversation";
-import { z } from "zod";
+import type { z } from "zod";
 
-const CommandSchema = z
-  .object({
-    workspaceId: WorkspaceIdSchema,
-    threadId: ThreadIdSchema,
-    runId: RunIdSchema,
-    turnId: TurnIdSchema,
-    runAttemptId: RunAttemptIdSchema,
-    artifactId: ArtifactIdSchema,
-    message: z
-      .string()
-      .trim()
-      .min(1)
-      .max(10_000)
-      .regex(/^[^\0\r\n]+$/),
-    author: z
-      .object({
-        name: z
-          .string()
-          .trim()
-          .min(1)
-          .max(200)
-          .regex(/^[^\0\r\n]+$/),
-        email: z.string().email().max(320),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
+const CommandSchema = CommitTurnArtifactRequestSchema.extend({
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  runId: RunIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+  artifactId: ArtifactIdSchema,
+}).strict();
 
 export type LocalArtifactCommitCommand = z.infer<typeof CommandSchema>;
 export type LocalGitWorkspaceBinding = {
