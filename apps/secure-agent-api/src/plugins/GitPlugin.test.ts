@@ -4,9 +4,22 @@ import { GitPlugin } from "./GitPlugin";
 import { runSafeCommand } from "./security/SafeCommand";
 import { pluginTestExecutionContext } from "./test-support/PluginExecutionContext";
 
-vi.mock("./security/SafeCommand", () => ({
-  runSafeCommand: vi.fn(),
-}));
+vi.mock("./security/SafeCommand", () => {
+  const logicalCommand = vi.fn();
+  return { runSafeCommand: new Proxy(logicalCommand, {
+    apply(target, receiver, argumentsList) {
+      const [sandbox, spec] = argumentsList as [unknown, { command: string; args?: string[]; env?: Record<string, string> }];
+      if (spec.command !== "node") return Reflect.apply(target, receiver, argumentsList);
+      const request = JSON.parse(spec.args![2]!) as { args: string[]; environment?: Record<string, string>; indexTransaction?: unknown };
+      // Keep the existing logical Git fixtures/assertions while adapting only the
+      // host transport envelope. Atomic-commit fixtures already use that envelope.
+      if (request.indexTransaction) return Reflect.apply(target, receiver, argumentsList);
+      const logicalSpec = { ...spec, command: "git", args: request.args, env: { ...spec.env, ...request.environment } };
+      return Promise.resolve(Reflect.apply(target, receiver, [sandbox, logicalSpec, ["git"]]))
+        .then(result => ({ exitCode: 0, stdout: JSON.stringify(result), stderr: "" }));
+    },
+  }) };
+});
 
 interface SafeCommandResult {
   exitCode: number;
@@ -729,6 +742,7 @@ describe("GitPlugin", () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
+      if (spec.command === "node") return { exitCode: 0, stdout: JSON.stringify({ exitCode: 0, stdout: "commit ok", stderr: "", commitSha: "abc123", branchName: "main" }), stderr: "" };
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -803,24 +817,20 @@ describe("GitPlugin", () => {
       },
     });
 
-    const writeNameArgs = runSafeCommandMock.mock.calls.find(([, spec]) =>
-      spec.args?.includes("Puneet Singh"),
-    )?.[1] as { args?: string[] } | undefined;
-    const writeEmailArgs = runSafeCommandMock.mock.calls.find(([, spec]) =>
-      spec.args?.includes("puneet@example.com"),
-    )?.[1] as { args?: string[] } | undefined;
-    expect(writeNameArgs?.args).toEqual(
-      expect.arrayContaining(["config", "user.name", "Puneet Singh"]),
-    );
-    expect(writeEmailArgs?.args).toEqual(
-      expect.arrayContaining(["config", "user.email", "puneet@example.com"]),
-    );
+    const transaction = runSafeCommandMock.mock.calls.find(([, spec]) => spec.command === "node")?.[1];
+    const request = JSON.parse(transaction!.args![2]!);
+    expect(request.indexTransaction.paths).toEqual(["src/app.ts"]);
+    expect(request.args).toEqual(expect.arrayContaining(["user.name=Puneet Singh", "user.email=puneet@example.com"]));
+    expect(transaction).toMatchObject({ timeoutMs: 0, borrowedLease: true });
+    expect(transaction!.args!.every(value => !/[\r\n]/.test(value))).toBe(true);
+    expect(runSafeCommandMock.mock.calls.some(([, spec]) => spec.args?.includes("config") && spec.args?.includes("user.name"))).toBe(false);
   });
 
   it("prefers OAuth identity over model-provided commit identity and stale git config", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
+      if (spec.command === "node") return { exitCode: 0, stdout: JSON.stringify({ exitCode: 0, stdout: "commit ok", stderr: "", commitSha: "abc123", branchName: "main" }), stderr: "" };
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -892,18 +902,13 @@ describe("GitPlugin", () => {
         verified: true,
       },
     });
-    const writeNameArgs = runSafeCommandMock.mock.calls.find(([, spec]) =>
-      spec.args?.includes("Puneet Singh"),
-    )?.[1] as { args?: string[] } | undefined;
-    const writeEmailArgs = runSafeCommandMock.mock.calls.find(([, spec]) =>
-      spec.args?.includes("puneet@example.com"),
-    )?.[1] as { args?: string[] } | undefined;
-    expect(writeNameArgs?.args).toEqual(
-      expect.arrayContaining(["config", "user.name", "Puneet Singh"]),
-    );
-    expect(writeEmailArgs?.args).toEqual(
-      expect.arrayContaining(["config", "user.email", "puneet@example.com"]),
-    );
+    const transaction = runSafeCommandMock.mock.calls.find(([, spec]) => spec.command === "node")?.[1];
+    const request = JSON.parse(transaction!.args![2]!);
+    expect(request.indexTransaction.paths).toEqual(["src/app.ts"]);
+    expect(request.args).toEqual(expect.arrayContaining(["user.name=Puneet Singh", "user.email=puneet@example.com"]));
+    expect(transaction).toMatchObject({ timeoutMs: 0, borrowedLease: true });
+    expect(transaction!.args!.every(value => !/[\r\n]/.test(value))).toBe(true);
+    expect(runSafeCommandMock.mock.calls.some(([, spec]) => spec.args?.includes("config") && spec.args?.includes("user.name"))).toBe(false);
   });
 
   it("pushes HEAD to the requested remote branch ref", async () => {
@@ -954,6 +959,7 @@ describe("GitPlugin", () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
+      if (spec.command === "node") return { exitCode: 0, stdout: JSON.stringify({ exitCode: 1, stdout: "nothing to commit", stderr: "" }), stderr: "" };
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -989,6 +995,7 @@ describe("GitPlugin", () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
+      if (spec.command === "node") return { exitCode: 0, stdout: JSON.stringify({ exitCode: 1, stdout: "write failed", stderr: "" }), stderr: "" };
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
