@@ -126,3 +126,5 @@ export type { ProviderSettingsPort, ProviderSettingsCredential, ProviderSettings
 export { SettingsSwitch } from "./settings/Switch.js";
 
 export { ManageModelsDialog, type ManageModelsDialogProps } from "./provider/ManageModelsDialog.js";
+
+export { SharedProviderDialog, type ProviderDialogProps, type SharedProviderDialogProps } from "./provider/ProviderDialog.js";
