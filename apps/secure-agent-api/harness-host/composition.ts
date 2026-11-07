@@ -151,13 +151,13 @@ export class CloudHarnessComposition {
     scope: HarnessInstanceScope & { readonly harness: "opencode" },
     options: CloudOpenCodeInstanceOptions,
   ): Promise<void> {
-    if (
-      typeof options.resolvePolicy !== "function" ||
-      typeof options.assertEffectivePolicy !== "function"
-    )
-      throw new Error("OpenCode native policy authority is required");
     const admittedScope = Object.freeze({ ...scope });
     const configured = Object.freeze({ ...options });
+    if (
+      typeof configured.resolvePolicy !== "function" ||
+      typeof configured.assertEffectivePolicy !== "function"
+    )
+      throw new Error("OpenCode native policy authority is required");
     const { OpenCodeV2Driver } = await import("@repo/harness-opencode/server");
     this.register(admittedScope, new OpenCodeV2Driver(configured));
   }
