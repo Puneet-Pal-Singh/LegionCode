@@ -1507,3 +1507,25 @@ Thread principal. Foreign stored user/workspace/credential identities are reject
 Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
+
+## Plan 057 — Local approval command adapter
+
+`LocalApprovalService` reauthorizes the recorded Thread through the current
+workspace grant and local actor, binds the approval to its recorded tool item and
+Run Attempt, and delegates to `RuntimeKernel.resolveApproval`. Canonical lifecycle
+replay supplies the winning decision and duplicate, conflict, restart and lost
+acknowledgement receipts. The adapter serializes commands only; it appends no
+approval events and owns no decision store. Actual LocalTurnService/App Server
+composition remains separate. The shared worker approval validator independently
+checks the approved tool input and canonical matcher before tool execution.
+
+## Plan 057 — Local Turn configuration contract foundation
+
+The canonical platform protocol reuses existing chat and product mode schemas for
+local Turn configuration, optional mode-specific permission choices and bounded
+attachment limits. The SDK exports these contracts; local start accepts optional
+mode/productMode fields and initialize may carry optional configuration options.
+This schema foundation does not select runtime behavior, project availability,
+validate actual composed ports or enable attachments, tools or mutations. The
+Turn service/runtime admission and handshake composition retain those obligations.
+Hosted request behavior and existing Git/provider contracts remain unchanged.
