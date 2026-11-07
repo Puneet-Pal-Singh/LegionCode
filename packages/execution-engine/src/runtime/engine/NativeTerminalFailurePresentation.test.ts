@@ -3,6 +3,7 @@ import { RUN_TERMINAL_STATES } from "@repo/shared-types";
 import { RuntimeKernelError } from "@repo/runtime-kernel";
 import {
   buildNativeKernelTerminalMessage,
+  projectNativeKernelFailureDiagnostic,
   resolveNativeKernelTerminalState,
 } from "./NativeTerminalFailurePresentation.js";
 
@@ -21,6 +22,10 @@ describe("NativeTerminalFailurePresentation", () => {
     expect(message).not.toContain("Provider returned error");
     expect(message).not.toContain("attempts");
     expect(message).not.toContain("CANARY");
+    expect(projectNativeKernelFailureDiagnostic(error)).toEqual({
+      code: "provider_unavailable",
+      retryable: true,
+    });
     const gatewayError = Object.assign(new Error("CANARY_GATEWAY_DIAGNOSTIC"), {
       name: "LLMUnusableResponseError",
       statusCode: 503,
@@ -45,6 +50,7 @@ describe("NativeTerminalFailurePresentation", () => {
     ]) {
       const state = resolveNativeKernelTerminalState(input);
       expect(buildNativeKernelTerminalMessage(input, state)).not.toContain("CANARY");
+      expect(projectNativeKernelFailureDiagnostic(input)).toEqual({ code: "internal_error", retryable: false });
     }
   });
 
@@ -76,6 +82,11 @@ describe("NativeTerminalFailurePresentation", () => {
     expect(message).toContain("temporarily rate limited");
     expect(message).not.toContain("adapter boundary");
     expect(message).not.toContain("CANARY");
+    expect(projectNativeKernelFailureDiagnostic(error)).toEqual({
+      code: "rate_limited",
+      retryable: true,
+      providerStatusCode: 429,
+    });
   });
 
   it("presents an approval timeout separately from an explicit denial", () => {

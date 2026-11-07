@@ -59,6 +59,19 @@ export function buildNativeKernelTerminalMessage(
   return failure.message;
 }
 
+/** Diagnostics use the same classification as public output, without prose or causes. */
+export function projectNativeKernelFailureDiagnostic(
+  error: unknown,
+): Pick<ProtocolError, "code" | "retryable"> & { providerStatusCode?: number } {
+  const failure = publicFailure(error);
+  const providerStatusCode = failure.details?.providerStatusCode;
+  return {
+    code: failure.code,
+    retryable: failure.retryable,
+    ...(typeof providerStatusCode === "number" ? { providerStatusCode } : {}),
+  };
+}
+
 function publicFailure(error: unknown): ProtocolError {
   // Fixed gateway identity and numeric status are evidence; diagnostic prose is not.
   const name = errorData(error, "name");

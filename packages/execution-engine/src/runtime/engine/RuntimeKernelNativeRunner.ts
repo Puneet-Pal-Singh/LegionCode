@@ -101,6 +101,7 @@ import { NativePermissionPolicyResolver } from "./NativePermissionPolicyResolver
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
   buildNativeKernelTerminalMessage,
+  projectNativeKernelFailureDiagnostic,
   resolveNativeKernelTerminalState,
 } from "./NativeTerminalFailurePresentation.js";
 import {
@@ -662,8 +663,7 @@ export class RuntimeKernelNativeRunner {
           sessionId: run.sessionId,
           turnId: protocol.turn.id,
           terminalState,
-          error: error instanceof Error ? error.message : String(error),
-          cause: describeRuntimeErrorCause(error),
+          ...projectNativeKernelFailureDiagnostic(error),
         }),
       );
       await finalizeRunWithAssistantMessage({
@@ -911,19 +911,6 @@ export class RuntimeKernelNativeRunner {
   }
 }
 
-function describeRuntimeErrorCause(error: unknown): string | null {
-  if (
-    !(error instanceof RuntimeKernelError) ||
-    error.causeError === undefined
-  ) {
-    return null;
-  }
-  const cause = error.causeError;
-  if (cause instanceof Error) {
-    return cause.message;
-  }
-  return typeof cause === "string" ? cause : "non-error runtime cause";
-}
 
 class KernelToolWorker implements WorkerProtocolPort {
   private readonly preExecutionRejections = new Set<string>();
