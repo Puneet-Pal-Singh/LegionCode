@@ -1506,3 +1506,14 @@ next/newest oversized Turn fails with `history_row_too_large`; no row is skipped
 or truncated. Thread authorization, public protocol and Turn-service translation
 remain their existing owners' separate integration responsibilities. No history
 payload copy, table, projection or lifecycle producer is added.
+
+## Plan 057 — Explicit bounded history transport contract
+
+The existing `thread/history` contract accepts explicit latest reads without an
+after cursor and carries optional `hasEarlier` evidence. The SDK requires that
+receipt for latest requests and documents cursor-based continuation rather than
+inferring completion from row count. App Server checks the final history envelope
+against the same existing one-MiB response budget. This adapter does not select
+history, authorize Threads or introduce a new endpoint; the actual Turn service
+must delegate to the canonical bounded query and reauthorize before returning.
+That service-method integration remains with its current owner.
