@@ -24,7 +24,7 @@ class FakeGitService {
 
 describe("LocalWorkspaceService", () => {
   it("persists a root grant and reopens it with a fresh Git probe", async () => {
-    const storageDirectory = await mkdtemp(join(tmpdir(), "legioncode-grant-"));
+    const storageDirectory = await realpath(await mkdtemp(join(tmpdir(), "legioncode-grant-")));
     const repositoryRoot = join(storageDirectory, "repository");
     await mkdir(repositoryRoot);
     const gitService = new FakeGitService(await realpath(repositoryRoot));
