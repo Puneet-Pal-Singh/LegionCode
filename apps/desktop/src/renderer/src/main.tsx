@@ -57,6 +57,13 @@ function DesktopApp(): React.JSX.Element {
     () => window.matchMedia("(min-width: 1280px)").matches,
   );
   const [rightPanelWidth, setRightPanelWidth] = useState(() => getInitialRightSidebarWidth(window.innerWidth));
+  const rightPanelToggleRef = useRef<HTMLButtonElement>(null);
+  const restoreRightPanelFocus = useRef(false);
+  useEffect(() => {
+    if (rightPanelOpen || !restoreRightPanelFocus.current) return;
+    restoreRightPanelFocus.current = false;
+    rightPanelToggleRef.current?.focus();
+  }, [rightPanelOpen]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
   const emptyDraftRequest = useRef<string | null>(null);
@@ -548,6 +555,7 @@ function DesktopApp(): React.JSX.Element {
                 <WorkspaceReviewControls
                   onReview={() => setRightPanelOpen(true)}
                   onToggleRightSidebar={() => setRightPanelOpen((open) => !open)}
+                  toggleButtonRef={rightPanelToggleRef}
                 />
                 {environmentSummary}
               </> : undefined}
@@ -634,12 +642,8 @@ function DesktopApp(): React.JSX.Element {
                 }
                 filesUnavailableReason="Local workspace file reads are unavailable in this environment."
                 onClose={() => {
+                  restoreRightPanelFocus.current = true;
                   setRightPanelOpen(false);
-                  document
-                    .querySelector<HTMLButtonElement>(
-                      'button[aria-label="Toggle right sidebar"]',
-                    )
-                    ?.focus();
                 }}
               />
             ) : undefined

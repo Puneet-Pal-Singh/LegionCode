@@ -1,12 +1,15 @@
 import { motion } from "framer-motion";
 import { FileDiff, PanelRight } from "lucide-react";
+import type { Ref } from "react";
 
 export function WorkspaceReviewControls({
   onReview,
   onToggleRightSidebar,
+  toggleButtonRef,
 }: {
   onReview?: () => void;
   onToggleRightSidebar?: () => void;
+  toggleButtonRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
@@ -22,6 +25,7 @@ export function WorkspaceReviewControls({
         <FileDiff size={15} />
       </motion.button>
       <motion.button
+        ref={toggleButtonRef}
         onClick={onToggleRightSidebar}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
