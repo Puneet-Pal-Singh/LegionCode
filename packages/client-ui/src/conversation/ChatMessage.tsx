@@ -180,6 +180,7 @@ function readMessageImagePreviews(
             byteSize:
               typeof record.byteSize === "number" ? record.byteSize : undefined,
             src,
+            sourceId: typeof record.src === "string" && /^local-image:[0-9a-f-]{36}:[A-Za-z0-9_-]{16,128}$/i.test(record.src) ? record.src : undefined,
           },
         ];
       })
