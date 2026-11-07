@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createConversationInputCommands } from "./conversation-input-commands.js";
+import { createAppServerLifecycleClient } from "./app-server-lifecycle.js";
+import { lifecycleEvent } from "@repo/contract-conformance";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
 import {
   InterruptTurnRequestSchema,
+  LifecycleEventSchema,
   ModelIdSchema,
   ProviderIdSchema,
   RunIdSchema,
@@ -180,6 +183,57 @@ describe("AppServerClient", () => {
       { method: "checkout/listFiles", params: { ...checkout, offset: 200 } },
       { method: "checkout/readFile", params: { ...checkout, path: "src/index.ts" } },
     ]);
+
+    // Admission may be acknowledged before runtime appends its first event.
+    const started = lifecycleEvent(1);
+    const completed = LifecycleEventSchema.parse({
+      ...lifecycleEvent(2), type: "turn.completed",
+      payload: { outcome: { status: "completed" } },
+    });
+    const replayRequests: AppServerRequest[] = [];
+    const lifecycle = createAppServerLifecycleClient(createAppServerClient({
+      clientId: "desktop", clientVersion: "0.1.0",
+      transport: { request: async (envelope) => {
+        replayRequests.push(envelope);
+        const events = replayRequests.length === 1 ? []
+          : envelope.method === "turn/lifecycleEvents" && envelope.params.afterSequence === 1
+            ? [completed] : [started];
+        return { protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "turn/lifecycleEvents", ok: true,
+          result: { events, nextSequence: events.at(-1)?.sequence ?? null } };
+      } },
+    }));
+    const observed = [];
+    for await (const event of lifecycle.followTurnLifecycle({ turnId: started.turnId, replayLimit: 1 })) {
+      observed.push(event);
+    }
+    expect(observed).toEqual([started, completed]);
+    expect(replayRequests.map(({ params }) => params)).toEqual([
+      { turnId: started.turnId, afterSequence: 0, limit: 1 },
+      { turnId: started.turnId, afterSequence: 0, limit: 1 },
+      { turnId: started.turnId, afterSequence: 1, limit: 1 },
+    ]);
+    const resumed = lifecycle.followTurnLifecycle({ turnId: started.turnId, afterSequence: 1, replayLimit: 1 })[Symbol.asyncIterator]();
+    await expect(resumed.next()).resolves.toMatchObject({ value: completed, done: false });
+    expect(replayRequests.at(-1)).toMatchObject({ params: { afterSequence: 1 } });
+    await resumed.return?.();
+
+    const abort = new AbortController();
+    let releaseReplay!: (value: { events: typeof started[]; nextSequence: number }) => void;
+    const delayed = createAppServerLifecycleClient({ replayLifecycleEvents: () => new Promise((resolve) => { releaseReplay = resolve; }) });
+    const pending = delayed.followTurnLifecycle({ turnId: started.turnId }, { signal: abort.signal })[Symbol.asyncIterator]().next();
+    abort.abort();
+    releaseReplay({ events: [completed], nextSequence: 2 });
+    await expect(pending).rejects.toMatchObject({ code: "ABORTED", retryable: false });
+
+    let missingCalls = 0;
+    const missing = createAppServerLifecycleClient({ replayLifecycleEvents: async () => {
+      missingCalls += 1;
+      throw new AppServerClientError("server_error", "Turn not found", "turn/lifecycleEvents", "not_found",
+        { code: "not_found", message: "Turn not found" });
+    } });
+    await expect(missing.followTurnLifecycle({ turnId: started.turnId })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "not_found", retryable: false });
+    expect(missingCalls).toBe(1);
 
   });
 

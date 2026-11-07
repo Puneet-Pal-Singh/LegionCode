@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreMessage } from "ai";
 import { PNG_DATA_URL } from "../../chat/__tests__/ImageFixtures";
-import { AnthropicMessagesAdapter } from "./AnthropicMessagesAdapter";
-import { GoogleAdapter } from "./GoogleAdapter";
-import { OpenAIAdapter } from "./OpenAIAdapter";
+import { AnthropicMessagesAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/AnthropicMessagesAdapter";
+import { GoogleAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/GoogleAdapter";
+import { OpenAIAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/OpenAIAdapter";
 
 const messages: CoreMessage[] = [
   {

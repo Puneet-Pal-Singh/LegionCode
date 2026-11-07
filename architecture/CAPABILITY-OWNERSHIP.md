@@ -1168,6 +1168,23 @@ advertise `turn-execution-v1`. Atomic admission, native read-only execution,
 protected provider delivery and the renderer binding remain separate integration
 dependencies. The mounted end-to-end Desktop execution path is not yet complete.
 
+
+## Plan 057 — Canonical local turn command contracts
+
+Local start/get/paged thread-history intent uses canonical TurnAdmission records;
+no local identity, lifecycle event or terminal schema is introduced. Local versus
+hosted interruption is explicitly dispatched by environment and existing hosted
+SDK validation remains unchanged. Native composition supplies the local operation
+owner in its integration slice; these contracts do not advertise execution.
+
+SDK createAppServerLifecycleClient adapts an existing AppServerClient to the
+canonical replay/follow port. It reuses cursor ordering, retry classification,
+status delivery and the runtime terminal events. Its bounded IPC read suppresses
+late results after abort without converting transport closure into settlement.
+The existing client case verifies empty initial replay, continuation/resume,
+abort suppression and permanent not-found failure. No renderer polling loop or
+second lifecycle reducer is introduced.
+
 ## Plan 057.6C — Atomic native Turn admission persistence
 
 | Responsibility | Canonical owner | Producer and consumer status |
@@ -1182,3 +1199,43 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+
+
+## Plan 057 — Native root-FD filesystem primitive
+
+The runtime-private `NativeFilesystemBridge` in execution-engine launches the
+POSIX C `legioncode-fs-helper` with no arguments, an empty environment and the
+trusted grant directory object inherited at FD 3. The bounded LCFM/1 pipe
+protocol supports a 4 MiB regular-file read and staged file replacement/creation.
+The helper traverses components with `openat(O_DIRECTORY | O_NOFOLLOW)`, retains
+the same parent FD, and rewalks the relative parent before commit. Staged inode
+and bytes are checked through a held FD; publication uses `renameat` or an
+exclusive `linkat` for new files. It preserves existing ordinary mode/group.
+This is atomic entry publication with optimistic conflict checks, not CAS against
+arbitrary external writers; no sandbox or ACL/xattr preservation is claimed.
+
+The root FD authorizes the selected directory object, not a mutable path alias.
+Worker01 supplies the main-only trusted executable path; worker12 compiles and
+packages that executable. Worker03 owns the actual read/executor consumer, root
+FD grant binding, canonical permission admission and runtime lifecycle. Reads
+must use that bound FD, and mutation composition must retain the real writer
+lease through native close and final capture. Worker05 owns only this private
+filesystem implementation and its guarded file worker. The helper receives no
+provider keys and writes no lifecycle events. There is no `/dev/fd`, path-magic,
+Python or JavaScript mutation fallback. Abort signals request native cleanup;
+actual process/pipe closure, never acknowledgement alone, establishes quiescence.
+
+The primitive alone advertises no Desktop capability. Native read integration,
+installed Mac proof, and guarded edit/command enablement remain separate consumer
+boundaries. Mutators must not use `omitted_read_only` capture. Their full-capture
+and lease gates remain with worker03/07. The source is independently compiled and
+its bridge exercised against real Linux files in cloud; no new test code is added.
+
+### Private host credential contract foundation
+
+Desktop main and its utility process share the bounded correlated credential
+message schemas/client under main/runtime-credentials.ts. The public DesktopApi
+has no credential-read operation. The contract foundation alone wires no broker,
+provider, startup path or execution capability; trusted main and utility
+composition consume it in their separate integration slices. It is not an HTTP
+credential transport or a renderer API.
