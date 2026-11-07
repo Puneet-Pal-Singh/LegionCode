@@ -491,8 +491,12 @@ export class RuntimeLifecycleCoordinator {
     this.status = previousStatus;
   }
 
+  get terminalStatus(): "completed" | "interrupted" | "failed" | null {
+    return this.status === "completed" || this.status === "interrupted" || this.status === "failed" ? this.status : null;
+  }
+
   get isTerminal(): boolean {
-    return ["completed", "interrupted", "failed"].includes(this.status);
+    return this.terminalStatus !== null;
   }
 
   async start(): Promise<{

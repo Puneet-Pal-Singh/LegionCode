@@ -23,6 +23,10 @@ import {
   LocalWorkspaceGrantResponseSchema,
   ProviderIdSchema,
   ThreadIdSchema,
+  WorkspaceIdSchema,
+  EventCursorSchema,
+  EventIdempotencyKeySchema,
+  TurnAdmissionSchema,
   ThreadSchema,
   RunIdSchema,
   TurnIdSchema,
@@ -149,6 +153,39 @@ export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
   .strict();
 
+/** Local operations carry intent; the runtime supplies canonical admission records. */
+export const LocalTurnStartParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  clientRequestId: EventIdempotencyKeySchema,
+  prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
+}).strict();
+export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
+export const LocalThreadHistoryParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  afterCursor: EventCursorSchema.nullable().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+export type LocalThreadHistoryParams = z.infer<typeof LocalThreadHistoryParamsSchema>;
+export const LocalThreadHistoryResultSchema = z.object({
+  admissions: z.array(TurnAdmissionSchema),
+  nextCursor: EventCursorSchema.nullable(),
+}).strict();
+export type LocalThreadHistoryResult = z.infer<typeof LocalThreadHistoryResultSchema>;
+export const LocalTurnInterruptParamsSchema = z.object({
+  // These hosted-only fields are never accepted on a local command.
+  sessionId: z.never().optional(),
+  orchestratorBackend: z.never().optional(),
+  workspaceId: WorkspaceIdSchema,
+  threadId: ThreadIdSchema,
+  runId: RunIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+  reason: z.string().trim().min(1).max(2_000),
+}).strict();
+export type LocalTurnInterruptParams = z.infer<typeof LocalTurnInterruptParamsSchema>;
+
 export const HostedTurnScopeReserveParamsSchema = TurnScopeBootstrapRequestSchema.pick({
   runId: true,
   sessionId: true,
@@ -206,6 +243,62 @@ export const CheckoutReadFileResultSchema = z.object({
 export type CheckoutListFilesResult = z.infer<typeof CheckoutListFilesResultSchema>;
 export type CheckoutReadFileResult = z.infer<typeof CheckoutReadFileResultSchema>;
 
+/** Grant-scoped live reads: no synthetic Turn, Run or hosted Session identity. */
+export const LOCAL_WORKSPACE_PATH_MAX_BYTES = 500;
+// At six JSON bytes per raw control byte this remains below the 1 MiB transport cap.
+// Services reject larger files with 413/workspace_file_too_large, never partial content.
+export const LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES = 64 * 1024;
+export const LOCAL_WORKSPACE_DIRECTORY_PAGE_MAX_BYTES = 64 * 1024;
+export const LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS = 16 * 1024;
+const LocalWorkspaceRelativePathSchema = z.string().min(1).max(LOCAL_WORKSPACE_PATH_MAX_BYTES).refine(
+  (path) => new TextEncoder().encode(path).byteLength <= LOCAL_WORKSPACE_PATH_MAX_BYTES &&
+    !path.includes("\0") && !path.includes("\\") &&
+    (path === "." || path.split("/").every((part) => part !== "" && part !== "." && part !== "..")),
+  "Workspace path must be relative and at most 500 UTF-8 bytes",
+);
+export const LocalWorkspaceListFilesParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  path: LocalWorkspaceRelativePathSchema,
+  cursor: z.string().min(1).max(LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS).regex(/^[A-Za-z0-9_-]+$/).nullable().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+}).strict();
+export const LocalWorkspaceReadFileParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  path: LocalWorkspaceRelativePathSchema.refine((path) => path !== ".", "Read requires a file path"),
+}).strict();
+export const LocalWorkspaceFileEntrySchema = z.object({
+  name: LocalWorkspaceRelativePathSchema.refine((name) => name !== "." && !name.includes("/"), "Directory entry requires one name"),
+  path: LocalWorkspaceRelativePathSchema,
+  kind: z.enum(["file", "directory", "symlink", "other"]),
+  bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  mode: z.number().int().min(0).max(0o7777),
+  unavailableReason: z.literal("reserved_path").optional(),
+}).strict();
+export const LocalWorkspaceListFilesResultSchema = z.object({
+  path: LocalWorkspaceRelativePathSchema,
+  entries: z.array(LocalWorkspaceFileEntrySchema).max(200),
+  truncated: z.boolean(),
+  nextCursor: z.string().min(1).max(LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS).regex(/^[A-Za-z0-9_-]+$/).nullable(),
+}).strict().refine(
+  (result) => result.truncated === (result.nextCursor !== null) && (!result.truncated || result.entries.length > 0),
+  "A truncated directory page must include entries and its opaque next cursor",
+).refine(
+  (result) => result.entries.every((entry) => entry.path === (result.path === "." ? entry.name : `${result.path}/${entry.name}`)),
+  "Directory entries must belong to the returned relative directory",
+).refine(
+  (result) => new TextEncoder().encode(JSON.stringify(result)).byteLength <= LOCAL_WORKSPACE_DIRECTORY_PAGE_MAX_BYTES,
+  "Workspace directory page exceeds the native serialized byte budget",
+);
+export const LocalWorkspaceReadFileResultSchema = CheckoutReadFileResultSchema.refine(
+  (result) => new TextEncoder().encode(result.output).byteLength <= LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES,
+  "Workspace file exceeds the 64 KiB preview limit",
+);
+export type LocalWorkspaceFileEntry = z.infer<typeof LocalWorkspaceFileEntrySchema>;
+export type LocalWorkspaceListFilesResult = z.infer<typeof LocalWorkspaceListFilesResultSchema>;
+export type LocalWorkspaceListFilesParams = z.infer<typeof LocalWorkspaceListFilesParamsSchema>;
+export type LocalWorkspaceReadFileParams = z.infer<typeof LocalWorkspaceReadFileParamsSchema>;
+
+
 const GitStatusParamsSchema = GitRequestContextSchema;
 const GitDiffParamsSchema = GitRequestContextSchema.extend({
   path: z.string().min(1).optional(),
@@ -246,6 +339,9 @@ export const AppServerMethodSchema = z.enum([
   "session/readReceipt",
   "session/workspaceContext",
   "session/pullRequests",
+  "turn/start",
+  "turn/get",
+  "thread/history",
   "turn/reserve",
   "turn/submit",
   "turn/scope",
@@ -282,6 +378,8 @@ export const AppServerMethodSchema = z.enum([
   "repository/branches",
   "repository/tree",
   "repository/contents",
+  "workspace/listFiles",
+  "workspace/readFile",
   "workspace/current",
   "workspace/grant",
   "workspace/revoke",
@@ -332,10 +430,13 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/readReceipt"), params: HostedSessionReadReceiptRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/workspaceContext"), params: HostedSessionWorkspaceContextRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("session/pullRequests"), params: HostedSessionParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/start"), params: LocalTurnStartParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/get"), params: z.object({ turnId: TurnIdSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("thread/history"), params: LocalThreadHistoryParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/reserve"), params: HostedTurnScopeReserveParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/submit"), params: ChatRequestBodySchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/scope"), params: HostedTurnScopeReadParamsSchema }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("turn/interrupt"), params: HostedTurnInterruptParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/interrupt"), params: z.union([HostedTurnInterruptParamsSchema, LocalTurnInterruptParamsSchema]) }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/steer"), params: SteerTurnCommandSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/resume"), params: ResumeTurnCommandSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/input/enqueue"), params: EnqueueThreadInputCommandSchema }).strict(),
@@ -364,6 +465,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
 
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/listFiles"), params: LocalWorkspaceListFilesParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/revoke"), params: EmptyParamsSchema }).strict(),
@@ -410,6 +513,9 @@ export const AppServerResultSchemas = {
   "session/readReceipt": HostedSessionReadReceiptSchema,
   "session/workspaceContext": HostedSessionWorkspaceContextSchema,
   "session/pullRequests": HostedSessionPullRequestsResponseSchema,
+  "turn/start": z.object({ admission: TurnAdmissionSchema }).strict(),
+  "turn/get": z.object({ admission: TurnAdmissionSchema }).strict(),
+  "thread/history": LocalThreadHistoryResultSchema,
   "turn/reserve": TurnScopeBootstrapSchema,
   "turn/submit": HostedChatSubmissionResultSchema,
   "turn/scope": TurnScopeBootstrapSchema,
@@ -442,6 +548,8 @@ export const AppServerResultSchemas = {
 
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
+  "workspace/listFiles": LocalWorkspaceListFilesResultSchema,
+  "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
   "workspace/revoke": z.object({ revoked: z.literal(true) }).strict(),
@@ -488,6 +596,9 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/readReceipt", AppServerResultSchemas["session/readReceipt"]),
   success("session/workspaceContext", AppServerResultSchemas["session/workspaceContext"]),
   success("session/pullRequests", AppServerResultSchemas["session/pullRequests"]),
+  success("turn/start", AppServerResultSchemas["turn/start"]),
+  success("turn/get", AppServerResultSchemas["turn/get"]),
+  success("thread/history", AppServerResultSchemas["thread/history"]),
   success("turn/reserve", AppServerResultSchemas["turn/reserve"]),
   success("turn/submit", AppServerResultSchemas["turn/submit"]),
   success("turn/scope", AppServerResultSchemas["turn/scope"]),
@@ -520,6 +631,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
 
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
+  success("workspace/listFiles", AppServerResultSchemas["workspace/listFiles"]),
+  success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),
   success("workspace/revoke", AppServerResultSchemas["workspace/revoke"]),

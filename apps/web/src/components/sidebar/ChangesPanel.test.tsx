@@ -27,6 +27,8 @@ const mockGitReviewState = vi.hoisted(() => ({
     isDeleted: boolean;
   } | null,
   reviewSourceLoading: false,
+  reviewSourceKind: "live_git" as "live_git" | "unavailable_saved_artifact",
+  reviewSourceError: null as string | null,
   reviewScope: "git-changes" as "git-changes" | "prompt-artifact",
   reviewSourceReason: "live_git_has_changes" as
     | "live_git_has_changes"
@@ -78,7 +80,7 @@ vi.mock("../git/useGitReview", () => ({
     reviewScope: mockGitReviewState.reviewScope,
     setReviewScope: mockSetReviewScope,
     reviewSource: {
-      kind: "live_git",
+      kind: mockGitReviewState.reviewSourceKind,
       reason:
         mockStatusFiles.length === 0
           ? mockGitReviewState.reviewSourceReason === "explicit"
@@ -87,7 +89,7 @@ vi.mock("../git/useGitReview", () => ({
           : "live_git_has_changes",
     },
     reviewSourceLoading: mockGitReviewState.reviewSourceLoading,
-    reviewSourceError: null,
+    reviewSourceError: mockGitReviewState.reviewSourceError,
     reviewComments: [],
     selectedReviewComments: [],
     selectedReviewCommentCount: 0,
@@ -177,6 +179,8 @@ describe("ChangesPanel", () => {
     mockGitReviewState.selectedFile = null;
     mockGitReviewState.diff = null;
     mockGitReviewState.reviewSourceLoading = false;
+    mockGitReviewState.reviewSourceKind = "live_git";
+    mockGitReviewState.reviewSourceError = null;
     mockGitReviewState.reviewScope = "git-changes";
     mockGitReviewState.reviewSourceReason = "live_git_has_changes";
     mockSelectFile.mockClear();
@@ -368,12 +372,25 @@ describe("ChangesPanel", () => {
     mockStatusFiles.splice(0, mockStatusFiles.length);
     mockGitReviewState.reviewSourceLoading = true;
 
-    render(<ChangesPanel mode="modal" layout="stacked" />);
+    const { rerender } = render(<ChangesPanel mode="modal" layout="stacked" />);
 
     expect(
       screen.getByText("Checking last-turn changes..."),
     ).toBeInTheDocument();
     expect(screen.queryByText("No reviewed changes yet")).toBeNull();
+    mockGitReviewState.reviewScope = "prompt-artifact";
+    mockGitReviewState.reviewSourceKind = "unavailable_saved_artifact";
+    rerender(<ChangesPanel mode="modal" layout="stacked" />);
+    expect(screen.getByText("Loading last turn...")).toBeInTheDocument();
+    mockGitReviewState.reviewSourceLoading = false;
+    mockGitReviewState.reviewSourceError = "Saved review is unavailable for this turn.";
+    mockGitReviewState.gitAvailable = false;
+    mockGitReviewState.isGitWorkspaceRecovering = true;
+    mockGitReviewState.hasStatus = false;
+    rerender(<ChangesPanel mode="modal" layout="stacked" />);
+    expect(screen.getByText("Saved review is unavailable for this turn.")).toBeInTheDocument();
+    expect(screen.queryByText("Recovering workspace after restart...")).not.toBeInTheDocument();
+    expect(mockSelectFile).not.toHaveBeenCalled();
   });
 
   it("shows live git empty state for explicit live git selection", () => {

@@ -77,18 +77,24 @@ export class LocalProviderService {
   async getSelection(): Promise<ProviderSelection | null> {
     const selection = await this.options.selectionStore.read();
     if (selection === null) return null;
-    return ProviderSelectionSchema.parse(selection);
+    return this.validateSelection(selection);
   }
 
   async select(
     input: unknown,
     configuration: unknown,
   ): Promise<ProviderSelection> {
-    const selection = ProviderSelectionSchema.parse(input);
+    const selection = this.validateSelection(input);
     const trustedConfiguration = ProviderConfigurationSchema.parse(configuration);
     if (trustedConfiguration.providerId !== selection.providerId) {
       throw new Error("Provider credential configuration does not match selection");
     }
+    await this.options.selectionStore.write(selection);
+    return selection;
+  }
+
+  private validateSelection(input: unknown): ProviderSelection {
+    const selection = ProviderSelectionSchema.parse(input);
     const provider = getBuiltinRegistry().providers.find((entry) => entry.providerId === selection.providerId);
     if (!provider || !isSupportedApiKeyProvider(provider)) {
       throw new Error("Provider is unavailable");
@@ -96,7 +102,6 @@ export class LocalProviderService {
     if (!builtinProviderRegistry.getModel(selection.providerId, selection.modelId)) {
       throw new Error("Provider model is unavailable");
     }
-    await this.options.selectionStore.write(selection);
     return selection;
   }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ProviderIdSchema } from "@repo/platform-protocol";
 import { getBuiltinRegistry, builtinProviderRegistry } from "@repo/provider-core";
 import { LocalProviderService, type ProviderSelection } from "./local-providers.js";
 
@@ -51,6 +52,13 @@ describe("LocalProviderService", () => {
       status: "present",
     })).resolves.toEqual({ providerId: provider.providerId, modelId });
     expect(JSON.stringify(current())).not.toContain("secret");
+    await expect(service.getSelection()).resolves.toEqual(current());
+    const persisted = current();
+    if (!persisted) throw new Error("Expected selected provider");
+    persisted.modelId = "removed-from-registry";
+    await expect(service.getSelection()).rejects.toThrow("Provider model is unavailable");
+    persisted.providerId = ProviderIdSchema.parse("cohere");
+    await expect(service.getSelection()).rejects.toThrow("Provider is unavailable");
   });
 });
 
