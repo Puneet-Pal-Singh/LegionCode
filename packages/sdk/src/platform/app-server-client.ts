@@ -454,7 +454,7 @@ export function createAppServerClient(
     stageGitFiles: (params) => requestGitMutation(options, {
       method: "git/stage", params,
     }, AppServerResultSchemas["git/stage"]),
-    commitTurnArtifact: (params) => requestGitMutation(options, {
+    commitTurnArtifact: (params) => request(options, {
       method: "git/commitTurnArtifact", params: CommitTurnArtifactRequestSchema.parse(params),
     }, CommitTurnArtifactResponseSchema),
     commitGitChanges: (params) => requestGitMutation(options, {

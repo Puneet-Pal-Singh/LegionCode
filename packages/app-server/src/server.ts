@@ -470,7 +470,7 @@ async function dispatch(
     }
     case "git/commitTurnArtifact": {
       if (composition.environment !== "local" || !composition.localTurnArtifactCommitService) {
-        throw new AppServerOperationError(503, "server_unavailable", "Local Turn artifact commits are unavailable");
+        throw new AppServerOperationError(503, "server_unavailable", "Local Turn artifact commits are unavailable", undefined, false);
       }
       return composition.localTurnArtifactCommitService.commitTurnArtifact(request.params);
     }
