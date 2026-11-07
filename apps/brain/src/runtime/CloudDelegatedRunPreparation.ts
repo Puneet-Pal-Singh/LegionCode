@@ -24,6 +24,7 @@ import { CanonicalRuntimeTurnArtifactPort } from "../services/edit-artifacts/Can
 import { WorkspaceBootstrapService } from "./services/WorkspaceBootstrapService";
 import { ExecutionService } from "../services/ExecutionService";
 import type { HarnessAdmissionPrincipal } from "./CloudHarnessAdmissionPorts";
+import { composeHostedHarnessAdmission } from "../services/harness/HostedHarnessAdmissionComposition";
 
 /** Concrete Worker composition. The account, binding and execution capabilities
  * remain with P12/P13, P11 and P09. This class owns no provider loop or store. */
@@ -97,14 +98,7 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
         "Saved conversation ownership or canonical thread identity does not match",
         payload.correlationId,
       );
-    const accounts = this.env.HARNESS_ADMISSION_ACCOUNTS,
-      bindings = this.env.AUTH_HARNESS_ADMISSION_BINDINGS;
-    if (!accounts || !bindings)
-      throw failure(
-        "HARNESS_AUTHORITY_UNAVAILABLE",
-        "Canonical harness account/binding authorities are unavailable",
-        payload.correlationId,
-      );
+    const { accounts, bindings } = composeHostedHarnessAdmission(this.env);
     const admission = await withTurnAdmissionRepository(
       this.env,
       (repository) => repository.getByTurnId(principal.turnId),
