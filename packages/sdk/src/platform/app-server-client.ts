@@ -242,6 +242,8 @@ export type AppServerClient = {
   createThread(title?: string): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
+  pinThread(threadId: Thread["id"]): Promise<Thread>;
+  unpinThread(threadId: Thread["id"]): Promise<Thread>;
   archiveThread(threadId: Thread["id"]): Promise<Thread>;
   unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
   getProviderCatalog(runId?: string): Promise<ProviderRegistryEntry[]>;
@@ -527,6 +529,12 @@ export function createAppServerClient(
       }, AppServerResultSchemas["thread/rename"]);
       return result.thread;
     },
+    pinThread: async (threadId) => (await request(options, {
+      method: "thread/pin", params: { threadId: ThreadIdSchema.parse(threadId) },
+    }, AppServerResultSchemas["thread/pin"])).thread,
+    unpinThread: async (threadId) => (await request(options, {
+      method: "thread/unpin", params: { threadId: ThreadIdSchema.parse(threadId) },
+    }, AppServerResultSchemas["thread/unpin"])).thread,
     archiveThread: async (threadId) => {
       const result = await request(options, {
         method: "thread/archive",
