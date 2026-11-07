@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRef, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   X,
@@ -54,6 +54,8 @@ const PLAN_PLACEHOLDER =
 export interface ChatInputBarProps {
   composerPreferences?: ComposerPreferences;
   isHidden?: boolean;
+  submissionUnavailableReason?: string;
+  attachmentsAvailable?: boolean;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
   providerNotice?: ReactNode;
   providerQuota?: ReactNode;
@@ -112,6 +114,8 @@ export function ChatInputBar({
   canResume = false,
   onResume,
   isHidden = false,
+  submissionUnavailableReason,
+  attachmentsAvailable = true,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -137,7 +141,8 @@ export function ChatInputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const imageDraft = useChatImageAttachmentDraft(!isHidden);
+  const unavailableDescriptionId = useId();
+  const imageDraft = useChatImageAttachmentDraft(!isHidden && attachmentsAvailable);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<
@@ -156,7 +161,9 @@ export function ChatInputBar({
   const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
-  const canSubmit = hasInput || hasReviewComments || hasImageAttachments;
+  const submissionAvailable = !submissionUnavailableReason &&
+    (attachmentsAvailable || !hasImageAttachments);
+  const canSubmit = submissionAvailable && (hasInput || hasReviewComments || hasImageAttachments);
   const shouldShowStop = canStop && onStop !== undefined;
   const isComposerActiveRun = isLoading || canStop || shouldShowStop;
   const canSendMessage = canSubmit && !isComposerActiveRun;
@@ -309,6 +316,10 @@ export function ChatInputBar({
       preferences: composerPreferences,
     });
     if (keyboardAction.type === "submit") {
+      if (!submissionAvailable) {
+        e.preventDefault();
+        return;
+      }
       if (
         isComposerActiveRun &&
         input.trim() === "/compact" &&
@@ -336,6 +347,7 @@ export function ChatInputBar({
   };
 
   const submitComposer = async (delivery?: ComposerDelivery) => {
+    if (!submissionAvailable) return;
     if (delivery && !onFollowUpSubmit) return;
     if (hasImageAttachments && hasReviewComments) {
       imageDraft.reportError(
@@ -492,6 +504,7 @@ export function ChatInputBar({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (!submissionAvailable) return;
           if (
             isComposerActiveRun &&
             input.trim() === "/compact" &&
@@ -618,9 +631,15 @@ export function ChatInputBar({
 
         <div
           data-testid="chat-composer-drop-zone"
-          onDragOver={imageDraft.handleDragOver}
+          onDragOver={(event) => {
+            if (attachmentsAvailable) imageDraft.handleDragOver(event);
+            else if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+          }}
           onDragLeave={imageDraft.handleDragLeave}
-          onDrop={imageDraft.handleDrop}
+          onDrop={(event) => {
+            if (attachmentsAvailable) imageDraft.handleDrop(event);
+            else if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+          }}
           className={`
             ui-control-surface composer-surface relative p-3
             transition-all duration-200
@@ -631,17 +650,18 @@ export function ChatInputBar({
           <input
             ref={imageInputRef}
             type="file"
+            disabled={!attachmentsAvailable}
             multiple
             accept={CHAT_IMAGE_MIME_TYPES.join(",")}
             className="sr-only"
             aria-label="Choose images to attach"
             onChange={(event) => {
               const files = event.currentTarget.files;
-              if (files) void imageDraft.addFiles(Array.from(files), "upload");
+              if (attachmentsAvailable && files) void imageDraft.addFiles(Array.from(files), "upload");
               event.currentTarget.value = "";
             }}
           />
-          {imageDraft.isDraggingImages ? (
+          {attachmentsAvailable && imageDraft.isDraggingImages ? (
             <ChatImageDropOverlay testId="chat-composer-drop-overlay" />
           ) : null}
           {hasReviewComments ? (
@@ -726,13 +746,14 @@ export function ChatInputBar({
               );
               setDismissedMentionKey(null);
             }}
-            onPaste={imageDraft.handlePaste}
+            onPaste={attachmentsAvailable ? imageDraft.handlePaste : undefined}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
             onSelect={syncCursorPosition}
+            aria-describedby={submissionUnavailableReason ? unavailableDescriptionId : undefined}
             aria-autocomplete="list"
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -788,6 +809,11 @@ export function ChatInputBar({
             </div>
           ) : null}
 
+          {submissionUnavailableReason ? (
+            <p id={unavailableDescriptionId} role="status" className="mt-3 text-xs text-zinc-400">
+              {submissionUnavailableReason}
+            </p>
+          ) : null}
           {providerNotice}
           {/* Toolbar */}
           <div className="mt-2 flex min-w-0 items-center justify-between gap-2 pt-2">
@@ -795,9 +821,10 @@ export function ChatInputBar({
             <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
               <ChatComposerPlusMenu
                 mode={mode}
+                attachmentsAvailable={attachmentsAvailable}
                 disabled={isComposerActiveRun}
                 onModeChange={handleModeChange}
-                onAttachImages={() => imageInputRef.current?.click()}
+                onAttachImages={() => { if (attachmentsAvailable) imageInputRef.current?.click(); }}
                 onAddRepositoryContext={insertMentionTrigger}
               />
 
@@ -828,13 +855,13 @@ export function ChatInputBar({
               ) : null}
               <ComposerSubmitControls
                 isActive={isComposerActiveRun}
-                canResume={canResume && !canSubmit}
+                canResume={submissionAvailable && canResume && !canSubmit}
                 onResume={onResume}
                 canSubmit={canSubmit}
                 canSendMessage={canSendMessage}
                 canStop={shouldShowStop}
                 followUpAvailable={
-                  onFollowUpSubmit !== undefined && !hasReviewComments
+                  submissionAvailable && onFollowUpSubmit !== undefined && !hasReviewComments
                 }
                 preferences={composerPreferences}
                 modifierShortcutLabel={modifierShortcutLabel}
