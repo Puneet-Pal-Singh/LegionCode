@@ -59,7 +59,7 @@ const PUBLIC_ERROR_MESSAGES = {
   git_command_failed: "The Git operation failed.",
   capability_unsupported: "This capability is unavailable.",
   tool_unavailable_in_backend: "This tool is unavailable in the selected environment.",
-  policy_denied: "The operation was denied by policy.",
+  policy_denied: "The operation was denied by policy. Do not repeat it or bypass the permission policy. Continue with permitted work.",
   approval_required: "Approval is required for this operation.",
   illegal_lifecycle_transition: "The operation conflicts with the current lifecycle state.",
   internal_error: "The request could not be completed.",
