@@ -14,15 +14,17 @@ import {
 } from "./local-native-git.js";
 import type { LocalWorkspaceWriterLease } from "./local-workspace-writer-lease.js";
 
-/** Private canonical executor. Capabilities stay absent until metadata namespace
- * authority and the complete production transaction have positive physical proof.
- * The Git service therefore refuses mutation at its normal capability gate. */
+/** Darwin artifact executor using the original held-root metadata callback,
+ * writer lease and native private-index transaction. Generic commits still fail
+ * the native algorithm's required immutable-source guards. */
 export function createArtifactGitExecutor(
   lease: LocalWorkspaceWriterLease,
   options: LocalNativeGitOptions,
 ): GitCommandExecutor {
   const bind = createNativeGitBinding(options);
   return {
+    supportsIndexTransactions: true,
+    supportsArtifactIndexGuard: true,
     execute: (input) =>
       lease.withMutationAuthority(
         lease.attempt.workspaceId,
