@@ -28,6 +28,8 @@ export type LocalGitContainedCommand = {
  * confirms quiescence. No arbitrary executable or shell comes from the client. */
 export type LocalGitMacExecution = {
   readonly scope: "single_executable_nofork";
+  /** Set only after real private-index input and transaction contract proof. */
+  readonly supportsIndexTransactions?: true;
   run(
     input: LocalGitContainedCommand,
   ): Promise<
@@ -45,7 +47,8 @@ export function createNodeGitExecutor(
   const supported =
     process.platform === "linux" ||
     (process.platform === "darwin" &&
-      options.macExecution?.scope === "single_executable_nofork");
+      options.macExecution?.scope === "single_executable_nofork" &&
+      options.macExecution.supportsIndexTransactions === true);
   return {
     ...(supported ? { supportsIndexTransactions: true as const } : {}),
     async execute(input) {
