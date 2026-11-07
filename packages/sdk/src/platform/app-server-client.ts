@@ -5,6 +5,9 @@ import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMut
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
   LocalWorkspaceListFilesParamsSchema,
+  LocalChatImageReadParamsSchema,
+  type LocalChatImageReadParams,
+  type LocalChatImageReadResult,
   LocalProviderPreferenceScopeSchema,
   type LocalProviderPreferenceScope,
   LocalWorkspaceReadFileParamsSchema,
@@ -241,6 +244,7 @@ export type AppServerClient = {
   getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
+  readLocalChatImageChunk(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
@@ -273,6 +277,9 @@ export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
   return {
+    readLocalChatImageChunk: (params) => request(options, {
+      method: "media/readImage", params: LocalChatImageReadParamsSchema.parse(params),
+    }, AppServerResultSchemas["media/readImage"]),
     listWorkspaceFiles: (params) => request(options, {
       method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/listFiles"]),
