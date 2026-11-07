@@ -1371,6 +1371,8 @@ ordinary executable environments and process containment remain unchanged.
 
 SDK `commitTurnArtifact` sends `git/commitTurnArtifact` using the canonical
 `CommitTurnArtifactRequestSchema` and validates `CommitTurnArtifactResponseSchema`.
+Requests explicitly select all saved changes or unique saved entry paths; the
+handler authorizes those entries and expands rename path pairs from saved data.
 App Server dispatches only local requests to the optional structural
 `localTurnArtifactCommitService.commitTurnArtifact` port; missing or nonlocal
 composition returns typed `503 server_unavailable` with `retryable: false`.
