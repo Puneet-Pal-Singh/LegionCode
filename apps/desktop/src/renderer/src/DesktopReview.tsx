@@ -1,5 +1,5 @@
 import { ChangesList, DiffViewer } from "@legioncode/client-ui";
-import { buildDiffContentFromTurnDiff, type AppServerClient } from "@legioncode/sdk";
+import { buildDiffContentFromTurnDiff, type AppServerClient, type LifecycleProjection } from "@legioncode/sdk";
 import type { ThreadId, TurnDiffPayload, TurnId, WorkspaceId } from "@repo/platform-protocol";
 import type { FileStatus } from "@repo/shared-types";
 import { useEffect, useState } from "react";
@@ -8,11 +8,13 @@ export interface DesktopReviewSelection {
   workspaceId: WorkspaceId;
   threadId: ThreadId;
   turnId: TurnId;
+  terminalState: NonNullable<LifecycleProjection["terminal"]>["state"];
 }
 
 export interface DesktopReviewProps {
   client: Pick<AppServerClient, "getTurnDiff">;
   selection: DesktopReviewSelection | null;
+  scope: { workspaceId: WorkspaceId; threadId: ThreadId; grantGrantedAt: string } | null;
   availability: { available: true } | { available: false; reason: string };
 }
 
@@ -21,13 +23,17 @@ type ReviewRead = { client: DesktopReviewProps["client"] } & (
   | { status: "error" }
   | { status: "ready"; diff: TurnDiffPayload | null });
 
-/** The parent supplies a replay-selected turn and the actual advertised capability. */
-export function DesktopReview({ client, selection, availability }: DesktopReviewProps) {
-  if (!selection) return <p role="status">Select a completed turn to review.</p>;
+/** Parent supplies a replay-settled selection, actual grant scope and advertised capability. */
+export function DesktopReview({ client, selection, scope, availability }: DesktopReviewProps) {
+  if (!scope) return <p role="status">Open a granted workspace and thread to review saved changes.</p>;
+  if (!selection) return <p role="status">Select a settled turn to review.</p>;
+  if (selection.workspaceId !== scope.workspaceId || selection.threadId !== scope.threadId) {
+    return <p role="status">Select a settled turn in the current workspace and thread.</p>;
+  }
   if (!availability.available) return <p role="status">Saved turn review unavailable: {availability.reason}</p>;
   return (
     <SelectedTurnReview
-      key={`${selection.workspaceId}:${selection.threadId}:${selection.turnId}`}
+      key={JSON.stringify([scope.grantGrantedAt, selection.workspaceId, selection.threadId, selection.turnId, selection.terminalState])}
       client={client}
       turnId={selection.turnId}
     />
