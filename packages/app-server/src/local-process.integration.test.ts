@@ -91,7 +91,7 @@ describe("local App Server HTTP integration", () => {
       expect(host.environment).toEqual({ HOME: homedir() });
       expect(policyCalls).toBe(0);
       await expect(host.launch({ executable: process.execPath, args: [] }))
-        .rejects.toThrow("OS policy denied launch");
+        .rejects.toMatchObject({ code: "invalid_launch", message: "invalid_launch" });
       expect(policyCalls).toBe(1);
       await local.workspaceService.revoke();
       await expect(host.launch({ executable: process.execPath, args: [] })).rejects.toThrow();

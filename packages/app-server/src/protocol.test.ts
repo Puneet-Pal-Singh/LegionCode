@@ -124,11 +124,18 @@ describe("App Server protocol", () => {
     expect(AppServerResponseSchema.safeParse(statusEnvelope(status)).success).toBe(true);
     const usage = {
       connectionId: "connection-1", accountId: "account-1", environmentId: "cloud-1", authOwnerGeneration: 0, billingRoute: "external",
-      quota: { scope: "account", state: "unsupported", checkedAt: null, source: null, windows: null }, activity: [],
+      quota: { scope: "account", state: "unsupported", checkedAt: null, source: null, windows: null }, activity: [], providerLimits: [],
     };
     expect(AppServerResponseSchema.safeParse(statusEnvelope({ ...status, usage })).success).toBe(true);
     for (const foreign of [{ ...usage, connectionId: "another-connection" }, { ...usage, environmentId: "another-environment" }]) {
       expect(AppServerResponseSchema.safeParse(statusEnvelope({ ...status, usage: foreign })).success).toBe(false);
+    }
+    for (const invalid of [
+      { ...usage, authOwnerGeneration: -1 },
+      { ...usage, providerLimits: undefined },
+      { ...usage, quota: { ...usage.quota, windows: [] } },
+    ]) {
+      expect(AppServerResponseSchema.safeParse(statusEnvelope({ ...status, usage: invalid })).success).toBe(false);
     }
 
     const threadScope = {

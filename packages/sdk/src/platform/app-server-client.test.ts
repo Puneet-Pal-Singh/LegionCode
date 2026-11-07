@@ -200,10 +200,13 @@ describe("AppServerClient", () => {
       status: async () => ({ instances: [instance] }),
       models: async (params) => ({ ...params, models: [{ id: ModelIdSchema.parse("gpt-5"), label: "GPT-5" }], availability: "available", reason: null, observedAt: instance.observedAt }),
       readSelection: async (params) => ({ ...params, revision, selection }),
-      select: async ({ clientCommandId: _command, expectedRevision, selection: next, ...params }) => {
-        if (expectedRevision !== revision) throw new Error("stale selection");
-        revision += 1; selection = next;
-        return { ...params, revision, selection };
+      select: async (params) => {
+        if (params.expectedRevision !== revision) throw new Error("stale selection");
+        revision += 1; selection = params.selection;
+        return {
+          environmentId: params.environmentId, workspaceId: params.workspaceId,
+          sessionId: params.sessionId, threadId: params.threadId, revision, selection,
+        };
       },
     };
     const harnessClient = createAppServerClient({
