@@ -2,6 +2,13 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
   "tasks": {
+    "@legioncode/app-server#check-types": {
+      "dependsOn": ["^build", "^check-types"]
+    },
+    "@legioncode/execution-engine#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
