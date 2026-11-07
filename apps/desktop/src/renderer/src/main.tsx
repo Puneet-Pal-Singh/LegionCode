@@ -243,6 +243,26 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
+  async function setThreadPinned(threadId: string, pinned: boolean): Promise<void> {
+    const thread = threads.find((item) => item.id === threadId);
+    if (!thread || !appServerClient) return;
+    const scope = threadScope.current;
+    const request = selectionRequest.current;
+    try {
+      const updated = pinned
+        ? await appServerClient.pinThread(thread.id)
+        : await appServerClient.unpinThread(thread.id);
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current) {
+        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      }
+      await refreshThreads();
+    } catch {
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      setThreadError("The local thread could not be updated.");
+    }
+  }
+
   async function chooseWorkspace(): Promise<void> {
     setWorkspaceError(null);
     try {
@@ -360,6 +380,8 @@ function DesktopApp(): React.JSX.Element {
               onCreate={workspace?.readiness === "ready" && sdkReady ? () => void createThread() : undefined}
               onAddWorkspace={sdkReady ? () => void chooseWorkspace() : undefined}
               onRenameSession={renameThread}
+              onPin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, true) : undefined}
+              onUnpin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, false) : undefined}
               onArchive={archiveThread}
               onUnarchive={unarchiveThread}
               onClose={() => setSidebarOpen(false)}
