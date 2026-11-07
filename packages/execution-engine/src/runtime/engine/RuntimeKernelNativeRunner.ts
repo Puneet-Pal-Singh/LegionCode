@@ -91,7 +91,6 @@ import {
   buildPlanModeResponse,
   persistPlanArtifact,
 } from "./RunPlanModePolicy.js";
-import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import { NativePermissionPolicyResolver } from "./NativePermissionPolicyResolver.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
@@ -179,7 +178,6 @@ export class RuntimeKernelNativeRunner {
   private readonly costTracker: ICostTracker;
   private readonly budgetManager: IBudgetManager & BudgetPolicy;
   private readonly llmGateway: ILLMGateway;
-  private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
   private readonly workspaceBootstrapper;
   private readonly gitSnapshots?: RuntimeGitSnapshotPort;
@@ -193,10 +191,6 @@ export class RuntimeKernelNativeRunner {
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
-    this.permissionApprovalStore = new PermissionApprovalStore(
-      ctx,
-      options.runId,
-    );
     const eventRepo = new RunEventRepository(ctx);
     this.eventRepo = eventRepo;
     this.runEventRecorder = new RunEventRecorder(
