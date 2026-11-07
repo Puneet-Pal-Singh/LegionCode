@@ -103,3 +103,10 @@ export { useChangesPanelViewState, type DiffLayout } from "./review/useChangesPa
 export { ReviewDiffToolbar } from "./review/ReviewDiffToolbar.js";
 export { ReviewFileStack } from "./review/ReviewFileStack.js";
 export { ReviewPanelLayout } from "./review/ReviewPanelLayout.js";
+
+export { ArtifactView } from "./files/ArtifactView.js";
+export { FileBreadcrumbs } from "./workspace/FileBreadcrumbs.js";
+export { FileOptionsMenu } from "./workspace/FileOptionsMenu.js";
+export { WorkspaceFileNavigationBar } from "./workspace/WorkspaceFileNavigationBar.js";
+export { WorkspaceContentView } from "./workspace/WorkspaceContentView.js";
+export { WorkspaceTreeDrawer } from "./workspace/WorkspaceTreeDrawer.js";
