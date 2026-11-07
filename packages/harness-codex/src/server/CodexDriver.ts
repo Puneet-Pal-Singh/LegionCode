@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { isAbsolute } from "node:path";
@@ -125,9 +125,7 @@ export class CodexDriver implements HarnessDriver {
     let externalTurnId: string | null = null;
     let terminal = false;
     let terminalPayloadFingerprint: string | null = null;
-    let observationFailure = false;
     let accountVerified = false;
-    let cleanupInitiated = false;
     let finalOutput = "";
     let executing = false;
     let pendingBytes = 0;
@@ -178,7 +176,6 @@ export class CodexDriver implements HarnessDriver {
         pendingCount >= 256 ||
         pendingBytes + size > 8 * 1024 * 1024
       ) {
-        observationFailure = true;
         fail();
         return;
       }
@@ -187,18 +184,15 @@ export class CodexDriver implements HarnessDriver {
       queue = queue
         .then(async () => {
           if (stopped) {
-            observationFailure = true;
             return;
           }
           await turnReady;
           if (stopped) {
-            observationFailure = true;
             return;
           }
           await action();
         })
         .catch(() => {
-          observationFailure = true;
           fail();
         })
         .finally(() => {
@@ -223,7 +217,6 @@ export class CodexDriver implements HarnessDriver {
       try {
         if (authentication.observeNotification(method, raw)) return;
       } catch {
-        observationFailure = true;
         fail();
         return;
       }
@@ -233,7 +226,6 @@ export class CodexDriver implements HarnessDriver {
           (method === "account/updated" ||
             method === "account/gatewayOAuth/changed"))
       ) {
-        observationFailure = true;
         fail();
         return;
       }
@@ -418,10 +410,9 @@ export class CodexDriver implements HarnessDriver {
       onNotification: notification,
       onRequest: request,
       onClose: (error) => {
-        // Only our own cleanup's complete EOF is expected. Every other close or
-        // protocol/transport failure may hide facts, even after foreground terminal.
-        if (!(cleanupInitiated && error.reason === "closed"))
-          observationFailure = true;
+        // This transport conflates stdout EOF, destroyed streams and local close.
+        // None is an ordered observation-closure receipt. Quiescence below stays
+        // unknown/lost even when closure follows our own physical cleanup.
         if (!terminal || error.reason !== "closed") fail();
       },
     });
@@ -605,7 +596,6 @@ export class CodexDriver implements HarnessDriver {
               error instanceof CodexTransportError &&
               error.outcome === "unknown"
             ) {
-              observationFailure = true;
               fail();
             }
             throw error;
@@ -625,40 +615,21 @@ export class CodexDriver implements HarnessDriver {
               reason: "work_still_running",
             };
           signal.removeEventListener("abort", fail);
-          cleanupInitiated = true;
-          const results = await host.terminateProcesses({
+          // The supervisor owns physical cleanup and may destroy stdout as soon
+          // as the process group is absent, before buffered frames reach us.
+          // There is no producer/transport closure barrier followed by canonical
+          // observation ACK drain before that destructive step in this contract.
+          // Cleanup/queue drain therefore cannot certify complete observations.
+          await host.terminateProcesses({
             graceMs: Math.min(100, timeoutMs),
             killWaitMs: Math.max(0, timeoutMs - 100),
           });
           await queue;
           transport.close();
-          if (observationFailure)
-            return {
-              status: "unknown",
-              session: learnedSession,
-              reason: "observation_integrity_lost",
-            };
-          // Host creation has already asserted the actual filesystem/descendant boundary.
-          if (
-            !results.length ||
-            results.some(
-              (result) =>
-                result.kind !== "process_group_quiesced" ||
-                result.processGeneration !== host.processGeneration,
-            )
-          )
-            return {
-              status: "unknown",
-              session: learnedSession,
-              reason: "timeout",
-            };
           return {
-            status: "quiescent",
+            status: "unknown",
             session: learnedSession,
-            observedAt: new Date().toISOString(),
-            evidenceId: randomUUID(),
-            scope: "process_tree_and_background_work",
-            observationIntegrity: "complete",
+            reason: "observation_integrity_lost",
           };
         },
       };
