@@ -21,6 +21,7 @@ import {
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceGrantSchema,
   ProviderIdSchema,
   ThreadIdSchema,
   WorkspaceIdSchema,
@@ -133,6 +134,9 @@ export const AppServerProviderErrorSchema = NormalizedProviderErrorSchema.extend
 }).strict();
 
 const EmptyParamsSchema = z.object({}).strict();
+export const LocalProviderPreferenceScopeSchema = LocalWorkspaceGrantSchema.pick({ workspaceId: true, grantedAt: true }).strict();
+export type LocalProviderPreferenceScope = z.infer<typeof LocalProviderPreferenceScopeSchema>;
+
 const ProviderSelectionSchema = z.object({
   providerId: ProviderIdSchema,
   modelId: z.string().min(1).max(256).refine((value) => value.trim() === value),
@@ -490,8 +494,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("provider/catalog"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/models"), params: z.object({ providerId: ProviderIdSchema, runId: RunIdSchema.optional(), query: BYOKDiscoveredProviderModelsQuerySchema.strict().optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/models/refresh"), params: z.object({ providerId: BYOKProviderSlugSchema, runId: RunIdSchema.optional() }).strict() }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/read"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/update"), params: z.object({ runId: RunIdSchema.optional(), request: BYOKPreferencesUpdateRequestSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/read"), params: z.object({ runId: RunIdSchema.optional(), localScope: LocalProviderPreferenceScopeSchema.optional() }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/update"), params: z.object({ runId: RunIdSchema.optional(), localScope: LocalProviderPreferenceScopeSchema.optional(), request: BYOKPreferencesUpdateRequestSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/resolve"), params: z.object({ runId: RunIdSchema.optional(), request: BYOKResolveRequestSchema.strict() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/list"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/connect"), params: z.object({ runId: RunIdSchema.optional(), request: BYOKCredentialConnectRequestSchema }).strict() }).strict(),
