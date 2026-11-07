@@ -272,12 +272,13 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const page = await application.firstWindow();
-    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.setViewportSize({ width: 420, height: 900 });
     page.on("console", (message) => consoleText.push(message.text()));
     page.on("pageerror", (error) => consoleText.push(error.message));
     await expectEnvironmentReady(page);
     await page.getByRole("button", { name: "Open sidebar" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.setViewportSize({ width: 1100, height: 900 });
     await page.getByRole("dialog", { name: "General", exact: true }).getByRole("button", { name: "Providers", exact: true }).click();
     const providersDialog = page.getByRole("dialog", { name: "Providers", exact: true });
     await expect(providersDialog.getByRole("heading", { name: "Connected providers", exact: true })).toBeVisible();
@@ -366,6 +367,7 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
       display: getComputedStyle(element).display,
       columns: getComputedStyle(element).gridTemplateColumns,
     }));
+    await page.screenshot({ path: testInfo.outputPath("provider-setup-narrow.png"), fullPage: true });
     expect(narrowLayout.display).toBe("grid");
     const narrowTracks = narrowLayout.columns.trim().split(/\s+/);
     expect(narrowTracks).toHaveLength(2);
@@ -376,7 +378,6 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
       document.documentElement.scrollWidth - window.innerWidth,
     );
     expect(narrowOverflow).toBeLessThanOrEqual(1);
-    await page.screenshot({ path: testInfo.outputPath("provider-setup-narrow.png"), fullPage: true });
     await providersDialog.getByRole("button", { name: "Back", exact: true }).click();
 
     const ciphertextPath = join(userDataDirectory, "provider-credentials", "credentials.enc.json");
