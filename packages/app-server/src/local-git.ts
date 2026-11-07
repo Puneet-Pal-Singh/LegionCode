@@ -229,7 +229,6 @@ export class LocalGitService {
           !status.branch.head ||
           status.branch.detached ||
           status.branch.head !== probe.branch ||
-          status.branch.head !== saved.grant.branch ||
           status.branch.head !== binding.workspace.branch
         ) {
           throw new LocalGitOperationError(
