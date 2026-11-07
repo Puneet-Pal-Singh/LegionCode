@@ -1,3 +1,4 @@
+export { CanonicalApprovalDeadlinePort } from "./CanonicalApprovalDeadlinePort.js";
 export {
   RUNTIME_KERNEL_ERROR_CODES,
   RuntimeKernelError,

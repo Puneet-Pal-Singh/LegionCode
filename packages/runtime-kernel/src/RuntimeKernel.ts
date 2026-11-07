@@ -17,6 +17,7 @@ import {
 import type { WorkspaceManifestRepository } from "@repo/workspace-core";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
+import { CanonicalApprovalDeadlinePort } from "./CanonicalApprovalDeadlinePort.js";
 import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
@@ -274,7 +275,7 @@ export class RuntimeKernel {
     }
     if (artifactSettlement) this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
-      this.dependencies.approvals,
+      this.dependencies.approvals ?? new CanonicalApprovalDeadlinePort(),
       lifecycle,
     );
     this.approvalCoordinators.set(turn.id, approvals);

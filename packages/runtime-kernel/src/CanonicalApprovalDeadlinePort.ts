@@ -1,22 +1,17 @@
-import {
-  RuntimeKernelError,
-  type ApprovalResolution,
-  type ApprovalWaitPort,
-} from "@repo/runtime-kernel";
-import { resolveApprovalWaitTimeoutMs } from "./RunApprovalWaitPolicy.js";
+import { RuntimeKernelError } from "./errors.js";
+import type { ApprovalWaitPort } from "./ports.js";
+import type { ApprovalResolution } from "./types.js";
 
 /** Expiry contender only. ApprovalCoordinator owns decisions and canonical events. */
 export class CanonicalApprovalDeadlinePort implements ApprovalWaitPort {
-  constructor(
-    private readonly env: Parameters<typeof resolveApprovalWaitTimeoutMs>[0],
-  ) {}
+  constructor(private readonly timeoutMs: number = 300_000) {}
 
   waitForDecision(
     input: Parameters<ApprovalWaitPort["waitForDecision"]>[0],
   ): Promise<ApprovalResolution> {
     const signal = input.signal;
     if (signal?.aborted) return Promise.reject(cancelled());
-    const timeoutMs = resolveApprovalWaitTimeoutMs(this.env);
+    const timeoutMs = this.timeoutMs;
     const startedAt = Date.now();
     return new Promise((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;

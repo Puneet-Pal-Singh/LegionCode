@@ -874,7 +874,7 @@ export class RunEngineRequestHandler {
             payload.grantScope === "matching_in_chat"
               ? "matching_in_chat"
               : undefined,
-          decidedBy: null,
+          decidedBy: authorization.decidedBy,
           reason: payload.reason ?? null,
         },
       );

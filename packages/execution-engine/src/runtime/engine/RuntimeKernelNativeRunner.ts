@@ -30,7 +30,7 @@ import type {
   WorkerProtocolPort,
   WorkerToolResult,
 } from "@repo/runtime-kernel";
-import { RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
+import { CanonicalApprovalDeadlinePort, RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
 import {
   RUN_WORKFLOW_STEPS,
   RUN_TERMINAL_STATES,
@@ -100,7 +100,7 @@ import {
   resolveNativeKernelTerminalState,
   resolveNativeToolFailureDisposition,
 } from "./NativeTerminalFailurePresentation.js";
-import { CanonicalApprovalDeadlinePort } from "./CanonicalApprovalDeadlinePort.js";
+import { resolveApprovalWaitTimeoutMs } from "./RunApprovalWaitPolicy.js";
 import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
@@ -396,7 +396,7 @@ export class RuntimeKernelNativeRunner {
           ? toProtocolId("usr", this.options.userId)
           : undefined,
       ),
-      approvals: new CanonicalApprovalDeadlinePort(this.options.env),
+      approvals: new CanonicalApprovalDeadlinePort(resolveApprovalWaitTimeoutMs(this.options.env)),
       hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
       maxToolCalls: getNativeToolCallSafetyLimit(maxSteps),
