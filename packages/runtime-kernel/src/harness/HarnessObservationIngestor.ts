@@ -49,6 +49,8 @@ export class HarnessObservationIngestor {
   private lastSequence = 0;
   private queue: Promise<void> = Promise.resolve();
   private pending = 0;
+  // Notification receipts survive rehydration within this ingress owner. They
+  // are not reply claims: persistence still owns single-use reply delivery.
   private readonly requestOrigins = new Set<string>();
 
   constructor(
@@ -99,7 +101,6 @@ export class HarnessObservationIngestor {
     this.toolCount = 0;
     this.terminal = null;
     this.quiescent = false;
-    this.requestOrigins.clear();
     this.lastSequence = recovered.lastSequence;
     this.externalTurnId = recovered.externalTurnId;
     for (const event of recovered.lifecycleEvents) {
@@ -146,10 +147,7 @@ export class HarnessObservationIngestor {
           this.options.selection.authOwnerGeneration
       )
         this.reject("Recovery request has a stale origin");
-      this.requestOrigins.add(JSON.stringify(request.replyTo));
-      if (request.kind === "approval_requested")
-        this.options.onApproval(request);
-      else this.options.onUserInput(request);
+      this.notifyRequest(request);
     }
   }
 
@@ -358,26 +356,32 @@ export class HarnessObservationIngestor {
         payload.evidence.status === "quiescent"
       )
         this.quiescent = true;
-      if (payload.kind === "user_input_requested") {
-        this.requestOrigins.add(JSON.stringify(payload.replyTo));
-        try {
-          this.options.onUserInput(payload);
-        } catch (error) {
-          this.fenced = true;
-          throw error;
-        }
-      }
-      if (payload.kind === "approval_requested") {
-        this.requestOrigins.add(JSON.stringify(payload.replyTo));
-        try {
-          this.options.onApproval(payload);
-        } catch (error) {
-          this.fenced = true;
-          throw error;
-        }
-      }
+      if (
+        payload.kind === "user_input_requested" ||
+        payload.kind === "approval_requested"
+      )
+        this.notifyRequest(payload);
     }
     return ack;
+  }
+
+  private notifyRequest(request: Approval | UserInput): void {
+    const origin = JSON.stringify(request.replyTo);
+    // Recovery validates immutable request receipts in the canonical store;
+    // this set only prevents repeating their post-commit notification.
+    if (this.requestOrigins.has(origin)) return;
+    // A commit-time duplicate restores all canonical facts, including requests
+    // already handed to this coordinator. Do not restart an approval waiter or
+    // register the same user-input request twice. Retain consumed origins too.
+    this.requestOrigins.add(origin);
+    try {
+      if (request.kind === "approval_requested")
+        this.options.onApproval(request);
+      else this.options.onUserInput(request);
+    } catch (error) {
+      this.fenced = true;
+      throw error;
+    }
   }
 
   private validateAck(
