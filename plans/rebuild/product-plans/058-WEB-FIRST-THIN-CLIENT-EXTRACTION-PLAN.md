@@ -1,8 +1,8 @@
 # 058 — Web-First Thin Client Extraction
 
 Date: 2026-10-08 (Asia/Kolkata)
-Status: Proposed for discussion; documentation only. No implementation,
-branch changes, agent interruption, PR creation or merges authorized here.
+Status: Complete for the scoped hosted Web extraction at dev `81e613dc` (2026-11-06).
+Execution and integration were separately authorized by the user.
 Parent architecture: Plan 056. Desktop delivery: Plan 057 and its existing LLD.
 
 Full-plan execution design: `LLD/058-web-first-thin-client-extraction.md`
@@ -16,6 +16,45 @@ Codex, Claude Agent and OpenCode v2 locally/in cloud without waiting for 058,
 and wire their missing in-path capabilities through canonical owners. Coordinate
 shared-file changes instead of making extraction a roadmap predecessor.
 058's extraction scope and acceptance remain unchanged.
+
+
+## Accepted completion — 2026-11-06
+
+Plan 058.0–058.4 is complete for the scoped hosted Web extraction at dev
+`81e613dc39b05375ea217dfea1d77f1257bdb3f9`. All remaining code PRs are merged,
+all ten checks pass on that merged revision, and the independent caller/deletion
+audit found no remaining scoped blocker. [Final PR evidence](https://github.com/Puneet-Pal-Singh/LegionCode/pull/611)
+records the actual browser journeys, preservation inventory and limitations;
+[merged-revision CI](https://github.com/Puneet-Pal-Singh/LegionCode/actions/runs/42217826105) is green.
+
+Accepted Web proof includes old-chat recovery/continuation, Projects/Recents,
+provider setup, queue/steer/Stop/Start/Resume, genuine approval deny/allow,
+mounted file reads and immutable saved review, actual original-deadline physical
+expiry, explicit unavailable saved review, and a new image submission with
+pending-turn switch isolation and reload. The new image used the normal paste
+path; file-chooser automation remained permission-blocked. The model reversed
+left/right while the displayed saved pixels remained correct, so semantic vision
+accuracy is not claimed. Existing controlled retry/revision/compaction/pagination
+regressions were reused without manufacturing duplicate paid inference.
+
+The read-only browser inventory matched all 85 unique cached IDs to owned
+readable history; no only-copy message/preview payload was found. All 1,198
+approved recovery originals rehash/decode without loss (422,003 bytes). The
+33 hidden parent-only archives are discoverable without repair writes. Inert
+legacy preference/cache bytes remain preserved; removed writers/helpers cannot
+act as product authority. Historical cold-code Web fixture is N/A for accepted
+sources with zero R2 references and nine small inline code calls, not a claimed
+cold-Web pass or global cloud absence. Fifteen unverified production objects
+remain untouched and outside the approved import mapping. Fresh-origin product
+reconstruction is verified; a newly created Chrome profile is not claimed.
+
+Welcome composer presentation is unchanged. No new SDK/server/runtime family,
+main merge, infrastructure relocation or Desktop implementation was added by
+this remaining work. Existing shared SDK/UI boundaries and Desktop builds are
+healthy; Desktop 057.6C–057.8 retains its own native acceptance and is proceeding
+separately. Outputs/subagents/background capabilities #546–#548, responsiveness
+and separate provider-performance work are not completed by this acceptance.
+Planning/baseline sections below retain their original historical context.
 
 ## 1. Decision to discuss
 
