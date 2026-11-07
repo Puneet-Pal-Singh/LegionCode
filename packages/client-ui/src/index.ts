@@ -17,6 +17,11 @@ export {
   ProviderIcon,
   type ProviderIconProps,
 } from "./provider/ProviderIcon.js";
+export { ModelPickerPopover, type ModelPickerPopoverProps } from "./provider/ModelPickerPopover.js";
+export { ModelPickerDetailsPanel, type ModelPickerDetailsPanelProps } from "./provider/ModelPickerDetailsPanel.js";
+export type { ModelPickerModel, ModelPickerDiscoveryView, ModelPickerModelsMetadata } from "./provider/modelPickerTypes.js";
+export { formatModelDisplayName } from "./provider/modelDisplayName.js";
+export { isProviderModelAvailable, getProviderModelUnavailableReason } from "./provider/providerModelAvailability.js";
 export { cn } from "./classnames.js";
 export { MessageContent, MarkdownMessageContent } from "./conversation/chat-message/MessageContent.js";
 export { MessageActions } from "./conversation/chat-message/MessageActions.js";
