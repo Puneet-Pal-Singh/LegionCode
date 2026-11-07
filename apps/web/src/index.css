@@ -157,9 +157,6 @@
     @apply bg-black text-zinc-100;
   }
 
-  .ui-sidebar-surface {
-    @apply border-[#1a1a1a] bg-[#0c0c0e] text-zinc-100;
-  }
 
 
 
@@ -172,9 +169,6 @@
 
 
 
-  .ui-muted-divider {
-    @apply border-zinc-800/80;
-  }
 
   /* Animation utilities */
   .animate-pulse-slow {

@@ -327,7 +327,7 @@ export function SharedSettingsDialog({
           className="ui-surface-modal relative flex h-[82vh] w-full max-w-6xl overflow-hidden font-sans"
           onClick={(event) => event.stopPropagation()}
         >
-          <aside className="ui-sidebar-surface relative z-10 flex w-72 shrink-0 flex-col border-r px-5 py-5">
+          <aside className="ui-sidebar-surface relative z-10 flex w-32 shrink-0 flex-col border-r px-2 py-5 sm:w-72 sm:px-5">
             <div className="mb-4 text-sm font-semibold text-zinc-200">
               Settings
             </div>
@@ -378,7 +378,7 @@ export function SharedSettingsDialog({
           </aside>
 
           <section className="relative z-10 flex min-w-0 flex-1 flex-col">
-            <header className="flex items-center justify-between border-b ui-muted-divider px-6 py-4">
+            <header className="flex items-center justify-between border-b ui-muted-divider px-3 py-4 sm:px-6">
               <h2
                 id="settings-dialog-title"
                 className="text-xl font-semibold tracking-tight text-zinc-100"
@@ -403,7 +403,7 @@ export function SharedSettingsDialog({
               </button>
             </header>
 
-            <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+            <div className="min-h-0 flex-1 overflow-auto px-3 py-5 sm:px-6">
               {visibleError ? (
                 <div className="mb-5 rounded-lg border border-red-800/80 bg-red-950/30 px-4 py-3 text-sm text-red-200">
                   {visibleError}
