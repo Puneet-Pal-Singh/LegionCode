@@ -566,6 +566,7 @@ async function dispatch(
           localTurnExecutionAvailable: Boolean(composition.localTurnService),
           localTurnConfiguration: composition.localTurnService?.getConfigurationOptions(),
           localSavedReviewAvailable: Boolean(composition.localTurnArtifactReadsService),
+          localSavedCommitAvailable: Boolean(composition.localTurnArtifactCommitService),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");

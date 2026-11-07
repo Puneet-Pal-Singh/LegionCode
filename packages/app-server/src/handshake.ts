@@ -26,6 +26,7 @@ export function initializeAppServer(
     localTurnExecutionAvailable?: boolean;
     localTurnConfiguration?: LocalTurnConfigurationOptions;
     localSavedReviewAvailable?: boolean;
+    localSavedCommitAvailable?: boolean;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -64,16 +65,18 @@ export function initializeAppServer(
               ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : []),
               ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : []),
               ...(options.localSavedReviewAvailable ? ["artifact-review-v1"] : []),
+              ...(options.localSavedCommitAvailable ? ["artifact-commit-v1"] : []),
             ]
           : [],
       unavailableCapabilities:
         options.environment === "local"
           ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) =>
               (capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable) &&
-              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable),
+              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable) &&
+              (capability !== "artifact-commit-v1" || !options.localSavedCommitAvailable),
             ).map((capability) => ({
               capability,
-              reason: "This local capability is planned for a later slice",
+              reason: capability === "artifact-commit-v1" ? "Saved commits are unavailable." : "This local capability is planned for a later slice",
             }))
           : [],
     },
