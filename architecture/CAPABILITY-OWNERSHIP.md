@@ -1321,6 +1321,17 @@ second hash implementation. Core-tool exports omit this definition unless the
 actual no-fork and approval capabilities are supplied. This registration does
 not activate a worker, acquire a writer lease or produce lifecycle events.
 
+## Plan 057 — Local saved-turn diff query
+
+`LocalTurnArtifactReads` delegates grant/thread authorization to the existing turn
+owner, then requires a canonical terminal and published diff matching the same
+attempt's immutable artifact store. It reauthorizes before returning and never
+reads live Git. The adapter introduces no event producer, artifact payload store
+or client-owned projection. Actual routing and capability advertisement remain
+with the trusted App Server composition after capture/store integration.
+Internal commit preparation uses the same verified record and immutable artifact
+ID; this read does not grant Git mutation authority.
+
 ## Shared workspace file explorer presentation
 
 The tree renderer, loaded-file filtering, expansion, pagination and stale-request
