@@ -82,6 +82,32 @@ export const CredentialSecretSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 export type CredentialSecret = z.infer<typeof CredentialSecretSchema>;
+
+/** Private host delivery only. Long-lived OAuth refresh material stays in custody. */
+export const RuntimeCredentialMaterialSchema = z.discriminatedUnion("type", [
+  CredentialSecretSchema.options[0],
+  CredentialSecretSchema.options[1].pick({
+    type: true,
+    accessToken: true,
+    expiresAt: true,
+    accountId: true,
+  }),
+  CredentialSecretSchema.options[2],
+]);
+export type RuntimeCredentialMaterial = z.infer<typeof RuntimeCredentialMaterialSchema>;
+
+/** Project a validated custody record; never transfer its refresh token or config. */
+export function projectRuntimeCredentialMaterial(
+  secret: CredentialSecret,
+): RuntimeCredentialMaterial {
+  return RuntimeCredentialMaterialSchema.parse(secret.type === "oauth" ? {
+    type: secret.type,
+    accessToken: secret.accessToken,
+    expiresAt: secret.expiresAt,
+    accountId: secret.accountId,
+  } : secret);
+}
+
 export const CredentialAcquisitionSchema = z
   .object({
     connectionId: z.string().uuid(),

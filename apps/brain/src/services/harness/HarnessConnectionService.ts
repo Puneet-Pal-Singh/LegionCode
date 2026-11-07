@@ -1,5 +1,6 @@
 import {
   CredentialSecretSchema,
+  projectRuntimeCredentialMaterial,
   type CredentialAcquisition,
   type CredentialSecret,
   type ProviderConnectionConfig,
@@ -153,11 +154,12 @@ export class HarnessConnectionService {
       return null;
     // Long-lived refresh material never crosses the harness resolver port.
     if (acquired.secret.type === "oauth") {
-      const { refreshToken: _, ...secret } = acquired.secret;
-      if (secret.expiresAt <= Date.now()) return null;
-      return { metadata: metadata(current), secret };
+      if (acquired.secret.expiresAt <= Date.now()) return null;
     }
-    return { metadata: metadata(current), secret: acquired.secret };
+    return {
+      metadata: metadata(current),
+      secret: projectRuntimeCredentialMaterial(acquired.secret),
+    };
   }
   async refresh(
     scope: HarnessConnectionScope,
