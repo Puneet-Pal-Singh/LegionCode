@@ -24,6 +24,7 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
       "apply_patch",
       "format_file",
       "bash",
+      "run_executable",
       "git_stage",
       "git_commit",
       "git_push",
