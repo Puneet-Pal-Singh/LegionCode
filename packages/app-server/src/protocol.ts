@@ -13,6 +13,7 @@ import {
   RepositoryTreeRequestSchema, RepositoryTreeResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
   ChatRequestBodySchema,
+  LocalTurnConfigurationSchema,
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
@@ -163,6 +164,8 @@ export const LocalTurnStartParamsSchema = z.object({
   threadId: ThreadIdSchema,
   clientRequestId: EventIdempotencyKeySchema,
   prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
+  mode: LocalTurnConfigurationSchema.shape.mode.optional(),
+  productMode: LocalTurnConfigurationSchema.shape.productMode.optional(),
 }).strict();
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
