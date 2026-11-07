@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build runtime dependency artifacts
+        run: pnpm exec turbo run build --filter=@legioncode/execution-engine
+
       - name: Check Desktop types and security boundary
         run: |
           pnpm --filter @legioncode/desktop check-types
