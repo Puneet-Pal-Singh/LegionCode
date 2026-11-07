@@ -83,6 +83,9 @@ importers:
       '@repo/runtime-kernel':
         specifier: workspace:*
         version: link:../../packages/runtime-kernel
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../../packages/worker-protocol
       ai:
         specifier: 4.1.0
         version: 4.1.0(react@19.2.4)(zod@3.25.1)
