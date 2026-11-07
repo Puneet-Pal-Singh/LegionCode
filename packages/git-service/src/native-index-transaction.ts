@@ -187,21 +187,23 @@ export async function executeNativeIndexTransaction(
     const directory = hookPath.endsWith("\n")
       ? hookPath.slice(0, -1)
       : hookPath;
-    // External/alias hook roots need separately held authority, never a Node path
-    // fallback. Relative core.hooksPath semantics remain relative to held cwd.
-    const parts = directory.replace(/^\.\//u, "").split("/");
+    // The native session authorizes absolute paths only under its verified
+    // gitdir/common handles. Relative hook roots remain under the held cwd.
+    const absolute = directory.startsWith("/");
+    const parts = (
+      absolute ? directory.slice(1) : directory.replace(/^\.\//u, "")
+    ).split("/");
     if (
       !directory ||
-      directory.startsWith("/") ||
       directory.includes("\\") ||
-      directory.includes("\0") ||
+      /[\0\r\n]/u.test(directory) ||
       parts.some((part) => !part || part === "." || part === "..")
     )
       refuse(
         "The configured hook directory requires unavailable retained authority",
       );
     const states = await session.inspectExecutables(
-      hooks.map((name) => `${parts.join("/")}/${name}`),
+      hooks.map((name) => `${absolute ? "/" : ""}${parts.join("/")}/${name}`),
     );
     if (states.some((state) => state !== 0))
       refuse(

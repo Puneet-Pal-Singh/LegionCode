@@ -6,12 +6,14 @@ import {
   NativeFilesystemBridge,
   parseNativeGitMetadataIdentity,
   type NativeGitMetadataIdentity,
+  type NativeGitMetadataLayout,
 } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import {
   executeSingleProcessMac,
   type SingleProcessMacExecution,
 } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import type { LocalWorkspaceWriterAuthority } from "./local-workspace-writer-lease.js";
+import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import { trustedLocalGitContext } from "./local-git-context.js";
 
 export interface LocalNativeGitOptions {
@@ -20,6 +22,7 @@ export interface LocalNativeGitOptions {
   readonly filesystemHelperPath: string;
   /** Captured by the trusted grant owner before its original Git probe. */
   readonly metadataIdentity: NativeGitMetadataIdentity;
+  readonly inspectMetadataLayout: LocalWorkspaceExecutionBinding["inspectMetadataLayout"];
 }
 
 const unavailable = (message: string) =>
@@ -42,6 +45,11 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
   const metadataIdentity = parseNativeGitMetadataIdentity(
     options.metadataIdentity,
   );
+  const inspectMetadataLayout = options.inspectMetadataLayout;
+  if (typeof inspectMetadataLayout !== "function")
+    throw unavailable(
+      "Native Git requires the original grant metadata resolver",
+    );
   const trustedGitContext = trustedLocalGitContext();
   return (authority: LocalWorkspaceWriterAuthority) => {
     const filesystem = new NativeFilesystemBridge({
@@ -55,21 +63,40 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
       unknown = true;
       authority.markUnknown();
     };
-    const verifyMetadata = async () => {
+    const verifyMetadata = async (
+      purpose: "association" | "mutation" = "association",
+    ): Promise<NativeGitMetadataLayout> => {
       await authority.assertSettlementCurrent();
-      if (
-        (await filesystem.inspectGitMetadataIdentity({
+      try {
+        const layout = await inspectMetadataLayout({
           signal: authority.settlementSignal,
-        })) !== metadataIdentity
-      )
-        throw unavailable("The trusted Git metadata directory changed");
-      await authority.assertSettlementCurrent();
+          observeExecution: authority.trackFilesystem,
+          purpose,
+        });
+        await authority.assertSettlementCurrent();
+        if (layout.identity !== metadataIdentity)
+          throw unavailable("The trusted Git metadata directory changed");
+        if (
+          purpose === "mutation" &&
+          (!layout.storage ||
+            layout.storage.alternates !== "absent_or_empty" ||
+            layout.storage.grafts !== "absent_or_empty")
+        )
+          throw unavailable(
+            "Native Git requires the verified mutation storage layout",
+          );
+        return layout;
+      } catch (error) {
+        markUnknown();
+        throw error;
+      }
     };
     return {
       authority,
       filesystem,
       metadataIdentity,
       verifyMetadata,
+      verifyMutationMetadata: () => verifyMetadata("mutation"),
       get unknown() {
         return unknown;
       },
@@ -92,19 +119,28 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
           timeoutMs > 30_000
         )
           throw unavailable("Native Git deadline exceeds its bound");
-        await verifyMetadata();
+        const deadline = performance.now() + timeoutMs;
+        const layout = await verifyMetadata();
+        const remaining = Math.ceil(deadline - performance.now());
+        if (remaining < 1)
+          return {
+            exitCode: 124,
+            stdout: "",
+            stderr: "Native Git deadline expired before execution",
+          };
         let operation: SingleProcessMacExecution | undefined;
         try {
           operation = executeSingleProcessMac({
             executable: options.gitExecutable,
             args: [
+              "--no-replace-objects",
               "-c",
               "maintenance.auto=false",
               "-c",
               "gc.auto=0",
               "-c",
               "core.fsmonitor=false",
-              "--git-dir=.git",
+              `--git-dir=${layout.gitDirectory}`,
               "--work-tree=.",
               ...input.args,
             ],
@@ -122,21 +158,39 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
               ...(input.indexFile ? { GIT_INDEX_FILE: input.indexFile } : {}),
             },
             stdin: input.stdin,
-            timeoutMs,
+            timeoutMs: remaining,
             signal: input.signal ?? authority.settlementSignal,
           });
           authority.trackProcess(operation);
         } catch (error) {
           operation?.stop();
           markUnknown();
-          throw error;
+          throw new GitServiceError(
+            "git_commit_indeterminate",
+            "Native Git construction or process registration was not confirmed",
+            {
+              reason:
+                error instanceof Error
+                  ? error.message.slice(0, 1024)
+                  : "Unknown construction failure",
+            },
+          );
         }
         let result;
         try {
           result = await operation.result;
         } catch (error) {
           markUnknown();
-          throw error;
+          throw new GitServiceError(
+            "git_commit_indeterminate",
+            "Native Git execution did not prove its outcome",
+            {
+              reason:
+                error instanceof Error
+                  ? error.message.slice(0, 1024)
+                  : "Unknown execution failure",
+            },
+          );
         }
         if (!operation.quiescent || result.outputClosed) {
           markUnknown();
@@ -145,7 +199,31 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
             "Native Git process closure was not proved",
           );
         }
-        await authority.assertSettlementCurrent();
+        try {
+          await authority.assertSettlementCurrent();
+          const after = await verifyMetadata();
+          if (
+            after.gitDirectory !== layout.gitDirectory ||
+            after.commonDirectory !== layout.commonDirectory ||
+            after.backlinkPath !== layout.backlinkPath ||
+            performance.now() > deadline
+          )
+            throw new Error(
+              "Git metadata association or deadline changed during execution",
+            );
+        } catch (error) {
+          markUnknown();
+          throw new GitServiceError(
+            "git_commit_indeterminate",
+            "Native Git settlement could not be verified after execution",
+            {
+              reason:
+                error instanceof Error
+                  ? error.message.slice(0, 1024)
+                  : "Unknown settlement failure",
+            },
+          );
+        }
         if (result.truncated)
           return {
             exitCode: 1,
