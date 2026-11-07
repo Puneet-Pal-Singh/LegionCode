@@ -1,3 +1,4 @@
+import { ClaudeOwnedWork } from "./ClaudeOwnedWork.js";
 import { claudeSandbox } from "./ClaudeSandbox.js";
 import { frozenClaudeLaunchEnvironment } from "../ClaudeAuthentication.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -70,14 +71,15 @@ export class ClaudeQueryRunner {
   private readonly sdk: Query;
   private readonly selectedModel: string;
   private observing = false;
+  private drained = false;
+  private closedBeforeDrain = false;
   private initialized = false;
   private closed = false;
   private busy = false;
-  private nativeState: "idle" | "running" | "requires_action" | "unavailable" =
-    "unavailable";
+  private readonly work = new ClaudeOwnedWork();
+  private stopping = false;
+  private readonly stopRequests = new Map<string, string | undefined>();
   private readonly submitted = new Set<string>();
-  private readonly tasks = new Map<string, string | undefined>();
-  private readonly backgroundTasks = new Map<string, string | undefined>();
   private stopPromise: Promise<void> | undefined;
   private readonly workWaiters = new Set<{
     readonly resolve: () => void;
@@ -212,57 +214,26 @@ export class ClaudeQueryRunner {
             );
           }
         }
-        if (
-          message.type === "system" &&
-          message.subtype === "background_tasks_changed"
-        ) {
-          if (message.tasks.length > 4096)
-            throw new Error("Claude task tracking limit exceeded");
-          this.backgroundTasks.clear();
-          for (const task of message.tasks)
-            this.backgroundTasks.set(task.task_id, task.run_id);
-        }
-        if (message.type === "system" && message.subtype === "task_started") {
-          if (this.tasks.size >= 4096)
-            throw new Error("Claude task tracking limit exceeded");
-          const previous = this.tasks.get(message.task_id);
-          if (
-            previous === undefined ||
-            (message.run_id !== undefined && message.run_id >= previous)
-          )
-            this.tasks.set(message.task_id, message.run_id);
-        }
-        if (
-          message.type === "system" &&
-          message.subtype === "task_notification"
-        ) {
-          for (const tasks of [this.tasks, this.backgroundTasks]) {
-            if (tasks.get(message.task_id) === message.run_id)
-              tasks.delete(message.task_id);
-          }
-        }
-        if (
-          message.type === "system" &&
-          message.subtype === "session_state_changed"
-        )
-          this.nativeState = message.state;
         await sink(message);
+        this.work.observe(message);
+        if (this.stopping) this.stopOwnedTasks();
         if (message.type === "result") this.busy = false;
-        if (
-          this.nativeState === "idle" &&
-          this.tasks.size === 0 &&
-          this.backgroundTasks.size === 0
-        ) {
+        if (this.work.settled) {
           for (const waiter of this.workWaiters) waiter.resolve();
         }
       }
+      this.drained = true;
     } finally {
       this.close();
     }
   }
 
+  get observationsDrained(): boolean {
+    return this.drained && !this.closedBeforeDrain;
+  }
+
   submit(message: SDKUserMessage): void {
-    if (this.closed || !this.initialized || this.busy)
+    if (this.closed || this.stopping || !this.initialized || this.busy)
       throw new Error("Claude session is not ready for a new turn");
     if (
       !message.uuid ||
@@ -275,20 +246,15 @@ export class ClaudeQueryRunner {
     }
     this.submitted.add(message.uuid);
     this.busy = true;
-    this.nativeState = "running";
+    this.work.submitted();
     this.input.push(message);
   }
 
   /** Native task settlement only. This never replaces the host's OS quiescence proof. */
   async awaitOwnedWork(signal: AbortSignal): Promise<void> {
     if (signal.aborted) throw new Error("Claude work wait cancelled");
-    if (
-      this.nativeState === "idle" &&
-      this.tasks.size === 0 &&
-      this.backgroundTasks.size === 0
-    )
-      return;
     if (this.closed) throw new Error("Claude task stream is closed");
+    if (this.work.settled) return;
     let waiter:
       | {
           readonly resolve: () => void;
@@ -318,20 +284,16 @@ export class ClaudeQueryRunner {
   private async stopOnce(): Promise<void> {
     this.permissions.abort();
     this.input.discardPending();
-    this.closed = true;
+    this.stopping = true;
     try {
       await this.withDeadline(
         (async () => {
           // The published typed API takes no options. Queued UUID receipts are not quiescence.
           await this.sdk.interrupt();
-          await Promise.all(
-            [
-              ...new Set([
-                ...this.tasks.keys(),
-                ...this.backgroundTasks.keys(),
-              ]),
-            ].map((task) => this.sdk.stopTask(task)),
-          );
+          this.stopOwnedTasks();
+          // Receipts do not settle tasks. Keep observing until committed native idle
+          // and both task streams are empty, including tasks first seen during Stop.
+          await this.awaitOwnedWork(this.abort.signal);
         })(),
         5_000,
       );
@@ -340,6 +302,23 @@ export class ClaudeQueryRunner {
     } catch {
       this.close();
       throw new Error("Claude Stop controls failed or timed out");
+    }
+  }
+
+  private stopOwnedTasks(): void {
+    for (const [task, run] of this.work.running()) {
+      const previous = this.stopRequests.get(task);
+      if (
+        this.stopRequests.has(task) &&
+        (run === undefined || (previous !== undefined && run <= previous))
+      )
+        continue;
+      if (this.stopRequests.size >= 4096 && !this.stopRequests.has(task))
+        throw new Error("Claude Stop task limit exceeded");
+      this.stopRequests.set(task, run);
+      // Do not retry an ambiguous control response. Failure closes observation;
+      // the canonical host still owns forced cleanup and failure settlement.
+      void this.sdk.stopTask(task).catch(() => this.close());
     }
   }
 
@@ -364,6 +343,9 @@ export class ClaudeQueryRunner {
   }
 
   close(): void {
+    // Query.close() discards remaining messages. A later iterator EOF cannot
+    // retroactively prove that those observations reached the canonical sink.
+    if (!this.drained) this.closedBeforeDrain = true;
     this.closed = true;
     for (const waiter of this.workWaiters)
       waiter.reject(new Error("Claude task stream closed before settlement"));
