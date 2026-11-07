@@ -1,5 +1,4 @@
 import type { LocalPersistence } from "@repo/event-store/local";
-import type { HarnessExecutionPort } from "@repo/harness-core/server";
 import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
 
 /** Bind a learned external identity to the already claimed local attempt before
@@ -9,7 +8,7 @@ import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
 export class LocalHarnessExecution implements DelegatedHarnessPort {
   constructor(
     private readonly persistence: LocalPersistence,
-    private readonly harness: HarnessExecutionPort,
+    private readonly harness: DelegatedHarnessPort,
   ) {}
 
   async open(input: Parameters<DelegatedHarnessPort["open"]>[0]) {
