@@ -1,4 +1,4 @@
-// apps/brain/src/services/providers/adapters/AnthropicAdapter.ts
+// Shared runtime provider adapter.
 // Phase 3.1: Direct Anthropic provider adapter with standardized usage
 
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -8,9 +8,9 @@ import type {
   GenerationParams,
   GenerationResult,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
-import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
+} from "../base/ProviderAdapter.js";
+import type { LLMUsage } from "../../cost/types.js";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy.js";
 
 interface AnthropicConfig {
   apiKey: string;
