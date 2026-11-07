@@ -119,7 +119,7 @@ function SelectedConversation({
       runAttemptId={admission?.runAttemptId ?? null}
       projectName={projectName}
       onProjectClick={onProjectClick}
-      showHeroComposer={!conversation.loading && !conversation.error && !conversation.hasNewerPages && entries.length === 0}
+      showHeroComposer={!conversation.loading && !conversation.error && !conversation.hasNewerPages && !conversation.firstPage && entries.length === 0}
       showSessionPlaceholder={conversation.loading}
       placeholderError={
         conversation.error
@@ -173,14 +173,24 @@ function SelectedConversation({
         </>
       )}
       debugPanel={
-        conversation.hasNewerPages ? (
-          <ChatErrorNotice
-            message="Showing earlier conversation."
-            remediation="Load newer turns to continue."
-            actionLabel="Load newer turns"
-            onOpen={conversation.nextPage ?? conversation.reload}
-          />
-        ) : null
+        <>
+          {conversation.firstPage ? (
+            <ChatErrorNotice
+              message="Earlier saved turns are available."
+              remediation="Return to the first page of this conversation."
+              actionLabel="First turns"
+              onOpen={conversation.firstPage}
+            />
+          ) : null}
+          {conversation.hasNewerPages ? (
+            <ChatErrorNotice
+              message="Showing earlier conversation."
+              remediation="Load newer turns to continue."
+              actionLabel="Load newer turns"
+              onOpen={conversation.nextPage ?? conversation.reload}
+            />
+          ) : null}
+        </>
       }
       resolveHydratedImageSource={undefined}
       loadArtifactContent={undefined}
