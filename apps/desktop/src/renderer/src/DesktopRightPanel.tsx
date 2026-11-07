@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { WorkspaceSidebarHeader } from "@legioncode/client-ui";
+import { Resizer, WorkspaceSidebarHeader } from "@legioncode/client-ui";
 import type { LocalWorkspaceGrant, ThreadId } from "@repo/platform-protocol";
 import type { DesktopReviewSelection } from "./DesktopReview";
 
@@ -37,6 +37,7 @@ export interface DesktopRightPanelProps {
   };
   filesUnavailableReason: string;
   onClose?: () => void;
+  onResize?: (delta: number) => void;
 }
 
 /** Shared Web presentation; grant identity and all reads stay in Desktop's SDK adapters. */
@@ -47,6 +48,7 @@ export function DesktopRightPanel({
   files,
   filesUnavailableReason,
   onClose,
+  onResize,
 }: DesktopRightPanelProps) {
   const [isViewingContent, setIsViewingContent] = useState(false);
   const [hasFilesTab, setHasFilesTab] = useState(false);
@@ -117,8 +119,9 @@ export function DesktopRightPanel({
   return (
     <aside
       aria-label="Workspace files and review"
-      className="flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-[#111113] text-zinc-200"
+      className="relative flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-[#111113] text-zinc-200"
     >
+      {onResize ? <Resizer side="right" onResize={onResize} /> : null}
       <WorkspaceSidebarHeader
         position="inline"
         isViewingContent={isViewingContent}

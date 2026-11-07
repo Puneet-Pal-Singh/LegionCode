@@ -3,6 +3,8 @@ import {
   ClientShell,
   ClientShellLoading,
   ConversationHero,
+  getInitialRightSidebarWidth,
+  clampRightSidebarWidth,
   FilesToggleButton,
   PickerModal,
   WorkspaceFrame,
@@ -50,6 +52,7 @@ function DesktopApp(): React.JSX.Element {
   const [rightPanelOpen, setRightPanelOpen] = useState(
     () => window.matchMedia("(min-width: 1280px)").matches,
   );
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => getInitialRightSidebarWidth(window.innerWidth));
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
   const emptyDraftRequest = useRef<string | null>(null);
@@ -455,6 +458,7 @@ function DesktopApp(): React.JSX.Element {
           onSidebarOpenChange={setSidebarOpen}
           sidebar={
             <DesktopSidebar
+              width={320}
               workspace={workspace}
               threads={threads}
               selectedThreadId={selectedThread?.id ?? null}
@@ -511,6 +515,7 @@ function DesktopApp(): React.JSX.Element {
           rightPanel={
             rightPanelOpen ? (
               <DesktopRightPanel
+                onResize={(delta) => setRightPanelWidth((width) => clampRightSidebarWidth(width + delta))}
                 workspace={workspace}
                 threadId={selectedThread?.id ?? null}
                 review={
@@ -595,6 +600,7 @@ function DesktopApp(): React.JSX.Element {
               />
             ) : undefined
           }
+          rightPanelWidth={rightPanelWidth}
           rightPanelLabel="Files and saved turn review"
         >
           {workspace?.readiness === "ready" &&

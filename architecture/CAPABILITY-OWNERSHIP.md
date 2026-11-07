@@ -1294,6 +1294,9 @@ button are removed. Native grant confirmation remains Desktop-owned content with
 the shared modal; it does not grant access before explicit native confirmation.
 The shared project removal confirmation invokes the existing local revoke command;
 native picker and revoke errors use the shared sidebar mutation notice.
+Shared workspace sizing preserves Web's existing viewport-based initial width and
+resize bounds; Desktop supplies that width to the frame and mounts the same
+Resizer, avoiding the narrow generic-frame default for the Web review toolbar.
 
 Local thread, grant, provider route, lifecycle replay/live continuation and immutable
 review identity remain their existing SDK/App Server owners. Empty workspace setup
