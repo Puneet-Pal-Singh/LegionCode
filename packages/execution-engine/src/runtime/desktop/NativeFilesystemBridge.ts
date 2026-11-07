@@ -1,9 +1,95 @@
 import { spawn } from "node:child_process";
+import { fstatSync } from "node:fs";
 import { lstat, type FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import type { Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
+import {
+  openNativePrivateFileTransaction,
+  validatePrivateDirectoryPath,
+  type NativePrivateFileTransaction,
+} from "./NativePrivateFileTransaction.js";
+export type { NativePrivateFileTransaction } from "./NativePrivateFileTransaction.js";
+
+/** Physical closure of this trusted helper, which never forks or execs. */
+export interface NativeFilesystemExecution {
+  readonly closed: Promise<void>;
+  readonly quiescent: boolean;
+}
+
+/** Opaque physical identity; persist the string, parse before trusted comparison. */
+export type NativeGitMetadataIdentity = string;
+export function parseNativeGitMetadataIdentity(
+  value: unknown,
+): NativeGitMetadataIdentity {
+  if (
+    typeof value !== "string" ||
+    value.length > 512 ||
+    !/^(?:gitdir-v1(?::[0-9a-f]{1,16}){8}|gitdir-v2(?::[0-9a-f]{1,16}){16})$/u.test(
+      value,
+    )
+  )
+    throw new NativeFilesystemError(1, "Invalid native Git metadata identity");
+  return value;
+}
+
+/** Private host metadata; never a public grant, renderer path or mutation capability. */
+export interface NativeGitMetadataLayout {
+  readonly kind: "ordinary" | "linked";
+  readonly gitDirectory: string;
+  readonly commonDirectory: string;
+  readonly backlinkPath: string | null;
+  readonly identity: NativeGitMetadataIdentity;
+  /** Present only after bounded mutation-storage validation; not a capability. */
+  readonly storage?: NativeGitMetadataStorage;
+}
+export interface NativeGitMetadataStorage {
+  readonly objectsDirectory: string;
+  readonly packDirectory: string;
+  readonly infoDirectory: string;
+  readonly refsDirectory: string;
+  readonly commonLogsDirectory: string;
+  readonly worktreeLogsDirectory: string;
+  readonly repositoryInfoDirectory: string;
+  readonly alternates: "absent_or_empty";
+  readonly grafts: "absent_or_empty";
+  readonly identity: string;
+}
+function parseGitStorageIdentity(value: string): string {
+  if (
+    value.length > 512 ||
+    !/^gitstorage-v1(?::[0-9a-f]{1,16}){20}$/u.test(value)
+  )
+    throw new NativeFilesystemError(1, "Invalid Git storage identity");
+  return value;
+}
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_DIRECTORY_BYTES = 64 * 1024;
+const MAX_DIRECTORY_ENTRIES = 200;
+const MAX_CURSOR_CHARS = 16 * 1024;
+
+export interface NativeDirectoryEntry {
+  readonly name: string;
+  readonly path: string;
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  /** The listed object's own stat size, never a symlink target or recursive size. */
+  readonly bytes: number;
+  readonly mode: number;
+  /** Visible user entry in a pre-existing reserved path namespace; not openable. */
+  readonly unavailableReason?: "reserved_path";
+}
+export interface NativeDirectoryPage {
+  readonly path: string;
+  readonly entries: readonly NativeDirectoryEntry[];
+  readonly truncated: boolean;
+  readonly nextCursor: string | null;
+}
+interface DirectoryCursor {
+  v: 1;
+  path: string;
+  version: string;
+  after: string;
+}
 
 export class NativeFilesystemError extends Error {
   constructor(
@@ -23,13 +109,138 @@ export class NativeFilesystemBridge {
     private readonly options: {
       readonly helperPath: string;
       readonly rootDirectory: FileHandle;
+      /** Borrowed canonical writer lease; never acquired, unlocked or closed here. */
+      readonly writerLease?: { readonly fd: number };
+      readonly observeExecution?: (
+        execution: NativeFilesystemExecution,
+      ) => void;
     },
   ) {}
 
-  async readFile(input: {
+  /** Legacy ordinary-only identity. Linked callers require the protected G resolver. */
+  async inspectGitMetadataIdentity(input: {
+    readonly signal: AbortSignal;
+  }): Promise<NativeGitMetadataIdentity> {
+    return this.withHelper(
+      "I",
+      { path: ".git", signal: input.signal },
+      async (reader) => {
+        await reader.tag(74);
+        const bytes = await reader.read(await reader.length(512));
+        if (bytes.some((value) => value > 127))
+          throw new NativeFilesystemError(
+            1,
+            "Invalid native metadata identity encoding",
+          );
+        input.signal.throwIfAborted();
+        return parseNativeGitMetadataIdentity(bytes.toString("ascii"));
+      },
+    );
+  }
+
+  async inspectGitMetadataLayout(input: {
+    readonly signal: AbortSignal;
+    readonly purpose?: "association" | "mutation";
+  }): Promise<NativeGitMetadataLayout> {
+    return this.withHelper(
+      "G",
+      {
+        path: input.purpose === "mutation" ? ".git/mutation" : ".git",
+        signal: input.signal,
+      },
+      async (reader) => {
+        await reader.tag(71);
+        const linked = (await reader.read(1))[0];
+        if (linked !== 0 && linked !== 1)
+          throw new NativeFilesystemError(
+            1,
+            "Invalid Git metadata layout kind",
+          );
+        const paths: string[] = [];
+        for (let index = 0; index < 3; index++) {
+          const path = decode(await reader.read(await reader.length(500)));
+          if (
+            (index < 2 || linked === 1) &&
+            (!isAbsolute(path) || /[\0\r\n]/u.test(path))
+          )
+            throw new NativeFilesystemError(
+              1,
+              "Invalid Git metadata layout path",
+            );
+          paths.push(path);
+        }
+        const identity = parseNativeGitMetadataIdentity(
+          decode(await reader.read(await reader.length(512))),
+        );
+        if (
+          (linked === 1) !== identity.startsWith("gitdir-v2:") ||
+          (linked === 0 && (paths[0] !== paths[1] || paths[2] !== ""))
+        )
+          throw new NativeFilesystemError(
+            1,
+            "Inconsistent Git metadata layout receipt",
+          );
+        const hasStorage = (await reader.read(1))[0];
+        if (hasStorage !== (input.purpose === "mutation" ? 1 : 0))
+          throw new NativeFilesystemError(
+            1,
+            "Invalid Git storage receipt kind",
+          );
+        let storage: NativeGitMetadataStorage | undefined;
+        if (hasStorage) {
+          const locations: string[] = [];
+          for (let index = 0; index < 7; index++) {
+            const path = decode(await reader.read(await reader.length(500)));
+            if (!isAbsolute(path) || /[\0\r\n]/u.test(path))
+              throw new NativeFilesystemError(1, "Invalid Git storage path");
+            locations.push(path);
+          }
+          const expected = [
+            "objects",
+            "objects/pack",
+            "objects/info",
+            "refs",
+            "logs",
+          ]
+            .map((leaf) => `${paths[1]}/${leaf}`)
+            .concat(`${paths[0]}/logs`, `${paths[1]}/info`);
+          if (locations.some((path, index) => path !== expected[index]))
+            throw new NativeFilesystemError(
+              1,
+              "Inconsistent Git storage path receipt",
+            );
+          storage = Object.freeze({
+            objectsDirectory: locations[0]!,
+            packDirectory: locations[1]!,
+            infoDirectory: locations[2]!,
+            refsDirectory: locations[3]!,
+            commonLogsDirectory: locations[4]!,
+            worktreeLogsDirectory: locations[5]!,
+            repositoryInfoDirectory: locations[6]!,
+            alternates: "absent_or_empty",
+            grafts: "absent_or_empty",
+            identity: parseGitStorageIdentity(
+              decode(await reader.read(await reader.length(512))),
+            ),
+          });
+        }
+        input.signal.throwIfAborted();
+        return Object.freeze({
+          kind: linked ? "linked" : "ordinary",
+          gitDirectory: paths[0]!,
+          commonDirectory: paths[1]!,
+          backlinkPath: linked ? paths[2]! : null,
+          identity,
+          ...(storage ? { storage } : {}),
+        });
+      },
+    );
+  }
+
+  async readBytes(input: {
     readonly path: string;
     readonly signal: AbortSignal;
-  }): Promise<{ path: string; content: string; bytes: number }> {
+  }): Promise<{ path: string; content: Uint8Array; bytes: number }> {
     return this.withHelper("R", input, async (reader) => {
       const original = await inspect(reader);
       if (!original.exists)
@@ -37,9 +248,128 @@ export class NativeFilesystemBridge {
       input.signal.throwIfAborted();
       return {
         path: input.path,
-        content: decode(original.bytes),
+        content: original.bytes,
         bytes: original.bytes.length,
       };
+    });
+  }
+
+  async readFile(input: {
+    readonly path: string;
+    readonly signal: AbortSignal;
+  }): Promise<{ path: string; content: string; bytes: number }> {
+    const result = await this.readBytes(input);
+    return { ...result, content: decode(result.content) };
+  }
+
+  async listDirectory(input: {
+    readonly path: string;
+    readonly limit?: number;
+    readonly cursor?: string | null;
+    readonly signal: AbortSignal;
+  }): Promise<NativeDirectoryPage> {
+    const limit = input.limit ?? MAX_DIRECTORY_ENTRIES;
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_ENTRIES
+    ) {
+      throw new NativeFilesystemError(
+        1,
+        "Directory limit must be an integer from 1 to 200",
+      );
+    }
+    const cursor = parseDirectoryCursor(input.cursor, input.path);
+    return this.withHelper("D", input, async (reader, stdin) => {
+      const versionBytes = Buffer.from(cursor?.version ?? "", "ascii");
+      const afterBytes = Buffer.from(cursor?.after ?? "", "utf8");
+      await send(
+        stdin,
+        Buffer.concat([
+          u32(limit),
+          u32(versionBytes.length),
+          versionBytes,
+          u32(afterBytes.length),
+          afterBytes,
+        ]),
+      );
+      await reader.tag(68);
+      const truncated = (await reader.read(1))[0];
+      if (truncated !== 0 && truncated !== 1)
+        throw new Error("Invalid directory truncation flag");
+      const versionBuffer = await reader.read(await reader.length(192));
+      const version = versionBuffer.toString("utf8");
+      if (
+        !validDirectoryVersion(version) ||
+        Buffer.byteLength(version) !== versionBuffer.length
+      )
+        throw new Error("Invalid directory version");
+      const count = await reader.length(limit);
+      const entries: NativeDirectoryEntry[] = [];
+      let wireBytes = 10 + versionBuffer.length;
+      for (let index = 0; index < count; index++) {
+        const kindByte = (await reader.read(1))[0];
+        const kind =
+          kindByte === 102
+            ? "file"
+            : kindByte === 100
+              ? "directory"
+              : kindByte === 108
+                ? "symlink"
+                : kindByte === 111
+                  ? "other"
+                  : null;
+        if (!kind) throw new Error("Invalid directory entry kind");
+        const nameBytes = await reader.read(await reader.length(1024));
+        const name = decode(nameBytes);
+        if (!validDirectoryName(name))
+          throw new NativeFilesystemError(
+            5,
+            "Directory contains an unsupported filename",
+          );
+        wireBytes += 17 + nameBytes.length;
+        if (wireBytes > MAX_DIRECTORY_BYTES)
+          throw new Error("Native directory response exceeded its byte budget");
+        const size = (await reader.read(8)).readBigUInt64BE(0);
+        if (size > BigInt(Number.MAX_SAFE_INTEGER))
+          throw new NativeFilesystemError(
+            5,
+            "Directory entry size exceeds safe JSON precision",
+          );
+        const mode = (await reader.read(4)).readUInt32BE(0);
+        if (mode > 0o7777) throw new Error("Invalid directory entry mode");
+        if (
+          entries.length &&
+          Buffer.compare(
+            Buffer.from(entries[entries.length - 1]!.name),
+            nameBytes,
+          ) >= 0
+        )
+          throw new Error("Directory entries are not strictly ordered");
+        const path = input.path === "." ? name : `${input.path}/${name}`;
+        if (Buffer.byteLength(path, "utf8") > 500)
+          throw new NativeFilesystemError(
+            5,
+            "Directory entry exceeds the 500-byte native path limit",
+          );
+        entries.push({
+          name,
+          path,
+          kind,
+          bytes: Number(size),
+          mode,
+          ...(reservedComponent(name)
+            ? { unavailableReason: "reserved_path" as const }
+            : {}),
+        });
+      }
+      input.signal.throwIfAborted();
+      return boundedDirectoryPage(
+        input.path,
+        version,
+        entries,
+        truncated === 1,
+      );
     });
   }
 
@@ -92,12 +422,81 @@ export class NativeFilesystemBridge {
     });
   }
 
+  /** Runtime-private metadata port; ordinary file tools retain their protected paths. */
+  async withPrivateFileTransaction<T>(
+    input: {
+      readonly directory: string;
+      readonly file: string;
+      readonly expectedIdentity: NativeGitMetadataIdentity;
+      readonly expectedLayout: NativeGitMetadataLayout;
+      readonly signal: AbortSignal;
+      readonly beforePublish: () => Promise<void>;
+    },
+    operation: (transaction: NativePrivateFileTransaction) => Promise<T>,
+  ): Promise<T> {
+    parseNativeGitMetadataIdentity(input.expectedIdentity);
+    const storage = input.expectedLayout.storage;
+    if (
+      !storage ||
+      input.expectedLayout.identity !== input.expectedIdentity ||
+      !isAbsolute(input.expectedLayout.gitDirectory) ||
+      !isAbsolute(input.expectedLayout.commonDirectory) ||
+      [
+        input.expectedLayout.gitDirectory,
+        input.expectedLayout.commonDirectory,
+      ].some((path) => Buffer.byteLength(path) > 500 || /[\0\r\n]/u.test(path))
+    )
+      throw new NativeFilesystemError(
+        1,
+        "Private transaction requires the verified Git metadata layout",
+      );
+    const expectedStorageIdentity = parseGitStorageIdentity(storage.identity);
+    const outcome = await this.withHelper(
+      "T",
+      { path: input.directory, signal: input.signal },
+      async (reader, pipe) => {
+        const transaction = await openNativePrivateFileTransaction({
+          ...input,
+          expectedDirectory: input.expectedLayout.gitDirectory,
+          expectedCommonDirectory: input.expectedLayout.commonDirectory,
+          expectedStorageIdentity,
+          reader,
+          pipe,
+        });
+        try {
+          const value = await operation(transaction);
+          if (!transaction.finalized)
+            throw new NativeFilesystemError(
+              3,
+              "Private transaction owner did not finalize its session",
+            );
+          return { ok: true as const, value };
+        } catch (error) {
+          if (!transaction.finalized) await transaction.quarantine();
+          return { ok: false as const, error };
+        }
+      },
+    );
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
+  }
+
   private async withHelper<T>(
-    operation: "R" | "M",
+    operation: "R" | "M" | "D" | "T" | "I" | "G",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
-    validateLocalFilesystemPath(input.path);
+    if (operation === "T") validatePrivateDirectoryPath(input.path);
+    else if (operation === "I" || operation === "G") {
+      if (
+        input.path !== ".git" &&
+        !(operation === "G" && input.path === ".git/mutation")
+      )
+        throw new NativeFilesystemError(
+          1,
+          "Unsupported metadata identity target",
+        );
+    } else validateLocalFilesystemPath(input.path, operation === "D");
     if (
       !isAbsolute(this.options.helperPath) ||
       this.options.helperPath.includes("\0")
@@ -124,13 +523,39 @@ export class NativeFilesystemBridge {
         "Native filesystem requires the trusted grant root directory FD",
       );
     }
+    const leaseFd = this.options.writerLease?.fd;
+    if (operation === "M" || operation === "T") {
+      if (
+        !Number.isSafeInteger(leaseFd) ||
+        leaseFd! < 4 ||
+        !fstatSync(leaseFd!).isFile()
+      ) {
+        throw new NativeFilesystemError(
+          5,
+          "Mutation requires the trusted canonical writer lease descriptor",
+        );
+      }
+    }
     input.signal.throwIfAborted();
     const child = spawn(this.options.helperPath, [], {
-      stdio: ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
+      // FD6 duplicates the SAME open description through native cleanup.
+      stdio:
+        operation === "M" || operation === "T"
+          ? [
+              "pipe",
+              "pipe",
+              "pipe",
+              this.options.rootDirectory.fd,
+              "ignore",
+              "ignore",
+              leaseFd!,
+            ]
+          : ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
       env: {},
       shell: false,
       windowsHide: true,
     });
+    let physicallyClosed = false;
     const closed = new Promise<{
       code: number | null;
       signal: NodeJS.Signals | null;
@@ -140,13 +565,51 @@ export class NativeFilesystemBridge {
       child.once("error", (cause) => {
         error = cause;
       });
-      child.once("close", (code, signal) =>
-        resolve({ code, signal, ...(error ? { error } : {}) }),
-      );
+      child.once("close", (code, signal) => {
+        physicallyClosed = true;
+        resolve({ code, signal, ...(error ? { error } : {}) });
+      });
     });
-    const stdin = child.stdin!,
-      stdout = child.stdout!,
-      stderr = child.stderr!;
+    const execution: NativeFilesystemExecution = {
+      closed: closed.then(() => undefined),
+      get quiescent() {
+        return physicallyClosed;
+      },
+    };
+    const closeFailedSetup = async () => {
+      // Even failed spawn/channel setup can have an owned child. Observe it
+      // before accessing pipes, drain available channels, then await real close.
+      for (const stream of child.stdio) {
+        stream?.on("error", () => undefined);
+        if (stream instanceof Readable) stream.resume();
+      }
+      if (child.stdin instanceof Writable) child.stdin.end();
+      child.kill("SIGTERM");
+      await closed;
+    };
+    try {
+      this.options.observeExecution?.(execution);
+    } catch {
+      await closeFailedSetup();
+      throw new NativeFilesystemError(
+        3,
+        "Native filesystem lifetime observer failed after spawn",
+      );
+    }
+    const stdin = child.stdin,
+      stdout = child.stdout,
+      stderr = child.stderr;
+    if (
+      !(stdin instanceof Writable) ||
+      !(stdout instanceof Readable) ||
+      !(stderr instanceof Readable)
+    ) {
+      await closeFailedSetup();
+      throw new NativeFilesystemError(
+        3,
+        "Native filesystem channels were not established",
+      );
+    }
     const stop = () => {
       child.kill("SIGTERM");
     };
@@ -198,6 +661,8 @@ export class NativeFilesystemBridge {
         (outcome.code !== 0 && outcome.code !== 1) ||
         (reader.receivedError && outcome.code !== 1)
       )
+        // Unknown physical cleanup must supersede any earlier operation outcome.
+        // eslint-disable-next-line no-unsafe-finally
         throw new NativeFilesystemError(
           3,
           "Native filesystem cleanup failed; workspace capture is required",
@@ -206,7 +671,11 @@ export class NativeFilesystemBridge {
   }
 }
 
-export function validateLocalFilesystemPath(path: string): void {
+export function validateLocalFilesystemPath(
+  path: string,
+  allowRoot = false,
+): void {
+  if (allowRoot && path === ".") return;
   if (
     !path ||
     Buffer.byteLength(path, "utf8") > 500 ||
@@ -251,10 +720,17 @@ async function inspect(
   return { exists: exists === 1, bytes: await reader.read(length) };
 }
 
-function decode(bytes: Buffer): string {
-  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-    bytes,
-  );
+function decode(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
+  } catch {
+    throw new NativeFilesystemError(
+      5,
+      "Native filesystem supports UTF-8 text only; use readBytes for binary data",
+    );
+  }
 }
 
 class FrameReader {
@@ -324,7 +800,6 @@ function awaitAuthorization(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
     const finish = (outcome: { ok: true } | { ok: false; error: unknown }) => {
       if (settled) return;
       settled = true;
@@ -342,7 +817,7 @@ function awaitAuthorization(
         ),
       });
     signal.addEventListener("abort", abort, { once: true });
-    timer = setTimeout(
+    const timer = setTimeout(
       () =>
         finish({
           ok: false,
@@ -364,4 +839,97 @@ function awaitAuthorization(
       );
     if (signal.aborted) abort();
   });
+}
+
+function validDirectoryVersion(version: string): boolean {
+  return (
+    Buffer.byteLength(version, "utf8") <= 192 &&
+    /^[0-9a-f]+:[0-9a-f]+:-?\d+:\d+:-?\d+:\d+$/.test(version)
+  );
+}
+function validDirectoryName(name: string): boolean {
+  return (
+    !!name &&
+    Buffer.byteLength(name, "utf8") <= 1024 &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("\0") &&
+    name.toLowerCase() !== ".git" &&
+    !/^\.legioncode-edit-[0-9a-f]{32}\.tmp$/i.test(name) &&
+    Buffer.from(name, "utf8").toString("utf8") === name
+  );
+}
+function parseDirectoryCursor(
+  raw: string | null | undefined,
+  path: string,
+): DirectoryCursor | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    if (typeof raw !== "string" || !raw || raw.length > MAX_CURSOR_CHARS)
+      throw new Error();
+    const bytes = Buffer.from(raw, "base64url");
+    if (bytes.toString("base64url") !== raw) throw new Error();
+    const value: unknown = JSON.parse(decode(bytes));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.keys(value).sort().join(",") !== "after,path,v,version"
+    )
+      throw new Error();
+    const candidate = value as Record<string, unknown>;
+    if (
+      candidate.v !== 1 ||
+      candidate.path !== path ||
+      typeof candidate.version !== "string" ||
+      !validDirectoryVersion(candidate.version) ||
+      typeof candidate.after !== "string" ||
+      !validDirectoryName(candidate.after)
+    )
+      throw new Error();
+    return { v: 1, path, version: candidate.version, after: candidate.after };
+  } catch {
+    throw new NativeFilesystemError(
+      1,
+      "Invalid directory cursor for this path",
+    );
+  }
+}
+function boundedDirectoryPage(
+  path: string,
+  version: string,
+  source: NativeDirectoryEntry[],
+  nativeTruncated: boolean,
+): NativeDirectoryPage {
+  const entries = [...source];
+  for (;;) {
+    const truncated = nativeTruncated || entries.length < source.length;
+    if (truncated && !entries.length)
+      throw new NativeFilesystemError(
+        5,
+        "Directory entry cannot fit the response byte budget",
+      );
+    const cursor: DirectoryCursor | null = truncated
+      ? { v: 1, path, version, after: entries[entries.length - 1]!.name }
+      : null;
+    const nextCursor = cursor
+      ? Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url")
+      : null;
+    if (nextCursor && nextCursor.length > MAX_CURSOR_CHARS)
+      throw new NativeFilesystemError(
+        5,
+        "Directory cursor exceeds its supported bound",
+      );
+    const page = { path, entries, truncated, nextCursor };
+    if (Buffer.byteLength(JSON.stringify(page), "utf8") <= MAX_DIRECTORY_BYTES)
+      return page;
+    entries.pop();
+  }
+}
+
+function reservedComponent(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === ".git" || lower.startsWith(".legioncode-edit-");
 }

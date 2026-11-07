@@ -131,13 +131,25 @@ export function DiffViewer({
     clearSelection,
   });
 
-  const additions = useMemo(() => countDiffAdditions(diff), [diff]);
+  const hasTextStatistics = !diff.isBinary && diff.hunks.length > 0;
+  const additions = useMemo(
+    () => hasTextStatistics ? countDiffAdditions(diff) : null,
+    [diff, hasTextStatistics],
+  );
   const language = useMemo(
     () => resolveDiffLanguage(diff.newPath || diff.oldPath),
     [diff.newPath, diff.oldPath],
   );
-  const diffPath = diff.newPath || diff.oldPath || "Unknown file";
-  const deletions = useMemo(() => countDiffDeletions(diff), [diff]);
+  const pathsDiffer = diff.oldPath && diff.newPath && diff.oldPath !== diff.newPath
+    && !diff.isNewFile && !diff.isDeleted
+    && diff.oldPath !== "/dev/null" && diff.newPath !== "/dev/null";
+  const diffPath = pathsDiffer
+    ? `${diff.oldPath} → ${diff.newPath}`
+    : diff.newPath || diff.oldPath || "Unknown file";
+  const deletions = useMemo(
+    () => hasTextStatistics ? countDiffDeletions(diff) : null,
+    [diff, hasTextStatistics],
+  );
   const hunkGaps = useCollapsedDiffRows();
 
   const toggleHunk = (index: number) => {
@@ -270,7 +282,11 @@ export function DiffViewer({
 
         <div className="flex-1 overflow-x-auto overflow-y-auto">
           {diff.hunks.length === 0 ? (
-            <div className="p-4 text-sm text-zinc-500">No changes</div>
+            <div className="p-4 text-sm text-zinc-500">
+              {diff.isBinary
+                ? "Binary file content is not displayed."
+                : "No textual hunks are available for this file change."}
+            </div>
           ) : (
             renderPlans.map((plan) => {
               const hunk = diff.hunks[plan.hunkIndex];
