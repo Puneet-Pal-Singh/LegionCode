@@ -153,6 +153,9 @@ export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
   .strict();
 
+// A 24k UTF-16 prompt can require six JSON bytes per code unit, plus envelope metadata.
+export const MAX_LOCAL_APP_SERVER_REQUEST_BYTES = 256 * 1024;
+
 /** Local operations carry intent; the runtime supplies canonical admission records. */
 export const LocalTurnStartParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
