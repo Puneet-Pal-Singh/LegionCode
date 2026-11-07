@@ -24,6 +24,7 @@ import {
 import { z } from "zod";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
 import type {
   AppendEventInput,
   EventStore,
@@ -62,6 +63,12 @@ export type StoredLocalWorkspaceGrant = {
   readonly version: 1;
   readonly path: string;
   readonly grant: LocalWorkspaceGrant;
+} | {
+  readonly version: 2;
+  readonly path: string;
+  readonly grant: LocalWorkspaceGrant;
+  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
+  readonly gitMetadataIdentity: string;
 };
 
 export interface LocalPersistenceOptions {
@@ -98,6 +105,7 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
@@ -144,6 +152,7 @@ export class LocalPersistence {
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
+      this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
       const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
       admissions.initialize();
       this.admissions = admissions;
@@ -599,6 +608,7 @@ export class LocalPersistence {
     if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
+    validateLocalTurnArtifacts(this.database);
 
     const rows = this.database.prepare(`
       SELECT family, event_json, fingerprint, event_id, thread_id, turn_id,
@@ -807,7 +817,16 @@ function platformFingerprint(event: PlatformEvent): string {
 }
 
 function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
-  const grant = StoredGrantSchema.parse(value);
+  // Legacy records remain readable, but only explicit grant can establish identity.
+  const grant = z.union([
+    StoredGrantSchema,
+    z.object({
+      version: z.literal(2),
+      path: LocalWorkspaceGrantPathSchema,
+      grant: LocalWorkspaceGrantSchema,
+      gitMetadataIdentity: z.string().min(1).max(512),
+    }).strict(),
+  ]).parse(value);
   if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
     throw new Error("Workspace grant path is invalid");
   }

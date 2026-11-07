@@ -1,8 +1,13 @@
+import type { ArtifactChangedFile } from "@repo/platform-protocol";
 import type { FileStatus } from "@repo/shared-types";
 import { FileTypeIcon } from "./FileTypeIcon.js";
 
+/** Saved artifact counts may be unknown; live Git FileStatus remains compatible. */
+export type ReviewFileStatus = Omit<FileStatus, "additions" | "deletions"> &
+  Pick<ArtifactChangedFile, "additions" | "deletions">;
+
 interface ChangeItemProps {
-  file: FileStatus;
+  file: ReviewFileStatus;
   depth: number;
   isSelected: boolean;
   onSelect: () => void;
@@ -51,13 +56,13 @@ export function ChangeItem({
   );
 }
 
-function ChangeItemStats({ file }: { file: FileStatus }) {
+function ChangeItemStats({ file }: { file: ReviewFileStatus }) {
   return (
     <span className="flex shrink-0 gap-2 text-xs text-zinc-500">
-      {file.additions > 0 ? (
+      {file.additions === null ? <span>Additions unavailable</span> : file.additions > 0 ? (
         <span className="text-emerald-500">+{file.additions}</span>
       ) : null}
-      {file.deletions > 0 ? (
+      {file.deletions === null ? <span>Deletions unavailable</span> : file.deletions > 0 ? (
         <span className="text-red-500">-{file.deletions}</span>
       ) : null}
     </span>
