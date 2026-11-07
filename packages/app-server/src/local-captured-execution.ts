@@ -266,7 +266,7 @@ export function createLocalCapturedExecutionCapability(
           binding,
           lease,
           storageDirectory: options.storageDirectory,
-          scope: attempt,
+          scope,
           git,
         });
         const registry = getCodingCoreToolRegistry(BACKEND_CAPABILITIES);

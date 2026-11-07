@@ -7,8 +7,12 @@ import {
   TurnIdSchema,
   RunAttemptIdSchema,
   ThreadIdSchema,
+  UserIdSchema,
 } from "@repo/platform-protocol";
-import type { DefaultGitService } from "@repo/git-service";
+import type {
+  DefaultGitService,
+  GitSnapshotRetentionScope,
+} from "@repo/git-service";
 import type { createCaptureGitService } from "./local-capture-git.js";
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type {
@@ -23,21 +27,24 @@ export function createLocalArtifactCapture(options: {
   /** Original attempt's owner; final capture borrows its retained authority. */
   lease: LocalWorkspaceWriterLease;
   storageDirectory: string;
-  scope: {
-    workspaceId: string;
-    threadId: string;
-    runId: string;
-    turnId: string;
-    runAttemptId: string;
-  };
+  scope: GitSnapshotRetentionScope;
   /** Must be created with this SAME lease by the held-FD/private-index driver. */
   git: ReturnType<typeof createCaptureGitService>;
 }) {
+  const userId = UserIdSchema.parse(options.scope.userId);
   const workspaceId = WorkspaceIdSchema.parse(options.scope.workspaceId);
   const threadId = ThreadIdSchema.parse(options.scope.threadId);
   const runId = RunIdSchema.parse(options.scope.runId);
   const turnId = TurnIdSchema.parse(options.scope.turnId);
   const runAttemptId = RunAttemptIdSchema.parse(options.scope.runAttemptId);
+  const scope = {
+    userId,
+    workspaceId,
+    threadId,
+    runId,
+    turnId,
+    runAttemptId,
+  } satisfies GitSnapshotRetentionScope;
   const snapshotKey = `local_${createHash("sha256")
     .update(JSON.stringify([workspaceId, runId, turnId, runAttemptId]))
     .digest("hex")}`;
@@ -151,6 +158,8 @@ export function createLocalArtifactCapture(options: {
             "Git snapshot returned a different workspace identity",
           );
         }
+        await options.git.retainSnapshot({ workspace, snapshot, scope });
+        await requireWorkspace(input.workspace, authority);
         return { ...snapshot, runId };
       });
     },
