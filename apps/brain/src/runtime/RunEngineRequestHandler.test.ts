@@ -19,10 +19,11 @@ import {
   tagRuntimeStateSemantics,
 } from "@legioncode/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import type { LifecycleEventStore } from "@repo/persistence";
+import type { LifecycleEventStore, TurnAdmissionRecord } from "@repo/persistence";
 import {
   ApprovalIdSchema,
   ItemIdSchema,
+  LifecycleEventSchema,
   RunAttemptIdSchema,
   TaskCheckoutSchema,
   ThreadIdSchema,
@@ -1508,20 +1509,10 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
     await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    const canonical = await lifecycleApprovalFixture(ctx, runId, turnId, approvalId);
     const approvals = new PermissionApprovalStore(runtimeState, runId);
-    await approvals.setPendingRequest({
-      requestId: approvalId,
-      runId,
-      origin: "agent",
-      category: "shell_command",
-      title: "Run tests",
-      reason: "Shell command can mutate state.",
-      actionFingerprint: "shell:pnpm test",
-      availableDecisions: ["allow_once", "deny", "abort"],
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
 
-    const events: Array<Record<string, unknown>> = [];
+    const events: Array<Record<string, unknown>> = [canonical.requested];
     const lifecycleEventStore = {
       replay: vi.fn(async () => ({
         events,
@@ -1533,19 +1524,18 @@ describe("RunEngineRequestHandler", () => {
       await expect(
         approvals.getResolvedDecision(approvalId),
       ).resolves.toBeNull();
-      await expect(approvals.getPendingRequest()).resolves.toMatchObject({
-        requestId: approvalId,
-      });
-      events.push({
+      await expect(approvals.getPendingRequest()).resolves.toBeNull();
+      events.push(LifecycleEventSchema.parse({
+        ...canonical.envelope(2),
         type: "approval.decided",
         approvalId,
         payload: { status: "approved" },
-      });
+      }));
     });
     approvalRegistry.register(TurnIdSchema.parse(turnId), resolve);
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      canonical.env,
       runImmediately,
       undefined,
       { lifecycleEventStore, approvalResolutionRegistry: approvalRegistry },
@@ -1574,6 +1564,8 @@ describe("RunEngineRequestHandler", () => {
     const conflict = await submit("denied");
     expect(conflict.status).toBe(409);
     expect(resolve).toHaveBeenCalledTimes(1);
+    await expect(approvals.getPendingRequest()).resolves.toBeNull();
+    await expect(approvals.getResolvedDecision(approvalId)).resolves.toBeNull();
   });
 
   it("accepts a matching-in-chat grant only for the canonical option and current workspace", async () => {
@@ -1592,16 +1584,7 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
     await ctx.storage.put("turnToRunMap", { [turnId]: runId });
-    await ctx.storage.put("turnRuntimeIdentities", {
-      [turnId]: {
-        runId,
-        workspaceId,
-        sessionId: "session-1",
-        threadId: "thr_123456",
-        turnId,
-        runAttemptId: "attempt_123456",
-      },
-    });
+    const canonical = await lifecycleApprovalFixture(ctx, runId, turnId, approvalId, workspaceId);
     const approvals = new PermissionApprovalStore(runtimeState, runId);
     await approvals.setPendingRequest({
       requestId: approvalId,
@@ -1615,6 +1598,7 @@ describe("RunEngineRequestHandler", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     const requested = {
+      ...canonical.envelope(1),
       type: "approval.requested",
       approvalId,
       payload: {
@@ -1628,15 +1612,16 @@ describe("RunEngineRequestHandler", () => {
     const events: Array<Record<string, unknown>> = [requested];
     const lifecycleEventStore = {
       replay: vi.fn(
-        async ({ afterSequence }: { afterSequence: number | null }) => ({
-          events: events.slice(afterSequence ?? 0),
-          nextSequence: events.length || null,
-        }),
+        async ({ afterSequence }: { afterSequence: number | null }) => {
+          const page = events.slice(afterSequence ?? 0);
+          return { events: page, nextSequence: page.length ? events.length : null };
+        },
       ),
     } as unknown as LifecycleEventStore;
     const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
     const resolve = vi.fn(async (_id, resolution) => {
       events.push({
+        ...canonical.envelope(2),
         type: "approval.decided",
         approvalId,
         payload: {
@@ -1648,7 +1633,7 @@ describe("RunEngineRequestHandler", () => {
     approvalRegistry.register(TurnIdSchema.parse(turnId), resolve);
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      canonical.env,
       runImmediately,
       undefined,
       { lifecycleEventStore, approvalResolutionRegistry: approvalRegistry },
@@ -1702,6 +1687,7 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
     await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    const canonical = await lifecycleApprovalFixture(ctx, runId, turnId, approvalId);
     const approvals = new PermissionApprovalStore(runtimeState, runId);
     await approvals.setPendingRequest({
       requestId: approvalId,
@@ -1722,12 +1708,12 @@ describe("RunEngineRequestHandler", () => {
     };
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
-      {} as Env,
+      canonical.env,
       runImmediately,
       undefined,
       {
         lifecycleEventStore: {
-          replay: async () => ({ events: [], nextSequence: null }),
+          replay: async () => ({ events: [canonical.requested], nextSequence: null }),
         } as unknown as LifecycleEventStore,
         approvalResolutionRegistry: disappearingRegistry,
       },
@@ -1814,6 +1800,44 @@ const runImmediately: RunEngineRequestLock = Object.assign(
 const durableThreadsBySession = new Map<string, string>();
 const durableTurnsByClientMessage = new Map<string, string>();
 const durableAttemptsByClientMessage = new Map<string, string>();
+
+async function lifecycleApprovalFixture(
+  ctx: MockDurableObjectState,
+  runId: string,
+  turnId: string,
+  approvalId: string,
+  workspaceId = "00000000-0000-4000-8000-000000000001",
+) {
+  const identity = {
+    runId, workspaceId, sessionId: "session-1", threadId: "thr_123456",
+    turnId, runAttemptId: "attempt_123456", ownerUserId: "usr_approvalfixture",
+  };
+  const admission: TurnAdmissionRecord = Object.freeze({
+    ...identity, userId: identity.ownerUserId, clientMessageId: `client-${turnId}`,
+    revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null,
+    continuationTerminalSequence: null, state: "admitted", executionState: "running",
+    requestFingerprint: "canonical-approval-fixture", admissionOrder: 1,
+    createdAt: "2026-11-07T00:00:00.000Z", admittedAt: "2026-11-07T00:00:00.000Z",
+  });
+  await ctx.storage.put("turnRuntimeIdentities", { [turnId]: identity });
+  const envelope = (sequence: number) => ({
+    eventId: `evt_${turnId.slice(4)}approval${sequence}`,
+    threadId: identity.threadId, turnId, runAttemptId: identity.runAttemptId,
+    itemId: "itm_approvalfixture", sequence, idempotencyKey: `approval:${turnId}:${sequence}`,
+    producer: { kind: "runtime_kernel" as const, id: "canonical-approval-fixture" },
+    schemaVersion: 1, createdAt: "2026-11-07T00:00:00.000Z",
+  });
+  const requested = LifecycleEventSchema.parse({
+    ...envelope(1), type: "approval.requested", approvalId,
+    payload: { question: "Approve this action?", options: [{ id: "approve", label: "Approve", description: null }], metadata: {} },
+  });
+  const env = {
+    AUTH_TURN_ADMISSION_REPOSITORY: {
+      getByTurnId: async (id: string) => id === turnId ? admission : null,
+    },
+  } as unknown as Env;
+  return { env, envelope, requested };
+}
 
 function admittedIdentity(
   sessionId: string,
