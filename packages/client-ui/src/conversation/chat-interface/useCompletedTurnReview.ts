@@ -16,25 +16,29 @@ export function useCompletedTurnReview(
   projection: LifecycleProjection | null,
   messageId: string | null,
 ): CompletedTurnReview {
-  const isCompletedTurn =
-    projection?.terminal?.state === "completed" &&
+  const isSettledRepositoryTurn =
+    projection?.terminal != null &&
     projection.executionCapability !== "conversation";
+  const hasCapturedTurnDiff =
+    isSettledRepositoryTurn &&
+    projection.workspaceSnapshotState === "captured" &&
+    projection.turnDiff?.turnId === projection.turnId;
   const error =
-    isCompletedTurn && !projection.turnDiff
+    isSettledRepositoryTurn && !hasCapturedTurnDiff
       ? "Saved changes are unavailable for this reply."
       : null;
   const files = useMemo(
     () =>
-      isCompletedTurn
+      hasCapturedTurnDiff
         ? collectLifecycleTurnDiffFiles(projection)
         : ([] as FileStatus[]),
-    [isCompletedTurn, projection],
+    [hasCapturedTurnDiff, projection],
   );
   const loadFileDiff = useCallback(
     async (file: FileStatus): Promise<DiffContent> => {
-      if (!isCompletedTurn || !projection?.turnDiff) {
+      if (!hasCapturedTurnDiff || !projection?.turnDiff) {
         throw new Error(
-          "Completed-turn review requires a canonical turn diff.",
+          "Settled-turn review requires a captured canonical turn diff.",
         );
       }
       const diff = buildDiffContentFromTurnDiff(projection.turnDiff, file.path);
@@ -43,11 +47,11 @@ export function useCompletedTurnReview(
       }
       return diff;
     },
-    [isCompletedTurn, projection],
+    [hasCapturedTurnDiff, projection],
   );
 
   return {
-    turnId: isCompletedTurn ? projection.turnId : null,
+    turnId: isSettledRepositoryTurn ? projection.turnId : null,
     messageId,
     files,
     loadFileDiff,
