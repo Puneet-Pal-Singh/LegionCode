@@ -28,6 +28,7 @@ export interface LocalTurnAdmissionInput {
 /** Runtime creates initial product records; callers supply trusted selection and identities. */
 export function createLocalTurnAdmission(
   input: LocalTurnAdmissionInput,
+  mode: "ask" | "auto_edit" = "ask",
 ): TurnAdmission {
   const thread = ThreadSchema.parse(input.thread);
   if (thread.workspaceId !== input.workspaceId || thread.status !== "active") {
@@ -50,7 +51,7 @@ export function createLocalTurnAdmission(
     userId: thread.userId,
     workspaceId: thread.workspaceId,
     status: "queued",
-    mode: "ask",
+    mode,
     providerId: input.providerId,
     modelId: input.modelId,
     workerId: input.workerId,
