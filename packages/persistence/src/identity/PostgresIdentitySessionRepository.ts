@@ -1,4 +1,3 @@
-import type { JsonValue } from "@repo/shared-types";
 import type { SqlClient, SqlRow } from "../sql.js";
 import type {
   EncryptedOAuthToken,

@@ -339,7 +339,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
       if (input.explicitStart === true && state.paused === true) {
         await tx.query(CLEAR_THREAD_INPUT_PAUSE_SQL, [input.sessionId]);
       }
-      const inserted = await tx.query<AdmissionRow>(INSERT_RESERVED_SQL, [
+      await tx.query<AdmissionRow>(INSERT_RESERVED_SQL, [
         input.sessionId,
         clientMessageId,
         input.threadId,
