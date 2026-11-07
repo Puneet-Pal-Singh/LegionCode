@@ -870,6 +870,7 @@ function AppContent() {
           <div className="flex h-full">
             <AgentSidebar
               sessions={sessions}
+              visible={isSidebarOpen}
               repositories={repositories}
               repositoryLabels={repositoryFolderPreferences.labels}
               hiddenRepositoryIds={repositoryFolderPreferences.hiddenRepositoryIds}

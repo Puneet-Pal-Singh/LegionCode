@@ -21,6 +21,8 @@ const LOAD_MORE_ROWS = 10;
 
 export interface ThreadSidebarProps {
   model: ThreadSidebarReadModel;
+  /** Controlled frame visibility; hidden navigation must not own body portals. */
+  visible?: boolean;
   /** Present this host-owned projectless group as a separate Recents section. */
   recentWorkspaceSelectionId?: WorkspaceSelectionId;
   onSelect: (selectionId: string) => void;
@@ -45,6 +47,7 @@ export interface ThreadSidebarProps {
 
 export function ThreadSidebar({
   model,
+  visible = true,
   recentWorkspaceSelectionId,
   onSelect,
   onCreate,
@@ -85,6 +88,13 @@ export function ThreadSidebar({
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visiblePreviewSelectionId = visible ? previewSelectionId : null;
+
+  useEffect(() => {
+    if (visible || previewSelectionId === null) return;
+    setPreviewSelectionId(null);
+    onPreviewSelectionChange?.(null);
+  }, [visible, previewSelectionId, onPreviewSelectionChange]);
 
   useEffect(() => {
     if (isSearchOpen) searchInputRef.current?.focus();
@@ -169,6 +179,7 @@ export function ThreadSidebar({
   }
 
   function openPreview(selectionId: string): void {
+    if (!visible) return;
     setPreviewSelectionId(selectionId);
     onPreviewSelectionChange?.(selectionId);
   }
@@ -328,7 +339,7 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
-                  previewSelectionId={previewSelectionId}
+                  previewSelectionId={visiblePreviewSelectionId}
                   onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
                   pullRequestsBySessionId={pullRequestsBySessionId}
@@ -378,7 +389,7 @@ export function ThreadSidebar({
                   onFocus={setFocusedIndex}
                   onKeyDown={handleKeyDown}
                   onSelect={onSelect}
-                  previewSelectionId={previewSelectionId}
+                  previewSelectionId={visiblePreviewSelectionId}
                   onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
                   pullRequestsBySessionId={pullRequestsBySessionId}
@@ -427,7 +438,7 @@ export function ThreadSidebar({
                     onFocus={setFocusedIndex}
                     onKeyDown={handleKeyDown}
                     onSelect={onSelect}
-                    previewSelectionId={previewSelectionId}
+                    previewSelectionId={visiblePreviewSelectionId}
                     onPreviewOpen={openPreview}
                     onPreviewClose={closePreview}
                     pullRequestsBySessionId={pullRequestsBySessionId}
