@@ -17,7 +17,7 @@ import type {
   RepositoryTreeResponse,
 } from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
-import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
+import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError, LocalTurnConfigurationOptions } from "@repo/platform-protocol";
 import type {
   TurnAdmission,
   ChatRequestBody,
@@ -72,6 +72,7 @@ export type AppServerComposition = {
   };
   threadService?: LocalThreadService;
   localTurnService?: {
+    getConfigurationOptions(): LocalTurnConfigurationOptions;
     startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
     getTurn(turnId: TurnId): Promise<TurnAdmission>;
     readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
@@ -533,6 +534,7 @@ async function dispatch(
           serverVersion: composition.serverVersion,
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
           localTurnExecutionAvailable: Boolean(composition.localTurnService),
+          localTurnConfiguration: composition.localTurnService?.getConfigurationOptions(),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");

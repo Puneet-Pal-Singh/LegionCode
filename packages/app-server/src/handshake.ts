@@ -4,6 +4,7 @@ import {
   LOCAL_APP_SERVER_CAPABILITIES,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
   type AppServerInitializeResponse,
+  type LocalTurnConfigurationOptions,
 } from "@repo/platform-protocol";
 
 export type AppServerHandshakeEnvironment = "local" | "hosted";
@@ -23,6 +24,7 @@ export function initializeAppServer(
     serverVersion: string;
     localWorkspaceFilesAvailable?: boolean;
     localTurnExecutionAvailable?: boolean;
+    localTurnConfiguration?: LocalTurnConfigurationOptions;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -51,6 +53,9 @@ export function initializeAppServer(
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
       server: { id: options.serverId, version: options.serverVersion },
       environment: options.environment,
+      ...(options.environment === "local" && options.localTurnConfiguration
+        ? { localTurnConfiguration: options.localTurnConfiguration }
+        : {}),
       capabilities:
         options.environment === "local"
           ? [
