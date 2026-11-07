@@ -182,6 +182,8 @@ const GitMutationMetadataSchema = z.object({
 export type AppServerClient = {
   startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
   getTurn(turnId: string): Promise<TurnAdmission>;
+  /** latest:true reads a bounded chronological tail with server-measured hasEarlier;
+   * omit it to retain forward pagination using the returned opaque afterCursor. */
   getThreadHistoryPage(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
   interruptLocalTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
   initialize(
