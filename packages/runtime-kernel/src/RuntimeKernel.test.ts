@@ -1020,17 +1020,30 @@ describe("RuntimeKernel canonical lifecycle", () => {
 
   it("recovers exhausted completion settlement as one failed outcome", async () => {
     const sink = new FailingCompletedSettlementSink(2);
-    const kernel = await createKernel(sink);
+    const ports = createPorts();
+    const artifacts = createArtifactPorts();
+    const kernel = await createKernel(sink, ports, artifacts);
 
-    await expect(
-      kernel.startTurn({ run, turn, runAttemptId }),
-    ).rejects.toBeInstanceOf(RuntimeLifecycleSettlementError);
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await expect(execution).rejects.toBeInstanceOf(RuntimeLifecycleSettlementError);
+    await expect(execution).rejects.toMatchObject({
+      name: "RuntimeLifecycleSettlementError",
+      code: "lifecycle_settlement_failed",
+      intendedStatus: "completed",
+    });
 
-    expect(eventTypes(sink).slice(-2)).toEqual([
-      "run_attempt.failed",
-      "turn.failed",
-    ]);
-    expect(terminalEvents(sink)).toHaveLength(1);
+    // An uncertain completed append cannot choose a contradictory outcome.
+    expect(terminalEvents(sink)).toHaveLength(0);
+    expect(eventTypes(sink)).not.toContain("run_attempt.failed");
+    expect(eventTypes(sink)).not.toContain("run_attempt.interrupted");
+    const canonicalHistory = [...sink.events];
+    const captureCount = vi.mocked(artifacts.gitSnapshots.captureSnapshot).mock.calls.length;
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toMatchObject({ code: "turn_already_owned" });
+    await expect((await createKernel(sink, ports, artifacts)).startTurn({ run, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
+    expect(ports.provider.generateNext).toHaveBeenCalledTimes(1);
+    expect(artifacts.gitSnapshots.captureSnapshot).toHaveBeenCalledTimes(captureCount);
+    expect(sink.events).toEqual(canonicalHistory);
   });
 
   it("rejects a second runtime owner for an accepted turn", async () => {
