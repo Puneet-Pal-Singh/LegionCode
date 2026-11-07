@@ -5,7 +5,8 @@ import {
   ConversationHero,
   getInitialRightSidebarWidth,
   clampRightSidebarWidth,
-  FilesToggleButton,
+  EnvironmentSummaryMenu,
+  WorkspaceReviewControls,
   PickerModal,
   WorkspaceFrame,
   WorkspaceTopBar,
@@ -442,6 +443,15 @@ function DesktopApp(): React.JSX.Element {
     return <ClientShellLoading label="Loading Desktop" />;
   }
 
+  const environmentSummary = selectedThread ? (
+    <EnvironmentSummaryMenu
+      repo={workspace ? { default_branch: workspace.branch ?? "" } : null}
+      branch={workspace?.branch ?? ""}
+      readOnlyBranch={Boolean(workspace?.branch)}
+      pullRequestResult={{ status: "unavailable", sessionId: selectedThread.id }}
+    />
+  ) : null;
+
   function closeCompactSidebar(): void {
     if (window.matchMedia("(max-width: 1023px)").matches) setSidebarOpen(false);
   }
@@ -502,19 +512,20 @@ function DesktopApp(): React.JSX.Element {
           topBar={
             <WorkspaceTopBar
               title={selectedThread?.title}
-              actions={
-                <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
-                  <FilesToggleButton
-                    isOpen={rightPanelOpen}
-                    onToggle={() => setRightPanelOpen((open) => !open)}
-                  />
-                </div>
-              }
+              actions={!rightPanelOpen ? <>
+                <WorkspaceReviewControls
+                  onReview={() => setRightPanelOpen(true)}
+                  onToggleRightSidebar={() => setRightPanelOpen((open) => !open)}
+                />
+                {environmentSummary}
+              </> : undefined}
             />
           }
           rightPanel={
             rightPanelOpen ? (
               <DesktopRightPanel
+                headerWidth={rightPanelWidth}
+                environmentSummary={environmentSummary}
                 onResize={(delta) => setRightPanelWidth((width) => clampRightSidebarWidth(width + delta))}
                 workspace={workspace}
                 threadId={selectedThread?.id ?? null}
@@ -593,7 +604,7 @@ function DesktopApp(): React.JSX.Element {
                   setRightPanelOpen(false);
                   document
                     .querySelector<HTMLButtonElement>(
-                      'button[aria-label="Toggle files sidebar"]',
+                      'button[aria-label="Toggle right sidebar"]',
                     )
                     ?.focus();
                 }}

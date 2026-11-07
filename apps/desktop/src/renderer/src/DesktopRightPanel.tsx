@@ -38,6 +38,8 @@ export interface DesktopRightPanelProps {
   filesUnavailableReason: string;
   onClose?: () => void;
   onResize?: (delta: number) => void;
+  headerWidth?: number;
+  environmentSummary?: ReactNode;
 }
 
 /** Shared Web presentation; grant identity and all reads stay in Desktop's SDK adapters. */
@@ -49,6 +51,8 @@ export function DesktopRightPanel({
   filesUnavailableReason,
   onClose,
   onResize,
+  headerWidth,
+  environmentSummary,
 }: DesktopRightPanelProps) {
   const [isViewingContent, setIsViewingContent] = useState(false);
   const [hasFilesTab, setHasFilesTab] = useState(false);
@@ -123,7 +127,8 @@ export function DesktopRightPanel({
     >
       {onResize ? <Resizer side="right" onResize={onResize} /> : null}
       <WorkspaceSidebarHeader
-        position="inline"
+        sidebarWidth={headerWidth}
+        environmentSummary={environmentSummary}
         isViewingContent={isViewingContent}
         contentTabs={
           hasFilesTab
