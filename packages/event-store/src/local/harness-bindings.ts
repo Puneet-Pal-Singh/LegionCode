@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { HarnessAdmissionSelectionSchema, HarnessSelectionSchema } from "@repo/platform-protocol";
+import { ArtifactMetadataSchema, EventIdSchema, HarnessAdmissionSelectionSchema, HarnessSelectionSchema, PlatformEventSchema, TurnWorkspaceSnapshotSchema, type EventId } from "@repo/platform-protocol";
 import type { LocalTurnAdmissions } from "../local-turn-admissions.js";
 import {
   LifecycleEventSchema,
@@ -538,6 +538,9 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           execution_claim_id: string | null;
           recovery_required: number;
         };
+        // Terminal lifecycle does not retire a still-owned physical generation.
+        if (state.recovery_required === 1 && binding.attachment !== null)
+          return { status: "recovery_required" as const, binding };
         if (this.isSettled(input.selection.turnId))
           return { status: "settled" as const, binding };
         if (state.recovery_required === 1)
@@ -559,8 +562,10 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
   }): Promise<boolean> {
     return this.database
       .transaction(() => {
-        this.required(input.selection);
-        if (this.isSettled(input.selection.turnId)) return false;
+        const binding = this.required(input.selection);
+        // A terminal turn can still own a physical generation when CORE release
+        // committed its journal marker but SQLite retirement did not commit.
+        if (this.isSettled(input.selection.turnId) && !binding.attachment) return false;
         return (
           this.database
             .prepare(
@@ -570,6 +575,123 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
         );
       })
       .immediate();
+  }
+  /** Private LOCAL composition calls only AFTER CORE release succeeds. Storage
+   * validates canonical facts; it does not certify physical quiescence or release
+   * the checkout. An absent tombstone always leaves the attachment owned. */
+  async retireHarnessAttachment(input: {
+    selection: StoredHarnessSelection;
+    origin: StoredHarnessAttachment;
+    lastObservationSequence: number;
+    terminalEventId: EventId;
+  }): Promise<void> {
+    const selection = StoredHarnessSelectionSchema.parse(input.selection);
+    const origin = StoredHarnessAttachmentSchema.parse(input.origin);
+    const sequence = z.number().int().nonnegative().safe().parse(input.lastObservationSequence);
+    const terminalEventId = EventIdSchema.parse(input.terminalEventId);
+    this.database.transaction(() => {
+      this.requireAdmission(selection);
+      const binding = this.required(selection);
+      this.requireClaim(selection.turnId);
+      const selected = HarnessSelectionSchema.parse(JSON.parse(selection.selectionJson));
+      if (origin.instanceId !== selected.instanceId || origin.authOwnerGeneration !== selected.authOwnerGeneration)
+        throw new HarnessPersistenceError("stale_origin", "Retirement origin differs from admitted instance or account generation");
+      if (binding.lastObservationSequence !== sequence)
+        throw new HarnessPersistenceError("sequence_gap", "Retirement does not cover committed ingress");
+      const generation = this.database.prepare(
+        "SELECT origin_json FROM harness_process_generations WHERE turn_id=? AND process_generation=?",
+      ).get(selection.turnId, origin.processGeneration) as { origin_json: string } | undefined;
+      if (!generation || !sameHarnessOrigin(StoredHarnessAttachmentSchema.parse(JSON.parse(generation.origin_json)), origin))
+        throw new HarnessPersistenceError("stale_origin", "Retirement generation history does not match");
+      const historyRows = this.database.prepare(
+        "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence LIMIT 10001",
+      ).all(selection.turnId) as { event_json: string }[];
+      if (historyRows.length > 10000)
+        throw new HarnessPersistenceError("corrupt", "Retirement exceeds bounded canonical replay");
+      const history = historyRows.map((row, index) => {
+        const event = LifecycleEventSchema.parse(JSON.parse(row.event_json));
+        assertEventScope(selection, event);
+        if (event.sequence !== index + 1)
+          throw new HarnessPersistenceError("corrupt", "Retirement canonical replay has a gap");
+        return event;
+      });
+      const terminal = history.at(-1);
+      if (!terminal || terminal.eventId !== terminalEventId ||
+          !["turn.completed", "turn.failed", "turn.interrupted"].includes(terminal.type))
+        throw new HarnessPersistenceError("binding_conflict", "Retirement requires the final canonical terminal event");
+      const receipts = this.database.prepare(
+        "SELECT sequence,event_ids_json FROM harness_observation_receipts WHERE turn_id=? AND process_generation=? ORDER BY sequence LIMIT 10001",
+      ).all(selection.turnId, origin.processGeneration) as { sequence: number; event_ids_json: string }[];
+      if (receipts.length > 10000 || receipts.length !== sequence)
+        throw new HarnessPersistenceError("sequence_gap", "Retirement ingress coverage is incomplete or exceeds its bound");
+      for (const [index, receipt] of receipts.entries()) {
+        if (receipt.sequence !== index + 1)
+          throw new HarnessPersistenceError("sequence_gap", "Retirement ingress coverage has a gap");
+        this.validateCanonicalReferences(selection, receipt.event_ids_json);
+      }
+      // Match the immutable metadata in runtime settlement to the existing
+      // platform artifact records. No filesystem or provider-history authority.
+      const artifactReferences: string[] = [];
+      let snapshot = false;
+      let diff = false;
+      for (const event of history) {
+        let candidate: unknown;
+        let role: "snapshot" | "diff";
+        if (event.type === "workspace.snapshot_captured") {
+          const wrapper = z.object({ snapshot: TurnWorkspaceSnapshotSchema, artifact: z.unknown().optional() })
+            .parse(event.payload.snapshot);
+          if (wrapper.snapshot.phase !== "terminal") continue;
+          if (wrapper.snapshot.turnId !== selection.turnId)
+            throw new HarnessPersistenceError("binding_conflict", "Retirement snapshot belongs to another turn");
+          candidate = wrapper.artifact;
+          role = "snapshot";
+        } else if (event.type === "artifact.created") {
+          const parsed = ArtifactMetadataSchema.safeParse(event.payload.artifact);
+          if (!parsed.success || parsed.data.metadata.role !== "turn_diff") continue;
+          candidate = parsed.data;
+          role = "diff";
+        } else continue;
+        const artifact = ArtifactMetadataSchema.parse(candidate);
+        if (artifact.threadId !== selection.threadId || artifact.runId !== selection.runId ||
+            artifact.workspaceId !== selection.workspaceId || artifact.metadata.turnId !== selection.turnId ||
+            artifact.metadata.createdBy !== selection.userId || artifact.payloadRef.backend !== "local_blob" ||
+            !artifact.payloadRef.sha256 || artifact.payloadRef.objectKey !== `sha256:${artifact.payloadRef.sha256}` ||
+            (role === "snapshot" && (artifact.kind !== "workspace_snapshot" || artifact.metadata.phase !== "snapshot:terminal")) ||
+            (role === "diff" && artifact.kind !== "diff"))
+          throw new HarnessPersistenceError("binding_conflict", "Retirement immutable artifact ownership is invalid");
+        const row = this.database.prepare(
+          "SELECT event_json FROM events WHERE family='platform' AND stream_type='artifact' AND stream_id=? AND sequence=1",
+        ).get(artifact.artifactId) as { event_json: string } | undefined;
+        const persisted = row ? PlatformEventSchema.parse(JSON.parse(row.event_json)) : null;
+        if (!persisted || persisted.type !== "artifact.created" ||
+            persisted.threadId !== selection.threadId || persisted.workspaceId !== selection.workspaceId ||
+            persisted.runId !== selection.runId ||
+            createStableEventFingerprint(persisted.payload.artifact) !== createStableEventFingerprint(artifact))
+          throw new HarnessPersistenceError("corrupt", "Retirement immutable artifact reference is missing or conflicting");
+        artifactReferences.push(persisted.eventId);
+        if (role === "snapshot") snapshot = true;
+        else diff = true;
+      }
+      if (!snapshot || !diff)
+        throw new HarnessPersistenceError("binding_conflict", "Retirement requires committed terminal snapshot and diff");
+      const key = `harness_attachment_retirement_v1:${selection.turnId}:${origin.processGeneration}`;
+      const tombstone = { version: 1, selectionFingerprint: harnessSelectionFingerprint(selection), origin,
+        lastObservationSequence: sequence, terminalEventId, artifactReferences: artifactReferences.sort() };
+      const prior = this.database.prepare("SELECT value FROM metadata WHERE key=?").get(key) as { value: string } | undefined;
+      if (prior) {
+        if (binding.attachment || createStableEventFingerprint(JSON.parse(prior.value)) !== createStableEventFingerprint(tombstone))
+          throw new HarnessPersistenceError("stale_origin", "Retirement tombstone conflicts with attachment or evidence");
+        return;
+      }
+      assertHarnessOrigin(binding.attachment, origin);
+      this.database.prepare("INSERT INTO metadata(key,value) VALUES (?,?)").run(key, JSON.stringify(tombstone));
+      const retired = this.database.prepare(
+        "UPDATE harness_bindings SET attachment_json=NULL,recovery_required=0 WHERE turn_id=? AND run_attempt_id=? AND user_id=? AND json_extract(attachment_json,'$.processGeneration')=?",
+      ).run(selection.turnId, selection.runAttemptId, selection.userId, origin.processGeneration);
+      if (retired.changes !== 1)
+        throw new HarnessPersistenceError("stale_origin", "Retirement attachment compare-and-swap failed");
+      // Keep generation origins, canonical events and every ingress/reply receipt.
+    }).immediate();
   }
   private isSettled(turnId: string): boolean {
     const latest = this.database

@@ -21,6 +21,8 @@ import type { LocalThreadService } from "../local-threads.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 import type { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
 import type { LocalHarnessOperations } from "./LocalHarnessOperations.js";
+import type { HarnessOperations } from "./HarnessOperations.js";
+import { reconcileLocalHarnessRestart } from "./LocalHarnessRestart.js";
 
 type HostConfiguration = Omit<Parameters<typeof createHarnessHost>[0], "workspaceRoot">;
 /** Private in-process composition over canonical ports. Never a renderer/HTTP/IPC payload. */
@@ -37,14 +39,15 @@ export interface LocalHarnessRuntimeBinding {
   readonly openCodeOptions?: ConstructorParameters<typeof OpenCodeV2Driver>[0];
   readonly configureHost: (command: Parameters<import("@repo/harness-core/server").HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>;
   /** Uses the already frozen selection/claim and held local lease. Supplies the
-   * canonical workspace/observation/custody adapters and enforcing host policy.
-   * Local composition owns concrete Git snapshots and immutable artifacts. No provider start.
+   * canonical workspace/custody adapters and enforcing host policy. Local
+   * composition owns observation commits, Git snapshots and immutable artifacts.
+   * Preparation must not start a provider.
    */
   prepare(input: { readonly admission: TurnAdmission; readonly selection: HarnessSelection;
     readonly grant: StoredLocalWorkspaceGrant; readonly leaseId: LeaseId; readonly signal: AbortSignal }): Promise<{
       readonly leaseId: LeaseId;
       readonly dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">;
-      readonly execution: Omit<DelegatedExecutionDependencies, "harness">;
+      readonly execution: Omit<DelegatedExecutionDependencies, "harness" | "observations">;
       /** Existing binding/lease authority prepares the protected old-generation
        * host, committed observation delivery and durable fence. No provider restart.
        * Local composition always supplies the canonical integrity resolver itself.
@@ -53,6 +56,11 @@ export interface LocalHarnessRuntimeBinding {
     }>;
 }
 export interface LocalHarnessRuntimeServices {
+  /** Same-writer setup receipts and selection CAS, plus safe local catalog/health
+   * readers. The bootstrap receives this process's LocalPersistence; it must not
+   * open another writer or reuse the hosted credential/selection authority.
+   */
+  readonly operations: HarnessOperations;
   /** Existing main/vault or provider-owned local reference authority. Safe metadata reads only. */
   resolveBinding(input: { readonly selection: HarnessNextSelection; readonly thread: Thread;
     readonly grant: StoredLocalWorkspaceGrant }): Promise<LocalHarnessRuntimeBinding>;
@@ -67,20 +75,28 @@ interface ActiveExecution {
 /** Local admission and task composition; the kernel is the sole lifecycle/approval/artifact owner. */
 export class LocalTurnService {
   private readonly active = new Map<TurnId, ActiveExecution>();
+  private startup: Promise<void> | undefined;
   constructor(private readonly options: {
     readonly persistence: LocalPersistence;
     readonly threads: LocalThreadService;
     readonly workspace: LocalWorkspaceService;
     readonly leases: LocalWorkspaceLease;
     readonly harnessOperations: LocalHarnessOperations;
+    readonly settleExecution: (admission: TurnAdmission) => Promise<void>;
     readonly resolveBinding: LocalHarnessRuntimeServices["resolveBinding"];
     readonly readDiff: (turnId: TurnId) => Promise<TurnDiffPayload | null>;
     readonly recoverExecution: (runtime: RuntimeKernel, input: Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity">) => Promise<unknown>;
     readonly composeRuntime: (binding: LocalHarnessRuntimeBinding,
-      prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>>) => RuntimeKernel;
+      prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>>,
+      selection: HarnessSelection) => RuntimeKernel;
   }) {}
 
+  initialize(): Promise<void> {
+    return this.startup ??= reconcileLocalHarnessRestart(this.options.persistence);
+  }
+
   async startTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
+    await this.initialize();
     params = LocalTurnStartParamsSchema.parse(params);
     const thread = await this.authorizeThread(params.threadId, params.workspaceId);
     if (thread.status !== "active") throw new AppServerOperationError(409, "invalid_request", "Local thread is archived");
@@ -94,41 +110,42 @@ export class LocalTurnService {
       }
       return previous; // Never restart an admitted or ambiguously delivered prompt.
     }
-    const saved = await this.options.harnessOperations.readSelection({
+    return this.options.harnessOperations.withSelection({
       environmentId: this.options.persistence.environmentId, workspaceId: thread.workspaceId,
       threadId: thread.id, sessionId: thread.id,
+    }, async (saved) => {
+      if (captured && (captured.environmentId !== this.options.persistence.environmentId ||
+          captured.selectionRevision !== saved.revision || JSON.stringify(captured.selection) !== JSON.stringify(saved.selection))) {
+        throw new AppServerOperationError(409, "invalid_request", "Local harness selection changed before admission");
+      }
+      if (!saved.selection) throw new AppServerOperationError(503, "server_unavailable", "Select a configured local harness before starting a delegated turn");
+      const grant = await this.options.workspace.requireExecutionGrant(thread.workspaceId);
+      const binding = await this.options.resolveBinding({ selection: saved.selection, thread, grant });
+      const scope = binding.scope;
+      if (scope.userId !== thread.userId || scope.workspaceId !== thread.workspaceId ||
+          scope.environmentId !== this.options.persistence.environmentId || scope.harness !== saved.selection.harness ||
+          scope.instanceId !== saved.selection.instanceId || scope.connectionId !== saved.selection.connectionId) {
+        throw new AppServerOperationError(403, "unauthorized", "Local runtime binding does not match the selected account and workspace");
+      }
+      if (scope.harness === "codex" && (binding.billingSource === "api_key" || !binding.codexOptions?.accountBinding)) {
+        throw new AppServerOperationError(503, "server_unavailable", "The selected Codex account identity is not verifiable for this authentication route", "LOCAL_CODEX_ACCOUNT_UNVERIFIED", false);
+      }
+      const admission = this.createAdmission(params, thread, binding, saved.selection, {
+        environmentId: this.options.persistence.environmentId, selectionRevision: saved.revision, selection: saved.selection,
+      });
+      const selection = HarnessSelectionSchema.parse({ ...scope, selectionRevision: saved.revision, threadId: thread.id, runId: admission.run.id,
+        turnId: admission.turn.id, runAttemptId: admission.runAttemptId, modelId: admission.run.modelId,
+        policyId: binding.permissionProfileId, policyRevision: binding.policyRevision, billingSource: binding.billingSource });
+      // Revalidate after protected metadata resolution; writer independently validates Thread ownership.
+      await this.authorizeThread(thread.id, thread.workspaceId);
+      const stored = await this.options.leases.admit(admission);
+      if (!stored.newlyAdmitted) return stored.admission;
+      const execution: ActiveExecution = { admission: stored.admission, controller: new AbortController() };
+      this.active.set(admission.turn.id, execution); // Immediate Stop owns this before preparation yields.
+      execution.task = this.run(execution, binding, selection, grant);
+      void execution.task.catch(() => undefined); // Failures are canonical events/recovery, never raw secret-bearing logs.
+      return stored.admission;
     });
-    if (captured && (captured.environmentId !== this.options.persistence.environmentId ||
-        captured.selectionRevision !== saved.revision || JSON.stringify(captured.selection) !== JSON.stringify(saved.selection))) {
-      throw new AppServerOperationError(409, "invalid_request", "Local harness selection changed before admission");
-    }
-    if (!saved.selection) throw new AppServerOperationError(503, "server_unavailable", "Select a configured local harness before starting a delegated turn");
-    const grant = await this.options.workspace.requireExecutionGrant(thread.workspaceId);
-    const binding = await this.options.resolveBinding({ selection: saved.selection, thread, grant });
-    const scope = binding.scope;
-    if (scope.userId !== thread.userId || scope.workspaceId !== thread.workspaceId ||
-        scope.environmentId !== this.options.persistence.environmentId || scope.harness !== saved.selection.harness ||
-        scope.instanceId !== saved.selection.instanceId || scope.connectionId !== saved.selection.connectionId) {
-      throw new AppServerOperationError(403, "unauthorized", "Local runtime binding does not match the selected account and workspace");
-    }
-    if (scope.harness === "codex" && (binding.billingSource === "api_key" || !binding.codexOptions?.accountBinding)) {
-      throw new AppServerOperationError(503, "server_unavailable", "The selected Codex account identity is not verifiable for this authentication route", "LOCAL_CODEX_ACCOUNT_UNVERIFIED", false);
-    }
-    const admission = this.createAdmission(params, thread, binding, saved.selection, {
-      environmentId: this.options.persistence.environmentId, selectionRevision: saved.revision, selection: saved.selection,
-    });
-    const selection = HarnessSelectionSchema.parse({ ...scope, selectionRevision: saved.revision, threadId: thread.id, runId: admission.run.id,
-      turnId: admission.turn.id, runAttemptId: admission.runAttemptId, modelId: admission.run.modelId,
-      policyId: binding.permissionProfileId, policyRevision: binding.policyRevision, billingSource: binding.billingSource });
-    // Revalidate after protected metadata resolution; writer independently validates Thread ownership.
-    await this.authorizeThread(thread.id, thread.workspaceId);
-    const stored = await this.options.leases.admit(admission);
-    if (!stored.newlyAdmitted) return stored.admission;
-    const execution: ActiveExecution = { admission: stored.admission, controller: new AbortController() };
-    this.active.set(admission.turn.id, execution); // Immediate Stop owns this before preparation yields.
-    execution.task = this.run(execution, binding, selection, grant);
-    void execution.task.catch(() => undefined); // Failures are canonical events/recovery, never raw secret-bearing logs.
-    return stored.admission;
   }
 
   /** Adapter for the existing placement-neutral submission envelope; no hosted principal/cookie. */
@@ -204,6 +221,7 @@ export class LocalTurnService {
     throw new AppServerOperationError(503, "server_unavailable", "Canonical approval decision could not be read");
   }
   get hasActiveExecutions(): boolean { return this.active.size > 0; }
+  hasExecutionOwner(turnId: TurnId): boolean { return this.active.has(turnId); }
   async shutdown(): Promise<void> {
     for (const execution of this.active.values()) execution.controller.abort();
     await Promise.all([...this.active.values()].map((execution) => execution.task));
@@ -227,8 +245,16 @@ export class LocalTurnService {
       if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before runtime start", "AbortError");
       const dependencies = { ...prepared.dependencies,
         signal: prepared.dependencies.signal ? AbortSignal.any([prepared.dependencies.signal, execution.controller.signal]) : execution.controller.signal };
-      execution.runtime = this.options.composeRuntime(binding, { ...prepared, dependencies });
-      await execution.runtime.startTurn({ run: execution.admission.run, turn: execution.admission.turn,
+      execution.runtime = this.options.composeRuntime(binding, { ...prepared, dependencies }, selection);
+      const history = await this.options.persistence.lifecycleEvents.replay({
+        turnId: execution.admission.turn.id, afterSequence: null, limit: 1,
+      });
+      if (history.events.length > 0) throw new AppServerOperationError(409, "server_unavailable",
+        "Local attempt already has lifecycle history; explicit recovery is required", "LOCAL_RUNTIME_RECOVERY_REQUIRED", false);
+      // The admission's platform stream sequence is not a lifecycle sequence.
+      // Only a newly claimed attempt with an empty lifecycle may start at zero.
+      await execution.runtime.startTurn({ run: execution.admission.run,
+        turn: { ...execution.admission.turn, lastEventSequence: 0 },
         runAttemptId: execution.admission.runAttemptId,
         execution: { kind: "delegated", selection, leaseId: prepared.leaseId,
           prompt: this.prompt(execution.admission), resumeSession: null } });
@@ -248,6 +274,7 @@ export class LocalTurnService {
           const lifecycle = new RuntimeLifecycleCoordinator({ threadId: execution.admission.run.threadId,
             workspaceId: execution.admission.run.workspaceId, turnId: execution.admission.turn.id,
             runAttemptId: execution.admission.runAttemptId, producerId: "local-app-server-runtime",
+            executionCapability: execution.admission.run.executionCapability,
             sink: this.options.persistence.lifecycleEvents, clock: { now: () => new Date().toISOString() } });
           await lifecycle.start();
           if (execution.controller.signal.aborted) await lifecycle.interrupt("Local turn stopped before external execution");
@@ -256,7 +283,7 @@ export class LocalTurnService {
       }
       throw error;
     } finally {
-      await this.options.leases.assertSettled(execution.admission); // Unknown retains the live/durable owner.
+      await this.options.settleExecution(execution.admission); // Unknown retains the live/durable owner.
       this.active.delete(execution.admission.turn.id);
     }
   }

@@ -155,7 +155,7 @@ export const HarnessObservationPayloadSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("external_terminal"),
       status: z.enum(["completed", "failed", "interrupted"]),
-      providerCompletedAt: ProtocolTimestampSchema,
+      providerCompletedAt: ProtocolTimestampSchema.nullable(),
       itemId: ItemIdSchema,
       output: z.string().max(1_048_576),
       error: ProtocolErrorSchema.nullable(),

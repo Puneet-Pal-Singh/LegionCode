@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { isAbsolute } from "node:path";
@@ -9,11 +9,13 @@ import type {
 import {
   HarnessSessionSchema,
   HarnessControlCommandSchema,
+  HarnessObservationPayloadSchema,
   type HarnessObservationPayload,
 } from "@repo/worker-protocol";
 import { codexRuntime, codexRuntimePin } from "./runtime.js";
 import {
   CodexStdioTransport,
+  CodexTransportError,
   type CodexServerRequest,
 } from "./transport/CodexStdioTransport.js";
 import { initializeCodex } from "./initialize.js";
@@ -26,6 +28,7 @@ import {
 } from "./CodexEventMapper.js";
 import { codexQuestion } from "./CodexQuestionMapper.js";
 import { codexPermission } from "./CodexPermissionMapper.js";
+import { CodexAuthentication } from "./CodexAuthentication.js";
 
 /** Concrete native loop driver; the shared host owns launch policy, delivery journal and process cleanup. */
 export class CodexDriver implements HarnessDriver {
@@ -102,15 +105,12 @@ export class CodexDriver implements HarnessDriver {
       selection.billingSource !== "subscription"
     )
       throw new Error("Codex selected payer route is unsupported");
-    if (
-      selection.billingSource === "subscription" &&
-      ["OPENAI_API_KEY", "CODEX_API_KEY", "AZURE_OPENAI_API_KEY"].some((name) =>
-        Boolean(host.environment[name]),
-      )
-    )
-      throw new Error(
-        "Codex subscription binding contains API-key credentials",
-      );
+    const authentication = new CodexAuthentication(
+      selection.billingSource,
+      this.options.accountBinding.identityFingerprint,
+      host.environment,
+      this.options.modelProvider ?? "openai",
+    );
     const digest = createHash("sha256")
       .update(await readFile(this.executable))
       .digest("hex");
@@ -119,14 +119,13 @@ export class CodexDriver implements HarnessDriver {
     if (signal.aborted) throw new Error("Codex opening interrupted");
     const child = await host.launch({
       executable: this.executable,
-      args: ["app-server"],
+      args: authentication.launchArgs(),
     });
     let stopped = false;
     let externalTurnId: string | null = null;
     let terminal = false;
-    let observationFailure = false;
+    let terminalPayloadFingerprint: string | null = null;
     let accountVerified = false;
-    let cleanupInitiated = false;
     let finalOutput = "";
     let executing = false;
     let pendingBytes = 0;
@@ -157,6 +156,7 @@ export class CodexDriver implements HarnessDriver {
     const fail = () => {
       if (stopped) return;
       stopped = true;
+      authentication.cancel();
       pendingReplies.clear();
       pendingQuestions.clear();
       rejectTurn(new Error("Codex execution unavailable"));
@@ -176,7 +176,6 @@ export class CodexDriver implements HarnessDriver {
         pendingCount >= 256 ||
         pendingBytes + size > 8 * 1024 * 1024
       ) {
-        observationFailure = true;
         fail();
         return;
       }
@@ -185,18 +184,15 @@ export class CodexDriver implements HarnessDriver {
       queue = queue
         .then(async () => {
           if (stopped) {
-            observationFailure = true;
             return;
           }
           await turnReady;
           if (stopped) {
-            observationFailure = true;
             return;
           }
           await action();
         })
         .catch(() => {
-          observationFailure = true;
           fail();
         })
         .finally(() => {
@@ -218,13 +214,18 @@ export class CodexDriver implements HarnessDriver {
       await observe({ session, externalTurnId, payload: owned });
     };
     const notification = (method: string, raw: unknown) => {
+      try {
+        if (authentication.observeNotification(method, raw)) return;
+      } catch {
+        fail();
+        return;
+      }
       if (
         method === "model/rerouted" ||
         (accountVerified &&
           (method === "account/updated" ||
             method === "account/gatewayOAuth/changed"))
       ) {
-        observationFailure = true;
         fail();
         return;
       }
@@ -257,27 +258,28 @@ export class CodexDriver implements HarnessDriver {
         )
           throw new Error("Codex event identity mismatch");
         if (method === "turn/completed") {
-          if (terminal) throw new Error("Duplicate Codex terminal");
-          const status = native.observeTerminal(raw);
           const turn = z
-            .object({ turn: z.object({ id: z.string() }) })
+            .object({
+              turn: z.object({
+                id: z.string().min(1),
+                status: z.enum(["completed", "interrupted", "failed"]),
+                completedAt: z
+                  .number()
+                  .int()
+                  .nonnegative()
+                  .max(8_640_000_000_000)
+                  .nullish(),
+              }),
+            })
             .parse(raw).turn;
-          await emit({
+          const status = turn.status;
+          const payload = HarnessObservationPayloadSchema.parse({
             kind: "external_terminal",
             status,
-            providerCompletedAt: new Date(
-              z
-                .object({
-                  turn: z.object({
-                    completedAt: z
-                      .number()
-                      .int()
-                      .nonnegative()
-                      .max(8_640_000_000_000),
-                  }),
-                })
-                .parse(raw).turn.completedAt * 1000,
-            ).toISOString(),
+            providerCompletedAt:
+              turn.completedAt == null
+                ? null
+                : new Date(turn.completedAt * 1000).toISOString(),
             itemId: codexItemId(selection.runAttemptId, turn.id),
             output: finalOutput,
             error:
@@ -294,6 +296,36 @@ export class CodexDriver implements HarnessDriver {
                     details: null,
                   },
           });
+          // Compare the exact bound tuple and validated canonical payload before
+          // emission. Include native data so redaction cannot conceal a changed
+          // provider error/item. Object key order is not a payload difference.
+          const fingerprint = createHash("sha256")
+            .update(
+              JSON.stringify(
+                { selection, session, externalTurnId, payload, native: raw },
+                (_key, value: unknown) =>
+                  value !== null &&
+                  typeof value === "object" &&
+                  !Array.isArray(value)
+                    ? Object.fromEntries(
+                        Object.entries(value).sort(([a], [b]) =>
+                          a < b ? -1 : a > b ? 1 : 0,
+                        ),
+                      )
+                    : value,
+              ),
+            )
+            .digest("hex");
+          if (terminalPayloadFingerprint !== null) {
+            if (fingerprint !== terminalPayloadFingerprint)
+              throw new Error("Conflicting Codex terminal");
+            return;
+          }
+          native.observeTerminal(raw);
+          await emit(payload);
+          // A failed/ambiguous canonical commit never installs a successful
+          // deduplication receipt and is never retried by this driver.
+          terminalPayloadFingerprint = fingerprint;
           terminal = true;
           pendingReplies.clear();
           pendingQuestions.clear();
@@ -378,26 +410,16 @@ export class CodexDriver implements HarnessDriver {
       onNotification: notification,
       onRequest: request,
       onClose: (error) => {
-        // Only our own cleanup's complete EOF is expected. Every other close or
-        // protocol/transport failure may hide facts, even after foreground terminal.
-        if (!(cleanupInitiated && error.reason === "closed"))
-          observationFailure = true;
+        // This transport conflates stdout EOF, destroyed streams and local close.
+        // None is an ordered observation-closure receipt. Quiescence below stays
+        // unknown/lost even when closure follows our own physical cleanup.
         if (!terminal || error.reason !== "closed") fail();
       },
     });
     const native = new CodexNativeSession(transport);
     const accountReader = new CodexUsageReader(transport);
     const verifyPayer = async () => {
-      const account = await accountReader.account();
-      if (
-        account.route !== selection.billingSource ||
-        account.identityFingerprint === null ||
-        account.identityFingerprint !==
-          this.options.accountBinding?.identityFingerprint
-      )
-        throw new Error(
-          "Codex account identity or payer differs from selected connection",
-        );
+      await authentication.verify(accountReader);
       accountVerified = true;
     };
     void child.exited.then(() => {
@@ -413,6 +435,7 @@ export class CodexDriver implements HarnessDriver {
       );
       if (initialized.codexHome !== host.instanceDirectory)
         throw new Error("Codex instance home mismatch");
+      await authentication.establish(transport);
       await verifyPayer();
       if (stopped || signal.aborted)
         throw new Error("Codex account binding fenced");
@@ -527,40 +550,56 @@ export class CodexDriver implements HarnessDriver {
             JSON.stringify(target) !== JSON.stringify(learnedSession)
           )
             throw new Error("Codex control fenced");
-          if (control.kind === "dispose") {
-            fail();
-            transport.close();
+          try {
+            if (control.kind === "dispose") {
+              fail();
+              transport.close();
+              return { accepted: true };
+            }
+            if (control.kind === "interrupt") {
+              pendingReplies.clear();
+              pendingQuestions.clear();
+              if (externalTurnId) await native.interrupt();
+              else fail();
+              return { accepted: true };
+            }
+            if (!externalTurnId || (terminal && control.kind === "steer"))
+              throw new Error("Codex turn unavailable");
+            if (control.kind === "steer") {
+              await native.steer({
+                threadId,
+                expectedTurnId: control.expectedExternalTurnId,
+                input: [
+                  { type: "text", text: control.text, text_elements: [] },
+                ],
+              });
+            } else if (control.kind === "user_input_reply") {
+              const handle = pendingQuestions.get(
+                control.reply.replyTo.requestId,
+              );
+              if (!handle) throw new Error("Codex question reply unavailable");
+              handle.reply(control.reply);
+              pendingQuestions.delete(control.reply.replyTo.requestId);
+            } else {
+              const handle = pendingReplies.get(
+                control.reply.replyTo.requestId,
+              );
+              if (!handle) throw new Error("Codex reply unavailable");
+              handle.reply(control.reply);
+              pendingReplies.delete(control.reply.replyTo.requestId);
+            }
             return { accepted: true };
+          } catch (error) {
+            // Lost start/steer/reply/interrupt outcomes cannot leave this owner
+            // available for another command. Canonical recovery decides next steps.
+            if (
+              error instanceof CodexTransportError &&
+              error.outcome === "unknown"
+            ) {
+              fail();
+            }
+            throw error;
           }
-          if (control.kind === "interrupt") {
-            pendingReplies.clear();
-            pendingQuestions.clear();
-            if (externalTurnId) await native.interrupt();
-            else fail();
-            return { accepted: true };
-          }
-          if (!externalTurnId || (terminal && control.kind === "steer"))
-            throw new Error("Codex turn unavailable");
-          if (control.kind === "steer") {
-            await native.steer({
-              threadId,
-              expectedTurnId: control.expectedExternalTurnId,
-              input: [{ type: "text", text: control.text, text_elements: [] }],
-            });
-          } else if (control.kind === "user_input_reply") {
-            const handle = pendingQuestions.get(
-              control.reply.replyTo.requestId,
-            );
-            if (!handle) throw new Error("Codex question reply unavailable");
-            handle.reply(control.reply);
-            pendingQuestions.delete(control.reply.replyTo.requestId);
-          } else {
-            const handle = pendingReplies.get(control.reply.replyTo.requestId);
-            if (!handle) throw new Error("Codex reply unavailable");
-            handle.reply(control.reply);
-            pendingReplies.delete(control.reply.replyTo.requestId);
-          }
-          return { accepted: true };
         },
         awaitQuiescence: async ({ timeoutMs }) => {
           if (
@@ -576,40 +615,21 @@ export class CodexDriver implements HarnessDriver {
               reason: "work_still_running",
             };
           signal.removeEventListener("abort", fail);
-          cleanupInitiated = true;
-          const results = await host.terminateProcesses({
+          // The supervisor owns physical cleanup and may destroy stdout as soon
+          // as the process group is absent, before buffered frames reach us.
+          // There is no producer/transport closure barrier followed by canonical
+          // observation ACK drain before that destructive step in this contract.
+          // Cleanup/queue drain therefore cannot certify complete observations.
+          await host.terminateProcesses({
             graceMs: Math.min(100, timeoutMs),
             killWaitMs: Math.max(0, timeoutMs - 100),
           });
           await queue;
           transport.close();
-          if (observationFailure)
-            return {
-              status: "unknown",
-              session: learnedSession,
-              reason: "observation_integrity_lost",
-            };
-          // Host creation has already asserted the actual filesystem/descendant boundary.
-          if (
-            !results.length ||
-            results.some(
-              (result) =>
-                result.kind !== "process_group_quiesced" ||
-                result.processGeneration !== host.processGeneration,
-            )
-          )
-            return {
-              status: "unknown",
-              session: learnedSession,
-              reason: "timeout",
-            };
           return {
-            status: "quiescent",
+            status: "unknown",
             session: learnedSession,
-            observedAt: new Date().toISOString(),
-            evidenceId: randomUUID(),
-            scope: "process_tree_and_background_work",
-            observationIntegrity: "complete",
+            reason: "observation_integrity_lost",
           };
         },
       };

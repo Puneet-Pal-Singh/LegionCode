@@ -44,7 +44,7 @@ export function codexTurnUsage(
 }
 
 /** Private account-read identity evidence, never route-only or first-observed identity.
- * The pinned API exposes no API-key identity; those records remain unverifiable.
+ * The pinned API exposes no API-key identity; selected-key evidence is separate.
  * Connection setup must bind the expected digest before attempt admission.
  */
 export function codexAccountIdentityFingerprint(raw: unknown): string | null {
@@ -76,10 +76,12 @@ export class CodexUsageReader {
     route: "api_key" | "subscription" | "unavailable";
     checkedAt: string;
     identityFingerprint: string | null;
+    requiresOpenaiAuth: boolean;
   }> {
     const response = z
       .object({
         account: z.object({ type: z.string() }).passthrough().nullable(),
+        requiresOpenaiAuth: z.boolean(),
       })
       .parse(
         await this.transport.request("account/read", { refreshToken: false }),
@@ -92,6 +94,7 @@ export class CodexUsageReader {
             ? "subscription"
             : "unavailable",
       identityFingerprint: codexAccountIdentityFingerprint(response.account),
+      requiresOpenaiAuth: response.requiresOpenaiAuth,
       checkedAt: new Date().toISOString(),
     };
   }
@@ -104,6 +107,17 @@ export class CodexUsageReader {
   }> {
     const checkedAt = new Date().toISOString();
     try {
+      const account = await this.account();
+      if (
+        account.route !== "subscription" ||
+        account.identityFingerprint === null
+      )
+        return {
+          status: "unavailable",
+          checkedAt,
+          primary: null,
+          secondary: null,
+        };
       const response = z
         .object({
           rateLimits: z.object({

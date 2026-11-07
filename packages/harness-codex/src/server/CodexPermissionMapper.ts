@@ -33,12 +33,17 @@ export function codexPermission(
       grantRoot: z.string().nullish(),
       command: z.string().max(65536).nullish(),
       cwd: z.string().max(4096).nullish(),
+      kind: z.enum(["command", "humanCommand", "writeStdin"]).optional(),
+      networkApprovalContext: z.unknown().optional(),
     })
     .parse(raw.params);
   if (
     p.threadId !== session.externalSessionId ||
     p.turnId !== externalTurnId ||
-    p.grantRoot
+    p.grantRoot != null ||
+    (raw.method === "item/commandExecution/requestApproval" &&
+      ((p.kind !== undefined && p.kind !== "command") ||
+        p.networkApprovalContext != null))
   )
     throw new Error("Invalid Codex request origin or scope");
   const origin: HarnessRequestOrigin = {
@@ -60,9 +65,9 @@ export function codexPermission(
         ? "Allow this Codex command once?"
         : "Allow this Codex file change once?",
       options: [
-        { id: "approved", label: "Allow once", description: null },
-        { id: "denied", label: "Deny", description: null },
-        { id: "cancelled", label: "Cancel", description: null },
+        { id: "allow_once", label: "Allow once", description: null },
+        { id: "deny", label: "Deny", description: null },
+        { id: "cancel", label: "Cancel", description: null },
       ],
       metadata: {
         source: "harness_reported",

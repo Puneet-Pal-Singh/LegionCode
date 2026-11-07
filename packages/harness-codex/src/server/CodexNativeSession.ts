@@ -16,6 +16,7 @@ export class CodexNativeSession {
   private startSubmitted = false;
   private opening = false;
   private nativeIdle = false;
+  private terminalStatus: "completed" | "interrupted" | "failed" | null = null;
 
   constructor(private readonly transport: CodexStdioTransport) {}
 
@@ -85,7 +86,14 @@ export class CodexNativeSession {
     this.startSubmitted = true;
     this.nativeIdle = false;
     const response = await this.transport.request("turn/start", params);
-    this.activeTurnId = this.readIdentity(response, "turn");
+    const turnId = this.readIdentity(response, "turn");
+    if (
+      !record(response) ||
+      !record(response.turn) ||
+      response.turn.status !== "inProgress"
+    )
+      this.invalidResponse();
+    this.activeTurnId = turnId;
     return this.activeTurnId;
   }
 
@@ -93,6 +101,7 @@ export class CodexNativeSession {
     this.assertThread(params.threadId);
     if (
       this.activeTurnId === null ||
+      this.terminalStatus !== null ||
       params.expectedTurnId !== this.activeTurnId
     )
       throw new CodexTransportError("invalid_frame", "rejected");
@@ -103,7 +112,11 @@ export class CodexNativeSession {
   }
 
   async interrupt(): Promise<void> {
-    if (this.externalThreadId === null || this.activeTurnId === null)
+    if (
+      this.externalThreadId === null ||
+      this.activeTurnId === null ||
+      this.terminalStatus !== null
+    )
       throw new CodexTransportError("invalid_frame", "rejected");
     const params: TurnInterruptParams = {
       threadId: this.externalThreadId,
@@ -131,6 +144,8 @@ export class CodexNativeSession {
   /** Validate turn ownership before the driver translates a native terminal fact. */
   observeTerminal(params: unknown): "completed" | "interrupted" | "failed" {
     if (
+      this.externalThreadId === null ||
+      this.activeTurnId === null ||
       !record(params) ||
       params.threadId !== this.externalThreadId ||
       !record(params.turn) ||
@@ -147,7 +162,12 @@ export class CodexNativeSession {
       status !== "failed"
     )
       this.invalidResponse();
-    // No next-start permission or process-quiescence claim follows foreground completion.
+    if (this.terminalStatus !== null && this.terminalStatus !== status)
+      this.invalidResponse();
+    // Same owned tuple/status is idempotent here. The driver compares the full
+    // validated terminal payload and owns its single observation emission.
+    // No next-start permission or quiescence claim follows completion/duplication.
+    this.terminalStatus = status;
     return status;
   }
 
