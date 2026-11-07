@@ -28,6 +28,7 @@ import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
 import { DesktopReview } from "./DesktopReview";
+import { DesktopSavedCommitDialog } from "./DesktopSavedCommitDialog";
 import { useDesktopSavedReviewSelection } from "./useDesktopSavedReviewSelection";
 import "./styles.css";
 
@@ -51,6 +52,7 @@ function DesktopApp(): React.JSX.Element {
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
   const [settingsTarget, setSettingsTarget] = useState<"general" | "connect-only" | "manage-models-only" | null>(null);
   const [providerRevision, setProviderRevision] = useState(0);
+  const [commitOpen, setCommitOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(
     () => window.matchMedia("(min-width: 1280px)").matches,
   );
@@ -111,6 +113,11 @@ function DesktopApp(): React.JSX.Element {
   );
 
   useEffect(() => { setSettingsTarget(null); }, [workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness]);
+  useEffect(() => { setCommitOpen(false); }, [
+    appServerClient, sdkReady, workspace?.workspaceId,
+    workspace?.grantedAt, workspace?.readiness,
+    selectedThread?.id, savedReview.selection?.turnId,
+  ]);
 
   useEffect(() => {
     const compactLayout = window.matchMedia("(max-width: 1023px)");
@@ -461,6 +468,13 @@ function DesktopApp(): React.JSX.Element {
       readOnlyBranch={Boolean(workspace?.branch)}
       changedFileCount={savedReview.read.status === "ready" ? savedReview.read.diff?.files.length : undefined}
       onOpenChanges={savedReview.selection ? () => setRightPanelOpen(true) : undefined}
+      onOpenCommit={
+        sdkReady && environment.status === "ready" &&
+        environment.capabilities.includes("artifact-commit-v1") &&
+        savedReview.read.status === "ready" && savedReview.read.diff?.files.length
+          ? () => setCommitOpen(true)
+          : undefined
+      }
       pullRequestResult={{ status: "unavailable", sessionId: selectedThread.id }}
     />
   ) : null;
@@ -694,6 +708,26 @@ function DesktopApp(): React.JSX.Element {
             />
           </section>
         </PickerModal>
+      ) : null}
+      {appServerClient ? (
+        <DesktopSavedCommitDialog
+          key={JSON.stringify([
+            workspace?.workspaceId, workspace?.grantedAt,
+            selectedThread?.id, savedReview.selection?.turnId,
+          ])}
+          isOpen={commitOpen}
+          onClose={() => setCommitOpen(false)}
+          client={appServerClient}
+          selection={savedReview.selection}
+          diff={savedReview.read.status === "ready" ? savedReview.read.diff : null}
+          scope={reviewScope}
+          availability={
+            sdkReady && environment.status === "ready" &&
+            environment.capabilities.includes("artifact-commit-v1")
+              ? { available: true }
+              : { available: false, reason: "Committing saved changes is unavailable in this Desktop runtime." }
+          }
+        />
       ) : null}
       <DesktopSettingsDialog
         open={settingsTarget !== null}
