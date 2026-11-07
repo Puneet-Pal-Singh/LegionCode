@@ -1481,3 +1481,21 @@ The process factory now composes this reader with the actual LocalTurnService.
 Initialize advertises saved review only when that query is injected. A completed
 read-only Turn with no published immutable capture returns `diff: null`; the read
 capability does not claim that mutation, capture or selected commit is available.
+
+## Desktop current-file mention suggestions
+
+SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
+existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
+physical root covers the entire query and remains held through native cleanup.
+The catalog contains current regular-file names only, never Git objects, file
+contents or immutable review evidence. Symlinks, special and reserved entries are
+not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
+`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
+`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
+native directory pages without retaining a server-side tree/index or cursor.
+Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
+of serialized result, 24 nested directory levels and five seconds. A limit
+returns an explicit truncation reason; it never claims a complete empty tree.
+Desktop's hook scopes replies to client, workspace, grant timestamp, readiness
+and requested folder, coalesces in-flight queries and exposes the existing shared
+composer's loading/error/retry props. No renderer filesystem access is introduced.
