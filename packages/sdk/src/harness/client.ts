@@ -1,5 +1,8 @@
-import { AppServerResultSchemas } from "@legioncode/app-server/protocol";
-import type { HarnessOperations } from "@legioncode/app-server/harness-operations";
+import {
+  AppServerResultSchemas,
+  type AppServerRequest,
+  type AppServerSuccessResponse,
+} from "@legioncode/app-server/protocol";
 import { requestAppServerOperation, type AppServerClientOptions } from "../platform/app-server-client.js";
 
 /** The same authenticated App Server transport is used by Web and Desktop.
@@ -16,4 +19,16 @@ export function createHarnessClient(options: AppServerClientOptions): HarnessCli
     select: (params) => requestAppServerOperation(options, { method: "harness/selection/select", params }, AppServerResultSchemas["harness/selection/select"]),
   };
 }
-export type HarnessClient = HarnessOperations;
+type HarnessMethod = Extract<AppServerRequest["method"], `harness/${string}`>;
+type HarnessOperation<Method extends HarnessMethod> = (
+  params: Extract<AppServerRequest, { method: Method }>["params"],
+) => Promise<Extract<AppServerSuccessResponse, { method: Method }>["result"]>;
+
+/** Client signatures follow the public wire contract, never server composition. */
+export type HarnessClient = {
+  setup: HarnessOperation<"harness/setup">;
+  status: HarnessOperation<"harness/status">;
+  models: HarnessOperation<"harness/models">;
+  readSelection: HarnessOperation<"harness/selection/read">;
+  select: HarnessOperation<"harness/selection/select">;
+};
