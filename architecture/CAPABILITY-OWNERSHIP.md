@@ -909,6 +909,30 @@ terminal run state; original-lease expiry remains enforced by the hosted owner.
 | Checkout retention and physical expiry | Existing task-checkout lifecycle keeps only the original successfully completed and settled lease through its original nested `lease.expiresAt`; existing secure `AgentRuntime` Durable Object owns persisted-session alarm cleanup and physical sandbox destruction | Git borrows the exact persisted session/lease identity and does not create, renew, recover, replace, or release it. Failed, interrupted, unsettled, expired, missing, mismatched, or dead checkout access is explicitly unavailable; saved completed review remains immutable. |
 | Atomic explicit-file commit and index publication | `DefaultGitService` requests the advertised executor index-transaction capability; the shared host runner owns the worktree-specific exclusive index lock and private alternate index | `SandboxGitCommandExecutor` uses the existing Toolbox command boundary with `execIfRunning`, no automatic retry and no competing outer timeout. The local Node executor runs the same canonical runner. Requested tracked, new and deleted files commit without changing unrelated staged work; rejection discards private state only. Linux execution verifies subreaper/pidfd support, kills adopted descendants and requires kernel waitpid ECHILD plus a separate quiescence acknowledgement before unlock. Ambient Git selectors/config injection are removed; supplied overrides are limited to canonical auth and scoped snapshot indexes. Mac execution requires the existing declared single-process no-fork OS port, including trusted environment/stdin support; without composition, the executor does not advertise mutation support. Publication or transport uncertainty returns `git_commit_indeterminate` and never rewrites immutable artifacts or terminal Turn evidence. |
 
+Artifact-selected local commits pass trusted terminal/baseline trees, an explicit
+branch and expected HEAD to the canonical transaction. Saved tree/blob IDs, modes
+and deletions populate its private commit index; later worktree bytes are not a
+commit source. Conflicting selected staging is rejected without changing the
+original index, while unrelated staged work remains staged.
+The Darwin `createArtifactGitExecutor` advertises its proven index-transaction and
+immutable-artifact guard profile through the actual original grant callback,
+writer lease, native metadata/storage inspection and private-index owner. Actual
+ordinary/linked factory proof covers saved content and staging preservation;
+configured hooks/signing remain typed unsupported before branch publication.
+Named-branch expected-old CAS and subsequent index publication are separate
+operations under the approved conventional trusted-host namespace contract;
+atomic protection against hostile metadata-directory replacement is not claimed.
+Linux artifact content uses saved entries, but its porcelain publication refuses
+an explicit branch guard; generic live-checkout commits retain their behavior.
+`LocalGitService` authorizes canonical admission, terminal lifecycle evidence,
+the existing attempt-bound local artifact store's commit source/start snapshot
+and the retained current workspace lease before calling the Git owner. Desktop
+admission, App Server/SDK/renderer dispatch and installed-product integration
+remain separate composition gates; this leaf alone does not complete Desktop 7B.
+The separately owned read-only callback retains its canonical process types and
+real guardian without advertising immutable-artifact mutation support.
+
+
 This records the approved bounded retention and ownership decision before code
 changes. The retention/alarm implementation is in the separately reviewed
 checkout-retention change and must be present on `dev` before this operation is

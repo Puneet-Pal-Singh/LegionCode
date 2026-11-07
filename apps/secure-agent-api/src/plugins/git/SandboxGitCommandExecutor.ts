@@ -18,6 +18,7 @@ import { withToolboxCommandContext } from "../security/ToolboxCommandContext";
 
 export class SandboxGitCommandExecutor implements GitCommandExecutor {
   readonly supportsIndexTransactions = true as const;
+  readonly supportsArtifactIndexGuard = true as const;
   constructor(
     private readonly sandbox: Sandbox,
     private readonly toolboxContext: ToolboxCommandContext,
