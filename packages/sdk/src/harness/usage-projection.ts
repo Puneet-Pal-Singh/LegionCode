@@ -1,5 +1,9 @@
 import {
   HarnessUsageObservationSchema,
+  HarnessSelectionSchema,
+  type HarnessSelection,
+  HarnessActivityMeasurementSchema,
+  HarnessProviderLimitNotificationSchema,
   type HarnessUsageObservation,
 } from "@repo/platform-protocol";
 import type { LifecycleEvent } from "@repo/platform-protocol";
@@ -27,6 +31,7 @@ export function projectHarnessUsage(
   events: readonly LifecycleEvent[],
 ): HarnessUsageSample | null {
   let latest: HarnessUsageSample | null = null;
+  let conflicting = false;
   for (const event of events) {
     if (
       event.type !== "usage.updated" ||
@@ -38,9 +43,15 @@ export function projectHarnessUsage(
     }
     if (latest === null || event.sequence > latest.sequence) {
       latest = event;
+      conflicting = false;
+    } else if (
+      event.sequence === latest.sequence &&
+      JSON.stringify(event) !== JSON.stringify(latest)
+    ) {
+      conflicting = true;
     }
   }
-  return latest;
+  return conflicting ? null : latest;
 }
 
 /**
@@ -97,23 +108,95 @@ export function projectHarnessAttemptElapsedMs(
   return endMs - startMs;
 }
 
-/** Validate the public read payload and deduplicate exact measurement identities.
- * Conflicting duplicates are excluded, never selected by arrival order or summed. */
+type ProjectedHarnessActivity = Pick<
+  HarnessUsageObservation,
+  "activity" | "providerLimits"
+> & {
+  conflictingMeasurementCount: number;
+  conflictingLimitNotificationCount: number;
+  admittedSelection: HarnessSelection | null;
+  accountMatchesAttempt: boolean | null;
+};
+
+/** Project account telemetry independently of canonical run activity.
+ * Replay/live activity remains available when quota telemetry is absent.
+ * Exact identities are deduplicated; conflicting samples are excluded, never
+ * selected by arrival order or summed. Events do not establish account/payer
+ * identity: only the separately validated account observation supplies that.
+ */
 export function projectHarnessAccountUsage(
   observation: HarnessUsageObservation,
+  scope?: HarnessUsageScope,
+  events?: readonly LifecycleEvent[],
+  admittedSelection?: HarnessSelection | null,
+): HarnessUsageObservation &
+  ProjectedHarnessActivity & { account: HarnessUsageObservation };
+export function projectHarnessAccountUsage(
+  observation: HarnessUsageObservation | null,
+  scope?: HarnessUsageScope,
+  events?: readonly LifecycleEvent[],
+  admittedSelection?: HarnessSelection | null,
+): Partial<HarnessUsageObservation> &
+  ProjectedHarnessActivity & { account: HarnessUsageObservation | null };
+export function projectHarnessAccountUsage(
+  observation: HarnessUsageObservation | null,
+  scope?: HarnessUsageScope,
+  events: readonly LifecycleEvent[] = [],
+  admittedSelection: HarnessSelection | null = null,
 ) {
-  const parsed = HarnessUsageObservationSchema.parse(observation);
+  const parsed =
+    observation === null
+      ? null
+      : HarnessUsageObservationSchema.parse(observation);
+  const selection =
+    admittedSelection === null
+      ? null
+      : HarnessSelectionSchema.parse(admittedSelection);
+  const admitted =
+    selection && scope && matchesScope(selection, scope) ? selection : null;
+  const accountMatchesAttempt =
+    admitted && parsed
+      ? parsed.connectionId === admitted.connectionId &&
+        parsed.environmentId === admitted.environmentId &&
+        parsed.authOwnerGeneration === admitted.authOwnerGeneration &&
+        parsed.billingRoute === admitted.billingSource
+      : null;
+  // A picker/status snapshot cannot reattribute a frozen attempt's activity.
+  const activity =
+    accountMatchesAttempt === false ? [] : [...(parsed?.activity ?? [])];
+  const providerLimits =
+    accountMatchesAttempt === false ? [] : [...(parsed?.providerLimits ?? [])];
+  for (const event of events) {
+    if (scope && !matchesScope(event, scope)) continue;
+    if (event.type === "harness.activity_measured") {
+      const measurement = HarnessActivityMeasurementSchema.parse(
+        event.payload.measurement,
+      );
+      if (
+        matchesScope(measurement, event) &&
+        (!admitted || measurement.instanceId === admitted.instanceId)
+      )
+        activity.push(measurement);
+    } else if (event.type === "harness.provider_limit_notified") {
+      const notification = HarnessProviderLimitNotificationSchema.parse(
+        event.payload.notification,
+      );
+      if (
+        matchesScope(notification, event) &&
+        (!admitted || notification.instanceId === admitted.instanceId)
+      )
+        providerLimits.push(notification);
+    }
+  }
   const measurements = new Map<
     string,
     HarnessUsageObservation["activity"][number]
   >();
   const conflicts = new Set<string>();
-  for (const measurement of parsed.activity) {
+  for (const measurement of activity) {
+    if (scope && !matchesScope(measurement, scope)) continue;
+    if (admitted && measurement.instanceId !== admitted.instanceId) continue;
     const key = JSON.stringify([
-      parsed.connectionId,
-      parsed.accountId,
-      parsed.environmentId,
-      parsed.authOwnerGeneration,
       measurement.threadId,
       measurement.turnId,
       measurement.runAttemptId,
@@ -136,7 +219,9 @@ export function projectHarnessAccountUsage(
     HarnessUsageObservation["providerLimits"][number]
   >();
   const limitConflicts = new Set<string>();
-  for (const notification of parsed.providerLimits) {
+  for (const notification of providerLimits) {
+    if (scope && !matchesScope(notification, scope)) continue;
+    if (admitted && notification.instanceId !== admitted.instanceId) continue;
     const key = JSON.stringify([
       notification.threadId,
       notification.turnId,
@@ -157,13 +242,37 @@ export function projectHarnessAccountUsage(
   }
   return {
     ...parsed,
+    account: parsed,
+    admittedSelection: admitted,
+    accountMatchesAttempt,
     activity: [...measurements.entries()]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(
+        ([a, left], [b, right]) =>
+          Date.parse(right.observedAt) - Date.parse(left.observedAt) ||
+          right.sequence - left.sequence ||
+          (a < b ? -1 : a > b ? 1 : 0),
+      )
       .map(([, value]) => value),
     conflictingMeasurementCount: conflicts.size,
     providerLimits: [...limits.entries()]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(
+        ([a, left], [b, right]) =>
+          Date.parse(right.observedAt) - Date.parse(left.observedAt) ||
+          right.sequence - left.sequence ||
+          (a < b ? -1 : a > b ? 1 : 0),
+      )
       .map(([, value]) => value),
     conflictingLimitNotificationCount: limitConflicts.size,
   };
+}
+
+function matchesScope(
+  value: HarnessUsageScope,
+  scope: HarnessUsageScope,
+): boolean {
+  return (
+    value.threadId === scope.threadId &&
+    value.turnId === scope.turnId &&
+    value.runAttemptId === scope.runAttemptId
+  );
 }
