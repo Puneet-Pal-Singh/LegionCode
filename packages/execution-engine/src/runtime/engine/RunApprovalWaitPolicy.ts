@@ -97,7 +97,7 @@ export async function ensureApprovalResolvedEventRecorded(input: {
   });
 }
 
-function resolveApprovalWaitTimeoutMs(env: RunEngineEnv): number {
+export function resolveApprovalWaitTimeoutMs(env: RunEngineEnv): number {
   const configured = parseOptionalNumber(env.APPROVAL_WAIT_TIMEOUT_MS);
   if (typeof configured === "number" && configured > 0) {
     return configured;
