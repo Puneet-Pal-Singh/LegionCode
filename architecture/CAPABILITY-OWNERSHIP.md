@@ -1217,3 +1217,35 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+## Shared workspace file explorer presentation
+
+The tree renderer, loaded-file filtering, expansion, pagination and stale-request
+isolation move from Web FileExplorer into `client-ui/src/files/FileExplorer.tsx`.
+Web FileExplorer retains AuthContext and the exact hosted checkout identity/offset
+adapter. DesktopWorkspaceFiles supplies the native workspace/cursor SDK adapter;
+its right-panel mount remains pending the Desktop shell owner. Native entry kinds
+remain explicit; symlinks, special and reserved entries are not openable. Runtime,
+workspace grant, file execution and immutable artifact ownership are unchanged.
+The shared read port transports opaque string or numeric cursors without translating
+between native cursor and hosted offset models. No copied Web tree remains.
+
+
+## Plan 057 — Local Thread pin metadata
+
+`LocalThreadService` owns one per-thread metadata mutation queue shared by rename,
+archive, unarchive, pin and unpin. Its composed `LocalThreadPinService` reuses the
+queue-scoped workspace-authorized Thread read and canonical `thread.pinned` /
+`thread.unpinned` events. Matching actions append nothing; changed actions preserve
+the current full Thread metadata, including archived status, and use the actual
+thread-stream sequence for their event key. The queue captures the grant's
+workspace, repository identity and grant timestamp when an action is enqueued;
+optimistic revalidation after awaited reads rejects a changed selection before
+append. This is not an atomic grant-generation lock. Canonical projection applies pin and
+archive events only to their owned metadata fields, preserving runtime/admission
+active Run, active leaf and terminal identity when admission interleaves. Only
+`thread.created` initializes a full Thread snapshot. No pin store or inferred
+activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
+dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
+request/result contract. Hosted dispatch rejects these local commands. Desktop
+sidebar callbacks and visible restart acceptance remain client integration work.
