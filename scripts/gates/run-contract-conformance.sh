@@ -22,6 +22,8 @@ run corepack pnpm --filter @repo/persistence test -- src/canonical-events/Postgr
 run corepack pnpm --filter @repo/workspace-core test -- src/repository.test.ts
 run corepack pnpm --filter @repo/git-service test -- src/GitService.test.ts
 run corepack pnpm --filter @repo/worker-protocol test -- src/protocol.test.ts
+# App Server consumes the canonical Engine package through its built exports.
+run corepack pnpm exec turbo run build --filter=@legioncode/execution-engine
 run corepack pnpm --filter @legioncode/app-server test
 run corepack pnpm --filter @legioncode/sdk test -- \
   src/platform/app-server-client.test.ts \
