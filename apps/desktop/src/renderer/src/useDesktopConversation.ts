@@ -152,6 +152,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
   async function submit(prompt: string): Promise<boolean> {
     const controller = scope.current;
     if (!enabled || !scopeMatches || !controller || controller.signal.aborted || commandPending.current || !historyReady || loading || nextCursor !== null || unsettled) return false;
+    const retryingUnconfirmedRequest = pendingRequest.current !== null;
     // Local contract rejection must never claim a delivery identity or alter
     // conversation errors. Post-dispatch failures below remain unconfirmed.
     const params = LocalTurnStartParamsSchema.safeParse({
@@ -187,10 +188,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       return true;
     } catch (error) {
       if (!controller.signal.aborted && scope.current === controller) {
-        // The App Server rejects this exact code at its boundary before dispatch.
-        if (error instanceof AppServerClientError && error.code === "server_error" && error.serverCode === "protocol_incompatible") {
-          if (pendingRequest.current?.clientRequestId === request.clientRequestId) pendingRequest.current = null;
-          throw new Error("The local runtime needs a compatible Desktop connection. Copy your draft and restart Desktop before retrying.");
+        // This boundary rejection proves only the current attempt was not dispatched.
+        // An earlier uncertain attempt can still have admitted the same identity.
+        if (!retryingUnconfirmedRequest && error instanceof AppServerClientError && error.code === "server_error" && error.serverCode === "protocol_incompatible") {
+          if (pendingRequest.current?.clientRequestId === request.clientRequestId) {
+            pendingRequest.current = null;
+            throw new Error("The local runtime needs a compatible Desktop connection. Copy your draft and restart Desktop before retrying.");
+          }
         }
         setError("Prompt delivery is unconfirmed. Retry the unchanged draft using the same request identity, or reload saved history.");
       }
