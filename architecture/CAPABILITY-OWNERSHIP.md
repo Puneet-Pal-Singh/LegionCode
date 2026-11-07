@@ -1305,6 +1305,24 @@ the shared composer. Local capability availability still gates execution and sav
 review; this presentation migration does not activate an unwired backend or prove
 installed execution, immutable capture or safe commits.
 
+
+### Plan 057 shared workspace chrome and composer preferences
+
+`client-ui/workspace/EnvironmentSummaryMenu` and `WorkspaceReviewControls` own
+Web's existing summary popover and top-right icon presentation. Web retains its
+authenticated branch loader and selector through a render port. Desktop supplies
+its actual granted branch as read-only metadata and explicitly unavailable pull
+request status for the real local thread. Its right-panel header uses the same
+fixed top placement and summary slot as Web, rather than a second row below the
+application header. No hosted repository identity is fabricated.
+
+The existing Web composer preference cache moves unchanged into shared client UI.
+Web and Desktop settings/composer consume the same storage key, defaults, event
+subscription and value parser for these UI preferences. This cache does not own
+thread, runtime, provider credential or lifecycle persistence. Desktop context
+usage receives actual SDK lifecycle context-budget and usage snapshots; missing
+snapshots remain unavailable rather than estimated by the client.
+
 ### Local workspace provider preferences
 
 `LocalProviderPreferences` owns secret-free model visibility and default metadata
