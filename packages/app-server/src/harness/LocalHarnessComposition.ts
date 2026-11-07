@@ -13,6 +13,7 @@ import { LocalGitSnapshots } from "./LocalGitSnapshots.js";
 import { LocalTurnArtifacts } from "./LocalTurnArtifacts.js";
 import { LocalTurnService, type LocalHarnessRuntimeServices, type LocalHarnessRuntimeBinding } from "./LocalTurnService.js";
 import { LocalHarnessExecution } from "./LocalHarnessExecution.js";
+import { settleLocalHarnessAttachment } from "./LocalHarnessSettlement.js";
 
 import { LocalProviderService } from "../local-providers.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "../local-threads.js";
@@ -58,7 +59,8 @@ export class LocalHarnessComposition {
       getWorkspace: () => this.workspaceService.getCurrent(),
     });
     this.providerService = new LocalProviderService({ selectionStore: persistence.providerSelection });
-    this.leases = new LocalWorkspaceLease(persistence, this.workspaceService);
+    this.leases = new LocalWorkspaceLease(persistence, this.workspaceService,
+      (turnId) => this.turnService.hasExecutionOwner(turnId));
     this.gitSnapshots = new LocalGitSnapshots(persistence, this.workspaceService, this.threadService);
     this.artifacts = storageDirectory ? new LocalTurnArtifacts(persistence, storageDirectory) : undefined;
     this.harnessOperations = new LocalHarnessOperations({
@@ -77,6 +79,10 @@ export class LocalHarnessComposition {
     this.turnService = new LocalTurnService({
       persistence, threads: this.threadService, workspace: this.workspaceService, leases: this.leases,
       harnessOperations: this.harnessOperations,
+      settleExecution: (admission) => settleLocalHarnessAttachment({
+        admission, persistence: this.persistence, leases: this.leases,
+        releaseAfterCanonicalSettlement: (session) => this.harnessExecution.releaseAfterCanonicalSettlement(session),
+      }),
       readDiff: async (turnId) => {
         if (!this.artifacts) throw new AppServerOperationError(503, "server_unavailable", "Local artifact storage is unavailable");
         return this.artifacts.readDiff(turnId);

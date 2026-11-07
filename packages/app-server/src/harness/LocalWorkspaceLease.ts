@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { LeaseIdSchema, type HarnessSelection, type LeaseId, type LifecycleEvent } from "@repo/platform-protocol";
+import { ArtifactMetadataSchema, JsonRecordSchema, LeaseIdSchema, TurnWorkspaceSnapshotSchema,
+  type EventId, type HarnessSelection, type LeaseId, type LifecycleEvent, type TurnId } from "@repo/platform-protocol";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { LocalWorkspaceService } from "../local-workspace.js";
@@ -10,7 +11,8 @@ import type { LocalWorkspaceService } from "../local-workspace.js";
  */
 export class LocalWorkspaceLease {
   private queue: Promise<void> = Promise.resolve();
-  constructor(private readonly persistence: LocalPersistence, private readonly workspace: LocalWorkspaceService) {}
+  constructor(private readonly persistence: LocalPersistence, private readonly workspace: LocalWorkspaceService,
+    private readonly hasExecutionOwner: (turnId: TurnId) => boolean) {}
   leaseId(admission: TurnAdmission): LeaseId {
     const key = `${admission.run.workspaceId}:${admission.runAttemptId}`;
     return LeaseIdSchema.parse(`lease_${createHash("sha256").update(key).digest("hex").slice(0, 32)}`);
@@ -25,7 +27,13 @@ export class LocalWorkspaceLease {
       for (const event of turns) {
         if (event.type !== "turn.started" || event.payload.turn.id === candidate.turn.id) continue;
         const prior = await this.persistence.turnAdmissions.getByTurn(event.payload.turn.id);
-        if (prior && prior.run.executionCapability !== "conversation") await this.assertSettled(prior);
+        if (prior && prior.run.executionCapability !== "conversation") {
+          // A retirement commit may have succeeded with an unknown return value.
+          // Do not bypass the retained runtime owner merely because replay now
+          // shows a cleared attachment. That owner still requires reconciliation.
+          if (this.hasExecutionOwner(prior.turn.id)) throw new Error("Local checkout retains its active execution owner");
+          await this.assertSettled(prior);
+        }
       }
       return this.persistence.turnAdmissions.admit(candidate);
     });
@@ -45,28 +53,56 @@ export class LocalWorkspaceLease {
     }
   }
   async assertSettled(admission: TurnAdmission): Promise<void> {
+    await this.assertArtifactsCommitted(admission);
+    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
+      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+    if (binding?.attachment) {
+      throw new Error("Local checkout lease retains its external stream until canonical integrity retirement is verified");
+    }
+  }
+
+  /** Canonical terminal/artifact precondition for the owner-driven release path.
+   * Passing this check alone never retires an external stream or releases a lease.
+   */
+  async assertArtifactsCommitted(admission: TurnAdmission): Promise<EventId> {
     const history = await this.history(admission);
     const terminal = history.at(-1);
     if (!terminal || !["turn.completed", "turn.failed", "turn.interrupted"].includes(terminal.type)) {
       throw new Error("Local checkout is retained by an unsettled admitted attempt");
     }
     const events = await this.persistence.events.listAll();
-    const artifacts = events.filter((event) => event.type === "artifact.created" && event.runId === admission.run.id);
+    const artifacts = events.filter((event) => event.type === "artifact.created").filter((event) =>
+      event.runId === admission.run.id && event.threadId === admission.run.threadId &&
+      event.workspaceId === admission.run.workspaceId && event.payload.artifact.metadata.createdBy === admission.run.userId &&
+      event.payload.artifact.payloadRef.backend === "local_blob" && event.payload.artifact.payloadRef.sha256 !== null &&
+      event.payload.artifact.payloadRef.objectKey === `sha256:${event.payload.artifact.payloadRef.sha256}`);
     const hasStartEvidence = history.some((event) => event.type === "workspace.snapshot_captured") || artifacts.length > 0;
-    // A canonical pre-execution failure/Stop with no start evidence cannot have launched a provider.
-    if (!hasStartEvidence && terminal.type !== "turn.completed") return;
-    const snapshot = artifacts.some((event) => event.type === "artifact.created" &&
-      event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.phase === "snapshot:terminal");
-    const diff = artifacts.some((event) => event.type === "artifact.created" &&
-      event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.role === "turn_diff");
-    if (!snapshot || !diff) throw new Error("Local checkout lease retains ownership until immutable artifact settlement");
     const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
       turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
-    if (binding?.attachment) {
-      // Core's sticky stream-integrity marker cannot be cleared by physical
-      // quiescence/artifacts alone. P04/P11 must supply canonical retirement proof.
-      throw new Error("Local checkout lease retains its external stream until canonical integrity retirement is verified");
-    }
+    // A learned attachment invalidates the pre-start exemption even when start
+    // evidence is missing. Missing evidence must retain, never release, ownership.
+    if (!hasStartEvidence && !binding?.attachment && terminal.type !== "turn.completed") return terminal.eventId;
+    const snapshot = artifacts.find((event) => event.payload.artifact.kind === "workspace_snapshot" &&
+      event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.phase === "snapshot:terminal");
+    const diff = artifacts.find((event) => event.payload.artifact.kind === "diff" &&
+      event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.role === "turn_diff");
+    if (!snapshot || !diff) throw new Error("Local checkout lease retains ownership until immutable artifact settlement");
+    const snapshotReferenced = history.some((event) => {
+      if (event.type !== "workspace.snapshot_captured") return false;
+      const wrapper = JsonRecordSchema.safeParse(event.payload.snapshot);
+      if (!wrapper.success) return false;
+      const captured = TurnWorkspaceSnapshotSchema.safeParse(wrapper.data.snapshot);
+      const artifact = ArtifactMetadataSchema.safeParse(wrapper.data.artifact);
+      return captured.success && captured.data.turnId === admission.turn.id && captured.data.phase === "terminal" &&
+        artifact.success && JSON.stringify(artifact.data) === JSON.stringify(snapshot.payload.artifact);
+    });
+    const diffReferenced = history.some((event) => {
+      if (event.type !== "artifact.created") return false;
+      const artifact = ArtifactMetadataSchema.safeParse(event.payload.artifact);
+      return artifact.success && JSON.stringify(artifact.data) === JSON.stringify(diff.payload.artifact);
+    });
+    if (!snapshotReferenced || !diffReferenced) throw new Error("Local terminal artifacts have no matching canonical lifecycle references");
+    return terminal.eventId;
   }
   private async history(admission: TurnAdmission): Promise<LifecycleEvent[]> {
     const history: LifecycleEvent[] = [];
