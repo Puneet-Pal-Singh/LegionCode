@@ -93,6 +93,7 @@ export class NativeFilesystemBridge {
             1,
             "Invalid native metadata identity encoding",
           );
+        input.signal.throwIfAborted();
         return parseNativeGitMetadataIdentity(bytes.toString("ascii"));
       },
     );
