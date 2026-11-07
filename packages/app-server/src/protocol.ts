@@ -73,6 +73,33 @@ import {
 } from "@repo/shared-types";
 import { z } from "zod";
 
+// A 24k UTF-16 prompt can use six JSON bytes per code unit before envelope metadata.
+export const MAX_LOCAL_APP_SERVER_REQUEST_BYTES = 256 * 1024;
+export const LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER = "x-legioncode-image-request";
+// Four images, at most 5 MiB each and 10 MiB decoded in total. Base64 is ASCII;
+// the normal request budget separately covers text and escaped image metadata.
+export const MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES =
+  4 * Math.ceil((10 * 1024 * 1024) / 3) + MAX_LOCAL_APP_SERVER_REQUEST_BYTES;
+
+/** Budget eligibility only. The canonical start schema and shared media codec
+ * still validate/decode/normalize every image before storage or admission. */
+export function isLocalAppServerImageRequest(request: AppServerRequest): boolean {
+  return request.method === "turn/start" && "images" in request.params &&
+    Array.isArray(request.params.images) && request.params.images.length > 0 &&
+    request.params.images.length <= 4;
+}
+export function localAppServerRequestByteLimit(request: AppServerRequest): number {
+  return isLocalAppServerImageRequest(request)
+    ? MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES : MAX_LOCAL_APP_SERVER_REQUEST_BYTES;
+}
+export function assertLocalAppServerRequestBudget(request: AppServerRequest, serialized?: string): void {
+  const body = serialized ?? JSON.stringify(request);
+  const limit = localAppServerRequestByteLimit(request);
+  if (body.length > limit || new TextEncoder().encode(body).byteLength > limit) {
+    throw new Error("Local App Server request exceeds its method byte budget");
+  }
+}
+
 const GitRequestContextSchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1).optional(),
