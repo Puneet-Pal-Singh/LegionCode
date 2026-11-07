@@ -137,7 +137,7 @@ export function createPostgresHostedHarnessControlPlane(
           // The revoked credential row is the durable fence. Enumerate canonical
           // bindings, including startup/recovery and archived/inactive sessions;
           // a session's current activeRunId is not the process ownership ledger.
-          const active = await withBrainPersistenceRepository(
+          const ownership = await withBrainPersistenceRepository(
             env,
             undefined,
             (client) => client,
@@ -148,12 +148,13 @@ export function createPostgresHostedHarnessControlPlane(
               );
               if (!revoked.rows[0]) throw missing();
               const candidates = await client.query<{ turn_id: string }>(
-                `SELECT a.turn_id FROM harness_bindings b
-                 JOIN canonical_turn_admissions a ON a.turn_id=b.turn_id AND a.run_attempt_id=b.run_attempt_id
+                `SELECT a.turn_id FROM canonical_turn_admissions a
                  JOIN sessions s ON s.id=a.session_id
-                 WHERE b.user_id=$1 AND s.user_id::text=$1
-                   AND a.admission_state='admitted' AND a.execution_state <> 'settled'
-                   AND (b.selection_json->>'selectionJson')::jsonb->>'connectionId'=$2
+                 LEFT JOIN harness_bindings b ON a.turn_id=b.turn_id AND a.run_attempt_id=b.run_attempt_id AND b.user_id=$1
+                 WHERE s.user_id::text=$1 AND a.admission_state='admitted'
+                   AND (a.execution_claim_id IS NOT NULL OR b.turn_id IS NOT NULL)
+                   AND ((b.selection_json->>'selectionJson')::jsonb->>'connectionId'=$2
+                     OR a.harness_admission_receipt_json->'capture'->'selection'->>'connectionId'=$2)
                  ORDER BY a.turn_id LIMIT 1001`,
                 [scope.userId, connectionId],
               );
@@ -165,13 +166,13 @@ export function createPostgresHostedHarnessControlPlane(
               const bindings = new PostgresHarnessBindingRepository(client);
               const authority = new PostgresHarnessAdmissionBindingPort(client);
               const targets = [];
+              let ambiguousOwnership = false;
               for (const { turn_id } of candidates.rows) {
                 const admission = await admissions.getByTurnId(turn_id);
                 if (
                   !admission ||
                   admission.userId !== scope.userId ||
-                  admission.state !== "admitted" ||
-                  admission.executionState === "settled"
+                  admission.state !== "admitted"
                 )
                   continue;
                 if (
@@ -185,7 +186,12 @@ export function createPostgresHostedHarnessControlPlane(
                   turnId: admission.turnId,
                   runAttemptId: admission.runAttemptId,
                 });
-                if (!stored) throw missing();
+                if (!stored) {
+                  // A claimed opening without its binding/learned session has an
+                  // unknown external outcome. Never fabricate a session to stop it.
+                  ambiguousOwnership = true;
+                  continue;
+                }
                 const selection = HarnessSelectionSchema.parse(
                   JSON.parse(stored.selection.selectionJson),
                 );
@@ -249,11 +255,18 @@ export function createPostgresHostedHarnessControlPlane(
                 // Address the canonical attempt even before attachment/startup.
                 // Runtime/host proof that every generation quiesces remains a
                 // release gate; enumeration is not physical termination evidence.
-                targets.push(admission);
+                if (admission.executionState === "settled") {
+                  // A terminal admission cannot prove its attached processes or
+                  // ambiguous opening are physically quiescent/released.
+                  ambiguousOwnership = true;
+                } else {
+                  targets.push(admission);
+                }
               }
-              return targets;
+              return { targets, ambiguousOwnership };
             },
           );
+          const { targets: active, ambiguousOwnership } = ownership;
           // No credential/admission locks or live SQL port cross into RPC work.
           const commands = composeHostedTurnCommands(env, scope.userId);
           for (const attempt of active) {
@@ -266,13 +279,15 @@ export function createPostgresHostedHarnessControlPlane(
               runAttemptId: attempt.runAttemptId,
               reason: "Selected provider connection was revoked",
             });
-            const result = await commands.interruptTurn(params);
-            if (!result.accepted && result.status !== "settled")
-              throw unavailable(
-                "Credential revoked; execution Stop is pending",
-              );
+            await commands.interruptTurn(params);
+            // Neither accepted nor status=settled proves physical quiescence.
           }
-          // Stop acceptance is not quiescence; runtime retains leases through settlement.
+          if (active.length > 0 || ambiguousOwnership)
+            throw unavailable(
+              "Credential revoked; physical process cleanup is pending",
+            );
+          // Tombstone and existing leases remain with their canonical owners.
+          // This API has no physical/observation proof port to discharge cleanup.
         },
       },
     );
