@@ -18,7 +18,7 @@ describe("hosted App Server integration", () => {
               headers: { "content-type": "application/json" },
               body: JSON.stringify(envelope),
             }),
-            {} as Env,
+            { APP_SERVER_ENVIRONMENT_ID: "env_123e4567-e89b-42d3-a456-426614174111" } as Env,
           );
           return await response.json();
         },
@@ -27,6 +27,7 @@ describe("hosted App Server integration", () => {
 
     await expect(client.initialize(["thread-management-v1"])).resolves.toMatchObject({
       environment: "hosted",
+      environmentId: "env_123e4567-e89b-42d3-a456-426614174111",
       server: { id: "legioncode-hosted" },
       unavailableCapabilities: [],
     });
@@ -66,6 +67,9 @@ describe("hosted App Server integration", () => {
       serverCode: "unauthorized",
       method: "artifact/codeContent",
       serverError: { statusCode: 401, operationCode: "AUTH_FAILED", retryable: false },
+    });
+    await expect(client.harness.status({ workspaceId: "123e4567-e89b-42d3-a456-426614174111", environmentId: "cloud-1" })).rejects.toMatchObject({
+      code: "server_error", serverCode: "unauthorized", method: "harness/status",
     });
     const checkout = { turnId: TurnIdSchema.parse("trn_123456"), runAttemptId: RunAttemptIdSchema.parse("attempt_123456"), runId: RunIdSchema.parse("run_123456"), sessionId: "session-123456", path: "README.md" };
     await expect(client.listCheckoutFiles(checkout)).rejects.toMatchObject({ serverCode: "unauthorized", method: "checkout/listFiles" });

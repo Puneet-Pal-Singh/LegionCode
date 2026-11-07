@@ -1,11 +1,10 @@
+import { settleUnclaimedStartupFailure } from "./AdmittedTurnStartupFailure";
+export { settleUnclaimedStartupFailure } from "./AdmittedTurnStartupFailure";
+import { isDelegatedChat, assertHostedChatEnvironment } from "../chat/ChatExecutionStrategy";
 import type { RunRecord } from "@repo/persistence";
 import type {
   ResumeWorkspaceSnapshotRef,
   TurnScopeBootstrap,
-} from "@repo/platform-protocol";
-import {
-  workspaceIdFromExternalId,
-  type ProtocolError,
 } from "@repo/platform-protocol";
 import { HandleChatRequest } from "../../application/chat/HandleChatRequest";
 import type { Env } from "../../types/ai";
@@ -18,9 +17,6 @@ import { mapAgentIdToType } from "../../controllers/chat-request-helpers";
 import { resolveChatModelMetadata } from "../chat/ChatModelMetadataResolution";
 import { validateChatReasoningEffort } from "../chat/ChatReasoningEffortPolicy";
 import type { ChatModelMetadata } from "../chat/ChatModelMetadataResolver";
-import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
-import { BrainLifecycleEventStore } from "../lifecycle/BrainLifecycleEventStore";
-import { settleOwnedStartupFailure } from "../../runtime/RuntimeLifecycleSettlement";
 import { sanitizeUnknownError } from "../../core/security/LogSanitizer";
 import { ExecuteRunPayloadSchema } from "../../runtime/parsing/ExecuteRunPayloadSchema";
 import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
@@ -45,6 +41,7 @@ export interface AdmittedTurnExecution {
     readonly reasoningEffort?: import("@repo/shared-types").ReasoningEffort;
     readonly productMode?: import("@repo/shared-types").ProductMode;
     readonly harnessId?: "cloudflare-sandbox" | "local-sandbox";
+    readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   };
   readonly modelMetadata?: ChatModelMetadata;
   readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
@@ -63,6 +60,9 @@ export async function prepareAdmittedTurnModel(input: {
   readonly workspaceId: string;
   readonly configuration: AdmittedTurnExecution["configuration"];
 }): Promise<ChatModelMetadata> {
+  assertHostedChatEnvironment(input.configuration.harnessSelection, input.env.APP_SERVER_ENVIRONMENT_ID);
+  // No Native model discovery or reasoning-policy calls for an external loop.
+  if (isDelegatedChat(input.configuration)) return {};
   const modelMetadata = await resolveChatModelMetadata({
     providerId:
       input.configuration.providerId ?? input.run.providerId ?? undefined,
@@ -94,6 +94,7 @@ export async function dispatchAdmittedTurn(
       ReturnType<HandleChatRequest["execute"]>
     >["executionPayload"];
     try {
+      const delegated = isDelegatedChat(input.configuration, input.correlationId);
       const modelMetadata =
         input.modelMetadata ?? (await prepareAdmittedTurnModel(input));
       const promptMessage = {
@@ -112,11 +113,10 @@ export async function dispatchAdmittedTurn(
           mode: toRuntimeRunMode(input.configuration.mode ?? input.run.mode),
           prompt: input.prompt,
           messages: [promptMessage],
-          providerId:
-            input.configuration.providerId ?? input.run.providerId ?? undefined,
-          modelId:
-            input.configuration.modelId ?? input.run.modelId ?? undefined,
+          providerId: delegated ? undefined : input.configuration.providerId ?? input.run.providerId ?? undefined,
+          modelId: delegated ? input.configuration.harnessSelection?.selection?.modelId : input.configuration.modelId ?? input.run.modelId ?? undefined,
           harnessId: input.configuration.harnessId,
+          harnessSelection: input.configuration.harnessSelection,
           productMode: input.configuration.productMode,
           reasoningEffort: input.configuration.reasoningEffort,
           contextWindowTokens: modelMetadata.contextWindow,
@@ -133,6 +133,7 @@ export async function dispatchAdmittedTurn(
           preAdmitted: {
             run: input.run,
             promptMessageId: input.promptMessageId,
+            harnessSelection: input.configuration.harnessSelection,
             ...(input.resumeSnapshotRef
               ? { resumeSnapshotRef: input.resumeSnapshotRef }
               : {}),
@@ -193,126 +194,6 @@ export async function dispatchAdmittedTurn(
   });
   if (input.executionContext) input.executionContext.waitUntil(task);
   else await task;
-}
-
-export async function settleUnclaimedStartupFailure(input: {
-  readonly env: Env;
-  readonly userId: string;
-  readonly sessionId: string;
-  readonly run: RunRecord;
-  readonly workspaceId: string;
-  readonly identity: TurnScopeBootstrap;
-  readonly correlationId: string;
-  readonly error: unknown;
-}): Promise<boolean> {
-  const claimId = crypto.randomUUID();
-  let claim;
-  try {
-    claim = await withTurnAdmissionRepository(input.env, (repository) =>
-      repository.claimExecution({
-        turnId: input.identity.turnId,
-        runAttemptId: input.identity.runAttemptId,
-        runId: input.run.id,
-        sessionId: input.sessionId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        threadId: input.identity.threadId,
-        claimId,
-      }),
-    );
-  } catch (error) {
-    console.error(
-      "[thread-input/startup] could not claim pre-dispatch failure",
-      {
-        correlationId: input.correlationId,
-        turnId: input.identity.turnId,
-        error: sanitizeUnknownError(error),
-      },
-    );
-    return false;
-  }
-  if (claim.status !== "claimed") {
-    console.warn(
-      "[thread-input/startup] pre-dispatch failure could not claim admitted turn",
-      {
-        correlationId: input.correlationId,
-        turnId: input.identity.turnId,
-        claimStatus: claim.status,
-      },
-    );
-    return false;
-  }
-
-  const failure: ProtocolError = {
-    code: "workspace_prepare_failed",
-    message: sanitizeStartupFailure(input.error),
-    retryable: true,
-    correlationId: input.correlationId || null,
-    details: null,
-  };
-  let result;
-  try {
-    result = await settleOwnedStartupFailure({
-      store: new BrainLifecycleEventStore(input.env),
-      claim: { turnId: input.identity.turnId, claimId },
-      identity: {
-        turnId: input.identity.turnId,
-        runAttemptId: input.identity.runAttemptId,
-        threadId: input.identity.threadId,
-        workspaceId: workspaceIdFromExternalId(input.workspaceId),
-        admittedWorkspaceId: input.workspaceId,
-        userId: input.userId,
-        sessionId: input.sessionId,
-        runId: input.run.id,
-        correlationId: input.correlationId,
-        ...(input.identity.revisionOfTurnId
-          ? { revisionOfTurnId: input.identity.revisionOfTurnId }
-          : {}),
-        ...(input.identity.continuationOfTurnId
-          ? { continuationOfTurnId: input.identity.continuationOfTurnId }
-          : {}),
-        ...(input.identity.originalPromptId
-          ? { originalPromptId: input.identity.originalPromptId }
-          : {}),
-      },
-      markRecoveryRequired: (executionClaim) =>
-        withTurnAdmissionRepository(input.env, (repository) =>
-          repository.markRecoveryRequired(executionClaim),
-        ),
-      readAdmission: () =>
-        withTurnAdmissionRepository(input.env, (repository) =>
-          repository.getByTurnId(input.identity.turnId),
-        ),
-      interruptReason: null,
-      failure,
-    });
-  } catch (error) {
-    console.error("[thread-input/startup] admitted turn settlement failed", {
-      correlationId: input.correlationId,
-      turnId: input.identity.turnId,
-      error: sanitizeUnknownError(error),
-    });
-    return false;
-  }
-  if (result.status !== "settled" && result.status !== "terminal_exists") {
-    console.error(
-      "[thread-input/startup] admitted turn settlement requires recovery",
-      {
-        correlationId: input.correlationId,
-        turnId: input.identity.turnId,
-        settlementStatus: result.status,
-      },
-    );
-    return false;
-  }
-  return true;
-}
-
-function sanitizeStartupFailure(error: unknown): string {
-  return (
-    sanitizeUnknownError(error).slice(0, 10_000) ||
-    "Runtime setup failed before execution began."
-  );
 }
 
 export async function readRunTerminal(

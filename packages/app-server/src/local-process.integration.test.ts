@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "./protocol.js";
 import { createLocalAppServer } from "./local-process.js";
+import { LocalHarnessComposition } from "./harness/LocalHarnessComposition.js";
 import { handleAppServerHttpRequest } from "./server.js";
 import { LocalThreadService } from "./local-threads.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
@@ -21,6 +22,7 @@ import {
   LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ThreadSchema,
+  ThreadIdSchema,
 } from "@repo/platform-protocol";
 import { getBuiltinRegistry, builtinProviderRegistry } from "@repo/provider-core";
 
@@ -43,6 +45,8 @@ describe("local App Server HTTP integration", () => {
       requestedCapabilities: ["workspace-selection-v1"],
     });
     expect(initialize).toMatchObject({ ok: true, method: "initialize", result: { environment: "local" } });
+    const environmentId = (initialize as { result: { environmentId: string } }).result.environmentId;
+    expect(environmentId).toMatch(/^env_[a-f0-9-]{36}$/);
 
     const grant = await send(baseUrl, "workspace/grant", { path: workspacePath });
     expect(grant).toMatchObject({ ok: true, method: "workspace/grant", result: { grant: { readiness: "ready" } } });
@@ -60,6 +64,42 @@ describe("local App Server HTTP integration", () => {
     });
 
     await close(firstServer);
+    // The same writer/services prepare the host without borrowing a renderer path
+    // or launching any provider work before runtime admission.
+    const persistence = new LocalPersistence({ storageDirectory });
+    try {
+      const local = new LocalHarnessComposition(persistence);
+      const instanceDirectory = join(storageDirectory, "harness-instance");
+      await mkdir(instanceDirectory);
+      const journalDirectory = join(storageDirectory, "harness-journal");
+      await mkdir(journalDirectory);
+      let policyCalls = 0;
+      const host = await local.createHost(ThreadIdSchema.parse(threadId), {
+        instanceDirectory,
+        journalDirectory,
+        inheritedEnvironment: { HOME: homedir(), OPENAI_API_KEY: "ambient-secret-sentinel" },
+        selectedEnvironment: {},
+        launchPolicy: {
+          assertEnforced: async () => undefined,
+          launch: async () => {
+            policyCalls += 1;
+            throw new Error("OS policy denied launch");
+          },
+        },
+      });
+      expect(host.workspaceRoot).toBe(await realpath(workspacePath));
+      expect(host.environment).toEqual({ HOME: homedir() });
+      expect(policyCalls).toBe(0);
+      await expect(host.launch({ executable: process.execPath, args: [] }))
+        .rejects.toMatchObject({ code: "invalid_launch", message: "invalid_launch" });
+      expect(policyCalls).toBe(1);
+      await local.workspaceService.revoke();
+      await expect(host.launch({ executable: process.execPath, args: [] })).rejects.toThrow();
+      expect(policyCalls).toBe(1);
+      await local.workspaceService.grant({ path: workspacePath });
+    } finally {
+      persistence.close();
+    }
     // Seed persisted runtime envelopes: this check exercises replay, not execution.
     const turnId = createTurnId();
     const runAttemptId = createRunAttemptId();
@@ -86,6 +126,9 @@ describe("local App Server HTTP integration", () => {
     } finally { persisted.close(); }
     const restarted = await start(storageDirectory);
     const restartedUrl = serverUrl(restarted);
+    await expect(send(restartedUrl, "initialize", { client: { id: "test-client", version: "0.1.0" }, requestedCapabilities: [] })).resolves.toMatchObject({
+      ok: true, result: { environmentId },
+    });
     await expect(send(restartedUrl, "thread/list", {})).resolves.toMatchObject({
       ok: true,
       result: { threads: [{ id: threadId, title: "Renamed", status: "active" }] },

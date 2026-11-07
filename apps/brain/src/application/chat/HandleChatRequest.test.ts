@@ -1,3 +1,4 @@
+import { HarnessAdmissionSelectionSchema } from "@repo/platform-protocol";
 import type { CoreMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
@@ -17,6 +18,7 @@ describe("HandleChatRequest", () => {
     vi.spyOn(PersistenceService.prototype, "admitUserTurn").mockImplementation(
       async (input) => ({
         id: "message-admitted",
+        harnessSelection: input.harnessSelection,
         run: {
           id: input.runId,
           providerId: input.providerId ?? null,
@@ -326,7 +328,12 @@ describe("HandleChatRequest", () => {
 
   it("honors explicit runtime selection overrides in execution payload", async () => {
 
-    const useCase = new HandleChatRequest(createEnv());
+    const environmentId = "env_123e4567-e89b-42d3-a456-426614174111";
+    const harnessSelection = HarnessAdmissionSelectionSchema.parse({
+      environmentId, selectionRevision: 1,
+      selection: { harness: "codex", instanceId: "codex-personal", connectionId: "connection-1", modelId: "gpt-5" },
+    });
+    const useCase = new HandleChatRequest(createEnv({ APP_SERVER_ENVIRONMENT_ID: environmentId }));
     const result = await executeChat(useCase, {
       sessionId: "session-1",
       runId: "123e4567-e89b-42d3-a456-426614174000",
@@ -337,6 +344,7 @@ describe("HandleChatRequest", () => {
       orchestratorBackend: "cloudflare_agents",
       executionBackend: "e2b",
       harnessMode: "delegated",
+      harnessSelection,
       authMode: "oauth",
     });
 
@@ -346,6 +354,15 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.executionBackend).toBe("e2b");
     expect(result.executionPayload.input.harnessMode).toBe("delegated");
     expect(result.executionPayload.input.authMode).toBe("oauth");
+    expect(result.executionPayload.input.harnessSelection).toEqual(harnessSelection);
+    expect(result.executionPayload.input.providerId).toBeUndefined();
+    expect(result.executionPayload.input.modelId).toBeUndefined();
+    expect(result.executionPayload.input.runtimeModelId).toBeUndefined();
+    expect(DurableConversationContextAssembler.prototype.assemble).not.toHaveBeenCalled();
+    await expect(executeChat(useCase, {
+      sessionId: "session-1", runId: "123e4567-e89b-42d3-a456-426614174000", correlationId: "corr-unbound", agentType: "coding",
+      prompt: "hello", messages: [{ role: "user", content: "hello" }], harnessMode: "delegated",
+    })).rejects.toMatchObject({ code: "HARNESS_SELECTION_REQUIRED" });
   });
 
   it("propagates GitHub CLI feature flags into run metadata", async () => {

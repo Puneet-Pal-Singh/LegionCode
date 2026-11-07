@@ -14,6 +14,7 @@ import {
   AppServerOperationError,
   AppServerMethodOutcome,
   type AppServerComposition,
+  type HarnessOperations,
 } from "@legioncode/app-server/server";
 import { isDomainError, mapDomainErrorToHttp } from "../../domain/errors";
 import { ChatMediaStore } from "../../services/chat/ChatMediaStore";
@@ -52,11 +53,12 @@ export function composeHostedThreadInputOperations(
   env: Env,
   userId: string,
   executionContext?: ExecutionContext,
+  harnessOperations?: HarnessOperations,
 ): HostedThreadInputOperationsService {
   return {
     execute: async (command) => {
       try {
-        return await executeCommand({ request, env, userId, executionContext, command });
+        return await executeCommand({ request, env, userId, executionContext, command, harnessOperations });
       } catch (error) {
         if (error instanceof OutcomeError) return error.outcome;
         const mapped = mapThreadInputError(error);
@@ -72,6 +74,7 @@ async function executeCommand(input: {
   env: Env;
   userId: string;
   executionContext?: ExecutionContext;
+  harnessOperations?: HarnessOperations;
   command: ThreadInputCommand;
 }): Promise<HostedThreadInputOutcome> {
   const { command, env, request, userId, executionContext } = input;
@@ -79,7 +82,7 @@ async function executeCommand(input: {
   switch (command.operation) {
     case "turn.resume": {
       const scope = await resolveThreadScope(env, userId, command);
-      const result = await new ThreadInputCommandService(env).resume({
+      const result = await new ThreadInputCommandService(env, input.harnessOperations).resume({
         request,
         executionContext,
         userId,
@@ -102,7 +105,7 @@ async function executeCommand(input: {
       return enqueueThreadInput({ ...input, command, correlationId });
     case "thread.input.start": {
       const scope = await resolveThreadScope(env, userId, command);
-      const result = await new ThreadInputCommandService(env).startQueuedInput({
+      const result = await new ThreadInputCommandService(env, input.harnessOperations).startQueuedInput({
         request,
         executionContext,
         userId,
@@ -318,6 +321,7 @@ async function enqueueThreadInput(input: {
   env: Env;
   userId: string;
   executionContext?: ExecutionContext;
+  harnessOperations?: HarnessOperations;
   command: Extract<ThreadInputCommand, { operation: "thread.input.enqueue" }>;
   correlationId: string;
 }): Promise<HostedThreadInputOutcome> {
@@ -365,7 +369,7 @@ async function enqueueThreadInput(input: {
       );
       if (next) {
         try {
-          await new ThreadInputCommandService(env).startQueuedInput({
+          await new ThreadInputCommandService(env, input.harnessOperations).startQueuedInput({
             request,
             executionContext,
             userId,

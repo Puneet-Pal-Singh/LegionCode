@@ -391,6 +391,48 @@ export type {
   HostedWorkspaceListResponse,
 } from "@repo/platform-protocol";
 
+export {
+  projectHarnessUsage,
+  projectHarnessAccountUsage,
+  projectHarnessAttemptElapsedMs,
+  type HarnessUsageScope,
+  type HarnessUsageSample,
+} from "./harness/usage-projection.js";
+
+export {
+  HarnessUsageObservationSchema, type HarnessUsageObservation,
+  HarnessProviderLimitNotificationSchema, type HarnessProviderLimitNotification,
+  type HarnessActivityMeasurement, type HarnessAccountQuota, type HarnessBillingRoute,
+} from "@repo/platform-protocol";
+
+export { createHarnessClient, type HarnessClient } from "./harness/client.js";
+export {
+  HarnessSetupRequestSchema,
+  HarnessSetupResponseSchema,
+  HarnessStatusRequestSchema,
+  HarnessStatusResponseSchema,
+  HarnessModelsRequestSchema,
+  HarnessModelsResponseSchema,
+  HarnessSelectionReadRequestSchema,
+  HarnessSelectRequestSchema,
+  HarnessSelectionResponseSchema,
+  HarnessNextSelectionSchema,
+  HarnessInstanceStatusSchema,
+  type HarnessSetupRequest,
+  type HarnessSetupResponse,
+  type HarnessStatusRequest,
+  type HarnessStatusResponse,
+  type HarnessModelsRequest,
+  type HarnessModelsResponse,
+  type HarnessSelectionReadRequest,
+  type HarnessSelectRequest,
+  type HarnessSelectionResponse,
+  type HarnessNextSelection,
+  type HarnessInstanceStatus,
+} from "@repo/platform-protocol";
+
+export { AppServerEnvironmentIdSchema } from "@repo/platform-protocol";
+
 export type {
   LocalWorkspaceFileEntry,
   LocalWorkspaceListFilesResult,

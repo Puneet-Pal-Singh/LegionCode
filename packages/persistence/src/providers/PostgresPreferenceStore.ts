@@ -39,6 +39,28 @@ export class PostgresPreferenceStore implements PreferenceStore {
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
+    const current = await this.getPreferences();
+    const providerId = patch.defaultProviderId ?? current.defaultProviderId;
+    const selectedId =
+      patch.defaultCredentialId ??
+      (patch.defaultProviderId !== undefined &&
+      patch.defaultProviderId !== current.defaultProviderId
+        ? undefined
+        : current.defaultCredentialId);
+    if (
+      selectedId !== undefined &&
+      (patch.defaultCredentialId !== undefined ||
+        patch.defaultProviderId !== undefined)
+    ) {
+      const owned = await this.client.query<{ id: string }>(
+        "SELECT id FROM provider_credentials WHERE id = $1 AND user_id = $2 AND provider_id = $3 AND credential_kind = 'api_key' AND status = 'connected' AND deleted_at IS NULL",
+        [selectedId, this.userId, providerId ?? null],
+      );
+      if (!owned.rows[0])
+        throw new Error(
+          "Default credential is not an owned connected API-key connection",
+        );
+    }
     const result = await this.client.query<PreferenceRow>(
       UPSERT_PREFERENCES_SQL,
       [
@@ -53,6 +75,9 @@ export class PostgresPreferenceStore implements PreferenceStore {
         patch.defaultProviderId !== undefined,
         patch.defaultModelId !== undefined,
         patch.visibleModelIds !== undefined,
+        selectedId ?? null,
+        patch.defaultCredentialId !== undefined ||
+          patch.defaultProviderId !== undefined,
       ],
     );
 
@@ -121,6 +146,7 @@ export class PostgresPreferenceStore implements PreferenceStore {
 
     return {
       defaultProviderId: row.default_provider_id ?? undefined,
+      defaultCredentialId: row.default_credential_id ?? undefined,
       defaultModelId: row.default_model_id ?? undefined,
       visibleModelIds,
       credentialLabels,
@@ -190,11 +216,13 @@ const UPSERT_PREFERENCES_SQL = `
     default_provider_id,
     default_model_id,
     visible_model_ids_json,
-    updated_at
+    updated_at,
+    default_credential_id
   )
-  VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6)
+  VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, $10)
   ON CONFLICT (user_id, workspace_id)
   DO UPDATE SET
+    default_credential_id = CASE WHEN $11::boolean THEN EXCLUDED.default_credential_id ELSE provider_preferences.default_credential_id END,
     default_provider_id = CASE
       WHEN $7::boolean THEN EXCLUDED.default_provider_id
       ELSE provider_preferences.default_provider_id

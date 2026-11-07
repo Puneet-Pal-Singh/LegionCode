@@ -1,3 +1,5 @@
+import { useHostedHarnessScope } from "../harness/HostedHarnessScope";
+import { HostedHarnessPicker } from "../harness/HostedHarnessPicker";
 import type { ProviderId } from "@repo/shared-types";
 import { ChatInputBar, type ChatInputBarProps } from "@legioncode/client-ui";
 import { useComposerPreferences } from "../../lib/composer-preferences";
@@ -23,6 +25,10 @@ export function WebChatInputBar({
   ...props
 }: WebChatInputBarProps) {
   const preferences = useComposerPreferences();
+  const hostedScope = useHostedHarnessScope();
+  const isDelegatedSelected =
+    hostedScope.selectionReceipt?.sessionId === props.sessionId &&
+    hostedScope.selectionReceipt.selection !== null;
   const providerControls = useWebComposerProviderControls({
     runId,
     sessionId: props.sessionId,
@@ -35,6 +41,16 @@ export function WebChatInputBar({
     <ChatInputBar
       {...props}
       {...providerControls}
+      renderModelPicker={(onWarning) => (
+        <>
+          {!isDelegatedSelected
+            ? providerControls.renderModelPicker(onWarning)
+            : null}
+          {!props.isHidden ? (
+            <HostedHarnessPicker sessionId={props.sessionId} />
+          ) : null}
+        </>
+      )}
       providerDialog={props.isHidden ? null : providerControls.providerDialog}
       composerPreferences={preferences}
       showContextWindowUsage={preferences.showContextWindowUsage}

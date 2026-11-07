@@ -1,4 +1,3 @@
-import { readPreExecutionRejection } from "../tools/PreExecutionRejection.js";
 import type { CoreMessage, CoreTool } from "ai";
 import {
   createNativeContextAssembly,
@@ -12,8 +11,8 @@ import {
   ThreadIdSchema,
   TurnSchema,
   TurnIdSchema,
+  toPublicProtocolError,
   WorkerIdSchema,
-  type ApprovalDecision,
   type ApprovalRequestedPayload,
   type Run as ProtocolRun,
   type RunAttemptId,
@@ -23,7 +22,6 @@ import {
 } from "@repo/platform-protocol";
 import type {
   ApprovalResolution,
-  ApprovalWaitPort,
   RuntimeGitSnapshotPort,
   RuntimeKernelDependencies,
   RuntimeLifecycleEventStore,
@@ -32,11 +30,9 @@ import type {
   WorkerProtocolPort,
   WorkerToolResult,
 } from "@repo/runtime-kernel";
-import { RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
+import { CanonicalApprovalDeadlinePort, RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
 import {
-  RISKY_ACTION_CATEGORIES,
   RUN_WORKFLOW_STEPS,
-  type ApprovalRequest,
   RUN_TERMINAL_STATES,
 } from "@repo/shared-types";
 import { BaseAgent } from "../agents/BaseAgent.js";
@@ -91,22 +87,20 @@ import {
   recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
-import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildPlanModeResponse,
   persistPlanArtifact,
 } from "./RunPlanModePolicy.js";
-import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import { NativePermissionPolicyResolver } from "./NativePermissionPolicyResolver.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
   buildNativeKernelTerminalMessage,
+  projectNativeKernelFailureDiagnostic,
+  readNativePreExecutionRejectionRule,
   resolveNativeKernelTerminalState,
+  resolveNativeToolFailureDisposition,
 } from "./NativeTerminalFailurePresentation.js";
-import {
-  ensureApprovalResolvedEventRecorded,
-  waitForApprovalDecision,
-} from "./RunApprovalWaitPolicy.js";
+import { resolveApprovalWaitTimeoutMs } from "./RunApprovalWaitPolicy.js";
 import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
@@ -184,7 +178,6 @@ export class RuntimeKernelNativeRunner {
   private readonly costTracker: ICostTracker;
   private readonly budgetManager: IBudgetManager & BudgetPolicy;
   private readonly llmGateway: ILLMGateway;
-  private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
   private readonly workspaceBootstrapper;
   private readonly gitSnapshots?: RuntimeGitSnapshotPort;
@@ -198,10 +191,6 @@ export class RuntimeKernelNativeRunner {
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
-    this.permissionApprovalStore = new PermissionApprovalStore(
-      ctx,
-      options.runId,
-    );
     const eventRepo = new RunEventRepository(ctx);
     this.eventRepo = eventRepo;
     this.runEventRecorder = new RunEventRecorder(
@@ -379,7 +368,7 @@ export class RuntimeKernelNativeRunner {
     });
     const worker = protocol.manifest
       ? this.createRepositoryWorker(protocol.manifest, protocol.runAttemptId, protocol.turn, provider, runtimeTools, input.input)
-      : { executeTool: async (): Promise<WorkerToolResult> => failed("policy_denied", "Select a project before using repository tools.", false, "terminal"), awaitQuiescence: async () => true };
+      : { executeTool: async (): Promise<WorkerToolResult> => failed("policy_denied", false, "terminal"), awaitQuiescence: async () => true };
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
       workspaceManifests: protocol.manifest ? createWorkspaceManifestRepository(protocol.manifest) : undefined,
@@ -407,15 +396,7 @@ export class RuntimeKernelNativeRunner {
           ? toProtocolId("usr", this.options.userId)
           : undefined,
       ),
-      approvals: new NativeApprovalWaitPort({
-        env: this.options.env,
-        runId: this.options.runId,
-        sessionId: this.options.sessionId,
-        ownerUserId: this.options.userId,
-        runRepo: this.runRepo,
-        runEventRecorder: this.runEventRecorder,
-        permissionApprovalStore: this.permissionApprovalStore,
-      }),
+      approvals: new CanonicalApprovalDeadlinePort(resolveApprovalWaitTimeoutMs(this.options.env)),
       hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
       maxToolCalls: getNativeToolCallSafetyLimit(maxSteps),
@@ -662,8 +643,7 @@ export class RuntimeKernelNativeRunner {
           sessionId: run.sessionId,
           turnId: protocol.turn.id,
           terminalState,
-          error: error instanceof Error ? error.message : String(error),
-          cause: describeRuntimeErrorCause(error),
+          ...projectNativeKernelFailureDiagnostic(error),
         }),
       );
       await finalizeRunWithAssistantMessage({
@@ -911,19 +891,6 @@ export class RuntimeKernelNativeRunner {
   }
 }
 
-function describeRuntimeErrorCause(error: unknown): string | null {
-  if (
-    !(error instanceof RuntimeKernelError) ||
-    error.causeError === undefined
-  ) {
-    return null;
-  }
-  const cause = error.causeError;
-  if (cause instanceof Error) {
-    return cause.message;
-  }
-  return typeof cause === "string" ? cause : "non-error runtime cause";
-}
 
 class KernelToolWorker implements WorkerProtocolPort {
   private readonly preExecutionRejections = new Set<string>();
@@ -975,7 +942,6 @@ class KernelToolWorker implements WorkerProtocolPort {
     if (!isCodingToolId(toolName)) {
       return failed(
         "validation_failed",
-        `Unsupported tool: ${toolName}`,
         false,
         "terminal",
       );
@@ -1026,11 +992,9 @@ class KernelToolWorker implements WorkerProtocolPort {
       }
       assertSignalNotAborted(input.signal);
       if (gatewayResult.kind === "failed") {
-        const preExecutionRejection = readPreExecutionRejection(
-          gatewayResult.failure?.details,
-        );
-        const rejectionKey = preExecutionRejection
-          ? `${input.turnId}:${toolName}:${preExecutionRejection.ruleId}`
+        const rejectionRule = readNativePreExecutionRejectionRule(gatewayResult.failure);
+        const rejectionKey = rejectionRule
+          ? `${input.turnId}:${toolName}:${rejectionRule}`
           : null;
         const correctionAlreadyUsed =
           rejectionKey !== null &&
@@ -1038,25 +1002,6 @@ class KernelToolWorker implements WorkerProtocolPort {
         if (rejectionKey && !correctionAlreadyUsed) {
           this.preExecutionRejections.add(rejectionKey);
         }
-        const failure =
-          correctionAlreadyUsed &&
-          preExecutionRejection &&
-          gatewayResult.failure
-            ? {
-                ...gatewayResult.failure,
-                message: `The command was rejected before execution, so this request is incomplete. ${gatewayResult.failure.message} One corrected retry for this validation rule was already rejected; use an approved typed tool or request user guidance.`,
-                details: {
-                  ...preExecutionRejection,
-                  correctionLimitReached: true,
-                  nextStep:
-                    "Use an approved typed tool or request user guidance.",
-                },
-              }
-            : gatewayResult.failure;
-        const message =
-          failure?.message ??
-          gatewayResult.result.error?.message ??
-          "Tool execution failed";
         const gatewayFailureCode =
           gatewayResult.code === "executor_failed"
             ? "command_failed"
@@ -1065,54 +1010,44 @@ class KernelToolWorker implements WorkerProtocolPort {
               : gatewayResult.code === "workspace_escape_denied"
                 ? "policy_denied"
                 : "validation_failed";
-        const failureCode = failure?.code ?? gatewayFailureCode;
-        const disposition = correctionAlreadyUsed
+        const privateFailure = gatewayResult.failure ?? gatewayResult.result.error;
+        const failure = toPublicProtocolError(privateFailure, {
+          code: gatewayFailureCode,
+          retryable: gatewayResult.retryable,
+        });
+        const disposition = correctionAlreadyUsed || failure.code === "worker_unavailable"
           ? "terminal"
-          : toolFailureDisposition(
+          : resolveNativeToolFailureDisposition(
               toolName,
-              message,
-              failure?.details,
-              failureCode,
+              privateFailure,
+              undefined,
+              failure.code,
             );
         this.options.tracker.recordToolFailed(
           input.toolCall,
-          message,
+          failure.message,
           disposition === "terminal",
         );
         await this.options.runEventRecorder.recordToolFailed(
           { id: input.toolCall.toolCallId, type: toolName },
-          message,
+          failure.message,
           0,
         );
-        if (failure) {
-          return {
-            kind: "failed",
-            failure,
-            disposition:
-              failure.code === "worker_unavailable" ? "terminal" : disposition,
-          };
-        }
-        return failed(
-          gatewayFailureCode,
-          message,
-          gatewayResult.retryable,
-          disposition,
-        );
+        return { kind: "failed", failure, disposition };
       }
       result = gatewayResult.result;
     } catch (error) {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
-      const message =
-        error instanceof Error ? error.message : "Tool execution failed";
-      const disposition = toolFailureDisposition(toolName, message);
+      const failure = toPublicProtocolError(error, { code: "command_failed", retryable: false });
+      const disposition = resolveNativeToolFailureDisposition(toolName, error, undefined, failure.code);
       this.options.tracker.recordToolFailed(
         input.toolCall,
-        message,
+        failure.message,
         disposition === "terminal",
       );
       await this.options.runEventRecorder.recordToolFailed(
         { id: input.toolCall.toolCallId, type: toolName },
-        message,
+        failure.message,
         0,
       );
       console.warn(
@@ -1120,10 +1055,10 @@ class KernelToolWorker implements WorkerProtocolPort {
           runId: input.runId,
           toolCallId: input.toolCall.toolCallId,
           toolName,
-          errorMessage: message,
+          ...projectNativeKernelFailureDiagnostic(failure),
         }),
       );
-      return failed("command_failed", message, false, disposition);
+      return { kind: "failed", failure, disposition };
     }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (result.status === "DONE") {
@@ -1152,20 +1087,21 @@ class KernelToolWorker implements WorkerProtocolPort {
         }),
       };
     }
-    const message = result.error?.message ?? "Tool execution failed";
-    const disposition = toolFailureDisposition(
+    const failure = toPublicProtocolError(result.error, { code: "command_failed", retryable: false });
+    const disposition = resolveNativeToolFailureDisposition(
       toolName,
-      message,
+      result.error,
       result.output?.metadata,
+      failure.code,
     );
     this.options.tracker.recordToolFailed(
       input.toolCall,
-      message,
+      failure.message,
       disposition === "terminal",
     );
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
-      message,
+      failure.message,
       0,
     );
     console.warn(
@@ -1173,10 +1109,10 @@ class KernelToolWorker implements WorkerProtocolPort {
         runId: input.runId,
         toolCallId: input.toolCall.toolCallId,
         toolName,
-        errorMessage: message,
+        ...projectNativeKernelFailureDiagnostic(failure),
       }),
     );
-    return failed("command_failed", message, false, disposition);
+    return { kind: "failed", failure, disposition };
   }
 
   private trackToolOperation(
@@ -1209,122 +1145,6 @@ class KernelToolWorker implements WorkerProtocolPort {
     pending?.delete(operation);
     if (pending?.size === 0) this.activeToolOperations.delete(turnId);
   }
-}
-
-class NativeApprovalWaitPort implements ApprovalWaitPort {
-  constructor(
-    private readonly options: {
-      env: RunEngineOptions["env"];
-      runId: string;
-      sessionId: string;
-      ownerUserId?: string;
-      runRepo: RunRepository;
-      runEventRecorder: RunEventRecorder;
-      permissionApprovalStore: PermissionApprovalStore;
-    },
-  ) {}
-
-  async waitForDecision(input: {
-    runId: ProtocolRun["id"];
-    runAttemptId: RunAttemptId;
-    turnId: Turn["id"];
-    request: ApprovalRequestedPayload;
-  }): Promise<ApprovalResolution> {
-    const request = this.toSharedApprovalRequest(input);
-    await this.options.permissionApprovalStore.setPendingRequest(
-      request,
-      this.options.ownerUserId,
-    );
-    await this.options.runEventRecorder.recordApprovalRequested(request);
-    const outcome = await waitForApprovalDecision({
-      request,
-      env: this.options.env,
-      runId: this.options.runId,
-      runRepo: this.options.runRepo,
-      permissionApprovalStore: this.options.permissionApprovalStore,
-    });
-    const resolution = this.toApprovalResolution(outcome);
-    await ensureApprovalResolvedEventRecorded({
-      runEventRecorder: this.options.runEventRecorder,
-      requestId: request.requestId,
-      decision: mapSharedApprovalDecision(outcome, resolution),
-      status: mapSharedApprovalStatus(resolution),
-    });
-    return resolution;
-  }
-
-  private toSharedApprovalRequest(input: {
-    turnId: Turn["id"];
-    request: ApprovalRequestedPayload;
-  }): ApprovalRequest {
-    const toolName = readString(input.request.metadata.toolName) ?? "tool";
-    const action =
-      readString(input.request.metadata.action) ??
-      readString(input.request.metadata.toolName) ??
-      "execute";
-    return {
-      requestId: input.request.approvalId,
-      runId: this.options.runId,
-      sessionId: this.options.sessionId,
-      turnId: input.turnId,
-      itemId: input.request.itemId ?? undefined,
-      origin: "agent",
-      category: RISKY_ACTION_CATEGORIES.SHELL_COMMAND,
-      title: `Approve ${toolName}`,
-      reason: input.request.question,
-      actionFingerprint: `kernel:${toolName}:${action}:${input.request.approvalId}`,
-      availableDecisions: ["allow_once", "deny", "abort"],
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-    };
-  }
-
-  private toApprovalResolution(
-    outcome: Awaited<ReturnType<typeof waitForApprovalDecision>>,
-  ): ApprovalResolution {
-    if (outcome.outcome === "approved") {
-      return {
-        decision: "approved" as ApprovalDecision,
-        decidedBy: null,
-        reason: null,
-      };
-    }
-    if (outcome.outcome === "cancelled" || outcome.outcome === "aborted") {
-      return {
-        decision: "cancelled" as ApprovalDecision,
-        decidedBy: null,
-        reason: `Approval was ${outcome.outcome}.`,
-      };
-    }
-    return {
-      decision: "denied" as ApprovalDecision,
-      decidedBy: null,
-      reason:
-        outcome.outcome === "timed_out"
-          ? "Approval timed out before a decision was recorded."
-          : "Approval request was denied.",
-      ...(outcome.outcome === "timed_out" ? { timedOut: true } : {}),
-    };
-  }
-}
-
-function mapSharedApprovalDecision(
-  outcome: Awaited<ReturnType<typeof waitForApprovalDecision>>,
-  resolution: ApprovalResolution,
-): ApprovalRequest["availableDecisions"][number] {
-  if (resolution.decision === "approved") {
-    return outcome.decision ?? "allow_once";
-  }
-  return resolution.decision === "cancelled" ? "abort" : "deny";
-}
-
-function mapSharedApprovalStatus(
-  resolution: ApprovalResolution,
-): "approved" | "denied" | "aborted" {
-  if (resolution.decision === "approved") {
-    return "approved";
-  }
-  return resolution.decision === "cancelled" ? "aborted" : "denied";
 }
 
 function buildProtocolEnvelope(input: {
@@ -1480,43 +1300,16 @@ function requireAiService(dependencies: RunEngineDependencies) {
   return dependencies.aiService;
 }
 
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function failed(
   code: "validation_failed" | "command_failed" | "not_found" | "policy_denied",
-  message: string,
   retryable = false,
   disposition: "recoverable" | "terminal" = "terminal",
 ): WorkerToolResult {
   return {
     kind: "failed",
     disposition,
-    failure: {
-      code,
-      message,
-      details: null,
-      retryable,
-      correlationId: null,
-    },
+    failure: toPublicProtocolError({ code, retryable }),
   };
-}
-
-function toolFailureDisposition(
-  toolName: string,
-  message: string,
-  metadata?: unknown,
-  failureCode?: string,
-): "recoverable" | "terminal" {
-  return isTerminalToolFailure({
-    toolName,
-    error: message,
-    failureCode,
-    metadata,
-  })
-    ? "terminal"
-    : "recoverable";
 }
 
 function normalizeModelId(value: string | undefined): string {

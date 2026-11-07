@@ -1,5 +1,5 @@
 import {
-  ProtocolErrorSchema,
+  toPublicProtocolError,
   type ProtocolError,
   type ProtocolErrorCode,
 } from "@repo/platform-protocol";
@@ -22,6 +22,7 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "invalid_approval_item",
   "approval_not_active",
   "approval_already_active",
+  "approval_resolution_conflict",
   "turn_not_active",
   "turn_already_owned",
   "turn_artifact_settlement_failed",
@@ -55,99 +56,69 @@ export class RuntimeLifecycleSettlementError extends Error {
 }
 
 export function toProtocolError(error: unknown): ProtocolError {
-  if (error instanceof RuntimeKernelError) {
-    if (error.code === "worker_failed") {
-      return mapWorkerFailure(error);
+  try {
+    if (error instanceof RuntimeKernelError) {
+      const code = readErrorData(error, "code");
+      if (!RUNTIME_KERNEL_ERROR_CODES.some((known) => known === code))
+        return toPublicProtocolError(null);
+      if (code === "worker_failed") {
+        return mapWorkerFailure(readErrorData(error, "causeError"));
+      }
+      if (code === "provider_failed") {
+        return mapProviderFailure(readErrorData(error, "causeError"));
+      }
+      return toPublicProtocolError({
+        code: mapProtocolErrorCode(code as RuntimeKernelErrorCode),
+        retryable: isRetryable(code as RuntimeKernelErrorCode),
+      });
     }
-    if (error.code === "provider_failed") {
-      return mapProviderFailure(error);
-    }
-    return {
-      code: mapProtocolErrorCode(error.code),
-      message: error.message,
-      retryable: isRetryable(error.code),
-      correlationId: null,
-      details: { runtimeKernelCode: error.code },
-    };
+  } catch {
+    // instanceof and descriptor lookup can both fail on a hostile Proxy.
   }
-
-  return {
-    code: "internal_error",
-    message: "Runtime kernel turn execution failed",
-    retryable: false,
-    correlationId: null,
-    details: null,
-  };
+  return toPublicProtocolError(null);
 }
 
-function mapProviderFailure(error: RuntimeKernelError): ProtocolError {
-  const statusCode = readProviderStatusCode(error.causeError);
-  return {
-    code: "provider_unavailable",
-    message:
-      statusCode === 429
-        ? "The model provider is temporarily rate limited. LegionCode exhausted its bounded cooldown retry; retry later or choose another model."
-        : safeRuntimeErrorMessage(error.causeError),
+function mapProviderFailure(cause: unknown): ProtocolError {
+  const statusCode = readProviderStatusCode(cause);
+  return toPublicProtocolError({
+    code: statusCode === 429 ? "rate_limited" : "provider_unavailable",
     retryable: true,
-    correlationId: null,
-    details: {
-      runtimeKernelCode: error.code,
-      ...(statusCode !== null ? { providerStatusCode: statusCode } : {}),
-    },
-  };
+    details: statusCode !== null ? { providerStatusCode: statusCode } : null,
+  });
 }
 
 function readProviderStatusCode(error: unknown): number | null {
-  const visited = new Set<unknown>();
-  let current = error;
-  let depth = 0;
-  while (current && depth < 8 && !visited.has(current)) {
-    visited.add(current);
-    if (typeof current === "object") {
-      const record = current as Record<string, unknown>;
-      if (typeof record.statusCode === "number") return record.statusCode;
-      current =
-        record.causeError ?? record.cause ?? record.lastError ?? record.error;
+  try {
+    const visited = new Set<unknown>();
+    let current = error;
+    let depth = 0;
+    while (current && depth < 8 && !visited.has(current)) {
+      visited.add(current);
+      if (typeof current !== "object") break;
+      const statusCode = readErrorData(current, "statusCode");
+      if (typeof statusCode === "number" && Number.isInteger(statusCode) &&
+        statusCode >= 100 && statusCode <= 599) return statusCode;
+      current = readErrorData(current, "causeError") ?? readErrorData(current, "cause") ??
+        readErrorData(current, "lastError") ?? readErrorData(current, "error");
       depth += 1;
-      continue;
     }
-    break;
+  } catch {
+    // No diagnostic from an accessor or Proxy is public status evidence.
   }
   return null;
 }
 
-function safeRuntimeErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return "The model provider request failed.";
-  const message = error.message.replace(/\s+/g, " ").trim();
-  if (!message) return "The model provider request failed.";
-  return message
-    .replace(/\b(sk|key|token)-[A-Za-z0-9_-]{12,}\b/gi, "[redacted]")
-    .slice(0, 500);
+function readErrorData(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
-function mapWorkerFailure(error: RuntimeKernelError): ProtocolError {
-  const failure = parseWorkerFailure(error.causeError);
-  if (failure === null) {
-    return {
-      code: "command_failed",
-      message: error.message,
-      retryable: true,
-      correlationId: null,
-      details: { runtimeKernelCode: error.code },
-    };
-  }
-  return {
-    ...failure,
-    details: {
-      ...(failure.details ?? {}),
-      runtimeKernelCode: error.code,
-    },
-  };
-}
-
-function parseWorkerFailure(value: unknown): ProtocolError | null {
-  const parsed = ProtocolErrorSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+function mapWorkerFailure(cause: unknown): ProtocolError {
+  return toPublicProtocolError(cause, {
+    code: "command_failed",
+    retryable: true,
+  });
 }
 
 function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
@@ -176,6 +147,7 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
     case "invalid_approval_grant_scope":
     case "approval_not_active":
     case "approval_already_active":
+    case "approval_resolution_conflict":
     case "turn_not_active":
     case "turn_already_owned":
       return "conflict";

@@ -1,3 +1,9 @@
+import { authorizeLifecycleApproval, findLifecycleApprovalEvents } from "./LifecycleApprovalAuthorization";
+import { readRunHarnessAdmission } from "./RunHarnessAdmission";
+import { CloudDelegatedRunPreparation } from "./CloudDelegatedRunPreparation";
+import { executeDelegatedRun, type DelegatedRunPreparationPort } from "./DelegatedRunExecution";
+import { isDelegatedHarnessRoute } from "./HarnessExecutionRoute";
+import { claimExecutionWithStartupInterrupt } from "./RunExecutionStartup";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
@@ -167,6 +173,7 @@ export interface CanonicalRunEventSink {
 }
 
 export interface RunEngineRequestHandlerDependencies {
+  delegatedPreparation?: DelegatedRunPreparationPort;
   canonicalEventSink?: CanonicalRunEventSink;
   lifecycleEventStore?: LifecycleEventStore;
   interruptRegistry?: RunInterruptRegistry;
@@ -425,6 +432,13 @@ export class RunEngineRequestHandler {
           409,
         );
       }
+      // Completion may already have submitted its serialized terminal commit.
+      // Report that durable result instead of claiming Stop won that race.
+      const afterInterrupt = await readAllLifecycleEvents(store, payload.turnId);
+      const completed = afterInterrupt.find((event) => event.type === "turn.completed");
+      if (completed) return runEngineJsonResponse(request, this.env, {
+        runId: payload.runId, accepted: false, status: "settled", terminalEvent: completed,
+      });
       return runEngineJsonResponse(request, this.env, {
         runId: payload.runId,
         accepted: true,
@@ -827,80 +841,26 @@ export class RunEngineRequestHandler {
         404,
       );
     }
-    const runtimeState = this.createRuntimeState();
-    const runRepo = new RunRepository(runtimeState);
-    const run = await runRepo.getById(runId);
-    if (!run) {
-      return runEngineErrorResponse(request, this.env, "Run not found", 404);
-    }
-
     const lifecycleStore = this.createLifecycleEventStore();
-    const lifecycleApproval = await findLifecycleApprovalEvents(
-      lifecycleStore,
-      payload.turnId,
-      payload.approvalId,
+    const admission = await withTurnAdmissionRepository(this.env, (repository) =>
+      repository.getByTurnId(payload.turnId),
     );
-    if (lifecycleApproval.decided) {
-      if (
-        !isMatchingLifecycleApprovalDecision(
-          lifecycleApproval.decided,
-          payload.decision,
-          payload.grantScope === "matching_in_chat"
-            ? "matching_in_chat"
-            : undefined,
-        )
-      ) {
-        return runEngineErrorResponse(
-          request,
-          this.env,
-          "Approval request was already resolved differently.",
-          409,
-        );
-      }
-      return runEngineJsonResponse(
-        request,
-        this.env,
-        lifecycleApproval.decided,
-      );
+    const authorization = await authorizeLifecycleApproval({
+      store: lifecycleStore,
+      turnId: payload.turnId,
+      runId,
+      approvalId: payload.approvalId,
+      decision: payload.decision,
+      grantScope: payload.grantScope,
+      identity: this.turnRuntimeIdentities.get(payload.turnId),
+      admission,
+      hasActiveOwner: () => this.approvalResolutionRegistry.has(payload.turnId),
+    });
+    if (authorization.kind === "conflict") {
+      return runEngineErrorResponse(request, this.env, authorization.message, 409);
     }
-
-    if (payload.grantScope === "matching_in_chat") {
-      const identity = this.turnRuntimeIdentities.get(payload.turnId);
-      if (
-        !lifecycleApproval.requested ||
-        !identity ||
-        !isMatchingInChatGrantRequest(
-          lifecycleApproval.requested,
-          workspaceIdFromExternalId(identity.workspaceId),
-        )
-      ) {
-        return runEngineErrorResponse(
-          request,
-          this.env,
-          "This approval request does not allow a matching-in-chat grant.",
-          409,
-        );
-      }
-    }
-
-    if (!this.approvalResolutionRegistry.has(payload.turnId)) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Approval cannot be resolved because its runtime turn is no longer active.",
-        409,
-      );
-    }
-
-    const approvalStore = new PermissionApprovalStore(runtimeState, runId);
-    const pendingApproval = await approvalStore.getPendingRequest();
-    if (!pendingApproval || pendingApproval.requestId !== payload.approvalId) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "No matching pending approval request",
-        409,
-      );
+    if (authorization.kind === "decided") {
+      return runEngineJsonResponse(request, this.env, authorization.event);
     }
 
     let delivered: boolean;
@@ -914,7 +874,7 @@ export class RunEngineRequestHandler {
             payload.grantScope === "matching_in_chat"
               ? "matching_in_chat"
               : undefined,
-          decidedBy: null,
+          decidedBy: authorization.decidedBy,
           reason: payload.reason ?? null,
         },
       );
@@ -937,33 +897,10 @@ export class RunEngineRequestHandler {
       );
     }
 
-    // RuntimeKernel owns canonical approval settlement. Persist the legacy
-    // permission allowance only after the kernel has appended approval.decided
-    // and woken its active loop; writing it first races the wait port and can
-    // settle the turn before the canonical resolver receives the decision.
-    try {
-      await approvalStore.resolveDecision(
-        {
-          kind: mapLifecycleApprovalDecision(payload.decision),
-          requestId: payload.approvalId,
-        },
-        run.metadata.actorUserId,
-      );
-    } catch (error) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        error instanceof Error
-          ? error.message
-          : "Unable to persist lifecycle approval decision",
-        mapApprovalResolutionErrorStatus(error),
-      );
-    }
-
     const decided = (
       await findLifecycleApprovalEvents(
         lifecycleStore,
-        payload.turnId,
+        authorization.scope,
         payload.approvalId,
       )
     ).decided;
@@ -1344,8 +1281,19 @@ export class RunEngineRequestHandler {
             "RUN_SCOPE_MISMATCH",
           );
         }
+        const delegatedRoute = isDelegatedHarnessRoute(payload.input);
+        await readRunHarnessAdmission(this.env, payload);
         const claimId = crypto.randomUUID();
-        const claimResult = await withTurnAdmissionRepository(
+        if (delegatedRoute) {
+          executionClaim = { turnId, claimId };
+          this.interruptRegistry.beginStartup(turnId);
+          const response = await executeDelegatedRun({ payload, claimId,
+            preparation: this.dependencies.delegatedPreparation ?? new CloudDelegatedRunPreparation(this.env),
+            lifecycleEvents: this.createLifecycleEventStore(), interrupts: this.interruptRegistry,
+            approvals: this.approvalResolutionRegistry, threadInputs: this.threadInputRegistry });
+          return withRunEngineHeaders(request, this.env, response, { "X-Thread-Id": threadId, "X-Turn-Id": turnId, "X-Run-Attempt-Id": runAttemptId });
+        }
+        const claimResult = await claimExecutionWithStartupInterrupt(this.interruptRegistry, turnId, () => withTurnAdmissionRepository(
           this.env,
           (repository) =>
             repository.claimExecution({
@@ -1358,7 +1306,7 @@ export class RunEngineRequestHandler {
               threadId,
               claimId,
             }),
-        );
+        ));
         if (claimResult.status !== "claimed") {
           const recovery =
             claimResult.status === "already_claimed" ||
@@ -1376,7 +1324,6 @@ export class RunEngineRequestHandler {
           );
         }
         executionClaim = { turnId, claimId };
-        this.interruptRegistry.beginStartup(turnId);
         const runtimeState = this.createRuntimeState();
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
@@ -1417,6 +1364,7 @@ export class RunEngineRequestHandler {
           this.contextCompactionRegistry.register(turnId, async () => {
             await runtimeRunner.compact(turnId);
           });
+          taskCheckoutLifecycle?.beginRuntimeExecution({ turnId, runAttemptId });
           const executionResponse = await runtimeRunner.execute({
             input: payload.input,
             messages: payload.messages as CoreMessage[],
@@ -1481,6 +1429,7 @@ export class RunEngineRequestHandler {
               payload.correlationId,
             );
           }
+          taskCheckoutLifecycle?.observeRuntimeSettlement(lifecycleEvents);
           await taskCheckoutLifecycle?.settle(
             terminalLifecycleEvent.type === "turn.completed"
               ? { status: "settled" }
@@ -1493,7 +1442,7 @@ export class RunEngineRequestHandler {
                 },
           );
           console.log(
-            formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
+            formatDiagnosticLogLine("run/runtime", taskCheckoutLifecycle?.requiresRecovery ? "checkout-retained-for-recovery" : "artifacts-settled", {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
@@ -1508,6 +1457,11 @@ export class RunEngineRequestHandler {
         } catch (error) {
           if (taskCheckoutLifecycle && !taskCheckoutLifecycle.isSettled) {
             try {
+              // A persistence/transport error must not turn uncertain worker
+              // state into permission to release its checkout.
+              try {
+                taskCheckoutLifecycle.observeRuntimeSettlement(await readAllLifecycleEvents(this.createLifecycleEventStore(), turnId));
+              } catch { /* Unreadable commit evidence retains the execution lease. */ }
               await taskCheckoutLifecycle?.settle({
                 status: "failed",
                 failureCode: "RUN_PIPELINE_FAILED",
@@ -1968,125 +1922,4 @@ async function readAllLifecycleEvents(
     }
     afterSequence = replay.nextSequence;
   }
-}
-
-function mapLifecycleApprovalDecision(
-  decision: "approved" | "denied" | "cancelled",
-): z.infer<typeof ApprovalDecisionKindSchema> {
-  switch (decision) {
-    case "approved":
-      return "allow_once";
-    case "cancelled":
-      return "abort";
-    case "denied":
-      return "deny";
-  }
-}
-
-function mapApprovalResolutionErrorStatus(error: unknown): number {
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    message.includes("No pending approval request") ||
-    message.includes("does not match pending request") ||
-    message.includes("already resolved differently")
-  ) {
-    return 409;
-  }
-  if (
-    message.includes("not allowed for this request") ||
-    message.includes("rejected because it is too broad") ||
-    message.includes("authenticated user id")
-  ) {
-    return 400;
-  }
-  return 500;
-}
-
-async function findLifecycleApprovalEvents(
-  store: LifecycleEventStore,
-  turnId: string,
-  approvalId: string,
-): Promise<{
-  requested: Extract<LifecycleEvent, { type: "approval.requested" }> | null;
-  decided: Extract<LifecycleEvent, { type: "approval.decided" }> | null;
-}> {
-  let afterSequence: number | null = null;
-  let requested: Extract<
-    LifecycleEvent,
-    { type: "approval.requested" }
-  > | null = null;
-  let decided: Extract<LifecycleEvent, { type: "approval.decided" }> | null =
-    null;
-  for (;;) {
-    const replay = await store.replay({
-      turnId: TurnIdSchema.parse(turnId),
-      afterSequence,
-      limit: 1_000,
-    });
-    for (const event of replay.events) {
-      if (
-        event.type !== "approval.requested" &&
-        event.type !== "approval.decided"
-      ) {
-        continue;
-      }
-      if (event.approvalId !== approvalId) continue;
-      if (event.type === "approval.requested") requested = event;
-      if (event.type === "approval.decided") decided = event;
-    }
-    if (
-      replay.events.length < 1_000 ||
-      replay.nextSequence === null ||
-      replay.nextSequence === afterSequence
-    ) {
-      break;
-    }
-    afterSequence = replay.nextSequence;
-  }
-  return { requested, decided };
-}
-
-function isMatchingInChatGrantRequest(
-  event: Extract<LifecycleEvent, { type: "approval.requested" }>,
-  workspaceId: string,
-): boolean {
-  const payload = event.payload;
-  if (
-    !Array.isArray(payload.options) ||
-    !payload.options.some(
-      (option) =>
-        typeof option === "object" &&
-        option !== null &&
-        "id" in option &&
-        option.id === "allow_matching_in_chat",
-    )
-  ) {
-    return false;
-  }
-  const metadata = payload.metadata;
-  if (
-    typeof metadata !== "object" ||
-    metadata === null ||
-    Array.isArray(metadata)
-  ) {
-    return false;
-  }
-  return (
-    typeof metadata.grantMatcherKey === "string" &&
-    metadata.grantMatcherKey.length > 0 &&
-    metadata.grantWorkspaceId === workspaceId
-  );
-}
-
-function isMatchingLifecycleApprovalDecision(
-  event: LifecycleEvent,
-  decision: z.infer<typeof ApprovalDecisionSchema>,
-  grantScope?: "matching_in_chat",
-): boolean {
-  return (
-    event.type === "approval.decided" &&
-    "status" in event.payload &&
-    event.payload.status === decision &&
-    (event.payload.grantScope ?? "once") === (grantScope ?? "once")
-  );
 }

@@ -1,4 +1,8 @@
 import {
+  HarnessConnectionService,
+  type HarnessConnectionPolicy,
+} from "../../harness/HarnessConnectionService";
+import {
   DatabaseConfigurationError,
   persistenceMigrations,
   PostgresMigrationLedger,
@@ -55,8 +59,7 @@ export function createPostgresProviderConfigService(
     modelCacheStore: new PostgresProviderModelCacheStore(sqlClient, userId),
     auditLog: new PostgresProviderAuditLog(sqlClient, userId, workspaceId),
     quotaStore: new PostgresProviderQuotaStore(sqlClient, userId, workspaceId),
-    ensureReady: () =>
-      runAutomaticMigrations(databaseConfig, sqlClient),
+    ensureReady: () => runAutomaticMigrations(databaseConfig, sqlClient),
   });
 }
 
@@ -88,4 +91,69 @@ async function runPendingMigrations(client: SqlClient): Promise<void> {
     new PostgresMigrationLedger(),
   );
   await runner.runPending(persistenceMigrations);
+}
+
+/** P13 supplies existing authenticated workspace/admission/fencing policy. */
+export function createPostgresHarnessConnectionService(
+  env: Env,
+  userId: string,
+  workspaceId: string,
+  policy: Omit<HarnessConnectionPolicy, "ensureReady">,
+): HarnessConnectionService {
+  const databaseConfig = readBrainDatabaseConfig(env);
+  const client = createPostgresSqlClient(databaseConfig.connectionString);
+  const encryption = getProviderEncryptionConfig(
+    env as unknown as Record<string, unknown>,
+  );
+  const store = new PostgresCredentialStore(
+    client,
+    userId,
+    workspaceId,
+    encryption.masterKey,
+    encryption.keyVersion,
+    encryption.previousMasterKey,
+  );
+  return new HarnessConnectionService(
+    store,
+    {
+      ...policy,
+      ensureReady: () => runAutomaticMigrations(databaseConfig, client),
+    },
+    {
+      async deliver(binding, expected, project) {
+        const result = await client.transaction(async (tx) => {
+          // The canonical owner locks turn/session/workspace/admission first.
+          // All nested repository transactions are savepoints on THIS client.
+          await policy.authorizeAttempt(binding, tx);
+          const locked = await tx.query(
+            "SELECT id FROM provider_credentials WHERE user_id=$1 AND id=$2 AND provider_id=$3 FOR UPDATE",
+            [userId, expected.connectionId, expected.providerId],
+          );
+          if (!locked.rows[0]) return null;
+          const acquired = await new PostgresCredentialStore(
+            tx,
+            userId,
+            workspaceId,
+            encryption.masterKey,
+            encryption.keyVersion,
+            encryption.previousMasterKey,
+          ).acquireConnection(expected);
+          if (!acquired) return null;
+          await policy.assertRouteAllowed(
+            binding,
+            acquired.record.providerId,
+            acquired.record.credentialKind,
+          );
+          policy.signal?.throwIfAborted();
+          // The row lock fences revoke/refresh throughout AES decryption and
+          // projection. Return plain access-only data, never this tx/store.
+          return project(acquired.record, acquired.secret);
+        });
+        // Commit is the linearization point. A later revocation fences the
+        // pinned process owner; cancellation can still suppress local delivery.
+        policy.signal?.throwIfAborted();
+        return result;
+      },
+    },
+  );
 }

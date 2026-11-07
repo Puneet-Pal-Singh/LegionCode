@@ -66,6 +66,8 @@
     },
   ],
   "vars": {
+    // Stable execution-host identity. Preserve across deployments; never derive from a request.
+    "APP_SERVER_ENVIRONMENT_ID": "env_bfa65645-1525-410f-b77b-ae0155f2f198",
     "ENVIRONMENT": "development",
     "FRONTEND_URL": "https://legioncode-web-dev.pages.dev/agents",
     "PRIVATE_ALPHA_ACCESS_MODE": "allowlist",

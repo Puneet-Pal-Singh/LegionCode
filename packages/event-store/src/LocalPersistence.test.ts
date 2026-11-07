@@ -3,6 +3,7 @@ import {
   EVENT_SCHEMA_VERSION,
   EventCursorSchema,
   EventIdSchema,
+  HarnessSelectionSchema,
   PlatformEventSchema,
   ProviderIdSchema,
   ThreadIdSchema,
@@ -217,6 +218,22 @@ describe("LocalPersistence", () => {
     const persistence = createPersistence();
     const queued = lifecycle(1, "turn.queued");
     const started = lifecycle(2, "turn.started");
+    const baseAdmission = admission("harness");
+    const captured = {
+      environmentId: persistence.environmentId,
+      selectionRevision: 0,
+      selection: { harness: "codex", instanceId: "instance", connectionId: "selected", modelId: baseAdmission.run.modelId },
+    };
+    const admitted = TurnAdmissionSchema.parse({
+      ...baseAdmission,
+      runAttemptId: queued.runAttemptId,
+      run: { ...baseAdmission.run, id: "run_localpersist", threadId: queued.threadId, harnessSelection: captured },
+      turn: { ...baseAdmission.turn, id: queued.turnId, threadId: queued.threadId, runId: "run_localpersist" },
+      userMessage: { ...baseAdmission.userMessage, threadId: queued.threadId, runId: "run_localpersist", turnId: queued.turnId,
+        content: { ...baseAdmission.userMessage.content, harnessSelection: captured } },
+    });
+    await persistence.events.append(createThreadInput("harness:thread", queued.threadId));
+    await persistence.turnAdmissions.admit(admitted);
     await persistence.lifecycleEvents.appendBatch([queued, started]);
     const directory = persistenceDirectory(persistence);
     persistence.close();
@@ -232,6 +249,101 @@ describe("LocalPersistence", () => {
     await expect(reopened.lifecycleEvents.append(queued)).resolves.toEqual(queued);
     await expect(reopened.lifecycleEvents.append({ ...queued, producer: { kind: "runtime_kernel", id: "changed" } }))
       .rejects.toMatchObject({ code: "idempotency_conflict" });
+    const canonicalSelection = HarnessSelectionSchema.parse({
+      userId: admitted.run.userId, workspaceId: admitted.run.workspaceId,
+      environmentId: reopened.environmentId, selectionRevision: captured.selectionRevision,
+      workspaceGrantId: "grant-local", threadId: queued.threadId, runId: admitted.run.id,
+      turnId: queued.turnId, runAttemptId: queued.runAttemptId,
+      ...captured.selection, authOwnerGeneration: 0,
+      policyId: admitted.run.permissionProfileId, policyRevision: "policy-local",
+      billingSource: "subscription", runtimeVersion: "runtime-local", protocolVersion: "protocol-local",
+      transport: "codex_app_server_stdio",
+    });
+    const selection = {
+      userId: admitted.run.userId,
+      sessionId: queued.threadId,
+      runId: admitted.run.id,
+      workspaceId: admitted.run.workspaceId,
+      threadId: queued.threadId,
+      turnId: queued.turnId,
+      runAttemptId: queued.runAttemptId,
+      selectionJson: JSON.stringify(canonicalSelection),
+    };
+    const bindings = reopened.harnessBindings;
+    expect((await bindings.freezeAndClaim({ selection, claimId: "local-claim", events: [started] })).status).toBe("claimed");
+    expect((await bindings.freezeAndClaim({ selection, claimId: "second-claim" })).status).toBe("already_claimed");
+    const origin = {
+      instanceId: "instance",
+      externalSessionId: "external",
+      processGeneration: "11111111-1111-4111-8111-111111111111",
+      authOwnerGeneration: 0,
+    };
+    await bindings.attach({
+      selection,
+      origin,
+      expectedProcessGeneration: null,
+    });
+    const observation = {
+      selection,
+      origin,
+      sequence: 1,
+      observationFingerprint: "a".repeat(64),
+      learnedExternalTurnId: "external-turn",
+      events: [],
+    };
+    await expect(
+      bindings.appendObservation(observation),
+    ).resolves.toMatchObject({ duplicate: false, eventIds: [] });
+    await expect(
+      bindings.appendObservation(observation),
+    ).resolves.toMatchObject({ duplicate: true });
+    await expect(
+      bindings.appendObservation({
+        ...observation,
+        observationFingerprint: "b".repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: "observation_conflict" });
+    await expect(
+      bindings.freeze({ ...selection, selectionJson: JSON.stringify({ ...canonicalSelection, modelId: "changed-model" }) }),
+    ).rejects.toMatchObject({ code: "binding_conflict" });
+    await expect(
+      bindings.appendObservation({ ...observation, sequence: 3 }),
+    ).rejects.toMatchObject({ code: "sequence_gap" });
+    await expect(
+      bindings.appendObservation({
+        ...observation,
+        sequence: 2,
+        events: [lifecycle(3, "turn.started"), lifecycle(5, "turn.completed")],
+      }),
+    ).rejects.toMatchObject({ code: "sequence_gap" });
+    expect(
+      (
+        await reopened.lifecycleEvents.replay({
+          turnId: queued.turnId,
+          afterSequence: null,
+          limit: 10,
+        })
+      ).events,
+    ).toEqual([queued, started]);
+    expect((await bindings.read(selection))?.externalTurnId).toBe("external-turn");
+    expect((await bindings.attach({ selection, origin, expectedProcessGeneration: null })).lastObservationSequence).toBe(1);
+    await expect(bindings.appendObservation({ ...observation, sequence: 2, learnedExternalTurnId: "wrong-turn" })).rejects.toMatchObject({ code: "binding_conflict" });
+    reopened.close();
+    const recovered = openPersistence(directory);
+    await expect(
+      recovered.harnessBindings.appendObservation(observation),
+    ).resolves.toMatchObject({ duplicate: true });
+    await expect(
+      recovered.harnessBindings.appendObservation({
+        ...observation,
+        sequence: 2,
+        origin: { ...origin, processGeneration: "22222222-2222-4222-8222-222222222222" },
+      }),
+    ).rejects.toMatchObject({ code: "stale_origin" });
+    const terminalObservation = { ...observation, sequence: 2, observationFingerprint: "c".repeat(64), events: [lifecycle(3, "turn.completed")] };
+    await expect(recovered.harnessBindings.appendObservation(terminalObservation)).resolves.toMatchObject({ duplicate: false });
+    await expect(recovered.harnessBindings.appendObservation(terminalObservation)).resolves.toMatchObject({ duplicate: true });
+    await expect(recovered.harnessBindings.appendObservation({ ...observation, sequence: 3 })).rejects.toMatchObject({ code: "stale_origin" });
     const fresh = createPersistence();
     await expect(fresh.lifecycleEvents.appendBatch([lifecycle(1, "turn.queued"), lifecycle(3, "turn.started")]))
       .rejects.toMatchObject({ code: "sequence_gap" });

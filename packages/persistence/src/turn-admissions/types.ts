@@ -3,6 +3,7 @@ import type { RunRecord, RunStatus } from "../runs/types.js";
 import type { TranscriptMessagePartType } from "../sessions/types.js";
 
 export interface TurnAdmissionRecord {
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection | null;
   userId: string;
   sessionId: string;
   clientMessageId: string;
@@ -39,6 +40,8 @@ export interface ReserveTurnAdmissionInput {
 }
 
 export interface AdmitTurnWithPromptInput {
+  /** Persist with the admitted fingerprint/binding in the canonical transaction. */
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   sessionId: string;
   clientMessageId: string;
   turnId: string;
@@ -69,6 +72,7 @@ export interface AdmitContinuationInput extends Omit<AdmitTurnWithPromptInput, "
 }
 
 export interface ReserveQueuedStartInput extends Omit<ReserveTurnAdmissionInput, "clientMessageId" | "continuationOfTurnId" | "originalPromptId" | "continuationTerminalSequence"> {
+  readonly harnessSelection?: import("@repo/platform-protocol").HarnessAdmissionSelection;
   readonly expectedRevision: number;
   readonly itemId: string;
   readonly expectedVersion: number;

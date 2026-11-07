@@ -113,6 +113,9 @@ export interface EnsureTranscriptSessionInput {
   userId: string;
   workspaceId?: string | null;
   threadId?: string | null;
+  /** Server-issued candidate for INSERT only. Existing identities, including
+   * historical null bindings, are preserved when this is the only thread field. */
+  initialThreadId?: string;
   taskId?: string | null;
   title?: string | null;
   titleSource?: ChatTitleSource | null;

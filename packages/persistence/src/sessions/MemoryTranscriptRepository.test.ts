@@ -310,6 +310,15 @@ describe("MemoryTranscriptRepository", () => {
     expect(cleared.activeRunId).toBeNull();
     expect(cleared.title).toBe("Original title");
     expect(cleared.titleSource).toBe("preview");
+    const legacy = await repository.ensureSession({ sessionId: "session-1", userId: "user-1", initialThreadId: "thr_legacy_candidate" });
+    expect(legacy.threadId).toBeNull();
+    const [winner, retry] = await Promise.all([
+      repository.ensureSession({ sessionId: "session-new", userId: "user-1", initialThreadId: "thr_first_candidate" }),
+      repository.ensureSession({ sessionId: "session-new", userId: "user-1", initialThreadId: "thr_losing_candidate" }),
+    ]);
+    expect(winner.threadId).toBe("thr_first_candidate");
+    expect(retry.threadId).toBe(winner.threadId);
+
   });
 
   it("does not hydrate another user's transcript", async () => {

@@ -2,7 +2,6 @@ import {
   ArtifactIdSchema,
   RunIdSchema,
   ThreadIdSchema,
-  TurnIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
 import type { ThreadInputCommand } from "@repo/platform-protocol";
@@ -15,9 +14,6 @@ import {
 import { createAppServerClient, AppServerClientError } from "./app-server-client.js";
 import { createAppServerHttpTransport, AppServerTransportError } from "./app-server-http-transport.js";
 import { AppServerErrorSchema, AppServerFailureResponseSchema } from "@legioncode/app-server/protocol";
-import type {
-  SubmitUserInputResponseRequest,
-} from "./lifecycle-types.js";
 import type {
   ListArtifactsRequest,
   ListThreadsRequest,
@@ -185,13 +181,18 @@ export function createPlatformHttpTransport(
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
     submitLifecycleApproval: (payload, options) => hostedOperation("turn/approval", options?.signal, (client) => client.submitLifecycleApproval(payload)),
-    submitUserInputResponse: (payload, options) =>
-      request.json(
-        "POST",
-        buildUserInputResponsePath(payload),
-        payload,
-        options,
-      ),
+    // Hosted question replies need an authenticated runtime operation with a
+    // single-use, generation-bound origin. No such operation is composed yet;
+    // never send a response to the former, nonexistent REST route.
+    submitUserInputResponse: async () => {
+      throw new PlatformClientOperationError(
+        "capability_unsupported",
+        "Hosted question replies are unavailable until the runtime reply operation is connected.",
+        false,
+        undefined,
+        501,
+      );
+    },
     getTurnDiff: (payload, options) => hostedOperation("turn/diff", options?.signal, (client) => client.getTurnDiff(payload)),
     getArtifact: (artifactId, options) =>
       request.json("GET", buildArtifactPath(artifactId), undefined, options),
@@ -886,14 +887,6 @@ function buildApprovalPath(request: SubmitApprovalRequest): string {
   const runId = encodeURIComponent(RunIdSchema.parse(request.runId));
   const approvalId = encodeURIComponent(request.approvalId);
   return `/runs/${runId}/approvals/${approvalId}`;
-}
-
-function buildUserInputResponsePath(
-  request: SubmitUserInputResponseRequest,
-): string {
-  const turnId = encodeURIComponent(TurnIdSchema.parse(request.turnId));
-  const requestId = encodeURIComponent(request.requestId);
-  return `/turns/${turnId}/user-input/${requestId}`;
 }
 
 function buildArtifactPath(artifactId: ArtifactId): string {

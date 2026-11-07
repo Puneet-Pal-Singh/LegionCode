@@ -1,3 +1,4 @@
+import { composeHostedHarnessOperations, type HostedHarnessConnectionService } from "../integration/app-server/HostedHarnessOperations";
 import { composeHostedCheckoutReads } from "../integration/app-server/HostedCheckoutReads";
 import { composeHostedProviderPreferences } from "../integration/app-server/HostedProviderPreferences";
 import { composeHostedProviderCredentials } from "../integration/app-server/HostedProviderCredentials";
@@ -42,7 +43,7 @@ const LARGE_THREAD_INPUT_METHODS = new Set([
 ]);
 
 export const AppServerController = {
-  async request(request: Request, env: Env, executionContext?: ExecutionContext): Promise<Response> {
+  async request(request: Request, env: Env, executionContext?: ExecutionContext, harnessConnectionService?: HostedHarnessConnectionService): Promise<Response> {
     // Visibility lists were uncapped on the existing authenticated BYOK route.
     // A routing hint permits that one body shape only after cookie validation;
     // the parsed method must match before dispatch. Other requests stay bounded.
@@ -93,6 +94,7 @@ export const AppServerController = {
     }
     // Initialize remains a public handshake. Resource services are composed only
     // after an HttpOnly cookie resolves to a server-verified principal.
+    let harnessOperations: ReturnType<typeof composeHostedHarnessOperations> | undefined;
     let hostedProviderCredentialService: ReturnType<typeof composeHostedProviderCredentials> | undefined;
     let hostedProviderPreferenceService: ReturnType<typeof composeHostedProviderPreferences> | undefined;
     let hostedProviderDiscoveryService: ReturnType<typeof composeHostedProviderDiscovery> | undefined;
@@ -126,6 +128,7 @@ export const AppServerController = {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
           ok: false, error: { code: "unauthorized", message: "Unauthorized", ...threadInputAuthFailureDetails(parsed.data.method, 401), ...turnAuthFailureDetails(parsed.data.method, 401) },
         });
+        if (harnessConnectionService) harnessOperations = composeHostedHarnessOperations(request, env, auth.userId, harnessConnectionService);
         hostedProviderCredentialService = composeHostedProviderCredentials(request, env, auth.userId);
         hostedProviderPreferenceService = composeHostedProviderPreferences(request, env, auth.userId);
         hostedProviderDiscoveryService = composeHostedProviderDiscovery(request, env, auth.userId);
@@ -135,7 +138,7 @@ export const AppServerController = {
         hostedSessionPullRequestService = composeHostedSessionPullRequests(request, env, auth.userId);
         hostedTurnScopeService = composeHostedTurnScope(request, env, auth.userId);
         hostedTurnCommandsService = composeHostedTurnCommands(env, auth.userId);
-        hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext);
+        hostedThreadInputOperationsService = composeHostedThreadInputOperations(request, env, auth.userId, executionContext, harnessOperations);
         hostedLifecycleOperationsService = composeHostedLifecycleOperations(request, env, auth.userId);
         hostedEditArtifactReadsService = composeHostedEditArtifactReads(env, auth.userId);
         hostedCheckoutReadsService = composeHostedCheckoutReads(request, env, auth.userId);
@@ -146,8 +149,8 @@ export const AppServerController = {
           execute: async (params) => {
             const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
             try {
-              const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth);
-              const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext);
+              const chatRequest = await bindAuthenticatedChatRequest(request, env, params, correlationId, auth, harnessOperations);
+              const runtimeResponse = await submitHostedChat(request, chatRequest, env, undefined, executionContext, harnessOperations);
               if (!runtimeResponse.ok) {
                 const failure = await readHostedChatError(runtimeResponse);
                 await drainHostedChatRuntimeResponse(runtimeResponse, executionContext);
@@ -217,7 +220,9 @@ export const AppServerController = {
       },
       {
         environment: "hosted",
+        harnessOperations,
         serverId: "legioncode-hosted",
+        environmentId: env.APP_SERVER_ENVIRONMENT_ID ?? null,
         serverVersion: "0.1.0",
         hostedWorkspaceService,
         hostedProviderDiscoveryService,

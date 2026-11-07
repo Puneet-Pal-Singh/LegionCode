@@ -86,15 +86,11 @@ export class ProviderCredentialService {
       };
     } catch (error) {
       const providerId = request.providerId;
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = "Credential storage is unavailable";
       if (isDomainError(error)) {
         throw error;
       }
-      console.error(
-        `[provider/credential] Error connecting ${providerId}:`,
-        error,
-      );
+      console.error(`[provider/credential] Error connecting ${providerId}`);
 
       return this.failureResponse(providerId, errorMessage);
     }
@@ -152,7 +148,7 @@ export class ProviderCredentialService {
         providerId,
       };
     } catch (error) {
-      console.error(`[provider/credential] Error disconnecting:`, error);
+      console.error("[provider/credential] Error disconnecting");
       throw error;
     }
   }
@@ -162,6 +158,18 @@ export class ProviderCredentialService {
    * Returns null if provider not connected
    * Uses durable store as the only source of truth.
    */
+  async resolveRuntimeCredential(
+    providerId: ProviderId,
+  ): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
+    const apiKey = this.getPlatformManagedApiKey(providerId);
+    return apiKey
+      ? { apiKey }
+      : this.vault.resolveRuntimeCredential(providerId);
+  }
+
   async getApiKey(providerId: ProviderId): Promise<string | null> {
     const platformManagedApiKey = this.getPlatformManagedApiKey(providerId);
     if (platformManagedApiKey) {

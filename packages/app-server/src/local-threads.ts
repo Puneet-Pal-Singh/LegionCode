@@ -13,6 +13,7 @@ import {
   type PlatformEvent,
   type Thread,
   type ThreadId,
+  type UserId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 
@@ -38,6 +39,10 @@ export class LocalThreadService {
         (workspace) => mutation({ readThread: () => this.readAuthorizedThread(threadId, workspace) }),
       ),
     });
+  }
+
+  get actorUserId(): UserId {
+    return LOCAL_USER_ID;
   }
 
   async list(): Promise<Thread[]> {
@@ -221,6 +226,7 @@ export class LocalThreadService {
     const allEvents = await this.eventStore.listAll();
     const events = allEvents
       .filter((event) => event.threadId === threadId)
+      // listAll is canonical append order; stream-local sequence numbers may repeat.
       .map((event, index) => ({ event, projectionSequence: index + 1 }));
     const snapshot = projectThreadEvents(threadId, events);
     if (!snapshot || snapshot.thread.workspaceId !== workspaceId) {

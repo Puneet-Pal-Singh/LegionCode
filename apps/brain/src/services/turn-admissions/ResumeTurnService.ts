@@ -1,5 +1,10 @@
+import { settleUnclaimedStartupFailure } from "../thread-inputs/AdmittedTurnStartupFailure";
+import type { HarnessOperations } from "@legioncode/app-server/server";
+import { verifyHostedHarnessAdmission } from "../../integration/app-server/HostedHarnessAdmission";
+import { isDelegatedChat, assertHostedChatEnvironment, readAdmittedHarnessSelection, requireAdmittedHarnessSelection } from "../chat/ChatExecutionStrategy";
 import {
   ResumeWorkspaceSnapshotRefSchema,
+  TurnScopeBootstrapSchema,
   ThreadInputConfigurationSchema,
   userIdFromExternalId,
   workspaceIdFromExternalId,
@@ -43,6 +48,7 @@ export interface ResumedTurn {
     readonly reasoningEffort?: ThreadInputConfiguration["reasoningEffort"];
     readonly productMode?: ThreadInputConfiguration["productMode"];
     readonly harnessId?: ThreadInputConfiguration["harnessId"];
+    readonly harnessSelection?: ThreadInputConfiguration["harnessSelection"];
   };
   readonly resumeSnapshot: ResumeWorkspaceSnapshotRef | undefined;
   readonly workspacePatch: string | undefined;
@@ -58,7 +64,7 @@ export class ResumeTurnError extends Error {
 
 /** Admits a new logical turn for an exact interrupted turn and its captured workspace. */
 export class ResumeTurnService {
-  constructor(private readonly env: Env) {}
+  constructor(private readonly env: Env, private readonly harnessOperations?: HarnessOperations) {}
 
   async resume(input: ResumeTurnInput): Promise<ResumedTurn> {
     if (!input.clientCommandId.trim() || input.clientCommandId.length > 200) {
@@ -74,6 +80,7 @@ export class ResumeTurnService {
       throw new ResumeTurnError("The resume configuration is invalid", "resume_configuration_invalid", 400);
     }
 
+    assertHostedChatEnvironment(explicitConfiguration.harnessSelection, this.env.APP_SERVER_ENVIRONMENT_ID);
     const target = await withTurnAdmissionRepository(this.env, (repository) =>
       repository.getInterruptedTarget({
         sessionId: input.sessionId,
@@ -129,6 +136,13 @@ export class ResumeTurnService {
       throw new ResumeTurnError("The captured workspace snapshot failed ownership or integrity validation", "resume_snapshot_unavailable");
     }
     }
+    const inheritedCapture = explicitConfiguration.harnessSelection ?? readAdmittedHarnessSelection(target.admission);
+    const verifiedCapture = inheritedCapture ? await verifyHostedHarnessAdmission({
+      env: this.env, userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId, runId: input.runId,
+      identity: TurnScopeBootstrapSchema.parse({ workspaceId: input.workspaceId, threadId: input.threadId, turnId: input.turnId, runAttemptId: input.runAttemptId }),
+      capture: inheritedCapture, operations: this.harnessOperations, correlationId: crypto.randomUUID(),
+    }) : undefined;
+    const delegated = isDelegatedChat({ harnessSelection: verifiedCapture });
     const configuration: {
       mode: string;
       providerId: string | null;
@@ -137,11 +151,13 @@ export class ResumeTurnService {
       reasoningEffort?: ThreadInputConfiguration["reasoningEffort"];
       productMode?: ThreadInputConfiguration["productMode"];
       harnessId?: ThreadInputConfiguration["harnessId"];
+      harnessSelection?: ThreadInputConfiguration["harnessSelection"];
     } = {
       ...explicitConfiguration,
+      ...(verifiedCapture ? { harnessSelection: verifiedCapture } : {}),
       mode: explicitConfiguration.mode ?? target.run.mode,
-      providerId: explicitConfiguration.providerId ?? target.run.providerId,
-      modelId: explicitConfiguration.modelId ?? target.run.modelId,
+      providerId: delegated ? null : explicitConfiguration.providerId ?? target.run.providerId,
+      modelId: delegated ? verifiedCapture?.selection?.modelId ?? null : explicitConfiguration.modelId ?? target.run.modelId,
       branch: target.run.branch,
     };
     const fingerprint = await buildResumeFingerprint({
@@ -156,6 +172,7 @@ export class ResumeTurnService {
         providerId: target.run.providerId,
         modelId: target.run.modelId,
         branch: target.run.branch,
+        ...(verifiedCapture ? { harnessSelection: verifiedCapture } : {}),
       },
       snapshotDigest: resumeSnapshot?.patchSha256 ?? null,
     });
@@ -174,6 +191,7 @@ export class ResumeTurnService {
         mode: configuration.mode,
         providerId: configuration.providerId,
         modelId: configuration.modelId,
+        harnessSelection: configuration.harnessSelection,
         branch: configuration.branch,
         runStatus: "running",
         continuationOfTurnId: target.admission.turnId,
@@ -181,12 +199,24 @@ export class ResumeTurnService {
         continuationTerminalSequence: input.terminalSequence,
       }),
     );
+    let admittedCapture;
+    try {
+      admittedCapture = requireAdmittedHarnessSelection(verifiedCapture, resumed.admission);
+    } catch (error) {
+      await settleUnclaimedStartupFailure({
+        env: this.env, userId: input.userId, sessionId: input.sessionId, workspaceId: input.workspaceId, run: resumed.run,
+        identity: TurnScopeBootstrapSchema.parse({ workspaceId: input.workspaceId, threadId: input.threadId, turnId: resumed.admission.turnId, runAttemptId: resumed.admission.runAttemptId,
+          continuationOfTurnId: resumed.admission.continuationOfTurnId, originalPromptId: resumed.admission.originalPromptId }),
+        correlationId: crypto.randomUUID(), error,
+      });
+      throw error;
+    }
     return {
       admission: resumed.admission,
       run: resumed.run,
       originalPromptId: target.originalPromptId,
       prompt: target.prompt,
-      configuration,
+      configuration: { ...configuration, harnessSelection: admittedCapture },
       resumeSnapshot,
       workspacePatch,
       repository,

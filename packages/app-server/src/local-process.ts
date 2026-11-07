@@ -1,11 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
-import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
-import { LocalWorkspaceService } from "./local-workspace.js";
-import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
-import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
+import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary, type AppServerComposition } from "./server.js";
+import { ProviderConfigurationSchema } from "./local-providers.js";
+import { LocalHarnessComposition, type LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
+export type { LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -23,25 +22,63 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig) {
+export function createLocalAppServer(config: LocalAppServerStartConfig, bootstrap?: LocalHarnessBootstrap) {
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
-    const workspaceService = new LocalWorkspaceService({
-      workspaceGrants: persistence.workspaceGrants,
-    });
-    const threadService = new LocalThreadService({
-      events: persistence.events,
-      getWorkspace: () => workspaceService.getCurrent(),
-    });
-    const providerService = new LocalProviderService({
-      selectionStore: persistence.providerSelection,
-    });
+    const local = new LocalHarnessComposition(persistence, config.storageDirectory);
+    if (bootstrap) local.bootstrap(bootstrap);
+    const ready = local.turnService.initialize();
+    let startupSettled = false;
+    void ready.then(() => { startupSettled = true; }, () => { startupSettled = true; });
+    const composition = {
+      environment: "local" as const,
+      serverId: "legioncode-local",
+      environmentId: persistence.environmentId,
+      serverVersion: config.serverVersion,
+      credential: config.credential,
+      workspaceService: local.workspaceService,
+      threadService: local.threadService,
+      providerService: local.providerService,
+      harnessOperations: local.harnessOperations,
+      localTurnService: local.turnService,
+      // Existing dispatcher port, with an accountless local implementation and no hosted principal.
+      hostedChatSubmissionService: local.turnService,
+      hostedLifecycleOperationsService: {
+        replayLifecycleEvents: local.replayLifecycleEvents.bind(local),
+        getTurnDiff: local.turnService.getTurnDiff.bind(local.turnService),
+        submitLifecycleApproval: local.turnService.submitLifecycleApproval.bind(local.turnService),
+        compactTurn: async () => { throw new AppServerOperationError(503, "server_unavailable", "Local harness compaction is unavailable"); },
+      },
+      localLifecycleReplayService: local,
+    };
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence);
+      void ready.then(() => handleRequest(request, response, composition)).catch(() => {
+        if (!response.headersSent) writeJson(response, 503, { code: "server_unavailable", message: "Local App Server is unavailable" });
+        else response.destroy();
+      });
     });
-    server.once("close", () => persistence.close());
-    server.once("error", () => persistence.close());
-    return server;
+    // Direct embedders may listen immediately; requests still wait for durable
+    // restart fencing. The utility process announces ready only after this resolves.
+    void ready.catch(() => undefined);
+    let shutdown: Promise<void> | undefined;
+    let resolveClosed!: () => void;
+    let rejectClosed!: (error: unknown) => void;
+    const closed = new Promise<void>((resolve, reject) => { resolveClosed = resolve; rejectClosed = reject; });
+    const closePersistence = () => {
+      if (shutdown) return;
+      if (startupSettled && !local.turnService.hasActiveExecutions) {
+        persistence.close();
+        shutdown = Promise.resolve();
+      } else {
+        shutdown = ready.catch(() => undefined).then(() => local.turnService.shutdown()).then(() => persistence.close());
+      }
+      // Never close the writer while cleanup/lease settlement is unproven.
+      void shutdown.then(resolveClosed, rejectClosed);
+    };
+    void closed.catch(() => server.emit("runtime-shutdown-failed"));
+    server.once("close", closePersistence);
+    server.once("error", closePersistence);
+    return Object.assign(server, { ready, closed });
   } catch (error) {
     persistence.close();
     throw error;
@@ -51,41 +88,47 @@ export function createLocalAppServer(config: LocalAppServerStartConfig) {
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
+  bootstrap?: LocalHarnessBootstrap,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config);
+    server = createLocalAppServer(config, bootstrap);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
     return;
   }
+  server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
+  const exitAfterClose = () => {
+    // A socket close is not child/background-work or artifact settlement.
+    // Rejected cleanup leaves this owner alive and reports fatal above.
+    void server.closed.then(() => process.exit(1), () => undefined);
+  };
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
-    server.close(() => process.exit(1));
+    server.close(exitAfterClose);
   });
-  server.listen(0, "127.0.0.1", () => {
+  void server.ready.then(() => server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {
       parentPort.postMessage({ type: "fatal" });
-      server.close(() => process.exit(1));
+      server.close(exitAfterClose);
       return;
     }
     parentPort.postMessage({
       type: "ready",
       baseUrl: `http://127.0.0.1:${address.port}`,
     });
+  })).catch(() => {
+    parentPort.postMessage({ type: "fatal" });
+    server.close(exitAfterClose);
   });
 }
 
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  config: LocalAppServerStartConfig,
-  workspaceService: LocalWorkspaceService,
-  threadService: LocalThreadService,
-  providerService: LocalProviderService,
-  persistence: LocalPersistence,
+  composition: AppServerComposition & { credential: string },
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -94,18 +137,6 @@ async function handleRequest(
     origin: request.headers.origin,
     authorization: request.headers.authorization,
     contentType: request.headers["content-type"],
-  };
-  const composition = {
-    environment: "local" as const,
-    serverId: "legioncode-local",
-    serverVersion: config.serverVersion,
-    credential: config.credential,
-    workspaceService,
-    threadService,
-    localLifecycleReplayService: {
-      replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
-        replayLocalLifecycle(persistence, threadService, params),
-    },
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {
@@ -140,38 +171,9 @@ async function handleRequest(
       ...baseInput,
       rawBody: body.value,
     },
-    { ...composition, providerService, providerConfiguration },
+    { ...composition, providerConfiguration },
   );
   writeJson(response, result.statusCode, result.payload, result.headers);
-}
-
-/** Read canonical runtime bytes only after resolving their thread in the current grant. */
-async function replayLocalLifecycle(
-  persistence: LocalPersistence,
-  threadService: LocalThreadService,
-  params: ReplayLifecycleEventsRequest,
-) {
-  if (params.backend && params.backend !== "execution-engine-v1") {
-    throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
-  }
-  const first = await persistence.lifecycleEvents.replay({
-    turnId: params.turnId, afterSequence: null, limit: 1,
-  });
-  const event = first.events[0];
-  if (!event) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-  try {
-    await threadService.get(event.threadId);
-  } catch (error) {
-    if (error instanceof LocalThreadNotFoundError) {
-      throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
-    }
-    throw error;
-  }
-  return persistence.lifecycleEvents.replay({
-    turnId: params.turnId,
-    afterSequence: params.afterSequence ?? null,
-    limit: params.limit ?? 1_000,
-  });
 }
 
 function readBody(

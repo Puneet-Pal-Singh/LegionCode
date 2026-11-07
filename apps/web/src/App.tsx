@@ -1,4 +1,11 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import {
   ClientShell,
   ClientShellLoading,
@@ -47,7 +54,17 @@ import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
-import type { HookSettingsAuditReadModel } from "@legioncode/sdk";
+import {
+  HarnessSelectionReadRequestSchema,
+  HarnessStatusRequestSchema,
+  AppServerEnvironmentIdSchema,
+  type HookSettingsAuditReadModel,
+} from "@legioncode/sdk";
+import {
+  HostedHarnessScope,
+  useHostedHarnessScopeBinding,
+  type HostedHarnessScopes,
+} from "./components/harness/HostedHarnessScope";
 import { initializeHostedAppServer } from "./services/api/appServerClient";
 import { useSessionWorkspaceContext } from "./hooks/useSessionWorkspaceContext";
 import { useOwnedWorkspaceSelection } from "./hooks/useOwnedWorkspaceSelection";
@@ -126,34 +143,23 @@ function App() {
   );
 }
 
+function HostedHarnessScopeProvider({
+  children,
+  ...scopes
+}: HostedHarnessScopes & { children: ReactNode }) {
+  const binding = useHostedHarnessScopeBinding(scopes);
+  return (
+    <HostedHarnessScope.Provider value={binding}>
+      {children}
+    </HostedHarnessScope.Provider>
+  );
+}
+
 /**
  * App Content - Contains the main application logic
  * Separated to allow useAuth hook access within AuthProvider
  */
 function AppContent() {
-  const [environment, setEnvironment] =
-    useState<AppServerEnvironmentSnapshot>(HOSTED_ENVIRONMENT);
-  useEffect(() => {
-    void initializeHostedAppServer()
-      .then((handshake) => {
-        setEnvironment({
-          kind: handshake.environment,
-          status: "ready",
-          protocolVersion: handshake.protocolVersion,
-          serverVersion: handshake.server.version,
-          capabilities: handshake.capabilities,
-          unavailableCapabilities: handshake.unavailableCapabilities,
-          reason: null,
-        });
-      })
-      .catch(() => {
-        setEnvironment({
-          ...HOSTED_ENVIRONMENT,
-          status: "degraded",
-          reason: "Hosted App Server status is unavailable",
-        });
-      });
-  }, []);
   const {
     isAuthenticated,
     isLoading,
@@ -164,6 +170,93 @@ function AppContent() {
     refreshSession,
     user,
   } = useAuth();
+  const environmentOwnerId =
+    isAuthenticated && hasVerifiedSession ? (user?.id ?? null) : null;
+  const [hostedEnvironment, setHostedEnvironment] = useState<{
+    ownerId: string | null;
+    snapshot: AppServerEnvironmentSnapshot;
+    environmentId: string | null;
+  }>({
+    ownerId: environmentOwnerId,
+    snapshot: HOSTED_ENVIRONMENT,
+    environmentId: null,
+  });
+  // Reset the account-owned record during an identity transition, before its
+  // descendants can render an old handshake or scope. Async settlement is atomic.
+  if (hostedEnvironment.ownerId !== environmentOwnerId) {
+    setHostedEnvironment({
+      ownerId: environmentOwnerId,
+      snapshot: HOSTED_ENVIRONMENT,
+      environmentId: null,
+    });
+  }
+  const environment =
+    hostedEnvironment.ownerId === environmentOwnerId
+      ? hostedEnvironment.snapshot
+      : HOSTED_ENVIRONMENT;
+  const environmentIdentity = useMemo(
+    () =>
+      hostedEnvironment.ownerId === environmentOwnerId &&
+      environmentOwnerId &&
+      hostedEnvironment.environmentId
+        ? { userId: environmentOwnerId, id: hostedEnvironment.environmentId }
+        : null,
+    [
+      hostedEnvironment.ownerId,
+      hostedEnvironment.environmentId,
+      environmentOwnerId,
+    ],
+  );
+  useEffect(() => {
+    if (!environmentOwnerId) return;
+    let active = true;
+    const ownerId = environmentOwnerId;
+    void initializeHostedAppServer()
+      .then((handshake) => {
+        if (!active) return;
+        const parsedEnvironmentId = AppServerEnvironmentIdSchema.safeParse(
+          handshake.environmentId,
+        );
+        setHostedEnvironment((current) =>
+          current.ownerId === ownerId
+            ? {
+                ownerId,
+                environmentId: parsedEnvironmentId.success
+                  ? parsedEnvironmentId.data
+                  : null,
+                snapshot: {
+                  kind: handshake.environment,
+                  status: "ready",
+                  protocolVersion: handshake.protocolVersion,
+                  serverVersion: handshake.server.version,
+                  capabilities: handshake.capabilities,
+                  unavailableCapabilities: handshake.unavailableCapabilities,
+                  reason: null,
+                },
+              }
+            : current,
+        );
+      })
+      .catch(() => {
+        if (!active) return;
+        setHostedEnvironment((current) =>
+          current.ownerId === ownerId
+            ? {
+                ownerId,
+                environmentId: null,
+                snapshot: {
+                  ...HOSTED_ENVIRONMENT,
+                  status: "degraded",
+                  reason: "Hosted App Server status is unavailable",
+                },
+              }
+            : current,
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [environmentOwnerId]);
   const {
     sessions,
     activeSessionId,
@@ -356,6 +449,62 @@ function AppContent() {
     : workspaceSelectionIsResolved
       ? (ownedWorkspaceSelection?.workspaceId ?? null)
       : undefined;
+  const harnessConnectionScope = useMemo(() => {
+    if (
+      !isAuthenticated ||
+      !hasVerifiedSession ||
+      environment.status !== "ready" ||
+      !environmentIdentity ||
+      environmentIdentity.userId !== user?.id
+    )
+      return null;
+    // An open conversation keeps its own workspace. Setup without a conversation
+    // uses the authenticated workspace owner's current selection.
+    const workspaceId = activeSessionId
+      ? sessionWorkspaceContext?.sessionId === activeSessionId &&
+        sessionWorkspaceContext.workspaceStatus === "active"
+        ? sessionWorkspaceContext.workspaceId
+        : null
+      : workspaceSelectionIsResolved
+        ? ownedWorkspaceSelection?.workspaceId
+        : null;
+    const parsed = HarnessStatusRequestSchema.safeParse({
+      workspaceId,
+      environmentId: environmentIdentity.id,
+    });
+    return parsed.success ? parsed.data : null;
+  }, [
+    isAuthenticated,
+    hasVerifiedSession,
+    environment.status,
+    environmentIdentity,
+    user?.id,
+    activeSessionId,
+    sessionWorkspaceContext,
+    workspaceSelectionIsResolved,
+    ownedWorkspaceSelection,
+  ]);
+  const harnessSelectionScope = useMemo(() => {
+    if (
+      !harnessConnectionScope ||
+      !activeSessionId ||
+      sessionWorkspaceContext?.sessionId !== activeSessionId
+    )
+      return null;
+    const parsed = HarnessSelectionReadRequestSchema.safeParse({
+      ...harnessConnectionScope,
+      sessionId: sessionWorkspaceContext.sessionId,
+      threadId: sessionWorkspaceContext.threadId,
+    });
+    return parsed.success ? parsed.data : null;
+  }, [harnessConnectionScope, activeSessionId, sessionWorkspaceContext]);
+  const harnessSelectionUnavailableReason =
+    harnessConnectionScope &&
+    activeSessionId &&
+    isWorkspaceContextResolved &&
+    !harnessSelectionScope
+      ? "External agent selection is unavailable for this conversation. Start a new conversation to choose an agent."
+      : null;
   const setupSession = useSetupPreferenceScope(
     isAuthenticated ? authenticatedUserId : undefined,
     providerScopeWorkspaceId,
@@ -862,6 +1011,13 @@ function AppContent() {
   }
 
   return (
+    <HostedHarnessScopeProvider
+      accountId={environmentOwnerId}
+      connectionScope={harnessConnectionScope}
+      selectionScope={harnessSelectionScope}
+      sessionId={activeSessionId}
+      selectionUnavailableReason={harnessSelectionUnavailableReason}
+    >
     <ClientShell
       environment={environment.status === "ready" ? undefined : environment}
     >
@@ -1265,6 +1421,7 @@ function AppContent() {
         </div>
       </WorkspaceFrame>
     </ClientShell>
+    </HostedHarnessScopeProvider>
   );
 }
 

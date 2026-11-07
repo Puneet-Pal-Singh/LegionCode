@@ -11,6 +11,7 @@
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
     "./local-process": "./src/local-process.ts",
+    "./local-harness": "./src/harness/LocalHarnessComposition.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts"
   },
   "scripts": {
@@ -22,9 +23,14 @@
     "@legioncode/execution-engine": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
+    "@repo/harness-claude": "workspace:*",
+    "@repo/harness-codex": "workspace:*",
+    "@repo/harness-core": "workspace:*",
+    "@repo/harness-opencode": "workspace:*",
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "zod": "^3.25.0"
   },

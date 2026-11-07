@@ -371,6 +371,22 @@
       "disposition": "keep-pure-policy",
       "purpose": "Classify retryable failures and calculate retry budget timing.",
       "gate": "corepack pnpm --filter @legioncode/execution-engine test"
+    },
+    {
+      "path": "packages/harness-opencode/src/server/OpenCodePermissionPolicy.ts",
+      "owner": "harness-opencode",
+      "category": "permission",
+      "disposition": "keep-pure-policy",
+      "purpose": "Validate and freeze the pinned native OpenCode permission representation and compare ordered rules with the admitted canonical policy. This translator grants no host capability.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
+    },
+    {
+      "path": "packages/harness-codex/src/server/protocol/generated/v2/SandboxPolicy.ts",
+      "owner": "harness-codex-pinned-protocol",
+      "category": "permission",
+      "disposition": "keep-pure-policy",
+      "purpose": "Generated type-only Codex 0.167.0 wire representation. The driver translates canonical host policy; this declaration neither selects policy nor attests execution confinement.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
     }
   ]
 }

@@ -63,18 +63,73 @@ describe("CloudCredentialVault", () => {
     const vault = new CloudCredentialVault(mockCredentialStore, "user-1");
     const isConnected = await vault.isConnected("openai");
     expect(isConnected).toBe(true);
+    const credential = await mockCredentialStore.getCredential("openai");
+    if (!credential) throw new Error("Missing fixture credential");
+    for (const overrides of [
+      { status: "revoked" as const },
+      { status: "failed" as const },
+      { deletedAt: new Date().toISOString() },
+    ]) {
+      vi.mocked(mockCredentialStore.getCredential).mockResolvedValueOnce({
+        ...credential,
+        ...overrides,
+      });
+      expect(await vault.isConnected("openai")).toBe(false);
+      vi.mocked(mockCredentialStore.getCredential).mockResolvedValueOnce({
+        ...credential,
+        connectionConfig: { providerId: "opencode-go" },
+        ...overrides,
+      });
+      expect(await vault.getConnectionConfig("openai")).toBeUndefined();
+    }
   });
 
   it("gets API key for provider", async () => {
     const vault = new CloudCredentialVault(mockCredentialStore, "user-1");
     const apiKey = await vault.getApiKey("openai");
     expect(apiKey).toBe("sk-test-key-1234567890");
+    const credential = await mockCredentialStore.getCredentialWithKey("openai");
+    if (!credential) throw new Error("Missing fixture credential");
+    for (const overrides of [
+      { status: "revoked" as const },
+      { status: "failed" as const },
+      { deletedAt: new Date().toISOString() },
+    ]) {
+      vi.mocked(mockCredentialStore.getCredentialWithKey).mockResolvedValueOnce(
+        {
+          ...credential,
+          record: { ...credential.record, ...overrides },
+        },
+      );
+      expect(await vault.getApiKey("openai")).toBeNull();
+    }
+    for (const overrides of [
+      { userId: "another-user" },
+      { providerId: "anthropic" },
+    ]) {
+      vi.mocked(mockCredentialStore.getCredentialWithKey).mockResolvedValueOnce(
+        {
+          ...credential,
+          record: { ...credential.record, ...overrides },
+        },
+      );
+      await expect(vault.getApiKey("openai")).rejects.toThrow(
+        "Credential scope does not match the authorized vault",
+      );
+    }
   });
 
   it("lists connected providers", async () => {
     const vault = new CloudCredentialVault(mockCredentialStore, "user-1");
     const providers = await vault.listConnectedProviders();
     expect(providers).toEqual(["openai"]);
+    const credential = await mockCredentialStore.getCredential("openai");
+    if (!credential) throw new Error("Missing fixture credential");
+    vi.mocked(mockCredentialStore.getCredential).mockResolvedValueOnce({
+      ...credential,
+      status: "revoked",
+    });
+    expect(await vault.listConnectedProviders()).toEqual([]);
   });
 
   it("deletes credential", async () => {

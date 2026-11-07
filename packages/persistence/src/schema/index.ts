@@ -36,3 +36,8 @@ export {
   artifactMetadata,
   artifactMetadataChangedFiles,
 } from "./artifact-metadata.js";
+
+export { harnessBindings, harnessObservationReceipts, harnessProcessGenerations } from "./harness.js";
+
+
+export { providerCredentialDefaultEpochs } from "./credential-default-epochs.js";

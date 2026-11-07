@@ -1,3 +1,4 @@
+import { handleAppServerHttpRequest, type HarnessOperations } from "@legioncode/app-server/server";
 import { describe, expect, it } from "vitest";
 import { createConversationInputCommands } from "./conversation-input-commands.js";
 import { createAppServerLifecycleClient } from "./app-server-lifecycle.js";
@@ -87,6 +88,7 @@ describe("AppServerClient", () => {
               protocolVersion: APP_SERVER_PROTOCOL_VERSION,
               server: { id: "local", version: "0.1.0" },
               environment: "local",
+              environmentId: null,
               capabilities: [],
               unavailableCapabilities: [],
             },
@@ -184,6 +186,45 @@ describe("AppServerClient", () => {
       { method: "checkout/readFile", params: { ...checkout, path: "src/index.ts" } },
     ]);
 
+    const scope = { workspaceId: "123e4567-e89b-42d3-a456-426614174111", environmentId: "cloud-1" };
+    const instance = {
+      ...scope, harness: "codex" as const, instanceId: "codex-personal", connectionId: "connection-1",
+      accountLabel: "Personal", usage: null, state: "ready" as const, reason: null,
+      capabilities: { approvals: true, questions: false, steer: false, resume: true, fork: false, images: false, terminal: false, contextTelemetry: false, accountQuota: false, experimental: false },
+      runtimeVersion: "pinned", protocolVersion: "pinned", observedAt: "2026-11-06T00:00:00.000Z",
+    };
+    let revision = 0;
+    let selection: import("@repo/platform-protocol").HarnessNextSelection | null = null;
+    const operations: HarnessOperations = {
+      setup: async () => ({ instance }),
+      status: async () => ({ instances: [instance] }),
+      models: async (params) => ({ ...params, models: [{ id: ModelIdSchema.parse("gpt-5"), label: "GPT-5" }], availability: "available", reason: null, observedAt: instance.observedAt }),
+      readSelection: async (params) => ({ ...params, revision, selection }),
+      select: async (params) => {
+        if (params.expectedRevision !== revision) throw new Error("stale selection");
+        revision += 1; selection = params.selection;
+        return {
+          environmentId: params.environmentId, workspaceId: params.workspaceId,
+          sessionId: params.sessionId, threadId: params.threadId, revision, selection,
+        };
+      },
+    };
+    const harnessClient = createAppServerClient({
+      clientId: "cloud-client", clientVersion: "0.1.0",
+      transport: { request: async (envelope) => (await handleAppServerHttpRequest({
+        method: "POST", path: "/app-server/request", contentType: "application/json", rawBody: JSON.stringify(envelope),
+      }, { environment: "hosted", serverId: "test", serverVersion: "test", harnessOperations: operations })).payload },
+    }).harness;
+    await expect(harnessClient.setup({ ...scope, harness: "codex", connectionId: "connection-1", clientCommandId: "create-1" })).resolves.toEqual({ instance });
+    await expect(harnessClient.setup({ ...scope, harness: "codex", instanceId: instance.instanceId, connectionId: "connection-1", clientCommandId: "setup-1" })).resolves.toEqual({ instance });
+    await expect(harnessClient.status(scope)).resolves.toEqual({ instances: [instance] });
+    await expect(harnessClient.models({ ...scope, instanceId: instance.instanceId, connectionId: "connection-1" })).resolves.toMatchObject({ availability: "available", models: [{ id: "gpt-5" }] });
+    const thread = { ...scope, sessionId: "session-123456", threadId: ThreadIdSchema.parse("thr_123456") };
+    await expect(harnessClient.readSelection(thread)).resolves.toMatchObject({ revision: 0, selection: null });
+    const next = { harness: "codex" as const, instanceId: instance.instanceId, connectionId: "connection-1", modelId: ModelIdSchema.parse("gpt-5") };
+    await expect(harnessClient.select({ ...thread, clientCommandId: "select-1", expectedRevision: 0, selection: next })).resolves.toMatchObject({ revision: 1, selection: next });
+    await expect(harnessClient.readSelection(thread)).resolves.toMatchObject({ revision: 1, selection: next });
+
     // Admission may be acknowledged before runtime appends its first event.
     const started = lifecycleEvent(1);
     const completed = LifecycleEventSchema.parse({
@@ -234,7 +275,6 @@ describe("AppServerClient", () => {
     await expect(missing.followTurnLifecycle({ turnId: started.turnId })[Symbol.asyncIterator]().next())
       .rejects.toMatchObject({ code: "not_found", retryable: false });
     expect(missingCalls).toBe(1);
-
   });
 
   it("acknowledges a canonical terminal turn through the typed session operation", async () => {

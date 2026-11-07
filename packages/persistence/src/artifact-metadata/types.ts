@@ -3,7 +3,6 @@ import {
   ArtifactMetadataSchema,
   type ArtifactEvent,
   type ArtifactId,
-  type ArtifactMetadata,
   type EventCursor,
   type EventId,
   type RunId,

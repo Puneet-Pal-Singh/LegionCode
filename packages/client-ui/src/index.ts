@@ -73,6 +73,9 @@ export { resumeUnavailableMessage } from "./conversation/chat-interface/workspac
 
 export { resolveComposerKeyboardAction } from "./conversation/conversation/composer-keyboard.js";
 
+export { HarnessUsage, type HarnessUsageProps } from "./harness/HarnessUsage.js";
+export { HarnessConnectionSettings, type HarnessConnectionSettingsProps } from "./harness/HarnessConnectionSettings.js";
+export { HarnessSelection, type HarnessSelectionProps } from "./harness/HarnessSelection.js";
 export {
   SharedFileExplorer,
   type SharedFileExplorerProps,

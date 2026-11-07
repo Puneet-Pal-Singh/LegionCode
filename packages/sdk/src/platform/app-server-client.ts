@@ -1,3 +1,4 @@
+import { createHarnessClient, type HarnessClient } from "../harness/client.js";
 import { CheckoutListFilesParamsSchema, CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
 import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
@@ -174,6 +175,7 @@ const GitMutationMetadataSchema = z.object({
 }).strict();
 
 export type AppServerClient = {
+  readonly harness: HarnessClient;
   startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
   getTurn(turnId: string): Promise<TurnAdmission>;
   getThreadHistoryPage(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
@@ -266,6 +268,7 @@ export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
   return {
+    harness: createHarnessClient(options),
     listWorkspaceFiles: (params) => request(options, {
       method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/listFiles"]),
@@ -716,3 +719,6 @@ function acknowledgementFromHeaders(
     runAttemptId: headers.get("X-Run-Attempt-Id"),
   };
 }
+
+// Shared internal request path for SDK operation groups.
+export { request as requestAppServerOperation };

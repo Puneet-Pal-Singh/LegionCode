@@ -1,3 +1,4 @@
+export { CanonicalApprovalDeadlinePort } from "./CanonicalApprovalDeadlinePort.js";
 export {
   RUNTIME_KERNEL_ERROR_CODES,
   RuntimeKernelError,
@@ -51,3 +52,6 @@ export {
   type ToolResult,
   type WorkerToolResult,
 } from "./types.js";
+export type { DelegatedHarnessPort, HarnessObservationCommitPort, HarnessObservationRecovery } from "./harness/DelegatedHarnessPort.js";
+export { DelegatedTurnCoordinator, type DelegatedExecutionDependencies } from "./harness/DelegatedTurnCoordinator.js";
+export { HarnessObservationIngestor } from "./harness/HarnessObservationIngestor.js";

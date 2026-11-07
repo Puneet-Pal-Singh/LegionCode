@@ -1,4 +1,6 @@
 import { useComposerPreferences } from "../../lib/composer-preferences";
+import { HostedHarnessPicker } from "../harness/HostedHarnessPicker";
+import { useHostedHarnessScope } from "../harness/HostedHarnessScope";
 import {
   useState,
   useRef,
@@ -267,10 +269,14 @@ export function AgentSetup({
   const hasTask = task.trim().length > 0;
   const hasRepositoryContext = Boolean(repo?.full_name);
   const hasProviderConnection = credentials.length > 0;
+  const harnessBinding = useHostedHarnessScope();
+  const isDelegatedSelected = harnessBinding.selectionReceipt?.sessionId === sessionId &&
+    harnessBinding.selectionReceipt.selection !== null;
+  const hasExecutionConnection = hasProviderConnection || isDelegatedSelected;
   const hasImages = imageDraft.attachments.length > 0;
   const canStart =
     (hasTask || hasImages) &&
-    hasProviderConnection &&
+    hasExecutionConnection &&
     (!requiresRepository || hasRepositoryContext);
   const suggestionEntries = useMemo(
     () =>
@@ -700,7 +706,7 @@ export function AgentSetup({
               <div className="h-3.5 w-px bg-zinc-800" />
 
               <div>
-                <ModelPickerPopover
+                {!isDelegatedSelected ? <ModelPickerPopover
                   catalog={catalog}
                   credentials={credentials}
                   providerModels={providerModels}
@@ -764,9 +770,10 @@ export function AgentSetup({
                   isHydratingVisibleModels={
                     isSelectedProviderModelHydrationPending
                   }
-                />
+                /> : null}
+                <HostedHarnessPicker sessionId={sessionId} />
               </div>
-              {selectedProviderId &&
+              {!isDelegatedSelected && selectedProviderId &&
               selectedModelId &&
               selectedModel?.capabilities?.reasoningEfforts?.length ? (
                 <ReasoningEffortPicker
@@ -852,10 +859,10 @@ export function AgentSetup({
           add your provider key now.
         </div>
       ) : null}
-      {!hasProviderConnection ? (
+      {!hasExecutionConnection ? (
         <ProviderRequiredInline onConnect={openProviderConnection} />
       ) : null}
-      {status === "error" && error ? (
+      {!isDelegatedSelected && status === "error" && error ? (
         <div className="mt-2 pl-2 text-xs text-amber-300">{error}</div>
       ) : null}
     </motion.div>

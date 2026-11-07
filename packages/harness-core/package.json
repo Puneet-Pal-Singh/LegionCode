@@ -1,0 +1,23 @@
+{
+  "name": "@repo/harness-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "5.9.2"
+  },
+  "dependencies": {
+    "@repo/worker-protocol": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
+    "@repo/platform-protocol": "workspace:*"
+  }
+}

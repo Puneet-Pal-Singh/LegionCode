@@ -1,3 +1,4 @@
+import { claimExecutionWithStartupInterrupt } from "./RunExecutionStartup";
 import { describe, expect, it, vi } from "vitest";
 import { TurnIdSchema } from "@repo/platform-protocol";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
@@ -25,6 +26,18 @@ describe("InMemoryRunInterruptRegistry", () => {
     expect(interrupt).toHaveBeenCalledTimes(1);
     expect(interrupt).toHaveBeenCalledWith("User interrupted the turn.");
     registry.unregister(turnId);
+    expect(registry.hasActiveOwner(turnId)).toBe(false);
+
+    let finishClaim!: (value: { status: "claimed" }) => void;
+    const claiming = claimExecutionWithStartupInterrupt(registry, turnId,
+      () => new Promise<{ status: "claimed" }>((resolve) => { finishClaim = resolve; }));
+    expect(registry.hasActiveOwner(turnId)).toBe(true);
+    expect(await registry.request(turnId, "Stop while claim is pending")).toBe(true);
+    finishClaim({ status: "claimed" });
+    await claiming;
+    expect(registry.register(turnId, interrupt)).toBe("Stop while claim is pending");
+    registry.unregister(turnId);
+    await claimExecutionWithStartupInterrupt(registry, turnId, async () => ({ status: "already_claimed" }));
     expect(registry.hasActiveOwner(turnId)).toBe(false);
   });
 });

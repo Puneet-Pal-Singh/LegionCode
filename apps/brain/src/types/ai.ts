@@ -29,6 +29,9 @@ export interface HyperdriveBinding {
 }
 
 export interface Env {
+  /** Canonical authority overrides; production adapters use existing persistence/account owners. */
+  HARNESS_ADMISSION_ACCOUNTS?: import("../runtime/CloudHarnessAdmissionPorts").HarnessAdmissionAccountPort;
+  AUTH_HARNESS_ADMISSION_BINDINGS?: import("../runtime/CloudHarnessAdmissionPorts").HarnessAdmissionBindingPort;
   // Existing bindings
   AI: Ai;
   SECURE_API: Fetcher;
@@ -129,6 +132,8 @@ export interface Env {
   // Environment
   NODE_ENV?: string;
   ENVIRONMENT?: string;
+  /** Stable env_<UUID> assigned by deployment authority, distinct for each execution host environment. */
+  APP_SERVER_ENVIRONMENT_ID?: string;
 }
 
 // export interface Env {

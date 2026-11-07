@@ -17,7 +17,7 @@ LegionCode is an OSS AI coding-agent workspace.
 The product must support:
 
 - Web cloud sandbox execution.
-- Desktop local execution.
+- Desktop cloud and local execution through the same SDK/runtime contracts.
 - CLI and mobile later.
 - Public `@legioncode/sdk`.
 - ACP, Codex SDK, OpenCode, Claude Code, and Cursor-style harness adapters.
@@ -297,6 +297,21 @@ rules are defined in:
 
 - `architecture/RUNTIME-ARCHITECTURE.md`
 - `architecture/CAPABILITY-OWNERSHIP.md`
+
+For independent inbound Codex, Claude Agent, and OpenCode v2 harness work, read
+`architecture/HARNESS-INTEGRATION.md`. It defines the shared local/cloud
+construction, final package locations, import direction, and process/credential
+boundaries for Plans 048/061. Its target layout is not an implemented-state
+claim; record actual wiring in the capability ownership ledger. Do not build
+app-local driver copies that require later extraction.
+Read `architecture/HARNESS-TRANSPORT-DECISION.md` for the per-harness ACP/native
+comparison and stable transport/capability rules. The built-in target is native
+Codex app-server, official Claude Agent SDK and native OpenCode v2 in both
+execution placements. Generic ACP remains a separate extension, not a second
+runtime or a silent fallback for an active native session.
+These integrations do not wait for Plans 057/058, the Native golden loop, or
+another harness to finish. Each slice wires and proves its missing canonical
+capabilities. Desktop/Web delivery acceptance remains separately owned.
 
 The ideal dependency direction:
 

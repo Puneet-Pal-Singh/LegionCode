@@ -54,7 +54,16 @@ export async function loadConnectedCredentials(
       continue;
     }
 
-    const credentialId = buildVirtualCredentialId(connection.providerId);
+    const credentialId =
+      connection.providerId === AXIS_PROVIDER_ID
+        ? buildVirtualCredentialId(AXIS_PROVIDER_ID)
+        : connection.credentialId;
+    if (!credentialId)
+      throw new ValidationError(
+        "Connected provider did not return its credential identity",
+        "PROVIDER_NOT_CONNECTED",
+        correlationId,
+      );
     credentials.push({
       credentialId,
       userId: scope.userId,
@@ -86,7 +95,12 @@ export function resolveCredentialLabel(
     return metadata.credentialLabels[credentialId] ?? "Axis (Free)";
   }
   return (
-    metadata.credentialLabels[credentialId] ?? `${connection.providerId} key`
+    metadata.credentialLabels[credentialId] ??
+    // Explicit migration of labels written under the former virtual API-key ID.
+    metadata.credentialLabels[
+      buildVirtualCredentialId(connection.providerId)
+    ] ??
+    `${connection.providerId} key`
   );
 }
 
@@ -119,9 +133,23 @@ export async function configureDefaultPreferenceWhenAvailable(
     scope,
     correlationId,
   );
-  if (existingPreference.defaultProviderId) {
+  if (
+    existingPreference.defaultProviderId &&
+    existingPreference.defaultProviderId !== providerId
+  )
     return;
-  }
+  const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
+  const connection = runtime.connections.find(
+    (value) => value.providerId === providerId && value.status === "connected",
+  );
+  const credentialId = connection?.credentialId;
+  if (providerId !== AXIS_PROVIDER_ID && !credentialId)
+    throw new ValidationError(
+      "Connected provider identity is unavailable",
+      "PROVIDER_NOT_CONNECTED",
+      correlationId,
+    );
+  if (existingPreference.defaultProviderId) return;
 
   const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
   const defaultModel = resolveOptionalDefaultModel(providerId, catalog);
@@ -141,6 +169,7 @@ export async function configureDefaultPreferenceWhenAvailable(
       path: "/providers/preferences",
       body: {
         defaultProviderId: providerId,
+        ...(credentialId ? { defaultCredentialId: credentialId } : {}),
         defaultModelId: defaultModel,
       },
     },
@@ -290,18 +319,6 @@ export async function connectProviderCredential(
     correlationId,
   );
 
-  const credentialId = buildVirtualCredentialId(request.providerId);
-  if (request.label) {
-    await persistCredentialLabel(
-      req,
-      env,
-      scope,
-      credentialId,
-      request.label,
-      correlationId,
-    );
-  }
-
   const credentials = await loadConnectedCredentials(
     req,
     env,
@@ -318,6 +335,17 @@ export async function connectProviderCredential(
       "PROVIDER_NOT_CONNECTED",
       correlationId,
     );
+  }
+  if (request.label) {
+    await persistCredentialLabel(
+      req,
+      env,
+      scope,
+      credential.credentialId,
+      request.label,
+      correlationId,
+    );
+    return { ...credential, label: request.label };
   }
   return credential;
 }

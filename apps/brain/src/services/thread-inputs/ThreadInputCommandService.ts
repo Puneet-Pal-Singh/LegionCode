@@ -1,3 +1,6 @@
+import type { HarnessOperations } from "@legioncode/app-server/server";
+import { verifyHostedHarnessAdmission } from "../../integration/app-server/HostedHarnessAdmission";
+import { requireAdmittedHarnessSelection, isDelegatedChat } from "../chat/ChatExecutionStrategy";
 import {
   ResumeTurnReceiptSchema,
   StartedThreadInputReceiptSchema,
@@ -40,7 +43,7 @@ type StartedThreadInputReceipt = z.infer<
 
 /** Owns commands that reserve and dispatch a whole admitted turn. */
 export class ThreadInputCommandService {
-  constructor(private readonly env: Env) {}
+  constructor(private readonly env: Env, private readonly harnessOperations?: HarnessOperations) {}
 
   async reconcileTerminal(input: {
     readonly request: Request;
@@ -112,7 +115,7 @@ export class ThreadInputCommandService {
       existing.workspaceId === command.workspaceId &&
       existing.runAttemptId === identity.runAttemptId
     ) {
-      const resumed = await new ResumeTurnService(this.env).resume({
+      const resumed = await new ResumeTurnService(this.env, this.harnessOperations).resume({
         sessionId: input.sessionId,
         userId: input.userId,
         threadId: command.threadId,
@@ -161,7 +164,7 @@ export class ThreadInputCommandService {
       | undefined;
     let dispatchStarted = false;
     try {
-      const resumed = await new ResumeTurnService(this.env).resume({
+      const resumed = await new ResumeTurnService(this.env, this.harnessOperations).resume({
         sessionId: input.sessionId,
         userId: input.userId,
         threadId: command.threadId,
@@ -356,6 +359,13 @@ export class ThreadInputCommandService {
       | undefined;
     let dispatchStarted = false;
     try {
+      const verifiedCapture = item.configuration.harnessSelection ? await verifyHostedHarnessAdmission({
+        env: this.env, userId: input.userId, workspaceId: command.workspaceId, sessionId: input.sessionId, runId: identities.runId,
+        identity: TurnScopeBootstrapSchema.parse({ workspaceId: command.workspaceId, threadId: command.threadId, turnId: identities.turnId, runAttemptId: identities.runAttemptId }),
+        capture: item.configuration.harnessSelection, operations: this.harnessOperations, correlationId: input.correlationId,
+      }) : undefined;
+      const verifiedConfiguration = { ...item.configuration, harnessSelection: verifiedCapture };
+      const delegated = isDelegatedChat(verifiedConfiguration);
       const modelMetadata = await prepareAdmittedTurnModel({
         env: this.env,
         run: {
@@ -365,7 +375,7 @@ export class ThreadInputCommandService {
         },
         userId: input.userId,
         workspaceId: command.workspaceId,
-        configuration: item.configuration,
+        configuration: verifiedConfiguration,
       });
       if (item.mediaRefs.length > 0) assertChatImageModelSupport(modelMetadata);
       const session = await withTranscriptRepository(
@@ -385,10 +395,9 @@ export class ThreadInputCommandService {
         version: command.expectedVersion,
         text: item.text,
         mediaRefs: item.mediaRefs,
-        configuration: item.configuration,
+        configuration: verifiedConfiguration,
       });
-      const result = await withTurnAdmissionRepository(this.env, (repository) =>
-        repository.reserveQueuedStart({
+      const queuedAdmission: import("@repo/persistence").ReserveQueuedStartInput & Pick<import("@repo/persistence").AdmitTurnWithPromptInput, "harnessSelection"> = {
           ...scope,
           expectedRevision: command.expectedThreadRevision,
           expectedVersion: item.version,
@@ -396,9 +405,10 @@ export class ThreadInputCommandService {
           ...identities,
           taskId: session.taskId ?? session.id,
           requestFingerprint,
+          harnessSelection: verifiedCapture,
           mode: item.configuration.mode ?? "auto_edit",
-          providerId: item.configuration.providerId ?? null,
-          modelId: item.configuration.modelId ?? null,
+          providerId: delegated ? null : verifiedConfiguration.providerId ?? null,
+          modelId: delegated ? verifiedCapture?.selection?.modelId ?? null : verifiedConfiguration.modelId ?? null,
           branch: repositoryContext?.repositoryBranch ?? null,
           explicitStart: input.explicitStart ?? true,
           promptMessage: {
@@ -421,8 +431,8 @@ export class ThreadInputCommandService {
               },
             ],
           },
-        }),
-      );
+      };
+      const result = await withTurnAdmissionRepository(this.env, (repository) => repository.reserveQueuedStart(queuedAdmission));
       if (
         result.status !== "admitted" ||
         !result.admission ||
@@ -451,6 +461,10 @@ export class ThreadInputCommandService {
         runAttemptId: result.admission.runAttemptId,
       });
       startupFailure = { run: result.run, identity: turnIdentity };
+      const admittedConfiguration = {
+        ...result.item.configuration,
+        harnessSelection: requireAdmittedHarnessSelection(verifiedCapture, result.admission, input.correlationId),
+      };
       const receipt = StartedThreadInputReceiptSchema.parse({
         status: "started",
         itemId: item.itemId,
@@ -488,9 +502,9 @@ export class ThreadInputCommandService {
           workspaceId: command.workspaceId,
           correlationId: input.correlationId,
           identity: turnIdentity,
-          prompt: item.text,
+          prompt: result.item.text,
           promptMessageId: result.promptMessageId,
-          configuration: item.configuration,
+          configuration: admittedConfiguration,
           repository: repositoryContext,
           modelMetadata,
           onStartupFailure: async (error) => {

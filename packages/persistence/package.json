@@ -19,6 +19,7 @@
   "dependencies": {
     "@repo/event-store": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
+    "@repo/worker-protocol": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "@repo/workspace-core": "workspace:*",
     "drizzle-orm": "^0.45.2",

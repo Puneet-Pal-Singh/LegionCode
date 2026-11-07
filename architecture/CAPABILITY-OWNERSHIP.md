@@ -1,5 +1,62 @@
 # Capability ownership
 
+## Plans 048/061 — Brain external execution routing
+
+`HostedChatSubmission` and queued/resumed `prepareAdmittedTurnModel` branch on
+explicit harness intent before native model discovery. `HandleChatRequest`
+preserves the admission snapshot, skips native provider-route/context-window and
+conversation-context construction for delegated input, and omits native auth-mode
+defaults. Subscription credentials remain with the selected connection authority.
+
+`RunEngineRuntime` supplies `CloudDelegatedRunPreparation` to the actual
+`RunEngineRequestHandler` caller. The handler enters `executeDelegatedRun` before
+`createRuntimeState`, `prepareRuntimeExecutionResources` or
+`RuntimeKernelNativeRunner` construction. Preparation validates canonical prompt
+admission and saved Thread/workspace ownership, obtains account and binding
+ports, claims the immutable attempt and checkout, and composes the same
+`RuntimeKernel`/lifecycle store/approval and steering registries. It retains the
+existing checkout settlement owner. Native execution ports are unavailable in
+that composition. The current secure-host capability gate rejects before a
+selected provider secret is read; the Postgres account authority also reports
+unverified account/host facts as unavailable. `HostedHarnessAdmissionComposition`
+now supplies the existing Postgres account and binding authorities in production;
+optional environment ports are explicit dependency injection. Lazy observation
+operations complete inside each existing repository/client lifetime. No
+`HARNESS_RUN_PREPARATION` callback, provider loop, alternative credential resolver
+or event store is used by this caller.
+
+The actual initial-title caller passes the execution strategy to
+`InitialThreadTitleScheduler`. External routes persist the existing canonical
+preview with generation unavailable (`titleStatus: failed`), then return before
+native route resolution or `ThreadTitleGenerationCoordinator.schedule`. They do
+not send subscription authentication to native title inference or choose an
+alternate payer. Existing Native title behavior remains with its original owner.
+
+## Plans 048/061 — delegated kernel and execution safety
+
+| Responsibility | Canonical owner | Actual wiring and integration status |
+| --- | --- | --- |
+| Pre-admission harness intent | `harness/selection.ts` | Initial chat and queue/resume configuration carry explicit `environmentId`, `selectionRevision`, and nullable `HarnessNextSelection` without inventing attempt IDs. The canonical admission fingerprint and durable binding retain that intent. The actual Brain caller dispatches delegated preparation before Native construction; unresolved host/account authority remains unavailable before provider work. Public operations reuse this shared next-selection schema. |
+| Immutable admitted harness selection | `platform-protocol/src/harness` | Separate from learned external session/turn identity in private `worker-protocol/src/harness.ts`; driver-native SDK types remain private. |
+| Exclusive native/delegated execution | `RuntimeKernel` with `DelegatedTurnCoordinator` | `StartTurnInput.execution` selects the delegated port before native context/provider/tools/compaction. Existing callers omitting that selection retain native execution. Canonical replay preflight runs outside preparation failure handling and rejects ordinary existing terminal or nonterminal history before captures, hooks or provider work. Same-attempt delegated recovery restores canonical history and the committed start baseline before any new lifecycle start/capture/hooks; it uses observation-only attachment without open/prompt dispatch. Durable admission/checkout claims remain the concurrent-writer authority. Concrete driver/App Server composition is still an integration gate, not completed by this kernel change. |
+| Private observation validation and canonical translation | `HarnessObservationIngestor` and `RuntimeLifecycleCoordinator` | Hydrate from canonical replay and validated binding facts, then validate exact session/UUID process generation and bounded ingress before staging zero-to-many existing lifecycle events. Ambiguous commits fence further appends until replay recovery. `HarnessObservationCommitPort` requires the persistence owner's atomic ingress/fingerprint plus canonical append transaction; P11 supplies that adapter. No generic event-processor success is treated as commit ACK. |
+| Approval winner and reply fencing | Existing `ApprovalCoordinator` plus delegated coordinator | Freeze one resolution before async persistence; canonical append, waiter result and strict reply conflict handling share that winner. Delegated requests use the existing lifecycle approval schema/coordinator; replies bind origin/request/process/auth generation and require a durable single-use claim before transport delivery. User-input requests/responses use existing canonical request events and JSON payloads. Reply reservation rechecks an unsettled claimed admission inside the same SQLite immediate transaction or Postgres per-Turn lock used by canonical terminal settlement; existing committed ingress receipts remain readable after settlement. Hosted decisions authorize the immutable admission and canonical pending request without a Native allowance-store dependency, and derive the decision actor from that verified owner. Native and default cloud/local approval waits use the shared kernel deadline port; its losing timer is cancelled after canonical resolution or Stop. The separate legacy approval route remains separate. |
+| Stop versus terminal settlement | Existing kernel/lifecycle coordinator | Revalidate cancellation after artifact capture and before serialized terminal append. An uncertain terminal append freezes its chosen outcome for durable recovery. Delegated success requires scoped process-tree/background-work quiescence, never interrupt ACK alone. Foreground provider completion retains its timestamp; only explicitly marked background facts remain admissible until quiescence. |
+| Local claim, restart and attachment retirement | Existing `LocalPersistence` writer with `LocalTurnService`, `LocalHarnessSettlement` and `LocalWorkspaceLease` | Freeze validates the persisted canonical admission before preparation, including a new attempt with zero lifecycle events. Startup never resends an admitted prompt. Settlement requires canonical terminal and immutable artifact references, successful exact-generation CORE release and ACK drain, then a fresh committed ingress watermark and atomic SQLite retirement tombstone. Unknown cleanup or commit outcomes retain the active owner and lease; attached terminal generations report recovery required. The private Desktop bootstrap and enforced host boundary remain release gates. |
+| Local configured instances and future selection | `LocalHarnessControlPlane`, composed by `LocalPersistence` and consumed by `LocalHarnessOperations` | SDK/App Server setup, status, selection read and select now reach the same SQLite writer. Server-issued instance identities, scoped command receipts, revision CAS and current grant/Thread checks are durable. The actor comes from `LocalThreadService`; stored configuration cannot certify readiness, quota or OS policy. Physical replacement fencing remains with the separately owned workspace-grant integration. |
+| Native driver observation and reply translation | Final `harness-codex`, `harness-claude` and `harness-opencode` Node server entries | Codex binds an explicit selected key to pre-admission evidence, deduplicates exact terminal callbacks, preserves absent provider completion time as null and publishes canonical approval option IDs. Destructive transport cleanup cannot certify observation closure and remains unknown. Claude retains native task ownership through ordered observer drain and fences late background failures. OpenCode bounds individual SSE frames, requires private configuration, validates native request origins and rejects unowned active sessions; replayed exact terminal evidence does not settle twice. Real provider, full execution-boundary and supported-resume proof remain outstanding. |
+| Cloud runtime distribution | Existing Secure API image and `harness-host/scripts` | Portable compilation bundles the Node host and three final driver entries. Explicit Linux x64/glibc Node 22+ packaging stages the frozen SDK/peer graph and integrity-pinned native assets; the wrapper drops groups, UID/GID and unrelated ambient credentials before loading host code. Sandbox control-plane startup is preserved. The current image exceeds its unchanged size budget; non-root execution does not establish filesystem, network or control-endpoint isolation. |
+| Usage and payer presentation | SDK canonical usage projection and shared `HarnessUsage`, mounted by connection settings | Account-wide quota and freshness remain separate from scoped canonical run measurements and cloud compute/storage. Conflicting duplicate measurements are excluded, absent telemetry remains unknown, and account status or the current picker cannot establish an attempt payer. Web receipts are bound to committed account/session scope, including A-to-B-to-A transitions. |
+| Delegated steering | Existing canonical input lifecycle and `DelegatedTurnCoordinator` | Capability-gated text steering carries the accepted input identity/sequence and exact external turn target. Command ACK never fabricates application: only a validated `thread_input_applied` observation reuses the existing canonical payload. Duplicate intent does not resend; ambiguous admission fences recovery, and unresolved application blocks successful completion. |
+| Private runtime credential material | Existing encrypted credential custody and `shared-types/credential-vault.ts` | `HarnessConnectionService.resolveForAttempt` consumes the shared typed projection after admission and credential-generation checks. API keys, short-lived OAuth access material and provider-owned opaque references remain distinct; refresh tokens, issuer/client configuration and scopes stay in custody. Hosted delivery now holds one existing Postgres transaction across canonical admission/session/workspace checks, credential row locking, typed acquisition and synchronous access-only projection. Revoke/refresh CAS cannot change that authority during acquisition. Persisted revocation targets include terminal/recovery attachments and claimed openings; Stop acceptance or terminal status never clears unknown cleanup. Autonomous process fencing and the Desktop private broker/bootstrap consumer remain pending; this projection does not advertise installed Mac execution. |
+| Public failure projection | `platform-protocol/errors.ts` catalog, consumed by runtime and host boundaries | Native and delegated failure DTOs, terminal assistant text, Native tool failure trackers/recorders and diagnostics use registered classifications and fixed public messages. Upstream prose, details, correlation IDs, causes and stacks are not adopted. Numeric provider status is bounded; hostile accessors/proxies fall back without invocation. Existing private tool recovery policy may inspect transient diagnostic evidence but cannot persist it as a public failure. |
+| Startup Stop ownership | `RunExecutionStartup` and existing interrupt registry | Run Engine establishes startup ownership before durable claim I/O; a pending Stop transfers to the registered runner. Rejected claims remove only the startup registration they acquired. |
+| Unsafe checkout retention | `TaskCheckoutRunLifecycle` | Once runtime work starts, absent/unknown quiescence or missing committed immutable review retains active checkout ownership and its existing secure lease. The Run Engine observes canonical settlement before closing a checkout; pre-runtime resource failures retain their existing safe cleanup path. |
+
+`architecture/RUNTIME-ARCHITECTURE.md` is restored as the tracked authority from
+the approved local provenance and current owner trace. This records implemented
+kernel/native safety paths; a selected-account driver consumer, durable recovery,
+subscription access and installed Mac proof remain release gates.
 ## Plan 057 — Local read-only Turn execution
 
 `RuntimeKernel` owns local lifecycle and terminal settlement. Its explicit
@@ -61,8 +118,8 @@ read, rewritten or deleted by this code retirement.
 
 | Responsibility | Canonical owner | Active producer and consumers |
 | --- | --- | --- |
-| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed, interrupted, unsettled, and already-expired paths do not gain a retention window. |
-| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles the checkout; its existing final release retains only successfully settled completion and releases all other outcomes immediately. |
+| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed/interrupted paths with proven immutable runtime settlement release normally. Unknown mutation or artifact state retains existing ownership for recovery; no path gains a renewed lease deadline. |
+| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles a checkout only after committed immutable runtime evidence. Successful settlement retains the original review lease until its deadline; failed/interrupted settlement releases only when that evidence proves safe. Unknown or unreadable evidence retains active ownership for recovery. |
 | Persisted expiry alarm and physical sandbox cleanup | Existing Secure Agent API `AgentRuntime` Durable Object | Persisted `execution:session:` references schedule the earliest nested lease expiry; cleanup and immediate release resolve the exact persisted lease after DO reload and protect another live reference to its sandbox. Before destruction, the existing session record receives a durable cleanup marker; storage for both that session key and sandbox ID is blocked, and flagged leases cannot execute. Destroy waits are bounded; failure retains the marked record and retries with backoff. Successful destroy removes the record and marker, after which the existing generation flow can create a replacement using its distinct sandbox ID. |
 
 This is the approved original-lease retention policy for explicit Current Git
@@ -77,9 +134,9 @@ Upstream source inspection before this semantic change:
 - Codex revision [`6a0c4709ca2154e9f3ebb07e58fb156386630188`](https://github.com/openai/codex/tree/6a0c4709ca2154e9f3ebb07e58fb156386630188): [`agent/status.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/status.rs) represents normal completion as `Completed`; [`agent/control.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/control.rs) releases spawned-thread ownership through explicit shutdown/close paths. This supports keeping terminal completion and resource release distinct, but Codex's local agent registry is not a cloud sandbox lease owner and has no directly reusable expiry/alarm policy.
 - OpenCode revision [`3729fd57068445104ea464a952d41798ed30ea20`](https://github.com/anomalyco/opencode/tree/3729fd57068445104ea464a952d41798ed30ea20): [`session/status.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/session/status.ts) clears volatile status on idle; [`project/instance.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/project/instance.ts) invokes registered instance disposers. Neither is an analogue for persisted Cloudflare sandbox lease cleanup across a Durable Object reload.
 
-The smallest necessary implementation change is to let the existing checkout
-lifecycle retain only its successful settled outcome and extend `AgentRuntime`'s
-existing persisted-session owner with an alarm-driven cleanup path; no new
+Successful review retention uses the original checkout deadline. Execution safety
+additionally retains uncertain runtime ownership until recovery. `AgentRuntime`'s
+existing persisted-session owner keeps its alarm-driven cleanup path; no new
 scheduler, session store, runtime, schema, or replacement lease owner is added.
 
 ## Main integration — shared conversation and continuation
@@ -1177,6 +1234,94 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+## Harness environment identity at the App Server boundary
+
+- Local host identity belongs to `LocalPersistence.environmentId`: the existing
+  SQLite metadata writer creates `env_<UUID>` once under
+  `local_environment_id_v1`, validates it before mutation on reopen, and retains
+  it through process restart. `local-process.ts` supplies that value to initialize.
+- Hosted host identity belongs to deployment authority through the explicit
+  `APP_SERVER_ENVIRONMENT_ID` configuration. Each configured execution host
+  environment must receive a distinct `env_<UUID>`; deployment labels, request
+  headers, workspace IDs, connection IDs and sandbox IDs are not substitutes.
+- SDK initialize exposes `environmentId: string | null` in both placements.
+  Missing hosted configuration returns null. Malformed configuration is rejected.
+  Hosted setup/status/model/selection operations validate against that same
+  configured identity before host/provider work.
+- The hosted settings/composer consumer uses the server field for its scope and
+  remains unavailable when it is null. This field identifies a host environment;
+  admission still owns the exact workspace/account/model/runtime binding, and
+  does not gain authority from a renderer echoing the field.
+
+
+## Explicit delegated chat preparation
+
+- `ChatExecutionStrategy` classifies the canonical admission selection before
+  Native provider validation/discovery. An unbound legacy delegated flag rejects;
+  it cannot select a provider or host implicitly. Explicit placement must match
+  the configured hosted environment identity.
+- `ChatRequestBoundary`, `HostedChatSubmission`, `HandleChatRequest` and admitted
+  queued/resume dispatch retain that selection through admission fingerprinting
+  and runtime input. External execution omits Native provider routing/tool input,
+  context assembly, model discovery, Native reasoning policy and provider-driven
+  title generation. The external model remains in the canonical selection.
+- The real SDK turn/submit caller now enters `CloudDelegatedRunPreparation`
+  before Native construction. The secure-host confinement gate, unverified
+  account facts and any missing durable admission ports still reject before
+  provider work; this is not completed hosted harness acceptance. Persistence
+  retains the exact admitted selection and immutable binding. UI defaults or
+  current provider preferences cannot repair a missing binding.
+
+
+## Hosted harness admission preflight
+
+`AppServerController` passes its authenticated P12-backed harness operations into
+`ChatRequestBoundary`. `HostedHarnessAdmission` reads the canonical saved
+selection, compares the captured revision/references, and checks the selected
+instance/connection and model through those same scoped service methods. It
+returns the canonical capture, never a payer inferred from quota or Native
+provider preferences. Exact already-admitted retries retain canonical
+identity/fingerprint/binding checks rather than consulting mutable Settings.
+This preflight does not replace atomic revision/account/policy/runtime freeze,
+execution claim, credential fencing or delegated composition in their owners.
+
+
+## Hosted Thread identity before first Turn
+
+New hosted session creation uses the existing `createThreadId` issuer and the
+transcript repository's insert-only `initialThreadId` candidate. Session INSERT
+persists the ID atomically; a conflicting creator or retry returns the persisted
+winner without replacing an existing ID or filling a historical null binding.
+The initial run references the winning persisted session/task/workspace, and
+turn reservation reuses its `session.threadId`. `session/create` and
+`session/workspaceContext` expose that same server-owned ID before any Native or
+external turn starts. No historical Thread migration, extra event store or
+client-generated identity is introduced.
+
+
+## Harness instance creation receipt
+
+Public setup omits `instanceId` for first creation. The control-plane repository
+owns issuance and persistence of the real instance ID with its scoped
+`clientCommandId` receipt; the schema/SDK do not allocate it. Reconnect supplies that persisted ID and cannot turn
+an unknown reference into a new instance. The SDK returns the authoritative
+`instance.instanceId` receipt and never generates a placeholder identity.
+The contract remains run-independent and uses an authorized workspace,
+configured environment, harness kind and verified credential connection.
+
+
+## One harness verifier and admitted receipt across public starts
+
+Direct submission, resume and queued starts share `verifyHostedHarnessAdmission`
+through the authenticated P12-backed operation dependency. Resume inherits only
+from the interrupted admission receipt when no explicit replacement was supplied;
+queue start verifies its persisted queue capture before admission. Both send the
+verified capture into the canonical admission transaction. Dispatch consumes the
+returned admission capture and persisted queue configuration, not the original
+client configuration. Missing or mismatched captures reject and use canonical
+unclaimed-startup failure settlement before any external command. Explicit Native
+captures retain their environment/revision and `selection:null`; omitted legacy
+Native captures remain omitted. Atomic persistence/freeze is owned by P11/P04.
 
 
 ## Plan 057 — Native root-FD filesystem primitive

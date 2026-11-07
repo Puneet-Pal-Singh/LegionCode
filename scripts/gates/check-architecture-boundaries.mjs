@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
+import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   APP_IMPORT_POLICY,
@@ -22,15 +23,16 @@ const SOURCE_EXTENSIONS = new Set([
   ".tsx",
 ]);
 const REPO_IMPORT_PATTERN =
-  /(?:from\s+|import\s*\(|require\s*\()\s*["'](@repo\/[^/"']+)(?:\/[^"']*)?["']/g;
+  /(?:from\s+|import\s*\(|require\s*\(|\bimport\s*)\s*["'](@repo\/[^/"']+)(?:\/[^"']*)?["']/g;
 const IMPORT_SPECIFIER_PATTERN =
-  /(?:from\s+|import\s*\(|require\s*\()\s*["']([^"']+)["']/g;
+  /(?:from\s+|import\s*\(|require\s*\(|\bimport\s*)\s*["']([^"']+)["']/g;
 
 export async function validateArchitecture(root) {
   const violations = [];
   await validatePackageDependencies(root, violations);
   await validateLocalPersistenceImports(root, violations);
   await validateSdkAppServerImports(root, violations);
+  await validateHarnessImportBoundaries(root, violations);
   await validateAppImports(root, violations);
   await validateCanonicalAuthorities(root, violations);
   await validateUniqueActionRegistries(root, violations);
@@ -90,13 +92,138 @@ async function validateSdkAppServerImports(root, violations) {
   const sdkRoot = await findPackageRoot(root, "packages", "@legioncode/sdk");
   for (const file of await listSourceFiles(sdkRoot)) {
     const source = await readFile(file, "utf8");
+    const path = relative(root, file);
     for (const specifier of findImportSpecifiers(source)) {
+      // This existing Node HTTP contract test invokes the real request handler to
+      // prove SDK wire validation and dispatch together. No production SDK file
+      // or other test gains a server import exception.
+      if (
+        path === "packages/sdk/src/platform/app-server-client.test.ts" &&
+        specifier === "@legioncode/app-server/server"
+      ) continue;
       if (
         specifier.startsWith("@legioncode/app-server") &&
         specifier !== "@legioncode/app-server/protocol"
       ) {
         violations.push(
           `${relative(root, file)}: SDK may depend on App Server only through @legioncode/app-server/protocol; received ${specifier}.`,
+        );
+      }
+    }
+  }
+}
+
+// Concrete harnesses execute in Node. Client metadata and private bridge facts
+// must stay usable by the browser and Workers, including through re-exports.
+async function validateHarnessImportBoundaries(root, violations) {
+  const sdkOwners = new Map([
+    ["@anthropic-ai/claude-agent-sdk", "harness-claude"],
+    ["@openai/codex", "harness-codex"],
+    ["@openai/codex-sdk", "harness-codex"],
+    ["@opencode/client", "harness-opencode"],
+    ["@opencode/cli", "harness-opencode"],
+  ]);
+  for (const file of await listSourceFiles(
+    join(root, "apps"),
+    join(root, "packages"),
+  )) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path)) continue;
+    const source = await readFile(file, "utf8");
+    const owner =
+      /^packages\/(harness-(?:core|codex|claude|opencode))\/src\//.exec(
+        path,
+      )?.[1];
+    const isServer = Boolean(
+      owner && new RegExp(`^packages/${owner}/src/server(?:\\.|/)`).test(path),
+    );
+    const isComposition =
+      path === "packages/app-server/src/harness/LocalHarnessComposition.ts" ||
+      path.startsWith("apps/secure-agent-api/harness-host/");
+    // LocalTurnService is owned by the Node App Server composition. Its driver
+    // annotations and configureHost type query erase at emit; runtime imports
+    // still go through the same private-entry checks as every other consumer.
+    // Keep this exact-file/type-only exception out of Worker and client graphs.
+    const importSource =
+      path === "packages/app-server/src/harness/LocalTurnService.ts"
+        ? source
+            .replace(
+              /\bimport\s+type\s+[^;]*?\s+from\s+["']@repo\/harness-(?:core|codex|opencode)\/server["'];?/g,
+              "",
+            )
+            .replace(
+              /\bParameters<import\("@repo\/harness-core\/server"\)\.HarnessInstance\["createHost"\]>/g,
+              "",
+            )
+        : source;
+    for (const specifier of findImportSpecifiers(importSource)) {
+      if (
+        specifier === "@opencode-ai/sdk" ||
+        specifier.startsWith("@opencode-ai/sdk/")
+      ) {
+        violations.push(
+          `${path}: OpenCode v1 SDK imports are forbidden; the built-in harness uses the pinned native v2 @opencode/client.`,
+        );
+      }
+      const importedHarness =
+        /^@(?:repo|legioncode)\/(harness-(?:core|codex|claude|opencode))(?:\/(.*))?$/.exec(
+          specifier,
+        );
+      if (importedHarness) {
+        const [, importedOwner, entry] = importedHarness;
+        const isPublic = entry === "client" || entry === "settings";
+        const allowedServer =
+          entry === "server" &&
+          (isComposition ||
+            (isServer &&
+              (importedOwner === "harness-core" || importedOwner === owner)));
+        if (!isPublic && !allowedServer) {
+          violations.push(
+            `${path}: ${specifier} is a private Node harness entry; concrete drivers belong only in local App Server/cloud Node composition, and clients use ./client or ./settings.`,
+          );
+        }
+      }
+      const sdk = [...sdkOwners.keys()].find(
+        (name) => specifier === name || specifier.startsWith(`${name}/`),
+      );
+      if (sdk && !(isServer && owner === sdkOwners.get(sdk))) {
+        violations.push(
+          `${path}: ${sdk} is private to packages/${sdkOwners.get(sdk)}/src/server; Workers, SDK, browser and renderer must not load agent SDKs.`,
+        );
+      }
+      if (owner && !isServer && isBuiltin(specifier)) {
+        violations.push(
+          `${path}: public harness metadata must not import Node module ${specifier}; keep Node code in ./server.`,
+        );
+      }
+      if (!specifier.startsWith(".")) continue;
+      const target = relative(root, resolve(dirname(file), specifier));
+      if (
+        /^packages\/harness-(?:core|codex|claude|opencode)\/src\/server(?:\.|\/)/.test(
+          target,
+        ) &&
+        !(isServer && target.startsWith(`packages/${owner}/`))
+      ) {
+        violations.push(
+          `${path}: relative imports/re-exports must not expose private harness server code; use the approved Node composition export.`,
+        );
+      }
+      if (
+        target.startsWith("apps/secure-agent-api/harness-host/") &&
+        !path.startsWith("apps/secure-agent-api/harness-host/")
+      ) {
+        violations.push(
+          `${path}: the cloud Node harness host must stay outside the Worker import graph; use worker-protocol bridge facts.`,
+        );
+      }
+      if (
+        /packages\/app-server\/src\/harness\/LocalHarnessComposition(?:\.|\/)/.test(
+          target,
+        ) &&
+        path !== "packages/app-server/src/local-process.ts"
+      ) {
+        violations.push(
+          `${path}: local harness composition is private to the local App Server process entry.`,
         );
       }
     }
@@ -127,6 +254,9 @@ async function validateAppImports(root, violations) {
   for (const [appName, allowedImports] of Object.entries(APP_IMPORT_POLICY)) {
     const appRoot = await findPackageRoot(root, "apps", appName);
     for (const file of await listSourceFiles(appRoot)) {
+      // This separately built Node entry is not part of the secure-api Worker.
+      // Its concrete driver imports are checked by validateHarnessImportBoundaries.
+      if (appName === "@legioncode/secure-agent-api" && relative(appRoot, file).startsWith("harness-host/")) continue;
       const source = await readFile(file, "utf8");
       if (findImportSpecifiers(source).some(isDeepPackageSourceImport)) {
         violations.push(
@@ -483,6 +613,7 @@ async function collectSourceFiles(root, files) {
 
 function isIgnoredSourceEntry(name) {
   return (
+    name === ".worktrees" ||
     name === ".next" ||
     name === ".turbo" ||
     name === ".wrangler" ||

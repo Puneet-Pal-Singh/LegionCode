@@ -15,7 +15,6 @@ import { InvalidTranscriptSnapshotError } from "./types.js";
 import {
   assertHasParts,
   firstSequence,
-  lastSequence,
 } from "./transcriptUtils.js";
 
 interface Clock {
@@ -57,7 +56,10 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
         input.workspaceId,
         existing?.workspaceId ?? null,
       ),
-      threadId: readNullableInput(input.threadId, existing?.threadId ?? null),
+      threadId: readNullableInput(
+        input.threadId,
+        existing ? existing.threadId : input.initialThreadId ?? null,
+      ),
       taskId: task.id,
       title: existing?.title ?? input.title ?? task.title,
       titleSource,

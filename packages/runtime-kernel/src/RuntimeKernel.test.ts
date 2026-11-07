@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
+  toProtocolError,
 } from "./errors.js";
 import type {
   RuntimeHookOrchestrationPort,
@@ -217,7 +218,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi.fn(async () => {
-      throw new Error("Provider route rejected token-secretvalue123456");
+      throw new Error("Provider route rejected Bearer CANARY_PROVIDER_TOKEN apiKey=AIza_CANARY_KEY /home/CANARY/.codex/auth.json");
     });
     const kernel = await createKernel(sink, ports);
 
@@ -230,10 +231,27 @@ describe("RuntimeKernel canonical lifecycle", () => {
       outcome: {
         failure: {
           code: "provider_unavailable",
-          message: "Provider route rejected [redacted]",
+          message: "The model provider request failed.",
         },
       },
     });
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
+    const diagnostic = () => { throw new Error("CANARY_PROVIDER_ACCESSOR"); };
+    for (const cause of [
+      { get statusCode() { return diagnostic(); } },
+      { get cause() { return diagnostic(); } },
+      new Proxy({}, { getOwnPropertyDescriptor: diagnostic }),
+    ]) {
+      expect(toProtocolError(new RuntimeKernelError("provider_failed", "Private failure", cause)))
+        .toMatchObject({ code: "provider_unavailable", message: "The model provider request failed." });
+    }
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(toProtocolError(revoked.proxy)).toMatchObject({ code: "internal_error" });
+    const cycle: { cause?: unknown } = {};
+    cycle.cause = cycle;
+    expect(toProtocolError(new RuntimeKernelError("provider_failed", "Private failure", cycle)))
+      .toMatchObject({ code: "provider_unavailable" });
   });
 
   it("does not expose raw provider quota diagnostics in failed-turn output", async () => {
@@ -257,7 +275,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(failed?.payload).toMatchObject({
       outcome: {
         failure: {
-          code: "provider_unavailable",
+          code: "rate_limited",
           message: expect.stringContaining("temporarily rate limited"),
         },
       },
@@ -366,13 +384,13 @@ describe("RuntimeKernel canonical lifecycle", () => {
       disposition: "terminal" as const,
       failure: {
         code: "worker_unavailable" as const,
-        message: "Sandbox container became unavailable during execution",
+        message: "Sandbox container became unavailable Bearer CANARY_WORKER_TOKEN",
         retryable: true,
-        correlationId: "secure-correlation-1",
+        correlationId: "CANARY_UPSTREAM_CORRELATION",
         details: {
           secureStatus: "sandbox_unavailable",
           secureCode: "SANDBOX_UNAVAILABLE",
-          taskId: "secure-task-1",
+          taskId: "CANARY_PRIVATE_TASK",
           leaseId: "lease-1",
         },
       },
@@ -391,16 +409,14 @@ describe("RuntimeKernel canonical lifecycle", () => {
           failure: {
             code: "worker_unavailable",
             retryable: true,
-            correlationId: "secure-correlation-1",
-            details: {
-              secureStatus: "sandbox_unavailable",
-              secureCode: "SANDBOX_UNAVAILABLE",
-            },
+            correlationId: null,
+            details: null,
           },
         },
       },
     });
     expect(JSON.stringify(sink.events)).not.toContain("provider_unavailable");
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
   });
 
   it("returns a recoverable tool failure to the provider loop before completing", async () => {
@@ -410,12 +426,13 @@ describe("RuntimeKernel canonical lifecycle", () => {
       .fn()
       .mockResolvedValueOnce(toolStep())
       .mockImplementationOnce(async ({ toolResults }) => {
+        expect(JSON.stringify(toolResults)).not.toContain("CANARY");
         expect(toolResults).toEqual([
           expect.objectContaining({
             toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
             failure: expect.objectContaining({
               code: "not_found",
-              message: "README.missing was not found",
+              message: "The requested resource was not found.",
             }),
           }),
         ]);
@@ -430,7 +447,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       disposition: "recoverable" as const,
       failure: {
         code: "not_found" as const,
-        message: "README.missing was not found",
+        message: "README.missing was not found Bearer CANARY_RECOVERABLE_TOKEN",
         retryable: false,
         correlationId: null,
         details: null,
@@ -447,6 +464,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
 
     expect(eventTypes(sink)).toContain("tool_call.failed");
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
     expect(eventTypes(sink)).toContain("item.failed");
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
     expect(terminalEvents(sink)).toHaveLength(1);
@@ -954,7 +972,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       outcome: {
         failure: {
           code: "policy_denied",
-          details: { runtimeKernelCode: "tool_policy_denied" },
+          details: null,
         },
       },
     });
@@ -1002,17 +1020,30 @@ describe("RuntimeKernel canonical lifecycle", () => {
 
   it("recovers exhausted completion settlement as one failed outcome", async () => {
     const sink = new FailingCompletedSettlementSink(2);
-    const kernel = await createKernel(sink);
+    const ports = createPorts();
+    const artifacts = createArtifactPorts();
+    const kernel = await createKernel(sink, ports, artifacts);
 
-    await expect(
-      kernel.startTurn({ run, turn, runAttemptId }),
-    ).rejects.toBeInstanceOf(RuntimeLifecycleSettlementError);
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await expect(execution).rejects.toBeInstanceOf(RuntimeLifecycleSettlementError);
+    await expect(execution).rejects.toMatchObject({
+      name: "RuntimeLifecycleSettlementError",
+      code: "lifecycle_settlement_failed",
+      intendedStatus: "completed",
+    });
 
-    expect(eventTypes(sink).slice(-2)).toEqual([
-      "run_attempt.failed",
-      "turn.failed",
-    ]);
-    expect(terminalEvents(sink)).toHaveLength(1);
+    // An uncertain completed append cannot choose a contradictory outcome.
+    expect(terminalEvents(sink)).toHaveLength(0);
+    expect(eventTypes(sink)).not.toContain("run_attempt.failed");
+    expect(eventTypes(sink)).not.toContain("run_attempt.interrupted");
+    const canonicalHistory = [...sink.events];
+    const captureCount = vi.mocked(artifacts.gitSnapshots.captureSnapshot).mock.calls.length;
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toMatchObject({ code: "turn_already_owned" });
+    await expect((await createKernel(sink, ports, artifacts)).startTurn({ run, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
+    expect(ports.provider.generateNext).toHaveBeenCalledTimes(1);
+    expect(artifacts.gitSnapshots.captureSnapshot).toHaveBeenCalledTimes(captureCount);
+    expect(sink.events).toEqual(canonicalHistory);
   });
 
   it("rejects a second runtime owner for an accepted turn", async () => {
@@ -1039,7 +1070,27 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
 
-    await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
+    const ports = createPorts();
+    const artifacts = createArtifactPorts();
+    const hooks = { runSessionStart: vi.fn(async () => {}), runUserPromptSubmit: vi.fn(async () => {}) };
+    const canonicalHistory = [...sink.events];
+    await expect((await createKernel(sink, ports, artifacts, hooks)).startTurn({ run, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
+    const readOnly = new RuntimeKernel({
+      lifecycleEvents: sink, ...ports, artifactCapture: "omitted_read_only",
+      worker: { ...ports.worker, executionCapability: "read_only" },
+      producerId: "duplicate-read-only-test",
+    });
+    await expect(readOnly.startTurn({ run: { ...run, mode: "ask" }, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
+    expect(ports.provider.generateNext).not.toHaveBeenCalled();
+    expect(ports.contextAssembly.assemble).not.toHaveBeenCalled();
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+    expect(artifacts.gitSnapshots.captureSnapshot).not.toHaveBeenCalled();
+    expect(artifacts.turnArtifacts.putSnapshot).not.toHaveBeenCalled();
+    expect(hooks.runSessionStart).not.toHaveBeenCalled();
+    expect(hooks.runUserPromptSubmit).not.toHaveBeenCalled();
+    expect(sink.events).toEqual(canonicalHistory);
 
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events).toHaveLength(12);
@@ -1082,7 +1133,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi.fn(async () => {
-      throw new RuntimeKernelError("turn_cancelled", "Run cancelled by user");
+      throw new RuntimeKernelError("turn_cancelled", "Run cancelled Bearer CANARY_CANCEL_TOKEN");
     });
     const kernel = await createKernel(sink, ports);
 
@@ -1094,6 +1145,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
 
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
 
     const conversationSink = createLifecycleSink();
     const conversation = new RuntimeKernel({
@@ -1110,6 +1162,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ).rejects.toMatchObject({ code: "turn_cancelled" });
     expect(terminalEvents(conversationSink)).toHaveLength(1);
     expect(conversationSink.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(JSON.stringify(conversationSink.events)).not.toContain("CANARY");
     expect(eventTypes(conversationSink)).not.toContain(
       "workspace.snapshot_captured",
     );
@@ -1133,7 +1186,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       payload: {
         outcome: {
           status: "interrupted",
-          reason: "User stopped before execution",
+          reason: "The operation was cancelled.",
         },
       },
     });
@@ -1342,22 +1395,54 @@ describe("RuntimeKernel canonical lifecycle", () => {
     );
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
 
-    const captureSink = createLifecycleSink();
-    const capturePorts = createPorts();
-    const artifacts = createArtifactPorts(partialDiff());
-    const gate = deferred<Awaited<ReturnType<typeof artifacts.gitSnapshots.getSnapshotDiff>>>();
-    artifacts.gitSnapshots.getSnapshotDiff = vi.fn(() => gate.promise);
-    const captureKernel = await createKernel(captureSink, capturePorts, artifacts);
-    const captureExecution = captureKernel.startTurn({ run, turn, runAttemptId });
-    const rejectedCapture = expect(captureExecution).rejects.toMatchObject({ name: "AbortError" });
-    await vi.waitFor(() => expect(artifacts.gitSnapshots.getSnapshotDiff).toHaveBeenCalled());
-    const stopCapture = captureKernel.interruptTurn(turn.id, "Stopped during capture");
-    gate.resolve(partialDiff());
-    await stopCapture;
-    await rejectedCapture;
-    expect(terminalEvents(captureSink)).toHaveLength(1);
-    expect(eventTypes(captureSink)).not.toContain("turn.completed");
-    expect(captureSink.events.at(-1)?.type).toBe("turn.interrupted");
+    // Artifact capture is awaited after provider completion. A Stop accepted
+    // while that capture is pending must still win canonical terminal outcome.
+    {
+      const captureSink = createLifecycleSink();
+      const capturePorts = createPorts();
+      const captureArtifacts = createArtifactPorts();
+      const captureGate = deferred<Awaited<ReturnType<typeof captureArtifacts.gitSnapshots.captureSnapshot>>>();
+      const originalCapture = captureArtifacts.gitSnapshots.captureSnapshot;
+      let terminalCaptureStarted = false;
+      let captureCount = 0;
+      captureArtifacts.gitSnapshots.captureSnapshot = vi.fn(async (input) => {
+        captureCount += 1;
+        if (captureCount === 2) {
+          terminalCaptureStarted = true;
+          return captureGate.promise;
+        }
+        return originalCapture(input);
+      });
+      const captureKernel = await createKernel(captureSink, capturePorts, captureArtifacts);
+      const capturing = captureKernel.startTurn({ run, turn, runAttemptId });
+      const rejectedCapture = expect(capturing).rejects.toMatchObject({ code: "turn_cancelled" });
+      await vi.waitFor(() => expect(terminalCaptureStarted).toBe(true));
+      const stoppingCapture = captureKernel.interruptTurn(turn.id, "Stop during snapshot capture");
+      captureGate.resolve({ runId: run.id, filesystemRoot: manifest.filesystemRoot, headSha: "a".repeat(40), treeId: "b".repeat(40) });
+      await stoppingCapture;
+      await rejectedCapture;
+      expect(captureSink.events.at(-1)?.type).toBe("turn.interrupted");
+      expect(captureSink.events.some((event) => event.type === "turn.completed")).toBe(false);
+    }
+
+    {
+      const captureSink = createLifecycleSink();
+      const capturePorts = createPorts();
+      const artifacts = createArtifactPorts(partialDiff());
+      const gate = deferred<Awaited<ReturnType<typeof artifacts.gitSnapshots.getSnapshotDiff>>>();
+      artifacts.gitSnapshots.getSnapshotDiff = vi.fn(() => gate.promise);
+      const captureKernel = await createKernel(captureSink, capturePorts, artifacts);
+      const captureExecution = captureKernel.startTurn({ run, turn, runAttemptId });
+      const rejectedCapture = expect(captureExecution).rejects.toMatchObject({ code: "turn_cancelled" });
+      await vi.waitFor(() => expect(artifacts.gitSnapshots.getSnapshotDiff).toHaveBeenCalled());
+      const stopCapture = captureKernel.interruptTurn(turn.id, "Stopped during capture");
+      gate.resolve(partialDiff());
+      await stopCapture;
+      await rejectedCapture;
+      expect(terminalEvents(captureSink)).toHaveLength(1);
+      expect(eventTypes(captureSink)).not.toContain("turn.completed");
+      expect(captureSink.events.at(-1)?.type).toBe("turn.interrupted");
+    }
   });
 });
 

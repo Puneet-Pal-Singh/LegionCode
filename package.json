@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build --continue",
+    "build:cloud-harness-host": "corepack pnpm --filter @legioncode/cloud-harness-host package:runtime",
     "dev": "turbo run dev",
     "lint": "node packages/eslint-config/lint-no-new-tests.mjs && turbo run lint --continue",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",

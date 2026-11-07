@@ -1,3 +1,6 @@
+import { settleUnclaimedStartupFailure } from "../../services/thread-inputs/AdmittedTurnStartupFailure";
+import { isDelegatedChat, assertHostedChatEnvironment, requireAdmittedHarnessSelection } from "../../services/chat/ChatExecutionStrategy";
+import { type HarnessAdmissionSelection } from "@repo/platform-protocol";
 /**
  * HandleChatRequest Use-Case
  * Single Responsibility: Orchestrate chat request processing
@@ -68,6 +71,7 @@ export interface HandleChatRequestInput {
   providerId?: string;
   modelId?: string;
   harnessId?: RuntimeHarnessId;
+  harnessSelection?: HarnessAdmissionSelection;
   orchestratorBackend?: RuntimeOrchestratorBackend;
   executionBackend?: RuntimeExecutionBackend;
   harnessMode?: RuntimeHarnessMode;
@@ -93,6 +97,7 @@ export interface HandleChatRequestInput {
   preAdmitted?: {
     readonly run: RunRecord;
     readonly promptMessageId: string;
+    readonly harnessSelection?: HarnessAdmissionSelection | null;
     readonly resumeSnapshotRef?: ResumeWorkspaceSnapshotRef;
   };
   backgroundTaskOwner?: BackgroundTaskOwner;
@@ -121,10 +126,11 @@ export interface HandleChatRequestOutput {
       providerTransport?: import("@repo/shared-types").ProviderModelTransport;
       providerEndpoint?: string;
       harnessId?: RuntimeHarnessId;
+      harnessSelection?: HarnessAdmissionSelection;
       orchestratorBackend: RuntimeOrchestratorBackend;
       executionBackend: RuntimeExecutionBackend;
       harnessMode: RuntimeHarnessMode;
-      authMode: RuntimeAuthMode;
+      authMode?: RuntimeAuthMode;
       metadata?: Record<string, unknown>;
       repositoryContext?: RepositoryContext;
     };
@@ -173,8 +179,12 @@ export class HandleChatRequest {
       identity,
     } = input;
 
+    assertHostedChatEnvironment(input.harnessSelection, this.env.APP_SERVER_ENVIRONMENT_ID, correlationId);
+    const delegated = isDelegatedChat(input, correlationId);
     const runtimeSelections = this.resolveRuntimeSelections(input);
+    if (delegated) runtimeSelections.harnessMode = "delegated";
     const mode = input.mode ?? DEFAULT_RUN_MODE;
+    let persistedRun: RunRecord | undefined;
 
     try {
       const lastUserMessage = validateSubmittedMessages(
@@ -186,21 +196,21 @@ export class HandleChatRequest {
         capabilities: input.modelCapabilities,
         inputModalities: input.modelInputModalities,
       };
-      assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
+      if (!delegated) assertSubmittedImageModelSupport([lastUserMessage], imageModelMetadata);
+      else if (Array.isArray(lastUserMessage.content) && lastUserMessage.content.some((part) => part.type === "image")) {
+        throw new ValidationError("The delegated prompt contract does not support image attachments", "HARNESS_IMAGES_UNAVAILABLE", correlationId);
+      }
 
       const repositorySlug =
         repositoryOwner && repositoryName
           ? `${repositoryOwner}/${repositoryName}`
           : undefined;
       const taskId = input.taskId ?? sessionId;
-      const contextWindowTokens = resolveContextWindowTokens(input);
-      const providerRuntimeRoute =
-        input.providerRuntimeRoute ??
-        resolveProviderRuntimeRoute(input.providerId, input.modelId);
-      const normalizedProviderRuntimeRoute =
-        normalizeProviderRuntimeRoute(providerRuntimeRoute);
+      const contextWindowTokens = delegated ? undefined : resolveContextWindowTokens(input);
+      const normalizedProviderRuntimeRoute = delegated ? {} : normalizeProviderRuntimeRoute(
+        input.providerRuntimeRoute ?? resolveProviderRuntimeRoute(input.providerId, input.modelId),
+      );
 
-      let persistedRun: RunRecord | undefined;
       if (!userId) {
         throw new ValidationError(
           "Authenticated ownership is required before turn admission.",
@@ -219,9 +229,11 @@ export class HandleChatRequest {
         }),
       );
       let persistedUserMessageId: string;
+      let admittedHarnessSelection: HarnessAdmissionSelection | undefined;
       if (input.preAdmitted) {
         persistedRun = input.preAdmitted.run;
         persistedUserMessageId = input.preAdmitted.promptMessageId;
+        admittedHarnessSelection = requireAdmittedHarnessSelection(input.harnessSelection, input.preAdmitted, correlationId);
       } else {
         const admittedTurn = await this.persistenceService.admitUserTurn({
           sessionId,
@@ -232,12 +244,14 @@ export class HandleChatRequest {
           identity,
           message: lastUserMessage,
           mode,
-          providerId: input.providerId ?? null,
-          modelId: input.modelId ?? null,
+          providerId: delegated ? null : input.providerId ?? null,
+          modelId: delegated ? input.harnessSelection?.selection?.modelId : input.modelId ?? null,
           branch: repositoryBranch ?? null,
+          harnessSelection: input.harnessSelection,
         });
         persistedRun = admittedTurn.run;
         persistedUserMessageId = admittedTurn.id;
+        admittedHarnessSelection = requireAdmittedHarnessSelection(input.harnessSelection, admittedTurn, correlationId);
       }
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
@@ -248,7 +262,7 @@ export class HandleChatRequest {
         }),
       );
 
-      if (userId && !input.preAdmitted) {
+      if (!delegated && userId && !input.preAdmitted) {
         await scheduleInitialThreadTitle(this.env, this.persistenceService, {
           sessionId,
           userId,
@@ -259,10 +273,11 @@ export class HandleChatRequest {
           providerRuntimeRoute: input.providerRuntimeRoute,
           modelCapabilities: input.modelCapabilities,
           backgroundTaskOwner: input.backgroundTaskOwner,
+          executionStrategy: delegated ? "delegated" : "native",
         });
       }
 
-      const executionMessages = userId
+      const executionMessages = delegated ? [lastUserMessage] : userId
         ? await new DurableConversationContextAssembler(this.env).assemble({
             sessionId,
             userId,
@@ -291,18 +306,19 @@ export class HandleChatRequest {
           agentType,
           prompt,
           sessionId,
-          providerId: input.providerId,
-          modelId: input.modelId,
+          providerId: delegated ? undefined : input.providerId,
+          modelId: delegated ? undefined : input.modelId,
           ...normalizedProviderRuntimeRoute,
           harnessId: input.harnessId,
+          ...(admittedHarnessSelection ? { harnessSelection: admittedHarnessSelection } : {}),
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
           harnessMode: runtimeSelections.harnessMode,
           authMode: runtimeSelections.authMode,
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
-            ...(input.pricing ? { pricing: input.pricing } : {}),
-            ...(input.reasoningEffort
+            ...(!delegated && input.pricing ? { pricing: input.pricing } : {}),
+            ...(!delegated && input.reasoningEffort
               ? { reasoningEffort: input.reasoningEffort }
               : {}),
             featureFlags: {
@@ -340,7 +356,7 @@ export class HandleChatRequest {
               : undefined,
         },
         messages: executionMessages,
-        tools: input.tools,
+        tools: delegated ? undefined : input.tools,
       };
 
       console.log(
@@ -367,6 +383,10 @@ export class HandleChatRequest {
         executionPayload,
       };
     } catch (error) {
+      if (persistedRun && userId && !input.preAdmitted) {
+        await settleUnclaimedStartupFailure({ env: this.env, userId, sessionId, workspaceId: identity.workspaceId,
+          run: persistedRun, identity, correlationId, error });
+      }
       console.error(`[chat/usecase] ${correlationId}: Error:`, error);
       throw error;
     }
@@ -376,13 +396,13 @@ export class HandleChatRequest {
     orchestratorBackend: RuntimeOrchestratorBackend;
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
-    authMode: RuntimeAuthMode;
+    authMode?: RuntimeAuthMode;
   } {
     return {
       orchestratorBackend: input.orchestratorBackend ?? "execution-engine-v1",
       executionBackend: input.executionBackend ?? "cloudflare_sandbox",
-      harnessMode: input.harnessMode ?? "platform_owned",
-      authMode: input.authMode ?? "api_key",
+      harnessMode: isDelegatedChat(input) ? "delegated" : input.harnessMode ?? "platform_owned",
+      authMode: isDelegatedChat(input) ? undefined : input.authMode ?? "api_key",
     };
   }
 

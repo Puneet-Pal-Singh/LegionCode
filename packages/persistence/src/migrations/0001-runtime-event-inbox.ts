@@ -1,3 +1,7 @@
+import { harnessRecoveryReplyClaimsMigration } from "./0039-harness-recovery-reply-claims.js";
+import { harnessControlPlaneMigration } from "./0038-harness-control-plane.js";
+import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
+import { harnessBindingsMigration } from "./0035-harness-bindings.js";
 import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
 import { identitySessionBootstrapMigration } from "./0002-identity-session-bootstrap.js";
 import { workspaceBootstrapMigration } from "./0003-workspace-bootstrap.js";
@@ -114,4 +118,8 @@ export const persistenceMigrations = [
   threadInputsAndContinuationsMigration,
   legacyHistoryImportReceiptsMigration,
   projectlessSessionRepositoryMigration,
+  harnessBindingsMigration,
+  providerConnectionCustodyMigration,
+  harnessControlPlaneMigration,
+  harnessRecoveryReplyClaimsMigration,
 ] as const;

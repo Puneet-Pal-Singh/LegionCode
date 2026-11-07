@@ -247,6 +247,28 @@ describe("LifecycleController", () => {
       operationCode: "conflict",
       retryable: false,
     });
+
+    const diagnostics = "Bearer CANARY_HOSTED_TOKEN /home/CANARY/.codex/auth.json";
+    const errorResponses: [Response, string][] = [
+      [new Response(diagnostics, { status: 502, headers: { "content-type": "text/html" } }), "INVALID_ERROR_RESPONSE"],
+      [new Response(diagnostics, { status: 502, headers: { "content-type": "application/json" } }), "INVALID_ERROR_RESPONSE"],
+      [Response.json({ message: diagnostics, code: "CANARY_OPERATION", correlationId: "CANARY_CORRELATION" }, { status: 502 }), "internal_error"],
+      [Response.json({ error: { code: "worker_unavailable", message: diagnostics, retryable: true,
+        correlationId: "CANARY_CORRELATION", details: { authorization: diagnostics } } }, { status: 502 }), "worker_unavailable"],
+    ];
+    for (const [response, operationCode] of errorResponses) {
+      runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(response);
+      const error = await operations(env).getTurnDiff({ turnId: TURN_ID }).catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ statusCode: 502, operationCode, correlationId: expect.any(String) });
+      expect(JSON.stringify(error)).not.toContain("CANARY");
+      expect((error as Error).message).not.toContain("CANARY");
+    }
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(Response.json({
+      ...compactResponse, accepted: false, status: "failed", error: diagnostics,
+    }));
+    await expect(operations(env).compactTurn(compactRequest)).resolves.toMatchObject({
+      accepted: false, status: "failed", error: "The operation failed.",
+    });
   });
 
   it("proxies lifecycle approval decisions to the owning runtime", async () => {

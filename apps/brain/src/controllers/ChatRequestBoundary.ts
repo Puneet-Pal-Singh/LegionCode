@@ -1,3 +1,6 @@
+import type { HarnessOperations } from "@legioncode/app-server/server";
+import { verifyHostedHarnessAdmission } from "../integration/app-server/HostedHarnessAdmission";
+import { isDelegatedChat, assertHostedChatEnvironment } from "../services/chat/ChatExecutionStrategy";
 import type { Env } from "../types/ai";
 import { DomainError } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
@@ -47,6 +50,7 @@ export async function bindAuthenticatedChatRequest(
   input: unknown,
   correlationId: string,
   verifiedPrincipal?: { userId: string; session: UserSessionRecord },
+  harnessOperations?: HarnessOperations,
 ): Promise<AuthenticatedChatRequest> {
   const body = validateWithSchema<ChatRequestBody>(
     input,
@@ -64,11 +68,14 @@ export async function bindAuthenticatedChatRequest(
     );
   }
 
-  validateWithSchema(
-    { providerId: body.providerId, modelId: body.modelId },
-    ChatProviderSelectionSchema,
-    correlationId,
-  );
+  const delegated = isDelegatedChat(body, correlationId);
+  if (!delegated) {
+    validateWithSchema(
+      { providerId: body.providerId, modelId: body.modelId },
+      ChatProviderSelectionSchema,
+      correlationId,
+    );
+  }
   const imageInput = validateChatImageInput(body, correlationId);
   const executionScope = await resolveExecutionScope(
     req,
@@ -86,6 +93,14 @@ export async function bindAuthenticatedChatRequest(
       false,
       correlationId,
     );
+  }
+
+  assertHostedChatEnvironment(body.harnessSelection, env.APP_SERVER_ENVIRONMENT_ID, correlationId);
+  if (body.harnessSelection) {
+    body.harnessSelection = await verifyHostedHarnessAdmission({
+      env, ...executionScope, sessionId, runId, identity: body.identity,
+      capture: body.harnessSelection, operations: harnessOperations, correlationId,
+    });
   }
 
   return {

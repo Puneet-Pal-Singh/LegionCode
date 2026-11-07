@@ -1,0 +1,26 @@
+{
+  "name": "@repo/harness-codex",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./settings": "./src/settings.ts",
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check-types": "tsc --noEmit",
+    "generate:protocol": "node scripts/generate-protocol.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "5.9.2"
+  },
+  "dependencies": {
+    "@repo/harness-core": "workspace:*",
+    "@repo/platform-protocol": "workspace:*",
+    "@repo/worker-protocol": "workspace:*",
+    "zod": "^3.25.0"
+  }
+}

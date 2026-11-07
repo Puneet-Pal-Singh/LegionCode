@@ -1,5 +1,10 @@
+import { HarnessCommitAckSchema, type HarnessCommitAck, type HarnessObservation } from "@repo/worker-protocol";
+import type { HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";
 import {
   EventIdSchema,
+  toPublicProtocolError,
+  type HarnessActivityMeasuredPayload,
+  type HarnessProviderLimitNotifiedPayload,
   JsonRecordSchema,
   type ApprovalId,
   type ItemId,
@@ -72,6 +77,7 @@ interface EventFields {
   readonly itemId?: ItemId;
   readonly toolCallId?: ToolCallId;
   readonly approvalId?: ApprovalId;
+  readonly requestId?: string;
   readonly payload: JsonRecord;
 }
 
@@ -106,15 +112,128 @@ export class RuntimeLifecycleCoordinator {
   private readonly toolCallItems: Record<string, ItemId> = {};
   private readonly approvalStatuses: Record<string, ApprovalStatus> = {};
   private readonly approvalItems: Record<string, ItemId> = {};
+  private readonly userInputItems: Record<string, ItemId> = {};
   private readonly approvalParents: Record<string, ItemId> = {};
   private accepted = false;
   private completionReserved = false;
+  private harnessFenced = false;
+  private terminalOutcome: TurnTerminalOutcome["status"] | null = null;
   private readonly acceptedInputSequences = new Map<string, number>();
+  private readonly appliedInputs = new Map<string, { acceptedSequence: number; modelStep: number; contextRevision: number; sequence: number }>();
   private sequence: number;
   private operationQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: RuntimeLifecycleCoordinatorOptions) {
     this.sequence = options.initialSequence ?? 0;
+  }
+
+  /** Serialize draft generation with ordinary lifecycle work. Only committed
+   * state is adopted; an append failure leaves the live coordinator unchanged. */
+  async commitHarnessObservation(
+    observation: HarnessObservation,
+    persistence: HarnessObservationCommitPort,
+    apply: (draft: RuntimeLifecycleCoordinator) => Promise<void>,
+  ): Promise<HarnessCommitAck> {
+    let acknowledgement: HarnessCommitAck | undefined;
+    await this.enqueue(async () => {
+      const existing = await persistence.lookup(observation);
+      if (existing) { acknowledgement = this.validateHarnessAck(existing, observation); return; }
+      const events: LifecycleEvent[] = [];
+      const draft = new RuntimeLifecycleCoordinator({
+        ...this.options,
+        sink: { appendBatch: async (batch) => { events.push(...batch); return batch; } },
+      });
+      draft.copyStateFrom(this);
+      await apply(draft);
+      try {
+        acknowledgement = this.validateHarnessAck(await persistence.commit({ observation, events }), observation);
+      } catch (error) {
+        // The durable transaction may have committed before transport failed.
+        // No further append may use this coordinator's now-uncertain sequence.
+        this.harnessFenced = true;
+        throw error;
+      }
+      this.copyStateFrom(draft);
+    });
+    if (!acknowledgement) throw new Error("Observation commit returned no acknowledgement");
+    return acknowledgement;
+  }
+
+  private validateHarnessAck(input: HarnessCommitAck, observation: HarnessObservation): HarnessCommitAck {
+    const ack = HarnessCommitAckSchema.parse(input);
+    const a = ack.session, b = observation.session;
+    if (ack.committedSequence !== observation.sequence || a.runAttemptId !== b.runAttemptId ||
+      a.instanceId !== b.instanceId || a.externalSessionId !== b.externalSessionId || a.processGeneration !== b.processGeneration) {
+      throw new Error("Canonical observation commit returned a mismatched acknowledgement");
+    }
+    return ack;
+  }
+
+  private copyStateFrom(source: RuntimeLifecycleCoordinator): void {
+    this.status = source.status;
+    this.blockingState = source.blockingState;
+    this.runAttemptStatus = source.runAttemptStatus;
+    this.accepted = source.accepted;
+    this.completionReserved = source.completionReserved;
+    this.terminalOutcome = source.terminalOutcome;
+    this.harnessFenced = source.harnessFenced;
+    this.sequence = source.sequence;
+    for (const key of ["itemStatuses", "itemKinds", "toolCallStatuses", "toolCallNames",
+      "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents", "userInputItems"] as const) {
+      for (const existing of Object.keys(this[key])) delete this[key][existing];
+      Object.assign(this[key], source[key]);
+    }
+    this.appliedInputs.clear();
+    for (const [key, value] of source.appliedInputs) this.appliedInputs.set(key, { ...value });
+    this.acceptedInputSequences.clear();
+    for (const [key, value] of source.acceptedInputSequences) this.acceptedInputSequences.set(key, value);
+  }
+
+  get requiresHarnessRecovery(): boolean { return this.harnessFenced; }
+
+  async restoreHarnessHistory(history: readonly LifecycleEvent[]): Promise<void> {
+    const events = history.map((event) => LifecycleEventSchema.parse(event));
+    // Recovery is the one explicit operation allowed to replace fenced state.
+    const recovery = this.operationQueue.then(async () => {
+      const restored = new RuntimeLifecycleCoordinator({ ...this.options, initialSequence: 0 });
+      restored.restoreApprovalWaitState(events, false);
+      this.copyStateFrom(restored);
+    });
+    this.operationQueue = recovery.catch(() => undefined);
+    await recovery;
+  }
+
+  /** Canonical failure settlement for an integrity-lost host stream. This does
+   * not prove physical quiescence or release a lease, and never repairs a gap. */
+  async resolveObservationIntegrity(input: {
+    readonly command: import("@repo/worker-protocol").HarnessStartCommand;
+    readonly session: import("@repo/worker-protocol").HarnessSession;
+    readonly signal: AbortSignal;
+    readonly persistence: HarnessObservationCommitPort;
+  }): Promise<import("./harness/DelegatedHarnessPort.js").HarnessObservationRecovery> {
+    input.signal.throwIfAborted();
+    const selection = input.command.selection;
+    if (selection.turnId !== this.options.turnId || selection.threadId !== this.options.threadId ||
+      selection.runAttemptId !== this.options.runAttemptId || selection.workspaceId !== this.options.workspaceId ||
+      input.session.runAttemptId !== selection.runAttemptId || input.session.instanceId !== selection.instanceId) throw new Error("Integrity resolution does not match canonical runtime ownership");
+    const recovered = await input.persistence.recover(input.session);
+    if (recovered.session.runAttemptId !== input.session.runAttemptId || recovered.session.instanceId !== input.session.instanceId ||
+      recovered.session.externalSessionId !== input.session.externalSessionId || recovered.session.processGeneration !== input.session.processGeneration) throw new Error("Integrity recovery replay has a stale process/session");
+    input.signal.throwIfAborted();
+    await this.restoreHarnessHistory(recovered.lifecycleEvents);
+    const terminal = recovered.lifecycleEvents.find((event) => ["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type));
+    if (terminal?.type === "turn.completed") throw new Error("Integrity loss conflicts with committed success; stream must remain fenced");
+    if (!terminal) {
+      await this.markWorkspaceSnapshotUnavailable("observation_integrity_lost");
+      input.signal.throwIfAborted();
+      await this.fail({ code: "command_failed", message: "Harness observation integrity was lost; execution requires recovery.",
+        retryable: false, correlationId: null, details: { reason: "observation_integrity_lost" } });
+    }
+    const settled = await input.persistence.recover(input.session);
+    input.signal.throwIfAborted();
+    if (!settled.lifecycleEvents.some((event) => event.turnId === selection.turnId && event.runAttemptId === selection.runAttemptId &&
+      (event.type === "turn.failed" || event.type === "turn.interrupted"))) throw new Error("Canonical failure settlement was not confirmed by replay");
+    return settled;
   }
 
   static restoreForInterruption(
@@ -138,7 +257,7 @@ export class RuntimeLifecycleCoordinator {
     return coordinator;
   }
 
-  private restoreApprovalWaitState(events: readonly LifecycleEvent[]): void {
+  private restoreApprovalWaitState(events: readonly LifecycleEvent[], requireIsolatedApproval = true): void {
     let previousStatus: TurnStatus = "queued";
     let queued = false;
     let started = false;
@@ -166,7 +285,8 @@ export class RuntimeLifecycleCoordinator {
         event.type !== "turn.queued" &&
         event.type !== "turn.started" &&
         event.type !== "run_attempt.started" &&
-        (!started || this.runAttemptStatus !== "running")
+        (!started || this.runAttemptStatus !== "running") &&
+        (requireIsolatedApproval || !["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type))
       ) {
         throw new LifecycleTransitionError(
           "turn",
@@ -237,7 +357,8 @@ export class RuntimeLifecycleCoordinator {
         );
         if (
           blocking.kind !== "none" &&
-          blocking.kind !== "waiting_for_approval"
+          blocking.kind !== "waiting_for_approval" &&
+          (requireIsolatedApproval || blocking.kind !== "waiting_for_user_input")
         ) {
           throw new LifecycleTransitionError(
             "turn",
@@ -345,6 +466,8 @@ export class RuntimeLifecycleCoordinator {
           "active",
         );
         this.toolCallItems[event.toolCallId] = event.itemId;
+        if (event.payload.toolName) this.toolCallNames[event.toolCallId] = event.payload.toolName;
+        if (event.payload.callBatchId) this.toolCallBatches[event.toolCallId] = event.payload.callBatchId;
       } else if (
         event.type === "tool_call.input_delta" ||
         event.type === "tool_call.output_delta"
@@ -410,13 +533,20 @@ export class RuntimeLifecycleCoordinator {
           current,
           event.payload.status,
         );
-      } else if (
+      } else if (!requireIsolatedApproval && event.type === "user_input.requested") {
+        this.userInputItems[event.requestId] = event.itemId;
+      } else if (!requireIsolatedApproval && event.type === "turn.input.applied") {
+        if (this.acceptedInputSequences.get(event.payload.inputId) !== event.payload.acceptedSequence) throw new Error("Recovered input application has no matching canonical acceptance");
+        this.appliedInputs.set(event.payload.inputId, { ...event.payload, sequence: event.sequence });
+      } else if (!requireIsolatedApproval && event.type === "turn.input.accepted") {
+        this.acceptedInputSequences.set(event.payload.inputId, event.sequence);
+      } else if (requireIsolatedApproval && (
         event.type.startsWith("user_input.") ||
         event.type === "request.resolved" ||
         event.type === "context_compaction.requested" ||
         event.type === "context_compaction.started" ||
         event.type.startsWith("hook.invocation.")
-      ) {
+      )) {
         throw new LifecycleTransitionError(
           "turn",
           event.type,
@@ -425,20 +555,22 @@ export class RuntimeLifecycleCoordinator {
         );
       }
 
-      if (
-        event.type === "turn.completed" ||
-        event.type === "turn.failed" ||
-        event.type === "turn.interrupted"
-      ) {
-        throw new LifecycleTransitionError(
-          "turn",
-          event.type,
-          "awaiting_approval",
-          "terminal history cannot be restored for interruption",
-        );
+      if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "turn.interrupted") {
+        if (requireIsolatedApproval) throw new LifecycleTransitionError("turn", event.type, "awaiting_approval", "terminal history cannot be restored for interruption");
+        const outcome = event.payload.outcome;
+        previousStatus = transitionTurnStatus(previousStatus, outcome.status);
+        this.terminalOutcome = outcome.status;
+        validateTerminalSettlement({ turnStatus: previousStatus, terminalOutcome: outcome,
+          blockingState: this.blockingState, itemStatuses: this.itemStatuses, approvalStatuses: this.approvalStatuses });
       }
       this.sequence = event.sequence;
       lastEvent = event;
+    }
+
+    if (!requireIsolatedApproval) {
+      if (!this.accepted || !started) throw new Error("Harness recovery requires canonical turn/start evidence");
+      this.status = previousStatus;
+      return;
     }
 
     const pendingApprovals = Object.entries(this.approvalStatuses).filter(
@@ -490,6 +622,10 @@ export class RuntimeLifecycleCoordinator {
     }
     this.status = previousStatus;
   }
+
+  /** Terminal append is the linearization point. An ambiguous append keeps this
+   * outcome frozen for durable recovery rather than attempting a conflicting one. */
+  get isTerminalDecided(): boolean { return this.isTerminal || this.terminalOutcome !== null; }
 
   get terminalStatus(): "completed" | "interrupted" | "failed" | null {
     return this.status === "completed" || this.status === "interrupted" || this.status === "failed" ? this.status : null;
@@ -735,6 +871,25 @@ export class RuntimeLifecycleCoordinator {
     );
   }
 
+  async recordHarnessActivity(payload: HarnessActivityMeasuredPayload): Promise<void> {
+    this.assertHarnessMeasurementScope(payload.measurement);
+    await this.enqueue(async () => this.emit({
+      type: "harness.activity_measured", payload,
+    }));
+  }
+
+  async recordHarnessProviderLimit(payload: HarnessProviderLimitNotifiedPayload): Promise<void> {
+    this.assertHarnessMeasurementScope(payload.notification);
+    await this.enqueue(async () => this.emit({
+      type: "harness.provider_limit_notified", payload,
+    }));
+  }
+
+  private assertHarnessMeasurementScope(value: { threadId: ThreadId; turnId: TurnId; runAttemptId: RunAttemptId }): void {
+    if (value.threadId !== this.options.threadId || value.turnId !== this.options.turnId || value.runAttemptId !== this.options.runAttemptId)
+      throw new Error("Harness measurement does not belong to this canonical attempt");
+  }
+
   async updateUsage(usage: UsageCostSnapshot): Promise<void> {
     await this.enqueue(async () =>
       this.emit({
@@ -768,6 +923,12 @@ export class RuntimeLifecycleCoordinator {
   async settleContextCompaction(
     payload: ContextCompactionPayload,
   ): Promise<void> {
+    if (payload.phase === "failed") {
+      payload = {
+        ...payload,
+        error: toPublicProtocolError({ code: "command_failed" }).message,
+      };
+    }
     await this.enqueue(async () => {
       const terminal = payload.phase === "failed" ? "failed" : "completed";
       await this.emit({
@@ -813,12 +974,16 @@ export class RuntimeLifecycleCoordinator {
     toolCallId: ToolCallId,
     failure: ProtocolError,
   ): Promise<void> {
+    const publicFailure = toPublicProtocolError(failure);
     await this.enqueue(async () =>
-      this.settleToolCall(toolCallId, "failed", { failure }),
+      this.settleToolCall(toolCallId, "failed", { failure: publicFailure }),
     );
   }
 
-  async declineToolCall(toolCallId: ToolCallId, reason: string): Promise<void> {
+  async declineToolCall(toolCallId: ToolCallId, _reason: string): Promise<void> {
+    // Caller diagnostics never become the public catalog reason.
+    void _reason;
+    const reason = toPublicProtocolError({ code: "policy_denied" }).message;
     await this.enqueue(async () =>
       this.settleToolCall(toolCallId, "declined", { reason }),
     );
@@ -895,15 +1060,39 @@ export class RuntimeLifecycleCoordinator {
     );
   }
 
-  async complete(output: string, itemId: ItemId): Promise<void> {
-    await this.enqueue(async () => this.completeNow(output, itemId));
+  async requestUserInput(itemId: ItemId, requestId: string, payload: JsonRecord): Promise<void> {
+    await this.enqueue(async () => {
+      if (this.userInputItems[requestId] || this.blockingState.kind !== "none") {
+        throw new LifecycleTransitionError("item", "active", "requested", "User input request conflicts with an active request");
+      }
+      await this.startItem(itemId, "user_input_request", {});
+      await this.emit({ type: "user_input.requested", itemId, requestId, payload });
+      this.userInputItems[requestId] = itemId;
+      await this.changeBlocking({ kind: "waiting_for_user_input", itemId, requestId });
+    });
+  }
+
+  async respondUserInput(requestId: string, response: JsonRecord, respondedBy: import("@repo/platform-protocol").UserId | null): Promise<void> {
+    await this.enqueue(async () => {
+      const itemId = this.userInputItems[requestId];
+      if (!itemId || this.itemStatuses[itemId] !== "active" || this.blockingState.kind !== "waiting_for_user_input" || this.blockingState.requestId !== requestId) {
+        throw new LifecycleTransitionError("item", "inactive", "responded", "User input request is no longer pending");
+      }
+      await this.emit({ type: "user_input.responded", itemId, requestId, payload: { response, respondedBy } });
+      await this.settleItem(itemId, "completed", { result: {} });
+      await this.changeBlocking({ kind: "none" });
+    });
+  }
+
+  async complete(output: string, itemId: ItemId, canComplete: () => boolean = () => true): Promise<void> {
+    await this.enqueue(async () => this.completeNow(output, itemId, canComplete));
   }
 
   async acceptThreadInput(input: {
     readonly inputId: string;
     readonly clientInputId: string;
     readonly transcriptMessageId: string;
-  }, afterAppend: (acceptedSequence: number) => void): Promise<number> {
+  }, afterAppend: (acceptedSequence: number) => void, canAccept: () => boolean = () => true, fenceOnAppendFailure = false): Promise<number> {
     let acceptedSequence: number | undefined;
     await this.enqueue(async () => {
       const existingSequence = this.acceptedInputSequences.get(input.inputId);
@@ -911,7 +1100,7 @@ export class RuntimeLifecycleCoordinator {
         acceptedSequence = existingSequence;
         return;
       }
-      if (this.completionReserved || this.isTerminal) {
+      if (this.completionReserved || this.isTerminalDecided || !canAccept()) {
         throw new LifecycleTransitionError(
           "turn",
           this.status,
@@ -919,7 +1108,12 @@ export class RuntimeLifecycleCoordinator {
           "the turn is already settling",
         );
       }
-      await this.emit({ type: "turn.input.accepted", payload: input });
+      try {
+        await this.emit({ type: "turn.input.accepted", payload: input });
+      } catch (error) {
+        if (fenceOnAppendFailure) this.harnessFenced = true;
+        throw error;
+      }
       acceptedSequence = this.sequence;
       this.acceptedInputSequences.set(input.inputId, this.sequence);
       afterAppend(this.sequence);
@@ -928,6 +1122,10 @@ export class RuntimeLifecycleCoordinator {
       throw new Error("Accepted thread input did not append a lifecycle event.");
     }
     return acceptedSequence;
+  }
+
+  hasPendingThreadInputs(): boolean {
+    return [...this.acceptedInputSequences.keys()].some((inputId) => !this.appliedInputs.has(inputId));
   }
 
   async reserveCompletion(hasPendingInputs: () => boolean): Promise<boolean> {
@@ -948,8 +1146,18 @@ export class RuntimeLifecycleCoordinator {
   }): Promise<number> {
     let appliedSequence: number | undefined;
     await this.enqueue(async () => {
+      if (this.acceptedInputSequences.get(input.inputId) !== input.acceptedSequence) {
+        throw new LifecycleTransitionError("turn", "input_not_accepted", "input_applied", "Input application does not match canonical acceptance");
+      }
+      const prior = this.appliedInputs.get(input.inputId);
+      if (prior) {
+        if (prior.modelStep !== input.modelStep || prior.contextRevision !== input.contextRevision) throw new LifecycleTransitionError("turn", "input_applied", "input_applied", "Conflicting input application evidence");
+        appliedSequence = prior.sequence;
+        return;
+      }
       await this.emit({ type: "turn.input.applied", payload: input });
       appliedSequence = this.sequence;
+      this.appliedInputs.set(input.inputId, { ...input, sequence: this.sequence });
     });
     if (appliedSequence === undefined) {
       throw new Error("Applied thread input did not append a lifecycle event.");
@@ -957,7 +1165,8 @@ export class RuntimeLifecycleCoordinator {
     return appliedSequence;
   }
 
-  private async completeNow(output: string, itemId: ItemId): Promise<void> {
+  private async completeNow(output: string, itemId: ItemId, canComplete: () => boolean): Promise<void> {
+    this.assertCompletionAllowed(canComplete);
     await this.startItem(itemId, "assistant_message", {});
     for (const delta of splitLifecycleOutput(output)) {
       await this.emit({
@@ -967,25 +1176,36 @@ export class RuntimeLifecycleCoordinator {
       });
     }
     await this.settleItem(itemId, "completed", { result: { output } });
+    this.assertCompletionAllowed(canComplete);
     await this.settleTurn({ status: "completed" });
   }
 
+  private assertCompletionAllowed(canComplete: () => boolean): void {
+    if (!canComplete()) throw new LifecycleTransitionError("turn", "interrupted", "completed", "Stop was accepted before terminal settlement");
+  }
+
   async fail(failure: ProtocolError): Promise<void> {
-    await this.enqueue(async () => this.failNow(failure));
+    const publicFailure = toPublicProtocolError(failure);
+    await this.enqueue(async () => this.failNow(publicFailure));
   }
 
   private async failNow(failure: ProtocolError): Promise<void> {
     await this.cancelPendingApprovals("Turn failed before approval resolution");
+    await this.cancelPendingUserInput("Turn failed before user input");
     await this.settleOpenWork("failed", { failure });
     await this.settleTurn({ status: "failed", failure });
   }
 
-  async interrupt(reason: string): Promise<void> {
+  async interrupt(_reason: string): Promise<void> {
+    // Preserve the command signature without publishing caller diagnostics.
+    void _reason;
+    const reason = toPublicProtocolError({ code: "command_cancelled" }).message;
     await this.enqueue(async () => this.interruptNow(reason));
   }
 
   private async interruptNow(reason: string): Promise<void> {
     await this.cancelPendingApprovals(reason);
+    await this.cancelPendingUserInput(reason);
     await this.settleOpenWork("interrupted", { reason });
     await this.settleTurn({ status: "interrupted", reason });
   }
@@ -1055,6 +1275,15 @@ export class RuntimeLifecycleCoordinator {
     }
   }
 
+  private async cancelPendingUserInput(reason: string): Promise<void> {
+    for (const [requestId, itemId] of Object.entries(this.userInputItems)) {
+      if (this.itemStatuses[itemId] === "active") {
+        await this.emit({ type: "request.resolved", itemId, requestId, payload: { status: "cancelled", reason } });
+      }
+    }
+    if (this.blockingState.kind === "waiting_for_user_input") await this.changeBlocking({ kind: "none" });
+  }
+
   private async cancelPendingApprovals(reason: string): Promise<void> {
     for (const [approvalId, status] of Object.entries(this.approvalStatuses)) {
       if (status === "pending") {
@@ -1095,6 +1324,7 @@ export class RuntimeLifecycleCoordinator {
         2,
       ),
     ];
+    this.terminalOutcome = outcome.status;
     await this.appendTerminalBatch(events, outcome.status);
     this.sequence += events.length;
     this.runAttemptStatus = nextAttempt;
@@ -1174,7 +1404,11 @@ export class RuntimeLifecycleCoordinator {
   }
 
   private async enqueue(operation: () => Promise<void>): Promise<void> {
-    const result = this.operationQueue.then(operation, operation);
+    const guarded = async () => {
+      if (this.harnessFenced) throw new Error("Harness lifecycle is fenced pending canonical replay recovery");
+      return operation();
+    };
+    const result = this.operationQueue.then(guarded, guarded);
     this.operationQueue = result.catch(() => undefined);
     await result;
   }
