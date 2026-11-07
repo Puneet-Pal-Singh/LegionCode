@@ -18,6 +18,27 @@ invalidation. Its handle is shared with capture ports for the attempt, never a
 renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
 terminal retries cannot enqueue a later Stop.
 
+The grant foundation retains the original root `FileHandle` in
+`LocalWorkspaceRootPin`. `LocalWorkspaceService` captures the native Git metadata
+identity on explicit grant, persists it through the existing LocalPersistence
+v2 grant record, and compares it before restored probes or execution binding.
+`LocalWorkspaceMetadataResolver` is the single protected-path owner for ordinary
+and linked repository metadata; the original binding exposes its fresh native
+association/mutation inspection to retained settlement borrowers. Legacy v1
+records remain readable but require an explicit regrant before execution.
+Immutable artifact persistence stays in the same existing SQLite owner. This
+foundation wires the existing Desktop read-only startup to trusted native helper
+paths, protected host roots, metadata inspection and canonical repository probes.
+File queries consume the same binding and native reader. Captured execution and
+mutation capabilities remain separate; missing helpers grant no native access.
+Grant failures use the existing typed App Server operation error with static
+stage/reason categories; raw paths, Git output and error context stay private.
+Storage failures retain their existing 503 response, and resource uncertainty
+still retains the original pin and quarantine semantics.
+Trusted Mac Git discovery resolves the explicitly selected developer tools to
+their canonical executable without launching a shell or xcrun. Discovery does
+not prove process containment; the same guardian and readiness gate still do.
+
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
 The local factory reuses native context assembly/compaction and connects the same
@@ -45,6 +66,34 @@ checks persisted terminal/checkpoint state before retrying capture.
 [OpenCode read tool at 3729fd57068445104ea464a952d41798ed30ea20](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/tool/read.ts)
 uses bounded text reads. These references support keeping capture ownership and
 local execution behind existing ports; they introduce no external harness driver.
+
+## Plan 057 — Prepared captured execution capability
+
+`LocalTurnExecutor` is the same execution owner and exact-attempt handle map as
+the existing `LocalReadOnlyTurnExecutor` export; the latter remains an alias for
+current consumers. The default and explicit read-only capability keep `ask`,
+restricted read-file dispatch, no executable hooks and omitted artifact capture.
+
+The explicit `artifactCapture: "required"` capability requires real Git snapshot,
+artifact, worker quiescence and attempt-bound mutation-lease ports before provider
+composition. Runtime creates `auto_edit` admissions, selects only supplied
+canonical registry definitions whose backend requirements are met. New tool work
+uses active lease/grant cancellation; final capture borrows the same original
+root and fence through retained settlement authority. Kernel retains the original
+execution and settlement continuation until worker quiescence is confirmed after
+failure or interruption. It never produces an empty capture.
+
+The host remains the mutation-lease and held-root resource owner; this extension
+consumes its signals/assertions and implements no lease store. Resource cleanup
+must retain the exact executor/binding until `awaitResourceRelease` validates
+durable terminal evidence and actual worker/capture/Git closure. Unknown closure
+keeps that original authority quarantined. A preparation failure requires the
+same physical owner's positive, exact-attempt acquisition-closure receipt; a busy
+code or an absent map entry alone cannot release the borrowed root.
+Actual mutator availability is still gated on the host lease implementation,
+worker05 guarded file worker, worker06 single-executable worker/guardian and
+worker07 real capture ports. No full-capture product consumer is declared wired
+until those owners supply and compose the real boundaries.
 
 ## Unused Web run-summary reader retirement
 
@@ -858,6 +907,31 @@ terminal run state; original-lease expiry remains enforced by the hosted owner.
 | --- | --- | --- |
 | Git reads and mutations against an execution checkout | Existing `packages/git-service` execution owner, reached through authenticated Brain composition and the existing Secure Agent API execution path | The seven existing Web operations (status, diff, stage/unstage, commit, branch, push, and pull-request creation) will use the typed SDK/App Server path; Web retains only action state and explicit live-review selection. |
 | Checkout retention and physical expiry | Existing task-checkout lifecycle keeps only the original successfully completed and settled lease through its original nested `lease.expiresAt`; existing secure `AgentRuntime` Durable Object owns persisted-session alarm cleanup and physical sandbox destruction | Git borrows the exact persisted session/lease identity and does not create, renew, recover, replace, or release it. Failed, interrupted, unsettled, expired, missing, mismatched, or dead checkout access is explicitly unavailable; saved completed review remains immutable. |
+| Atomic explicit-file commit and index publication | `DefaultGitService` requests the advertised executor index-transaction capability; the shared host runner owns the worktree-specific exclusive index lock and private alternate index | `SandboxGitCommandExecutor` uses the existing Toolbox command boundary with `execIfRunning`, no automatic retry and no competing outer timeout. The local Node executor runs the same canonical runner. Requested tracked, new and deleted files commit without changing unrelated staged work; rejection discards private state only. Linux execution verifies subreaper/pidfd support, kills adopted descendants and requires kernel waitpid ECHILD plus a separate quiescence acknowledgement before unlock. Ambient Git selectors/config injection are removed; supplied overrides are limited to canonical auth and scoped snapshot indexes. Mac execution requires the existing declared single-process no-fork OS port, including trusted environment/stdin support; without composition, the executor does not advertise mutation support. Publication or transport uncertainty returns `git_commit_indeterminate` and never rewrites immutable artifacts or terminal Turn evidence. |
+
+Artifact-selected local commits pass trusted terminal/baseline trees, an explicit
+branch and expected HEAD to the canonical transaction. Saved tree/blob IDs, modes
+and deletions populate its private commit index; later worktree bytes are not a
+commit source. Conflicting selected staging is rejected without changing the
+original index, while unrelated staged work remains staged.
+The Darwin `createArtifactGitExecutor` advertises its proven index-transaction and
+immutable-artifact guard profile through the actual original grant callback,
+writer lease, native metadata/storage inspection and private-index owner. Actual
+ordinary/linked factory proof covers saved content and staging preservation;
+configured hooks/signing remain typed unsupported before branch publication.
+Named-branch expected-old CAS and subsequent index publication are separate
+operations under the approved conventional trusted-host namespace contract;
+atomic protection against hostile metadata-directory replacement is not claimed.
+Linux artifact content uses saved entries, but its porcelain publication refuses
+an explicit branch guard; generic live-checkout commits retain their behavior.
+`LocalGitService` authorizes canonical admission, terminal lifecycle evidence,
+the existing attempt-bound local artifact store's commit source/start snapshot
+and the retained current workspace lease before calling the Git owner. Desktop
+admission, App Server/SDK/renderer dispatch and installed-product integration
+remain separate composition gates; this leaf alone does not complete Desktop 7B.
+The separately owned read-only callback retains its canonical process types and
+real guardian without advertising immutable-artifact mutation support.
+
 
 This records the approved bounded retention and ownership decision before code
 changes. The retention/alarm implementation is in the separately reviewed
@@ -1208,6 +1282,44 @@ boundaries. Mutators must not use `omitted_read_only` capture. Their full-captur
 and lease gates remain with worker03/07. The source is independently compiled and
 its bridge exercised against real Linux files in cloud; no new test code is added.
 
+### Private Git metadata and index transactions
+
+The same private native owner resolves ordinary and linked Git metadata for the
+approved trusted-host namespace contract. Bounded nofollow gitfile/commondir and
+backlink checks distinguish per-worktree index authority from common objects and
+refs. Association lookup is cheap; mutation-purpose storage validation rejects
+redirected paths, borrowed object stores, reftable layout and over-budget scans.
+The private T session checks the fresh layout before writes, retains its original
+root/writer descriptors through actual close and publishes only its owned index.
+These checks do not atomically bind stock Git pathname opens or enable mutations.
+Before activation the canonical Git owner additionally requires the supported
+files ref backend and no replacement refs; native storage validation requires
+absent/empty external-object alternates and grafts for this initial profile.
+
+### Native grant-scoped directory queries
+
+`NativeFilesystemBridge.listDirectory` uses the same private root FD and helper,
+without a Turn or lifecycle/store owner. Operation D opens a fresh selected
+directory description, enumerates through `fdopendir(dup(heldDirectoryFD))`, and
+reads metadata with `fstatat(AT_SYMLINK_NOFOLLOW)`. It never uses pathname opendir
+or follows symlink entries. Dot/Git entries and the reserved native stage-name
+pattern are omitted; other entries retain their real kind, including symlinks.
+Visible non-stage entries in the pre-existing reserved prefix carry
+`unavailableReason: reserved_path`; the established R/M path guard is not widened.
+
+Pages are deterministic bytewise-name prefixes, capped at 200 entries and 64 KiB
+for both native framing and serialized bridge results. Opaque cursors bind the
+canonical path, last returned name and exact directory inode/mtime/ctime version;
+changes reject rather than return a fake empty page. Each scan stops at 100000
+physical records with an explicit unsupported error. Paths remain limited to
+500 UTF-8 bytes; cursors are bounded at 16384 characters. Entry sizes are live
+no-follow metadata, not immutable review truth. `readBytes` reuses operation R so
+the query owner can report bounded binary size without guessing from a decoder
+failure. `readFile` remains its UTF-8 view. Worker01 owns the public query/SDK
+contracts; worker10 owns the actual workspace-files query service/UI; worker12
+owns the bundled binary. No runtime tool ID, event producer, filesystem fallback
+or new persistent directory authority is added.
+
 ### Private host credential contract foundation
 
 Desktop main and its utility process share the bounded correlated credential
@@ -1216,3 +1328,129 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+## Plan 057 — Structured executable tool registration
+
+The canonical coding tool registry owns the exact executable/argv schema,
+host-user authority disclosure, backend requirements and presentation for
+`run_executable`. The native permission policy requires exact-input approval;
+the existing grant matcher is exported for native receipt validation without a
+second hash implementation. Core-tool exports omit this definition unless the
+actual no-fork and approval capabilities are supplied. This registration does
+not activate a worker, acquire a writer lease or produce lifecycle events.
+
+## Plan 057 — Local saved-turn diff query
+
+`LocalTurnArtifactReads` delegates grant/thread authorization to the existing turn
+owner, then requires a canonical terminal and published diff matching the same
+attempt's immutable artifact store. It reauthorizes before returning and never
+reads live Git. The adapter introduces no event producer, artifact payload store
+or client-owned projection. Actual routing and capability advertisement remain
+with the trusted App Server composition after capture/store integration.
+Internal commit preparation uses the same verified record and immutable artifact
+ID; this read does not grant Git mutation authority.
+
+`LocalTurnArtifactCommitService` translates a selected Turn into that verified
+artifact and its server-derived admission scope, then delegates to the existing
+`LocalGitService`. It validates all/paths selection against saved changed entries
+and expands saved rename pairs before forwarding paths. The existing verified
+read, artifact store and Git implementation retain their owners. Protocol/SDK
+registration is shared; native mutation composition remains separate, and this
+adapter does not advertise or enable Git mutation capability.
+
+## Shared workspace file explorer presentation
+
+The tree renderer, loaded-file filtering, expansion, pagination and stale-request
+isolation move from Web FileExplorer into `client-ui/src/files/FileExplorer.tsx`.
+Web FileExplorer retains AuthContext and the exact hosted checkout identity/offset
+adapter. DesktopWorkspaceFiles supplies the native workspace/cursor SDK adapter;
+its right-panel mount remains pending the Desktop shell owner. Native entry kinds
+remain explicit; symlinks, special and reserved entries are not openable. Runtime,
+workspace grant, file execution and immutable artifact ownership are unchanged.
+The shared read port transports opaque string or numeric cursors without translating
+between native cursor and hosted offset models. No copied Web tree remains.
+
+
+## Plan 057 — Local Thread pin metadata
+
+`LocalThreadService` owns one per-thread metadata mutation queue shared by rename,
+archive, unarchive, pin and unpin. Its composed `LocalThreadPinService` reuses the
+queue-scoped workspace-authorized Thread read and canonical `thread.pinned` /
+`thread.unpinned` events. Matching actions append nothing; changed actions preserve
+the current full Thread metadata, including archived status, and use the actual
+thread-stream sequence for their event key. The queue captures the grant's
+workspace, repository identity and grant timestamp when an action is enqueued;
+optimistic revalidation after awaited reads rejects a changed selection before
+append. This is not an atomic grant-generation lock. Canonical projection applies pin and
+archive events only to their owned metadata fields, preserving runtime/admission
+active Run, active leaf and terminal identity when admission interleaves. Only
+`thread.created` initializes a full Thread snapshot. No pin store or inferred
+activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
+dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
+request/result contract. Hosted dispatch rejects these local commands. Desktop
+sidebar callbacks and visible restart acceptance remain client integration work.
+
+## Plan 057 — Local immutable Turn artifact storage
+
+`LocalPersistence.turnArtifacts` composes `createLocalTurnArtifactStore` with the
+same process-owned SQLite connection and storage guard. The existing metadata
+table retains immutable baseline, terminal and diff payloads, keyed by the exact
+user, workspace, Thread, Run, Turn and Run Attempt. Reads validate payload hashes
+and the diff's persisted baseline/final captures; startup rejects corrupt records.
+The store produces no lifecycle events and creates no separate database owner.
+Native capture, authorized query and commit consumers remain separate integration
+work. Stored Git tree IDs do not retain their object closure or enable capture or
+Git mutation capabilities.
+
+## Plan 057 — Approved local Git authority contract
+
+On 2026-11-08 the user approved the researched stock-Git trusted-host model for
+local capture and saved-artifact commits. `DefaultGitService` remains the only
+Git policy/command owner. The grant/native owner validates checkout, per-worktree
+metadata and common-directory associations; the existing writer lease and native
+transaction own serialization and physical resource closure. Git-native locks,
+explicit branch/ref identity and expected-old checks coordinate supported Git
+operations. Observed identity changes abort or quarantine the operation.
+
+This contract assumes repository metadata is not maliciously replaced by another
+process during execution. It does not claim atomic retained-FD binding of every
+metadata pathname used by stock Git. Guarded file tools retain their independent
+root-FD safeguards, and executable approval retains its declared host authority.
+No alternate runtime, Git parser, process runner or silent policy fallback is
+introduced. The stronger hostile-replacement contract is not selected.
+
+Saved commits must derive entries from the immutable artifact's blob/tree IDs,
+modes and deletions rather than rereading live worktree bytes. Unrelated staging
+and later worktree edits are preserved; conflicting selected staging or undisclosed
+baseline content is rejected. The existing artifact/Git owners must retain the
+required object closure before publishing saved evidence. Uncertain publication remains
+non-retryable and cannot rewrite Turn terminal truth.
+
+The reviewed native T adapter is still a dependency, not an enabled capability.
+Actual ordinary/linked layouts, private-index publication, retained objects,
+approval/Stop/settlement and installed-consumer proofs must pass before advertising
+capture or Git mutation. This decision alone does not set executor support flags.
+
+## Private Git configuration selector
+
+The host-only Git context and the existing guardian share
+`gitConfigurationHome` validation for the explicit host XDG selector. A nonempty
+selector keeps its exact spelling, including a relative or missing directory;
+empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
+are rejected. HOME and TMP remain canonical existing directories. No ambient
+environment spread, model-controlled override or filesystem authority is added;
+ordinary executable environments and process containment remain unchanged.
+
+## Saved Turn artifact commit command boundary
+
+SDK `commitTurnArtifact` sends `git/commitTurnArtifact` using the canonical
+`CommitTurnArtifactRequestSchema` and validates `CommitTurnArtifactResponseSchema`.
+Requests explicitly select all saved changes or unique saved entry paths; the
+handler authorizes those entries and expands rename path pairs from saved data.
+App Server dispatches only local requests to the optional structural
+`localTurnArtifactCommitService.commitTurnArtifact` port; missing or nonlocal
+composition returns typed `503 server_unavailable` with `retryable: false`.
+The private handler remains the owner of authorized settled-Turn artifact
+selection and canonical Git mutation. Handler injection, local composition,
+capability advertisement and UI activation are not implemented by this boundary.
+No live-Git selector, fallback commit path or second artifact owner is introduced.

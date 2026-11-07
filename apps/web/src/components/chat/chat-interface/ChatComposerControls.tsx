@@ -18,6 +18,8 @@ import { ApprovalDock } from "@legioncode/client-ui";
 import { WebChatInputBar as ChatInputBar } from "../WebChatInputBar";
 import type { ContextBudgetSnapshot, UsageCostSnapshot } from "@legioncode/sdk";
 
+import { buildApprovalCategoryLabel, buildApprovalQuestion } from "./approvalLabels";
+
 export type ComposerLayout = "docked" | "hero";
 
 interface ChatComposerControlsProps {
@@ -137,7 +139,10 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {props.approval.pending ? (
           <ApprovalDock
-            pendingApproval={props.approval.pending}
+            question={buildApprovalQuestion(props.approval.pending)}
+            categoryLabel={buildApprovalCategoryLabel(props.approval.pending)}
+            title={props.approval.pending.title}
+            command={props.approval.pending.command}
             matchingInChatOption={props.approval.matchingInChatOption}
             decisions={props.approval.decisions}
             busyDecision={props.approval.busyDecision}

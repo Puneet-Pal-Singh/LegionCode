@@ -1,13 +1,12 @@
-import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
+import type { ApprovalDecisionKind } from "@repo/shared-types";
 import type { WorkflowApprovalOption } from "@legioncode/sdk";
 import { ApprovalActions } from "./ApprovalActions.js";
-import {
-  buildApprovalCategoryLabel,
-  buildApprovalQuestion,
-} from "./approvalLabels.js";
 
 interface ApprovalDockProps {
-  pendingApproval: ApprovalRequest;
+  question: string;
+  categoryLabel: string;
+  title?: string;
+  command?: string;
   matchingInChatOption: WorkflowApprovalOption | null;
   decisions: ApprovalDecisionKind[];
   busyDecision: ApprovalDecisionKind | null;
@@ -18,7 +17,10 @@ interface ApprovalDockProps {
 }
 
 export function ApprovalDock({
-  pendingApproval,
+  question,
+  categoryLabel,
+  title,
+  command,
   matchingInChatOption,
   decisions,
   busyDecision,
@@ -35,7 +37,7 @@ export function ApprovalDock({
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-4 py-2.5 text-zinc-400">
           <span className="font-medium text-zinc-200">
-            {buildApprovalCategoryLabel(pendingApproval)}
+            {categoryLabel}
           </span>
           <span>Approval required</span>
         </div>
@@ -49,20 +51,18 @@ export function ApprovalDock({
           ) : null}
           <div>
             <p className="font-medium text-zinc-50">
-              {buildApprovalQuestion(pendingApproval)}
+              {question}
             </p>
-            <p className="mt-1 break-words text-zinc-400">
-              {pendingApproval.title}
-            </p>
+            {title ? <p className="mt-1 break-words text-zinc-400">{title}</p> : null}
           </div>
           {matchingInChatOption?.description ? (
             <p className="mt-2 max-h-16 overflow-y-auto break-words text-xs text-zinc-400">
               {matchingInChatOption.description}
             </p>
           ) : null}
-          {pendingApproval.command ? (
+          {command ? (
             <pre className="mt-2 max-h-24 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2 font-mono leading-relaxed text-zinc-300">
-              <code>{pendingApproval.command}</code>
+              <code>{command}</code>
             </pre>
           ) : null}
         </div>

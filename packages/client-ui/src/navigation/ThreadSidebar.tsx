@@ -37,6 +37,8 @@ export interface ThreadSidebarProps {
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onRenameSession?: (selectionId: string, title: string) => Promise<void>;
   pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
+  /** Explicitly unavailable host reader; omitted preserves asynchronous lookup behavior. */
+  pullRequestUnavailableReason?: string;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   onPreviewSelectionChange?: (selectionId: string | null) => void;
   onClose?: () => void;
@@ -61,6 +63,7 @@ export function ThreadSidebar({
   onUnarchive,
   onRenameSession,
   pullRequestsBySessionId,
+  pullRequestUnavailableReason,
   onVisibleSelectionChange,
   onPreviewSelectionChange,
   onClose,
@@ -343,6 +346,7 @@ export function ThreadSidebar({
                   onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
                   pullRequestsBySessionId={pullRequestsBySessionId}
+                  pullRequestUnavailableReason={pullRequestUnavailableReason}
                   onRenameSession={onRenameSession}
                   onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
@@ -393,6 +397,7 @@ export function ThreadSidebar({
                   onPreviewOpen={openPreview}
                   onPreviewClose={closePreview}
                   pullRequestsBySessionId={pullRequestsBySessionId}
+                  pullRequestUnavailableReason={pullRequestUnavailableReason}
                   onRenameSession={onRenameSession}
                   onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
@@ -442,6 +447,7 @@ export function ThreadSidebar({
                     onPreviewOpen={openPreview}
                     onPreviewClose={closePreview}
                     pullRequestsBySessionId={pullRequestsBySessionId}
+                    pullRequestUnavailableReason={pullRequestUnavailableReason}
                     onRenameSession={onRenameSession}
                     onVisibleSelectionChange={onVisibleSelectionChange}
                     onConfirmArchive={confirmArchive}

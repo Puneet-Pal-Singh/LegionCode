@@ -57,6 +57,10 @@ import {
   type ReplayLifecycleEventsResponse,
   type GetTurnDiffRequest,
   type GetTurnDiffResponse,
+  CommitTurnArtifactRequestSchema,
+  CommitTurnArtifactResponseSchema,
+  type CommitTurnArtifactRequest,
+  type CommitTurnArtifactResponse,
   type SubmitLifecycleApprovalRequest,
   type CompactTurnRequest,
   type CompactTurnResponse,
@@ -222,6 +226,7 @@ export type AppServerClient = {
   getGitStatus(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
   getGitDiff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
   stageGitFiles(params: Extract<AppServerRequest, { method: "git/stage" }>['params']): Promise<{ success: true }>;
+  commitTurnArtifact(params: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
   commitGitChanges(params: Extract<AppServerRequest, { method: "git/commit" }>['params']): Promise<{ success: true }>;
   createGitBranch(params: Extract<AppServerRequest, { method: "git/branch" }>['params']): Promise<GitBranchMutationResult>;
   pushGitBranch(params: Extract<AppServerRequest, { method: "git/push" }>['params']): Promise<GitPushMutationResult>;
@@ -242,6 +247,8 @@ export type AppServerClient = {
   createThread(title?: string): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
+  pinThread(threadId: Thread["id"]): Promise<Thread>;
+  unpinThread(threadId: Thread["id"]): Promise<Thread>;
   archiveThread(threadId: Thread["id"]): Promise<Thread>;
   unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
   getProviderCatalog(runId?: string): Promise<ProviderRegistryEntry[]>;
@@ -447,6 +454,9 @@ export function createAppServerClient(
     stageGitFiles: (params) => requestGitMutation(options, {
       method: "git/stage", params,
     }, AppServerResultSchemas["git/stage"]),
+    commitTurnArtifact: (params) => request(options, {
+      method: "git/commitTurnArtifact", params: CommitTurnArtifactRequestSchema.parse(params),
+    }, CommitTurnArtifactResponseSchema),
     commitGitChanges: (params) => requestGitMutation(options, {
       method: "git/commit", params,
     }, AppServerResultSchemas["git/commit"]),
@@ -527,6 +537,12 @@ export function createAppServerClient(
       }, AppServerResultSchemas["thread/rename"]);
       return result.thread;
     },
+    pinThread: async (threadId) => (await request(options, {
+      method: "thread/pin", params: { threadId: ThreadIdSchema.parse(threadId) },
+    }, AppServerResultSchemas["thread/pin"])).thread,
+    unpinThread: async (threadId) => (await request(options, {
+      method: "thread/unpin", params: { threadId: ThreadIdSchema.parse(threadId) },
+    }, AppServerResultSchemas["thread/unpin"])).thread,
     archiveThread: async (threadId) => {
       const result = await request(options, {
         method: "thread/archive",

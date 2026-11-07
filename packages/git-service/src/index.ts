@@ -29,6 +29,13 @@ export {
   exportGitWorkspaceSnapshotPatch,
 } from "./snapshot.js";
 export { validateWorkspaceRoot } from "./validation.js";
+export { assertGitObjectRetentionProfile } from "./object-retention-profile.js";
+export {
+  retainGitWorkspaceSnapshot,
+  type GitSnapshotRetentionInput,
+  type GitSnapshotRetentionResult,
+  type GitSnapshotRetentionScope,
+} from "./retained-snapshot.js";
 export type {
   BaseGitStatusEntry,
   GitBranchStatus,

@@ -10,7 +10,9 @@
     "./protocol": "./src/protocol.ts",
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
-    "./local-process": "./src/local-process.ts"
+    "./local-process": "./src/local-process.ts",
+    "./local-workspace-files": "./src/local-workspace-files.ts",
+    "./local-mac-git-execution": "./src/local-mac-git-execution.ts"
   },
   "scripts": {
     "build": "tsc",
@@ -18,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@legioncode/execution-engine": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
     "@repo/persistence": "workspace:*",

@@ -135,6 +135,9 @@ importers:
       '@legioncode/client-ui':
         specifier: workspace:*
         version: link:../../packages/client-ui
+      '@legioncode/execution-engine':
+        specifier: workspace:*
+        version: link:../../packages/execution-engine
       '@legioncode/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -491,6 +494,9 @@ importers:
 
   packages/app-server:
     dependencies:
+      '@legioncode/execution-engine':
+        specifier: workspace:*
+        version: link:../execution-engine
       '@repo/event-store':
         specifier: workspace:*
         version: link:../event-store
