@@ -64,6 +64,12 @@ type Entry = {
 };
 
 export class LocalWorkspaceWriterLeaseError extends Error {
+  /** Positive proof only for resources created by this acquisition, not the
+   * borrowed root binding or canonical terminal settlement. */
+  readonly awaitAcquisitionQuiescence?: (
+    attempt: LocalTurnAttemptIdentity,
+  ) => Promise<boolean>;
+
   constructor(
     readonly code: "workspace_writer_busy" | "workspace_writer_unavailable",
   ) {
@@ -105,7 +111,7 @@ export class LocalWorkspaceWriterLeaseOwner {
   }
 
   /** Release only the exact retained attempt, without a second cleanup registry. */
-  releaseAttempt(
+  async releaseAttempt(
     attempt: LocalTurnAttemptIdentity,
     proof: LocalTurnExecutor["awaitResourceRelease"],
   ): Promise<boolean> {
@@ -120,7 +126,13 @@ export class LocalWorkspaceWriterLeaseOwner {
         return this.release(entry, proof);
       }
     }
-    return Promise.resolve(false);
+    // Absence is never proof. The factory's combined callback must prove the
+    // same terminal attempt and its preparation receipt or released resources.
+    try {
+      return (await proof(attempt.turnId)) === true;
+    } catch {
+      return false;
+    }
   }
 
   async acquire(input: {
@@ -139,8 +151,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
     }
     const key = `${identity.dev.toString(16)}-${identity.ino.toString(16)}`;
-    if (this.entries.has(key))
-      throw new LocalWorkspaceWriterLeaseError("workspace_writer_busy");
+    if (this.entries.has(key)) throw knownBusyAcquisition(input.attempt);
     const entry: Entry = {
       key,
       binding,
@@ -156,6 +167,7 @@ export class LocalWorkspaceWriterLeaseOwner {
     };
     this.entries.set(key, entry);
     let attempted = false;
+    let busy = false;
     try {
       await this.assertDirectory();
       binding.assertCurrent();
@@ -174,6 +186,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       });
       if (acquired === "busy") {
         attempted = false;
+        busy = true;
         throw new LocalWorkspaceWriterLeaseError("workspace_writer_busy");
       }
       await this.assertEntry(entry, false);
@@ -184,12 +197,15 @@ export class LocalWorkspaceWriterLeaseOwner {
         // FileHandle AND original binding, not merely a cached descriptor number.
         this.markUnknown(entry);
       } else {
+        let closed = false;
         try {
           await entry.file?.close();
           this.entries.delete(key);
+          closed = true;
         } catch {
           this.markUnknown(entry);
         }
+        if (busy && closed) throw knownBusyAcquisition(entry.attempt);
       }
       throw error instanceof LocalWorkspaceWriterLeaseError
         ? error
@@ -422,6 +438,22 @@ export class LocalWorkspaceWriterLeaseOwner {
       throw error;
     }
   }
+}
+
+function knownBusyAcquisition(
+  attempt: LocalTurnAttemptIdentity,
+): LocalWorkspaceWriterLeaseError {
+  const captured = Object.freeze({ ...attempt });
+  const error = new LocalWorkspaceWriterLeaseError("workspace_writer_busy");
+  Object.defineProperty(error, "awaitAcquisitionQuiescence", {
+    value: async (candidate: LocalTurnAttemptIdentity): Promise<boolean> =>
+      candidate.workspaceId === captured.workspaceId &&
+      candidate.threadId === captured.threadId &&
+      candidate.runId === captured.runId &&
+      candidate.turnId === captured.turnId &&
+      candidate.runAttemptId === captured.runAttemptId,
+  });
+  return error;
 }
 
 function sameIdentity(left: BigIntStats, right: BigIntStats): boolean {
