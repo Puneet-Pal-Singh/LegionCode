@@ -217,6 +217,11 @@ export async function executeNativeIndexTransaction(
     ).trim();
     if (!branchRef.startsWith("refs/heads/") || branchRef.length === 11)
       refuse("Native immutable commit requires a named branch");
+    if (
+      guard.expectedBranchRef !== undefined &&
+      branchRef !== guard.expectedBranchRef
+    )
+      conflict();
     await assertDirectBranch();
     const head = await run(["rev-parse", "--verify", "HEAD"]);
     if (head.exitCode === 0 && objectId.test(head.stdout.trim()))

@@ -132,6 +132,7 @@ export interface GitCommitInput {
   readonly expectedTerminalTreeId?: string;
   readonly expectedBaselineTreeId?: string;
   readonly expectedHeadSha?: string;
+  readonly expectedBranchRef?: string;
   readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];
   readonly message: string;

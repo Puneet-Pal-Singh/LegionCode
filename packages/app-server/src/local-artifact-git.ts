@@ -96,6 +96,9 @@ export function createArtifactGitExecutor(
 export function createArtifactGitService(
   lease: LocalWorkspaceWriterLease,
   options: LocalNativeGitOptions,
-): Pick<DefaultGitService, "commit" | "readConfigValue" | "probeRepository"> {
+): Pick<
+  DefaultGitService,
+  "commit" | "readConfigValue" | "probeRepository" | "getStatus"
+> {
   return new DefaultGitService(createArtifactGitExecutor(lease, options));
 }

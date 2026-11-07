@@ -64,7 +64,7 @@ export type LocalGitServiceOptions = {
   artifactForAttempt(scope: LocalGitArtifactScope): LocalGitArtifactAttempt;
   gitService: Pick<
     DefaultGitService,
-    "commit" | "readConfigValue" | "probeRepository"
+    "commit" | "readConfigValue" | "probeRepository" | "getStatus"
   >;
   /** Existing host grant/lease owner must retain this binding for the callback. */
   withWorkspaceGrant<T>(
@@ -219,6 +219,24 @@ export class LocalGitService {
           );
         }
         const workspace = { runId: command.runId, filesystemRoot: saved.path };
+        const status = await this.options.gitService.getStatus({
+          runId: command.runId,
+          workspaceRoot: saved.path,
+        });
+        assertCurrent();
+        if (
+          !status.branch.oid ||
+          !status.branch.head ||
+          status.branch.detached ||
+          status.branch.head !== probe.branch ||
+          status.branch.head !== saved.grant.branch ||
+          status.branch.head !== binding.workspace.branch
+        ) {
+          throw new LocalGitOperationError(
+            "workspace_unavailable",
+            "Artifact commits require the current granted named branch and commit",
+          );
+        }
         const author = command.author ?? {
           name: await this.options.gitService.readConfigValue({
             workspace,
@@ -245,6 +263,8 @@ export class LocalGitService {
           author: validatedAuthor,
           expectedTerminalTreeId: source.expectedTerminalTreeId,
           expectedBaselineTreeId: startSnapshot.treeId,
+          expectedHeadSha: status.branch.oid,
+          expectedBranchRef: `refs/heads/${status.branch.head}`,
         });
       },
     );

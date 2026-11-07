@@ -15,6 +15,7 @@ export interface GitCommandExecutionInput {
     readonly expectedTerminalTreeId?: string;
     readonly expectedBaselineTreeId?: string;
     readonly expectedHeadSha?: string;
+    readonly expectedBranchRef?: string;
   };
 }
 
