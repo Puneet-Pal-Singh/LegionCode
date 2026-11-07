@@ -1,3 +1,4 @@
+import { presentRunExecutable } from "./RunExecutablePresentation.js";
 import {
   isCodingToolId,
   type CodingToolInputByName,
@@ -132,6 +133,10 @@ const TOOL_PRESENTERS: Record<
   format_file: (input) =>
     presentFormatFile(validateToolPresentationInput("format_file", input)),
   bash: (input) => presentBash(validateToolPresentationInput("bash", input)),
+  run_executable: (input) =>
+    presentRunExecutable(
+      validateToolPresentationInput("run_executable", input),
+    ),
   git_stage: (input) =>
     presentGitStage(validateToolPresentationInput("git_stage", input)),
   git_commit: (input) =>

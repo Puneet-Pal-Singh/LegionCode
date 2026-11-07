@@ -1217,3 +1217,13 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+## Plan 057 — Structured executable tool registration
+
+The canonical coding tool registry owns the exact executable/argv schema,
+host-user authority disclosure, backend requirements and presentation for
+`run_executable`. The native permission policy requires exact-input approval;
+the existing grant matcher is exported for native receipt validation without a
+second hash implementation. Core-tool exports omit this definition unless the
+actual no-fork and approval capabilities are supplied. This registration does
+not activate a worker, acquire a writer lease or produce lifecycle events.
