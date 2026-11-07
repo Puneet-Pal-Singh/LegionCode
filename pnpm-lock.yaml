@@ -491,6 +491,9 @@ importers:
 
   packages/app-server:
     dependencies:
+      '@legioncode/execution-engine':
+        specifier: workspace:*
+        version: link:../execution-engine
       '@repo/event-store':
         specifier: workspace:*
         version: link:../event-store

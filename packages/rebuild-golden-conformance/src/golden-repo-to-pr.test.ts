@@ -712,6 +712,7 @@ class GoldenArtifactStore implements RuntimeTurnArtifactPort {
 }
 
 class GoldenGitExecutor implements GitCommandExecutor {
+  readonly supportsIndexTransactions = true as const;
   readonly calls: GitCommandExecutionInput[] = [];
   readonly workerProtocolOperations: string[] = ["workspace.prepare"];
   private edited = false;
@@ -723,6 +724,7 @@ class GoldenGitExecutor implements GitCommandExecutor {
     input: GitCommandExecutionInput,
   ): Promise<GitCommandExecutionResult> {
     this.calls.push(input);
+    if (input.indexTransaction) this.add(["add", "--", ...input.indexTransaction.paths]);
     const command = findGitCommand(input.args);
     if (isStatusCommand(input.args)) return ok(this.statusOutput());
     if (isNameStatusDiff(input.args)) return ok(this.nameStatusOutput());
@@ -737,7 +739,7 @@ class GoldenGitExecutor implements GitCommandExecutor {
     if (command === "write-tree")
       return ok(`${this.edited ? SHA_EDITED : SHA_BASE}\n`);
     if (command === "config") return ok("");
-    if (command === "commit") return this.commit();
+    if (command === "commit") return { ...this.commit(), commitSha: SHA_COMMITTED, branchName: "feat/golden-repo-to-pr" };
     if (command === "branch") return ok("feat/golden-repo-to-pr\n");
     if (command === "push") return this.push(input.args);
     return {
