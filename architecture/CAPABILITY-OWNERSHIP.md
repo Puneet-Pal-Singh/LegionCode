@@ -1285,3 +1285,13 @@ The store produces no lifecycle events and creates no separate database owner.
 Native capture, authorized query and commit consumers remain separate integration
 work. Stored Git tree IDs do not retain their object closure or enable capture or
 Git mutation capabilities.
+
+## Private Git configuration selector
+
+The host-only Git context and the existing guardian share
+`gitConfigurationHome` validation for the explicit host XDG selector. A nonempty
+selector keeps its exact spelling, including a relative or missing directory;
+empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
+are rejected. HOME and TMP remain canonical existing directories. No ambient
+environment spread, model-controlled override or filesystem authority is added;
+ordinary executable environments and process containment remain unchanged.

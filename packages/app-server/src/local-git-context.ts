@@ -2,6 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute } from "node:path";
 import type { SingleExecutableProcessInput } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
+import { gitConfigurationHome } from "@legioncode/execution-engine/runtime/desktop/GitConfigurationHome";
 
 /** Host-only Git configuration context, never caller/model/environment passthrough. */
 export function trustedLocalGitContext(): NonNullable<
@@ -16,10 +17,10 @@ export function trustedLocalGitContext(): NonNullable<
     return canonical;
   };
   // Read only the explicit host XDG selector. No ambient/provider/Git keys cross.
-  const xdg = process.env.XDG_CONFIG_HOME;
+  const xdg = gitConfigurationHome(process.env.XDG_CONFIG_HOME);
   return {
     homeDirectory: directory(homedir()),
     temporaryDirectory: directory(tmpdir()),
-    ...(xdg !== undefined ? { xdgConfigHome: directory(xdg) } : {}),
+    ...(xdg !== undefined ? { xdgConfigHome: xdg } : {}),
   };
 }
