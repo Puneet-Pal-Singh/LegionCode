@@ -4,7 +4,9 @@ import { RuntimeKernelError } from "@repo/runtime-kernel";
 import {
   buildNativeKernelTerminalMessage,
   projectNativeKernelFailureDiagnostic,
+  readNativePreExecutionRejectionRule,
   resolveNativeKernelTerminalState,
+  resolveNativeToolFailureDisposition,
 } from "./NativeTerminalFailurePresentation.js";
 
 describe("NativeTerminalFailurePresentation", () => {
@@ -26,6 +28,10 @@ describe("NativeTerminalFailurePresentation", () => {
       code: "provider_unavailable",
       retryable: true,
     });
+    expect(projectNativeKernelFailureDiagnostic({
+      code: "worker_unavailable", retryable: false,
+      message: "CANARY_WORKER_DIAGNOSTIC", details: { secret: "CANARY" },
+    })).toEqual({ code: "worker_unavailable", retryable: false });
     const gatewayError = Object.assign(new Error("CANARY_GATEWAY_DIAGNOSTIC"), {
       name: "LLMUnusableResponseError",
       statusCode: 503,
@@ -52,6 +58,19 @@ describe("NativeTerminalFailurePresentation", () => {
       expect(buildNativeKernelTerminalMessage(input, state)).not.toContain("CANARY");
       expect(projectNativeKernelFailureDiagnostic(input)).toEqual({ code: "internal_error", retryable: false });
     }
+    expect(resolveNativeToolFailureDisposition("edit_file", new Error("exact edit text was not found CANARY_PRIVATE_DETAIL")))
+      .toBe("recoverable");
+    expect(resolveNativeToolFailureDisposition("edit_file", new Error("CANARY_UNKNOWN_WRITE_FAILURE")))
+      .toBe("terminal");
+    expect(resolveNativeToolFailureDisposition("bash", new Error("couldn't find remote ref CANARY_PRIVATE_REF")))
+      .toBe("recoverable");
+    expect(resolveNativeToolFailureDisposition("bash", new Error("blocked by policy CANARY_PRIVATE_COMMAND")))
+      .toBe("terminal");
+    expect(readNativePreExecutionRejectionRule({ details: {
+      kind: "pre_execution_rejection", ruleId: "rule", executionStarted: false,
+      reason: "CANARY_PRIVATE_REASON", correctionGuidance: "CANARY_PRIVATE_GUIDANCE",
+    } })).toBe("rule");
+    expect(readNativePreExecutionRejectionRule({ get details() { return diagnostic(); } })).toBeNull();
   });
 
   it("does not expose credential-shaped model failure details", () => {

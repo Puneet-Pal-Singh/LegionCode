@@ -1,3 +1,4 @@
+import { buildNativeKernelTerminalMessage, resolveNativeKernelTerminalState } from "./NativeTerminalFailurePresentation.js";
 import type { CoreMessage, CoreTool } from "ai";
 import {
   ItemIdSchema,
@@ -502,7 +503,7 @@ export class KernelAgenticProvider implements ProviderPort {
 
   recordToolFailed(
     toolCall: ToolCallItemContent,
-    error: string,
+    publicMessage: string,
     terminal: boolean,
   ): void {
     this.failedToolCount += 1;
@@ -515,15 +516,14 @@ export class KernelAgenticProvider implements ProviderPort {
       status: "failed",
       mutating: isMutatingCodingToolId(toolCall.toolName),
       recordedAt: new Date().toISOString(),
-      detail: error,
+      detail: publicMessage,
     });
   }
 
   recordTerminalError(error: unknown): void {
     this.failedToolCount += 1;
     this.stopReason = "tool_error";
-    const detail =
-      error instanceof Error ? error.message : "Runtime execution failed.";
+    const detail = buildNativeKernelTerminalMessage(error, resolveNativeKernelTerminalState(error));
     this.toolLifecycle.push({
       toolCallId: "toolcall_runtime_kernel_terminal",
       toolName: "runtime_kernel",

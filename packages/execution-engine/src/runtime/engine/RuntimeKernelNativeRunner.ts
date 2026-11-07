@@ -1,4 +1,3 @@
-import { readPreExecutionRejection } from "../tools/PreExecutionRejection.js";
 import type { CoreMessage, CoreTool } from "ai";
 import {
   createNativeContextAssembly,
@@ -12,6 +11,7 @@ import {
   ThreadIdSchema,
   TurnSchema,
   TurnIdSchema,
+  toPublicProtocolError,
   WorkerIdSchema,
   type ApprovalDecision,
   type ApprovalRequestedPayload,
@@ -91,7 +91,6 @@ import {
   recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
-import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildPlanModeResponse,
   persistPlanArtifact,
@@ -102,7 +101,9 @@ import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummar
 import {
   buildNativeKernelTerminalMessage,
   projectNativeKernelFailureDiagnostic,
+  readNativePreExecutionRejectionRule,
   resolveNativeKernelTerminalState,
+  resolveNativeToolFailureDisposition,
 } from "./NativeTerminalFailurePresentation.js";
 import {
   ensureApprovalResolvedEventRecorded,
@@ -380,7 +381,7 @@ export class RuntimeKernelNativeRunner {
     });
     const worker = protocol.manifest
       ? this.createRepositoryWorker(protocol.manifest, protocol.runAttemptId, protocol.turn, provider, runtimeTools, input.input)
-      : { executeTool: async (): Promise<WorkerToolResult> => failed("policy_denied", "Select a project before using repository tools.", false, "terminal"), awaitQuiescence: async () => true };
+      : { executeTool: async (): Promise<WorkerToolResult> => failed("policy_denied", false, "terminal"), awaitQuiescence: async () => true };
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
       workspaceManifests: protocol.manifest ? createWorkspaceManifestRepository(protocol.manifest) : undefined,
@@ -962,7 +963,6 @@ class KernelToolWorker implements WorkerProtocolPort {
     if (!isCodingToolId(toolName)) {
       return failed(
         "validation_failed",
-        `Unsupported tool: ${toolName}`,
         false,
         "terminal",
       );
@@ -1013,11 +1013,9 @@ class KernelToolWorker implements WorkerProtocolPort {
       }
       assertSignalNotAborted(input.signal);
       if (gatewayResult.kind === "failed") {
-        const preExecutionRejection = readPreExecutionRejection(
-          gatewayResult.failure?.details,
-        );
-        const rejectionKey = preExecutionRejection
-          ? `${input.turnId}:${toolName}:${preExecutionRejection.ruleId}`
+        const rejectionRule = readNativePreExecutionRejectionRule(gatewayResult.failure);
+        const rejectionKey = rejectionRule
+          ? `${input.turnId}:${toolName}:${rejectionRule}`
           : null;
         const correctionAlreadyUsed =
           rejectionKey !== null &&
@@ -1025,25 +1023,6 @@ class KernelToolWorker implements WorkerProtocolPort {
         if (rejectionKey && !correctionAlreadyUsed) {
           this.preExecutionRejections.add(rejectionKey);
         }
-        const failure =
-          correctionAlreadyUsed &&
-          preExecutionRejection &&
-          gatewayResult.failure
-            ? {
-                ...gatewayResult.failure,
-                message: `The command was rejected before execution, so this request is incomplete. ${gatewayResult.failure.message} One corrected retry for this validation rule was already rejected; use an approved typed tool or request user guidance.`,
-                details: {
-                  ...preExecutionRejection,
-                  correctionLimitReached: true,
-                  nextStep:
-                    "Use an approved typed tool or request user guidance.",
-                },
-              }
-            : gatewayResult.failure;
-        const message =
-          failure?.message ??
-          gatewayResult.result.error?.message ??
-          "Tool execution failed";
         const gatewayFailureCode =
           gatewayResult.code === "executor_failed"
             ? "command_failed"
@@ -1052,54 +1031,44 @@ class KernelToolWorker implements WorkerProtocolPort {
               : gatewayResult.code === "workspace_escape_denied"
                 ? "policy_denied"
                 : "validation_failed";
-        const failureCode = failure?.code ?? gatewayFailureCode;
-        const disposition = correctionAlreadyUsed
+        const privateFailure = gatewayResult.failure ?? gatewayResult.result.error;
+        const failure = toPublicProtocolError(privateFailure, {
+          code: gatewayFailureCode,
+          retryable: gatewayResult.retryable,
+        });
+        const disposition = correctionAlreadyUsed || failure.code === "worker_unavailable"
           ? "terminal"
-          : toolFailureDisposition(
+          : resolveNativeToolFailureDisposition(
               toolName,
-              message,
-              failure?.details,
-              failureCode,
+              privateFailure,
+              undefined,
+              failure.code,
             );
         this.options.tracker.recordToolFailed(
           input.toolCall,
-          message,
+          failure.message,
           disposition === "terminal",
         );
         await this.options.runEventRecorder.recordToolFailed(
           { id: input.toolCall.toolCallId, type: toolName },
-          message,
+          failure.message,
           0,
         );
-        if (failure) {
-          return {
-            kind: "failed",
-            failure,
-            disposition:
-              failure.code === "worker_unavailable" ? "terminal" : disposition,
-          };
-        }
-        return failed(
-          gatewayFailureCode,
-          message,
-          gatewayResult.retryable,
-          disposition,
-        );
+        return { kind: "failed", failure, disposition };
       }
       result = gatewayResult.result;
     } catch (error) {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
-      const message =
-        error instanceof Error ? error.message : "Tool execution failed";
-      const disposition = toolFailureDisposition(toolName, message);
+      const failure = toPublicProtocolError(error, { code: "command_failed", retryable: false });
+      const disposition = resolveNativeToolFailureDisposition(toolName, error, undefined, failure.code);
       this.options.tracker.recordToolFailed(
         input.toolCall,
-        message,
+        failure.message,
         disposition === "terminal",
       );
       await this.options.runEventRecorder.recordToolFailed(
         { id: input.toolCall.toolCallId, type: toolName },
-        message,
+        failure.message,
         0,
       );
       console.warn(
@@ -1107,10 +1076,10 @@ class KernelToolWorker implements WorkerProtocolPort {
           runId: input.runId,
           toolCallId: input.toolCall.toolCallId,
           toolName,
-          errorMessage: message,
+          ...projectNativeKernelFailureDiagnostic(failure),
         }),
       );
-      return failed("command_failed", message, false, disposition);
+      return { kind: "failed", failure, disposition };
     }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (result.status === "DONE") {
@@ -1139,20 +1108,21 @@ class KernelToolWorker implements WorkerProtocolPort {
         }),
       };
     }
-    const message = result.error?.message ?? "Tool execution failed";
-    const disposition = toolFailureDisposition(
+    const failure = toPublicProtocolError(result.error, { code: "command_failed", retryable: false });
+    const disposition = resolveNativeToolFailureDisposition(
       toolName,
-      message,
+      result.error,
       result.output?.metadata,
+      failure.code,
     );
     this.options.tracker.recordToolFailed(
       input.toolCall,
-      message,
+      failure.message,
       disposition === "terminal",
     );
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
-      message,
+      failure.message,
       0,
     );
     console.warn(
@@ -1160,10 +1130,10 @@ class KernelToolWorker implements WorkerProtocolPort {
         runId: input.runId,
         toolCallId: input.toolCall.toolCallId,
         toolName,
-        errorMessage: message,
+        ...projectNativeKernelFailureDiagnostic(failure),
       }),
     );
-    return failed("command_failed", message, false, disposition);
+    return { kind: "failed", failure, disposition };
   }
 
   private trackToolOperation(
@@ -1473,37 +1443,14 @@ function readString(value: unknown): string | null {
 
 function failed(
   code: "validation_failed" | "command_failed" | "not_found" | "policy_denied",
-  message: string,
   retryable = false,
   disposition: "recoverable" | "terminal" = "terminal",
 ): WorkerToolResult {
   return {
     kind: "failed",
     disposition,
-    failure: {
-      code,
-      message,
-      details: null,
-      retryable,
-      correlationId: null,
-    },
+    failure: toPublicProtocolError({ code, retryable }),
   };
-}
-
-function toolFailureDisposition(
-  toolName: string,
-  message: string,
-  metadata?: unknown,
-  failureCode?: string,
-): "recoverable" | "terminal" {
-  return isTerminalToolFailure({
-    toolName,
-    error: message,
-    failureCode,
-    metadata,
-  })
-    ? "terminal"
-    : "recoverable";
 }
 
 function normalizeModelId(value: string | undefined): string {

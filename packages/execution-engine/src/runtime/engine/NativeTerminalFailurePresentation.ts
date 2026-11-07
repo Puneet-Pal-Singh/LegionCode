@@ -1,6 +1,8 @@
 import { RUN_TERMINAL_STATES } from "@repo/shared-types";
 import { RuntimeKernelError, toProtocolError } from "@repo/runtime-kernel";
 import { toPublicProtocolError, type ProtocolError } from "@repo/platform-protocol";
+import { readPreExecutionRejection } from "../tools/PreExecutionRejection.js";
+import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 
 type RunTerminalState =
   (typeof RUN_TERMINAL_STATES)[keyof typeof RUN_TERMINAL_STATES];
@@ -72,6 +74,40 @@ export function projectNativeKernelFailureDiagnostic(
   };
 }
 
+/** Existing tool policy may use diagnostic text privately; it never leaves this call. */
+export function resolveNativeToolFailureDisposition(
+  toolName: string,
+  error: unknown,
+  metadata?: unknown,
+  failureCode?: string,
+): "recoverable" | "terminal" {
+  try {
+    const diagnostic = errorData(error, "message");
+    return isTerminalToolFailure({
+      toolName,
+      error: typeof diagnostic === "string" ? diagnostic : "",
+      metadata: errorData(error, "details") ?? metadata,
+      failureCode,
+    }) ? "terminal" : "recoverable";
+  } catch {
+    // Inaccessible private classification evidence cannot establish recoverability.
+    return "terminal";
+  }
+}
+
+/** Only the rule identity is retained in the worker's private correction budget. */
+export function readNativePreExecutionRejectionRule(error: unknown): string | null {
+  const details = errorData(error, "details");
+  const rejection = readPreExecutionRejection({
+    kind: errorData(details, "kind"),
+    ruleId: errorData(details, "ruleId"),
+    reason: errorData(details, "reason"),
+    correctionGuidance: errorData(details, "correctionGuidance"),
+    executionStarted: errorData(details, "executionStarted"),
+  });
+  return rejection?.ruleId ?? null;
+}
+
 function publicFailure(error: unknown): ProtocolError {
   // Fixed gateway identity and numeric status are evidence; diagnostic prose is not.
   const name = errorData(error, "name");
@@ -80,7 +116,8 @@ function publicFailure(error: unknown): ProtocolError {
       new RuntimeKernelError("provider_failed", "Model gateway failure", error),
     );
   }
-  return toProtocolError(error);
+  const failure = toProtocolError(error);
+  return failure.code === "internal_error" ? toPublicProtocolError(error) : failure;
 }
 
 function runtimeErrorCode(error: unknown): unknown {
