@@ -152,6 +152,9 @@ export type AppServerComposition = {
     listFiles(params: Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"]): Promise<CheckoutListFilesResult>;
     readFile(params: Extract<AppServerRequest, { method: "checkout/readFile" }>["params"]): Promise<CheckoutReadFileResult>;
   };
+  localTurnArtifactReadsService?: {
+    getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
+  };
   hostedGitOperationsService?: {
     status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
     diff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
@@ -422,6 +425,12 @@ async function dispatch(
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
     }
     case "turn/diff": {
+      if (composition.environment === "local") {
+        if (!composition.localTurnArtifactReadsService) {
+          throw new AppServerOperationError(503, "server_unavailable", "Saved turn review is unavailable", undefined, false);
+        }
+        return composition.localTurnArtifactReadsService.getTurnDiff(request.params);
+      }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.getTurnDiff(request.params);
     }

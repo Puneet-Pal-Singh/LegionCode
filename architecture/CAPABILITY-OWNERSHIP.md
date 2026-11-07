@@ -1472,3 +1472,8 @@ Actual mutator availability is still gated on the host lease implementation,
 worker05 guarded file worker, worker06 single-executable worker/guardian and
 worker07 real capture ports. No full-capture product consumer is declared wired
 until those owners supply and compose the real boundaries.
+
+
+Local App Server `turn/diff` dispatches only to `LocalTurnArtifactReads` for local
+composition. The startup owner injects the existing authorized Turn service and
+the same `LocalPersistence` instance; no hosted or live-Git fallback is used.
