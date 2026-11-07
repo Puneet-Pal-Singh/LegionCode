@@ -22,6 +22,7 @@ export type LocalTurnMediaLimits = z.infer<typeof LocalTurnMediaLimitsSchema>;
 export const LocalTurnConfigurationOptionsSchema = z.object({
   modes: z.array(ChatRunModeSchema).min(1).max(2),
   productModes: z.array(ProductModeSchema).min(1).max(4),
+  productModesByMode: z.record(ChatRunModeSchema, z.array(ProductModeSchema).min(1).max(4)).optional(),
   attachments: LocalTurnMediaLimitsSchema.optional(),
 }).strict();
 
