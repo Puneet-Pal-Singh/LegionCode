@@ -8,6 +8,7 @@ import {
 } from "@repo/platform-protocol";
 import {
   AppServerRequestSchema,
+  assertLocalAppServerRequestBudget,
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 import {
@@ -203,6 +204,7 @@ export class LocalAppServerSupervisor {
 
   async request(envelope: AppServerRequest): Promise<unknown> {
     const request = AppServerRequestSchema.parse(envelope);
+    assertLocalAppServerRequestBudget(request);
     const transport = this.transport;
     const child = this.child;
     const generation = this.generation;

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   AppServerRequestSchema,
+  assertLocalAppServerRequestBudget,
   AppServerResponseSchema,
 } from "@legioncode/app-server/protocol";
 import {
@@ -44,6 +45,7 @@ const BuildInfoSchema = z
 const desktopApi: DesktopApi = {
   request: async (envelope) => {
     const request = AppServerRequestSchema.parse(envelope);
+    assertLocalAppServerRequestBudget(request);
     const response = AppServerResponseSchema.parse(
       await ipcRenderer.invoke(APP_SERVER_REQUEST_CHANNEL, request),
     );

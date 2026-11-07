@@ -12,8 +12,14 @@ import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
-
-const MAX_REQUEST_BYTES = 32 * 1024;
+import {
+  AppServerRequestSchema,
+  LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER,
+  MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES,
+  MAX_LOCAL_APP_SERVER_REQUEST_BYTES,
+  assertLocalAppServerRequestBudget,
+  isLocalAppServerImageRequest,
+} from "./protocol.js";
 
 export type LocalAppServerStartConfig = {
   credential: string;
@@ -164,7 +170,15 @@ async function handleRequest(
     writeJson(response, boundaryFailure.statusCode, boundaryFailure.payload, boundaryFailure.headers);
     return;
   }
-  const body = await readBody(request);
+  const imageOptIn = request.headers[LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER];
+  if (imageOptIn !== undefined && imageOptIn !== "1") {
+    writeJson(response, 400, { code: "invalid_request", message: "Image upload request is invalid" });
+    return;
+  }
+  // Authentication above is mandatory before accepting the larger image body.
+  const body = await readBody(request, imageOptIn === "1"
+    ? MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES
+    : MAX_LOCAL_APP_SERVER_REQUEST_BYTES);
   if (body.tooLarge) {
     writeJson(response, 413, { code: "invalid_request", message: "App Server request is too large" });
     return;
@@ -172,6 +186,16 @@ async function handleRequest(
   if (body.timedOut) {
     writeJson(response, 408, { code: "invalid_request", message: "App Server request timed out" });
     return;
+  }
+  if (imageOptIn === "1") {
+    try {
+      const envelope = AppServerRequestSchema.parse(JSON.parse(body.value));
+      if (!isLocalAppServerImageRequest(envelope)) throw new Error("ineligible");
+      assertLocalAppServerRequestBudget(envelope, body.value);
+    } catch {
+      writeJson(response, 400, { code: "invalid_request", message: "This request cannot upload images" });
+      return;
+    }
   }
   const rawProviderConfiguration = request.headers["x-legioncode-provider-configuration"];
   let providerConfiguration: ReturnType<typeof ProviderConfigurationSchema.parse> | undefined;
@@ -228,6 +252,7 @@ async function replayLocalLifecycle(
 
 function readBody(
   request: IncomingMessage,
+  maxBytes: number,
 ): Promise<{ value: string; tooLarge: boolean; timedOut: boolean }> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -243,7 +268,7 @@ function readBody(
     request.on("data", (chunk: Buffer) => {
       if (rejected) return;
       size += chunk.length;
-      if (size > MAX_REQUEST_BYTES) {
+      if (size > maxBytes) {
         rejected = true;
         chunks.length = 0;
         clearTimeout(timer);

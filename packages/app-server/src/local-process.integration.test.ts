@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DefaultGitService } from "@repo/git-service";
 
-import { APP_SERVER_PROTOCOL_VERSION } from "./protocol.js";
+import { APP_SERVER_PROTOCOL_VERSION, MAX_LOCAL_APP_SERVER_REQUEST_BYTES } from "./protocol.js";
 import { createLocalAppServer } from "./local-process.js";
 import { handleAppServerHttpRequest } from "./server.js";
 import { LocalThreadService } from "./local-threads.js";
@@ -290,7 +290,7 @@ describe("local App Server HTTP integration", () => {
     const oversized = await fetch(`${baseUrl}/app-server/request`, {
       method: "POST",
       headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
-      body: "x".repeat(33_000),
+      body: "x".repeat(MAX_LOCAL_APP_SERVER_REQUEST_BYTES + 1),
     });
     expect(oversized.status).toBe(413);
 
