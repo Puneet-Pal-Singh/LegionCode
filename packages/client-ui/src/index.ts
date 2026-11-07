@@ -138,3 +138,6 @@ export { HooksSettingsView } from "./settings/HooksSettingsView.js";
 export { SharedSettingsDialog, SettingsGeneralPanel, type SharedSettingsDialogProps, type SettingsSection } from "./settings/SettingsDialog.js";
 
 export { ReviewDialogFrame, ReviewDialogCloseButton } from "./workspace/ReviewDialogFrame.js";
+
+export { GitCommitDialogView } from "./workspace/GitCommitDialogView.js";
+export type { GitCommitDialogViewProps, CommitNextStep, GitFlowSuccessState, GitCommitStepOption } from "./workspace/GitCommitDialogView.js";
