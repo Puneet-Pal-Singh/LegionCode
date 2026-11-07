@@ -2,6 +2,7 @@ import { lstat, realpath } from "node:fs/promises";
 import type { LifecycleEventStore } from "@repo/event-store";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { DefaultGitService, GitCommitResult } from "@repo/git-service";
+import { GitServiceError } from "@repo/git-service/errors";
 import {
   ArtifactIdSchema,
   CommitTurnArtifactRequestSchema,
@@ -225,7 +226,6 @@ export class LocalGitService {
         });
         assertCurrent();
         if (
-          !status.branch.oid ||
           !status.branch.head ||
           status.branch.detached ||
           status.branch.head !== probe.branch ||
@@ -234,6 +234,30 @@ export class LocalGitService {
           throw new LocalGitOperationError(
             "workspace_unavailable",
             "Artifact commits require the current granted named branch and commit",
+          );
+        }
+        const objectWidth = terminalSnapshot.treeId.length;
+        if (
+          (objectWidth !== 40 && objectWidth !== 64) ||
+          startSnapshot.treeId.length !== objectWidth
+        ) {
+          throw new GitServiceError(
+            "git_process_containment_unavailable",
+            "Artifact publication requires a supported consistent Git object format",
+          );
+        }
+        const expectedHeadSha =
+          status.branch.oid === "(initial)"
+            ? "0".repeat(objectWidth)
+            : status.branch.oid;
+        if (
+          !expectedHeadSha ||
+          expectedHeadSha.length !== objectWidth ||
+          !/^[a-f0-9]+$/u.test(expectedHeadSha)
+        ) {
+          throw new GitServiceError(
+            "git_process_containment_unavailable",
+            "Artifact publication could not establish the current Git HEAD state",
           );
         }
         const author = command.author ?? {
@@ -262,7 +286,7 @@ export class LocalGitService {
           author: validatedAuthor,
           expectedTerminalTreeId: source.expectedTerminalTreeId,
           expectedBaselineTreeId: startSnapshot.treeId,
-          expectedHeadSha: status.branch.oid,
+          expectedHeadSha,
           expectedBranchRef: `refs/heads/${status.branch.head}`,
         });
       },

@@ -43,7 +43,7 @@ class NativeGitTransactionFailure extends Error {
     super(result.stderr || "Git transaction failed");
   }
 }
-const objectId = /^[a-f0-9]{40,64}$/u;
+const objectId = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const hooks = [
   "pre-commit",
   "prepare-commit-msg",
@@ -73,6 +73,17 @@ export async function executeNativeIndexTransaction(
   const args = input.args;
   if (
     !guard?.expectedTerminalTreeId ||
+    !guard.expectedBaselineTreeId ||
+    !guard.expectedHeadSha ||
+    !guard.expectedBranchRef ||
+    ![
+      guard.expectedTerminalTreeId,
+      guard.expectedBaselineTreeId,
+      guard.expectedHeadSha,
+    ].every(
+      (id) =>
+        objectId.test(id) && id.length === guard.expectedTerminalTreeId!.length,
+    ) ||
     args.length !== 10 + guard.paths.length ||
     args[0] !== "-c" ||
     !args[1]?.startsWith("user.name=") ||
@@ -231,7 +242,12 @@ export async function executeNativeIndexTransaction(
       if (head.exitCode !== 128 || missing.exitCode !== 1)
         throw new NativeGitTransactionFailure(head);
     }
-    if (guard.expectedHeadSha && beforeHead !== guard.expectedHeadSha)
+    const expectedAbsentHead = /^0+$/u.test(guard.expectedHeadSha);
+    if (
+      expectedAbsentHead
+        ? beforeHead !== undefined
+        : beforeHead !== guard.expectedHeadSha
+    )
       conflict();
     const beforeTree =
       beforeHead ?? (await required(["mktree"], undefined, "")).trim();
