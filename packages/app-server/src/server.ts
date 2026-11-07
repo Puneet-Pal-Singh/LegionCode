@@ -621,6 +621,18 @@ async function dispatch(
         thread: await composition.threadService.rename(request.params.threadId, request.params),
       };
     }
+    case "thread/pin": {
+      if (composition.environment !== "local" || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.pin(request.params.threadId) };
+    }
+    case "thread/unpin": {
+      if (composition.environment !== "local" || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.unpin(request.params.threadId) };
+    }
     case "thread/archive": {
       if (!composition.threadService) throw new Error("unsupported");
       return { thread: await composition.threadService.archive(request.params.threadId) };
