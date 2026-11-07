@@ -155,8 +155,10 @@ export class LocalTurnService {
       mode: params.mode,
       productMode: params.productMode,
     });
+    const productModes = runtime.configurationOptions.productModesByMode?.[configuration.mode]
+      ?? runtime.configurationOptions.productModes;
     if (!runtime.configurationOptions.modes.includes(configuration.mode) ||
-        !runtime.configurationOptions.productModes.includes(configuration.productMode)) {
+        !productModes.includes(configuration.productMode)) {
       throw new AppServerOperationError(503, "server_unavailable", "The selected local execution mode is unavailable");
     }
     let preparedBinding: LocalWorkspaceExecutionBinding | undefined;

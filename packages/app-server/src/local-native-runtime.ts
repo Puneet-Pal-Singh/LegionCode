@@ -108,6 +108,10 @@ export function createLocalNativeRuntime(
     configurationOptions: {
       modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
       productModes: Object.values(PRODUCT_MODES),
+      productModesByMode: {
+        plan: Object.values(PRODUCT_MODES),
+        ...(availableCapability.artifactCapture === "required" ? { build: [PRODUCT_MODES.ASK_ALWAYS] } : {}),
+      },
       ...(options.media ? { attachments: options.media.limits } : {}),
     },
     async createAdmission(input) {
@@ -116,6 +120,9 @@ export function createLocalNativeRuntime(
       const configuration = LocalTurnConfigurationSchema.parse(input.configuration);
       if (configuration.mode === "build" && availableCapability.artifactCapture !== "required") {
         throw new Error("Local Build mode requires the actual captured execution ports");
+      }
+      if (configuration.mode === "build" && configuration.productMode !== PRODUCT_MODES.ASK_ALWAYS) {
+        throw new Error("Local Build mode requires Supervised permissions");
       }
       const admission = createLocalTurnAdmission(
         {
