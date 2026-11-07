@@ -21,6 +21,7 @@ export function initializeAppServer(
     environment: AppServerHandshakeEnvironment;
     serverId: string;
     serverVersion: string;
+    localWorkspaceFilesAvailable?: boolean;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -51,7 +52,7 @@ export function initializeAppServer(
       environment: options.environment,
       capabilities:
         options.environment === "local"
-          ? [...LOCAL_APP_SERVER_CAPABILITIES]
+          ? [...LOCAL_APP_SERVER_CAPABILITIES, ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : [])]
           : [],
       unavailableCapabilities:
         options.environment === "local"

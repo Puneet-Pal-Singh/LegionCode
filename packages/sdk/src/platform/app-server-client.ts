@@ -4,6 +4,18 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMutationErrorMetadata, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
+  LocalWorkspaceListFilesParamsSchema,
+  LocalWorkspaceReadFileParamsSchema,
+  type LocalWorkspaceListFilesParams,
+  type LocalWorkspaceListFilesResult,
+  type LocalWorkspaceReadFileParams,
+  LocalTurnStartParamsSchema,
+  LocalTurnInterruptParamsSchema,
+  LocalThreadHistoryParamsSchema,
+  type LocalTurnStartParams,
+  type LocalTurnInterruptParams,
+  type LocalThreadHistoryParams,
+  type LocalThreadHistoryResult,
   APP_SERVER_PROTOCOL_VERSION,
   AppServerRequestSchema,
   AppServerResponseSchema,
@@ -13,6 +25,7 @@ import {
   type AppServerFailureResponse,
 } from "@legioncode/app-server/protocol";
 import {
+  type TurnAdmission,
   type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
   type RepositoryBranchesRequest, type RepositoryBranchesResponse,
   type RepositoryContentsRequest, type RepositoryContentsResult,
@@ -27,6 +40,7 @@ import {
   type ConversationHistoryResponse,
   type CodeArtifactContentRequest,
   type CodeArtifactContentResponse,
+  TurnIdSchema,
   ThreadIdSchema,
   RunIdSchema,
   ProviderIdSchema,
@@ -160,6 +174,10 @@ const GitMutationMetadataSchema = z.object({
 }).strict();
 
 export type AppServerClient = {
+  startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
+  getTurn(turnId: string): Promise<TurnAdmission>;
+  getThreadHistoryPage(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
+  interruptLocalTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
   initialize(
     requestedCapabilities?: readonly string[],
   ): Promise<AppServerInitializeResponse>;
@@ -215,6 +233,8 @@ export type AppServerClient = {
   listRepositoryBranches(params: RepositoryBranchesRequest): Promise<RepositoryBranchesResponse>;
   getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
+  listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
+  readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
@@ -244,6 +264,24 @@ export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
   return {
+    listWorkspaceFiles: (params) => request(options, {
+      method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
+    }, AppServerResultSchemas["workspace/listFiles"]),
+    readWorkspaceFile: (params) => request(options, {
+      method: "workspace/readFile", params: LocalWorkspaceReadFileParamsSchema.parse(params),
+    }, AppServerResultSchemas["workspace/readFile"]),
+    startTurn: async (params) => (await request(options, {
+      method: "turn/start", params: LocalTurnStartParamsSchema.parse(params),
+    }, AppServerResultSchemas["turn/start"])).admission,
+    getTurn: async (turnId) => (await request(options, {
+      method: "turn/get", params: { turnId: TurnIdSchema.parse(turnId) },
+    }, AppServerResultSchemas["turn/get"])).admission,
+    getThreadHistoryPage: (params) => request(options, {
+      method: "thread/history", params: LocalThreadHistoryParamsSchema.parse(params),
+    }, AppServerResultSchemas["thread/history"]),
+    interruptLocalTurn: (params) => request(options, {
+      method: "turn/interrupt", params: LocalTurnInterruptParamsSchema.parse(params),
+    }, AppServerResultSchemas["turn/interrupt"]),
     initialize: async (requestedCapabilities = []) => {
       const result = await request(options, {
         method: "initialize",

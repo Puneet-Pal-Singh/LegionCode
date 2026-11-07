@@ -19,6 +19,7 @@ import {
   PermissionProfileIdSchema,
   ProviderIdSchema,
   RunIdSchema,
+  RunAttemptIdSchema,
   ThreadIdSchema,
   ToolCallBatchIdSchema,
   ToolCallIdSchema,
@@ -257,3 +258,28 @@ export const RunItemSchema = ThreadItemSchema.and(z.object({
   turnId: TurnIdSchema,
 }));
 export type RunItem = z.infer<typeof RunItemSchema>;
+
+/** Runtime-created canonical records accepted together before local execution. */
+export const TurnAdmissionSchema = z.object({
+  clientRequestId: z.string().trim().min(1).max(200),
+  run: RunSchema,
+  turn: TurnSchema,
+  runAttemptId: RunAttemptIdSchema,
+  userMessage: ThreadItemSchema,
+}).strict().superRefine(({ run, turn, userMessage }, context) => {
+  const issue = (path: string[], message: string) => context.addIssue({
+    code: z.ZodIssueCode.custom, path, message,
+  });
+  if (turn.runId !== run.id) issue(["turn", "runId"], "Turn must belong to the admitted Run");
+  if (turn.threadId !== run.threadId) issue(["turn", "threadId"], "Turn must belong to the admitted Thread");
+  if (userMessage.threadId !== run.threadId || userMessage.runId !== run.id || userMessage.turnId !== turn.id) {
+    issue(["userMessage"], "Prompt must match the admitted Thread, Run and Turn");
+  }
+  if (userMessage.type !== "user_message" || userMessage.role !== "user" || userMessage.status !== "completed") {
+    issue(["userMessage"], "Admission requires a completed user message");
+  }
+  if (!["queued", "running"].includes(run.status) || !["queued", "running"].includes(turn.status)) {
+    issue(["turn"], "Admission requires an unfinished Run and Turn");
+  }
+});
+export type TurnAdmission = z.infer<typeof TurnAdmissionSchema>;
