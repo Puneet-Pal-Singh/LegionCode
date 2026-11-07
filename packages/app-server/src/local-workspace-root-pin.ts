@@ -1,3 +1,4 @@
+import type { NativeFilesystemExecution } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import { lstat, realpath, type FileHandle } from "node:fs/promises";
 import type { BigIntStats } from "node:fs";
 import type { MacGitAuthority } from "./local-mac-git-execution.js";
@@ -47,6 +48,25 @@ export class LocalWorkspaceRootPin {
       throw new Error("Workspace root changed during the operation");
     }
   }
+
+  /** Retain the descriptor until the real native helper and pipes close. */
+  readonly observeNativeExecution = (
+    execution: NativeFilesystemExecution,
+  ): void => {
+    this.assertCurrent();
+    const loan = execution.closed
+      .then(() => {
+        if (!execution.quiescent)
+          throw new Error("Native metadata helper did not prove closure");
+      })
+      .catch((error: unknown) => {
+        this.state = "quarantined";
+        this.retainQuarantined(this);
+        throw error;
+      });
+    this.loans.add(loan);
+    void loan.finally(() => this.loans.delete(loan)).catch(() => undefined);
+  };
 
   readonly withRootAuthority = async <T>(
     cwd: string,

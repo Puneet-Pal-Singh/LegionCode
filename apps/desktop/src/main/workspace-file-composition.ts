@@ -14,6 +14,12 @@ export function createWorkspaceFileComposition(
   if (process.platform !== "darwin" || !filesystemHelperPath || !processHelperPath) return undefined;
   const gitExecutable = realpathSync("/usr/bin/git");
   return {
+    createMetadataInspector: (rootDirectory, observeExecution) =>
+      new NativeFilesystemBridge({
+        helperPath: filesystemHelperPath,
+        rootDirectory,
+        observeExecution,
+      }),
     createProbeExecution: (authority) => createVerifiedMacGitExecution({
       ...authority, purpose: "repo_probe", gitExecutable, processHelperPath,
     }),

@@ -4,7 +4,7 @@ import { LocalPersistence } from "@repo/event-store/local";
 import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
 import type { AppServerComposition } from "./server.js";
 import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
-import { LocalWorkspaceService } from "./local-workspace.js";
+import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./local-workspace.js";
 import { DefaultGitService } from "@repo/git-service";
 import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
@@ -31,6 +31,7 @@ export type LocalAppServerParentPort = {
 };
 
 export type LocalWorkspaceFilesCompositionOptions = {
+  createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
 };
@@ -44,6 +45,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
     const createProbeExecution = options?.createProbeExecution;
     const workspaceService = new LocalWorkspaceService({
       workspaceGrants: persistence.workspaceGrants,
+      createMetadataInspector: options?.createMetadataInspector,
       createProbeService: createProbeExecution ? async (authority) => {
         const macExecution = await createProbeExecution(authority);
         const git = new DefaultGitService(createNodeGitExecutor({ macExecution }));
