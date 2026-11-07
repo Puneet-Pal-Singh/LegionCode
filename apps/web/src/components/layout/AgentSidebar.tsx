@@ -13,6 +13,7 @@ import {
 
 interface AgentSidebarProps {
   sessions: AgentSession[];
+  visible?: boolean;
   repositories: string[];
   repositoryLabels?: Readonly<Record<string, string>>;
   hiddenRepositoryIds?: readonly string[];
@@ -40,6 +41,7 @@ interface AgentSidebarProps {
 
 export function AgentSidebar({
   sessions,
+  visible = true,
   repositories,
   repositoryLabels = {},
   hiddenRepositoryIds = [],
@@ -94,6 +96,7 @@ export function AgentSidebar({
   return (
     <ThreadSidebar
       model={model}
+      visible={visible}
       recentWorkspaceSelectionId={PROJECTLESS_SELECTION_ID}
       onSelect={onSelect}
       onCreate={(workspaceSelectionId) =>
