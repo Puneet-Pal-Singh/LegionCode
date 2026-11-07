@@ -27,8 +27,10 @@ and linked repository metadata; the original binding exposes its fresh native
 association/mutation inspection to retained settlement borrowers. Legacy v1
 records remain readable but require an explicit regrant before execution.
 Immutable artifact persistence stays in the same existing SQLite owner. This
-foundation does not activate Desktop startup, captured execution or mutation
-capabilities; those consumers must compose the same binding and native helpers.
+foundation wires the existing Desktop read-only startup to trusted native helper
+paths, protected host roots, metadata inspection and canonical repository probes.
+File queries consume the same binding and native reader. Captured execution and
+mutation capabilities remain separate; missing helpers grant no native access.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
