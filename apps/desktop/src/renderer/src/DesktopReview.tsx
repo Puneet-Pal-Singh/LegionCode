@@ -26,11 +26,11 @@ type ReviewRead = { client: DesktopReviewProps["client"] } & (
 /** Parent supplies a replay-settled selection, actual grant scope and advertised capability. */
 export function DesktopReview({ client, selection, scope, availability }: DesktopReviewProps) {
   if (!scope) return <p role="status">Open a granted workspace and thread to review saved changes.</p>;
-  if (!selection) return <p role="status">Select a settled turn to review.</p>;
-  if (selection.workspaceId !== scope.workspaceId || selection.threadId !== scope.threadId) {
+  if (selection && (selection.workspaceId !== scope.workspaceId || selection.threadId !== scope.threadId)) {
     return <p role="status">Select a settled turn in the current workspace and thread.</p>;
   }
   if (!availability.available) return <p role="status">Saved turn review unavailable: {availability.reason}</p>;
+  if (!selection) return <p role="status">Select a settled turn to review.</p>;
   return (
     <SelectedTurnReview
       key={JSON.stringify([scope.grantGrantedAt, selection.workspaceId, selection.threadId, selection.turnId, selection.terminalState])}
