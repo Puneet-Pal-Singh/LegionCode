@@ -113,3 +113,5 @@ export { WorkspaceTreeDrawer } from "./workspace/WorkspaceTreeDrawer.js";
 
 export { PickerModal } from "./workspace/PickerModal.js";
 export { HeroComposer as ConversationHero } from "./conversation/chat-interface/ChatInterfaceView.js";
+
+export { getInitialRightSidebarWidth, clampRightSidebarWidth } from "./workspace/rightPanelSizing.js";
