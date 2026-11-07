@@ -28,7 +28,7 @@ import type {
   LocalWorkspaceExecutionBinding,
 } from "./local-workspace.js";
 import type { LocalThreadService } from "./local-threads.js";
-import type { LocalProviderService } from "./local-providers.js";
+import type { LocalProviderService, ProviderSelection } from "./local-providers.js";
 import { AppServerOperationError } from "./server.js";
 import { LocalApprovalService } from "./local-approvals.js";
 import {
@@ -159,6 +159,7 @@ export class LocalTurnService {
           "conflict",
           "Select a protected provider and model before starting a turn",
         );
+      assertProviderSelection(selection, params.expectedSelection);
       binding.assertCurrent();
       const candidate = runtime.createAdmission({
         workspace: binding.workspace,
@@ -181,6 +182,8 @@ export class LocalTurnService {
           "Captured local execution requires runtime resource-settlement confirmation",
         );
       }
+      binding.assertCurrent();
+      assertProviderSelection(await this.options.providers.getSelection(), selection);
       binding.assertCurrent();
       const { admission, newlyAdmitted } =
         await this.options.persistence.turnAdmissions.admit(candidate);
@@ -336,6 +339,10 @@ function validateSavedAdmission(
     admission.run.userId !== thread.userId ||
     admission.userMessage.type !== "user_message" ||
     admission.userMessage.content.text !== params.prompt ||
+    (params.expectedSelection !== undefined && (
+      admission.run.providerId !== params.expectedSelection.providerId ||
+      admission.run.modelId !== params.expectedSelection.modelId
+    )) ||
     (savedConfiguration
       ? savedConfiguration.mode !== configuration.mode || savedConfiguration.productMode !== configuration.productMode
       : params.mode !== undefined || params.productMode !== undefined)
@@ -347,4 +354,19 @@ function validateSavedAdmission(
     );
   }
   return admission;
+}
+
+function assertProviderSelection(
+  selection: ProviderSelection | null,
+  expected: Pick<ProviderSelection, "providerId" | "modelId"> | undefined,
+): void {
+  if (expected && (!selection || selection.providerId !== expected.providerId || selection.modelId !== expected.modelId)) {
+    throw new AppServerOperationError(
+      409,
+      "conflict",
+      "The selected provider or model changed before this message was admitted",
+      "local_provider_selection_changed",
+      false,
+    );
+  }
 }

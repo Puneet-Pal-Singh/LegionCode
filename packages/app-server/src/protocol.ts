@@ -24,6 +24,7 @@ import {
   LocalWorkspaceGrantResponseSchema,
   LocalWorkspaceGrantSchema,
   ProviderIdSchema,
+  ModelIdSchema,
   ThreadIdSchema,
   WorkspaceIdSchema,
   EventCursorSchema,
@@ -193,6 +194,10 @@ export const LocalTurnStartParamsSchema = z.object({
   prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
   mode: LocalTurnConfigurationSchema.shape.mode.optional(),
   productMode: LocalTurnConfigurationSchema.shape.productMode.optional(),
+  expectedSelection: z.object({
+    providerId: ProviderIdSchema,
+    modelId: ModelIdSchema,
+  }).strict().optional(),
 }).strict();
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
