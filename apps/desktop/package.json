@@ -7,7 +7,8 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "pnpm build:native-helper && electron-vite dev",
+    "build:native-helper": "node scripts/build-file-helper.mjs",
     "build": "electron-vite build",
     "check-types": "tsc --noEmit",
     "test": "vitest run src/main/*.test.ts",
