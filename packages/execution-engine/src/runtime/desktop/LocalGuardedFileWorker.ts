@@ -21,6 +21,7 @@ import { RuntimeWorkspaceScope } from "../engine/RuntimeWorkspaceScope.js";
 import {
   NativeFilesystemBridge,
   NativeFilesystemError,
+  type NativeFilesystemExecution,
 } from "./NativeFilesystemBridge.js";
 
 type ExecutionInput = Parameters<WorkerProtocolPort["executeTool"]>[0];
@@ -64,6 +65,9 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
         assertCurrent(): void | Promise<void>;
       };
       readonly helperPath: string;
+      readonly observeExecution?: (
+        execution: NativeFilesystemExecution,
+      ) => void;
       readonly lifecycleEvents: Pick<
         RuntimeKernelDependencies["lifecycleEvents"],
         "replay"
@@ -103,6 +107,7 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
       helperPath: options.helperPath,
       rootDirectory: options.binding.rootDirectory,
       writerLease: options.binding.writerLease,
+      observeExecution: options.observeExecution,
     });
   }
 
