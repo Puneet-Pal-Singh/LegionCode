@@ -48,3 +48,6 @@ export type {
 export { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
 
 export { rethrowHarnessCommitFailure } from "./local/harness-bindings.js";
+
+export { LocalHarnessControlPlane, LocalHarnessControlPlaneError } from "./local/harness-control-plane.js";
+export type { LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";

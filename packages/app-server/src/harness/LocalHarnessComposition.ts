@@ -5,7 +5,7 @@ import { OpenCodeV2Driver } from "@repo/harness-opencode/server";
 import { RuntimeKernel, type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
-import { HarnessSelectionSchema, type HarnessSelection, type HarnessInstanceStatus, type ReplayLifecycleEventsRequest, type ReplayLifecycleEventsResponse, type ThreadId } from "@repo/platform-protocol";
+import { HarnessSelectionSchema, type HarnessSelection, type ReplayLifecycleEventsRequest, type ReplayLifecycleEventsResponse, type ThreadId } from "@repo/platform-protocol";
 import { AppServerOperationError } from "../server.js";
 import { LocalHarnessOperations } from "./LocalHarnessOperations.js";
 import { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
@@ -67,14 +67,7 @@ export class LocalHarnessComposition {
       environmentId: this.environmentId,
       workspaceService: this.workspaceService,
       threadService: this.threadService,
-      readInstances: () => this.configuredScopes.map((scope): HarnessInstanceStatus => ({
-        environmentId: scope.environmentId, workspaceId: scope.workspaceId, instanceId: scope.instanceId,
-        harness: scope.harness, connectionId: scope.connectionId, accountLabel: null, usage: null,
-        state: "unavailable", reason: "Local connection health and enforceable OS policy have not been verified",
-        capabilities: { approvals: false, questions: false, steer: false, resume: false, fork: false,
-          images: false, terminal: false, contextTelemetry: false, accountQuota: false, experimental: false },
-        runtimeVersion: scope.runtimeVersion, protocolVersion: scope.protocolVersion, observedAt: new Date().toISOString(),
-      })),
+      controlPlane: persistence.createHarnessControlPlane(this.threadService.actorUserId),
     });
     this.turnService = new LocalTurnService({
       persistence, threads: this.threadService, workspace: this.workspaceService, leases: this.leases,

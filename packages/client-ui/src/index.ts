@@ -76,3 +76,12 @@ export { resolveComposerKeyboardAction } from "./conversation/conversation/compo
 export { HarnessUsage, type HarnessUsageProps } from "./harness/HarnessUsage.js";
 export { HarnessConnectionSettings, type HarnessConnectionSettingsProps } from "./harness/HarnessConnectionSettings.js";
 export { HarnessSelection, type HarnessSelectionProps } from "./harness/HarnessSelection.js";
+export {
+  SharedFileExplorer,
+  type SharedFileExplorerProps,
+  type FileExplorerHandle,
+  type FileExplorerReadPort,
+  type FileExplorerCursor,
+  type FileExplorerEntry,
+  type FileExplorerPage,
+} from "./files/FileExplorer.js";

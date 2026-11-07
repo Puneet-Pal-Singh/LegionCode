@@ -1,3 +1,4 @@
+import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
 import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
 import type { StoredHarnessSelection } from "./local/harness-bindings.js";
 import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
@@ -19,6 +20,7 @@ import {
   type PlatformEvent,
   type LocalWorkspaceGrant,
   type ProviderId,
+  type UserId,
 } from "@repo/platform-protocol";
 import {
   LifecycleEventSchema,
@@ -122,6 +124,10 @@ export class LocalPersistence {
     write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
     clear(): Promise<void>;
   };
+
+  createHarnessControlPlane(userId: UserId): LocalHarnessControlPlanePort {
+    return new LocalHarnessControlPlane(this.database, { environmentId: this.environmentId, userId });
+  }
 
   createHarnessObservationCommitPort(selection:StoredHarnessSelection) {
     const port=new LocalHarnessObservationCommitPort(this.database,event=>this.appendLifecycleWithin(event),selection);

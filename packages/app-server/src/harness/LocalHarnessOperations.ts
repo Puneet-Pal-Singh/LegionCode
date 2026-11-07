@@ -6,71 +6,76 @@ import {
   type HarnessSetupRequest, type HarnessSetupResponse, type HarnessStatusRequest, type HarnessStatusResponse,
 } from "@repo/platform-protocol";
 import type { HarnessOperations } from "@legioncode/app-server/server";
+import { LocalHarnessControlPlaneError, type LocalHarnessControlPlanePort } from "@repo/event-store";
 import { AppServerOperationError } from "../server.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 import type { LocalThreadService } from "../local-threads.js";
 
-type SelectionStore = Pick<HarnessOperations, "readSelection" | "select">;
+export type { LocalHarnessControlPlanePort } from "@repo/event-store";
+
+type DiscoveryServices = Partial<Pick<HarnessOperations, "models" | "status">>;
 
 /** Accountless local operations over existing grants, configured instances and the
  * canonical selection store. No provider launch, credential read or alternate store.
  */
 export class LocalHarnessOperations implements HarnessOperations {
   private selectionQueue: Promise<void> = Promise.resolve();
-  private selectionStore: SelectionStore | undefined;
   private modelsReader: HarnessOperations["models"] | undefined;
   private statusReader: HarnessOperations["status"] | undefined;
-  private setupWriter: HarnessOperations["setup"] | undefined;
+  private discoveryBound = false;
 
   constructor(private readonly options: {
     readonly environmentId: string;
     readonly workspaceService: LocalWorkspaceService;
     readonly threadService: LocalThreadService;
-    readonly readInstances: () => readonly HarnessInstanceStatus[];
+    readonly controlPlane: LocalHarnessControlPlanePort;
   }) {}
 
-  /** Trusted local bootstrap only; these adapters must use the existing SQLite
-   * writer and a supported safe catalog reader. They are never supplied by HTTP.
+  /** Trusted discovery only. Bootstrap cannot replace the canonical setup,
+   * instance identities, selection CAS or command-receipt authority.
    */
-  bindServices(services: SelectionStore & Partial<Pick<HarnessOperations, "models" | "status" | "setup">>): void {
-    if (this.selectionStore) throw new Error("Local harness operation services are already bound");
-    this.selectionStore = services;
+  bindServices(services: DiscoveryServices): void {
+    if (this.discoveryBound) throw new Error("Local harness discovery services are already bound");
     this.modelsReader = services.models?.bind(services);
     this.statusReader = services.status?.bind(services);
-    this.setupWriter = services.setup?.bind(services);
+    this.discoveryBound = true;
   }
 
   async setup(params: HarnessSetupRequest): Promise<HarnessSetupResponse> {
     await this.authorizeScope(params);
-    if (!this.setupWriter) throw new AppServerOperationError(503, "server_unavailable",
-      "Local instance setup requires its durable connection and command-receipt store", "LOCAL_HARNESS_SETUP_UNAVAILABLE", false);
     // The same-writer setup owner issues a persisted identity on initial creation,
     // deduplicates the scoped command, and rejects unknown reconnect IDs. Never
     // manufacture a replacement identity in the service or live registry.
-    const result = HarnessSetupResponseSchema.parse(await this.setupWriter(params));
+    const result = HarnessSetupResponseSchema.parse(await this.controlPlaneOperation(() => this.options.controlPlane.setup(params)));
     if (result.instance.environmentId !== params.environmentId || result.instance.workspaceId !== params.workspaceId ||
         result.instance.harness !== params.harness || result.instance.connectionId !== params.connectionId ||
         (params.instanceId !== undefined && result.instance.instanceId !== params.instanceId)) {
       throw new AppServerOperationError(503, "server_unavailable", "Local setup receipt does not match the requested connection or instance");
     }
+    this.assertStoredUnavailable([result.instance]);
     await this.authorizeScope(params);
     return result;
   }
 
   async status(params: HarnessStatusRequest): Promise<HarnessStatusResponse> {
     await this.authorizeScope(params);
-    const result = HarnessStatusResponseSchema.parse(this.statusReader
-      ? await this.statusReader(params)
-      : { instances: this.options.readInstances().filter((instance) =>
-          instance.environmentId === params.environmentId && instance.workspaceId === params.workspaceId) });
-    if (result.instances.some((instance) => instance.environmentId !== params.environmentId || instance.workspaceId !== params.workspaceId)) {
-      throw new AppServerOperationError(503, "server_unavailable", "Local instance metadata returned a different workspace");
+    const stored = await this.readStoredStatus(params);
+    if (!this.statusReader) {
+      await this.authorizeScope(params);
+      return stored;
     }
-    // Verified connection/install/policy health belongs to the private service,
-    // not the process-local registry. Drivers register lazily for the admitted
-    // binding; requiring a live driver here makes the first setup/select
-    // impossible after restart. Without that service, readInstances remains
-    // explicitly unavailable and cannot manufacture readiness.
+    const observed = HarnessStatusResponseSchema.parse(await this.statusReader(params));
+    const seen = new Set<string>();
+    for (const instance of observed.instances) {
+      const known = stored.instances.find((candidate) => this.sameInstance(candidate, instance));
+      if (!known || seen.has(instance.instanceId) ||
+          (instance.state === "ready" && (!instance.runtimeVersion || !instance.protocolVersion))) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local health does not match a durable configured instance");
+      }
+      seen.add(instance.instanceId);
+    }
+    const result = { instances: stored.instances.map((instance) =>
+      observed.instances.find((candidate) => this.sameInstance(instance, candidate)) ?? instance) };
     await this.authorizeScope(params);
     return result;
   }
@@ -93,7 +98,7 @@ export class LocalHarnessOperations implements HarnessOperations {
 
   async readSelection(params: HarnessSelectionReadRequest): Promise<HarnessSelectionResponse> {
     await this.authorizeThread(params);
-    const result = await this.requireSelectionStore().readSelection(params);
+    const result = await this.controlPlaneOperation(() => this.options.controlPlane.readSelection(params));
     await this.authorizeThread(params);
     return this.validateSelectionResponse(params, result);
   }
@@ -119,23 +124,12 @@ export class LocalHarnessOperations implements HarnessOperations {
 
   private async selectWithin(params: HarnessSelectRequest): Promise<HarnessSelectionResponse> {
     await this.authorizeThread(params);
-    const store = this.requireSelectionStore();
-    if (params.selection !== null) {
-      const selection = params.selection;
-      const instance = await this.requireInstance({ environmentId: params.environmentId, workspaceId: params.workspaceId,
-        instanceId: selection.instanceId, connectionId: selection.connectionId });
-      if (!instance || instance.harness !== selection.harness) {
-        throw new AppServerOperationError(404, "not_found", "The selected local harness reference is not configured");
-      }
-      // This writes a preference for a future attempt, not a readiness claim or
-      // execution admission. Persisted unavailable instances may be selected before
-      // their first driver registration; account/model eligibility is checked at admission.
-      // Avoid health/catalog I/O before durable command dedupe: a committed retry
-      // must not change outcome merely because readiness changed afterward.
-    }
+    // The same writer owns command dedupe, revision CAS and configured-instance
+    // eligibility together with grant/Thread checks. Do not put health/catalog
+    // reads or a competing instance check in front of its durable receipt.
+    const result = await this.controlPlaneOperation(() => this.options.controlPlane.select(params));
     await this.authorizeThread(params);
-    // The same-writer owner performs durable revision CAS, grant fencing and command deduplication.
-    return this.validateSelectionResponse(params, await store.select(params));
+    return this.validateSelectionResponse(params, result);
   }
 
   private async authorizeScope(params: HarnessStatusRequest): Promise<void> {
@@ -167,11 +161,40 @@ export class LocalHarnessOperations implements HarnessOperations {
     return instance;
   }
 
-  private requireSelectionStore(): SelectionStore {
-    if (!this.selectionStore) throw new AppServerOperationError(
-      503, "server_unavailable", "Local harness selection persistence is unavailable", "LOCAL_HARNESS_SELECTION_UNAVAILABLE", false,
-    );
-    return this.selectionStore;
+  private async readStoredStatus(params: HarnessStatusRequest): Promise<HarnessStatusResponse> {
+    const result = HarnessStatusResponseSchema.parse(await this.controlPlaneOperation(() => this.options.controlPlane.status({
+      environmentId: params.environmentId, workspaceId: params.workspaceId,
+    })));
+    if (result.instances.some((instance) => instance.environmentId !== params.environmentId || instance.workspaceId !== params.workspaceId)) {
+      throw new AppServerOperationError(503, "server_unavailable", "Local instance metadata returned a different workspace");
+    }
+    this.assertStoredUnavailable(result.instances);
+    return result;
+  }
+
+  private assertStoredUnavailable(instances: readonly HarnessInstanceStatus[]): void {
+    if (instances.some((instance) => instance.state === "ready" || instance.usage !== null ||
+        Object.values(instance.capabilities).some(Boolean))) {
+      throw new AppServerOperationError(503, "server_unavailable", "Stored local configuration cannot attest runtime readiness or capabilities");
+    }
+  }
+
+  private sameInstance(left: HarnessInstanceStatus, right: HarnessInstanceStatus): boolean {
+    return left.environmentId === right.environmentId && left.workspaceId === right.workspaceId &&
+      left.instanceId === right.instanceId && left.connectionId === right.connectionId && left.harness === right.harness;
+  }
+
+  private async controlPlaneOperation<T>(operation: () => Promise<T>): Promise<T> {
+    try { return await operation(); }
+    catch (error) {
+      if (error instanceof LocalHarnessControlPlaneError) {
+        if (error.code === "not_found") {
+          throw new AppServerOperationError(404, "not_found", "The local harness scope or configured reference is unavailable");
+        }
+        throw new AppServerOperationError(409, "invalid_request", "The local harness command conflicts with canonical configuration or selection revision");
+      }
+      throw error;
+    }
   }
 
   private validateSelectionResponse(params: HarnessSelectionReadRequest, input: HarnessSelectionResponse): HarnessSelectionResponse {
