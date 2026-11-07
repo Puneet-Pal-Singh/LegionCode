@@ -14,6 +14,7 @@ import { FullAccessConfirmation } from "./FullAccessConfirmation.js";
 
 interface PermissionModeControlProps {
   value: ProductMode;
+  environmentKind?: "hosted" | "local";
   onChange: (mode: ProductMode) => void;
   disabled?: boolean;
   appearance?: "pill" | "ghost";
@@ -62,6 +63,7 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
 
 export function PermissionModeControl({
   value,
+  environmentKind = "hosted",
   onChange,
   disabled = false,
   appearance = "pill",
@@ -264,7 +266,7 @@ export function PermissionModeControl({
                           {option.label}
                         </span>
                         <span className="block text-xs leading-4 text-zinc-400">
-                          {option.description}
+                          {option.value === PRODUCT_MODES.FULL_AGENT && environmentKind === "local" ? "Run local tools without individual approvals." : option.description}
                         </span>
                       </span>
                     </span>
@@ -284,6 +286,7 @@ export function PermissionModeControl({
 
       {isConfirmationVisible ? (
         <FullAccessConfirmation
+          environmentKind={environmentKind}
           onCancel={closeConfirmation}
           onConfirm={confirmFullAccess}
         />

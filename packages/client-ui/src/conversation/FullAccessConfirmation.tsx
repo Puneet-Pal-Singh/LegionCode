@@ -3,11 +3,13 @@ import { createPortal } from "react-dom";
 import { Folder, Globe2, ShieldAlert, Terminal } from "lucide-react";
 
 interface FullAccessConfirmationProps {
+  environmentKind?: "hosted" | "local";
   onCancel: () => void;
   onConfirm: () => void;
 }
 
 export function FullAccessConfirmation({
+  environmentKind = "hosted",
   onCancel,
   onConfirm,
 }: FullAccessConfirmationProps) {
@@ -84,7 +86,9 @@ export function FullAccessConfirmation({
               id="full-access-description"
               className="mt-1 text-sm leading-5 text-zinc-400"
             >
-              Give the agent broader control of this hosted workspace.
+              {environmentKind === "local"
+                ? "Let the agent edit files and run local commands without individual approvals."
+                : "Give the agent broader control of this hosted workspace."}
             </p>
           </div>
         </div>
@@ -134,8 +138,9 @@ export function FullAccessConfirmation({
         </ul>
 
         <p className="mt-3 text-xs leading-5 text-zinc-500">
-          Workspace access controls still apply. This does not grant access to
-          files on your computer.
+          {environmentKind === "local"
+            ? "Local commands run with your macOS account’s filesystem and network access. The selected workspace folder does not confine those commands."
+            : "Workspace access controls still apply. This does not grant access to files on your computer."}
         </p>
 
         <div className="mt-6 flex justify-end gap-2">

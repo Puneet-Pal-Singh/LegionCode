@@ -5,6 +5,7 @@ import { FileCode2, ImagePlus, Plus, Sparkles } from "lucide-react";
 
 interface ChatComposerPlusMenuProps {
   mode: RunMode;
+  availableModes?: readonly RunMode[];
   disabled?: boolean;
   attachmentsAvailable?: boolean;
   onAttachImages: () => void;
@@ -14,6 +15,7 @@ interface ChatComposerPlusMenuProps {
 
 export function ChatComposerPlusMenu({
   mode,
+  availableModes,
   disabled = false,
   attachmentsAvailable = true,
   onAttachImages,
@@ -53,6 +55,7 @@ export function ChatComposerPlusMenu({
   }, [isMenuOpen]);
 
   const isPlanMode = mode === "plan";
+  const canToggleMode = !disabled && Boolean(onModeChange) && (!availableModes || availableModes.includes(isPlanMode ? "build" : "plan"));
 
   return (
     <div className="relative" ref={containerRef}>
@@ -121,9 +124,9 @@ export function ChatComposerPlusMenu({
               role="switch"
               aria-checked={isPlanMode}
               aria-label="Toggle plan mode"
-              disabled={disabled || !onModeChange}
+              disabled={!canToggleMode}
               onClick={() => {
-                if (!onModeChange || disabled) {
+                if (!onModeChange || !canToggleMode) {
                   return;
                 }
                 onModeChange(isPlanMode ? "build" : "plan");
@@ -133,7 +136,7 @@ export function ChatComposerPlusMenu({
                 isPlanMode
                   ? "border-emerald-500/70 bg-emerald-500/20"
                   : "border-zinc-700 bg-zinc-800/80",
-                disabled || !onModeChange
+                !canToggleMode
                   ? "cursor-not-allowed opacity-60"
                   : "hover:border-zinc-500/90",
               ].join(" ")}
