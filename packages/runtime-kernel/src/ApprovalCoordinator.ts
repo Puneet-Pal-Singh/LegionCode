@@ -44,7 +44,7 @@ export class ApprovalCoordinator {
           metadata: request.metadata,
         },
       );
-      const resolution = await raceApprovalResolution(
+      const candidate = await raceApprovalResolution(
         [
           this.approvals.waitForDecision({
             runId: run.id,
@@ -53,11 +53,18 @@ export class ApprovalCoordinator {
             request,
             signal,
           }),
-          pending.resolution,
+          pending.resolution.then((outcome) => {
+            if (outcome.status === "failed") throw outcome.error;
+            return outcome.resolution;
+          }),
         ],
         signal,
       );
-      await this.settle(request.approvalId, pending, resolution);
+      const resolution = await this.settle(
+        request.approvalId,
+        pending,
+        candidate,
+      );
       if (resolution.timedOut) {
         throw new RuntimeKernelError(
           "approval_timed_out",
@@ -85,7 +92,7 @@ export class ApprovalCoordinator {
   /**
    * Resolves an active approval through the same lifecycle coordinator as the
    * waiting tool loop. This is deliberately the only external entry point:
-   * callers persist/authorize the decision first, then RuntimeKernel appends
+   * callers authorize the decision first, then RuntimeKernel appends
    * the single canonical approval.decided event and wakes the loop.
    */
   async resolve(
@@ -99,8 +106,23 @@ export class ApprovalCoordinator {
         `Approval ${approvalId} is not active in this runtime kernel`,
       );
     }
-    await this.settle(approvalId, pending, resolution);
-    pending.resolve(resolution);
+    if (
+      pending.settlement &&
+      !sameResolution(pending.settlement.resolution, resolution)
+    ) {
+      throw new RuntimeKernelError(
+        "approval_already_active",
+        `Approval ${approvalId} already has a different decision`,
+      );
+    }
+    try {
+      const winner = await this.settle(approvalId, pending, resolution);
+      pending.resolve({ status: "decided", resolution: winner });
+    } catch (error) {
+      // Wake the tool loop into kernel failure handling if canonical append fails.
+      if (pending.settlement) pending.resolve({ status: "failed", error });
+      throw error;
+    }
   }
 
   private createPending(
@@ -114,8 +136,8 @@ export class ApprovalCoordinator {
         `Approval ${approvalId} is already active in this runtime kernel`,
       );
     }
-    let resolve!: (resolution: ApprovalResolution) => void;
-    const resolution = new Promise<ApprovalResolution>((accept) => {
+    let resolve!: (outcome: ApprovalOutcome) => void;
+    const resolution = new Promise<ApprovalOutcome>((accept) => {
       resolve = accept;
     });
     const pending: PendingApprovalResolution = {
@@ -132,7 +154,11 @@ export class ApprovalCoordinator {
     approvalId: ApprovalRequestedPayload["approvalId"],
     pending: PendingApprovalResolution,
     resolution: ApprovalResolution,
-  ): Promise<void> {
+  ): Promise<ApprovalResolution> {
+    if (pending.settlement) {
+      await pending.settlement.completion;
+      return pending.settlement.resolution;
+    }
     if (resolution.grantScope) {
       if (resolution.decision !== "approved" || resolution.timedOut) {
         throw new RuntimeKernelError(
@@ -151,28 +177,56 @@ export class ApprovalCoordinator {
         );
       }
     }
-    pending.settlement ??= this.lifecycle.decideApproval(
-      approvalId,
-      resolution.timedOut ? "timed_out" : resolution.decision,
-      {
-        decidedBy: resolution.decidedBy,
-        reason: resolution.reason,
-        ...(resolution.decision === "approved" &&
-        !resolution.timedOut &&
-        resolution.grantScope
-          ? { grantScope: resolution.grantScope }
-          : {}),
-      },
-    );
-    await pending.settlement;
+    // Claim one immutable winner before lifecycle I/O or another decision can run.
+    const winner = Object.freeze({ ...resolution });
+    pending.settlement = {
+      resolution: winner,
+      completion: Promise.resolve().then(() =>
+        this.lifecycle.decideApproval(
+          approvalId,
+          winner.timedOut ? "timed_out" : winner.decision,
+          {
+            decidedBy: winner.decidedBy,
+            reason: winner.reason,
+            ...(winner.decision === "approved" &&
+            !winner.timedOut &&
+            winner.grantScope
+              ? { grantScope: winner.grantScope }
+              : {}),
+          },
+        ),
+      ),
+    };
+    await pending.settlement.completion;
+    return winner;
   }
 }
 
+type ApprovalOutcome =
+  | { readonly status: "decided"; readonly resolution: ApprovalResolution }
+  | { readonly status: "failed"; readonly error: unknown };
+
 interface PendingApprovalResolution {
-  readonly resolution: Promise<ApprovalResolution>;
-  readonly resolve: (resolution: ApprovalResolution) => void;
+  readonly resolution: Promise<ApprovalOutcome>;
+  readonly resolve: (outcome: ApprovalOutcome) => void;
   readonly request: ApprovalRequestedPayload;
-  settlement: Promise<void> | null;
+  settlement: {
+    readonly resolution: ApprovalResolution;
+    readonly completion: Promise<void>;
+  } | null;
+}
+
+function sameResolution(
+  left: ApprovalResolution,
+  right: ApprovalResolution,
+): boolean {
+  return (
+    left.decision === right.decision &&
+    left.decidedBy === right.decidedBy &&
+    left.reason === right.reason &&
+    Boolean(left.timedOut) === Boolean(right.timedOut) &&
+    left.grantScope === right.grantScope
+  );
 }
 
 function raceApprovalResolution(
@@ -180,19 +234,18 @@ function raceApprovalResolution(
   signal?: AbortSignal,
 ): Promise<ApprovalResolution> {
   if (!signal) return Promise.race(resolutions);
-  if (signal.aborted) {
-    return Promise.reject(
-      new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
-    );
-  }
   return new Promise<ApprovalResolution>((resolve, reject) => {
-    const abort = () =>
+    const abort = () => {
+      signal.removeEventListener("abort", abort);
       reject(
         new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
       );
+    };
     signal.addEventListener("abort", abort, { once: true });
     Promise.race(resolutions)
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", abort));
+    // Attach contender rejection handlers even if Stop arrived during request append.
+    if (signal.aborted) abort();
   });
 }

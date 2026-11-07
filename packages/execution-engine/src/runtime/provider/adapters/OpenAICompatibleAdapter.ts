@@ -1,4 +1,4 @@
-// apps/brain/src/services/providers/adapters/OpenAICompatibleAdapter.ts
+// Shared runtime provider adapter.
 // Base adapter for OpenAI-compatible providers (OpenAI, LiteLLM, etc.)
 
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
@@ -8,11 +8,11 @@ import type {
   GenerationParams,
   GenerationResult,
   StreamChunk,
-} from "../base/ProviderAdapter";
-import type { LLMUsage } from "@legioncode/execution-engine/runtime/cost";
-import { normalizeProviderGenerationError } from "./ProviderGenerationError";
-import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
-import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts";
+} from "../base/ProviderAdapter.js";
+import type { LLMUsage } from "../../cost/types.js";
+import { normalizeProviderGenerationError } from "./ProviderGenerationError.js";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy.js";
+import { visiblePartsFromGenerateTextResult } from "./ProviderTranscriptParts.js";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;

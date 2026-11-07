@@ -53,7 +53,16 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await expect(
       page.getByRole("heading", { name: "LegionCode Desktop" }),
     ).toBeVisible();
-    await expect(page.getByText("Packaged", { exact: true })).toBeVisible();
+    await openSidebar.click();
+    await workspaceSidebar.getByRole("button", { name: "Settings", exact: true }).click();
+    const settingsDialog = page.getByRole("dialog", { name: "Settings", exact: true });
+    const about = settingsDialog.locator(".desktop-about");
+    await about.locator("summary").click();
+    const buildInfo = await page.evaluate(() => window.desktop.getBuildInfo());
+    await expect(about.getByText(buildInfo.version, { exact: true })).toBeVisible();
+    await expect(about.getByText(`${buildInfo.platform} · ${buildInfo.arch}`, { exact: true })).toBeVisible();
+    await settingsDialog.getByRole("button", { name: "Close settings", exact: true }).click();
+    await closeSidebar.click();
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
     const environment = AppServerEnvironmentSnapshotSchema.parse(
       await page.evaluate(() => window.desktop.getEnvironment()),
@@ -240,6 +249,8 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     page.on("console", (message) => consoleText.push(message.text()));
     page.on("pageerror", (error) => consoleText.push(error.message));
     await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Provider setup" })).toBeVisible();
 
     const candidate = await page.evaluate(async (protocolVersion) => {
@@ -305,8 +316,8 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     expect(Number.parseFloat(wideTracks[0]!)).toBe(32);
     expect(Number.parseFloat(wideTracks[1]!)).toBeGreaterThan(0);
     await page.getByRole("heading", { name: "Provider setup" }).evaluate((heading) => {
-      const scrollHost = heading.closest(".lc-workspace-content");
-      if (!(scrollHost instanceof HTMLElement)) throw new Error("Workspace content scroll container was not found");
+      const scrollHost = heading.closest(".desktop-settings-body");
+      if (!(scrollHost instanceof HTMLElement)) throw new Error("Settings scroll container was not found");
       scrollHost.scrollTop += heading.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top - 8;
     });
     await page.screenshot({ path: testInfo.outputPath("provider-setup-wide.png"), fullPage: true });
@@ -325,8 +336,8 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     expect(Number.parseFloat(narrowTracks[0]!)).toBe(32);
     expect(Number.parseFloat(narrowTracks[1]!)).toBeGreaterThan(0);
     await page.getByRole("heading", { name: "Provider setup" }).evaluate((heading) => {
-      const scrollHost = heading.closest(".lc-workspace-content");
-      if (!(scrollHost instanceof HTMLElement)) throw new Error("Workspace content scroll container was not found");
+      const scrollHost = heading.closest(".desktop-settings-body");
+      if (!(scrollHost instanceof HTMLElement)) throw new Error("Settings scroll container was not found");
       scrollHost.scrollTop += heading.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top - 8;
     });
     const narrowOverflow = await page.evaluate(() =>
@@ -352,6 +363,8 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     });
     const restartedPage = await application.firstWindow();
     await expect(restartedPage.getByText("Environment ready", { exact: true })).toBeVisible();
+    await restartedPage.getByRole("button", { name: "Open sidebar" }).click();
+    await restartedPage.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(restartedPage.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
     await expect(restartedPage.getByText(new RegExp(`${candidate.displayName}: Saved`))).toBeVisible();
 
@@ -365,6 +378,8 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     });
     const deletedPage = await application.firstWindow();
     await expect(deletedPage.getByText("Environment ready", { exact: true })).toBeVisible();
+    await deletedPage.getByRole("button", { name: "Open sidebar" }).click();
+    await deletedPage.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(deletedPage.getByText("No provider route selected.", { exact: true })).toBeVisible();
     await expect(deletedPage.getByText(new RegExp(`${candidate.displayName}: Missing`))).toBeVisible();
 
@@ -434,12 +449,14 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
         filePaths: [selectedPath],
       });
     }, repositoryRoot);
-    await page.getByRole("button", { name: "Choose folder" }).click();
-    await expect(page.getByText("Selected: repository", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Grant access" }).click();
-    await expect(page.getByRole("heading", { name: "repository" })).toBeVisible();
-    await expect(page.getByText("main", { exact: true })).toBeVisible();
     await initialOpenSidebar.click();
+    await workspaceSidebar.getByRole("button", { name: "Choose folder" }).click();
+    await expect(workspaceSidebar.getByRole("region", { name: "Selected folder" }).getByText("repository", { exact: true })).toBeVisible();
+    await workspaceSidebar.getByRole("button", { name: "Grant access" }).click();
+    await expect(page.getByRole("heading", { name: "Choose a task", exact: true })).toBeVisible();
+    const workspaceSummary = workspaceSidebar.locator(".desktop-workspace-summary");
+    await expect(workspaceSummary.getByText("repository", { exact: true })).toBeVisible();
+    await expect(workspaceSummary.getByText("main", { exact: true })).toBeVisible();
     await expect(workspaceSidebar).toBeVisible();
     await expect(initialCloseSidebar).toBeVisible();
     await initialCloseSidebar.click();
@@ -447,28 +464,45 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await initialOpenSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
 
-    await page.getByLabel("New thread title").fill("Initial thread");
-    await page.getByRole("button", { name: "Create thread" }).click();
-    const initialThread = page.getByRole("option", { name: "Initial thread" });
+    await workspaceSidebar.getByRole("button", { name: "New task", exact: true }).click();
+    const firstCreatedThread = page.getByRole("option", { name: "New local thread", exact: true });
+    await expect(firstCreatedThread).toHaveAttribute("aria-selected", "true");
+    await firstCreatedThread.hover();
+    const firstDetails = page.getByRole("dialog", { name: "New local thread details", exact: true });
+    await firstDetails.getByRole("button", { name: "Rename New local thread", exact: true }).click();
+    await firstDetails.getByRole("textbox", { name: "Rename New local thread", exact: true }).fill("Initial thread");
+    await firstDetails.getByRole("textbox", { name: "Rename New local thread", exact: true }).press("Enter");
+    const initialThread = page.getByRole("option", { name: "Initial thread", exact: true });
     await expect(initialThread).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("workspace-sidebar")).toBeVisible();
+    await expect(workspaceSidebar).toBeVisible();
     await expect(page.getByRole("group", { name: "repository", exact: true })).toBeVisible();
 
-    await page.getByLabel("New thread title").fill("Second thread");
-    await page.getByRole("button", { name: "Create thread" }).click();
-    const secondThread = page.getByRole("option", { name: "Second thread" });
+    await workspaceSidebar.getByRole("button", { name: "New task", exact: true }).click();
+    const secondCreatedThread = page.getByRole("option", { name: "New local thread", exact: true });
+    await expect(secondCreatedThread).toHaveAttribute("aria-selected", "true");
+    await secondCreatedThread.hover();
+    const createdDetails = page.getByRole("dialog", { name: "New local thread details", exact: true });
+    await createdDetails.getByRole("button", { name: "Rename New local thread", exact: true }).click();
+    await createdDetails.getByRole("textbox", { name: "Rename New local thread", exact: true }).fill("Second thread");
+    await createdDetails.getByRole("textbox", { name: "Rename New local thread", exact: true }).press("Enter");
+    const secondThread = page.getByRole("option", { name: "Second thread", exact: true });
     await expect(secondThread).toHaveAttribute("aria-selected", "true");
     await expect(initialThread).toHaveAttribute("aria-selected", "false");
-    await expect(page.getByLabel("Thread title", { exact: true })).toHaveValue(
-      "Second thread",
-    );
-
-    await page.getByLabel("Thread title", { exact: true }).fill("Renamed thread");
-    await page.getByRole("button", { name: "Rename" }).click();
-    await expect(page.getByRole("option", { name: "Renamed thread" })).toBeVisible();
-    const openedThread = page.getByLabel("Opened local thread");
-    await openedThread.getByRole("button", { name: "Archive", exact: true }).click();
-    await expect(openedThread.getByRole("button", { name: "Unarchive", exact: true })).toBeVisible();
+    await secondThread.hover();
+    const secondDetails = page.getByRole("dialog", { name: "Second thread details", exact: true });
+    await secondDetails.getByRole("button", { name: "Rename Second thread", exact: true }).click();
+    const titleInput = secondDetails.getByRole("textbox", { name: "Rename Second thread", exact: true });
+    await expect(titleInput).toHaveValue("Second thread");
+    await titleInput.fill("Renamed thread");
+    await titleInput.press("Enter");
+    const renamedThread = page.getByRole("option", { name: "Renamed thread", exact: true });
+    await expect(renamedThread).toHaveAttribute("aria-selected", "true");
+    await renamedThread.hover();
+    await page.getByRole("button", { name: "Archive Renamed thread", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm archive for Renamed thread", exact: true }).click();
+    await workspaceSidebar.getByRole("button", { name: /Archived/ }).click();
+    await renamedThread.hover();
+    await expect(page.getByRole("button", { name: "Unarchive Renamed thread", exact: true })).toBeVisible();
 
     await page.evaluate(() => {
       localStorage.clear();
@@ -483,7 +517,7 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     });
     const reopenedPage = await application.firstWindow();
     await reopenedPage.setViewportSize({ width: 960, height: 800 });
-    await expect(reopenedPage.getByRole("heading", { name: "repository" })).toBeVisible();
+    await expect(reopenedPage.getByRole("heading", { name: "Choose a task", exact: true })).toBeVisible();
     const reopenedOpenSidebar = reopenedPage.getByRole("button", { name: "Open sidebar" });
     const reopenedSidebar = reopenedPage.getByTestId("workspace-sidebar");
     const reopenedCloseSidebar = reopenedSidebar.getByRole("button", { name: "Close sidebar" });
@@ -494,21 +528,29 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       "true",
     );
     await expect(reopenedCloseSidebar).toBeFocused();
+    await expect(reopenedSidebar.locator(".desktop-workspace-summary").getByText("repository", { exact: true })).toBeVisible();
     await reopenedPage.getByRole("button", { name: /Archived/ }).click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.getByRole("option", { name: "Renamed thread" }).click();
-    const reopenedThread = reopenedPage.getByLabel("Opened local thread");
-    await expect(reopenedThread.getByRole("button", { name: "Unarchive", exact: true })).toBeVisible();
-    await reopenedThread.getByRole("button", { name: "Unarchive", exact: true }).click();
-    await expect(reopenedThread.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+    await expect(reopenedSidebar).toBeHidden();
     await expect(reopenedOpenSidebar).toBeVisible();
     await reopenedOpenSidebar.click();
-    await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
+    const reopenedThread = reopenedPage.getByRole("option", { name: "Renamed thread", exact: true });
+    await expect(reopenedThread).toHaveAttribute("aria-selected", "true");
+    await reopenedThread.hover();
+    await expect(reopenedPage.getByRole("button", { name: "Unarchive Renamed thread", exact: true })).toBeVisible();
+    await reopenedPage.getByRole("button", { name: "Unarchive Renamed thread", exact: true }).click();
+    await reopenedThread.hover();
+    await expect(reopenedPage.getByRole("button", { name: "Archive Renamed thread", exact: true })).toBeVisible();
+    await expect(reopenedThread).toHaveAttribute("aria-selected", "true");
+    await reopenedCloseSidebar.focus();
     await reopenedPage.keyboard.press("Escape");
     await expect(reopenedSidebar).toBeHidden();
     await expect(reopenedOpenSidebar).toBeFocused();
-    await reopenedPage.getByRole("button", { name: "Revoke access" }).click();
-    await expect(reopenedPage.getByRole("heading", { name: "No workspace granted" })).toBeVisible();
+    await reopenedOpenSidebar.click();
+    await reopenedSidebar.getByRole("button", { name: "Revoke access" }).click();
+    await expect(reopenedPage.getByRole("heading", { name: "Open a local workspace", exact: true })).toBeVisible();
+    await expect(reopenedSidebar.locator(".desktop-workspace-summary").getByText("No folder selected", { exact: true })).toBeVisible();
 
     await application.close();
     application = undefined;
@@ -516,7 +558,10 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       executablePath,
       args: [`--user-data-dir=${userDataDirectory}`],
     });
-    await expect((await application.firstWindow()).getByRole("heading", { name: "No workspace granted" })).toBeVisible();
+    const revokedPage = await application.firstWindow();
+    await expect(revokedPage.getByRole("heading", { name: "Open a local workspace", exact: true })).toBeVisible();
+    await revokedPage.getByRole("button", { name: "Open sidebar" }).click();
+    await expect(revokedPage.getByTestId("workspace-sidebar").locator(".desktop-workspace-summary").getByText("No folder selected", { exact: true })).toBeVisible();
   } finally {
     await application?.close();
     await rm(testRoot, { recursive: true, force: true });
