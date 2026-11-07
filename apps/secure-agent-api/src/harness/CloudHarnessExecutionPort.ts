@@ -73,7 +73,14 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       )
         throw new Error("Cloud harness learned binding mismatch");
       await this.supervisor.authorize({ operation: "observe", session });
-      this.clients.set(JSON.stringify(session), {
+      const key = JSON.stringify(session);
+      // Recovery reserves this identity before its first async connection work.
+      // A late open must never replace its sticky observation-only authority.
+      if (this.clients.has(key))
+        throw new Error(
+          "Cloud harness session already owned; recovery required",
+        );
+      this.clients.set(key, {
         client,
         startCommandFingerprint,
       });
@@ -167,12 +174,18 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
         this.requestTimeoutMs,
       );
       client.setObserver(input.session, input.observe);
-      await client.connect(input.signal);
       this.clients.set(key, {
         client,
         // Observation recovery never authorizes a new prompt dispatch.
         startCommandFingerprint: null,
       });
+      try {
+        await client.connect(input.signal);
+      } catch (error) {
+        // Retain the observation-only entry even on failed/ambiguous recovery.
+        client.fence();
+        throw error;
+      }
     } else {
       client.setObserver(input.session, input.observe);
     }

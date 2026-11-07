@@ -134,10 +134,6 @@ export class HarnessConnectionService {
     );
     const acquired = await this.store.acquireConnection(expected(before));
     if (!acquired) return null;
-    // Decryption/storage I/O can outlive Stop or an execution-claim fence. The
-    // encrypted store checks credential CAS; the admission owner must separately
-    // revalidate the attempt before any material leaves this custody boundary.
-    await this.policy.authorizeAttempt(binding);
     const current = await this.store.getConnection(binding.connectionId);
     if (
       !current ||
@@ -152,6 +148,10 @@ export class HarnessConnectionService {
       current.refreshClaimId !== null
     )
       return null;
+    // Final storage I/O can outlive Stop/recovery or context cancellation. Check
+    // the same canonical attempt authority at delivery, with no further async
+    // storage work between that fence and the access-only runtime projection.
+    await this.policy.authorizeAttempt(binding);
     // Long-lived refresh material never crosses the harness resolver port.
     if (acquired.secret.type === "oauth") {
       if (acquired.secret.expiresAt <= Date.now()) return null;
