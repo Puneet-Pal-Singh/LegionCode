@@ -919,9 +919,13 @@ method contract remain the canonical Git owners and consumers.
 - `NativeProviderContextMessages.test.ts` verifies image-safe estimates and
   summaries, protocol bounds, retained instructions, and paired tool progress.
 - `ChatMediaStore.test.ts` covers scoped media identity and validation.
-- Brain `ChatImageSettings` and `ChatImageNormalizer` own full decoding and
-  provider normalization. They validate dimensions before decoding, serialize
-  upload decoding, free WASM allocations, and preserve original R2 bytes.
+- `packages/chat-media` owns shared data-URL/MIME/signature validation, image
+  settings, full decoding, and provider normalization using the same Photon
+  codec on Node and Workers. Brain adapters preserve domain errors and keep
+  authenticated R2 storage/reference issuance; they serialize upload decoding
+  and preserve original bytes. The core validates dimensions before decoding
+  and frees WASM allocations. Desktop persistence/rehydration remains a separate
+  adapter integration; this extraction does not claim that wiring is complete.
   PNG, JPEG, WebP, and GIF fixtures prove decoding; corrupt files, pixel bombs,
   resizing, and encoded-size limits have focused regression coverage.
 - Model discovery owns trusted image capability metadata. Chat admission and
