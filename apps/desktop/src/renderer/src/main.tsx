@@ -20,6 +20,7 @@ import type {
 import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
+import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
 import "./styles.css";
 
@@ -242,6 +243,26 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
+  async function setThreadPinned(threadId: string, pinned: boolean): Promise<void> {
+    const thread = threads.find((item) => item.id === threadId);
+    if (!thread || !appServerClient) return;
+    const scope = threadScope.current;
+    const request = selectionRequest.current;
+    try {
+      const updated = pinned
+        ? await appServerClient.pinThread(thread.id)
+        : await appServerClient.unpinThread(thread.id);
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current) {
+        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      }
+      await refreshThreads();
+    } catch {
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      setThreadError("The local thread could not be updated.");
+    }
+  }
+
   async function chooseWorkspace(): Promise<void> {
     setWorkspaceError(null);
     try {
@@ -352,12 +373,15 @@ function DesktopApp(): React.JSX.Element {
           onSidebarOpenChange={setSidebarOpen}
           sidebar={(
             <ThreadSidebar
+              pullRequestUnavailableReason="Pull request status is unavailable."
               model={sidebarModel}
               visible={sidebarOpen}
               onSelect={(threadId) => { closeCompactSidebar(); void openThread(threadId); }}
               onCreate={workspace?.readiness === "ready" && sdkReady ? () => void createThread() : undefined}
               onAddWorkspace={sdkReady ? () => void chooseWorkspace() : undefined}
               onRenameSession={renameThread}
+              onPin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, true) : undefined}
+              onUnpin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, false) : undefined}
               onArchive={archiveThread}
               onUnarchive={unarchiveThread}
               onClose={() => setSidebarOpen(false)}
@@ -396,6 +420,22 @@ function DesktopApp(): React.JSX.Element {
               workspace={workspace}
               threadId={selectedThread?.id ?? null}
               review={null}
+              files={appServerClient && sdkReady && environment.status === "ready" && environment.kind === "local" && workspace?.readiness === "ready" ? {
+                workspaceId: workspace.workspaceId,
+                grantedAt: workspace.grantedAt,
+                readiness: workspace.readiness,
+                content: <DesktopWorkspaceFilesMount
+                  client={appServerClient}
+                  workspaceId={workspace.workspaceId}
+                  grantedAt={workspace.grantedAt}
+                  readiness={workspace.readiness}
+                  availability={environment.capabilities.includes("workspace-files-v1") ? { available: true } : {
+                    available: false,
+                    reason: environment.unavailableCapabilities.find((item) => item.capability === "workspace-files-v1")?.reason
+                      ?? "This local environment does not provide workspace file reads.",
+                  }}
+                />,
+              } : undefined}
               filesUnavailableReason="Local workspace file reads are unavailable in this environment."
               commitUnavailableReason="Choose a completed turn with saved changes before committing."
               onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
