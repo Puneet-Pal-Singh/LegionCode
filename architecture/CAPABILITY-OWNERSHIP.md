@@ -1376,3 +1376,17 @@ empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
 are rejected. HOME and TMP remain canonical existing directories. No ambient
 environment spread, model-controlled override or filesystem authority is added;
 ordinary executable environments and process containment remain unchanged.
+
+## Saved Turn artifact commit command boundary
+
+SDK `commitTurnArtifact` sends `git/commitTurnArtifact` using the canonical
+`CommitTurnArtifactRequestSchema` and validates `CommitTurnArtifactResponseSchema`.
+Requests explicitly select all saved changes or unique saved entry paths; the
+handler authorizes those entries and expands rename path pairs from saved data.
+App Server dispatches only local requests to the optional structural
+`localTurnArtifactCommitService.commitTurnArtifact` port; missing or nonlocal
+composition returns typed `503 server_unavailable` with `retryable: false`.
+The private handler remains the owner of authorized settled-Turn artifact
+selection and canonical Git mutation. Handler injection, local composition,
+capability advertisement and UI activation are not implemented by this boundary.
+No live-Git selector, fallback commit path or second artifact owner is introduced.
