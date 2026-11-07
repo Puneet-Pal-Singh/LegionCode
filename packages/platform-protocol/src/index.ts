@@ -222,6 +222,7 @@ export {
 export {
   ProtocolErrorCodeSchema,
   ProtocolErrorSchema,
+  toPublicProtocolError,
   type ProtocolError,
   type ProtocolErrorCode,
 } from "./errors.js";
