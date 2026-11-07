@@ -275,7 +275,8 @@ export class CodexDriver implements HarnessDriver {
                   .number()
                   .int()
                   .nonnegative()
-                  .max(8_640_000_000_000),
+                  .max(8_640_000_000_000)
+                  .nullish(),
               }),
             })
             .parse(raw).turn;
@@ -283,9 +284,10 @@ export class CodexDriver implements HarnessDriver {
           const payload = HarnessObservationPayloadSchema.parse({
             kind: "external_terminal",
             status,
-            providerCompletedAt: new Date(
-              turn.completedAt * 1000,
-            ).toISOString(),
+            providerCompletedAt:
+              turn.completedAt == null
+                ? null
+                : new Date(turn.completedAt * 1000).toISOString(),
             itemId: codexItemId(selection.runAttemptId, turn.id),
             output: finalOutput,
             error:
