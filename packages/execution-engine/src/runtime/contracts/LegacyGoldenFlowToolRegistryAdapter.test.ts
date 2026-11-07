@@ -24,6 +24,7 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
       "apply_patch",
       "format_file",
       "bash",
+      "run_executable",
       "git_stage",
       "git_commit",
       "git_push",
@@ -50,7 +51,10 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
     ]);
 
     const registry = getGoldenFlowToolRegistry();
-    expect(Object.keys(registry)).toEqual(names);
+    expect(Object.keys(registry)).toEqual(
+      names.filter((name) => name !== "run_executable"),
+    );
+    expect(registry.run_executable).toBeUndefined();
   });
 
   it("maps llm-facing tool names to deterministic gateway routes", () => {
