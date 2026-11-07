@@ -34,6 +34,10 @@ export class ApprovalCoordinator {
       );
     }
     const pending = this.createPending(request);
+    const waitController = new AbortController();
+    const waitSignal = signal
+      ? AbortSignal.any([signal, waitController.signal])
+      : waitController.signal;
     try {
       if (!requestAlreadyCommitted) await this.lifecycle.requestApproval(
         parentItemId,
@@ -52,14 +56,14 @@ export class ApprovalCoordinator {
             runAttemptId,
             turnId: turn.id,
             request,
-            signal,
+            signal: waitSignal,
           })] : []),
           pending.resolution.then((outcome) => {
             if (outcome.status === "failed") throw outcome.error;
             return outcome.resolution;
           }),
         ],
-        signal,
+        waitSignal,
       );
       const resolution = await this.settle(
         request.approvalId,
@@ -87,6 +91,7 @@ export class ApprovalCoordinator {
       }
       return resolution;
     } finally {
+      waitController.abort();
       this.pending.delete(request.approvalId);
     }
   }

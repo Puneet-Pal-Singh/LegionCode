@@ -13,7 +13,6 @@ import {
   TurnIdSchema,
   toPublicProtocolError,
   WorkerIdSchema,
-  type ApprovalDecision,
   type ApprovalRequestedPayload,
   type Run as ProtocolRun,
   type RunAttemptId,
@@ -23,7 +22,6 @@ import {
 } from "@repo/platform-protocol";
 import type {
   ApprovalResolution,
-  ApprovalWaitPort,
   RuntimeGitSnapshotPort,
   RuntimeKernelDependencies,
   RuntimeLifecycleEventStore,
@@ -34,9 +32,7 @@ import type {
 } from "@repo/runtime-kernel";
 import { RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
 import {
-  RISKY_ACTION_CATEGORIES,
   RUN_WORKFLOW_STEPS,
-  type ApprovalRequest,
   RUN_TERMINAL_STATES,
 } from "@repo/shared-types";
 import { BaseAgent } from "../agents/BaseAgent.js";
@@ -105,10 +101,7 @@ import {
   resolveNativeKernelTerminalState,
   resolveNativeToolFailureDisposition,
 } from "./NativeTerminalFailurePresentation.js";
-import {
-  ensureApprovalResolvedEventRecorded,
-  waitForApprovalDecision,
-} from "./RunApprovalWaitPolicy.js";
+import { CanonicalApprovalDeadlinePort } from "./CanonicalApprovalDeadlinePort.js";
 import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
@@ -409,15 +402,7 @@ export class RuntimeKernelNativeRunner {
           ? toProtocolId("usr", this.options.userId)
           : undefined,
       ),
-      approvals: new NativeApprovalWaitPort({
-        env: this.options.env,
-        runId: this.options.runId,
-        sessionId: this.options.sessionId,
-        ownerUserId: this.options.userId,
-        runRepo: this.runRepo,
-        runEventRecorder: this.runEventRecorder,
-        permissionApprovalStore: this.permissionApprovalStore,
-      }),
+      approvals: new CanonicalApprovalDeadlinePort(this.options.env),
       hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
       maxToolCalls: getNativeToolCallSafetyLimit(maxSteps),
@@ -1168,122 +1153,6 @@ class KernelToolWorker implements WorkerProtocolPort {
   }
 }
 
-class NativeApprovalWaitPort implements ApprovalWaitPort {
-  constructor(
-    private readonly options: {
-      env: RunEngineOptions["env"];
-      runId: string;
-      sessionId: string;
-      ownerUserId?: string;
-      runRepo: RunRepository;
-      runEventRecorder: RunEventRecorder;
-      permissionApprovalStore: PermissionApprovalStore;
-    },
-  ) {}
-
-  async waitForDecision(input: {
-    runId: ProtocolRun["id"];
-    runAttemptId: RunAttemptId;
-    turnId: Turn["id"];
-    request: ApprovalRequestedPayload;
-  }): Promise<ApprovalResolution> {
-    const request = this.toSharedApprovalRequest(input);
-    await this.options.permissionApprovalStore.setPendingRequest(
-      request,
-      this.options.ownerUserId,
-    );
-    await this.options.runEventRecorder.recordApprovalRequested(request);
-    const outcome = await waitForApprovalDecision({
-      request,
-      env: this.options.env,
-      runId: this.options.runId,
-      runRepo: this.options.runRepo,
-      permissionApprovalStore: this.options.permissionApprovalStore,
-    });
-    const resolution = this.toApprovalResolution(outcome);
-    await ensureApprovalResolvedEventRecorded({
-      runEventRecorder: this.options.runEventRecorder,
-      requestId: request.requestId,
-      decision: mapSharedApprovalDecision(outcome, resolution),
-      status: mapSharedApprovalStatus(resolution),
-    });
-    return resolution;
-  }
-
-  private toSharedApprovalRequest(input: {
-    turnId: Turn["id"];
-    request: ApprovalRequestedPayload;
-  }): ApprovalRequest {
-    const toolName = readString(input.request.metadata.toolName) ?? "tool";
-    const action =
-      readString(input.request.metadata.action) ??
-      readString(input.request.metadata.toolName) ??
-      "execute";
-    return {
-      requestId: input.request.approvalId,
-      runId: this.options.runId,
-      sessionId: this.options.sessionId,
-      turnId: input.turnId,
-      itemId: input.request.itemId ?? undefined,
-      origin: "agent",
-      category: RISKY_ACTION_CATEGORIES.SHELL_COMMAND,
-      title: `Approve ${toolName}`,
-      reason: input.request.question,
-      actionFingerprint: `kernel:${toolName}:${action}:${input.request.approvalId}`,
-      availableDecisions: ["allow_once", "deny", "abort"],
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-    };
-  }
-
-  private toApprovalResolution(
-    outcome: Awaited<ReturnType<typeof waitForApprovalDecision>>,
-  ): ApprovalResolution {
-    if (outcome.outcome === "approved") {
-      return {
-        decision: "approved" as ApprovalDecision,
-        decidedBy: null,
-        reason: null,
-      };
-    }
-    if (outcome.outcome === "cancelled" || outcome.outcome === "aborted") {
-      return {
-        decision: "cancelled" as ApprovalDecision,
-        decidedBy: null,
-        reason: `Approval was ${outcome.outcome}.`,
-      };
-    }
-    return {
-      decision: "denied" as ApprovalDecision,
-      decidedBy: null,
-      reason:
-        outcome.outcome === "timed_out"
-          ? "Approval timed out before a decision was recorded."
-          : "Approval request was denied.",
-      ...(outcome.outcome === "timed_out" ? { timedOut: true } : {}),
-    };
-  }
-}
-
-function mapSharedApprovalDecision(
-  outcome: Awaited<ReturnType<typeof waitForApprovalDecision>>,
-  resolution: ApprovalResolution,
-): ApprovalRequest["availableDecisions"][number] {
-  if (resolution.decision === "approved") {
-    return outcome.decision ?? "allow_once";
-  }
-  return resolution.decision === "cancelled" ? "abort" : "deny";
-}
-
-function mapSharedApprovalStatus(
-  resolution: ApprovalResolution,
-): "approved" | "denied" | "aborted" {
-  if (resolution.decision === "approved") {
-    return "approved";
-  }
-  return resolution.decision === "cancelled" ? "aborted" : "denied";
-}
-
 function buildProtocolEnvelope(input: {
   runId: string;
   sessionId: string;
@@ -1435,10 +1304,6 @@ function requireAiService(dependencies: RunEngineDependencies) {
     );
   }
   return dependencies.aiService;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function failed(
