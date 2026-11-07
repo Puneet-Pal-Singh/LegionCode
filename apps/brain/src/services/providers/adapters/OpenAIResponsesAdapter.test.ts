@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter";
+import { OpenAIResponsesAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/OpenAIResponsesAdapter";
+import {
+  builtinProviderRegistry,
+  resolveProviderRuntimeRoute,
+} from "@repo/provider-core";
+import {
+  createProtectedProviderAdapter,
+  type ProtectedProviderCredential,
+} from "@legioncode/execution-engine/runtime/provider/ProtectedProviderInference";
 import { PNG_DATA_URL } from "../../chat/__tests__/ImageFixtures";
 
 describe("OpenAIResponsesAdapter", () => {
@@ -54,6 +62,178 @@ describe("OpenAIResponsesAdapter", () => {
         }),
       }),
     );
+
+    const modelId = builtinProviderRegistry.listModels("openai")[0]?.modelId;
+    if (!modelId)
+      throw new Error("Expected an existing registered OpenAI model");
+    const route = resolveProviderRuntimeRoute("openai", modelId)!;
+    let credential: ProtectedProviderCredential | null = {
+      apiKey: "fixture-protected-first",
+    };
+    const resolveCredential = vi.fn(async () => credential);
+    const native = createProtectedProviderAdapter({
+      providerId: "openai",
+      modelId,
+      resolveCredential,
+    });
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    fetchSpy
+      .mockClear()
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              output_text: "Done",
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            { status: 200 },
+          ),
+      );
+    await expect(
+      native.generate({
+        messages: [{ role: "user", content: "native hello" }],
+      }),
+    ).resolves.toMatchObject({ content: "Done" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      route.providerEndpoint,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer fixture-protected-first",
+        }),
+      }),
+    );
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)).model).toBe(
+      route.runtimeModelId,
+    );
+
+    credential = { apiKey: "fixture-protected-replaced" };
+    await native.generate({ messages: [{ role: "user", content: "second" }] });
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      route.providerEndpoint,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer fixture-protected-replaced",
+        }),
+      }),
+    );
+    expect(resolveCredential).toHaveBeenCalledTimes(2);
+    credential = null;
+    fetchSpy.mockClear();
+    await expect(native.generate({ messages: [] })).rejects.toMatchObject({
+      code: "AUTH_FAILED",
+      retryable: false,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const cancelled = new AbortController();
+    cancelled.abort();
+    const readsBeforeAbort = resolveCredential.mock.calls.length;
+    await expect(
+      native.generate({ messages: [], signal: cancelled.signal }),
+    ).rejects.toMatchObject({ code: "ABORTED", retryable: false });
+    expect(resolveCredential).toHaveBeenCalledTimes(readsBeforeAbort);
+    await expect(
+      adapter.generate({
+        messages: [],
+        model: "gpt-5.5",
+        signal: cancelled.signal,
+      }),
+    ).rejects.toMatchObject({ code: "ABORTED" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await expect(
+      native.generate({ messages: [], model: "different-selection" }),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_CONFIGURATION" });
+    expect(resolveCredential).toHaveBeenCalledTimes(readsBeforeAbort);
+
+    credential = { apiKey: "fixture-protected-repaired" };
+    for (const statusCode of [401, 503, 502]) {
+      fetchSpy
+        .mockClear()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ error: { message: credential.apiKey } }),
+            { status: statusCode },
+          ),
+        );
+      const error = await native
+        .generate({ messages: [] })
+        .catch((failure: unknown) => failure);
+      expect(error).toMatchObject({
+        statusCode,
+        retryable: statusCode >= 500,
+        code: statusCode === 401 ? "AUTH_FAILED" : "PROVIDER_UNAVAILABLE",
+      });
+      expect(JSON.stringify(error)).not.toContain(credential.apiKey);
+      expect(String(error)).not.toContain(credential.apiKey);
+      expect(error).toHaveProperty("cause", undefined);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    }
+    fetchSpy.mockClear().mockRejectedValue(new Error(credential.apiKey));
+    const networkFailure = await native
+      .generate({ messages: [] })
+      .catch((failure: unknown) => failure);
+    expect(networkFailure).toMatchObject({
+      code: "NETWORK_ERROR",
+      retryable: true,
+    });
+    expect(String(networkFailure)).not.toContain(credential.apiKey);
+    expect(networkFailure).toHaveProperty("cause", undefined);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy
+      .mockClear()
+      .mockResolvedValue(new Response("{bad", { status: 200 }));
+    await expect(native.generate({ messages: [] })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE_CONTRACT",
+      statusCode: 502,
+      retryable: false,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const stopDuringLookup = new AbortController();
+    let releaseCredential!: (value: ProtectedProviderCredential | null) => void;
+    resolveCredential.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseCredential = resolve;
+        }),
+    );
+    fetchSpy.mockClear();
+    const pendingLookup = native.generate({
+      messages: [],
+      signal: stopDuringLookup.signal,
+    });
+    stopDuringLookup.abort();
+    releaseCredential(credential);
+    await expect(pendingLookup).rejects.toMatchObject({
+      code: "ABORTED",
+      retryable: false,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    try {
+      fetchSpy.mockImplementation(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new Error("fixture deadline")),
+              { once: true },
+            );
+          }),
+      );
+      const timedOut = native.generate({ messages: [] });
+      const checkedTimeout = expect(timedOut).rejects.toMatchObject({
+        code: "TIMEOUT",
+        statusCode: 408,
+        retryable: true,
+      });
+      await vi.advanceTimersByTimeAsync(150_000);
+      await checkedTimeout;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("normalizes function-call output items", async () => {
@@ -142,7 +322,10 @@ describe("OpenAIResponsesAdapter", () => {
                 { type: "other", text: "Do not display this." },
               ],
             },
-            { type: "message", content: [{ type: "output_text", text: "Done" }] },
+            {
+              type: "message",
+              content: [{ type: "output_text", text: "Done" }],
+            },
           ],
           usage: { input_tokens: 1, output_tokens: 1 },
         }),
@@ -216,24 +399,22 @@ describe("OpenAIResponsesAdapter", () => {
   });
 
   it("converts Zod coding-tool schemas for Responses function tools", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            output: [
-              {
-                type: "function_call",
-                call_id: "call_prs",
-                name: "list_pull_requests",
-                arguments: JSON.stringify({ owner: "acme", repo: "legion" }),
-              },
-            ],
-            status: "completed",
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_prs",
+              name: "list_pull_requests",
+              arguments: JSON.stringify({ owner: "acme", repo: "legion" }),
+            },
+          ],
+          status: "completed",
+        }),
+        { status: 200 },
+      ),
+    );
     const adapter = new OpenAIResponsesAdapter({
       apiKey: "sk-test",
       endpoint: "https://api.openai.com/v1/responses",
