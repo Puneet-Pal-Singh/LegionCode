@@ -31,6 +31,10 @@ foundation wires the existing Desktop read-only startup to trusted native helper
 paths, protected host roots, metadata inspection and canonical repository probes.
 File queries consume the same binding and native reader. Captured execution and
 mutation capabilities remain separate; missing helpers grant no native access.
+Grant failures use the existing typed App Server operation error with static
+stage/reason categories; raw paths, Git output and error context stay private.
+Storage failures retain their existing 503 response, and resource uncertainty
+still retains the original pin and quarantine semantics.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.

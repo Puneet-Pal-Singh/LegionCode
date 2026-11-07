@@ -27,6 +27,7 @@ import type { DefaultGitService } from "@repo/git-service";
 import type { VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 import { LocalWorkspaceRootPin } from "./local-workspace-root-pin.js";
 import { LocalWorkspaceMetadataResolver } from "./local-workspace-metadata-resolver.js";
+import { workspaceGrantFailure, type LocalWorkspaceGrantStage } from "./local-workspace-grant-error.js";
 
 export type LocalWorkspaceServiceOptions = {
   workspaceGrants: LocalPersistence["workspaceGrants"];
@@ -121,58 +122,74 @@ export class LocalWorkspaceService {
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
-    this.assertProbingAvailable();
-    const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
-    const generation = this.invalidateExecutionBindings();
-    const signal = this.executionController.signal;
-    this.transitioning = true;
-    let pin: LocalWorkspaceRootPin | undefined;
+    let stage: LocalWorkspaceGrantStage = "validation";
     try {
-      const canonicalPath = await validateSelectedDirectory(path);
-      await this.assertOutsideProtectedRoots(canonicalPath);
-      pin = await this.openRootPin(canonicalPath, generation, signal);
-      // Identity inspection is native metadata I/O, and precedes even Git readiness execution.
-      const gitMetadataIdentity = await this.inspectIdentity(pin);
-      const { repoRoot, probe } = await this.readRepository(
-        canonicalPath,
-        generation,
-        signal,
-        pin,
-      );
-      if (repoRoot !== canonicalPath)
-        throw new Error("Workspace selection must be the repository root");
-      await this.assertIdentity(pin, gitMetadataIdentity);
-      const previous = await this.workspaceGrants.read();
-      this.assertGeneration(generation);
-      const workspaceId =
-        previous?.version === 2 &&
-        previous.gitMetadataIdentity === gitMetadataIdentity
-          ? previous.grant.workspaceId
-          : WorkspaceIdSchema.parse(
-              workspaceIdFromExternalId(`local-${randomUUID()}`),
-            );
-      const grant = buildGrant(repoRoot, probe, workspaceId);
-      const stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }> = {
-        version: 2,
-        path: repoRoot,
-        grant,
-        gitMetadataIdentity,
-      };
-      this.assertGeneration(generation);
       this.assertProbingAvailable();
-      signal.throwIfAborted();
-      await this.workspaceGrants.write(stored);
-      await pin.assertPathCurrent();
-      this.assertGeneration(generation);
-      this.assertProbingAvailable();
-      signal.throwIfAborted();
-      return grant;
-    } finally {
+      const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
+      const generation = this.invalidateExecutionBindings();
+      const signal = this.executionController.signal;
+      this.transitioning = true;
+      let pin: LocalWorkspaceRootPin | undefined;
       try {
-        if (pin && !pin.quarantined) await pin.close();
+        const canonicalPath = await validateSelectedDirectory(path);
+        stage = "protected_roots";
+        await this.assertOutsideProtectedRoots(canonicalPath);
+        stage = "root_pin";
+        pin = await this.openRootPin(canonicalPath, generation, signal);
+        // Identity inspection is native metadata I/O, and precedes even Git readiness execution.
+        stage = "metadata";
+        const gitMetadataIdentity = await this.inspectIdentity(pin);
+        stage = "git_probe";
+        const { repoRoot, probe } = await this.readRepository(
+          canonicalPath,
+          generation,
+          signal,
+          pin,
+        );
+        if (repoRoot !== canonicalPath)
+          throw new Error("Workspace selection must be the repository root");
+        stage = "identity";
+        await this.assertIdentity(pin, gitMetadataIdentity);
+        stage = "persistence";
+        const previous = await this.workspaceGrants.read();
+        this.assertGeneration(generation);
+        const workspaceId =
+          previous?.version === 2 &&
+          previous.gitMetadataIdentity === gitMetadataIdentity
+            ? previous.grant.workspaceId
+            : WorkspaceIdSchema.parse(
+                workspaceIdFromExternalId(`local-${randomUUID()}`),
+              );
+        const grant = buildGrant(repoRoot, probe, workspaceId);
+        const stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }> = {
+          version: 2,
+          path: repoRoot,
+          grant,
+          gitMetadataIdentity,
+        };
+        this.assertGeneration(generation);
+        this.assertProbingAvailable();
+        signal.throwIfAborted();
+        await this.workspaceGrants.write(stored);
+        stage = "final_validation";
+        await pin.assertPathCurrent();
+        this.assertGeneration(generation);
+        this.assertProbingAvailable();
+        signal.throwIfAborted();
+        return grant;
       } finally {
-        if (generation === this.generation) this.transitioning = false;
+        try {
+          try {
+            if (pin && !pin.quarantined) await pin.close();
+          } catch (error) {
+            throw workspaceGrantFailure(error, "cleanup");
+          }
+        } finally {
+          if (generation === this.generation) this.transitioning = false;
+        }
       }
+    } catch (error) {
+      throw workspaceGrantFailure(error, stage);
     }
   }
 
