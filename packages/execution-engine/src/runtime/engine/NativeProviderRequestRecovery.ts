@@ -67,9 +67,13 @@ export function isProviderRateLimitError(error: unknown): boolean {
  * must settle the run immediately instead of multiplying provider calls.
  */
 export function isProviderRecoveryError(error: unknown): boolean {
-  return errorChain(error).some((candidate) => {
+  const chain = errorChain(error);
+  for (const candidate of chain) {
+    const explicit = readBooleanProperty(candidate, "retryable");
+    if (explicit !== null) return explicit;
+  }
+  return chain.some((candidate) => {
     const statusCode = readNumericProperty(candidate, "statusCode");
-    if (readBooleanProperty(candidate, "retryable") === true) return true;
     if (
       statusCode === 408 ||
       statusCode === 429 ||
