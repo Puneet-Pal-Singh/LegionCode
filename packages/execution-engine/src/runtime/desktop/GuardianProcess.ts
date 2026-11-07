@@ -9,6 +9,7 @@ import {
   SingleProcessMacCapabilityError,
 } from "./SingleProcessMacSandbox.js";
 import type { SingleExecutableProcessInput } from "./SingleExecutableProcess.js";
+import { gitConfigurationHome } from "./GitConfigurationHome.js";
 
 const OUTPUT_BYTES = 64 * 1024;
 const DEADLINE_MS = 60_000;
@@ -175,9 +176,6 @@ export class GuardianProcess {
         for (const path of [
           context.homeDirectory,
           context.temporaryDirectory,
-          ...(context.xdgConfigHome === undefined
-            ? []
-            : [context.xdgConfigHome]),
         ]) {
           if (
             typeof path !== "string" ||
@@ -193,8 +191,8 @@ export class GuardianProcess {
         }
         gitEnvironment.HOME = context.homeDirectory;
         gitEnvironment.TMPDIR = context.temporaryDirectory;
-        if (context.xdgConfigHome !== undefined)
-          gitEnvironment.XDG_CONFIG_HOME = context.xdgConfigHome;
+        const xdg = gitConfigurationHome(context.xdgConfigHome);
+        if (xdg !== undefined) gitEnvironment.XDG_CONFIG_HOME = xdg;
       } catch (error) {
         throw new SingleProcessMacCapabilityError(
           "Trusted private Git configuration context is unavailable",

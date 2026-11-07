@@ -51,6 +51,34 @@ checks persisted terminal/checkpoint state before retrying capture.
 uses bounded text reads. These references support keeping capture ownership and
 local execution behind existing ports; they introduce no external harness driver.
 
+## Plan 057 — Prepared captured execution capability
+
+`LocalTurnExecutor` is the same execution owner and exact-attempt handle map as
+the existing `LocalReadOnlyTurnExecutor` export; the latter remains an alias for
+current consumers. The default and explicit read-only capability keep `ask`,
+restricted read-file dispatch, no executable hooks and omitted artifact capture.
+
+The explicit `artifactCapture: "required"` capability requires real Git snapshot,
+artifact, worker quiescence and attempt-bound mutation-lease ports before provider
+composition. Runtime creates `auto_edit` admissions, selects only supplied
+canonical registry definitions whose backend requirements are met. New tool work
+uses active lease/grant cancellation; final capture borrows the same original
+root and fence through retained settlement authority. Kernel retains the original
+execution and settlement continuation until worker quiescence is confirmed after
+failure or interruption. It never produces an empty capture.
+
+The host remains the mutation-lease and held-root resource owner; this extension
+consumes its signals/assertions and implements no lease store. Resource cleanup
+must retain the exact executor/binding until `awaitResourceRelease` validates
+durable terminal evidence and actual worker/capture/Git closure. Unknown closure
+keeps that original authority quarantined. A preparation failure requires the
+same physical owner's positive, exact-attempt acquisition-closure receipt; a busy
+code or an absent map entry alone cannot release the borrowed root.
+Actual mutator availability is still gated on the host lease implementation,
+worker05 guarded file worker, worker06 single-executable worker/guardian and
+worker07 real capture ports. No full-capture product consumer is declared wired
+until those owners supply and compose the real boundaries.
+
 ## Unused Web run-summary reader retirement
 
 The unreferenced `useRunSummary` hook, its implementation-only tests and its
@@ -1218,6 +1246,20 @@ boundaries. Mutators must not use `omitted_read_only` capture. Their full-captur
 and lease gates remain with worker03/07. The source is independently compiled and
 its bridge exercised against real Linux files in cloud; no new test code is added.
 
+### Private Git metadata and index transactions
+
+The same private native owner resolves ordinary and linked Git metadata for the
+approved trusted-host namespace contract. Bounded nofollow gitfile/commondir and
+backlink checks distinguish per-worktree index authority from common objects and
+refs. Association lookup is cheap; mutation-purpose storage validation rejects
+redirected paths, borrowed object stores, reftable layout and over-budget scans.
+The private T session checks the fresh layout before writes, retains its original
+root/writer descriptors through actual close and publishes only its owned index.
+These checks do not atomically bind stock Git pathname opens or enable mutations.
+Before activation the canonical Git owner additionally requires the supported
+files ref backend and no replacement refs; native storage validation requires
+absent/empty external-object alternates and grafts for this initial profile.
+
 ### Native grant-scoped directory queries
 
 `NativeFilesystemBridge.listDirectory` uses the same private root FD and helper,
@@ -1261,6 +1303,16 @@ or client-owned projection. Actual routing and capability advertisement remain
 with the trusted App Server composition after capture/store integration.
 Internal commit preparation uses the same verified record and immutable artifact
 ID; this read does not grant Git mutation authority.
+
+## Plan 057 — Structured executable tool registration
+
+The canonical coding tool registry owns the exact executable/argv schema,
+host-user authority disclosure, backend requirements and presentation for
+`run_executable`. The native permission policy requires exact-input approval;
+the existing grant matcher is exported for native receipt validation without a
+second hash implementation. Core-tool exports omit this definition unless the
+actual no-fork and approval capabilities are supplied. This registration does
+not activate a worker, acquire a writer lease or produce lifecycle events.
 
 ## Shared workspace file explorer presentation
 
@@ -1596,3 +1648,13 @@ transient delivery record survives dialog close and temporary read reloads;
 uncertain commits never automatically retry and only a matching validated
 positive receipt clears that uncertainty. This UI does not advertise a command
 capability or stage/read current worktree contents.
+
+## Private Git configuration selector
+
+The host-only Git context and the existing guardian share
+`gitConfigurationHome` validation for the explicit host XDG selector. A nonempty
+selector keeps its exact spelling, including a relative or missing directory;
+empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
+are rejected. HOME and TMP remain canonical existing directories. No ambient
+environment spread, model-controlled override or filesystem authority is added;
+ordinary executable environments and process containment remain unchanged.
