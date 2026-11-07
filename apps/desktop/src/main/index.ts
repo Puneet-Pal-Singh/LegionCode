@@ -37,8 +37,9 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
-const localAppServer = new LocalAppServerSupervisor((request) =>
-  providerRequestHeaders(request),
+const localAppServer = new LocalAppServerSupervisor(
+  (request) => providerRequestHeaders(request),
+  async (providerId) => credentialVault?.acquireRuntimeCredentialLease(providerId) ?? null,
 );
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
@@ -215,6 +216,16 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
+  credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
+    isEncryptionAvailable: () =>
+      safeStorage.isEncryptionAvailable() &&
+      (process.platform !== "linux" ||
+        ["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"].includes(
+          safeStorage.getSelectedStorageBackend(),
+        )),
+    encryptString: (value) => safeStorage.encryptString(value),
+    decryptString: (value) => safeStorage.decryptString(value),
+  });
   const protectedHostRoots = [
     app.getPath("userData"), app.getAppPath(), process.resourcesPath,
     fileURLToPath(new URL(".", import.meta.url)),
@@ -236,16 +247,6 @@ void app.whenReady().then(() => {
     nativeFilesystemHelperPath, nativeProcessHelperPath,
   });
   createWindow();
-  credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
-    isEncryptionAvailable: () =>
-      safeStorage.isEncryptionAvailable() &&
-      (process.platform !== "linux" ||
-        ["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"].includes(
-          safeStorage.getSelectedStorageBackend(),
-        )),
-    encryptString: (value) => safeStorage.encryptString(value),
-    decryptString: (value) => safeStorage.decryptString(value),
-  });
 });
 
 localAppServer.subscribe((snapshot) => {
