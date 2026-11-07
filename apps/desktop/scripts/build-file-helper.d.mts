@@ -16,6 +16,11 @@ export function assertNativeFileHelperTarget(
   platform: string,
   architecture: string,
 ): void;
+export function hashNativeHelperCompilationUnit(
+  sourcePath: string,
+  platform: string,
+  architecture: string,
+): Promise<string>;
 export function inspectNativeFileHelper(
   path: string,
   platform: string,
