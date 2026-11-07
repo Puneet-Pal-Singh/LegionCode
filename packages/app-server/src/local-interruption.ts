@@ -83,13 +83,13 @@ export class LocalInterruptionService {
     identity: LocalInterruptionIdentity,
   ): Promise<TerminalEvent | null> {
     let afterSequence: number | null = null;
+    let terminal: TerminalEvent | null = null;
     for (;;) {
       const page = await this.options.lifecycleEvents.replay({
         turnId: identity.turnId,
         afterSequence,
         limit: 1_000,
       });
-      let terminal: TerminalEvent | null = null;
       for (const event of page.events) {
         if (
           event.turnId !== identity.turnId ||
@@ -106,9 +106,11 @@ export class LocalInterruptionService {
         )
           terminal = event;
       }
-      if (terminal) return terminal;
-      if (page.events.length < 1_000 || page.nextSequence === null) return null;
-      if (page.nextSequence <= (afterSequence ?? 0)) {
+      if (page.nextSequence === null) return terminal;
+      if (
+        page.events.length === 0 ||
+        page.nextSequence <= (afterSequence ?? 0)
+      ) {
         throw new LocalInterruptionAttemptNotActiveError();
       }
       afterSequence = page.nextSequence;
