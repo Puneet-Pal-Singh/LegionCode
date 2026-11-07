@@ -109,19 +109,7 @@ export class LocalTurnService {
       );
     if (previous) {
       // A receipt retry does not create records, acquire execution authority or resolve credentials.
-      if (
-        previous.run.workspaceId !== params.workspaceId ||
-        previous.run.userId !== thread.userId ||
-        previous.userMessage.type !== "user_message" ||
-        previous.userMessage.content.text !== params.prompt
-      ) {
-        throw new AppServerOperationError(
-          409,
-          "conflict",
-          "Admission request key has different content or ownership",
-        );
-      }
-      return previous;
+      return validateSavedAdmission(previous, params, thread);
     }
     if (thread.status !== "active") {
       throw new AppServerOperationError(
@@ -137,11 +125,13 @@ export class LocalTurnService {
         "server_unavailable",
         "Local turn execution is not configured",
       );
-    const binding = await this.options.workspaces.bindForExecution(
-      params.workspaceId,
-    );
+    let preparedBinding: LocalWorkspaceExecutionBinding | undefined;
     let executionOwnsBinding = false;
     try {
+      const binding = await this.options.workspaces.bindForExecution(
+        params.workspaceId,
+      );
+      preparedBinding = binding;
       const selection = await this.options.providers.getSelection();
       if (!selection)
         throw new AppServerOperationError(
@@ -209,8 +199,27 @@ export class LocalTurnService {
           });
       }
       return admission;
+    } catch (error) {
+      // Another identical request can commit while this request prepares its
+      // binding/provider or loses the repository's stricter fingerprint race.
+      const saved = await this.options.persistence.turnAdmissions.findByRequest(
+        thread.id,
+        params.clientRequestId,
+      );
+      if (saved) {
+        const currentThread = await this.options.threads.get(thread.id);
+        if (currentThread.workspaceId !== params.workspaceId) {
+          throw new AppServerOperationError(
+            404,
+            "not_found",
+            "Local thread was not found in the granted workspace",
+          );
+        }
+        return validateSavedAdmission(saved, params, currentThread);
+      }
+      throw error;
     } finally {
-      if (!executionOwnsBinding) await binding.close();
+      if (!executionOwnsBinding) await preparedBinding?.close();
     }
   }
 
@@ -289,4 +298,24 @@ export class LocalTurnService {
     if (!owned) throw new LocalInterruptionAttemptNotActiveError();
     return owned.executor;
   }
+}
+
+function validateSavedAdmission(
+  admission: TurnAdmission,
+  params: LocalTurnStartParams,
+  thread: Thread,
+): TurnAdmission {
+  if (
+    admission.run.workspaceId !== params.workspaceId ||
+    admission.run.userId !== thread.userId ||
+    admission.userMessage.type !== "user_message" ||
+    admission.userMessage.content.text !== params.prompt
+  ) {
+    throw new AppServerOperationError(
+      409,
+      "conflict",
+      "Admission request key has different content or ownership",
+    );
+  }
+  return admission;
 }
