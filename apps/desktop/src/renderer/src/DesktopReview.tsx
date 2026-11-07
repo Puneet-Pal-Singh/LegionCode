@@ -74,13 +74,17 @@ function SelectedTurnReview({ client, turnId }: {
   if (!read.diff) return <p role="status">No saved diff is available for this turn.</p>;
 
   const savedDiff = read.diff;
-  const files: FileStatus[] = savedDiff.files.map((file) => ({
-    path: file.path,
-    status: file.status === "copied" || file.status === "unchanged" ? "modified" : file.status,
-    additions: file.additions ?? 0,
-    deletions: file.deletions ?? 0,
-    isStaged: false,
-  }));
+  const files = savedDiff.files.map((file) => {
+    const status: FileStatus["status"] =
+      file.status === "copied" || file.status === "unchanged" ? "modified" : file.status;
+    return {
+      path: file.path,
+      status,
+      additions: file.additions,
+      deletions: file.deletions,
+      isStaged: false,
+    };
+  });
   const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0] ?? null;
   const diff = selectedFile ? buildDiffContentFromTurnDiff(savedDiff, selectedFile.path) : null;
 
