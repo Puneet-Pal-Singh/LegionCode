@@ -1,5 +1,11 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { Resizer, WorkspaceSidebarHeader } from "@legioncode/client-ui";
+import {
+  Resizer,
+  ReviewDialogFrame,
+  ReviewDialogCloseButton,
+  WorkspaceSurfaceHeader,
+  WorkspaceSidebarHeader,
+} from "@legioncode/client-ui";
 import type { LocalWorkspaceGrant, ThreadId } from "@repo/platform-protocol";
 import type { DesktopReviewSelection } from "./DesktopReview";
 
@@ -55,6 +61,7 @@ export function DesktopRightPanel({
   environmentSummary,
 }: DesktopRightPanelProps) {
   const [isViewingContent, setIsViewingContent] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [hasFilesTab, setHasFilesTab] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(true);
   const [isChangesOpen, setIsChangesOpen] = useState(false);
@@ -72,6 +79,9 @@ export function DesktopRightPanel({
   useLayoutEffect(() => {
     setFileSelection(null);
   }, [fileScope]);
+  useEffect(() => {
+    setIsExpanded(false);
+  }, [fileScope, threadId]);
   const workspaceReady = workspace?.readiness === "ready";
   const matchingReview =
     workspaceReady &&
@@ -120,97 +130,127 @@ export function DesktopRightPanel({
     setIsFilesOpen(true);
   };
 
-  return (
-    <aside
-      aria-label="Workspace files and review"
-      className="relative flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-[#111113] text-zinc-200"
-    >
-      {onResize ? <Resizer side="right" onResize={onResize} /> : null}
-      <WorkspaceSidebarHeader
-        sidebarWidth={headerWidth}
-        environmentSummary={environmentSummary}
-        isViewingContent={isViewingContent}
-        contentTabs={
-          hasFilesTab
-            ? [
-                {
-                  id: "files",
-                  kind: selectedPath ? "file" : "empty",
-                  path: selectedPath ?? "Open file",
-                },
-              ]
-            : []
-        }
-        activeContentTabId={isViewingContent ? "files" : null}
-        onSelectReview={() => setIsViewingContent(false)}
-        onSelectContent={() => setIsViewingContent(true)}
-        onCloseReview={onClose}
-        onCloseContent={() => {
-          setFileSelection(null);
-          setHasFilesTab(false);
-          setIsViewingContent(false);
-          setIsFilesOpen(false);
-        }}
-        onOpenFiles={openFiles}
-        onOpenChanges={() => {
-          setIsViewingContent(false);
-          setIsChangesOpen(true);
-        }}
-        onCloseSidebar={onClose}
-      />
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div
-          hidden={!isViewingContent}
-          className="relative h-full min-h-0 flex-1 overflow-hidden"
-        >
-          {matchingFiles ? (
-            <div
-              className="h-full min-h-0"
-              key={`${matchingFiles.workspaceId}:${matchingFiles.grantedAt}:${matchingFiles.readiness}`}
-            >
-              {matchingFiles.content(controls)}
-            </div>
-          ) : (
-            <p role="status" className="p-4 text-sm text-zinc-400">
-              {!workspace
-                ? "Choose a folder and grant workspace access to browse files."
-                : !workspaceReady
-                  ? "Restore workspace access to browse files."
-                  : `Workspace file browsing unavailable: ${filesUnavailableReason}`}
-            </p>
-          )}
-        </div>
-        <div
-          hidden={isViewingContent}
-          className="relative h-full min-h-0 flex-1 overflow-hidden"
-        >
-          {!workspace ? (
-            <p role="status" className="p-4 text-sm text-zinc-400">
-              Choose a folder and grant workspace access to review saved
-              changes.
-            </p>
-          ) : !workspaceReady ? (
-            <p role="status" className="p-4 text-sm text-zinc-400">
-              Restore workspace access to review saved changes.
-            </p>
-          ) : !threadId ? (
-            <p role="status" className="p-4 text-sm text-zinc-400">
-              Open a thread to select a settled turn.
-            </p>
-          ) : !matchingReview ? (
-            <p role="status" className="p-4 text-sm text-zinc-400">
-              Select a settled turn in this thread to review its saved changes.
-            </p>
-          ) : (
-            <div
-              className="h-full min-h-0"
-              key={`${matchingReview.scope.workspaceId}:${matchingReview.scope.grantedAt}:${matchingReview.scope.readiness}:${matchingReview.scope.threadId}`}
-            >
-              {matchingReview.content(controls)}
-            </div>
-          )}
-        </div>
+  const contentTabs = hasFilesTab
+    ? [
+        {
+          id: "files",
+          kind: selectedPath ? ("file" as const) : ("empty" as const),
+          path: selectedPath ?? "Open file",
+        },
+      ]
+    : [];
+  const headerActions = {
+    contentTabs,
+    activeContentTabId: isViewingContent ? "files" : null,
+    onSelectReview: () => setIsViewingContent(false),
+    onSelectContent: (_id: string) => setIsViewingContent(true),
+    onCloseContent: (_id: string) => {
+      setFileSelection(null);
+      setHasFilesTab(false);
+      setIsViewingContent(false);
+      setIsFilesOpen(false);
+    },
+    onOpenFiles: openFiles,
+    onOpenChanges: () => {
+      setIsViewingContent(false);
+      setIsChangesOpen(true);
+    },
+  };
+  const content = (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        hidden={!isViewingContent}
+        className="relative h-full min-h-0 flex-1 overflow-hidden"
+      >
+        {matchingFiles ? (
+          <div
+            className="h-full min-h-0"
+            key={`${matchingFiles.workspaceId}:${matchingFiles.grantedAt}:${matchingFiles.readiness}`}
+          >
+            {matchingFiles.content(controls)}
+          </div>
+        ) : (
+          <p role="status" className="p-4 text-sm text-zinc-400">
+            {!workspace
+              ? "Choose a folder and grant workspace access to browse files."
+              : !workspaceReady
+                ? "Restore workspace access to browse files."
+                : `Workspace file browsing unavailable: ${filesUnavailableReason}`}
+          </p>
+        )}
       </div>
-    </aside>
+      <div
+        hidden={isViewingContent}
+        className="relative h-full min-h-0 flex-1 overflow-hidden"
+      >
+        {!workspace ? (
+          <p role="status" className="p-4 text-sm text-zinc-400">
+            Choose a folder and grant workspace access to review saved changes.
+          </p>
+        ) : !workspaceReady ? (
+          <p role="status" className="p-4 text-sm text-zinc-400">
+            Restore workspace access to review saved changes.
+          </p>
+        ) : !threadId ? (
+          <p role="status" className="p-4 text-sm text-zinc-400">
+            Open a thread to select a settled turn.
+          </p>
+        ) : !matchingReview ? (
+          <p role="status" className="p-4 text-sm text-zinc-400">
+            Select a settled turn in this thread to review its saved changes.
+          </p>
+        ) : (
+          <div
+            className="h-full min-h-0"
+            key={`${matchingReview.scope.workspaceId}:${matchingReview.scope.grantedAt}:${matchingReview.scope.readiness}:${matchingReview.scope.threadId}`}
+          >
+            {matchingReview.content(controls)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <>
+      <aside
+        aria-label="Workspace files and review"
+        className="relative flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-[#111113] text-zinc-200"
+      >
+        {onResize ? <Resizer side="right" onResize={onResize} /> : null}
+        <WorkspaceSidebarHeader
+          {...headerActions}
+          isViewingContent={isViewingContent}
+          sidebarWidth={headerWidth}
+          environmentSummary={environmentSummary}
+          onCloseReview={onClose}
+          onCloseSidebar={onClose}
+          onExpand={() => setIsExpanded(true)}
+        />
+        {isExpanded ? null : content}
+      </aside>
+      {isExpanded ? (
+        <ReviewDialogFrame isOpen onClose={() => setIsExpanded(false)}>
+          {({ titleId, closeButtonRef }) => (
+            <>
+              <WorkspaceSurfaceHeader
+                {...headerActions}
+                variant="fullscreen"
+                id={titleId}
+                ariaLabel="Review workspace tabs"
+                reviewActive={!isViewingContent}
+                addTabLabel="Files"
+                trailingActions={
+                  <ReviewDialogCloseButton
+                    buttonRef={closeButtonRef}
+                    onClose={() => setIsExpanded(false)}
+                  />
+                }
+              />
+              {content}
+            </>
+          )}
+        </ReviewDialogFrame>
+      ) : null}
+    </>
   );
 }
