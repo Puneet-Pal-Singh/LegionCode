@@ -388,6 +388,7 @@ export type {
 } from "./session-read-receipts/types.js";
 
 export { PostgresHarnessBindingRepository } from "./harness/PostgresHarnessBindingRepository.js";
+export { StoredHarnessAttachmentSchema } from "./harness/types.js";
 export type { StoredHarnessSelection, StoredHarnessAttachment, StoredHarnessBinding, HarnessObservationCommit, HarnessObservationAck, HarnessBindingRepository, HarnessExecutionClaimResult } from "./harness/types.js";
 
 

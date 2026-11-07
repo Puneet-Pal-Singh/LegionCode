@@ -11,10 +11,10 @@ import {
   PostgresHarnessBindingRepository,
   PostgresHarnessAdmissionBindingPort,
   PostgresTurnAdmissionRepository,
+  StoredHarnessAttachmentSchema,
   type SqlClient,
   HarnessControlPlaneConflictError,
 } from "@repo/persistence";
-import { StoredHarnessAttachmentSchema } from "@repo/event-store";
 import { AppServerController } from "../../controllers/AppServerController";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { builtinProviderRegistry } from "@repo/provider-core";

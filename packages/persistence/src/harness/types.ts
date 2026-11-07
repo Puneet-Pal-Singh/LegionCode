@@ -9,3 +9,6 @@ export type {
   HarnessBindingRepository,
   HarnessExecutionClaimResult,
 } from "@repo/event-store";
+
+// Consumers validate persisted process origins through the persistence facade.
+export { StoredHarnessAttachmentSchema } from "@repo/event-store";
