@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, APP_SERVER_PROTOCOL_VERSION, appServerJsonByteLength } from "@repo/platform-protocol";
 import type Database from "better-sqlite3";
 import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, type PlatformEvent } from "@repo/platform-protocol";
 import { TurnAdmissionSchema, type TurnAdmission, type Thread } from "@repo/platform-protocol/conversation";
@@ -121,21 +122,8 @@ export class LocalTurnAdmissions {
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1_000) {
       throw new EventStoreError("invalid_replay_limit", "Admission history limit must be between 1 and 1000");
     }
-    if (input.latest) {
-      if (input.afterCursor !== null) {
-        throw new EventStoreError("cursor_conflict", "Latest admission history cannot be combined with an after cursor");
-      }
-      // Read one extra identity, not the entire canonical Turn history. Event
-      // insertion order remains authoritative even when timestamps are equal.
-      const rows = this.database.prepare(`SELECT a.*, e.cursor AS history_cursor FROM turn_admissions a JOIN events e ON e.event_id = a.run_event_id
-        WHERE a.thread_id = ? ORDER BY e.insertion_order DESC LIMIT ?`)
-        .all(input.threadId, input.limit + 1) as (AdmissionRow & { history_cursor: string })[];
-      const selected = rows.slice(0, input.limit).reverse();
-      return {
-        admissions: selected.map((row) => this.reconstruct(row)),
-        nextCursor: selected.length ? EventCursorSchema.parse(selected.at(-1)?.history_cursor) : null,
-        hasEarlier: rows.length > input.limit,
-      };
+    if (input.latest && input.afterCursor !== null) {
+      throw new EventStoreError("cursor_conflict", "Latest admission history cannot be combined with an after cursor");
     }
     let afterOrder = 0;
     if (input.afterCursor !== null) {
@@ -145,11 +133,40 @@ export class LocalTurnAdmissions {
       if (!anchor) throw new EventStoreError("cursor_not_found", "Admission cursor does not belong to the requested Thread");
       afterOrder = anchor.insertion_order;
     }
-    const rows = this.database.prepare(`SELECT a.*, e.cursor AS history_cursor FROM turn_admissions a JOIN events e ON e.event_id = a.run_event_id
+    // One extra identity proves earlier history. Only bounded candidate rows are
+    // reconstructed; timestamps never replace canonical event insertion order.
+    const rows = (input.latest
+      ? this.database.prepare(`SELECT a.*, e.cursor AS history_cursor FROM turn_admissions a JOIN events e ON e.event_id = a.run_event_id
+        WHERE a.thread_id = ? ORDER BY e.insertion_order DESC LIMIT ?`).all(input.threadId, input.limit + 1)
+      : this.database.prepare(`SELECT a.*, e.cursor AS history_cursor FROM turn_admissions a JOIN events e ON e.event_id = a.run_event_id
       WHERE a.thread_id = ? AND e.insertion_order > ? ORDER BY e.insertion_order LIMIT ?`)
-      .all(input.threadId, afterOrder, input.limit) as (AdmissionRow & { history_cursor: string })[];
-    return { admissions: rows.map((row) => this.reconstruct(row)),
-      nextCursor: rows.length ? EventCursorSchema.parse(rows.at(-1)?.history_cursor) : null };
+      .all(input.threadId, afterOrder, input.limit)) as (AdmissionRow & { history_cursor: string })[];
+    const selected: { admission: TurnAdmission; cursor: EventCursor }[] = [];
+    let admissionBytes = 0;
+    for (const row of rows.slice(0, input.limit)) {
+      const admission = this.reconstruct(row);
+      const cursor = EventCursorSchema.parse(row.history_cursor);
+      const nextCursor = input.latest ? selected[0]?.cursor ?? cursor : cursor;
+      const frameBytes = appServerJsonByteLength({
+        protocolVersion: APP_SERVER_PROTOCOL_VERSION, method: "thread/history", ok: true,
+        result: { admissions: [], nextCursor, ...(input.latest ? { hasEarlier: false } : {}) },
+      });
+      const bytes = appServerJsonByteLength(admission) + (selected.length ? 1 : 0);
+      if (frameBytes + admissionBytes + bytes > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+        if (!selected.length) {
+          throw new EventStoreError("history_row_too_large", "The next history Turn exceeds the supported response byte budget");
+        }
+        break;
+      }
+      admissionBytes += bytes;
+      selected.push({ admission, cursor });
+    }
+    if (input.latest) selected.reverse();
+    return {
+      admissions: selected.map(({ admission }) => admission),
+      nextCursor: selected.at(-1)?.cursor ?? null,
+      ...(input.latest ? { hasEarlier: rows.length > selected.length } : {}),
+    };
   }
 
   assertLifecycleIdentity(event: LifecycleEvent): void {
