@@ -1217,3 +1217,18 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+## Plan 057 — Native turn service composition
+
+`LocalTurnService` consumes the canonical admission repository and delegates
+approval and interruption to their existing adapters. A matching saved request
+returns its original admission without resolving a new provider or creating an
+executor. The runtime alone creates new admission records and lifecycle events.
+`createLocalNativeRuntime` supplies the existing protected provider and kernel
+ports. Its one private execution capability selects both admission mode and
+executor ports, including the provider's registry-filtered captured tools.
+
+These modules do not activate Desktop execution. Activation still requires the
+grant owner's held-root binding, physical writer fence, actual capture/artifact
+ports, and positive resource-settlement proof. The host retains uncertain
+resources; transport completion does not establish terminal or physical truth.
