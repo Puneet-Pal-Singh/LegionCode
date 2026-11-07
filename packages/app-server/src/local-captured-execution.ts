@@ -14,6 +14,7 @@ import {
 } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import { getCodingCoreToolRegistry } from "@legioncode/execution-engine/runtime/tools/CodingToolRegistry";
 import type { LocalTurnAttemptIdentity } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
+import { LocalTurnPreparationFailure } from "@legioncode/execution-engine/runtime/desktop/LocalTurnPreparationFailure";
 import type {
   LocalTurnExecutionCapability,
   LocalQuiescentWorker,
@@ -25,6 +26,7 @@ import type {
   LocalWorkspaceWriterLease,
   LocalWorkspaceWriterLeaseOwner,
 } from "./local-workspace-writer-lease.js";
+import { LocalWorkspaceWriterLeaseError } from "./local-workspace-writer-lease.js";
 
 const AVAILABLE_TOOL_IDS = [
   "read_file",
@@ -89,7 +91,27 @@ export function createLocalCapturedExecutionCapability(
       }
       signal.throwIfAborted();
       binding.assertCurrent();
-      const lease = await options.leases.acquire({ binding, attempt });
+      const lease = await options.leases
+        .acquire({ binding, attempt })
+        .catch((error: unknown) => {
+          if (
+            error instanceof LocalWorkspaceWriterLeaseError &&
+            error.awaitAcquisitionQuiescence
+          ) {
+            const proof = error.awaitAcquisitionQuiescence;
+            throw new LocalTurnPreparationFailure(
+              {
+                attempt,
+                awaitQuiescence: ({ turnId }) =>
+                  turnId === attempt.turnId
+                    ? proof(attempt)
+                    : Promise.resolve(false),
+              },
+              error,
+            );
+          }
+          throw error;
+        });
       try {
         signal.throwIfAborted();
         const scope = { userId: admission.run.userId, ...attempt };
