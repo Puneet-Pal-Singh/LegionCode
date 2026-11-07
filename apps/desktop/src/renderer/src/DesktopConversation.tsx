@@ -163,9 +163,7 @@ function SelectedConversation({
               client={client}
               workspaceId={thread.workspaceId}
               threadId={thread.id}
-              busy={
-                execution.available && conversation.busy && !unavailableReason
-              }
+              busy={execution.available && conversation.busy}
               submissionUnavailableReason={unavailableReason}
               onSubmit={conversation.submit}
               onStop={
