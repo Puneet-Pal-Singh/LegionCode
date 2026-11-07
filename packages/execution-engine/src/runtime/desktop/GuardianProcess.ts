@@ -9,6 +9,7 @@ import {
   SingleProcessMacCapabilityError,
 } from "./SingleProcessMacSandbox.js";
 import type { SingleExecutableProcessInput } from "./SingleExecutableProcess.js";
+import { gitConfigurationHome } from "./GitConfigurationHome.js";
 
 const OUTPUT_BYTES = 64 * 1024;
 const DEADLINE_MS = 60_000;
@@ -144,10 +145,9 @@ export class GuardianProcess {
       );
     }
     const gitEnvironment: Record<string, string> = {};
-    const maximumDeadline =
-      input.environment !== undefined || input.stdin !== undefined
-        ? 30_000
-        : DEADLINE_MS;
+    const privateGit =
+      input.environment !== undefined || input.stdin !== undefined;
+    const maximumDeadline = privateGit ? 30_000 : DEADLINE_MS;
     const deadlineMs = input.timeoutMs ?? maximumDeadline;
     if (
       !Number.isSafeInteger(deadlineMs) ||
@@ -158,7 +158,47 @@ export class GuardianProcess {
         "Unsupported bounded Git command timeout",
       );
     }
-    if (input.environment !== undefined || input.stdin !== undefined) {
+    if (privateGit) {
+      const context = input.trustedGitContext;
+      try {
+        if (
+          !context ||
+          Object.keys(context).some(
+            (key) =>
+              ![
+                "homeDirectory",
+                "temporaryDirectory",
+                "xdgConfigHome",
+              ].includes(key),
+          )
+        )
+          throw new Error("Missing or unsupported private Git context");
+        for (const path of [
+          context.homeDirectory,
+          context.temporaryDirectory,
+        ]) {
+          if (
+            typeof path !== "string" ||
+            !isAbsolute(path) ||
+            path.includes("\0") ||
+            Buffer.byteLength(path) > 4_096 ||
+            realpathSync(path) !== path ||
+            !statSync(path).isDirectory()
+          )
+            throw new Error(
+              "Private Git context requires canonical directories",
+            );
+        }
+        gitEnvironment.HOME = context.homeDirectory;
+        gitEnvironment.TMPDIR = context.temporaryDirectory;
+        const xdg = gitConfigurationHome(context.xdgConfigHome);
+        if (xdg !== undefined) gitEnvironment.XDG_CONFIG_HOME = xdg;
+      } catch (error) {
+        throw new SingleProcessMacCapabilityError(
+          "Trusted private Git configuration context is unavailable",
+          error,
+        );
+      }
       for (const [key, value] of Object.entries(input.environment ?? {})) {
         if (
           !["GIT_INDEX_FILE", "GIT_OPTIONAL_LOCKS"].includes(key) ||
@@ -182,6 +222,10 @@ export class GuardianProcess {
           "Canonical Git stdin exceeds its supported bound",
         );
       }
+    } else if (input.trustedGitContext !== undefined) {
+      throw new SingleProcessMacCapabilityError(
+        "Private Git context requires canonical Git invocation",
+      );
     }
     const writerLeaseFd = input.writerLease?.fd;
     if (input.writerLease !== undefined) {
