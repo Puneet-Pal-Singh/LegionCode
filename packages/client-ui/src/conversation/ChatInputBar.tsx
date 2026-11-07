@@ -27,6 +27,7 @@ import {
 import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip.js";
 import { ChatImageDropOverlay } from "./ChatImageDropOverlay.js";
 import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft.js";
+import { useChatComposerTextareaAutosize } from "./useChatComposerTextareaAutosize.js";
 import type { ReviewCommentDraft } from "../review/reviewComments.js";
 import { getReviewCommentDisplayLabel } from "../review/reviewComments.js";
 import type { ContextBudgetSnapshot, UsageCostSnapshot } from "@legioncode/sdk";
@@ -234,15 +235,7 @@ export function ChatInputBar({
     shouldShowFilePicker && suggestedEntries[highlightedSuggestionIndex]
       ? `${filePickerListId}-option-${highlightedSuggestionIndex}`
       : undefined;
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      const maxHeight = hasInput ? 200 : 400;
-      const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
-      textareaRef.current.style.height = newHeight + "px";
-    }
-  }, [hasInput, input, isHidden]);
+  useChatComposerTextareaAutosize(textareaRef, input, hasInput, isHidden);
 
   useEffect(() => {
     const textarea = textareaRef.current;
