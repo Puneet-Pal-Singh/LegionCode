@@ -189,7 +189,7 @@ export class LocalPersistence {
       throw sanitizeOpenError(error);
     }
 
-    const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event));
+    const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
     this.harnessBindings = {
       freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),
       markRecoveryRequired: (input) => this.guardHarnessStorage(() => harnessBindings.markRecoveryRequired(input)),
