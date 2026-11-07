@@ -1,12 +1,14 @@
 /* Private LCFM/1 T session. The filesystem owner performs no Git operation.
  * FD3 is the original directory; FD6 is the borrowed writer open description.
- * OPEN suffix: u32 target-leaf length + target. Response T, exists byte,
+ * OPEN suffix: u32 target-leaf length + target, u32 trusted-identity length
+ * + identity. Identity is checked before any lock or private-file write.
+ * Response T, exists byte,
  * u32 private-directory-name length + name. All names are FD-relative.
  * V verifies ownership, H inspects a root-relative executable (response H, byte
  * 0 absent/not executable, 1 executable, 2 unsupported), P + source leaf publishes,
  * A aborts, Q retains evidence. P/A/Q acknowledge and exit. EOF always retains.
  */
-#define TX_NAME 128U
+#define TX_NAME 200U
 #define TX_ENTRIES 4096U
 
 struct tx_file { unsigned char *bytes; uint32_t length; int exists; struct stat stat; };
@@ -136,7 +138,7 @@ static int tx_executable(const char *path) {
 static int run_private_transaction(const char *path) {
   struct tx_state state; memset(&state, 0, sizeof(state));
   state.directory = state.temporary_directory = state.lock = -1;
-  int result = 1, started_session = 0, published = 0;
+  int result = 1, started_session = 0;
   struct stat root, lease;
   if (fstat(3, &root) || !S_ISDIR(root.st_mode) || fstat(6, &lease) || !S_ISREG(lease.st_mode))
     return fail(5, "Private transaction requires retained root and writer descriptors");
@@ -144,6 +146,11 @@ static int run_private_transaction(const char *path) {
   state.directory = tx_open_directory(path);
   if (state.directory < 0 || fstat(state.directory, &state.directory_stat)) {
     result = fail(5, "Private transaction directory must be real and root-relative; linked metadata is unsupported"); goto done;
+  }
+  char expected_identity[257], actual_identity[256];
+  if (tx_string(expected_identity, 256) || format_directory_identity(&root, &state.directory_stat, actual_identity, sizeof(actual_identity)) < 0 ||
+      strcmp(expected_identity, actual_identity)) {
+    result = fail(2, "Private transaction metadata does not match the trusted identity"); goto done;
   }
   snprintf(state.lock_name, sizeof(state.lock_name), "%s.lock", state.target);
   state.lock = openat(state.directory, state.lock_name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
@@ -210,7 +217,7 @@ static int run_private_transaction(const char *path) {
           !tx_owned(&state, path) || renameat(state.directory, state.lock_name, state.directory, state.target)) {
         free(next.bytes); result = fail(3, "Private transaction publication outcome is uncertain"); break;
       }
-      published = 1; free(next.bytes);
+      free(next.bytes);
       if (fsync(state.directory) || tx_cleanup(&state, 0)) { result = fail(3, "Published transaction cleanup or sync failed"); break; }
       result = write_exact(1, "P", 1) ? 1 : 0; break;
     }
@@ -224,6 +231,5 @@ done:
   if (state.temporary_directory >= 0 && close(state.temporary_directory)) result = 2;
   if (state.directory >= 0 && close(state.directory)) result = 2;
   free(state.original.bytes);
-  (void)published;
   return result;
 }

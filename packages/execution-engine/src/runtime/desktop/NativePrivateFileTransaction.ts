@@ -26,7 +26,7 @@ function leaf(name: string): void {
     name === "." ||
     name === ".." ||
     /[\0/\\]/u.test(name) ||
-    Buffer.byteLength(name) > 128
+    Buffer.byteLength(name) > 200
   )
     throw new Error("Private file transaction requires a bounded leaf name");
 }
@@ -58,12 +58,16 @@ function send(pipe: Writable, bytes: Buffer): Promise<void> {
 export async function openNativePrivateFileTransaction(options: {
   readonly directory: string;
   readonly file: string;
+  readonly expectedIdentity: string;
   readonly reader: NativePrivateTransactionChannel;
   readonly pipe: Writable;
   readonly beforePublish: () => Promise<void>;
 }): Promise<NativePrivateFileTransaction> {
   leaf(options.file);
-  await send(options.pipe, frame(options.file));
+  await send(
+    options.pipe,
+    Buffer.concat([frame(options.file), frame(options.expectedIdentity)]),
+  );
   await options.reader.tag(84);
   const exists = (await options.reader.read(1))[0];
   if (exists !== 0 && exists !== 1)

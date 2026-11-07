@@ -16,6 +16,20 @@ export interface NativeFilesystemExecution {
   readonly quiescent: boolean;
 }
 
+/** Opaque physical identity; persist the string, parse before trusted comparison. */
+export type NativeGitMetadataIdentity = string;
+export function parseNativeGitMetadataIdentity(
+  value: unknown,
+): NativeGitMetadataIdentity {
+  if (
+    typeof value !== "string" ||
+    value.length > 256 ||
+    !/^gitdir-v1(?::[0-9a-f]{1,16}){8}$/u.test(value)
+  )
+    throw new NativeFilesystemError(1, "Invalid native Git metadata identity");
+  return value;
+}
+
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES = 64 * 1024;
 const MAX_DIRECTORY_ENTRIES = 200;
@@ -69,6 +83,27 @@ export class NativeFilesystemBridge {
       ) => void;
     },
   ) {}
+
+  /** Read-only inspection of normal .git metadata through the original root FD.
+   * Linked-worktree files and metadata symlinks are explicitly unsupported. */
+  async inspectGitMetadataIdentity(input: {
+    readonly signal: AbortSignal;
+  }): Promise<NativeGitMetadataIdentity> {
+    return this.withHelper(
+      "I",
+      { path: ".git", signal: input.signal },
+      async (reader) => {
+        await reader.tag(74);
+        const bytes = await reader.read(await reader.length(256));
+        if (bytes.some((value) => value > 127))
+          throw new NativeFilesystemError(
+            1,
+            "Invalid native metadata identity encoding",
+          );
+        return parseNativeGitMetadataIdentity(bytes.toString("ascii"));
+      },
+    );
+  }
 
   async readBytes(input: {
     readonly path: string;
@@ -260,11 +295,13 @@ export class NativeFilesystemBridge {
     input: {
       readonly directory: string;
       readonly file: string;
+      readonly expectedIdentity: NativeGitMetadataIdentity;
       readonly signal: AbortSignal;
       readonly beforePublish: () => Promise<void>;
     },
     operation: (transaction: NativePrivateFileTransaction) => Promise<T>,
   ): Promise<T> {
+    parseNativeGitMetadataIdentity(input.expectedIdentity);
     const outcome = await this.withHelper(
       "T",
       { path: input.directory, signal: input.signal },
@@ -293,12 +330,18 @@ export class NativeFilesystemBridge {
   }
 
   private async withHelper<T>(
-    operation: "R" | "M" | "D" | "T",
+    operation: "R" | "M" | "D" | "T" | "I",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
     if (operation === "T") validatePrivateDirectoryPath(input.path);
-    else validateLocalFilesystemPath(input.path, operation === "D");
+    else if (operation === "I") {
+      if (input.path !== ".git")
+        throw new NativeFilesystemError(
+          1,
+          "Unsupported metadata identity target",
+        );
+    } else validateLocalFilesystemPath(input.path, operation === "D");
     if (
       !isAbsolute(this.options.helperPath) ||
       this.options.helperPath.includes("\0")
