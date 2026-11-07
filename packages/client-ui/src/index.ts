@@ -136,3 +136,5 @@ export { ArchivedChatsSettingsView, type ArchivedSettingsItem } from "./settings
 export { HooksSettingsView } from "./settings/HooksSettingsView.js";
 
 export { SharedSettingsDialog, SettingsGeneralPanel, type SharedSettingsDialogProps, type SettingsSection } from "./settings/SettingsDialog.js";
+
+export { ReviewDialogFrame, ReviewDialogCloseButton } from "./workspace/ReviewDialogFrame.js";

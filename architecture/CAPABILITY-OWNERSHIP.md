@@ -1315,6 +1315,10 @@ its actual granted branch as read-only metadata and explicitly unavailable pull
 request status for the real local thread. Its right-panel header uses the same
 fixed top placement and summary slot as Web, rather than a second row below the
 application header. No hosted repository identity is fabricated.
+The existing Web fullscreen review overlay, close control and focus lifecycle live
+in `client-ui/workspace/ReviewDialogFrame`; both clients mount this source.
+Desktop fullscreen retains the same scoped SDK review/file adapters and tab state,
+with one visible content mount, rather than a copied review or filesystem owner.
 
 The existing Web composer preference cache moves unchanged into shared client UI.
 Web and Desktop settings/composer consume the same storage key, defaults, event
