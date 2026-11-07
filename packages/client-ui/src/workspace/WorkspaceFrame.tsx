@@ -9,6 +9,8 @@ export interface WorkspaceFrameProps {
   sidebar: ReactNode;
   topBar: ReactNode;
   children: ReactNode;
+  rightPanel?: ReactNode;
+  rightPanelLabel?: string;
   className?: string;
   sidebarOpen?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
@@ -35,6 +37,8 @@ export function WorkspaceFrame({
   sidebar,
   topBar,
   children,
+  rightPanel,
+  rightPanelLabel = "Workspace details",
   className,
   sidebarOpen,
   onSidebarOpenChange,
@@ -76,9 +80,16 @@ export function WorkspaceFrame({
       const sidebarElement = sidebarRef.current;
       if (!sidebarElement) return;
 
-      const focusable = Array.from(
-        sidebarElement.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
-      ).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
+      // Thread details/rename are portaled, but their owning row already names
+      // the dialog through aria-describedby. Keep those controls in this drawer.
+      const ownedDialogs = Array.from(sidebarElement.querySelectorAll<HTMLElement>("[aria-describedby]"))
+        .flatMap((element) => (element.getAttribute("aria-describedby") ?? "").split(/\s+/))
+        .map((id) => document.getElementById(id))
+        .filter((element): element is HTMLElement => Boolean(element?.getAttribute("role") === "dialog"));
+      const focusRoots = [sidebarElement, ...ownedDialogs];
+      const focusable = focusRoots.flatMap((element) => Array.from(
+        element.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
+      )).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
       if (focusable.length === 0) {
         event.preventDefault();
         sidebarElement.focus();
@@ -88,10 +99,11 @@ export function WorkspaceFrame({
       const first = focusable[0]!;
       const last = focusable[focusable.length - 1]!;
       const activeElement = document.activeElement;
-      if (event.shiftKey && (activeElement === first || !sidebarElement.contains(activeElement))) {
+      const isOwnedFocus = focusRoots.some((element) => element.contains(activeElement));
+      if (event.shiftKey && (activeElement === first || !isOwnedFocus)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && (activeElement === last || !sidebarElement.contains(activeElement))) {
+      } else if (!event.shiftKey && (activeElement === last || !isOwnedFocus)) {
         event.preventDefault();
         first.focus();
       }
@@ -142,7 +154,12 @@ export function WorkspaceFrame({
           ) : null}
           {topBar}
         </div>
-        <main className="lc-workspace-content">{children}</main>
+        <div className={`lc-workspace-body${rightPanel ? " lc-workspace-body-with-panel" : ""}`}>
+          <main className="lc-workspace-content">{children}</main>
+          {rightPanel ? (
+            <aside className="lc-workspace-right-panel" aria-label={rightPanelLabel}>{rightPanel}</aside>
+          ) : null}
+        </div>
       </div>
     </div>
   );
