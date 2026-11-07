@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LocalTurnConfigurationOptionsSchema } from "./local-turn-configuration.js";
 
 export const APP_SERVER_PROTOCOL_VERSION = "1.0.0" as const;
 export const APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
@@ -47,6 +48,7 @@ export const AppServerInitializeResponseSchema = z
       })
       .strict(),
     environment: z.enum(["local", "hosted"]),
+    localTurnConfiguration: LocalTurnConfigurationOptionsSchema.optional(),
     capabilities: z.array(AppServerCapabilitySchema).max(100),
     unavailableCapabilities: z
       .array(AppServerUnavailableCapabilitySchema)
