@@ -104,7 +104,11 @@ function DesktopApp(): React.JSX.Element {
       selectedThread?.id,
     ],
   );
-  const savedReview = useDesktopSavedReviewSelection(reviewScope);
+  const savedReview = useDesktopSavedReviewSelection(
+    reviewScope,
+    environment?.status === "ready" &&
+      environment.capabilities.includes("artifact-review-v1"),
+  );
 
   useEffect(() => { setSettingsTarget(null); }, [workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness]);
 
@@ -455,6 +459,8 @@ function DesktopApp(): React.JSX.Element {
       repo={workspace ? { default_branch: workspace.branch ?? "" } : null}
       branch={workspace?.branch ?? ""}
       readOnlyBranch={Boolean(workspace?.branch)}
+      changedFileCount={savedReview.read.status === "ready" ? savedReview.read.diff?.files.length : undefined}
+      onOpenChanges={savedReview.selection ? () => setRightPanelOpen(true) : undefined}
       pullRequestResult={{ status: "unavailable", sessionId: selectedThread.id }}
     />
   ) : null;
@@ -544,7 +550,8 @@ function DesktopApp(): React.JSX.Element {
                         content: (controls) => (
                           <DesktopReview
                             controls={controls}
-                            client={savedReview.client}
+                            read={savedReview.read}
+                            onRetry={savedReview.retry}
                             selection={savedReview.selection}
                             scope={{
                               workspaceId: reviewScope.workspaceId,

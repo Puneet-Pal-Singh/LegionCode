@@ -9,17 +9,16 @@ import {
 import type { DesktopRightPanelControls } from "./DesktopRightPanel";
 import {
   buildDiffContentFromTurnDiff,
-  type AppServerClient,
   type LifecycleProjection,
 } from "@legioncode/sdk";
 import type {
   ThreadId,
-  TurnDiffPayload,
   TurnId,
   WorkspaceId,
 } from "@repo/platform-protocol";
 import type { FileStatus } from "@repo/shared-types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import type { DesktopSavedReviewRead } from "./useDesktopSavedReviewSelection";
 
 export interface DesktopReviewSelection {
   workspaceId: WorkspaceId;
@@ -29,7 +28,8 @@ export interface DesktopReviewSelection {
 }
 
 export interface DesktopReviewProps {
-  client: Pick<AppServerClient, "getTurnDiff">;
+  read: DesktopSavedReviewRead;
+  onRetry: () => void;
   selection: DesktopReviewSelection | null;
   scope: {
     workspaceId: WorkspaceId;
@@ -40,15 +40,10 @@ export interface DesktopReviewProps {
   controls: DesktopRightPanelControls;
 }
 
-type ReviewRead = { client: DesktopReviewProps["client"] } & (
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; diff: TurnDiffPayload | null }
-);
-
 /** Parent supplies a replay-settled selection, actual grant scope and advertised capability. */
 export function DesktopReview({
-  client,
+  read,
+  onRetry,
   selection,
   scope,
   availability,
@@ -96,51 +91,24 @@ export function DesktopReview({
         selection.turnId,
         selection.terminalState,
       ])}
-      client={client}
-      turnId={selection.turnId}
+      read={read}
+      onRetry={onRetry}
       controls={controls}
     />
   );
 }
 
 function SelectedTurnReview({
-  client,
-  turnId,
+  read,
+  onRetry,
   controls,
-}: {
-  client: DesktopReviewProps["client"];
-  turnId: TurnId;
-  controls: DesktopRightPanelControls;
-}) {
+}: Pick<DesktopReviewProps, "read" | "onRetry" | "controls">) {
   const viewState = useChangesPanelViewState();
   const isChangesOpen = controls.isChangesOpen;
   const onToggleChanges = controls.onToggleChanges;
-  const [read, setRead] = useState<ReviewRead>({ client, status: "loading" });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [request, setRequest] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-    setRead({ client, status: "loading" });
-    void client
-      .getTurnDiff({ turnId })
-      .then(({ diff }) => {
-        if (!active) return;
-        if (diff && diff.turnId !== turnId) {
-          setRead({ client, status: "error" });
-          return;
-        }
-        setRead({ client, status: "ready", diff });
-      })
-      .catch(() => {
-        if (active) setRead({ client, status: "error" });
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, turnId, request]);
-
-  if (read.client !== client || read.status === "loading")
+  if (read.status === "idle" || read.status === "loading")
     return (
       <ReviewStatus controls={controls} message="Loading saved turn changes…" />
     );
@@ -148,7 +116,7 @@ function SelectedTurnReview({
     return (
       <div role="alert">
         <p>Saved turn changes could not be loaded.</p>
-        <button type="button" onClick={() => setRequest((value) => value + 1)}>
+        <button type="button" onClick={onRetry}>
           Retry
         </button>
       </div>
