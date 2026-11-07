@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PanelLeftOpen } from "lucide-react";
 
 const COMPACT_WORKSPACE_QUERY = "(max-width: 1023px)";
@@ -11,6 +11,7 @@ export interface WorkspaceFrameProps {
   children: ReactNode;
   rightPanel?: ReactNode;
   rightPanelLabel?: string;
+  rightPanelWidth?: number;
   className?: string;
   sidebarOpen?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
@@ -39,6 +40,7 @@ export function WorkspaceFrame({
   children,
   rightPanel,
   rightPanelLabel = "Workspace details",
+  rightPanelWidth,
   className,
   sidebarOpen,
   onSidebarOpenChange,
@@ -114,9 +116,11 @@ export function WorkspaceFrame({
   }, [isCompact, isSidebarOpen]);
 
   const isModalOpen = isCompact && isSidebarOpen;
+  const panelStyle: (CSSProperties & { "--lc-workspace-panel-width"?: string }) | undefined =
+    rightPanelWidth === undefined ? undefined : { "--lc-workspace-panel-width": `${rightPanelWidth}px` };
 
   return (
-    <div className={`lc-workspace-frame${className ? ` ${className}` : ""}`}>
+    <div className={`lc-workspace-frame${className ? ` ${className}` : ""}`} style={panelStyle}>
       <div
         ref={sidebarRef}
         className={`lc-workspace-sidebar${isSidebarOpen ? " lc-workspace-sidebar-open" : ""}`}
