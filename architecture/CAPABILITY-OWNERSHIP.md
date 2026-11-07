@@ -56,14 +56,19 @@ restricted read-file dispatch, no executable hooks and omitted artifact capture.
 The explicit `artifactCapture: "required"` capability requires real Git snapshot,
 artifact, worker quiescence and attempt-bound mutation-lease ports before provider
 composition. Runtime creates `auto_edit` admissions, selects only supplied
-canonical registry definitions whose backend requirements are met, and carries
-the same lease/grant cancellation into worker and capture operations. Kernel
-retains the original execution and settlement continuation until worker quiescence
-is confirmed after failure or interruption. It never produces an empty capture.
+canonical registry definitions whose backend requirements are met. New tool work
+uses active lease/grant cancellation; final capture borrows the same original
+root and fence through retained settlement authority. Kernel retains the original
+execution and settlement continuation until worker quiescence is confirmed after
+failure or interruption. It never produces an empty capture.
 
 The host remains the mutation-lease and held-root resource owner; this extension
-consumes its signal/assertion and implements no lease store. Resource cleanup
-must retain the exact executor/binding until `awaitQuiescence` confirms closure.
+consumes its signals/assertions and implements no lease store. Resource cleanup
+must retain the exact executor/binding until `awaitResourceRelease` validates
+durable terminal evidence and actual worker/capture/Git closure. Unknown closure
+keeps that original authority quarantined. A preparation failure requires the
+same physical owner's positive, exact-attempt acquisition-closure receipt; a busy
+code or an absent map entry alone cannot release the borrowed root.
 Actual mutator availability is still gated on the host lease implementation,
 worker05 guarded file worker, worker06 single-executable worker/guardian and
 worker07 real capture ports. No full-capture product consumer is declared wired
