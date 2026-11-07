@@ -128,3 +128,5 @@ export { SettingsSwitch } from "./settings/Switch.js";
 export { ManageModelsDialog, type ManageModelsDialogProps } from "./provider/ManageModelsDialog.js";
 
 export { SharedProviderDialog, type ProviderDialogProps, type SharedProviderDialogProps } from "./provider/ProviderDialog.js";
+
+export { ComposerSettingsSection, type ComposerSettingsPreferences } from "./settings/ComposerSettingsSection.js";
