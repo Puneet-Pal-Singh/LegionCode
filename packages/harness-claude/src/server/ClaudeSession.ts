@@ -51,6 +51,8 @@ export class ClaudeSession implements HarnessLiveSession {
   private stopped = false;
   private finished = false;
   private deliveryFailed = false;
+  private observationIntegrityLost = false;
+  private observerDrained = false;
   private foregroundTerminalStarted = false;
   private readonly stoppedSignal = new AbortController();
 
@@ -194,13 +196,25 @@ export class ClaudeSession implements HarnessLiveSession {
       await this.runner!.awaitOwnedWork(this.stoppedSignal.signal);
       if (backgroundFailure) throw new HarnessHostError("stale_session");
       await this.runner!.stop();
+      // EOF must drain before OS cleanup. Killing first could discard final native
+      // notifications, including transcript-write loss needed by recovery.
+      if (observer) await this.withDeadline(observer, 2500);
+      if (!this.runner!.observationsDrained)
+        throw new HarnessHostError("observation_integrity_lost");
+      // Stop/EOF can deliver a later root result after the foreground completed.
+      // Its sticky failure must fence settlement even when native drain succeeded.
+      if (backgroundFailure)
+        throw new HarnessHostError("observation_integrity_lost");
+      this.observerDrained = true;
       await this.opening.host.terminateProcesses({
         graceMs: 1000,
         killWaitMs: 1000,
       });
-      if (observer) await this.withDeadline(observer, 2500);
-      // All native observations drained. Runtime still requires independent OS evidence.
+      // Native drain alone is not full execution-boundary quiescence evidence.
     } catch {
+      // Forced close, a missing native idle, or a rejected sink cannot be repaired
+      // by observing physical exit later. Recovery must use the canonical fence.
+      this.observationIntegrityLost = true;
       const interrupted = this.stopped || signal.aborted;
       this.beginStop();
       await this.opening.host.terminateProcesses({
@@ -390,11 +404,40 @@ export class ClaudeSession implements HarnessLiveSession {
       input.timeoutMs > 60_000
     )
       throw new HarnessHostError("invalid_launch");
-    await this.opening.host.terminateProcesses({
-      graceMs: Math.floor(input.timeoutMs / 2),
-      killWaitMs: Math.floor(input.timeoutMs / 2),
+    const deadline = Date.now() + input.timeoutMs;
+    if (!this.finished) this.beginStop();
+    if (this.execution && !this.finished) {
+      try {
+        await this.withDeadline(
+          this.execution.catch(() => undefined),
+          Math.max(0, deadline - Date.now()),
+        );
+      } catch {
+        return { status: "unknown", session: this.session, reason: "timeout" };
+      }
+    }
+    const remaining = Math.max(0, deadline - Date.now());
+    const cleanup = await this.opening.host.terminateProcesses({
+      graceMs: Math.floor(remaining / 2),
+      killWaitMs: Math.floor(remaining / 2),
     });
-    // P05/composition must supply full-boundary evidence. Group exit cannot fabricate it.
+    if (this.deliveryFailed || this.observationIntegrityLost)
+      return {
+        status: "unknown",
+        session: this.session,
+        reason: "observation_integrity_lost",
+      };
+    if (cleanup.some((process) => process.kind === "unknown"))
+      return { status: "unknown", session: this.session, reason: "timeout" };
+    if (this.execution && !this.observerDrained)
+      return {
+        status: "unknown",
+        session: this.session,
+        reason: "transport_lost",
+      };
+    // HarnessHost exposes process-group evidence only. Even a drained SDK query
+    // cannot attest escaped descendants or reconstruct output after process death.
+    // Keep artifact release/resume gated on the canonical full-boundary owner.
     return { status: "unknown", session: this.session, reason: "unsupported" };
   }
 

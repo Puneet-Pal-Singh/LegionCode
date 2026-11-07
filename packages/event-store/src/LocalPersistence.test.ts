@@ -3,6 +3,7 @@ import {
   EVENT_SCHEMA_VERSION,
   EventCursorSchema,
   EventIdSchema,
+  HarnessSelectionSchema,
   PlatformEventSchema,
   ProviderIdSchema,
   ThreadIdSchema,
@@ -217,6 +218,22 @@ describe("LocalPersistence", () => {
     const persistence = createPersistence();
     const queued = lifecycle(1, "turn.queued");
     const started = lifecycle(2, "turn.started");
+    const baseAdmission = admission("harness");
+    const captured = {
+      environmentId: persistence.environmentId,
+      selectionRevision: 0,
+      selection: { harness: "codex", instanceId: "instance", connectionId: "selected", modelId: baseAdmission.run.modelId },
+    };
+    const admitted = TurnAdmissionSchema.parse({
+      ...baseAdmission,
+      runAttemptId: queued.runAttemptId,
+      run: { ...baseAdmission.run, id: "run_localpersist", threadId: queued.threadId, harnessSelection: captured },
+      turn: { ...baseAdmission.turn, id: queued.turnId, threadId: queued.threadId, runId: "run_localpersist" },
+      userMessage: { ...baseAdmission.userMessage, threadId: queued.threadId, runId: "run_localpersist", turnId: queued.turnId,
+        content: { ...baseAdmission.userMessage.content, harnessSelection: captured } },
+    });
+    await persistence.events.append(createThreadInput("harness:thread", queued.threadId));
+    await persistence.turnAdmissions.admit(admitted);
     await persistence.lifecycleEvents.appendBatch([queued, started]);
     const directory = persistenceDirectory(persistence);
     persistence.close();
@@ -232,18 +249,25 @@ describe("LocalPersistence", () => {
     await expect(reopened.lifecycleEvents.append(queued)).resolves.toEqual(queued);
     await expect(reopened.lifecycleEvents.append({ ...queued, producer: { kind: "runtime_kernel", id: "changed" } }))
       .rejects.toMatchObject({ code: "idempotency_conflict" });
+    const canonicalSelection = HarnessSelectionSchema.parse({
+      userId: admitted.run.userId, workspaceId: admitted.run.workspaceId,
+      environmentId: reopened.environmentId, selectionRevision: captured.selectionRevision,
+      workspaceGrantId: "grant-local", threadId: queued.threadId, runId: admitted.run.id,
+      turnId: queued.turnId, runAttemptId: queued.runAttemptId,
+      ...captured.selection, authOwnerGeneration: 0,
+      policyId: admitted.run.permissionProfileId, policyRevision: "policy-local",
+      billingSource: "subscription", runtimeVersion: "runtime-local", protocolVersion: "protocol-local",
+      transport: "codex_app_server_stdio",
+    });
     const selection = {
-      userId: "local-owner",
-      sessionId: "local-session",
-      runId: "run-local",
-      workspaceId: "workspace-local",
+      userId: admitted.run.userId,
+      sessionId: queued.threadId,
+      runId: admitted.run.id,
+      workspaceId: admitted.run.workspaceId,
       threadId: queued.threadId,
       turnId: queued.turnId,
       runAttemptId: queued.runAttemptId,
-      selectionJson: JSON.stringify({
-        connectionId: "selected",
-        modelId: "pinned",
-      }),
+      selectionJson: JSON.stringify(canonicalSelection),
     };
     const bindings = reopened.harnessBindings;
     expect((await bindings.freezeAndClaim({ selection, claimId: "local-claim", events: [started] })).status).toBe("claimed");
@@ -280,7 +304,7 @@ describe("LocalPersistence", () => {
       }),
     ).rejects.toMatchObject({ code: "observation_conflict" });
     await expect(
-      bindings.freeze({ ...selection, selectionJson: '{"modelId":"changed"}' }),
+      bindings.freeze({ ...selection, selectionJson: JSON.stringify({ ...canonicalSelection, modelId: "changed-model" }) }),
     ).rejects.toMatchObject({ code: "binding_conflict" });
     await expect(
       bindings.appendObservation({ ...observation, sequence: 3 }),

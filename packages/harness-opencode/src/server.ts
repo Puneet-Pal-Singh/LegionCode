@@ -1,10 +1,10 @@
 // Explicit Node-only entry. Public/browser capability contracts remain in platform-protocol.
-export { OpenCodeClient, OpenCodeTransportError } from "./OpenCodeClient.js";
-export { OpenCodeSession } from "./OpenCodeSession.js";
+export { OpenCodeClient, OpenCodeTransportError } from "./server/OpenCodeClient.js";
+export { OpenCodeSession } from "./server/OpenCodeSession.js";
 export {
   createOpenCodeServerPassword,
   openCodeServerEnvironment,
-} from "./OpenCodeAuthentication.js";
+} from "./server/OpenCodeAuthentication.js";
 export {
   OPENCODE_VERSION,
   OPENCODE_TRANSPORT,
@@ -13,7 +13,7 @@ export {
   requireOpenCodeVersion,
   verifyOpenCodeProbe,
   readOpenCodeServerUrl,
-} from "./OpenCodeInstallation.js";
+} from "./server/OpenCodeInstallation.js";
 
-export { OpenCodeV2Driver } from "./OpenCodeV2Driver.js";
-export { OpenCodeServerOwner } from "./OpenCodeServerOwner.js";
+export { OpenCodeV2Driver } from "./server/OpenCodeV2Driver.js";
+export { OpenCodeServerOwner } from "./server/OpenCodeServerOwner.js";

@@ -1,4 +1,6 @@
 import type Database from "better-sqlite3";
+import { HarnessAdmissionSelectionSchema, HarnessSelectionSchema } from "@repo/platform-protocol";
+import type { LocalTurnAdmissions } from "../local-turn-admissions.js";
 import {
   LifecycleEventSchema,
   type LifecycleEvent,
@@ -425,6 +427,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
   constructor(
     private readonly database: Database.Database,
     private readonly appendLifecycle: (event: LifecycleEvent) => LifecycleEvent,
+    private readonly admissions?: Pick<LocalTurnAdmissions, "getByTurn">,
   ) {}
 
   async freeze(
@@ -440,6 +443,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     events: readonly LifecycleEvent[],
   ): StoredHarnessBinding {
     const selection = StoredHarnessSelectionSchema.parse(value);
+    this.requireAdmission(selection);
     for (const event of events) {
       assertEventScope(selection, event);
       this.appendLifecycle(event);
@@ -448,26 +452,6 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     if (existing) {
       assertHarnessSelection(existing.selection, selection);
       return existing;
-    }
-    // The local runtime owns admission/start; storage must not invent one.
-    const admitted = this.database
-      .prepare(
-        "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? AND json_extract(event_json, '$.type')='turn.started' ORDER BY sequence LIMIT 1",
-      )
-      .get(selection.turnId) as { event_json: string } | undefined;
-    const first = admitted
-      ? LifecycleEventSchema.parse(JSON.parse(admitted.event_json))
-      : null;
-    if (
-      !first ||
-      first.type !== "turn.started" ||
-      first.threadId !== selection.threadId ||
-      first.runAttemptId !== selection.runAttemptId
-    ) {
-      throw new HarnessPersistenceError(
-        "admission_required",
-        "Harness binding requires canonical local start evidence",
-      );
     }
     this.database
       .prepare(
@@ -486,6 +470,56 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
       externalTurnId: null,
       lastObservationSequence: 0,
     };
+  }
+  private requireAdmission(selection: StoredHarnessSelection): void {
+    // This read reconstructs the existing admission and verifies its canonical
+    // event references and request fingerprint on the same SQLite connection.
+    // Admission precedes credential acquisition and kernel lifecycle start.
+    const admission = this.admissions?.getByTurn(selection.turnId);
+    if (!admission || admission.userMessage.type !== "user_message")
+      throw new HarnessPersistenceError(
+        "admission_required",
+        "Harness binding requires canonical local admission",
+      );
+    const binding = HarnessSelectionSchema.parse(JSON.parse(selection.selectionJson));
+    const capture = HarnessAdmissionSelectionSchema.parse(admission.run.harnessSelection);
+    const contentCapture = HarnessAdmissionSelectionSchema.parse(admission.userMessage.content.harnessSelection);
+    const chosen = capture.selection;
+    const environment = this.database
+      .prepare("SELECT value FROM metadata WHERE key='local_environment_id_v1'")
+      .get() as { value: string } | undefined;
+    if (
+      !chosen || !environment ||
+      createStableEventFingerprint(capture) !== createStableEventFingerprint(contentCapture) ||
+      selection.sessionId !== selection.threadId ||
+      admission.run.id !== selection.runId ||
+      admission.run.userId !== selection.userId ||
+      admission.run.workspaceId !== selection.workspaceId ||
+      admission.run.threadId !== selection.threadId ||
+      admission.turn.id !== selection.turnId ||
+      admission.turn.runId !== selection.runId ||
+      admission.turn.threadId !== selection.threadId ||
+      admission.runAttemptId !== selection.runAttemptId ||
+      binding.userId !== selection.userId ||
+      binding.workspaceId !== selection.workspaceId ||
+      binding.threadId !== selection.threadId ||
+      binding.runId !== selection.runId ||
+      binding.turnId !== selection.turnId ||
+      binding.runAttemptId !== selection.runAttemptId ||
+      binding.environmentId !== environment.value ||
+      binding.environmentId !== capture.environmentId ||
+      binding.selectionRevision !== capture.selectionRevision ||
+      binding.harness !== chosen.harness ||
+      binding.instanceId !== chosen.instanceId ||
+      binding.connectionId !== chosen.connectionId ||
+      binding.modelId !== chosen.modelId ||
+      binding.modelId !== admission.run.modelId ||
+      binding.policyId !== admission.run.permissionProfileId
+    )
+      throw new HarnessPersistenceError(
+        "binding_conflict",
+        "Harness binding differs from canonical local admission capture",
+      );
   }
   async freezeAndClaim(input: {
     selection: StoredHarnessSelection;

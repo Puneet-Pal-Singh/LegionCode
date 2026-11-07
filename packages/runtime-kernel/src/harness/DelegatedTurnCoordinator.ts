@@ -17,6 +17,7 @@ import { RuntimeLifecycleCoordinator } from "../RuntimeLifecycleCoordinator.js";
 import type {
   DelegatedHarnessPort,
   HarnessObservationCommitPort,
+  HarnessObservationRecovery,
 } from "./DelegatedHarnessPort.js";
 import {
   HarnessObservationIngestor,
@@ -46,7 +47,9 @@ export class DelegatedTurnCoordinator {
   private steeringFailure: unknown;
   private readonly steeringOperations = new Set<Promise<void>>();
   private stopRequested = false;
+  private readonly mutationController = new AbortController();
   private interruptSent = false;
+  private integrityRecovery: Promise<HarnessObservationRecovery> | null = null;
   private readonly replies = new Set<string>();
   private readonly approvalJobs = new Set<Promise<void>>();
   private approvalFailure: unknown;
@@ -307,6 +310,7 @@ export class DelegatedTurnCoordinator {
   /** Safe before open resolves. The latch prevents any subsequent prompt delivery. */
   async stop(): Promise<void> {
     this.stopRequested = true;
+    this.mutationController.abort();
     if (!this.session || this.interruptSent) return;
     this.interruptSent = true;
     // Stop remains available after auth revocation; it cannot start new work.
@@ -333,7 +337,13 @@ export class DelegatedTurnCoordinator {
     if (sameHarnessSession(evidence.session, this.session) &&
       ((evidence.status === "unknown" && evidence.reason === "observation_integrity_lost") ||
        (evidence.status === "quiescent" && evidence.observationIntegrity === "lost"))) {
-      await this.resolveObservationIntegrity({ command: this.options.command, session: this.session, signal: this.options.signal });
+      // Cleanup outlives execution cancellation. Stop must not prevent the
+      // canonical owner from recording integrity loss and retaining the lease.
+      await this.resolveObservationIntegrity({
+        command: this.options.command,
+        session: this.session,
+        signal: AbortSignal.timeout(2_000),
+      });
     }
     if (
       !sameHarnessSession(evidence.session, this.session) ||
@@ -352,11 +362,39 @@ export class DelegatedTurnCoordinator {
     readonly command: HarnessStartCommand;
     readonly session: import("@repo/worker-protocol").HarnessSession;
     readonly signal: AbortSignal;
-  }): Promise<import("./DelegatedHarnessPort.js").HarnessObservationRecovery> {
-    if (!this.session || !sameHarnessSession(this.session, input.session) ||
-      JSON.stringify(input.command.selection) !== JSON.stringify(this.options.command.selection)) throw new RuntimeKernelError("invalid_turn_identity", "Integrity recovery has a stale binding");
+  }): Promise<HarnessObservationRecovery> {
+    if (
+      !this.session || !sameHarnessSession(this.session, input.session) ||
+      input.command.leaseId !== this.options.command.leaseId ||
+      input.command.filesystemRoot !== this.options.command.filesystemRoot ||
+      JSON.stringify(input.command.selection) !== JSON.stringify(this.options.command.selection)
+    )
+      throw new RuntimeKernelError("invalid_turn_identity", "Integrity recovery has a stale binding");
     this.stopRequested = true;
-    return this.options.lifecycle.resolveObservationIntegrity({ ...input, persistence: this.options.dependencies.observations });
+    this.mutationController.abort();
+    if (this.integrityRecovery) return this.integrityRecovery;
+    const cleanup = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // An unresponsive persistence callback may ignore cancellation. Bound the
+    // caller's wait too; retain this result so timeout never starts a second job.
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        cleanup.abort();
+        reject(new RuntimeKernelError(
+          "worker_failed",
+          "Integrity cleanup timed out; retain lease for recovery",
+        ));
+      }, 2_000);
+    });
+    const work = Promise.resolve().then(() => this.options.lifecycle.resolveObservationIntegrity({
+      ...input,
+      signal: AbortSignal.any([input.signal, cleanup.signal]),
+      persistence: this.options.dependencies.observations,
+    }));
+    this.integrityRecovery = Promise.race([work, deadline]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+    return this.integrityRecovery;
   }
 
   async respondUserInput(
@@ -399,6 +437,7 @@ export class DelegatedTurnCoordinator {
         "approval_resolution_conflict",
         "User input reply was already durably consumed",
       );
+    this.assertNotStopped();
     await this.options.lifecycle.respondUserInput(
       requestId,
       response,
@@ -425,6 +464,7 @@ export class DelegatedTurnCoordinator {
     >,
   ): Promise<void> {
     const { command, run, turn, signal, dependencies } = this.options;
+    if (signal.aborted || this.stopRequested) return;
     const key = JSON.stringify(approval.replyTo);
     if (this.replies.has(key))
       throw new RuntimeKernelError(
@@ -443,7 +483,7 @@ export class DelegatedTurnCoordinator {
         turn,
         approval.parentItemId,
         approval.request,
-        signal,
+        AbortSignal.any([signal, this.mutationController.signal]),
         true,
       );
       decision = resolution.decision;
@@ -459,6 +499,7 @@ export class DelegatedTurnCoordinator {
       else throw error;
     }
     // Never replay an ambiguous reply, including transport failure after send.
+    if (signal.aborted || this.stopRequested) return;
     await dependencies.assertActive(command);
     if (signal.aborted || this.stopRequested) return;
     if (

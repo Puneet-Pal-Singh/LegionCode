@@ -12,6 +12,7 @@ import {
   type PlatformEvent,
   type Thread,
   type ThreadId,
+  type UserId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 
@@ -28,6 +29,10 @@ export class LocalThreadService {
   constructor(options: LocalThreadServiceOptions) {
     this.eventStore = options.events;
     this.getWorkspace = options.getWorkspace;
+  }
+
+  get actorUserId(): UserId {
+    return LOCAL_USER_ID;
   }
 
   async list(): Promise<Thread[]> {
@@ -153,8 +158,8 @@ export class LocalThreadService {
     const allEvents = await this.eventStore.listAll();
     const events = allEvents
       .filter((event) => event.threadId === threadId)
-      .sort((left, right) => left.sequence - right.sequence)
-      .map((event) => ({ event, projectionSequence: event.sequence }));
+      // listAll is canonical append order; stream-local sequence numbers may repeat.
+      .map((event, index) => ({ event, projectionSequence: index + 1 }));
     const snapshot = projectThreadEvents(threadId, events);
     if (!snapshot || snapshot.thread.workspaceId !== workspaceId) {
       throw new LocalThreadNotFoundError();
@@ -177,8 +182,8 @@ export class LocalThreadService {
     for (const threadId of threadIds) {
       const threadEvents = events
         .filter((event) => event.threadId === threadId)
-        .sort((left, right) => left.sequence - right.sequence)
-        .map((event) => ({ event, projectionSequence: event.sequence }));
+        // Platform and lifecycle events have distinct stream-local sequences.
+        .map((event, index) => ({ event, projectionSequence: index + 1 }));
       const snapshot = projectThreadEvents(threadId, threadEvents);
       if (snapshot) threads.push(snapshot.thread);
     }

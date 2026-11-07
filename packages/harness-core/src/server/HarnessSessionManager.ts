@@ -50,6 +50,8 @@ interface Attachment {
   stopping: boolean;
   retired: boolean;
   cleanup?: Promise<readonly ProcessGroupSettlement[]>;
+  stopSent?: boolean;
+  stopTimer?: ReturnType<typeof setTimeout>;
   readonly controls: Map<
     string,
     {
@@ -108,7 +110,7 @@ export class HarnessSessionManager {
     };
     // Register before async host creation or any driver/provider I/O so immediate Stop cannot miss it.
     this.attachments.set(key, attachment);
-    const abort = () => this.beginStop(attachment);
+    const abort = () => this.requestStop(attachment);
     if (signal.aborted) abort();
     else signal.addEventListener("abort", abort, { once: true });
     attachment.opening = (async () => {
@@ -240,7 +242,7 @@ export class HarnessSessionManager {
     )
       return Promise.reject(new HarnessHostError("stale_session"));
     attachment.observe = input.observe;
-    const abort = () => this.beginStop(attachment);
+    const abort = () => this.requestStop(attachment);
     input.signal.addEventListener("abort", abort, { once: true });
     attachment.execution = (async () => {
       try {
@@ -276,7 +278,7 @@ export class HarnessSessionManager {
     this.assertIntegrity(attachment);
     attachment.observe = input.observe;
     if (attachment.observing) return attachment.observing;
-    const abort = () => this.beginStop(attachment);
+    const abort = () => this.requestStop(attachment);
     input.signal.addEventListener("abort", abort, { once: true });
     const replay = attachment.observationQueue.then(() =>
       this.replayPending(attachment),
@@ -292,7 +294,7 @@ export class HarnessSessionManager {
         });
         await this.drainObservations(attachment);
       } catch (error) {
-        this.beginStop(attachment);
+        if (!attachment.stopping) this.beginStop(attachment);
         throw error instanceof HarnessHostError
           ? error
           : new HarnessHostError("stale_session");
@@ -322,6 +324,9 @@ export class HarnessSessionManager {
       this.beginStop(attachment);
       return Promise.reject(new HarnessHostError("session_busy"));
     }
+    // Fence before queued control/reply continuations can resume after an ACK.
+    if (command.kind === "interrupt" || command.kind === "dispose")
+      this.fenceMutations(attachment);
     const result = Promise.resolve().then(() =>
       this.applyControl(attachment, command),
     );
@@ -366,14 +371,13 @@ export class HarnessSessionManager {
         attachment.externalTurnId !== command.expectedExternalTurnId)
     )
       throw new HarnessHostError("stale_session");
-    if (command.kind === "interrupt" || command.kind === "dispose") {
-      attachment.stopping = true;
-      attachment.host?.fence();
-      // Host acceptance is separate from the provider receipt and quiescence.
-      // A hung provider RPC cannot block the bounded host cleanup.
+    if (command.kind === "interrupt") {
+      this.requestStop(attachment, command);
+      return { accepted: true };
+    }
+    if (command.kind === "dispose") {
       try {
-        const nativeReceipt = attachment.live.control(command);
-        void nativeReceipt.catch(() => undefined); // The driver reports transport loss; never resend.
+        void attachment.live.control(command).catch(() => undefined);
       } finally {
         this.beginStop(attachment);
       }
@@ -451,11 +455,14 @@ export class HarnessSessionManager {
       if (
         evidence.status === "quiescent" &&
         evidence.observationIntegrity === "complete"
-      )
+      ) {
         attachment.quiescence = {
           ...evidence,
           observationIntegrity: evidence.observationIntegrity,
         };
+        if (attachment.stopTimer) clearTimeout(attachment.stopTimer);
+        attachment.stopTimer = undefined;
+      }
       return evidence;
     } catch {
       return {
@@ -518,10 +525,53 @@ export class HarnessSessionManager {
     }
   }
 
-  private beginStop(attachment: Attachment): void {
+  private fenceMutations(attachment: Attachment): void {
     attachment.stopping = true;
-    attachment.controller.abort();
     attachment.host?.fence();
+  }
+
+  private requestStop(
+    attachment: Attachment,
+    command?: Extract<HarnessControlCommand, { kind: "interrupt" }>,
+  ): void {
+    this.fenceMutations(attachment);
+    if (!attachment.live || !attachment.session) {
+      // An incomplete open has no provider session handle. Retain the attempt;
+      // physical cleanup alone must not manufacture a learned session identity.
+      this.beginStop(attachment);
+      return;
+    }
+    if (
+      attachment.stopSent || attachment.cleanup || attachment.retired ||
+      attachment.quiescence
+    ) return;
+    attachment.stopSent = true;
+    // Keep the native observation lifetime alive until its ordered barrier is
+    // proven. Forced closure cannot certify that no final observations were lost.
+    attachment.stopTimer = setTimeout(() => {
+      void this.loseIntegrity(
+        attachment,
+        new HarnessHostError("observation_integrity_lost"),
+      ).catch(() => undefined);
+    }, 2_000);
+    try {
+      const receipt = attachment.live.control(command ?? {
+        kind: "interrupt",
+        commandId: attachment.command.commandId,
+        session: attachment.session,
+      });
+      // An ambiguous receipt never resends. Only the barrier can prove closure.
+      void receipt.catch(() => undefined);
+    } catch {
+      // The bounded drain still owns cleanup if native interrupt throws.
+    }
+  }
+
+  private beginStop(attachment: Attachment): void {
+    this.fenceMutations(attachment);
+    if (attachment.stopTimer) clearTimeout(attachment.stopTimer);
+    attachment.stopTimer = undefined;
+    attachment.controller.abort();
     if (attachment.host && !attachment.cleanup) {
       attachment.cleanup = attachment.host.terminateProcesses({
         graceMs: 1000,
@@ -529,6 +579,15 @@ export class HarnessSessionManager {
       });
       void attachment.cleanup.catch(() => undefined);
     }
+    if (
+      !attachment.quiescence &&
+      attachment.journal &&
+      !attachment.integrityError
+    )
+      void this.loseIntegrity(
+        attachment,
+        new HarnessHostError("observation_integrity_lost"),
+      ).catch(() => undefined);
   }
 
   private requireSession(raw: HarnessSession): Attachment {
@@ -619,7 +678,6 @@ export class HarnessSessionManager {
     ) {
       assertSession(input.session, payload.replyTo.session);
       if (
-        attachment.stopping ||
         payload.replyTo.authOwnerGeneration !==
           attachment.command.selection.authOwnerGeneration ||
         attachment.requests.has(requestKey(payload.replyTo)) ||

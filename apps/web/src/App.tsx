@@ -1,4 +1,11 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import {
   ClientShell,
   ClientShellLoading,
@@ -53,7 +60,11 @@ import {
   AppServerEnvironmentIdSchema,
   type HookSettingsAuditReadModel,
 } from "@legioncode/sdk";
-import { HostedHarnessScopeProvider } from "./components/harness/HostedHarnessScope";
+import {
+  HostedHarnessScope,
+  useHostedHarnessScopeBinding,
+  type HostedHarnessScopes,
+} from "./components/harness/HostedHarnessScope";
 import { initializeHostedAppServer } from "./services/api/appServerClient";
 import { useSessionWorkspaceContext } from "./hooks/useSessionWorkspaceContext";
 import { useOwnedWorkspaceSelection } from "./hooks/useOwnedWorkspaceSelection";
@@ -132,13 +143,23 @@ function App() {
   );
 }
 
+function HostedHarnessScopeProvider({
+  children,
+  ...scopes
+}: HostedHarnessScopes & { children: ReactNode }) {
+  const binding = useHostedHarnessScopeBinding(scopes);
+  return (
+    <HostedHarnessScope.Provider value={binding}>
+      {children}
+    </HostedHarnessScope.Provider>
+  );
+}
+
 /**
  * App Content - Contains the main application logic
  * Separated to allow useAuth hook access within AuthProvider
  */
 function AppContent() {
-  const [environment, setEnvironment] =
-    useState<AppServerEnvironmentSnapshot>(HOSTED_ENVIRONMENT);
   const {
     isAuthenticated,
     isLoading,
@@ -149,48 +170,93 @@ function AppContent() {
     refreshSession,
     user,
   } = useAuth();
-  const [environmentIdentity, setEnvironmentIdentity] = useState<{
-    userId: string;
-    id: string;
-  } | null>(null);
+  const environmentOwnerId =
+    isAuthenticated && hasVerifiedSession ? (user?.id ?? null) : null;
+  const [hostedEnvironment, setHostedEnvironment] = useState<{
+    ownerId: string | null;
+    snapshot: AppServerEnvironmentSnapshot;
+    environmentId: string | null;
+  }>({
+    ownerId: environmentOwnerId,
+    snapshot: HOSTED_ENVIRONMENT,
+    environmentId: null,
+  });
+  // Reset the account-owned record during an identity transition, before its
+  // descendants can render an old handshake or scope. Async settlement is atomic.
+  if (hostedEnvironment.ownerId !== environmentOwnerId) {
+    setHostedEnvironment({
+      ownerId: environmentOwnerId,
+      snapshot: HOSTED_ENVIRONMENT,
+      environmentId: null,
+    });
+  }
+  const environment =
+    hostedEnvironment.ownerId === environmentOwnerId
+      ? hostedEnvironment.snapshot
+      : HOSTED_ENVIRONMENT;
+  const environmentIdentity = useMemo(
+    () =>
+      hostedEnvironment.ownerId === environmentOwnerId &&
+      environmentOwnerId &&
+      hostedEnvironment.environmentId
+        ? { userId: environmentOwnerId, id: hostedEnvironment.environmentId }
+        : null,
+    [
+      hostedEnvironment.ownerId,
+      hostedEnvironment.environmentId,
+      environmentOwnerId,
+    ],
+  );
   useEffect(() => {
+    if (!environmentOwnerId) return;
     let active = true;
-    setEnvironmentIdentity(null);
-    if (!isAuthenticated || !hasVerifiedSession || !user?.id) {
-      setEnvironment(HOSTED_ENVIRONMENT);
-      return;
-    }
-    const ownerId = user.id;
-    setEnvironment(HOSTED_ENVIRONMENT);
+    const ownerId = environmentOwnerId;
     void initializeHostedAppServer()
       .then((handshake) => {
         if (!active) return;
-        const parsedEnvironmentId = AppServerEnvironmentIdSchema.safeParse(handshake.environmentId);
-        if (parsedEnvironmentId.success) {
-          setEnvironmentIdentity({ userId: ownerId, id: parsedEnvironmentId.data });
-        }
-        setEnvironment({
-          kind: handshake.environment,
-          status: "ready",
-          protocolVersion: handshake.protocolVersion,
-          serverVersion: handshake.server.version,
-          capabilities: handshake.capabilities,
-          unavailableCapabilities: handshake.unavailableCapabilities,
-          reason: null,
-        });
+        const parsedEnvironmentId = AppServerEnvironmentIdSchema.safeParse(
+          handshake.environmentId,
+        );
+        setHostedEnvironment((current) =>
+          current.ownerId === ownerId
+            ? {
+                ownerId,
+                environmentId: parsedEnvironmentId.success
+                  ? parsedEnvironmentId.data
+                  : null,
+                snapshot: {
+                  kind: handshake.environment,
+                  status: "ready",
+                  protocolVersion: handshake.protocolVersion,
+                  serverVersion: handshake.server.version,
+                  capabilities: handshake.capabilities,
+                  unavailableCapabilities: handshake.unavailableCapabilities,
+                  reason: null,
+                },
+              }
+            : current,
+        );
       })
       .catch(() => {
         if (!active) return;
-        setEnvironment({
-          ...HOSTED_ENVIRONMENT,
-          status: "degraded",
-          reason: "Hosted App Server status is unavailable",
-        });
+        setHostedEnvironment((current) =>
+          current.ownerId === ownerId
+            ? {
+                ownerId,
+                environmentId: null,
+                snapshot: {
+                  ...HOSTED_ENVIRONMENT,
+                  status: "degraded",
+                  reason: "Hosted App Server status is unavailable",
+                },
+              }
+            : current,
+        );
       });
     return () => {
       active = false;
     };
-  }, [isAuthenticated, hasVerifiedSession, user?.id]);
+  }, [environmentOwnerId]);
   const {
     sessions,
     activeSessionId,
@@ -946,6 +1012,7 @@ function AppContent() {
 
   return (
     <HostedHarnessScopeProvider
+      accountId={environmentOwnerId}
       connectionScope={harnessConnectionScope}
       selectionScope={harnessSelectionScope}
       sessionId={activeSessionId}

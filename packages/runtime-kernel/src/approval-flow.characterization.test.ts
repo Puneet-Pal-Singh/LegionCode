@@ -102,7 +102,7 @@ describe("approval continuation characterization", () => {
     approveFromWaiter({ decision: "approved", decidedBy: run.userId, reason: null });
     await expect(coordinator.resolve(approvalRequest.approvalId, {
       decision: "approved", decidedBy: run.userId, reason: null,
-    })).rejects.toMatchObject({ code: "approval_resolution_conflict" });
+    })).rejects.toMatchObject({ code: "approval_already_active" });
     releaseDecision();
     await denying;
     await rejectedWaiter;

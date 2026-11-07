@@ -1,4 +1,5 @@
 import { sameNativePermissions } from "./OpenCodePermissionPolicy.js";
+import { OpenCodePendingRequests } from "./OpenCodePendingRequests.js";
 import { OpenCodeWorkTracker } from "./OpenCodeWorkTracker.js";
 import { Schema } from "effect";
 import { Session } from "@opencode/schema/session";
@@ -23,24 +24,15 @@ import { OpenCodeClient, OpenCodeTransportError } from "./OpenCodeClient.js";
 export class OpenCodeSession {
   private readonly sessions = new Set<string>();
   private readonly work = new OpenCodeWorkTracker();
-  private readonly permissions = new Map<
-    string,
-    { sessionID: string; committed: Promise<void> }
-  >();
-  private readonly forms = new Map<
-    string,
-    {
-      sessionID: string;
-      committed: Promise<void>;
-      form: FormCreated["data"]["form"];
-    }
-  >();
+  private readonly requests: OpenCodePendingRequests;
   private readonly promptId = SessionMessage.ID.create();
   private promptSent = false;
   private stopping = false;
   private root: SessionInfo | undefined;
 
-  private constructor(private readonly transport: OpenCodeClient) {}
+  private constructor(private readonly transport: OpenCodeClient) {
+    this.requests = new OpenCodePendingRequests(transport);
+  }
 
   static async create(
     transport: OpenCodeClient,
@@ -51,7 +43,9 @@ export class OpenCodeSession {
       !input.model?.id ||
       !input.model.providerID ||
       !input.location?.directory ||
-      !input.permissions?.length
+      !input.permissions?.length ||
+      input.parentID !== undefined ||
+      input.id !== undefined
     ) {
       throw new Error(
         "OpenCode requires an explicit model, workspace and permission policy.",
@@ -59,8 +53,13 @@ export class OpenCodeSession {
     }
     const captured = structuredClone(input);
     const session = new OpenCodeSession(transport);
+    // Know the native identity before dispatch: session.created can precede its HTTP receipt.
+    const rootID = Session.ID.create();
+    session.sessions.add(rootID);
     await transport.subscribe(async (event) => {
       session.work.observe(event);
+      if (!session.promptSent && session.work.pending > 0)
+        return transport.invalidate("background work before admitted prompt");
       if (
         event.type === "session.created" &&
         event.data.parentID &&
@@ -71,54 +70,48 @@ export class OpenCodeSession {
         session.sessions.add(event.data.sessionID);
       }
       const sessionID = sessionIdOf(event);
-      if (!sessionID || !session.sessions.has(sessionID)) return;
-      if (!session.stopping) {
-        if (
-          event.type === "permission.asked" &&
-          (session.permissions.size >= 128 ||
-            session.permissions.has(event.data.id))
-        ) {
-          return transport.invalidate("pending permission bound or duplicate");
-        }
-        if (
-          event.type === "form.created" &&
-          (session.forms.size >= 128 || session.forms.has(event.data.form.id))
-        ) {
-          return transport.invalidate("pending question bound or duplicate");
-        }
-      }
-      // Install the generation-local capability before publishing, but gate its use on commit.
-      const committed = Promise.resolve().then(() => commit(event));
-      if (!session.stopping) {
-        if (event.type === "permission.asked")
-          session.permissions.set(event.data.id, { sessionID, committed });
-        if (event.type === "form.created")
-          session.forms.set(event.data.form.id, {
-            sessionID,
-            committed,
-            form: event.data.form,
-          });
-      }
-      await committed;
+      if (!sessionID) return;
+      if (!session.sessions.has(sessionID))
+        return transport.invalidate("event outside owned session subtree");
       if (
-        event.type === "permission.replied" &&
-        session.permissions.has(event.data.requestID)
+        event.type === "session.created" &&
+        (event.data.location.directory !== captured.location!.directory ||
+          !sameNativePermissions(captured.permissions!, event.data.permissions))
       )
-        return transport.invalidate(
-          "permission settled outside canonical reply",
-        );
+        return transport.invalidate("native child policy or workspace changed");
+      if (!session.promptSent) {
+        // Creation is metadata, not execution. Any other scoped activity before
+        // admitted prompt dispatch is unsafe, even if session.create is in flight.
+        if (
+          event.type !== "session.created" ||
+          sessionID !== rootID ||
+          event.data.parentID !== undefined ||
+          event.data.location.directory !== captured.location!.directory ||
+          !sameNativePermissions(captured.permissions!, event.data.permissions)
+        )
+          return transport.invalidate("work before admitted prompt");
+        return;
+      }
       if (
-        (event.type === "form.replied" || event.type === "form.cancelled") &&
-        session.forms.has(event.data.id)
+        event.type === "session.inbox.enqueued" &&
+        sessionID === rootID &&
+        event.data.item.type === "user" &&
+        event.data.inboxID !== session.promptId
       )
-        return transport.invalidate("question settled outside canonical reply");
+        return transport.invalidate("input outside admitted prompt binding");
+      await session.requests.observe(event, () => commit(event));
     });
     session.root = await transport.mutate("session.create", (api, signal) =>
-      api.session.create(captured, { signal }),
+      api.session.create({ ...captured, id: rootID }, { signal }),
     );
-    if (!validSession(session.root))
+    if (
+      !validSession(session.root) ||
+      session.root.id !== rootID ||
+      session.root.parentID !== undefined ||
+      session.root.location.directory !== captured.location!.directory ||
+      !sameNativePermissions(captured.permissions!, session.root.permissions)
+    )
       return transport.invalidate("session validation");
-    session.sessions.add(session.root.id);
     return session;
   }
 
@@ -138,6 +131,8 @@ export class OpenCodeSession {
     if (
       !validSession(actual) ||
       actual.id !== this.id ||
+      actual.parentID !== undefined ||
+      actual.location.directory !== this.root?.location.directory ||
       !sameNativePermissions(expected, actual.permissions)
     ) {
       return this.transport.invalidate("native session policy changed");
@@ -145,7 +140,7 @@ export class OpenCodeSession {
   }
 
   get pendingNativeWork(): number {
-    return this.work.pending;
+    return this.work.pending + this.requests.pending;
   }
 
   get externalTurnId(): string {
@@ -176,67 +171,34 @@ export class OpenCodeSession {
   }
 
   permissionOrigin(requestID: string): string | undefined {
-    return this.permissions.get(requestID)?.sessionID;
+    return this.requests.permissionOrigin(requestID);
   }
 
-  async replyPermission(
+  replyPermission(
     requestID: string,
     decision: "once" | "reject",
   ): Promise<void> {
-    if (decision !== "once" && decision !== "reject")
-      throw new Error("Unsupported OpenCode permission decision.");
-    const pending = this.permissions.get(requestID);
-    if (!pending || this.stopping)
-      throw new OpenCodeTransportError("stale permission reply", true);
-    this.permissions.delete(requestID);
-    await pending.committed;
-    if (this.stopping)
-      throw new OpenCodeTransportError("reply fenced by Stop", true);
-    const sessionID = pending.sessionID;
-    await this.transport.mutate("permission.reply", (api, signal) =>
-      api.permission.reply({ sessionID, requestID, decision }, { signal }),
-    );
+    return this.requests.replyPermission(requestID, decision);
   }
 
   pendingForm(formID: string): FormCreated["data"]["form"] | undefined {
-    return this.forms.get(formID)?.form;
+    return this.requests.pendingForm(formID);
   }
 
-  async replyForm(
+  replyForm(
     formID: string,
     answer: SessionFormReplyInput["answer"],
   ): Promise<void> {
-    const pending = this.forms.get(formID);
-    if (!pending || this.stopping)
-      throw new OpenCodeTransportError("stale form reply", true);
-    this.forms.delete(formID);
-    await pending.committed;
-    if (this.stopping)
-      throw new OpenCodeTransportError("reply fenced by Stop", true);
-    const sessionID = pending.sessionID;
-    await this.transport.mutate("form.reply", (api, signal) =>
-      api.session.form.reply({ sessionID, formID, answer }, { signal }),
-    );
+    return this.requests.replyForm(formID, answer);
   }
 
-  async cancelForm(formID: string): Promise<void> {
-    const pending = this.forms.get(formID);
-    if (!pending || this.stopping)
-      throw new OpenCodeTransportError("stale form cancellation", true);
-    this.forms.delete(formID);
-    await pending.committed;
-    if (this.stopping)
-      throw new OpenCodeTransportError("reply fenced by Stop", true);
-    const sessionID = pending.sessionID;
-    await this.transport.mutate("form.cancel", (api, signal) =>
-      api.session.form.cancel({ sessionID, formID }, { signal }),
-    );
+  cancelForm(formID: string): Promise<void> {
+    return this.requests.cancelForm(formID);
   }
 
   fence(): void {
     this.stopping = true;
-    this.permissions.clear();
-    this.forms.clear();
+    this.requests.fence();
   }
 
   /**
@@ -270,7 +232,7 @@ export class OpenCodeSession {
       if (!Array.isArray(inbox) || inbox.length > 1000)
         return this.transport.invalidate("inbox validation");
       for (const item of inbox) {
-        if (typeof item.id !== "string" || item.sessionID !== sessionID)
+        if (!validInbox(item) || item.sessionID !== sessionID)
           return this.transport.invalidate("inbox scope validation");
         await this.transport.mutate("session.inbox.cancel", (api, signal) =>
           api.session.inbox.cancel({ sessionID, inboxID: item.id }, { signal }),
@@ -297,6 +259,7 @@ export class OpenCodeSession {
   }> {
     await this.discoverDescendants();
     const sessions: SessionInfo[] = [];
+    const queuedSessionIds = new Set<string>();
     for (const sessionID of this.sessions) {
       const info = await this.transport.inspect("session.get", (api, signal) =>
         api.session.get({ sessionID }, { signal }),
@@ -304,6 +267,17 @@ export class OpenCodeSession {
       if (!validSession(info) || info.id !== sessionID)
         return this.transport.invalidate("session validation");
       sessions.push(info);
+      const inbox = await this.transport.inspect(
+        "session.inbox.list",
+        (api, signal) => api.session.inbox.list({ sessionID }, { signal }),
+      );
+      if (
+        !Array.isArray(inbox) ||
+        inbox.length > 1000 ||
+        inbox.some((item) => !validInbox(item) || item.sessionID !== sessionID)
+      )
+        return this.transport.invalidate("inbox scope validation");
+      if (inbox.length) queuedSessionIds.add(sessionID);
     }
     const active = await this.transport.inspect(
       "session.active",
@@ -312,15 +286,19 @@ export class OpenCodeSession {
     if (
       typeof active !== "object" ||
       active === null ||
+      Array.isArray(active) ||
+      Object.keys(active).some((id) => !this.sessions.has(id)) ||
       Object.values(active).some((value) => value?.type !== "running")
     ) {
       return this.transport.invalidate("active session validation");
     }
     return {
       sessions,
-      activeSessionIds: Object.keys(active).filter((id) =>
-        this.sessions.has(id),
-      ),
+      // A queued prompt can start after the instantaneous active read. It still
+      // owns this attempt even while its session reports idle.
+      activeSessionIds: [
+        ...new Set([...Object.keys(active), ...queuedSessionIds]),
+      ],
       continuity: this.transport.continuity,
     };
   }
@@ -395,3 +373,4 @@ const validSession = Schema.is(
   ),
 );
 const validInboxUser = Schema.is(Schema.toEncoded(SessionInbox.User));
+const validInbox = Schema.is(Schema.toEncoded(SessionInbox.Info));
