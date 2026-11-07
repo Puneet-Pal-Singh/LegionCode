@@ -61,7 +61,13 @@ export type LocalTurnServiceOptions = {
 export type LocalTurnRuntime = NonNullable<LocalTurnServiceOptions["runtime"]>;
 
 export class LocalTurnService {
-  private readonly executors = new Map<TurnId, LocalTurnExecutor>();
+  private readonly executors = new Map<
+    TurnId,
+    {
+      executor: LocalTurnExecutor;
+      binding: LocalWorkspaceExecutionBinding;
+    }
+  >();
   private readonly approvals: LocalApprovalService;
   private readonly interruption: LocalInterruptionService;
 
@@ -168,7 +174,7 @@ export class LocalTurnService {
       const { admission, newlyAdmitted } =
         await this.options.persistence.turnAdmissions.admit(candidate);
       if (newlyAdmitted) {
-        this.executors.set(admission.turn.id, executor);
+        this.executors.set(admission.turn.id, { executor, binding });
         // Runtime owns preflight failure and terminal settlement. Never infer a terminal here.
         const execution = Promise.resolve().then(() =>
           executor.execute(admission),
@@ -192,9 +198,9 @@ export class LocalTurnService {
               );
               return;
             }
-            if (this.executors.get(admission.turn.id) === executor)
-              this.executors.delete(admission.turn.id);
             await binding.close();
+            if (this.executors.get(admission.turn.id)?.executor === executor)
+              this.executors.delete(admission.turn.id);
           })
           .catch(() => {
             console.error(
@@ -279,8 +285,8 @@ export class LocalTurnService {
   }
 
   private requireExecutor(turnId: TurnId): LocalTurnExecutor {
-    const executor = this.executors.get(turnId);
-    if (!executor) throw new LocalInterruptionAttemptNotActiveError();
-    return executor;
+    const owned = this.executors.get(turnId);
+    if (!owned) throw new LocalInterruptionAttemptNotActiveError();
+    return owned.executor;
   }
 }
