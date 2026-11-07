@@ -2,6 +2,7 @@ import { HarnessCommitAckSchema, type HarnessCommitAck, type HarnessObservation 
 import type { HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";
 import {
   EventIdSchema,
+  toPublicProtocolError,
   type HarnessActivityMeasuredPayload,
   type HarnessProviderLimitNotifiedPayload,
   JsonRecordSchema,
@@ -922,6 +923,12 @@ export class RuntimeLifecycleCoordinator {
   async settleContextCompaction(
     payload: ContextCompactionPayload,
   ): Promise<void> {
+    if (payload.phase === "failed") {
+      payload = {
+        ...payload,
+        error: toPublicProtocolError({ code: "command_failed" }).message,
+      };
+    }
     await this.enqueue(async () => {
       const terminal = payload.phase === "failed" ? "failed" : "completed";
       await this.emit({
@@ -967,12 +974,14 @@ export class RuntimeLifecycleCoordinator {
     toolCallId: ToolCallId,
     failure: ProtocolError,
   ): Promise<void> {
+    const publicFailure = toPublicProtocolError(failure);
     await this.enqueue(async () =>
-      this.settleToolCall(toolCallId, "failed", { failure }),
+      this.settleToolCall(toolCallId, "failed", { failure: publicFailure }),
     );
   }
 
-  async declineToolCall(toolCallId: ToolCallId, reason: string): Promise<void> {
+  async declineToolCall(toolCallId: ToolCallId, _reason: string): Promise<void> {
+    const reason = toPublicProtocolError({ code: "policy_denied" }).message;
     await this.enqueue(async () =>
       this.settleToolCall(toolCallId, "declined", { reason }),
     );
@@ -1174,7 +1183,8 @@ export class RuntimeLifecycleCoordinator {
   }
 
   async fail(failure: ProtocolError): Promise<void> {
-    await this.enqueue(async () => this.failNow(failure));
+    const publicFailure = toPublicProtocolError(failure);
+    await this.enqueue(async () => this.failNow(publicFailure));
   }
 
   private async failNow(failure: ProtocolError): Promise<void> {
@@ -1184,7 +1194,8 @@ export class RuntimeLifecycleCoordinator {
     await this.settleTurn({ status: "failed", failure });
   }
 
-  async interrupt(reason: string): Promise<void> {
+  async interrupt(_reason: string): Promise<void> {
+    const reason = toPublicProtocolError({ code: "command_cancelled" }).message;
     await this.enqueue(async () => this.interruptNow(reason));
   }
 

@@ -217,7 +217,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi.fn(async () => {
-      throw new Error("Provider route rejected token-secretvalue123456");
+      throw new Error("Provider route rejected Bearer CANARY_PROVIDER_TOKEN apiKey=AIza_CANARY_KEY /home/CANARY/.codex/auth.json");
     });
     const kernel = await createKernel(sink, ports);
 
@@ -230,10 +230,11 @@ describe("RuntimeKernel canonical lifecycle", () => {
       outcome: {
         failure: {
           code: "provider_unavailable",
-          message: "Provider route rejected [redacted]",
+          message: "The model provider request failed.",
         },
       },
     });
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
   });
 
   it("does not expose raw provider quota diagnostics in failed-turn output", async () => {
@@ -257,7 +258,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(failed?.payload).toMatchObject({
       outcome: {
         failure: {
-          code: "provider_unavailable",
+          code: "rate_limited",
           message: expect.stringContaining("temporarily rate limited"),
         },
       },
@@ -366,13 +367,13 @@ describe("RuntimeKernel canonical lifecycle", () => {
       disposition: "terminal" as const,
       failure: {
         code: "worker_unavailable" as const,
-        message: "Sandbox container became unavailable during execution",
+        message: "Sandbox container became unavailable Bearer CANARY_WORKER_TOKEN",
         retryable: true,
-        correlationId: "secure-correlation-1",
+        correlationId: "CANARY_UPSTREAM_CORRELATION",
         details: {
           secureStatus: "sandbox_unavailable",
           secureCode: "SANDBOX_UNAVAILABLE",
-          taskId: "secure-task-1",
+          taskId: "CANARY_PRIVATE_TASK",
           leaseId: "lease-1",
         },
       },
@@ -391,16 +392,14 @@ describe("RuntimeKernel canonical lifecycle", () => {
           failure: {
             code: "worker_unavailable",
             retryable: true,
-            correlationId: "secure-correlation-1",
-            details: {
-              secureStatus: "sandbox_unavailable",
-              secureCode: "SANDBOX_UNAVAILABLE",
-            },
+            correlationId: null,
+            details: null,
           },
         },
       },
     });
     expect(JSON.stringify(sink.events)).not.toContain("provider_unavailable");
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
   });
 
   it("returns a recoverable tool failure to the provider loop before completing", async () => {
@@ -410,12 +409,13 @@ describe("RuntimeKernel canonical lifecycle", () => {
       .fn()
       .mockResolvedValueOnce(toolStep())
       .mockImplementationOnce(async ({ toolResults }) => {
+        expect(JSON.stringify(toolResults)).not.toContain("CANARY");
         expect(toolResults).toEqual([
           expect.objectContaining({
             toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
             failure: expect.objectContaining({
               code: "not_found",
-              message: "README.missing was not found",
+              message: "The requested resource was not found.",
             }),
           }),
         ]);
@@ -430,7 +430,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       disposition: "recoverable" as const,
       failure: {
         code: "not_found" as const,
-        message: "README.missing was not found",
+        message: "README.missing was not found Bearer CANARY_RECOVERABLE_TOKEN",
         retryable: false,
         correlationId: null,
         details: null,
@@ -447,6 +447,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
 
     expect(eventTypes(sink)).toContain("tool_call.failed");
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
     expect(eventTypes(sink)).toContain("item.failed");
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
     expect(terminalEvents(sink)).toHaveLength(1);
@@ -954,7 +955,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       outcome: {
         failure: {
           code: "policy_denied",
-          details: { runtimeKernelCode: "tool_policy_denied" },
+          details: null,
         },
       },
     });
@@ -1082,7 +1083,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi.fn(async () => {
-      throw new RuntimeKernelError("turn_cancelled", "Run cancelled by user");
+      throw new RuntimeKernelError("turn_cancelled", "Run cancelled Bearer CANARY_CANCEL_TOKEN");
     });
     const kernel = await createKernel(sink, ports);
 
@@ -1094,6 +1095,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
 
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(JSON.stringify(sink.events)).not.toContain("CANARY");
 
     const conversationSink = createLifecycleSink();
     const conversation = new RuntimeKernel({
@@ -1110,6 +1112,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ).rejects.toMatchObject({ code: "turn_cancelled" });
     expect(terminalEvents(conversationSink)).toHaveLength(1);
     expect(conversationSink.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(JSON.stringify(conversationSink.events)).not.toContain("CANARY");
     expect(eventTypes(conversationSink)).not.toContain(
       "workspace.snapshot_captured",
     );

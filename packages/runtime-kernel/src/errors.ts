@@ -1,5 +1,5 @@
 import {
-  ProtocolErrorSchema,
+  toPublicProtocolError,
   type ProtocolError,
   type ProtocolErrorCode,
 } from "@repo/platform-protocol";
@@ -63,39 +63,22 @@ export function toProtocolError(error: unknown): ProtocolError {
     if (error.code === "provider_failed") {
       return mapProviderFailure(error);
     }
-    return {
+    return toPublicProtocolError({
       code: mapProtocolErrorCode(error.code),
-      message: error.message,
       retryable: isRetryable(error.code),
-      correlationId: null,
-      details: { runtimeKernelCode: error.code },
-    };
+    });
   }
 
-  return {
-    code: "internal_error",
-    message: "Runtime kernel turn execution failed",
-    retryable: false,
-    correlationId: null,
-    details: null,
-  };
+  return toPublicProtocolError(null);
 }
 
 function mapProviderFailure(error: RuntimeKernelError): ProtocolError {
   const statusCode = readProviderStatusCode(error.causeError);
-  return {
-    code: "provider_unavailable",
-    message:
-      statusCode === 429
-        ? "The model provider is temporarily rate limited. LegionCode exhausted its bounded cooldown retry; retry later or choose another model."
-        : safeRuntimeErrorMessage(error.causeError),
+  return toPublicProtocolError({
+    code: statusCode === 429 ? "rate_limited" : "provider_unavailable",
     retryable: true,
-    correlationId: null,
-    details: {
-      runtimeKernelCode: error.code,
-      ...(statusCode !== null ? { providerStatusCode: statusCode } : {}),
-    },
-  };
+    details: statusCode !== null ? { providerStatusCode: statusCode } : null,
+  });
 }
 
 function readProviderStatusCode(error: unknown): number | null {
@@ -106,7 +89,8 @@ function readProviderStatusCode(error: unknown): number | null {
     visited.add(current);
     if (typeof current === "object") {
       const record = current as Record<string, unknown>;
-      if (typeof record.statusCode === "number") return record.statusCode;
+      if (typeof record.statusCode === "number" && Number.isInteger(record.statusCode) &&
+        record.statusCode >= 100 && record.statusCode <= 599) return record.statusCode;
       current =
         record.causeError ?? record.cause ?? record.lastError ?? record.error;
       depth += 1;
@@ -117,38 +101,11 @@ function readProviderStatusCode(error: unknown): number | null {
   return null;
 }
 
-function safeRuntimeErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return "The model provider request failed.";
-  const message = error.message.replace(/\s+/g, " ").trim();
-  if (!message) return "The model provider request failed.";
-  return message
-    .replace(/\b(sk|key|token)-[A-Za-z0-9_-]{12,}\b/gi, "[redacted]")
-    .slice(0, 500);
-}
-
 function mapWorkerFailure(error: RuntimeKernelError): ProtocolError {
-  const failure = parseWorkerFailure(error.causeError);
-  if (failure === null) {
-    return {
-      code: "command_failed",
-      message: error.message,
-      retryable: true,
-      correlationId: null,
-      details: { runtimeKernelCode: error.code },
-    };
-  }
-  return {
-    ...failure,
-    details: {
-      ...(failure.details ?? {}),
-      runtimeKernelCode: error.code,
-    },
-  };
-}
-
-function parseWorkerFailure(value: unknown): ProtocolError | null {
-  const parsed = ProtocolErrorSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  return toPublicProtocolError(error.causeError, {
+    code: "command_failed",
+    retryable: true,
+  });
 }
 
 function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {

@@ -1,4 +1,4 @@
-import { LifecycleTransitionError } from "@repo/platform-protocol";
+import { LifecycleTransitionError, toPublicProtocolError } from "@repo/platform-protocol";
 import type {
   ItemId,
   ProtocolError,
@@ -136,21 +136,22 @@ export class ToolExecutionCoordinator {
       signal,
     );
     if (result.kind === "failed") {
+      const failure = toPublicProtocolError(result.failure);
       if (result.disposition === "terminal") {
-        throw this.workerFailure(result.failure);
+        throw this.workerFailure(failure);
       }
-      await this.lifecycle.failToolCall(toolCall.toolCallId, result.failure);
+      await this.lifecycle.failToolCall(toolCall.toolCallId, failure);
       return {
         toolCallId: toolCall.toolCallId,
         output: {
           error: {
-            code: result.failure.code,
-            message: result.failure.message,
-            details: result.failure.details,
-            retryable: result.failure.retryable,
+            code: failure.code,
+            message: failure.message,
+            details: failure.details,
+            retryable: failure.retryable,
           },
         },
-        failure: result.failure,
+        failure,
       };
     }
     if (signal?.aborted || this.lifecycle.isTerminal) {

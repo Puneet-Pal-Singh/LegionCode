@@ -107,7 +107,12 @@ describe("runtime kernel integration", () => {
           replyTo: { session, origin: "codex-reverse-rpc", requestId: "native-request-1", authOwnerGeneration: 7 } }));
         await replyReceived;
         await observe(fact(3, { kind: "tool_completed", itemId: finalItemId, output: "Written" }));
-        const terminal = fact(4, { kind: "external_terminal", status: "completed", providerCompletedAt: timestamp, itemId: "itm_delegatedfinal" as typeof finalItemId, output: "Delegated done", error: null });
+        await observe(fact(4, { kind: "tool_started", itemId: "itm_failedtool" as typeof finalItemId,
+          content: { toolCallId: "toolcall_failedtool" as import("@repo/platform-protocol").ToolCallId, toolName: "read_file", input: {} } }));
+        await observe(fact(5, { kind: "tool_failed", itemId: "itm_failedtool" as typeof finalItemId,
+          failure: { code: "command_failed", message: "Bearer CANARY_DELEGATED_TOKEN /home/CANARY/.codex/auth.json",
+            retryable: false, correlationId: "CANARY_UPSTREAM_CORRELATION", details: { authorization: "CANARY_DELEGATED_TOKEN" } } }));
+        const terminal = fact(6, { kind: "external_terminal", status: "completed", providerCompletedAt: timestamp, itemId: "itm_delegatedfinal" as typeof finalItemId, output: "Delegated done", error: null });
         await observe(terminal);
         await observe(terminal);
       }),
@@ -126,7 +131,11 @@ describe("runtime kernel integration", () => {
     expect(delegatedPorts.worker.executeTool).not.toHaveBeenCalled();
     expect(harness.control).toHaveBeenCalledOnce();
     expect(delegatedSink.events.filter((event) => event.type === "approval.requested")).toHaveLength(1);
-    expect(delegatedSink.events.filter((event) => event.type === "tool_call.started")).toHaveLength(1);
+    expect(delegatedSink.events.filter((event) => event.type === "tool_call.started")).toHaveLength(2);
+    expect(delegatedSink.events.find((event) => event.type === "tool_call.failed")?.payload).toMatchObject({
+      failure: { code: "command_failed", message: "The operation failed.", retryable: false, correlationId: null, details: null },
+    });
+    expect(JSON.stringify(delegatedSink.events)).not.toContain("CANARY");
     expect(delegatedSink.events.at(-1)?.type).toBe("turn.completed");
 
     // Stop during open must latch before prompt dispatch, even if opening finishes later.

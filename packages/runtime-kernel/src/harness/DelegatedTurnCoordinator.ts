@@ -1,4 +1,4 @@
-import { JsonRecordSchema } from "@repo/platform-protocol";
+import { JsonRecordSchema, toPublicProtocolError } from "@repo/platform-protocol";
 import type {
   HarnessSelection,
   ItemId,
@@ -169,9 +169,14 @@ export class DelegatedTurnCoordinator {
         "Harness stream closed without terminal evidence",
       );
     if (terminal.status !== "completed") {
+      const failure = toPublicProtocolError(terminal.error, {
+        code: terminal.status === "interrupted" ? "command_cancelled" : "command_failed",
+        retryable: false,
+      });
       throw new RuntimeKernelError(
         terminal.status === "interrupted" ? "turn_cancelled" : "worker_failed",
-        terminal.error?.message ?? "Harness did not complete the turn",
+        failure.message,
+        failure,
       );
     }
     await this.requireQuiescence();
