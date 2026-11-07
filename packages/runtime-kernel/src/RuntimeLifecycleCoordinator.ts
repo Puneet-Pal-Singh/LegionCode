@@ -981,6 +981,8 @@ export class RuntimeLifecycleCoordinator {
   }
 
   async declineToolCall(toolCallId: ToolCallId, _reason: string): Promise<void> {
+    // Caller diagnostics never become the public catalog reason.
+    void _reason;
     const reason = toPublicProtocolError({ code: "policy_denied" }).message;
     await this.enqueue(async () =>
       this.settleToolCall(toolCallId, "declined", { reason }),
@@ -1195,6 +1197,8 @@ export class RuntimeLifecycleCoordinator {
   }
 
   async interrupt(_reason: string): Promise<void> {
+    // Preserve the command signature without publishing caller diagnostics.
+    void _reason;
     const reason = toPublicProtocolError({ code: "command_cancelled" }).message;
     await this.enqueue(async () => this.interruptNow(reason));
   }
