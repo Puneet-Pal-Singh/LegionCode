@@ -54,9 +54,34 @@ export async function prepareLocalCapturedExecution(
     await lease.assertCurrent();
     lease.signal.throwIfAborted();
   };
+  let capturesInFlight = 0;
+  let captureClosureUnknown = false;
+  const runCaptureOperation = async <T>(
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    if (captureClosureUnknown) {
+      throw new RuntimeKernelError(
+        "worker_failed",
+        "Capture requires physical closure reconciliation before further work",
+      );
+    }
+    capturesInFlight += 1;
+    try {
+      return await operation();
+    } catch (error) {
+      // Git can reject before its guardian/descendants close. A rejection is
+      // never positive closure proof; retain this same attempt's root/fence.
+      captureClosureUnknown = true;
+      throw error;
+    } finally {
+      capturesInFlight -= 1;
+    }
+  };
   const assertSettlementCurrent = async () => {
     // Revoke aborts tools, but the host retains this exact writer fence/root until capture finishes.
     await lease.assertSettlementCurrent();
+    // Check the supplied tool worker here, not our aggregate, so a capture
+    // never waits for its own operation to finish.
     while (
       !(await supplied.worker.awaitQuiescence({
         turnId: expected.turnId,
@@ -86,10 +111,16 @@ export async function prepareLocalCapturedExecution(
   const tools = selectLocalCapturedTools(supplied);
   const worker: LocalQuiescentWorker = {
     executionCapability: "guarded_mutation",
-    awaitQuiescence: (input) =>
-      input.turnId === expected.turnId
-        ? supplied.worker.awaitQuiescence(input)
-        : Promise.resolve(false),
+    awaitQuiescence: async (input) => {
+      if (
+        input.turnId !== expected.turnId ||
+        capturesInFlight > 0 ||
+        captureClosureUnknown
+      )
+        return false;
+      const workerClosed = await supplied.worker.awaitQuiescence(input);
+      return workerClosed && capturesInFlight === 0 && !captureClosureUnknown;
+    },
     executeTool: async (input) => {
       await assertCurrent();
       if (
@@ -130,7 +161,9 @@ export async function prepareLocalCapturedExecution(
             "invalid_turn_identity",
             "Capture key does not match the admitted turn",
           );
-        const result = await supplied.gitSnapshots.captureSnapshot(input);
+        const result = await runCaptureOperation(() =>
+          supplied.gitSnapshots.captureSnapshot(input),
+        );
         assertWorkspace(result);
         await assertSettlementCurrent();
         return result;
@@ -142,7 +175,9 @@ export async function prepareLocalCapturedExecution(
         assertWorkspace(input.workspace);
         assertWorkspace(input.start);
         assertWorkspace(input.terminal);
-        const result = await supplied.gitSnapshots.getSnapshotDiff(input);
+        const result = await runCaptureOperation(() =>
+          supplied.gitSnapshots.getSnapshotDiff(input),
+        );
         await assertSettlementCurrent();
         return result;
       },
@@ -156,8 +191,9 @@ export async function prepareLocalCapturedExecution(
               await assertSettlementCurrent();
               assertWorkspace(input.workspace);
               assertWorkspace(input.terminal);
-              const result =
-                await supplied.gitSnapshots.captureResumeSnapshot!(input);
+              const result = await runCaptureOperation(() =>
+                supplied.gitSnapshots.captureResumeSnapshot!(input),
+              );
               await assertSettlementCurrent();
               return result;
             },
