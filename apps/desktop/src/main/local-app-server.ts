@@ -1,3 +1,4 @@
+import { createWorkspaceFileComposition } from "./workspace-file-composition";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
@@ -30,7 +31,7 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data);
+  runLocalAppServerProcess(parentPort, data, createWorkspaceFileComposition(data));
 });
 
 process.once("uncaughtException", () => {
@@ -50,6 +51,13 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
     typeof value.serverVersion === "string" &&
     value.serverVersion.length > 0 &&
     typeof value.storageDirectory === "string" &&
-    value.storageDirectory.startsWith("/")
+    value.storageDirectory.startsWith("/") &&
+    (value.protectedHostRoots === undefined || (
+      Array.isArray(value.protectedHostRoots) && value.protectedHostRoots.length <= 32 &&
+      value.protectedHostRoots.every((path: unknown) => typeof path === "string" && path.startsWith("/") && !path.includes("\0"))
+    )) &&
+    [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath].every((path) =>
+      path === undefined || (typeof path === "string" && path.startsWith("/") && !path.includes("\0")),
+    )
   );
 }
