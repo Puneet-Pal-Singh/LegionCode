@@ -58,8 +58,8 @@ artifact, worker quiescence and attempt-bound mutation-lease ports before provid
 composition. Runtime creates `auto_edit` admissions, selects only supplied
 canonical registry definitions whose backend requirements are met, and carries
 the same lease/grant cancellation into worker and capture operations. Kernel
-requires quiescence before captured completion and reports capture unavailable
-when failed/interrupted work is not quiescent. It never produces an empty capture.
+retains the original execution and settlement continuation until worker quiescence
+is confirmed after failure or interruption. It never produces an empty capture.
 
 The host remains the mutation-lease and held-root resource owner; this extension
 consumes its signal/assertion and implements no lease store. Resource cleanup
