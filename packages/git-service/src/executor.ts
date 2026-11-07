@@ -44,3 +44,8 @@ export {
 } from "./index-transaction.js";
 
 export { gitCommandEnvironment } from "./host-git-process.js";
+export {
+  executeNativeIndexTransaction,
+  type NativeGitIndexSession,
+  type NativeGitTransactionPort,
+} from "./native-index-transaction.js";
