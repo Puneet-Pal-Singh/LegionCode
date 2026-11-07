@@ -408,8 +408,7 @@ function DesktopApp(): React.JSX.Element {
               thread={selectedThread}
               execution={environment.status === "ready" && environment.capabilities.includes("turn-execution-v1") ? { available: true } : {
                 available: false,
-                reason: environment.unavailableCapabilities.find((item) => item.capability === "turn-execution-v1")?.reason
-                  ?? "Local turn execution is unavailable in this environment.",
+                reason: "Local execution is unavailable in this environment.",
               }}
               onOpenSettings={() => setSettingsOpen(true)}
               providerRevision={providerRevision}
