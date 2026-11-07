@@ -16,6 +16,7 @@ export class CodexNativeSession {
   private startSubmitted = false;
   private opening = false;
   private nativeIdle = false;
+  private terminalObserved = false;
 
   constructor(private readonly transport: CodexStdioTransport) {}
 
@@ -85,7 +86,14 @@ export class CodexNativeSession {
     this.startSubmitted = true;
     this.nativeIdle = false;
     const response = await this.transport.request("turn/start", params);
-    this.activeTurnId = this.readIdentity(response, "turn");
+    const turnId = this.readIdentity(response, "turn");
+    if (
+      !record(response) ||
+      !record(response.turn) ||
+      response.turn.status !== "inProgress"
+    )
+      this.invalidResponse();
+    this.activeTurnId = turnId;
     return this.activeTurnId;
   }
 
@@ -93,6 +101,7 @@ export class CodexNativeSession {
     this.assertThread(params.threadId);
     if (
       this.activeTurnId === null ||
+      this.terminalObserved ||
       params.expectedTurnId !== this.activeTurnId
     )
       throw new CodexTransportError("invalid_frame", "rejected");
@@ -103,7 +112,11 @@ export class CodexNativeSession {
   }
 
   async interrupt(): Promise<void> {
-    if (this.externalThreadId === null || this.activeTurnId === null)
+    if (
+      this.externalThreadId === null ||
+      this.activeTurnId === null ||
+      this.terminalObserved
+    )
       throw new CodexTransportError("invalid_frame", "rejected");
     const params: TurnInterruptParams = {
       threadId: this.externalThreadId,
@@ -132,6 +145,7 @@ export class CodexNativeSession {
   observeTerminal(params: unknown): "completed" | "interrupted" | "failed" {
     if (
       !record(params) ||
+      this.terminalObserved ||
       params.threadId !== this.externalThreadId ||
       !record(params.turn) ||
       params.turn.id !== this.activeTurnId ||
@@ -148,6 +162,7 @@ export class CodexNativeSession {
     )
       this.invalidResponse();
     // No next-start permission or process-quiescence claim follows foreground completion.
+    this.terminalObserved = true;
     return status;
   }
 
