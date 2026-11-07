@@ -622,6 +622,8 @@ export {
 } from "./hosted-workspaces.js";
 
 export {
+  TurnArtifactCommitSelectionSchema,
+  type TurnArtifactCommitSelection,
   CommitTurnArtifactRequestSchema,
   CommitTurnArtifactResponseSchema,
   type CommitTurnArtifactRequest,
