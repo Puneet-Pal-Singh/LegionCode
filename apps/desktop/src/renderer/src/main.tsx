@@ -21,6 +21,7 @@ import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
+import { DesktopConversation } from "./DesktopConversation";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -41,6 +42,7 @@ function DesktopApp(): React.JSX.Element {
     useState<ThreadLoadState>("loading");
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [providerRevision, setProviderRevision] = useState(0);
   const [rightPanelOpen, setRightPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
@@ -418,16 +420,27 @@ function DesktopApp(): React.JSX.Element {
           ) : undefined}
           rightPanelLabel="Files and saved turn review"
         >
-          <div className="desktop-home">
+          {workspace?.readiness === "ready" && selectedThread && appServerClient && sdkReady ? (
+            <DesktopConversation
+              client={appServerClient}
+              thread={selectedThread}
+              execution={environment.status === "ready" && environment.capabilities.includes("turn-execution-v1") ? { available: true } : {
+                available: false,
+                reason: "Local execution is unavailable in this environment.",
+              }}
+              onOpenSettings={() => setSettingsOpen(true)}
+              providerRevision={providerRevision}
+            />
+          ) : <div className="desktop-home">
             <span className="desktop-home-brand">Legion<span>Code</span></span>
             <h2>{selectedThread?.title ?? (workspace?.readiness === "ready" ? "Choose a task" : "Open a local workspace")}</h2>
             <p>{selectedThread ? `Saved in ${workspace?.displayName ?? "your local workspace"}.`
               : workspace?.readiness === "ready" ? "Open a saved task or choose New task in the sidebar."
               : "Choose a folder in the sidebar and grant access to get started."}</p>
-          </div>
+          </div>}
         </WorkspaceFrame>
       </ClientShell>
-      <DesktopSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} client={appServerClient} ready={sdkReady} build={build} />
+      <DesktopSettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); setProviderRevision((value) => value + 1); }} client={appServerClient} ready={sdkReady} build={build} />
     </>
   );
 }
