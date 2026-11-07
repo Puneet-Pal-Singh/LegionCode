@@ -286,6 +286,8 @@ export class OpenCodeSession {
     if (
       typeof active !== "object" ||
       active === null ||
+      Array.isArray(active) ||
+      Object.keys(active).some((id) => !this.sessions.has(id)) ||
       Object.values(active).some((value) => value?.type !== "running")
     ) {
       return this.transport.invalidate("active session validation");
@@ -295,10 +297,7 @@ export class OpenCodeSession {
       // A queued prompt can start after the instantaneous active read. It still
       // owns this attempt even while its session reports idle.
       activeSessionIds: [
-        ...new Set([
-          ...Object.keys(active).filter((id) => this.sessions.has(id)),
-          ...queuedSessionIds,
-        ]),
+        ...new Set([...Object.keys(active), ...queuedSessionIds]),
       ],
       continuity: this.transport.continuity,
     };
