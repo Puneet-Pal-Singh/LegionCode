@@ -11,6 +11,7 @@ import {
   type TurnAdmission,
   type TurnDiffPayload,
   type TurnId,
+  type ArtifactId,
 } from "@repo/platform-protocol";
 import { AppServerOperationError } from "./server.js";
 
@@ -27,6 +28,30 @@ export class LocalTurnArtifactReads {
   ) {}
 
   async getTurnDiff(input: GetTurnDiffRequest): Promise<GetTurnDiffResponse> {
+    const verified = await this.loadVerifiedDiff(input);
+    return GetTurnDiffResponseSchema.parse({
+      diff: verified.saved?.diff ?? null,
+    });
+  }
+
+  /** Internal immutable selection, not permission to mutate Git. The commit
+   * owner must still verify artifact publication and the active grant. */
+  async getTurnDiffArtifact(input: GetTurnDiffRequest): Promise<{
+    readonly admission: TurnAdmission;
+    readonly diff: TurnDiffPayload;
+    readonly artifactId: ArtifactId;
+  } | null> {
+    const verified = await this.loadVerifiedDiff(input);
+    return verified.saved
+      ? {
+          admission: verified.admission,
+          diff: verified.saved.diff,
+          artifactId: verified.saved.artifact.artifactId,
+        }
+      : null;
+  }
+
+  private async loadVerifiedDiff(input: GetTurnDiffRequest) {
     const request = GetTurnDiffRequestSchema.parse(input);
     if (request.backend !== undefined) {
       throw new AppServerOperationError(
@@ -40,25 +65,24 @@ export class LocalTurnArtifactReads {
     );
     if (admission.turn.id !== request.turnId) throw unavailable();
     const published = await this.readPublishedDiff(admission);
-    let diff: TurnDiffPayload | null = null;
-    if (published) {
-      const saved = await this.options.persistence.turnArtifacts
-        .forAttempt({
-          userId: admission.run.userId,
-          workspaceId: admission.run.workspaceId,
-          threadId: admission.run.threadId,
-          runId: admission.run.id,
-          turnId: admission.turn.id,
-          runAttemptId: admission.runAttemptId,
-        })
-        .getTurnDiff();
-      if (
-        !saved ||
-        !isDeepStrictEqual(TurnDiffPayloadSchema.parse(saved.diff), published)
-      ) {
-        throw unavailable();
-      }
-      diff = published;
+    const saved = published
+      ? await this.options.persistence.turnArtifacts
+          .forAttempt({
+            userId: admission.run.userId,
+            workspaceId: admission.run.workspaceId,
+            threadId: admission.run.threadId,
+            runId: admission.run.id,
+            turnId: admission.turn.id,
+            runAttemptId: admission.runAttemptId,
+          })
+          .getTurnDiff()
+      : null;
+    if (
+      published &&
+      (!saved ||
+        !isDeepStrictEqual(TurnDiffPayloadSchema.parse(saved.diff), published))
+    ) {
+      throw unavailable();
     }
     // Grant revocation or a different thread scope during asynchronous reads
     // invalidates this response, without changing the immutable saved source.
@@ -66,7 +90,7 @@ export class LocalTurnArtifactReads {
       await this.options.turns.getTurn(request.turnId),
     );
     if (!isDeepStrictEqual(current, admission)) throw unavailable();
-    return GetTurnDiffResponseSchema.parse({ diff });
+    return { admission, saved };
   }
 
   private async readPublishedDiff(
