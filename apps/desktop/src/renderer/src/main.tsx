@@ -11,7 +11,7 @@ import {
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
-import { createAppServerClient, type LocalTurnConfigurationOptions } from "@legioncode/sdk";
+import { AppServerClientError, createAppServerClient, type LocalTurnConfigurationOptions } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
@@ -416,8 +416,13 @@ function DesktopApp(): React.JSX.Element {
       granted = await appServerClient.grantWorkspace({
         selectionToken: selection.selectionToken,
       });
-    } catch {
-      setWorkspaceError("The selected directory is not a Git repository root.");
+    } catch (error: unknown) {
+      setWorkspaceError(
+        error instanceof AppServerClientError && error.code === "server_error" &&
+        error.method === "workspace/grant" && error.serverError
+          ? error.message
+          : "Workspace access could not be confirmed.",
+      );
       return;
     } finally {
       workspaceCommand.current = false;
