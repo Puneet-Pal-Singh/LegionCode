@@ -1417,9 +1417,11 @@ executor. The runtime alone creates new admission records and lifecycle events.
 ports. Its one private execution capability selects both admission mode and
 executor ports, including the provider's registry-filtered captured tools.
 
-These modules do not activate Desktop execution. Read-only activation requires
-the actual grant-held root, protected provider and read-only Git host composition.
-Captured activation additionally requires a physical writer fence and actual
+Desktop's trusted Darwin utility composition supplies the grant-held root,
+protected private provider broker and canonical read-only Git service to this
+runtime. Its LocalTurnService uses the same process-owned persistence connection;
+the host does not manufacture lifecycle records or provider responses.
+Captured activation remains unavailable without a physical writer fence and actual
 capture/artifact ports. The same executor supplies positive resource-settlement
 proof; the host retains uncertain resources. Transport completion does not
 establish terminal or physical truth.

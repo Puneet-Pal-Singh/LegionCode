@@ -1,5 +1,5 @@
 import { RuntimeCredentialClient, type RuntimeCredentialRequest } from "./runtime-credentials";
-import { createWorkspaceFileComposition } from "./workspace-file-composition";
+import { createDesktopNativeComposition } from "./native-runtime-composition";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
@@ -36,7 +36,13 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data, createWorkspaceFileComposition(data));
+  void createDesktopNativeComposition(data, runtimeCredentials).then((composition) => {
+    runLocalAppServerProcess(parentPort, data, composition);
+  }).catch(() => {
+    runtimeCredentials.close();
+    parentPort.postMessage({ type: "fatal" });
+    process.exit(1);
+  });
 });
 
 process.once("uncaughtException", () => {
