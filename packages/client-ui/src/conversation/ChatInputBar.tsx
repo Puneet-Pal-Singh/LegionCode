@@ -835,7 +835,7 @@ export function ChatInputBar({
                 mode={mode}
                 availableModes={availableModes}
                 attachmentsAvailable={attachmentsAvailable}
-                disabled={isComposerActiveRun}
+                disabled={isComposerActiveRun || isHidden}
                 onModeChange={onModeChange ? handleModeChange : undefined}
                 onAttachImages={() => { if (attachmentsAvailable) imageInputRef.current?.click(); }}
                 onAddRepositoryContext={insertMentionTrigger}

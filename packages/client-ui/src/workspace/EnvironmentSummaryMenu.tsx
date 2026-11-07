@@ -560,10 +560,17 @@ function SummaryButton({
   );
 }
 
-function useViewportPopoverPosition(
+export function useViewportPopoverPosition(
   isOpen: boolean,
   triggerRef: RefObject<HTMLElement | null>,
   panelRef: RefObject<HTMLElement | null>,
+  {
+    align = "end",
+    placement = "below",
+  }: {
+    align?: "start" | "end";
+    placement?: "above" | "below";
+  } = {},
 ): CSSProperties {
   const [position, setPosition] = useState<CSSProperties>({
     position: "fixed",
@@ -582,15 +589,24 @@ function useViewportPopoverPosition(
       const left = Math.max(
         8,
         Math.min(
-          trigger.right - panel.width,
+          align === "start" ? trigger.left : trigger.right - panel.width,
           window.innerWidth - panel.width - 8,
         ),
       );
       const below = trigger.bottom + 8;
+      const above = trigger.top - panel.height - 8;
       const top =
-        below + panel.height <= window.innerHeight - 8
-          ? below
-          : Math.max(8, trigger.top - panel.height - 8);
+        placement === "above"
+          ? Math.max(
+              8,
+              Math.min(
+                above >= 8 ? above : below,
+                Math.max(8, window.innerHeight - panel.height - 8),
+              ),
+            )
+          : below + panel.height <= window.innerHeight - 8
+            ? below
+            : Math.max(8, above);
       setPosition({
         position: "fixed",
         left,
@@ -613,7 +629,7 @@ function useViewportPopoverPosition(
       window.removeEventListener("scroll", updatePosition, true);
       resizeObserver?.disconnect();
     };
-  }, [isOpen, panelRef, triggerRef]);
+  }, [align, isOpen, panelRef, placement, triggerRef]);
 
   return position;
 }
