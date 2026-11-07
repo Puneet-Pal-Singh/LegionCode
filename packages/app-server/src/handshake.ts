@@ -22,6 +22,7 @@ export function initializeAppServer(
     serverId: string;
     serverVersion: string;
     localWorkspaceFilesAvailable?: boolean;
+    localTurnExecutionAvailable?: boolean;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -52,11 +53,17 @@ export function initializeAppServer(
       environment: options.environment,
       capabilities:
         options.environment === "local"
-          ? [...LOCAL_APP_SERVER_CAPABILITIES, ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : [])]
+          ? [
+              ...LOCAL_APP_SERVER_CAPABILITIES,
+              ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : []),
+              ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : []),
+            ]
           : [],
       unavailableCapabilities:
         options.environment === "local"
-          ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.map((capability) => ({
+          ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) =>
+              capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable,
+            ).map((capability) => ({
               capability,
               reason: "This local capability is planned for a later slice",
             }))

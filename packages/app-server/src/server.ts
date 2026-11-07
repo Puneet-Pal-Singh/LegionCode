@@ -532,6 +532,7 @@ async function dispatch(
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
+          localTurnExecutionAvailable: Boolean(composition.localTurnService),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");
