@@ -46,6 +46,34 @@ checks persisted terminal/checkpoint state before retrying capture.
 uses bounded text reads. These references support keeping capture ownership and
 local execution behind existing ports; they introduce no external harness driver.
 
+## Plan 057 — Prepared captured execution capability
+
+`LocalTurnExecutor` is the same execution owner and exact-attempt handle map as
+the existing `LocalReadOnlyTurnExecutor` export; the latter remains an alias for
+current consumers. The default and explicit read-only capability keep `ask`,
+restricted read-file dispatch, no executable hooks and omitted artifact capture.
+
+The explicit `artifactCapture: "required"` capability requires real Git snapshot,
+artifact, worker quiescence and attempt-bound mutation-lease ports before provider
+composition. Runtime creates `auto_edit` admissions, selects only supplied
+canonical registry definitions whose backend requirements are met. New tool work
+uses active lease/grant cancellation; final capture borrows the same original
+root and fence through retained settlement authority. Kernel retains the original
+execution and settlement continuation until worker quiescence is confirmed after
+failure or interruption. It never produces an empty capture.
+
+The host remains the mutation-lease and held-root resource owner; this extension
+consumes its signals/assertions and implements no lease store. Resource cleanup
+must retain the exact executor/binding until `awaitResourceRelease` validates
+durable terminal evidence and actual worker/capture/Git closure. Unknown closure
+keeps that original authority quarantined. A preparation failure requires the
+same physical owner's positive, exact-attempt acquisition-closure receipt; a busy
+code or an absent map entry alone cannot release the borrowed root.
+Actual mutator availability is still gated on the host lease implementation,
+worker05 guarded file worker, worker06 single-executable worker/guardian and
+worker07 real capture ports. No full-capture product consumer is declared wired
+until those owners supply and compose the real boundaries.
+
 ## Unused Web run-summary reader retirement
 
 The unreferenced `useRunSummary` hook, its implementation-only tests and its
