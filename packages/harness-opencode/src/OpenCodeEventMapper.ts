@@ -286,8 +286,8 @@ export class OpenCodeEventMapper {
               itemId: this.item("permission", requestId),
               question: event.data.message ?? `Allow ${event.data.action}?`,
               options: [
-                { id: "once", label: "Allow once", description: null },
-                { id: "reject", label: "Deny", description: null },
+                { id: "allow_once", label: "Allow once", description: null },
+                { id: "deny", label: "Deny", description: null },
               ],
               metadata: {
                 action: event.data.action,
