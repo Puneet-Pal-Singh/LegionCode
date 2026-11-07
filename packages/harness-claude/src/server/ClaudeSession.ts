@@ -201,6 +201,10 @@ export class ClaudeSession implements HarnessLiveSession {
       if (observer) await this.withDeadline(observer, 2500);
       if (!this.runner!.observationsDrained)
         throw new HarnessHostError("observation_integrity_lost");
+      // Stop/EOF can deliver a later root result after the foreground completed.
+      // Its sticky failure must fence settlement even when native drain succeeded.
+      if (backgroundFailure)
+        throw new HarnessHostError("observation_integrity_lost");
       this.observerDrained = true;
       await this.opening.host.terminateProcesses({
         graceMs: 1000,
