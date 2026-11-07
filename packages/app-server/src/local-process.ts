@@ -2,12 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { LocalPersistence } from "@repo/event-store/local";
 import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
+import { MAX_LOCAL_APP_SERVER_REQUEST_BYTES } from "./protocol.js";
 import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService } from "./local-workspace.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
-
-const MAX_REQUEST_BYTES = 32 * 1024;
 
 export type LocalAppServerStartConfig = {
   credential: string;
@@ -191,7 +190,7 @@ function readBody(
     request.on("data", (chunk: Buffer) => {
       if (rejected) return;
       size += chunk.length;
-      if (size > MAX_REQUEST_BYTES) {
+      if (size > MAX_LOCAL_APP_SERVER_REQUEST_BYTES) {
         rejected = true;
         chunks.length = 0;
         clearTimeout(timer);
