@@ -16,6 +16,7 @@ type SelectionStore = Pick<HarnessOperations, "readSelection" | "select">;
  * canonical selection store. No provider launch, credential read or alternate store.
  */
 export class LocalHarnessOperations implements HarnessOperations {
+  private selectionQueue: Promise<void> = Promise.resolve();
   private selectionStore: SelectionStore | undefined;
   private modelsReader: HarnessOperations["models"] | undefined;
   private statusReader: HarnessOperations["status"] | undefined;
@@ -32,6 +33,7 @@ export class LocalHarnessOperations implements HarnessOperations {
    * writer and a supported safe catalog reader. They are never supplied by HTTP.
    */
   bindServices(services: SelectionStore & Partial<Pick<HarnessOperations, "models" | "status" | "setup">>): void {
+    if (this.selectionStore) throw new Error("Local harness operation services are already bound");
     this.selectionStore = services;
     this.modelsReader = services.models?.bind(services);
     this.statusReader = services.status?.bind(services);
@@ -64,14 +66,11 @@ export class LocalHarnessOperations implements HarnessOperations {
     if (result.instances.some((instance) => instance.environmentId !== params.environmentId || instance.workspaceId !== params.workspaceId)) {
       throw new AppServerOperationError(503, "server_unavailable", "Local instance metadata returned a different workspace");
     }
-    const configured = this.options.readInstances();
-    if (result.instances.some((instance) => instance.state === "ready" && !configured.some((known) =>
-      known.instanceId === instance.instanceId && known.harness === instance.harness &&
-      known.connectionId === instance.connectionId && known.workspaceId === instance.workspaceId &&
-      known.environmentId === instance.environmentId && known.runtimeVersion === instance.runtimeVersion &&
-      known.protocolVersion === instance.protocolVersion))) {
-      throw new AppServerOperationError(503, "server_unavailable", "Local instance metadata does not match configured runtime bindings");
-    }
+    // Verified connection/install/policy health belongs to the private service,
+    // not the process-local registry. Drivers register lazily for the admitted
+    // binding; requiring a live driver here makes the first setup/select
+    // impossible after restart. Without that service, readInstances remains
+    // explicitly unavailable and cannot manufacture readiness.
     await this.authorizeScope(params);
     return result;
   }
@@ -100,6 +99,25 @@ export class LocalHarnessOperations implements HarnessOperations {
   }
 
   async select(params: HarnessSelectRequest): Promise<HarnessSelectionResponse> {
+    return this.serializeSelection(() => this.selectWithin(params));
+  }
+
+  /** Freeze admission intent while local selection commands are excluded. The
+   * process owns the exclusive SQLite writer; the store still owns durable CAS
+   * and receipts. A picker change can only affect a later admitted attempt.
+   */
+  withSelection<T>(params: HarnessSelectionReadRequest,
+    admit: (saved: HarnessSelectionResponse) => Promise<T>): Promise<T> {
+    return this.serializeSelection(async () => admit(await this.readSelection(params)));
+  }
+
+  private serializeSelection<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.selectionQueue.then(operation);
+    this.selectionQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async selectWithin(params: HarnessSelectRequest): Promise<HarnessSelectionResponse> {
     await this.authorizeThread(params);
     const store = this.requireSelectionStore();
     if (params.selection !== null) {
