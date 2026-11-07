@@ -63,8 +63,8 @@ const operationMarkers = [
   "BISECT_LOG",
 ];
 
-/** No-hook Darwin transaction. commit-tree receives a fixed validated index;
- * update-ref performs the expected-old HEAD CAS. User hooks are never disabled. */
+/** No-hook Darwin transaction. commit-tree receives saved immutable entries;
+ * update-ref performs the expected-old named-branch CAS. User hooks are never disabled. */
 export async function executeNativeIndexTransaction(
   input: GitCommandExecutionInput,
   port: NativeGitTransactionPort,
@@ -130,6 +130,18 @@ export async function executeNativeIndexTransaction(
   };
   const refuse = (message: string): never => {
     throw new NativeGitTransactionFailure(failure(message, 126));
+  };
+  const assertDirectBranch = async () => {
+    const symbolic = await run([
+      "symbolic-ref",
+      "--quiet",
+      "--no-recurse",
+      branchRef!,
+    ]);
+    if (symbolic.exitCode === 0)
+      refuse("Native immutable commit does not support symbolic branch refs");
+    if (symbolic.exitCode !== 1)
+      throw new NativeGitTransactionFailure(symbolic);
   };
   const verifyPolicy = async () => {
     if (
@@ -200,9 +212,12 @@ export async function executeNativeIndexTransaction(
   };
   try {
     await verifyPolicy();
-    branchRef = (await required(["symbolic-ref", "HEAD"])).trim();
+    branchRef = (
+      await required(["symbolic-ref", "--no-recurse", "HEAD"])
+    ).trim();
     if (!branchRef.startsWith("refs/heads/") || branchRef.length === 11)
       refuse("Native immutable commit requires a named branch");
+    await assertDirectBranch();
     const head = await run(["rev-parse", "--verify", "HEAD"]);
     if (head.exitCode === 0 && objectId.test(head.stdout.trim()))
       beforeHead = head.stdout.trim();
@@ -252,11 +267,9 @@ export async function executeNativeIndexTransaction(
     const seed = beforeHead
       ? ["read-tree", beforeHead]
       : ["read-tree", "--empty"];
-    await required(seed, staged);
-    await required(
-      ["--literal-pathspecs", "add", "-A", "--", ...guard.paths],
-      staged,
-    );
+    // Load blob IDs, modes and deletions from the saved terminal tree. Snapshot
+    // selection must never inspect or stage a later version of a live file.
+    await required(["read-tree", guard.expectedTerminalTreeId], staged);
     const matches = await run(
       [
         "--literal-pathspecs",
@@ -284,8 +297,52 @@ export async function executeNativeIndexTransaction(
       ],
       staged,
     );
-    await required(seed, fixed);
     if (!session.originalExists) await required(["read-tree", "--empty"], user);
+    // Baseline-equivalent index entries are unmodified staging. Already-staged
+    // artifact entries are also safe, but any other selected staging belongs to
+    // the user and must survive as a conflict without publishing either index.
+    const selectedStaging = (
+      await required(
+        [
+          "--literal-pathspecs",
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--no-renames",
+          "--cached",
+          "--name-only",
+          "-z",
+          beforeTree,
+          "--",
+          ...guard.paths,
+        ],
+        user,
+      )
+    )
+      .split("\0")
+      .filter(Boolean);
+    if (selectedStaging.some((path) => !guard.paths.includes(path))) conflict();
+    if (selectedStaging.length) {
+      const selectedMatches = await run(
+        [
+          "--literal-pathspecs",
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--no-renames",
+          "--cached",
+          "--quiet",
+          guard.expectedTerminalTreeId,
+          "--",
+          ...selectedStaging,
+        ],
+        user,
+      );
+      if (selectedMatches.exitCode === 1) conflict();
+      if (selectedMatches.exitCode !== 0)
+        throw new NativeGitTransactionFailure(selectedMatches);
+    }
+    await required(seed, fixed);
     for (const index of [fixed, user]) {
       await required(
         [
@@ -333,21 +390,26 @@ export async function executeNativeIndexTransaction(
       );
     // Recheck effective hooks/signing and original branch immediately before CAS.
     await verifyPolicy();
-    if ((await required(["symbolic-ref", "HEAD"])).trim() !== branchRef)
+    if (
+      (await required(["symbolic-ref", "--no-recurse", "HEAD"])).trim() !==
+      branchRef
+    )
       conflict();
+    await assertDirectBranch();
     await port.assertActive();
     await session.verify();
     mayHaveAdvanced = true;
     const update = await run([
       "update-ref",
+      "--no-deref",
       "-m",
       `commit: ${args[8]}`,
-      "HEAD",
+      branchRef,
       sha,
       beforeHead ?? "0".repeat(sha.length),
     ]);
     if (update.exitCode !== 0) {
-      const after = await run(["rev-parse", "--verify", "HEAD"]);
+      const after = await run(["rev-parse", "--verify", branchRef]);
       const unchanged = beforeHead
         ? after.exitCode === 0 && after.stdout.trim() === beforeHead
         : after.exitCode === 128;
@@ -362,7 +424,9 @@ export async function executeNativeIndexTransaction(
     const finalHead = (
       await required(["rev-parse", "--verify", "HEAD"])
     ).trim();
-    const finalBranch = (await required(["symbolic-ref", "HEAD"])).trim();
+    const finalBranch = (
+      await required(["symbolic-ref", "--no-recurse", "HEAD"])
+    ).trim();
     if (finalHead !== sha || finalBranch !== branchRef)
       throw new NativeGitTransactionFailure(
         failure("HEAD or its branch changed during publication"),
