@@ -1273,3 +1273,46 @@ activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
 dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
 request/result contract. Hosted dispatch rejects these local commands. Desktop
 sidebar callbacks and visible restart acceptance remain client integration work.
+
+## Plan 057 — Native turn service composition
+
+`LocalTurnService` consumes the canonical admission repository and delegates
+approval and interruption to their existing adapters. A matching saved request
+returns its original admission without resolving a new provider or creating an
+executor. The runtime alone creates new admission records and lifecycle events.
+`createLocalNativeRuntime` supplies the existing protected provider and kernel
+ports. Its one private execution capability selects both admission mode and
+executor ports, including the provider's registry-filtered captured tools.
+
+These modules do not activate Desktop execution. Read-only activation requires
+the actual grant-held root, protected provider and read-only Git host composition.
+Captured activation additionally requires a physical writer fence and actual
+capture/artifact ports. The same executor supplies positive resource-settlement
+proof; the host retains uncertain resources. Transport completion does not
+establish terminal or physical truth.
+
+## Plan 057 — Prepared captured execution capability
+
+`LocalTurnExecutor` is the same execution owner and exact-attempt handle map as
+the existing `LocalReadOnlyTurnExecutor` export; the latter remains an alias for
+current consumers. The default and explicit read-only capability keep `ask`,
+restricted read-file dispatch, no executable hooks and omitted artifact capture.
+
+The explicit `artifactCapture: "required"` capability requires real Git snapshot,
+artifact, worker quiescence and attempt-bound mutation-lease ports before provider
+composition. Runtime creates `auto_edit` admissions, selects only supplied
+canonical registry definitions whose backend requirements are met, and carries
+the same lease/grant cancellation into worker and capture operations. Kernel
+retains the original execution and settlement continuation until worker quiescence
+is confirmed after failure or interruption. It never produces an empty capture.
+
+The host remains the mutation-lease and held-root resource owner; this extension
+consumes its signal/assertion and implements no lease store. Resource cleanup
+must retain the exact executor/binding until `awaitResourceRelease` confirms both
+durable settlement and physical closure. A scoped clean-acquisition owner receipt
+can prove failed/interrupted preparation quiescence, never completed capture;
+generic or unproved preparation failures remain quarantined.
+Actual mutator availability is still gated on the host lease implementation,
+worker05 guarded file worker, worker06 single-executable worker/guardian and
+worker07 real capture ports. No full-capture product consumer is declared wired
+until those owners supply and compose the real boundaries.

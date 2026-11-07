@@ -500,6 +500,9 @@ importers:
       '@repo/git-service':
         specifier: workspace:*
         version: link:../git-service
+      '@repo/permission-policy':
+        specifier: workspace:*
+        version: link:../permission-policy
       '@repo/persistence':
         specifier: workspace:*
         version: link:../persistence
@@ -509,9 +512,15 @@ importers:
       '@repo/provider-core':
         specifier: workspace:*
         version: link:../provider-core
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../runtime-kernel
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      '@repo/workspace-core':
+        specifier: workspace:*
+        version: link:../workspace-core
       zod:
         specifier: ^3.25.0
         version: 3.25.1

@@ -11,7 +11,9 @@
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
     "./local-process": "./src/local-process.ts",
-    "./local-mac-git-execution": "./src/local-mac-git-execution.ts"
+    "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
+    "./local-native-runtime": "./src/local-native-runtime.ts",
+    "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {
     "build": "tsc",
@@ -22,10 +24,13 @@
     "@legioncode/execution-engine": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
+    "@repo/permission-policy": "workspace:*",
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
