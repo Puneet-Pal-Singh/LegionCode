@@ -13,6 +13,7 @@ describe("native provider request recovery", () => {
       true,
     );
     expect(isProviderRecoveryError({ statusCode: 400 })).toBe(false);
+    expect(isProviderRecoveryError({ retryable: false, statusCode: 502, message: "network error", cause: { retryable: true, statusCode: 503 } })).toBe(false);
   });
 
   it("honors Retry-After headers before exponential defaults", () => {
