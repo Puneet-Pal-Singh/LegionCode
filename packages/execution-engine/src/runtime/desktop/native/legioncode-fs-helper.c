@@ -307,13 +307,39 @@ done:
   return result;
 }
 
+/* Private read-only identity: no Git parser, no path alias, no metadata writes. */
+static int inspect_git_metadata_identity(void) {
+  struct stat root, metadata;
+  if (strcmp(requested_path, ".git") || fstat(3, &root) || !S_ISDIR(root.st_mode))
+    return fail(5, "Git metadata identity requires the original directory descriptor");
+  int directory = openat(3, ".git", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  if (directory < 0) return fail(5, "Git metadata must be a real .git directory; linked metadata is unsupported");
+  int error = fstat(directory, &metadata);
+  if (close(directory)) error = -1;
+  if (error || !S_ISDIR(metadata.st_mode)) return fail(5, "Git metadata directory identity is unavailable");
+  uintmax_t root_birth_seconds = 0, root_birth_nanoseconds = 0, metadata_birth_seconds = 0, metadata_birth_nanoseconds = 0;
+#if defined(__APPLE__)
+  root_birth_seconds = (uintmax_t)root.st_birthtimespec.tv_sec;
+  root_birth_nanoseconds = (uintmax_t)root.st_birthtimespec.tv_nsec;
+  metadata_birth_seconds = (uintmax_t)metadata.st_birthtimespec.tv_sec;
+  metadata_birth_nanoseconds = (uintmax_t)metadata.st_birthtimespec.tv_nsec;
+#endif
+  char identity[256];
+  int length = snprintf(identity, sizeof(identity), "gitdir-v1:%jx:%jx:%jx:%jx:%jx:%jx:%jx:%jx",
+    (uintmax_t)root.st_dev, (uintmax_t)root.st_ino, root_birth_seconds, root_birth_nanoseconds,
+    (uintmax_t)metadata.st_dev, (uintmax_t)metadata.st_ino, metadata_birth_seconds, metadata_birth_nanoseconds);
+  if (length < 0 || (size_t)length >= sizeof(identity)) return fail(3, "Git metadata identity exceeds its bound");
+  return write_exact(1, "J", 1) || write_u32((uint32_t)length) || write_exact(1, identity, (size_t)length) ? 1 : 0;
+}
+
 static int run(void) {
   unsigned char header[6]; uint32_t path_length; char name[MAX_PATH_BYTES + 1];
-  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D') ||
+  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D' && header[5] != 'I') ||
       read_u32(&path_length) || !path_length || path_length > MAX_PATH_BYTES ||
       read_exact(0, requested_path, path_length)) return stopped ? cancelled() : fail(1, "Invalid native filesystem protocol");
   if (memchr(requested_path, 0, path_length)) return fail(1, "NUL is not allowed in a workspace path");
   requested_path[path_length] = 0;
+  if (header[5] == 'I') return inspect_git_metadata_identity();
   if (header[5] == 'D') return list_directory();
   parent_fd = open_parent(requested_path, name);
   if (parent_fd < 0) return fail(5, "Workspace parent must exist without symlinks or protected components");

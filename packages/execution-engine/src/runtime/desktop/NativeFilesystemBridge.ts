@@ -2,7 +2,26 @@ import { spawn } from "node:child_process";
 import { fstatSync } from "node:fs";
 import { lstat, type FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import type { Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
+/** Physical closure of this trusted helper, which never forks or execs. */
+export interface NativeFilesystemExecution {
+  readonly closed: Promise<void>;
+  readonly quiescent: boolean;
+}
+
+/** Opaque physical identity; persist the string, parse before trusted comparison. */
+export type NativeGitMetadataIdentity = string;
+export function parseNativeGitMetadataIdentity(
+  value: unknown,
+): NativeGitMetadataIdentity {
+  if (
+    typeof value !== "string" ||
+    value.length > 256 ||
+    !/^gitdir-v1(?::[0-9a-f]{1,16}){8}$/u.test(value)
+  )
+    throw new NativeFilesystemError(1, "Invalid native Git metadata identity");
+  return value;
+}
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES = 64 * 1024;
@@ -52,8 +71,32 @@ export class NativeFilesystemBridge {
       readonly rootDirectory: FileHandle;
       /** Borrowed canonical writer lease; never acquired, unlocked or closed here. */
       readonly writerLease?: { readonly fd: number };
+      readonly observeExecution?: (
+        execution: NativeFilesystemExecution,
+      ) => void;
     },
   ) {}
+
+  /** Read-only inspection of normal .git metadata through the original root FD.
+   * Linked-worktree files and metadata symlinks are explicitly unsupported. */
+  async inspectGitMetadataIdentity(input: {
+    readonly signal: AbortSignal;
+  }): Promise<NativeGitMetadataIdentity> {
+    return this.withHelper(
+      "I",
+      { path: ".git", signal: input.signal },
+      async (reader) => {
+        await reader.tag(74);
+        const bytes = await reader.read(await reader.length(256));
+        if (bytes.some((value) => value > 127))
+          throw new NativeFilesystemError(
+            1,
+            "Invalid native metadata identity encoding",
+          );
+        return parseNativeGitMetadataIdentity(bytes.toString("ascii"));
+      },
+    );
+  }
 
   async readBytes(input: {
     readonly path: string;
@@ -241,11 +284,17 @@ export class NativeFilesystemBridge {
   }
 
   private async withHelper<T>(
-    operation: "R" | "M" | "D",
+    operation: "R" | "M" | "D" | "I",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
-    validateLocalFilesystemPath(input.path, operation === "D");
+    if (operation !== "I")
+      validateLocalFilesystemPath(input.path, operation === "D");
+    else if (input.path !== ".git")
+      throw new NativeFilesystemError(
+        1,
+        "Unsupported metadata identity target",
+      );
     if (
       !isAbsolute(this.options.helperPath) ||
       this.options.helperPath.includes("\0")
@@ -274,20 +323,37 @@ export class NativeFilesystemBridge {
     }
     const leaseFd = this.options.writerLease?.fd;
     if (operation === "M") {
-      if (!Number.isSafeInteger(leaseFd) || leaseFd! < 4 || !fstatSync(leaseFd!).isFile()) {
-        throw new NativeFilesystemError(5, "Mutation requires the trusted canonical writer lease descriptor");
+      if (
+        !Number.isSafeInteger(leaseFd) ||
+        leaseFd! < 4 ||
+        !fstatSync(leaseFd!).isFile()
+      ) {
+        throw new NativeFilesystemError(
+          5,
+          "Mutation requires the trusted canonical writer lease descriptor",
+        );
       }
     }
     input.signal.throwIfAborted();
     const child = spawn(this.options.helperPath, [], {
       // FD6 duplicates the SAME open description through native cleanup.
-      stdio: operation === "M"
-        ? ["pipe", "pipe", "pipe", this.options.rootDirectory.fd, "ignore", "ignore", leaseFd!]
-        : ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
+      stdio:
+        operation === "M"
+          ? [
+              "pipe",
+              "pipe",
+              "pipe",
+              this.options.rootDirectory.fd,
+              "ignore",
+              "ignore",
+              leaseFd!,
+            ]
+          : ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
       env: {},
       shell: false,
       windowsHide: true,
     });
+    let physicallyClosed = false;
     const closed = new Promise<{
       code: number | null;
       signal: NodeJS.Signals | null;
@@ -297,13 +363,51 @@ export class NativeFilesystemBridge {
       child.once("error", (cause) => {
         error = cause;
       });
-      child.once("close", (code, signal) =>
-        resolve({ code, signal, ...(error ? { error } : {}) }),
-      );
+      child.once("close", (code, signal) => {
+        physicallyClosed = true;
+        resolve({ code, signal, ...(error ? { error } : {}) });
+      });
     });
-    const stdin = child.stdin!,
-      stdout = child.stdout!,
-      stderr = child.stderr!;
+    const execution: NativeFilesystemExecution = {
+      closed: closed.then(() => undefined),
+      get quiescent() {
+        return physicallyClosed;
+      },
+    };
+    const closeFailedSetup = async () => {
+      // Even failed spawn/channel setup can have an owned child. Observe it
+      // before accessing pipes, drain available channels, then await real close.
+      for (const stream of child.stdio) {
+        stream?.on("error", () => undefined);
+        if (stream instanceof Readable) stream.resume();
+      }
+      if (child.stdin instanceof Writable) child.stdin.end();
+      child.kill("SIGTERM");
+      await closed;
+    };
+    try {
+      this.options.observeExecution?.(execution);
+    } catch {
+      await closeFailedSetup();
+      throw new NativeFilesystemError(
+        3,
+        "Native filesystem lifetime observer failed after spawn",
+      );
+    }
+    const stdin = child.stdin,
+      stdout = child.stdout,
+      stderr = child.stderr;
+    if (
+      !(stdin instanceof Writable) ||
+      !(stdout instanceof Readable) ||
+      !(stderr instanceof Readable)
+    ) {
+      await closeFailedSetup();
+      throw new NativeFilesystemError(
+        3,
+        "Native filesystem channels were not established",
+      );
+    }
     const stop = () => {
       child.kill("SIGTERM");
     };
