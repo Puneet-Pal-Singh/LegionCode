@@ -11,6 +11,7 @@
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
     "./local-process": "./src/local-process.ts",
+    "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts"
   },
   "scripts": {
@@ -19,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@legioncode/execution-engine": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
     "@repo/permission-policy": "workspace:*",

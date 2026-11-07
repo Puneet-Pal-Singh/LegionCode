@@ -1209,6 +1209,30 @@ boundaries. Mutators must not use `omitted_read_only` capture. Their full-captur
 and lease gates remain with worker03/07. The source is independently compiled and
 its bridge exercised against real Linux files in cloud; no new test code is added.
 
+### Native grant-scoped directory queries
+
+`NativeFilesystemBridge.listDirectory` uses the same private root FD and helper,
+without a Turn or lifecycle/store owner. Operation D opens a fresh selected
+directory description, enumerates through `fdopendir(dup(heldDirectoryFD))`, and
+reads metadata with `fstatat(AT_SYMLINK_NOFOLLOW)`. It never uses pathname opendir
+or follows symlink entries. Dot/Git entries and the reserved native stage-name
+pattern are omitted; other entries retain their real kind, including symlinks.
+Visible non-stage entries in the pre-existing reserved prefix carry
+`unavailableReason: reserved_path`; the established R/M path guard is not widened.
+
+Pages are deterministic bytewise-name prefixes, capped at 200 entries and 64 KiB
+for both native framing and serialized bridge results. Opaque cursors bind the
+canonical path, last returned name and exact directory inode/mtime/ctime version;
+changes reject rather than return a fake empty page. Each scan stops at 100000
+physical records with an explicit unsupported error. Paths remain limited to
+500 UTF-8 bytes; cursors are bounded at 16384 characters. Entry sizes are live
+no-follow metadata, not immutable review truth. `readBytes` reuses operation R so
+the query owner can report bounded binary size without guessing from a decoder
+failure. `readFile` remains its UTF-8 view. Worker01 owns the public query/SDK
+contracts; worker10 owns the actual workspace-files query service/UI; worker12
+owns the bundled binary. No runtime tool ID, event producer, filesystem fallback
+or new persistent directory authority is added.
+
 ### Private host credential contract foundation
 
 Desktop main and its utility process share the bounded correlated credential
@@ -1217,6 +1241,38 @@ has no credential-read operation. The contract foundation alone wires no broker,
 provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
+
+## Shared workspace file explorer presentation
+
+The tree renderer, loaded-file filtering, expansion, pagination and stale-request
+isolation move from Web FileExplorer into `client-ui/src/files/FileExplorer.tsx`.
+Web FileExplorer retains AuthContext and the exact hosted checkout identity/offset
+adapter. DesktopWorkspaceFiles supplies the native workspace/cursor SDK adapter;
+its right-panel mount remains pending the Desktop shell owner. Native entry kinds
+remain explicit; symlinks, special and reserved entries are not openable. Runtime,
+workspace grant, file execution and immutable artifact ownership are unchanged.
+The shared read port transports opaque string or numeric cursors without translating
+between native cursor and hosted offset models. No copied Web tree remains.
+
+
+## Plan 057 — Local Thread pin metadata
+
+`LocalThreadService` owns one per-thread metadata mutation queue shared by rename,
+archive, unarchive, pin and unpin. Its composed `LocalThreadPinService` reuses the
+queue-scoped workspace-authorized Thread read and canonical `thread.pinned` /
+`thread.unpinned` events. Matching actions append nothing; changed actions preserve
+the current full Thread metadata, including archived status, and use the actual
+thread-stream sequence for their event key. The queue captures the grant's
+workspace, repository identity and grant timestamp when an action is enqueued;
+optimistic revalidation after awaited reads rejects a changed selection before
+append. This is not an atomic grant-generation lock. Canonical projection applies pin and
+archive events only to their owned metadata fields, preserving runtime/admission
+active Run, active leaf and terminal identity when admission interleaves. Only
+`thread.created` initializes a full Thread snapshot. No pin store or inferred
+activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
+dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
+request/result contract. Hosted dispatch rejects these local commands. Desktop
+sidebar callbacks and visible restart acceptance remain client integration work.
 
 ## Plan 057 — Native turn service composition
 
