@@ -1417,10 +1417,12 @@ executor. The runtime alone creates new admission records and lifecycle events.
 ports. Its one private execution capability selects both admission mode and
 executor ports, including the provider's registry-filtered captured tools.
 
-These modules do not activate Desktop execution. Activation still requires the
-grant owner's held-root binding, physical writer fence, actual capture/artifact
-ports, and positive resource-settlement proof. The host retains uncertain
-resources; transport completion does not establish terminal or physical truth.
+These modules do not activate Desktop execution. Read-only activation requires
+the actual grant-held root, protected provider and read-only Git host composition.
+Captured activation additionally requires a physical writer fence and actual
+capture/artifact ports. The same executor supplies positive resource-settlement
+proof; the host retains uncertain resources. Transport completion does not
+establish terminal or physical truth.
 
 ## Plan 057 — Prepared captured execution capability
 
@@ -1439,7 +1441,10 @@ is confirmed after failure or interruption. It never produces an empty capture.
 
 The host remains the mutation-lease and held-root resource owner; this extension
 consumes its signal/assertion and implements no lease store. Resource cleanup
-must retain the exact executor/binding until `awaitQuiescence` confirms closure.
+must retain the exact executor/binding until `awaitResourceRelease` confirms both
+durable settlement and physical closure. A scoped clean-acquisition owner receipt
+can prove failed/interrupted preparation quiescence, never completed capture;
+generic or unproved preparation failures remain quarantined.
 Actual mutator availability is still gated on the host lease implementation,
 worker05 guarded file worker, worker06 single-executable worker/guardian and
 worker07 real capture ports. No full-capture product consumer is declared wired

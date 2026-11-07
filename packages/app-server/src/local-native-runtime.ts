@@ -246,7 +246,7 @@ export function createLocalNativeRuntime(
 async function readManifest(
   admission: TurnAdmission,
   binding: LocalWorkspaceExecutionBinding,
-  git: ReturnType<LocalNativeRuntimeOptions["createGitService"]>,
+  git: Awaited<ReturnType<LocalNativeRuntimeOptions["createGitService"]>>,
   signal: AbortSignal,
 ) {
   await assertHeldRoot(binding, signal);
