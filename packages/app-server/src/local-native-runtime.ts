@@ -43,6 +43,8 @@ import {
 } from "@legioncode/execution-engine/runtime/provider/ProtectedProviderGateway";
 import type { LocalTurnRuntime } from "./local-turns.js";
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
+import type { LocalTurnMediaPort } from "./local-turn-media.js";
+import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
 type NativeMessages = Parameters<
@@ -59,6 +61,7 @@ export interface LocalNativeRuntimeOptions {
   readonly resolvePermissionPolicy: (productMode: ProductMode) => Promise<PermissionPolicy>;
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
+  readonly media?: LocalTurnMediaPort;
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
   /** The same host writer owner releases only after this factory's combined proof. */
   readonly releaseExecution?: (
@@ -105,15 +108,16 @@ export function createLocalNativeRuntime(
     configurationOptions: {
       modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
       productModes: Object.values(PRODUCT_MODES),
+      ...(options.media ? { attachments: options.media.limits } : {}),
     },
-    createAdmission(input) {
+    async createAdmission(input) {
       if (input.workspace.readiness !== "ready")
         throw new Error("Native workspace is unavailable");
       const configuration = LocalTurnConfigurationSchema.parse(input.configuration);
       if (configuration.mode === "build" && availableCapability.artifactCapture !== "required") {
         throw new Error("Local Build mode requires the actual captured execution ports");
       }
-      return createLocalTurnAdmission(
+      const admission = createLocalTurnAdmission(
         {
           thread: input.thread,
           workspaceId: input.workspace.workspaceId,
@@ -124,9 +128,13 @@ export function createLocalNativeRuntime(
           workerId,
           permissionProfileId: profileFor(configuration),
           configuration,
+          imageFingerprint: input.media?.preparation.fingerprint,
         },
         configuration.mode === "build" ? "auto_edit" : "plan",
       );
+      if (!input.media) return admission;
+      if (!options.media) throw new Error("Local image admission is unavailable");
+      return attachPreparedLocalImages(admission, input.media.preparation, input.media.imageCount, options.media);
     },
     createExecutor(binding, preparedAdmission) {
       binding.assertCurrent();
@@ -196,6 +204,7 @@ export function createLocalNativeRuntime(
             options.persistence,
             admission,
             signal,
+            options.media,
           );
           bound.assertCurrent();
           signal.throwIfAborted();
@@ -352,6 +361,7 @@ async function readConversation(
   persistence: LocalNativeRuntimeOptions["persistence"],
   current: TurnAdmission,
   signal: AbortSignal,
+  media?: LocalTurnMediaPort,
 ): Promise<NativeMessages> {
   const messages: NativeMessages = [];
   let afterCursor: EventCursor | null = null;
@@ -366,10 +376,10 @@ async function readConversation(
       if (admission.run.workspaceId !== current.run.workspaceId)
         throw new Error("Native history crosses a workspace boundary");
       if (admission.turn.id === current.turn.id) {
-        messages.push({ role: "user", content: prompt(current) });
+        messages.push(await localUserProviderMessage(current, media, signal));
         return messages;
       }
-      messages.push({ role: "user", content: prompt(admission) });
+      messages.push(await localUserProviderMessage(admission, media, signal));
       const events = await readLifecycle(
         persistence.lifecycleEvents,
         admission.turn.id,
@@ -401,16 +411,6 @@ async function readConversation(
   throw new Error(
     "Native admission is missing from canonical conversation history",
   );
-}
-
-function prompt(admission: TurnAdmission): string {
-  if (
-    admission.userMessage.type !== "user_message" ||
-    typeof admission.userMessage.content.text !== "string"
-  ) {
-    throw new Error("Canonical admission has no user prompt");
-  }
-  return admission.userMessage.content.text;
 }
 
 async function readLifecycle(
