@@ -12,6 +12,7 @@ import {
   type SingleProcessMacExecution,
 } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import type { LocalWorkspaceWriterAuthority } from "./local-workspace-writer-lease.js";
+import { trustedLocalGitContext } from "./local-git-context.js";
 
 export interface LocalNativeGitOptions {
   readonly gitExecutable: string;
@@ -41,6 +42,7 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
   const metadataIdentity = parseNativeGitMetadataIdentity(
     options.metadataIdentity,
   );
+  const trustedGitContext = trustedLocalGitContext();
   return (authority: LocalWorkspaceWriterAuthority) => {
     const filesystem = new NativeFilesystemBridge({
       helperPath: options.filesystemHelperPath,
@@ -114,6 +116,7 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
               filesystemRoot: authority.filesystemRoot,
             },
             processHelperPath: options.processHelperPath,
+            trustedGitContext,
             environment: {
               GIT_OPTIONAL_LOCKS: "0",
               ...(input.indexFile ? { GIT_INDEX_FILE: input.indexFile } : {}),
