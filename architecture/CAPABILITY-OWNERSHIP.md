@@ -1314,3 +1314,13 @@ The reviewed native T adapter is still a dependency, not an enabled capability.
 Actual ordinary/linked layouts, private-index publication, retained objects,
 approval/Stop/settlement and installed-consumer proofs must pass before advertising
 capture or Git mutation. This decision alone does not set executor support flags.
+
+## Private Git configuration selector
+
+The host-only Git context and the existing guardian share
+`gitConfigurationHome` validation for the explicit host XDG selector. A nonempty
+selector keeps its exact spelling, including a relative or missing directory;
+empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
+are rejected. HOME and TMP remain canonical existing directories. No ambient
+environment spread, model-controlled override or filesystem authority is added;
+ordinary executable environments and process containment remain unchanged.
