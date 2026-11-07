@@ -27,6 +27,8 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
   const [continuation, setContinuation] = useState<ConversationLifecycleContinuationStatus | "stopped" | null>(null);
   const [reload, setReload] = useState(0);
   const [afterCursor, setAfterCursor] = useState<EventCursor | null>(null);
+  const [latestPage, setLatestPage] = useState(true);
+  const [hasEarlier, setHasEarlier] = useState(false);
   const [nextCursor, setNextCursor] = useState<EventCursor | null>(null);
   const [retry, setRetry] = useState(0);
   const [delivering, setDelivering] = useState(false);
@@ -54,11 +56,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       setAdmissions([]);
       setProjections({});
       setAfterCursor(null);
+      setLatestPage(true);
+      setHasEarlier(false);
       setNextCursor(null);
       loadedScope.current = { client, workspaceId: thread.workspaceId, threadId: thread.id };
     }
     setContinuation(null);
-    if (!scopeMatches && afterCursor !== null) return () => { controller.abort(); };
+    if (!scopeMatches && (afterCursor !== null || !latestPage)) return () => { controller.abort(); };
     if (!enabled) {
       setAdmissions([]);
       setProjections({});
@@ -68,6 +72,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       const page = await client.getThreadHistoryPage({
         workspaceId: thread.workspaceId, threadId: thread.id,
         afterCursor, limit: HISTORY_PAGE_SIZE,
+        ...(latestPage ? { latest: true } : {}),
       });
       if (controller.signal.aborted) return;
       if (page.admissions.length > HISTORY_PAGE_SIZE || (page.nextCursor && page.nextCursor === afterCursor)) {
@@ -105,6 +110,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       if (controller.signal.aborted) return;
       setProjections(saved);
       setNextCursor(followingCursor);
+      setHasEarlier(latestPage && page.hasEarlier === true);
       if (history.some((item) => item.clientRequestId === pendingRequest.current?.clientRequestId)) {
         pendingRequest.current = null;
       }
@@ -118,7 +124,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       setLoading(false);
     });
     return () => { controller.abort(); };
-  }, [client, lifecycleClient, thread.id, thread.workspaceId, reload, afterCursor, enabled]);
+  }, [client, lifecycleClient, thread.id, thread.workspaceId, reload, afterCursor, latestPage, enabled]);
 
   const latest = admissions.at(-1) ?? null;
   useEffect(() => {
@@ -243,13 +249,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
     projections: enabled && scopeMatches ? projections : {},
     loading: enabled && (loading || !scopeMatches), error: enabled && scopeMatches ? error ?? liveError : null, continuation: enabled && scopeMatches ? continuation : null,
     busy: enabled && (!scopeMatches || !historyReady || loading || nextCursor !== null || delivering || unsettled),
-    nextPage: enabled && nextCursor && historyReady && !loading ? () => setAfterCursor(nextCursor) : null,
-    firstPage: enabled && afterCursor !== null ? () => setAfterCursor(null) : null,
+    nextPage: enabled && nextCursor && historyReady && !loading ? () => { setLatestPage(false); setAfterCursor(nextCursor); } : null,
+    firstPage: enabled && (afterCursor !== null || (latestPage && hasEarlier)) ? () => { setLatestPage(false); setAfterCursor(null); } : null,
     hasNewerPages: enabled && nextCursor !== null,
     submit, stop, interrupting: scopeMatches && interrupting,
     canStop: Boolean(enabled && scopeMatches && historyReady && !loading && nextCursor === null && !interrupting && latest && !projections[latest.turn.id]?.terminal),
     retry: () => { setLiveError(null); setRetry((value) => value + 1); },
-    reload: () => setReload((value) => value + 1),
+    reload: () => { setLatestPage(true); setAfterCursor(null); setReload((value) => value + 1); },
   };
 }
 
