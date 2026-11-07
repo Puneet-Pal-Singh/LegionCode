@@ -1,5 +1,13 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { Check, GitBranch, X, type LucideIcon } from "lucide-react";
+import {
+  Check,
+  GitBranch,
+  Github,
+  Sparkles,
+  Upload,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import type { GitCommitIdentity } from "@repo/shared-types";
 
 export type CommitNextStep = "commit" | "commit-and-push" | "commit-and-pr";
@@ -14,10 +22,11 @@ export interface GitCommitStepOption {
   label: string;
   detail: string;
   enabled: boolean;
-  icon: LucideIcon;
+  icon?: LucideIcon;
 }
 export interface GitCommitDialogViewProps {
   onClose: () => void;
+  controlsDisabled?: boolean;
   branchLabel: string;
   totalChanges: number;
   additions: number | null;
@@ -59,17 +68,45 @@ export interface GitCommitDialogViewProps {
 
 /** Exact Web commit surface. Hosts retain mutation, identity and repository authority. */
 export function GitCommitDialogView({
-  onClose, branchLabel, totalChanges, additions, deletions,
-  includeUnstaged, setIncludeUnstaged, selectionControl,
-  resolvedCommitIdentity, authorFormVisible, requiresAuthorInput,
-  setUseCustomAuthor, authorName, authorEmail, setAuthorName, setAuthorEmail,
-  commitMessage, setCommitMessage,
+  onClose,
+  controlsDisabled = false,
+  branchLabel,
+  totalChanges,
+  additions,
+  deletions,
+  includeUnstaged,
+  setIncludeUnstaged,
+  selectionControl,
+  resolvedCommitIdentity,
+  authorFormVisible,
+  requiresAuthorInput,
+  setUseCustomAuthor,
+  authorName,
+  authorEmail,
+  setAuthorName,
+  setAuthorEmail,
+  commitMessage,
+  setCommitMessage,
   messagePlaceholder = "Leave blank to autogenerate a commit message",
-  stepOptions, nextStep, setNextStep, requiresBranchInput,
-  currentBranch, defaultBranch, branchName, setBranchName,
-  requiresPullRequestInput, repo, pullRequestTitle, setPullRequestTitle,
-  pullRequestBody, setPullRequestBody, flowSuccess, errorMessage,
-  handleContinue, canContinue, submittingFlow,
+  stepOptions,
+  nextStep,
+  setNextStep,
+  requiresBranchInput,
+  currentBranch,
+  defaultBranch,
+  branchName,
+  setBranchName,
+  requiresPullRequestInput,
+  repo,
+  pullRequestTitle,
+  setPullRequestTitle,
+  pullRequestBody,
+  setPullRequestBody,
+  flowSuccess,
+  errorMessage,
+  handleContinue,
+  canContinue,
+  submittingFlow,
 }: GitCommitDialogViewProps) {
   return (
     <div className="ui-overlay absolute inset-0 z-30 flex items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
@@ -102,8 +139,16 @@ export function GitCommitDialogView({
                 </div>
                 <div className="flex items-center gap-3 text-base">
                   <span className="text-white">{totalChanges} files</span>
-                  <span className="text-emerald-400">{additions === null ? "Additions unavailable" : `+${additions}`}</span>
-                  <span className="text-red-400">{deletions === null ? "Deletions unavailable" : `-${deletions}`}</span>
+                  <span className="text-emerald-400">
+                    {additions === null
+                      ? "Additions unavailable"
+                      : `+${additions}`}
+                  </span>
+                  <span className="text-red-400">
+                    {deletions === null
+                      ? "Deletions unavailable"
+                      : `-${deletions}`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -121,31 +166,11 @@ export function GitCommitDialogView({
 
         <div className="min-h-0 space-y-5 overflow-y-auto border-t border-zinc-800 px-6 py-5">
           {selectionControl ?? (
-          <div className="ui-surface-section flex items-center justify-between px-4 py-3.5">
-            <div>
-              <div className="text-base font-medium text-white">
-                Include unstaged
-              </div>
-              <div className="text-xs text-zinc-500">
-                Stage remaining changes before committing
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={includeUnstaged}
-              onClick={() => setIncludeUnstaged((previous) => !previous)}
-              className={`relative inline-flex h-8 w-14 items-center rounded-full border border-zinc-700 transition-colors ${
-                includeUnstaged ? "bg-blue-500" : "bg-zinc-700"
-              }`}
-            >
-              <span
-                className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                  includeUnstaged ? "translate-x-7" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
+            <GitCommitSelectionControl
+              included={includeUnstaged}
+              onChange={setIncludeUnstaged}
+              disabled={controlsDisabled}
+            />
           )}
 
           <div className="space-y-2.5">
@@ -163,6 +188,7 @@ export function GitCommitDialogView({
               {!requiresAuthorInput && resolvedCommitIdentity ? (
                 <button
                   type="button"
+                  disabled={controlsDisabled}
                   onClick={() => {
                     setUseCustomAuthor((current) => !current);
                     setAuthorName(resolvedCommitIdentity.authorName);
@@ -193,6 +219,7 @@ export function GitCommitDialogView({
                     Author name
                   </span>
                   <input
+                    disabled={controlsDisabled}
                     value={authorName}
                     onChange={(event) => setAuthorName(event.target.value)}
                     placeholder="Your name"
@@ -204,6 +231,7 @@ export function GitCommitDialogView({
                     Author email
                   </span>
                   <input
+                    disabled={controlsDisabled}
                     value={authorEmail}
                     onChange={(event) => setAuthorEmail(event.target.value)}
                     placeholder="name@example.com"
@@ -226,6 +254,7 @@ export function GitCommitDialogView({
             </div>
             <textarea
               id="git-commit-message"
+              disabled={controlsDisabled}
               value={commitMessage}
               onChange={(event) => setCommitMessage(event.target.value)}
               placeholder={messagePlaceholder}
@@ -237,14 +266,20 @@ export function GitCommitDialogView({
             <div className="text-base font-medium text-white">Next steps</div>
             <div className="overflow-hidden rounded-xl border border-zinc-800">
               {stepOptions.map((option, index) => {
-                const Icon = option.icon;
+                const Icon =
+                  option.icon ??
+                  {
+                    commit: Sparkles,
+                    "commit-and-push": Upload,
+                    "commit-and-pr": Github,
+                  }[option.id];
                 const isActive = nextStep === option.id;
                 return (
                   <button
                     key={option.id}
                     type="button"
                     onClick={() => option.enabled && setNextStep(option.id)}
-                    disabled={!option.enabled}
+                    disabled={controlsDisabled || !option.enabled}
                     className={`flex w-full items-center justify-between px-3.5 py-3.5 text-left transition-colors ${
                       index > 0 ? "border-t border-zinc-800" : ""
                     } ${
@@ -299,6 +334,7 @@ export function GitCommitDialogView({
                   Branch name
                 </span>
                 <input
+                  disabled={controlsDisabled}
                   value={branchName}
                   onChange={(event) => setBranchName(event.target.value)}
                   placeholder="feat/my-change"
@@ -325,6 +361,7 @@ export function GitCommitDialogView({
                   PR title
                 </span>
                 <input
+                  disabled={controlsDisabled}
                   value={pullRequestTitle}
                   onChange={(event) => setPullRequestTitle(event.target.value)}
                   placeholder="Describe the change"
@@ -336,6 +373,7 @@ export function GitCommitDialogView({
                   PR body
                 </span>
                 <textarea
+                  disabled={controlsDisabled}
                   value={pullRequestBody}
                   onChange={(event) => setPullRequestBody(event.target.value)}
                   className="ui-input min-h-28 w-full px-4 py-3 text-sm"
@@ -347,9 +385,11 @@ export function GitCommitDialogView({
           {flowSuccess ? (
             <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-200">
               <div className="font-medium text-white">
-                {flowSuccess.kind === "commit-and-pr"
-                  ? "Branch pushed and pull request created."
-                  : "Branch pushed successfully."}
+                {flowSuccess.kind === "commit"
+                  ? "Saved changes committed."
+                  : flowSuccess.kind === "commit-and-pr"
+                    ? "Branch pushed and pull request created."
+                    : "Branch pushed successfully."}
               </div>
               <div className="mt-1 text-emerald-300">
                 Branch:{" "}
@@ -407,7 +447,6 @@ function formatCommitIdentitySource(
   }
 }
 
-
 function getPrimaryActionLabel(
   nextStep: CommitNextStep,
   submittingFlow: boolean,
@@ -431,4 +470,44 @@ function getPrimaryActionLabel(
     default:
       return "Continue";
   }
+}
+
+/** Existing Web include-changes row, with host-owned selection semantics. */
+export function GitCommitSelectionControl({
+  included,
+  onChange,
+  label = "Include unstaged",
+  detail = "Stage remaining changes before committing",
+  disabled = false,
+}: {
+  included: boolean;
+  onChange: (included: boolean) => void;
+  label?: string;
+  detail?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="ui-surface-section flex items-center justify-between px-4 py-3.5">
+      <div>
+        <div className="text-base font-medium text-white">{label}</div>
+        <div className="text-xs text-zinc-500">{detail}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={included}
+        onClick={() => onChange(!included)}
+        disabled={disabled}
+        className={`relative inline-flex h-8 w-14 items-center rounded-full border border-zinc-700 transition-colors ${
+          included ? "bg-blue-500" : "bg-zinc-700"
+        }`}
+      >
+        <span
+          className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+            included ? "translate-x-7" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
 }

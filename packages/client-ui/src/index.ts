@@ -139,5 +139,5 @@ export { SharedSettingsDialog, SettingsGeneralPanel, type SharedSettingsDialogPr
 
 export { ReviewDialogFrame, ReviewDialogCloseButton } from "./workspace/ReviewDialogFrame.js";
 
-export { GitCommitDialogView } from "./workspace/GitCommitDialogView.js";
+export { GitCommitDialogView, GitCommitSelectionControl } from "./workspace/GitCommitDialogView.js";
 export type { GitCommitDialogViewProps, CommitNextStep, GitFlowSuccessState, GitCommitStepOption } from "./workspace/GitCommitDialogView.js";
