@@ -9,6 +9,7 @@ import type {
   TurnId,
   UserId,
   WorkspaceId,
+  LocalTurnMediaLimits,
 } from "@repo/platform-protocol";
 
 export interface LocalTurnMediaScope {
@@ -35,6 +36,7 @@ export interface LocalTurnPreparedMedia {
 
 /** The concrete owner keeps bytes outside the durable admission/lifecycle payloads. */
 export interface LocalTurnMediaPort {
+  readonly limits: LocalTurnMediaLimits;
   /** Map dataUrl -> IncomingChatImage.image; preserve name/mediaType. The shared
    * codec must decode, sniff and normalize before returning this preparation.
    * No caller-supplied filename becomes an object path.
