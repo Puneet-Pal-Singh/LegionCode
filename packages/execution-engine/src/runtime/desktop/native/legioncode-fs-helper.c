@@ -5,6 +5,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdint.h>
@@ -15,10 +17,16 @@
 #include <errno.h>
 
 /* LCFM/1, no arguments: trusted root directory object is inherited at FD 3.
- * OPEN: "LCFM", byte 1, byte 'R' (read) or 'M' (mutate), u32be path length, path.
+ * OPEN: "LCFM", byte 1, byte 'R' (read), 'M' (mutate), or 'D' (directory), u32be path length, path.
  * INSPECTED: 'I', byte exists, u32be source length, source bytes. R then exits.
  * M continues: STAGE 'S', u32be next length, next bytes; STAGED response 'S'.
  * COMMIT 'C'; COMMITTED response 'C' only after directory sync.
+ * D request suffix: u32be limit (1..200), u32be version length + ASCII version,
+ * u32be after-name length + UTF-8 name (both empty for the first page).
+ * D response: 'D', byte truncated, u32be version length + version, u32be count,
+ * then count entries: byte kind ('f','d','l','o'), u32be name length + name,
+ * u64be own-object size, u32be ordinary permission mode. No symlink targets.
+ * Pages are <=64 KiB; scans are <=100000 physical records. Root is explicit '.'.
  * ERROR 'E', byte code, u32be message length <=1024, message (no file contents).
  * Codes: 1 invalid input, 2 conflict, 3 I/O/uncertain commit, 4 cancelled,
  * 5 unsupported target. The runtime owns identity, policy, approval, lease,
@@ -174,16 +182,149 @@ static int verify_stage(const char *name, int strict) {
   struct stat after;
   return !fstat(staged_fd, &after) && same_stat(&held, &after);
 }
+
+#define DIRECTORY_LIMIT 200U
+#define DIRECTORY_BYTES (64U * 1024U)
+#define DIRECTORY_SCAN 100000U
+#define NAME_BYTES 1024U
+#define VERSION_BYTES 192U
+struct directory_entry { char *name; uint32_t length, mode; uint64_t bytes; unsigned char kind; };
+static int write_u64(uint64_t value) {
+  unsigned char bytes[8];
+  for (unsigned int i = 0; i < 8; i++) bytes[7 - i] = (unsigned char)(value >> (i * 8));
+  return write_exact(1, bytes, 8);
+}
+static int open_directory(const char *path) {
+  if (!strcmp(path, ".")) return openat(3, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  char name[MAX_PATH_BYTES + 1];
+  int parent = open_parent(path, name); if (parent < 0) return -1;
+  int fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  if (close(parent)) { if (fd >= 0) close(fd); return -1; }
+  return fd;
+}
+static int directory_version(const struct stat *value, char *version, size_t capacity) {
+#if defined(__APPLE__)
+  int length = snprintf(version, capacity, "%jx:%jx:%jd:%ld:%jd:%ld", (uintmax_t)value->st_dev,
+    (uintmax_t)value->st_ino, (intmax_t)value->st_mtimespec.tv_sec, value->st_mtimespec.tv_nsec,
+    (intmax_t)value->st_ctimespec.tv_sec, value->st_ctimespec.tv_nsec);
+#else
+  int length = snprintf(version, capacity, "%jx:%jx:%jd:%ld:%jd:%ld", (uintmax_t)value->st_dev,
+    (uintmax_t)value->st_ino, (intmax_t)value->st_mtim.tv_sec, value->st_mtim.tv_nsec,
+    (intmax_t)value->st_ctim.tv_sec, value->st_ctim.tv_nsec);
+#endif
+  return length > 0 && (size_t)length < capacity ? length : -1;
+}
+static int owned_stage_name(const char *name) {
+  if (strlen(name) != 53 || strncasecmp(name, ".legioncode-edit-", 17) || strcasecmp(name + 49, ".tmp")) return 0;
+  for (size_t i = 17; i < 49; i++) {
+    unsigned char c = (unsigned char)name[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return 0;
+  }
+  return 1;
+}
+static int list_directory(void) {
+  uint32_t limit, expected_length, after_length, count = 0, scanned = 0, eligible = 0, returned = 0;
+  char expected[VERSION_BYTES + 1], after[NAME_BYTES + 1], version[VERSION_BYTES + 1];
+  struct directory_entry entries[DIRECTORY_LIMIT]; memset(entries, 0, sizeof(entries));
+  struct stat before, current; DIR *stream = NULL; int result = 1;
+  if (read_u32(&limit) || !limit || limit > DIRECTORY_LIMIT || read_u32(&expected_length) ||
+      expected_length > VERSION_BYTES || read_exact(0, expected, expected_length) ||
+      read_u32(&after_length) || after_length > NAME_BYTES || read_exact(0, after, after_length))
+    return stopped ? cancelled() : fail(1, "Invalid bounded directory request");
+  if (memchr(expected, 0, expected_length) || memchr(after, 0, after_length) ||
+      (!expected_length != !after_length)) return fail(1, "Invalid directory cursor");
+  expected[expected_length] = 0; after[after_length] = 0;
+  if (strchr(after, '/') || strchr(after, '\\')) return fail(1, "Invalid directory cursor name");
+  parent_fd = open_directory(requested_path);
+  if (parent_fd < 0 || fstat(parent_fd, &before) || !S_ISDIR(before.st_mode))
+    return fail(5, "Requested workspace directory is unavailable or symbolic");
+  int version_length = directory_version(&before, version, sizeof(version));
+  if (version_length < 0) return fail(3, "Directory version cannot be represented");
+  if (expected_length && strcmp(expected, version)) return fail(2, "Directory changed; restart pagination");
+  /* The selected directory is a fresh open description, including root '.'.
+   * fdopendir owns only its duplicate; no listing advances the grant FD offset. */
+  int duplicate = dup(parent_fd);
+  if (duplicate < 0) return fail(3, "Unable to open directory stream");
+  stream = fdopendir(duplicate);
+  if (!stream) { close(duplicate); return fail(3, "Unable to open directory stream"); }
+  for (;;) {
+    if (stopped) { result = cancelled(); goto done; }
+    errno = 0;
+    struct dirent *entry = readdir(stream);
+    if (!entry) {
+      if (errno) { result = stopped ? cancelled() : fail(3, "Directory enumeration failed"); goto done; }
+      break;
+    }
+    if (++scanned > DIRECTORY_SCAN) { result = fail(5, "Directory exceeds the bounded scan limit"); goto done; }
+    const char *name = entry->d_name;
+    if (!strcmp(name, ".") || !strcmp(name, "..") || !strcasecmp(name, ".git") || owned_stage_name(name)) continue;
+    size_t length = strnlen(name, NAME_BYTES + 1);
+    if (!length || length > NAME_BYTES) { result = fail(5, "Directory name exceeds supported bounds"); goto done; }
+    if (strcmp(name, after) <= 0) continue;
+    eligible++;
+    if (count == limit && strcmp(name, entries[count - 1].name) >= 0) continue;
+    char *copy = strdup(name);
+    if (!copy) { result = fail(3, "Unable to buffer directory entry"); goto done; }
+    if (count == limit) { free(entries[count - 1].name); count--; }
+    uint32_t position = 0;
+    while (position < count && strcmp(entries[position].name, name) < 0) position++;
+    memmove(entries + position + 1, entries + position, (count - position) * sizeof(entries[0]));
+    memset(entries + position, 0, sizeof(entries[0]));
+    entries[position].name = copy; entries[position].length = (uint32_t)length; count++;
+  }
+  uint32_t bytes = 10U + (uint32_t)version_length;
+  for (uint32_t i = 0; i < count; i++) {
+    if (bytes + 17U + entries[i].length > DIRECTORY_BYTES) break;
+    if (stopped) { result = cancelled(); goto done; }
+    struct stat metadata;
+    if (fstatat(parent_fd, entries[i].name, &metadata, AT_SYMLINK_NOFOLLOW)) {
+      result = errno == ENOENT ? fail(2, "Directory entry changed during listing") : fail(3, "Directory entry metadata is unavailable");
+      goto done;
+    }
+    if (metadata.st_size < 0) { result = fail(5, "Directory entry size cannot be represented"); goto done; }
+    entries[i].kind = S_ISREG(metadata.st_mode) ? 'f' : S_ISDIR(metadata.st_mode) ? 'd' : S_ISLNK(metadata.st_mode) ? 'l' : 'o';
+    entries[i].mode = (uint32_t)(metadata.st_mode & 07777);
+    entries[i].bytes = (uint64_t)metadata.st_size;
+    bytes += 17U + entries[i].length; returned++;
+  }
+  int reachable = open_directory(requested_path); struct stat rooted;
+  int stable = reachable >= 0 && !fstat(reachable, &rooted) && !fstat(parent_fd, &current) &&
+    rooted.st_dev == before.st_dev && rooted.st_ino == before.st_ino && same_stat(&before, &current);
+  if (reachable >= 0 && close(reachable)) stable = 0;
+  if (!stable) { result = fail(2, "Directory changed during listing"); goto done; }
+  if (stopped) { result = cancelled(); goto done; }
+  if (eligible && !returned) { result = fail(5, "Directory page cannot fit its byte budget"); goto done; }
+  unsigned char header[2] = {'D', (unsigned char)(eligible > returned)};
+  if (write_exact(1, header, 2) || write_u32((uint32_t)version_length) || write_exact(1, version, (size_t)version_length) || write_u32(returned)) goto done;
+  for (uint32_t i = 0; i < returned; i++) {
+    if (write_exact(1, &entries[i].kind, 1) || write_u32(entries[i].length) || write_exact(1, entries[i].name, entries[i].length) ||
+        write_u64(entries[i].bytes) || write_u32(entries[i].mode)) goto done;
+  }
+  result = 0;
+done:
+  if (stream && closedir(stream)) result = 2;
+  for (uint32_t i = 0; i < count; i++) free(entries[i].name);
+  return result;
+}
+
 static int run(void) {
   unsigned char header[6]; uint32_t path_length; char name[MAX_PATH_BYTES + 1];
-  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M') ||
+  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D') ||
       read_u32(&path_length) || !path_length || path_length > MAX_PATH_BYTES ||
       read_exact(0, requested_path, path_length)) return stopped ? cancelled() : fail(1, "Invalid native filesystem protocol");
   if (memchr(requested_path, 0, path_length)) return fail(1, "NUL is not allowed in a workspace path");
   requested_path[path_length] = 0;
+  if (header[5] == 'D') return list_directory();
   parent_fd = open_parent(requested_path, name);
   if (parent_fd < 0) return fail(5, "Workspace parent must exist without symlinks or protected components");
   unsigned char *original = NULL; uint32_t original_length = 0; struct stat original_stat; int existed = 0;
+  /* Retain the borrowed canonical writer open description at FD6 through all
+   * mutation and cleanup work. Never reopen, unlock, unlink or close it here. */
+  if (header[5] == 'M') {
+    struct stat lease;
+    if (fstat(6, &lease) || !S_ISREG(lease.st_mode))
+      return fail(5, "Mutation requires the trusted canonical writer lease FD6");
+  }
   if (read_target(name, &original, &original_length, &original_stat, &existed, header[5] == 'M'))
     return stopped ? cancelled() : fail(5, "Target is not a stable supported regular file");
   if (!parent_still_rooted()) { free(original); return fail(2, "Read parent no longer belongs to the granted root"); }
