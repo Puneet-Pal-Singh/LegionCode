@@ -1,6 +1,6 @@
 import { HarnessUsageObservationSchema } from "./usage.js";
 import { z } from "zod";
-import { ModelIdSchema, ThreadIdSchema } from "../ids.js";
+import { ModelIdSchema, ThreadIdSchema, WorkspaceIdSchema } from "../ids.js";
 import { WorkspaceScopeIdSchema } from "../turn-scope-bootstrap.js";
 import { HarnessCapabilitiesSchema, HarnessKindSchema } from "./index.js";
 import { HarnessNextSelectionSchema } from "./selection.js";
@@ -9,9 +9,12 @@ export { HarnessNextSelectionSchema, type HarnessNextSelection } from "./selecti
 const Reference = z.string().trim().min(1).max(256);
 const Revision = z.number().int().safe().nonnegative();
 
-/** Product workspace scope, shared with turn reservation; never a filesystem root. */
+/** Hosted operations use their durable UUID workspace scope; local operations use
+ * the canonical workspace ID issued by the grant owner. Neither is coerced into
+ * the other. The placement owner must authorize the exact supplied identity.
+ */
 export const HarnessScopeSchema = z.object({
-  workspaceId: WorkspaceScopeIdSchema,
+  workspaceId: z.union([WorkspaceScopeIdSchema, WorkspaceIdSchema]),
   environmentId: Reference,
 }).strict();
 export const HarnessInstanceScopeSchema = HarnessScopeSchema.extend({ instanceId: Reference }).strict();
