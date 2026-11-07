@@ -1486,6 +1486,17 @@ Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
 
+## Plan 057 — Local approval command adapter
+
+`LocalApprovalService` reauthorizes the recorded Thread through the current
+workspace grant and local actor, binds the approval to its recorded tool item and
+Run Attempt, and delegates to `RuntimeKernel.resolveApproval`. Canonical lifecycle
+replay supplies the winning decision and duplicate, conflict, restart and lost
+acknowledgement receipts. The adapter serializes commands only; it appends no
+approval events and owns no decision store. Actual LocalTurnService/App Server
+composition remains separate. The shared worker approval validator independently
+checks the approved tool input and canonical matcher before tool execution.
+
 ## Plan 057 — Shared App Server response budget
 
 The platform protocol owns the existing one-MiB default JSON response budget and
