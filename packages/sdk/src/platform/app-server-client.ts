@@ -4,6 +4,11 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMutationErrorMetadata, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
+  LocalWorkspaceListFilesParamsSchema,
+  LocalWorkspaceReadFileParamsSchema,
+  type LocalWorkspaceListFilesParams,
+  type LocalWorkspaceListFilesResult,
+  type LocalWorkspaceReadFileParams,
   LocalTurnStartParamsSchema,
   LocalTurnInterruptParamsSchema,
   LocalThreadHistoryParamsSchema,
@@ -228,6 +233,8 @@ export type AppServerClient = {
   listRepositoryBranches(params: RepositoryBranchesRequest): Promise<RepositoryBranchesResponse>;
   getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
+  listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
+  readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
@@ -235,6 +242,8 @@ export type AppServerClient = {
   createThread(title?: string): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
+  pinThread(threadId: Thread["id"]): Promise<Thread>;
+  unpinThread(threadId: Thread["id"]): Promise<Thread>;
   archiveThread(threadId: Thread["id"]): Promise<Thread>;
   unarchiveThread(threadId: Thread["id"]): Promise<Thread>;
   getProviderCatalog(runId?: string): Promise<ProviderRegistryEntry[]>;
@@ -257,6 +266,12 @@ export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
   return {
+    listWorkspaceFiles: (params) => request(options, {
+      method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
+    }, AppServerResultSchemas["workspace/listFiles"]),
+    readWorkspaceFile: (params) => request(options, {
+      method: "workspace/readFile", params: LocalWorkspaceReadFileParamsSchema.parse(params),
+    }, AppServerResultSchemas["workspace/readFile"]),
     startTurn: async (params) => (await request(options, {
       method: "turn/start", params: LocalTurnStartParamsSchema.parse(params),
     }, AppServerResultSchemas["turn/start"])).admission,
@@ -514,6 +529,12 @@ export function createAppServerClient(
       }, AppServerResultSchemas["thread/rename"]);
       return result.thread;
     },
+    pinThread: async (threadId) => (await request(options, {
+      method: "thread/pin", params: { threadId: ThreadIdSchema.parse(threadId) },
+    }, AppServerResultSchemas["thread/pin"])).thread,
+    unpinThread: async (threadId) => (await request(options, {
+      method: "thread/unpin", params: { threadId: ThreadIdSchema.parse(threadId) },
+    }, AppServerResultSchemas["thread/unpin"])).thread,
     archiveThread: async (threadId) => {
       const result = await request(options, {
         method: "thread/archive",

@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import type { FileStatus } from "@repo/shared-types";
-import { ChangeItem } from "./ChangeItem.js";
+import { ChangeItem, type ReviewFileStatus } from "./ChangeItem.js";
 import { ReviewScopeDropdown } from "./ReviewScopeDropdown.js";
 import type { ReviewScope } from "./reviewScope.js";
 import { TreeFilter } from "./TreeFilter.js";
 
-interface ChangesListProps {
-  files: FileStatus[];
-  selectedFile: FileStatus | null;
-  onSelectFile: (file: FileStatus) => void;
+interface ChangesListProps<TFile extends ReviewFileStatus> {
+  files: TFile[];
+  selectedFile: TFile | null;
+  onSelectFile: (file: TFile) => void;
   reviewScope: ReviewScope;
   onReviewScopeChange: (scope: ReviewScope) => void;
   showToolbar?: boolean;
@@ -20,14 +20,14 @@ interface ChangesListProps {
   canonicalAvailable?: boolean;
 }
 
-interface ChangeTreeNode {
+interface ChangeTreeNode<TFile extends ReviewFileStatus = ReviewFileStatus> {
   name: string;
   path: string;
-  children: Map<string, ChangeTreeNode>;
-  file: FileStatus | null;
+  children: Map<string, ChangeTreeNode<TFile>>;
+  file: TFile | null;
 }
 
-export function ChangesList({
+export function ChangesList<TFile extends ReviewFileStatus = FileStatus>({
   files,
   selectedFile,
   onSelectFile,
@@ -39,7 +39,7 @@ export function ChangesList({
   sourceBadgeLabel,
   searchable = false,
   canonicalAvailable = false,
-}: ChangesListProps) {
+}: ChangesListProps<TFile>) {
   const [query, setQuery] = useState("");
   const visibleFiles = useMemo(
     () => filterFiles(files, query),
@@ -99,7 +99,7 @@ export function ChangesList({
   );
 }
 
-function filterFiles(files: FileStatus[], query: string): FileStatus[] {
+function filterFiles<TFile extends ReviewFileStatus>(files: TFile[], query: string): TFile[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return files;
   return files.filter((file) =>
@@ -107,16 +107,16 @@ function filterFiles(files: FileStatus[], query: string): FileStatus[] {
   );
 }
 
-function ChangeTreeRow({
+function ChangeTreeRow<TFile extends ReviewFileStatus>({
   node,
   depth,
   selectedFile,
   onSelectFile,
 }: {
-  node: ChangeTreeNode;
+  node: ChangeTreeNode<TFile>;
   depth: number;
-  selectedFile: FileStatus | null;
-  onSelectFile: (file: FileStatus) => void;
+  selectedFile: TFile | null;
+  onSelectFile: (file: TFile) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const file = node.file;
@@ -165,7 +165,7 @@ function FolderRow({
   expanded,
   onToggle,
 }: {
-  node: ChangeTreeNode;
+  node: Pick<ChangeTreeNode, "name">;
   depth: number;
   expanded: boolean;
   onToggle: () => void;
@@ -185,19 +185,19 @@ function FolderRow({
   );
 }
 
-function buildChangeTree(files: FileStatus[]): ChangeTreeNode {
-  const root = createTreeNode("", "");
+function buildChangeTree<TFile extends ReviewFileStatus>(files: TFile[]): ChangeTreeNode<TFile> {
+  const root = createTreeNode<TFile>("", "");
   files.forEach((file) => insertFile(root, file));
   sortTree(root);
   return root;
 }
 
-function insertFile(root: ChangeTreeNode, file: FileStatus) {
+function insertFile<TFile extends ReviewFileStatus>(root: ChangeTreeNode<TFile>, file: TFile) {
   const parts = file.path.split("/").filter(Boolean);
   let current = root;
   parts.forEach((part, index) => {
     const path = parts.slice(0, index + 1).join("/");
-    const existing = current.children.get(part) ?? createTreeNode(part, path);
+    const existing = current.children.get(part) ?? createTreeNode<TFile>(part, path);
     if (index === parts.length - 1) {
       existing.file = file;
     }
@@ -206,15 +206,15 @@ function insertFile(root: ChangeTreeNode, file: FileStatus) {
   });
 }
 
-function sortTree(node: ChangeTreeNode) {
+function sortTree<TFile extends ReviewFileStatus>(node: ChangeTreeNode<TFile>) {
   const sorted = Array.from(node.children.entries()).sort(compareTreeEntries);
   node.children = new Map(sorted);
   node.children.forEach(sortTree);
 }
 
-function compareTreeEntries(
-  [firstName, firstNode]: [string, ChangeTreeNode],
-  [secondName, secondNode]: [string, ChangeTreeNode],
+function compareTreeEntries<TFile extends ReviewFileStatus>(
+  [firstName, firstNode]: [string, ChangeTreeNode<TFile>],
+  [secondName, secondNode]: [string, ChangeTreeNode<TFile>],
 ) {
   if (Boolean(firstNode.file) !== Boolean(secondNode.file)) {
     return firstNode.file ? 1 : -1;
@@ -222,25 +222,25 @@ function compareTreeEntries(
   return firstName.localeCompare(secondName);
 }
 
-function createTreeNode(name: string, path: string): ChangeTreeNode {
+function createTreeNode<TFile extends ReviewFileStatus>(name: string, path: string): ChangeTreeNode<TFile> {
   return { name, path, children: new Map(), file: null };
 }
 
-function calculateTotals(files: FileStatus[]) {
-  return files.reduce(
+function calculateTotals(files: ReviewFileStatus[]) {
+  return files.reduce<{ additions: number | null; deletions: number | null }>(
     (totals, file) => ({
-      additions: totals.additions + file.additions,
-      deletions: totals.deletions + file.deletions,
+      additions: totals.additions === null || file.additions === null ? null : totals.additions + file.additions,
+      deletions: totals.deletions === null || file.deletions === null ? null : totals.deletions + file.deletions,
     }),
     { additions: 0, deletions: 0 },
   );
 }
 
-function ChangeStats({ additions, deletions }: { additions: number; deletions: number }) {
+function ChangeStats({ additions, deletions }: { additions: number | null; deletions: number | null }) {
   return (
     <span className="flex shrink-0 items-center gap-2 font-mono text-xs font-semibold">
-      <span className="text-emerald-400">+{additions}</span>
-      <span className="text-red-400">-{deletions}</span>
+      {additions === null ? <span>Additions unavailable</span> : <span className="text-emerald-400">+{additions}</span>}
+      {deletions === null ? <span>Deletions unavailable</span> : <span className="text-red-400">-{deletions}</span>}
     </span>
   );
 }

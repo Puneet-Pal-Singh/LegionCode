@@ -392,6 +392,12 @@ export type {
 } from "@repo/platform-protocol";
 
 export type {
+  LocalWorkspaceFileEntry,
+  LocalWorkspaceListFilesResult,
+  LocalWorkspaceListFilesParams,
+  LocalWorkspaceReadFileParams,
+  CheckoutListFilesResult,
+  CheckoutReadFileResult,
   LocalTurnStartParams,
   LocalTurnInterruptParams,
   LocalThreadHistoryParams,
@@ -400,3 +406,6 @@ export type {
 export { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol";
 
 export { createAppServerLifecycleClient } from "./platform/app-server-lifecycle.js";
+
+export { LOCAL_WORKSPACE_PATH_MAX_BYTES, LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, LOCAL_WORKSPACE_DIRECTORY_PAGE_MAX_BYTES, LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS } from "@legioncode/app-server/protocol";
+export { LocalTurnStartParamsSchema } from "@legioncode/app-server/protocol";

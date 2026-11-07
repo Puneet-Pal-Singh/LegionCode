@@ -1,3 +1,4 @@
+import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
@@ -54,6 +55,10 @@ export type AppServerComposition = {
   serverId: string;
   serverVersion: string;
   workspaceService?: LocalWorkspaceService;
+  localWorkspaceFilesService?: {
+    listFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
+    readFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
+  };
   hostedWorkspaceService?: {
     list(): Promise<HostedWorkspaceListResponse>;
     select(params: HostedWorkspaceSelectRequest): Promise<{ selection: HostedWorkspaceSelection }>;
@@ -521,6 +526,7 @@ async function dispatch(
           environment: composition.environment,
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
+          localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");
@@ -533,6 +539,18 @@ async function dispatch(
     case "workspace/select": {
       if (!composition.hostedWorkspaceService) throw new Error("unsupported");
       return composition.hostedWorkspaceService.select(request.params);
+    }
+    case "workspace/listFiles": {
+      if (composition.environment !== "local" || !composition.localWorkspaceFilesService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Grant-scoped workspace reads are unavailable");
+      }
+      return composition.localWorkspaceFilesService.listFiles(request.params);
+    }
+    case "workspace/readFile": {
+      if (composition.environment !== "local" || !composition.localWorkspaceFilesService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Grant-scoped workspace reads are unavailable");
+      }
+      return composition.localWorkspaceFilesService.readFile(request.params);
     }
     case "workspace/current": {
       if (!composition.workspaceService) throw new Error("unsupported");
@@ -566,6 +584,18 @@ async function dispatch(
       return {
         thread: await composition.threadService.rename(request.params.threadId, request.params),
       };
+    }
+    case "thread/pin": {
+      if (composition.environment !== "local" || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.pin(request.params.threadId) };
+    }
+    case "thread/unpin": {
+      if (composition.environment !== "local" || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local thread pinning is unavailable");
+      }
+      return { thread: await composition.threadService.unpin(request.params.threadId) };
     }
     case "thread/archive": {
       if (!composition.threadService) throw new Error("unsupported");

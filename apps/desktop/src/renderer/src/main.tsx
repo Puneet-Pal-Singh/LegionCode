@@ -20,6 +20,10 @@ import type {
 import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
+import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
+import { DesktopConversation } from "./DesktopConversation";
+import { DesktopReview } from "./DesktopReview";
+import { useDesktopSavedReviewSelection } from "./useDesktopSavedReviewSelection";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -40,6 +44,7 @@ function DesktopApp(): React.JSX.Element {
     useState<ThreadLoadState>("loading");
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [providerRevision, setProviderRevision] = useState(0);
   const [rightPanelOpen, setRightPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
@@ -58,6 +63,18 @@ function DesktopApp(): React.JSX.Element {
       : null,
     [build?.version],
   );
+
+  const reviewScope = useMemo(() => appServerClient && sdkReady
+    && environment?.status === "ready" && environment.kind === "local"
+    && workspace?.readiness === "ready" && selectedThread?.workspaceId === workspace.workspaceId
+    ? {
+      client: appServerClient, workspaceId: workspace.workspaceId,
+      threadId: selectedThread.id, grantedAt: workspace.grantedAt, readiness: workspace.readiness,
+    } : null,
+  [appServerClient, sdkReady, environment?.status, environment?.kind,
+    workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness,
+    selectedThread?.workspaceId, selectedThread?.id]);
+  const savedReview = useDesktopSavedReviewSelection(reviewScope);
 
   useEffect(() => {
     const compactLayout = window.matchMedia("(max-width: 1023px)");
@@ -240,6 +257,26 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
+  async function setThreadPinned(threadId: string, pinned: boolean): Promise<void> {
+    const thread = threads.find((item) => item.id === threadId);
+    if (!thread || !appServerClient) return;
+    const scope = threadScope.current;
+    const request = selectionRequest.current;
+    try {
+      const updated = pinned
+        ? await appServerClient.pinThread(thread.id)
+        : await appServerClient.unpinThread(thread.id);
+      if (scope !== threadScope.current) return;
+      if (request === selectionRequest.current) {
+        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      }
+      await refreshThreads();
+    } catch {
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      setThreadError("The local thread could not be updated.");
+    }
+  }
+
   async function chooseWorkspace(): Promise<void> {
     setWorkspaceError(null);
     try {
@@ -350,11 +387,15 @@ function DesktopApp(): React.JSX.Element {
           onSidebarOpenChange={setSidebarOpen}
           sidebar={(
             <ThreadSidebar
+              pullRequestUnavailableReason="Pull request status is unavailable."
               model={sidebarModel}
+              visible={sidebarOpen}
               onSelect={(threadId) => { closeCompactSidebar(); void openThread(threadId); }}
               onCreate={workspace?.readiness === "ready" && sdkReady ? () => void createThread() : undefined}
               onAddWorkspace={sdkReady ? () => void chooseWorkspace() : undefined}
               onRenameSession={renameThread}
+              onPin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, true) : undefined}
+              onUnpin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, false) : undefined}
               onArchive={archiveThread}
               onUnarchive={unarchiveThread}
               onClose={() => setSidebarOpen(false)}
@@ -392,24 +433,64 @@ function DesktopApp(): React.JSX.Element {
             <DesktopRightPanel
               workspace={workspace}
               threadId={selectedThread?.id ?? null}
-              review={null}
+              review={reviewScope ? {
+                scope: reviewScope,
+                selection: savedReview.selection,
+                content: <DesktopReview
+                  client={savedReview.client}
+                  selection={savedReview.selection}
+                  scope={{ workspaceId: reviewScope.workspaceId, threadId: reviewScope.threadId, grantGrantedAt: reviewScope.grantedAt }}
+                  availability={environment.status === "ready" && environment.capabilities.includes("artifact-review-v1") ? { available: true } : {
+                    available: false, reason: "This environment does not provide saved turn review.",
+                  }}
+                />,
+              } : null}
+              files={appServerClient && sdkReady && environment.status === "ready" && environment.kind === "local" && workspace?.readiness === "ready" ? {
+                workspaceId: workspace.workspaceId,
+                grantedAt: workspace.grantedAt,
+                readiness: workspace.readiness,
+                content: <DesktopWorkspaceFilesMount
+                  client={appServerClient}
+                  workspaceId={workspace.workspaceId}
+                  grantedAt={workspace.grantedAt}
+                  readiness={workspace.readiness}
+                  availability={environment.capabilities.includes("workspace-files-v1") ? { available: true } : {
+                    available: false,
+                    reason: environment.unavailableCapabilities.find((item) => item.capability === "workspace-files-v1")?.reason
+                      ?? "This local environment does not provide workspace file reads.",
+                  }}
+                />,
+              } : undefined}
               filesUnavailableReason="Local workspace file reads are unavailable in this environment."
-              commitUnavailableReason="Choose a completed turn with saved changes before committing."
+              commitUnavailableReason="Committing saved changes is unavailable."
               onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
             />
           ) : undefined}
           rightPanelLabel="Files and saved turn review"
         >
-          <div className="desktop-home">
+          {workspace?.readiness === "ready" && selectedThread && appServerClient && sdkReady ? (
+            <DesktopConversation
+              key={`${workspace.workspaceId}:${workspace.grantedAt}:${workspace.readiness}`}
+              client={appServerClient}
+              thread={selectedThread}
+              execution={environment.status === "ready" && environment.capabilities.includes("turn-execution-v1") ? { available: true } : {
+                available: false,
+                reason: "Local execution is unavailable in this environment.",
+              }}
+              onOpenSettings={() => setSettingsOpen(true)}
+              providerRevision={providerRevision}
+              onReviewTurn={(turn) => { savedReview.select(turn); setRightPanelOpen(true); }}
+            />
+          ) : <div className="desktop-home">
             <span className="desktop-home-brand">Legion<span>Code</span></span>
             <h2>{selectedThread?.title ?? (workspace?.readiness === "ready" ? "Choose a task" : "Open a local workspace")}</h2>
             <p>{selectedThread ? `Saved in ${workspace?.displayName ?? "your local workspace"}.`
               : workspace?.readiness === "ready" ? "Open a saved task or choose New task in the sidebar."
               : "Choose a folder in the sidebar and grant access to get started."}</p>
-          </div>
+          </div>}
         </WorkspaceFrame>
       </ClientShell>
-      <DesktopSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} client={appServerClient} ready={sdkReady} build={build} />
+      <DesktopSettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); setProviderRevision((value) => value + 1); }} client={appServerClient} ready={sdkReady} build={build} />
     </>
   );
 }
