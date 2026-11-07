@@ -11,7 +11,7 @@ import {
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
-import { createAppServerClient } from "@legioncode/sdk";
+import { createAppServerClient, type LocalTurnConfigurationOptions } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
@@ -41,6 +41,7 @@ function DesktopApp(): React.JSX.Element {
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot | null>(null);
   const [sdkReady, setSdkReady] = useState(false);
+  const [turnConfigurationOptions, setTurnConfigurationOptions] = useState<LocalTurnConfigurationOptions | null>(null);
   const [workspace, setWorkspace] = useState<LocalWorkspaceGrant | null>(null);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -125,6 +126,7 @@ function DesktopApp(): React.JSX.Element {
 
   useEffect(() => {
     setSdkReady(false);
+    setTurnConfigurationOptions(null);
     threadScope.current += 1;
     selectionRequest.current += 1;
     threadListRequest.current += 1;
@@ -133,8 +135,11 @@ function DesktopApp(): React.JSX.Element {
     let active = true;
     void appServerClient
       .initialize()
-      .then(() => {
-        if (active) setSdkReady(true);
+      .then((initialized) => {
+        if (active) {
+          setTurnConfigurationOptions(initialized.localTurnConfiguration ?? null);
+          setSdkReady(true);
+        }
       })
       .catch(() => {
         if (active) setThreadLoadState("error");
@@ -624,6 +629,8 @@ function DesktopApp(): React.JSX.Element {
               key={`${workspace.workspaceId}:${workspace.grantedAt}:${workspace.readiness}`}
               client={appServerClient}
               thread={selectedThread}
+              workspaceGrantAt={workspace.grantedAt}
+              fileAvailability={environment.status === "ready" && environment.capabilities.includes("workspace-files-v1") ? { available: true } : { available: false, reason: "Workspace file suggestions are unavailable in this environment." }}
               projectName={workspace.displayName}
               onProjectClick={() => void chooseWorkspace()}
               execution={
@@ -639,6 +646,7 @@ function DesktopApp(): React.JSX.Element {
               onConnectProvider={() => setSettingsTarget("connect-only")}
               onManageModels={() => setSettingsTarget("manage-models-only")}
               providerRevision={providerRevision}
+              configurationOptions={turnConfigurationOptions}
               onReviewTurn={(turn) => {
                 savedReview.select(turn);
                 setRightPanelOpen(true);

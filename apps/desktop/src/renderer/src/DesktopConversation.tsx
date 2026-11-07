@@ -4,10 +4,18 @@ import {
   useCompletedTurnReview,
   type ChatInterfaceEntry,
 } from "@legioncode/client-ui";
-import type { AppServerClient } from "@legioncode/sdk";
+import {
+  LocalTurnConfigurationSchema,
+  type LocalTurnConfigurationOptions,
+  type AppServerClient,
+} from "@legioncode/sdk";
 import type { Thread } from "@repo/platform-protocol";
 import { DesktopApproval } from "./DesktopApproval";
 import { DesktopComposer } from "./DesktopComposer";
+import {
+  desktopImageSource,
+  useDesktopImagePreviews,
+} from "./useDesktopImagePreviews";
 import { useDesktopConversation } from "./useDesktopConversation";
 import type { DesktopSavedReviewTurn } from "./useDesktopSavedReviewSelection";
 
@@ -22,6 +30,9 @@ interface Props {
   onConnectProvider: () => void;
   onManageModels: () => void;
   providerRevision: number;
+  configurationOptions: LocalTurnConfigurationOptions | null;
+  workspaceGrantAt: string;
+  fileAvailability: { available: true } | { available: false; reason: string };
   projectName?: string;
   onProjectClick?: () => void;
   onReviewTurn?: (turn: DesktopSavedReviewTurn) => void;
@@ -43,6 +54,9 @@ function SelectedConversation({
   onConnectProvider,
   onManageModels,
   providerRevision,
+  configurationOptions,
+  workspaceGrantAt,
+  fileAvailability,
   onReviewTurn,
   projectName,
   onProjectClick,
@@ -53,6 +67,10 @@ function SelectedConversation({
     client,
     thread,
     execution.available,
+  );
+  const imagePreviews = useDesktopImagePreviews(
+    client,
+    conversation.admissions,
   );
   const admission = conversation.admissions.at(-1);
   const projection = admission
@@ -78,6 +96,18 @@ function SelectedConversation({
               ? "Load newer turns before sending another message."
               : undefined;
 
+  const admittedConfiguration =
+    admission?.userMessage.type === "user_message" &&
+    admission.userMessage.content &&
+    typeof admission.userMessage.content === "object" &&
+    !Array.isArray(admission.userMessage.content)
+      ? LocalTurnConfigurationSchema.safeParse(
+          admission.userMessage.content.configuration,
+        )
+      : null;
+  const initialConfiguration = admittedConfiguration?.success
+    ? admittedConfiguration.data
+    : null;
   const review = useCompletedTurnReview(
     projection ?? null,
     admission?.userMessage.id ?? null,
@@ -96,6 +126,16 @@ function SelectedConversation({
             id: item.userMessage.id,
             role: "user",
             content: item.userMessage.content.text,
+            data: {
+              metadata: {
+                imageAttachments: (
+                  imagePreviews.referencesByTurn.get(item.turn.id) ?? []
+                ).map((reference) => ({
+                  ...reference,
+                  src: desktopImageSource(item.turn.id, reference.attachmentId),
+                })),
+              },
+            },
           },
           ...(replay ? { projection: replay } : {}),
         });
@@ -165,6 +205,8 @@ function SelectedConversation({
               isHidden={isApprovalVisible}
               client={client}
               workspaceId={thread.workspaceId}
+              grantedAt={workspaceGrantAt}
+              fileAvailability={fileAvailability}
               threadId={thread.id}
               busy={execution.available && conversation.busy}
               submissionUnavailableReason={unavailableReason}
@@ -177,6 +219,10 @@ function SelectedConversation({
               onConnectProvider={onConnectProvider}
               onManageModels={onManageModels}
               providerRevision={providerRevision}
+              configurationOptions={configurationOptions}
+              initialConfiguration={initialConfiguration}
+              pendingConfiguration={conversation.pendingConfiguration}
+              pendingSelection={conversation.pendingSelection}
               contextBudget={projection?.contextBudget ?? null}
               usage={projection?.usage ?? null}
             />
@@ -185,6 +231,14 @@ function SelectedConversation({
       )}
       debugPanel={
         <>
+          {imagePreviews.error ? (
+            <ChatErrorNotice
+              message={imagePreviews.error}
+              remediation="Retry the authenticated saved image read. Saved references remain unchanged."
+              actionLabel="Retry images"
+              onOpen={imagePreviews.retry}
+            />
+          ) : null}
           {conversation.firstPage ? (
             <ChatErrorNotice
               message="Earlier saved turns are available."
@@ -203,7 +257,7 @@ function SelectedConversation({
           ) : null}
         </>
       }
-      resolveHydratedImageSource={undefined}
+      resolveHydratedImageSource={imagePreviews.resolveSource}
       loadArtifactContent={undefined}
       chatEntries={entries}
       hydrationStatus={
@@ -218,7 +272,13 @@ function SelectedConversation({
       hydrationError={conversation.error}
       retryHydration={conversation.reload}
       messageMetadataById={{}}
-      modeLabel="Plan"
+      modeLabel={
+        initialConfiguration?.mode === "build"
+          ? "Build"
+          : initialConfiguration?.mode === "plan"
+            ? "Plan"
+            : "Mode unavailable"
+      }
       resolveModelLabel={(modelId) => modelId}
       snapshots={{}}
       artifacts={{}}

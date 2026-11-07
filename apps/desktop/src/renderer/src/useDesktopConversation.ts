@@ -2,6 +2,8 @@ import {
   AppServerClientError,
   createAppServerLifecycleClient,
   LocalTurnStartParamsSchema,
+  LocalTurnConfigurationSchema,
+  type LocalTurnConfiguration,
   followConversationLifecycleProjection,
   replayConversationLifecycleProjection,
   type AppServerClient,
@@ -37,7 +39,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
   const scope = useRef<AbortController | null>(null);
   const loadedScope = useRef({ client, workspaceId: thread.workspaceId, threadId: thread.id });
   const scopeMatches = loadedScope.current.client === client && loadedScope.current.workspaceId === thread.workspaceId && loadedScope.current.threadId === thread.id;
-  const pendingRequest = useRef<Pick<LocalTurnStartParams, "prompt" | "clientRequestId"> | null>(null);
+  const pendingRequest = useRef<LocalTurnStartParams | null>(null);
   const commandPending = useRef(false);
 
   useEffect(() => {
@@ -155,40 +157,80 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
 
   const unsettled = admissions.some((admission) => !projections[admission.turn.id]?.terminal);
 
-  async function submit(prompt: string): Promise<boolean> {
+  async function submit(
+    prompt: string,
+    configuration: LocalTurnConfiguration,
+    expectedSelection: NonNullable<Awaited<ReturnType<AppServerClient["getProviderSelection"]>>>,
+    images?: LocalTurnStartParams["images"],
+  ): Promise<boolean> {
     const controller = scope.current;
-    if (!enabled || !scopeMatches || !controller || controller.signal.aborted || commandPending.current || !historyReady || loading || nextCursor !== null || unsettled) return false;
+    if (
+      !enabled ||
+      !scopeMatches ||
+      !controller ||
+      controller.signal.aborted ||
+      commandPending.current ||
+      !historyReady ||
+      loading ||
+      nextCursor !== null ||
+      unsettled
+    )
+      return false;
     const retryingUnconfirmedRequest = pendingRequest.current !== null;
     // Local contract rejection must never claim a delivery identity or alter
     // conversation errors. Post-dispatch failures below remain unconfirmed.
-    const params = LocalTurnStartParamsSchema.safeParse({
-      workspaceId: thread.workspaceId, threadId: thread.id,
-      prompt, clientRequestId: pendingRequest.current?.clientRequestId ?? crypto.randomUUID(),
-    });
+    const params = LocalTurnStartParamsSchema.safeParse(
+      {
+        workspaceId: thread.workspaceId,
+        threadId: thread.id,
+        prompt,
+        clientRequestId: pendingRequest.current?.clientRequestId ?? crypto.randomUUID(),
+        ...configuration,
+        expectedSelection,
+        ...(images?.length ? { images } : {}),
+      },
+    );
     if (!params.success) {
-      throw new Error(params.error.issues[0]?.message ?? "Update the prompt before sending.");
+      throw new Error(
+        params.error.issues[0]?.message ?? "Update the prompt before sending.",
+      );
     }
-    if (pendingRequest.current && pendingRequest.current.prompt !== params.data.prompt) {
-      setError("The previous prompt is unconfirmed. Retry its unchanged draft or reload saved history first.");
+    if (
+      pendingRequest.current &&
+      (pendingRequest.current.prompt !== params.data.prompt ||
+        JSON.stringify(pendingRequest.current.images ?? []) !==
+          JSON.stringify(params.data.images ?? []))
+    ) {
+      setError(
+        "The previous prompt is unconfirmed. Retry its unchanged draft or reload saved history first.",
+      );
       return false;
     }
-    const request = pendingRequest.current ?? {
-      prompt: params.data.prompt, clientRequestId: params.data.clientRequestId,
-    };
+    const request = pendingRequest.current ?? params.data;
     pendingRequest.current = request;
     commandPending.current = true;
     setDelivering(true);
     setError(null);
     let accepted = false;
     try {
-      const admission = await client.startTurn(params.data);
-      if (controller.signal.aborted || scope.current !== controller) return false;
+      const admission = await client.startTurn(request);
+      if (controller.signal.aborted || scope.current !== controller)
+        return false;
       assertScope(admission, thread);
-      if (admission.clientRequestId !== request.clientRequestId) throw new Error("Admission request changed");
-      const visible = admissions.some((item) => item.turn.id === admission.turn.id) ? admissions : [...admissions, admission].slice(-HISTORY_PAGE_SIZE);
+      if (admission.clientRequestId !== request.clientRequestId)
+        throw new Error("Admission request changed");
+      const visible = admissions.some(
+        (item) => item.turn.id === admission.turn.id,
+      )
+        ? admissions
+        : [...admissions, admission].slice(-HISTORY_PAGE_SIZE);
       const visibleIds = new Set<string>(visible.map((item) => item.turn.id));
       setAdmissions(visible);
-      setProjections((current) => Object.fromEntries(Object.entries(current).filter(([turnId]) => visibleIds.has(turnId))));
+      setProjections((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([turnId]) => visibleIds.has(turnId)),
+        ),
+      );
       pendingRequest.current = null;
       accepted = !projections[admission.turn.id]?.terminal;
       return true;
@@ -196,13 +238,46 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       if (!controller.signal.aborted && scope.current === controller) {
         // This boundary rejection proves only the current attempt was not dispatched.
         // An earlier uncertain attempt can still have admitted the same identity.
-        if (!retryingUnconfirmedRequest && error instanceof AppServerClientError && error.code === "server_error" && error.serverCode === "protocol_incompatible") {
-          if (pendingRequest.current?.clientRequestId === request.clientRequestId) {
+        const operationCode =
+          error instanceof AppServerClientError &&
+          error.code === "server_error" &&
+          error.serverError &&
+          "operationCode" in error.serverError
+            ? error.serverError.operationCode
+            : null;
+        const freshInputRejection =
+          !retryingUnconfirmedRequest &&
+          (operationCode === "local_provider_selection_changed" ||
+            operationCode === "local_image_unavailable" ||
+            operationCode === "local_image_validation_failed" ||
+            operationCode === "local_image_model_unsupported");
+        if (freshInputRejection) {
+          if (pendingRequest.current?.clientRequestId === request.clientRequestId)
             pendingRequest.current = null;
-            throw new Error("The local runtime needs a compatible Desktop connection. Copy your draft and restart Desktop before retrying.");
+          throw new Error(
+            operationCode === "local_provider_selection_changed"
+              ? "The selected model changed before delivery. Select your model again and retry your kept draft."
+              : "The runtime could not accept these images. Check the attachments and selected model, then retry your kept draft.",
+          );
+        }
+        if (
+          !retryingUnconfirmedRequest &&
+          error instanceof AppServerClientError &&
+          error.code === "server_error" &&
+          error.serverCode === "protocol_incompatible"
+        ) {
+          if (
+            pendingRequest.current?.clientRequestId === request.clientRequestId
+          ) {
+            pendingRequest.current = null;
+            throw new Error(
+              "The local runtime needs a compatible Desktop connection. Copy your draft and restart Desktop before retrying.",
+            );
           }
         }
-        setError("Prompt delivery is unconfirmed. Retry the unchanged draft using the same request identity, or reload saved history.");
+        setError(
+          "Prompt delivery is unconfirmed. Retry the unchanged draft using the same request identity, or reload saved history.",
+        );
       }
       return false;
     } finally {
@@ -252,6 +327,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
     nextPage: enabled && nextCursor && historyReady && !loading ? () => { setLatestPage(false); setAfterCursor(nextCursor); } : null,
     firstPage: enabled && (afterCursor !== null || (latestPage && hasEarlier)) ? () => { setLatestPage(false); setAfterCursor(null); } : null,
     hasNewerPages: enabled && nextCursor !== null,
+    pendingSelection: pendingRequest.current?.expectedSelection ?? null,
+    pendingConfiguration: pendingRequest.current
+      ? LocalTurnConfigurationSchema.parse({
+          mode: pendingRequest.current.mode,
+          productMode: pendingRequest.current.productMode,
+        })
+      : null,
     submit, stop, interrupting: scopeMatches && interrupting,
     canStop: Boolean(enabled && scopeMatches && historyReady && !loading && nextCursor === null && !interrupting && latest && !projections[latest.turn.id]?.terminal),
     retry: () => { setLiveError(null); setRetry((value) => value + 1); },
