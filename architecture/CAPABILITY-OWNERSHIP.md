@@ -1466,6 +1466,28 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Local original image bytes and resource disposition
+
+`LocalChatMediaStore` owns private original image bytes through the shared
+`@repo/chat-media` decoder, sniffer and normalizer. The six-field canonical
+admission scope and ordered image fingerprint bind immutable references, MIME,
+size and SHA256 verification; caller filenames remain labels, never paths.
+Provider hydration requires the admitted fingerprint and verifies the original
+bytes before creating a transient normalized provider image. Data URLs and
+normalized derivatives are not persisted as durable image evidence.
+
+The private media resource journal reserves bounded pending bytes before writes
+and records only byte disposition, never admission or lifecycle truth. The
+existing canonical admission lookup alone confirms accepted scope, fingerprint
+and references. Proven absence after settled admission permits cleanup; unknown
+outcomes retain their bytes and quota. Durable discarding markers make cleanup
+resumable without deleting unfamiliar evidence or accepted immutable batches.
+
+This prepared backend depends on the shared codec package and exported local
+media-limit contract. Actual admission, runtime/provider hydration and authorized
+read/API consumers remain separate composition work. No EventStore media journal,
+renderer transport, capability advertisement or second acceptance owner is added.
+
 ### Local workspace provider preferences
 
 `LocalProviderPreferences` owns secret-free model visibility and default metadata
