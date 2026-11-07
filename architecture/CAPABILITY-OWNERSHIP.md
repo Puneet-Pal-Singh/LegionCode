@@ -1485,3 +1485,12 @@ Thread principal. Foreign stored user/workspace/credential identities are reject
 Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
+
+## Plan 057 — Shared App Server response budget
+
+The platform protocol owns the existing one-MiB default JSON response budget and
+its UTF-8 serialized-byte helper. The SDK HTTP transport reuses that same value;
+its explicit maxResponseBytes override and bounded response reader are unchanged.
+This foundation does not increase limits, alter history queries or add a second
+transport owner. Whole-Turn history selection and final server envelope checks
+remain separate consumers of this shared contract.
