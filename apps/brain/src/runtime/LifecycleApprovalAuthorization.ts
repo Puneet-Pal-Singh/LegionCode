@@ -5,6 +5,8 @@ import type {
 import {
   TurnIdSchema,
   workspaceIdFromExternalId,
+  userIdFromExternalId,
+  type UserId,
   type ApprovalDecision,
   type LifecycleEvent,
 } from "@repo/platform-protocol";
@@ -20,6 +22,7 @@ type ApprovalAuthorization =
   | {
       readonly kind: "pending";
       readonly scope: Scope;
+      readonly decidedBy: UserId;
     }
   | { readonly kind: "decided"; readonly event: Decided }
   | { readonly kind: "conflict"; readonly message: string };
@@ -97,7 +100,11 @@ export async function authorizeLifecycleApproval(input: {
       "This approval request does not allow a matching-in-chat grant.",
     );
   }
-  return { kind: "pending", scope: identity };
+  return {
+    kind: "pending",
+    scope: identity,
+    decidedBy: userIdFromExternalId(identity.ownerUserId),
+  };
 }
 
 /** Read through the existing canonical store; no request state is persisted here. */
