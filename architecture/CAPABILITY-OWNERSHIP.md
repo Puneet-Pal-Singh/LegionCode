@@ -1685,3 +1685,15 @@ empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
 are rejected. HOME and TMP remain canonical existing directories. No ambient
 environment spread, model-controlled override or filesystem authority is added;
 ordinary executable environments and process containment remain unchanged.
+
+
+## Desktop native Git executable selection
+
+`resolveTrustedMacGitExecutable` is the single host filesystem discovery owner.
+Workspace readiness resolves it lazily; native runtime composition resolves once
+and shares that executable across read-only, capture and immutable commit ports.
+Typed selection unavailability retains the existing files-only composition and
+provider startup, without turn execution, saved review or commit capabilities.
+Discovery does not prove containment: the original root authority, canonical
+readiness predicate, guardian and no-fork profile remain mandatory. No system
+shim, PATH, shell or xcrun process fallback is introduced.

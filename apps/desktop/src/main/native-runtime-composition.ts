@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { resolveTrustedMacGitExecutable } from "@legioncode/app-server/local-mac-git-execution";
 import { createLocalNativeRuntime } from "@legioncode/app-server/local-native-runtime";
 import { createLocalReadOnlyGitService } from "@legioncode/app-server/local-readonly-git";
 import { LocalWorkspaceWriterLeaseOwner } from "@legioncode/app-server/local-workspace-writer-lease";
@@ -22,7 +22,14 @@ export async function createDesktopNativeComposition(
   const filesystemHelperPath = config.nativeFilesystemHelperPath;
   const processHelperPath = config.nativeProcessHelperPath;
   if (!files || !filesystemHelperPath || !processHelperPath) return files;
-  const gitExecutable = realpathSync("/usr/bin/git");
+  let gitExecutable: string;
+  try {
+    gitExecutable = resolveTrustedMacGitExecutable();
+  } catch (error) {
+    // Only the selector's typed unavailability degrades to the existing files ports.
+    if (error instanceof Error && "code" in error && error.code === "git_process_containment_unavailable") return files;
+    throw error;
+  }
   const leases = config.nativeWriterFenceDirectory ? new LocalWorkspaceWriterLeaseOwner({
     trustedFenceDirectory: config.nativeWriterFenceDirectory,
     helperPath: processHelperPath,

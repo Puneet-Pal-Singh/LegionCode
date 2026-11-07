@@ -1,5 +1,5 @@
-import { fstatSync, realpathSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { accessSync, constants, fstatSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import {
   executeSingleProcessMac,
   SingleProcessMacLifetimeUncertainError,
@@ -55,6 +55,55 @@ export type VerifiedMacGitOptions = {
 const MAX_INPUT_BYTES = 1_000_000;
 const unavailable = (message: string) =>
   new GitServiceError("git_process_containment_unavailable", message);
+
+/** Host-only Apple tool discovery. The system shim is not the selected Git
+ * binary. Resolve installed developer tools without launching xcrun or a shell.
+ * Inspired by OpenCode's Darwin Git discovery; containment is still proved by
+ * createVerifiedMacGitExecution, never by executable discovery.
+ */
+export function resolveTrustedMacGitExecutable(): string {
+  const failure = () => unavailable("An installed native Mac Git executable is unavailable");
+  if (process.platform !== "darwin") throw failure();
+  try {
+    const configured = process.env.DEVELOPER_DIR;
+    const selector = "/var/db/xcode_select_link";
+    let selected = Boolean(configured);
+    let directories: readonly string[];
+    if (configured) {
+      directories = [configured];
+    } else {
+      try {
+        lstatSync(selector);
+        selected = true;
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      }
+      directories = selected ? [realpathSync(selector)] : [
+        "/Applications/Xcode.app/Contents/Developer",
+        "/Library/Developer/CommandLineTools",
+      ];
+    }
+    for (const directory of directories) {
+      try {
+        if (!isAbsolute(directory) || /[\0\r\n]/u.test(directory)) throw failure();
+        const configuredRoot = realpathSync(directory);
+        const root = configuredRoot.endsWith(".app")
+          ? realpathSync(join(configuredRoot, "Contents/Developer")) : configuredRoot;
+        if (root === "/" || !statSync(root).isDirectory()) throw failure();
+        const executable = realpathSync(join(root, "usr/bin/git"));
+        const contained = relative(root, executable);
+        if (executable === "/usr/bin/git" || isAbsolute(contained) || contained === ".." ||
+            contained.startsWith(`..${sep}`) || !statSync(executable).isFile()) throw failure();
+        accessSync(executable, constants.X_OK);
+        return executable;
+      } catch (error) {
+        // Explicit host selection must not silently choose another toolchain.
+        if (selected) throw error;
+      }
+    }
+  } catch { throw failure(); }
+  throw failure();
+}
 
 /**
  * Read-only Git transport readiness uses the real canonical guardian. The Git
