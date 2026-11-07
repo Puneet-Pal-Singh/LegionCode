@@ -115,3 +115,5 @@ export { PickerModal } from "./workspace/PickerModal.js";
 export { HeroComposer as ConversationHero } from "./conversation/chat-interface/ChatInterfaceView.js";
 
 export { getInitialRightSidebarWidth, clampRightSidebarWidth } from "./workspace/rightPanelSizing.js";
+
+export { EnvironmentSummaryMenu, type EnvironmentSummaryMenuProps, type EnvironmentSavedSources } from "./workspace/EnvironmentSummaryMenu.js";
