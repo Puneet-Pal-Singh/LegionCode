@@ -1273,3 +1273,15 @@ activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
 dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
 request/result contract. Hosted dispatch rejects these local commands. Desktop
 sidebar callbacks and visible restart acceptance remain client integration work.
+
+## Saved Turn artifact commit command boundary
+
+SDK `commitTurnArtifact` sends `git/commitTurnArtifact` using the canonical
+`CommitTurnArtifactRequestSchema` and validates `CommitTurnArtifactResponseSchema`.
+App Server dispatches only local requests to the optional structural
+`localTurnArtifactCommitService.commitTurnArtifact` port; missing or nonlocal
+composition returns typed `503 server_unavailable` with `retryable: false`.
+The private handler remains the owner of authorized settled-Turn artifact
+selection and canonical Git mutation. Handler injection, local composition,
+capability advertisement and UI activation are not implemented by this boundary.
+No live-Git selector, fallback commit path or second artifact owner is introduced.
