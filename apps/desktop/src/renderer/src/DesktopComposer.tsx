@@ -12,6 +12,7 @@ interface Props {
   workspaceId: WorkspaceId;
   threadId: ThreadId;
   busy: boolean;
+  isHidden?: boolean;
   submissionUnavailableReason?: string;
   onSubmit: (prompt: string) => Promise<boolean>;
   onStop?: () => Promise<void>;
@@ -32,6 +33,7 @@ function ThreadComposer({
   client,
   threadId,
   busy,
+  isHidden = false,
   submissionUnavailableReason,
   onSubmit,
   onStop,
@@ -91,6 +93,7 @@ function ThreadComposer({
         </p>
       ) : null}
       <ChatInputBar
+        isHidden={isHidden}
         sessionId={threadId}
         input={input}
         onChange={setInput}
@@ -128,6 +131,7 @@ function ThreadComposer({
         canStop={busy && Boolean(onStop) && !stopping}
         onSubmit={async (attachments) => {
           if (
+            isHidden ||
             attachments?.imageAttachments.length ||
             unavailable ||
             busy ||

@@ -49,6 +49,9 @@ function SelectedConversation({
     !conversation.loading &&
     !conversation.hasNewerPages &&
     projection?.pendingApproval;
+  const isApprovalVisible = Boolean(
+    execution.available && admission && projection && pendingApproval,
+  );
   const unavailableReason =
     thread.status === "archived"
       ? "Unarchive this task before sending a message."
@@ -153,8 +156,10 @@ function SelectedConversation({
               onStop={conversation.stop}
               refresh={conversation.retry}
             />
-          ) : (
+          ) : null}
+          <div hidden={isApprovalVisible}>
             <DesktopComposer
+              isHidden={isApprovalVisible}
               client={client}
               workspaceId={thread.workspaceId}
               threadId={thread.id}
@@ -163,11 +168,15 @@ function SelectedConversation({
               }
               submissionUnavailableReason={unavailableReason}
               onSubmit={conversation.submit}
-              onStop={conversation.canStop ? conversation.stop : undefined}
+              onStop={
+                !isApprovalVisible && conversation.canStop
+                  ? conversation.stop
+                  : undefined
+              }
               onOpenSettings={onOpenSettings}
               providerRevision={providerRevision}
             />
-          )}
+          </div>
         </div>
       </div>
     </section>
