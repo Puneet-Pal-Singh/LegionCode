@@ -2,8 +2,10 @@ import { RunIdSchema } from "@repo/platform-protocol";
 import {
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   type GitCommandExecutor,
+  type GitCommandExecutionResult,
 } from "./executor.js";
 import { createGitCommandFailedError, GitServiceError } from "./errors.js";
+import { validateBranchNamePolicy } from "./refs.js";
 import type {
   GitChangedFileStatus,
   GitDiffFile,
@@ -16,7 +18,7 @@ import type {
 } from "./types.js";
 import { validateWorkspaceRoot } from "./validation.js";
 
-const OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/u;
+const OBJECT_ID_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SNAPSHOT_KEY_PATTERN = /^[A-Za-z0-9_-]{1,160}$/u;
 
 export async function captureGitWorkspaceSnapshot(
@@ -32,13 +34,39 @@ export async function captureGitWorkspaceSnapshot(
     `index.legioncode-${snapshotKey}`,
   ]);
   const environment = { GIT_INDEX_FILE: indexPath };
-  await executeGit(
-    executor,
+  const initialized = await executor.execute({
     runId,
-    filesystemRoot,
-    ["read-tree", "HEAD"],
+    cwd: filesystemRoot,
+    args: ["read-tree", "HEAD"],
     environment,
-  );
+    timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  });
+  assertDeterminateGitResult(initialized);
+  let unbornBranch: string | undefined;
+  if (initialized.exitCode !== 0) {
+    if (initialized.exitCode !== 128) {
+      throw createGitCommandFailedError(
+        ["read-tree", "HEAD"],
+        initialized.exitCode,
+        initialized.stderr.trim(),
+      );
+    }
+    unbornBranch = await readUnbornBranch(executor, runId, filesystemRoot);
+    if (!unbornBranch) {
+      throw createGitCommandFailedError(
+        ["read-tree", "HEAD"],
+        initialized.exitCode,
+        initialized.stderr.trim(),
+      );
+    }
+    await executeGit(
+      executor,
+      runId,
+      filesystemRoot,
+      ["read-tree", "--empty"],
+      environment,
+    );
+  }
   await executeGit(executor, runId, filesystemRoot, ["add", "-A"], environment);
   const treeId = validateObjectId(
     await readGitValue(
@@ -49,10 +77,63 @@ export async function captureGitWorkspaceSnapshot(
       environment,
     ),
   );
-  const headSha = validateObjectId(
-    await readGitValue(executor, runId, filesystemRoot, ["rev-parse", "HEAD"]),
-  );
+  let headSha: string;
+  if (unbornBranch) {
+    if (
+      (await readUnbornBranch(executor, runId, filesystemRoot)) !== unbornBranch
+    ) {
+      throw new GitServiceError(
+        "git_command_failed",
+        "Unborn repository HEAD changed during snapshot capture",
+      );
+    }
+    // A zero object ID is an explicit absent-HEAD guard, never a commit.
+    headSha = "0".repeat(treeId.length);
+  } else {
+    headSha = validateObjectId(
+      await readGitValue(executor, runId, filesystemRoot, [
+        "rev-parse",
+        "HEAD",
+      ]),
+    );
+  }
   return { runId, filesystemRoot, headSha, treeId };
+}
+
+async function readUnbornBranch(
+  executor: GitCommandExecutor,
+  runId: ReturnType<typeof RunIdSchema.parse>,
+  cwd: string,
+): Promise<string | undefined> {
+  const inspect = async (args: readonly string[]) => {
+    const result = await executor.execute({
+      runId,
+      cwd,
+      args,
+      readOnlyProbe: true,
+      timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
+    assertDeterminateGitResult(result);
+    return result;
+  };
+  const head = await inspect(["rev-parse", "--verify", "--quiet", "HEAD"]);
+  if (
+    head.exitCode !== 1 ||
+    head.stdout.length !== 0 ||
+    head.stderr.length !== 0
+  )
+    return undefined;
+  const branch = await inspect(["symbolic-ref", "-q", "HEAD"]);
+  if (branch.exitCode !== 0 || branch.stderr.length !== 0) return undefined;
+  const reference = branch.stdout.trim();
+  if (!reference.startsWith("refs/heads/")) return undefined;
+  validateBranchNamePolicy(reference.slice("refs/heads/".length));
+  const absent = await inspect(["show-ref", "--verify", "--quiet", reference]);
+  return absent.exitCode === 1 &&
+    absent.stdout.length === 0 &&
+    absent.stderr.length === 0
+    ? reference
+    : undefined;
 }
 
 export async function diffGitWorkspaceSnapshots(
@@ -137,6 +218,7 @@ async function executeGit(
     environment,
     timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   });
+  assertDeterminateGitResult(result);
   if (result.exitCode !== 0) {
     throw createGitCommandFailedError(
       args,
@@ -145,6 +227,15 @@ async function executeGit(
     );
   }
   return result.stdout;
+}
+
+function assertDeterminateGitResult(result: GitCommandExecutionResult): void {
+  if (result.indexPublication === "indeterminate") {
+    throw new GitServiceError(
+      "git_commit_indeterminate",
+      "Git snapshot outcome is indeterminate",
+    );
+  }
 }
 
 async function readGitValue(

@@ -1,8 +1,10 @@
-import { useId, useState, type ReactNode } from "react";
-import type { LocalWorkspaceGrant, ThreadId, TurnId, WorkspaceId } from "@repo/platform-protocol";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import type { LocalWorkspaceGrant, ThreadId } from "@repo/platform-protocol";
+import type { DesktopReviewSelection } from "./DesktopReview";
 
 export interface DesktopRightPanelReview {
-  selection: { workspaceId: WorkspaceId; threadId: ThreadId; turnId: TurnId };
+  scope: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt" | "readiness"> & { threadId: ThreadId };
+  selection: DesktopReviewSelection | null;
   /** Render DesktopReview here with the same canonical selection and SDK client. */
   content: ReactNode;
 }
@@ -31,9 +33,17 @@ export function DesktopRightPanel({
   const [tab, setTab] = useState<"files" | "review">("review");
   const workspaceReady = workspace?.readiness === "ready";
   const matchingReview = workspaceReady && review
-    && review.selection.workspaceId === workspace.workspaceId
-    && review.selection.threadId === threadId
+    && review.scope.workspaceId === workspace.workspaceId
+    && review.scope.threadId === threadId
+    && review.scope.grantedAt === workspace.grantedAt
+    && review.scope.readiness === workspace.readiness
+    && (!review.selection || (review.selection.workspaceId === workspace.workspaceId
+      && review.selection.threadId === threadId))
     ? review : null;
+
+  useEffect(() => {
+    if (matchingReview?.selection) setTab("review");
+  }, [matchingReview?.selection]);
 
   return (
     <aside aria-label="Workspace files and review" className="flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-black text-zinc-200">
@@ -83,12 +93,12 @@ export function DesktopRightPanel({
         )}
       </section>
       <section id={`${id}-review-panel`} role="tabpanel" aria-labelledby={`${id}-review-tab`} hidden={tab !== "review"} className="min-h-0 flex-1 overflow-auto p-4">
-        <p className="mb-3 text-xs text-zinc-500">Saved turn changes stay tied to the selected completed turn.</p>
+        <p className="mb-3 text-xs text-zinc-500">Saved turn changes stay tied to the selected settled turn.</p>
         {!workspace ? <p role="status">Choose a folder and grant workspace access to review saved changes.</p>
           : !workspaceReady ? <p role="status">Restore workspace access to review saved changes.</p>
-          : !threadId ? <p role="status">Open a thread to select a completed turn.</p>
-          : !matchingReview ? <p role="status">Select a completed turn in this thread to review its saved changes.</p>
-          : <div key={`${matchingReview.selection.workspaceId}:${matchingReview.selection.threadId}:${matchingReview.selection.turnId}`}>{matchingReview.content}</div>}
+          : !threadId ? <p role="status">Open a thread to select a settled turn.</p>
+          : !matchingReview ? <p role="status">Select a settled turn in this thread to review its saved changes.</p>
+          : <div key={`${matchingReview.scope.workspaceId}:${matchingReview.scope.grantedAt}:${matchingReview.scope.readiness}:${matchingReview.scope.threadId}`}>{matchingReview.content}</div>}
       </section>
       <footer className="border-t border-zinc-800 p-4">
         <button type="button" disabled aria-describedby={`${id}-commit-reason`} className="w-full rounded border border-zinc-800 px-3 py-2 text-sm text-zinc-500 disabled:cursor-not-allowed">Commit saved changes</button>

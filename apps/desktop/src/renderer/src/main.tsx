@@ -6,7 +6,7 @@ import {
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
-import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
+import { AppServerClientError, createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
 import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -22,6 +22,8 @@ import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
+import { DesktopReview } from "./DesktopReview";
+import { useDesktopSavedReviewSelection } from "./useDesktopSavedReviewSelection";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -61,6 +63,18 @@ function DesktopApp(): React.JSX.Element {
       : null,
     [build?.version],
   );
+
+  const reviewScope = useMemo(() => appServerClient && sdkReady
+    && environment?.status === "ready" && environment.kind === "local"
+    && workspace?.readiness === "ready" && selectedThread?.workspaceId === workspace.workspaceId
+    ? {
+      client: appServerClient, workspaceId: workspace.workspaceId,
+      threadId: selectedThread.id, grantedAt: workspace.grantedAt, readiness: workspace.readiness,
+    } : null,
+  [appServerClient, sdkReady, environment?.status, environment?.kind,
+    workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness,
+    selectedThread?.workspaceId, selectedThread?.id]);
+  const savedReview = useDesktopSavedReviewSelection(reviewScope);
 
   useEffect(() => {
     const compactLayout = window.matchMedia("(max-width: 1023px)");
@@ -285,8 +299,13 @@ function DesktopApp(): React.JSX.Element {
       granted = await appServerClient.grantWorkspace({
         selectionToken: selection.selectionToken,
       });
-    } catch {
-      setWorkspaceError("The selected directory is not a Git repository root.");
+    } catch (error: unknown) {
+      setWorkspaceError(
+        error instanceof AppServerClientError && error.code === "server_error" &&
+        error.method === "workspace/grant" && error.serverError
+          ? error.message
+          : "Workspace access could not be confirmed.",
+      );
       return;
     } finally {
       workspaceCommand.current = false;
@@ -419,7 +438,18 @@ function DesktopApp(): React.JSX.Element {
             <DesktopRightPanel
               workspace={workspace}
               threadId={selectedThread?.id ?? null}
-              review={null}
+              review={reviewScope ? {
+                scope: reviewScope,
+                selection: savedReview.selection,
+                content: <DesktopReview
+                  client={savedReview.client}
+                  selection={savedReview.selection}
+                  scope={{ workspaceId: reviewScope.workspaceId, threadId: reviewScope.threadId, grantGrantedAt: reviewScope.grantedAt }}
+                  availability={environment.status === "ready" && environment.capabilities.includes("artifact-review-v1") ? { available: true } : {
+                    available: false, reason: "This environment does not provide saved turn review.",
+                  }}
+                />,
+              } : null}
               files={appServerClient && sdkReady && environment.status === "ready" && environment.kind === "local" && workspace?.readiness === "ready" ? {
                 workspaceId: workspace.workspaceId,
                 grantedAt: workspace.grantedAt,
@@ -437,7 +467,7 @@ function DesktopApp(): React.JSX.Element {
                 />,
               } : undefined}
               filesUnavailableReason="Local workspace file reads are unavailable in this environment."
-              commitUnavailableReason="Choose a completed turn with saved changes before committing."
+              commitUnavailableReason="Committing saved changes is unavailable."
               onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
             />
           ) : undefined}
@@ -445,6 +475,7 @@ function DesktopApp(): React.JSX.Element {
         >
           {workspace?.readiness === "ready" && selectedThread && appServerClient && sdkReady ? (
             <DesktopConversation
+              key={`${workspace.workspaceId}:${workspace.grantedAt}:${workspace.readiness}`}
               client={appServerClient}
               thread={selectedThread}
               execution={environment.status === "ready" && environment.capabilities.includes("turn-execution-v1") ? { available: true } : {
@@ -453,6 +484,7 @@ function DesktopApp(): React.JSX.Element {
               }}
               onOpenSettings={() => setSettingsOpen(true)}
               providerRevision={providerRevision}
+              onReviewTurn={(turn) => { savedReview.select(turn); setRightPanelOpen(true); }}
             />
           ) : <div className="desktop-home">
             <span className="desktop-home-brand">Legion<span>Code</span></span>
