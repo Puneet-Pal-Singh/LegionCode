@@ -148,8 +148,27 @@ function projectThreadState(
     });
   }
 
+  if (event.type === "thread.created") {
+    return ThreadSchema.parse({
+      ...event.payload.thread,
+      lastEventSequence: projectionSequence,
+    });
+  }
+  if (!current) {
+    throw new ThreadProjectionError(
+      "missing_thread_created",
+      "Thread metadata updates require a prior thread.created event",
+    );
+  }
+
+  const metadata = event.payload.thread;
+  const ownedFields = event.type === "thread.pinned" || event.type === "thread.unpinned"
+    ? { pinnedAt: metadata.pinnedAt }
+    : { status: metadata.status, archivedAt: metadata.archivedAt };
   return ThreadSchema.parse({
-    ...event.payload.thread,
+    ...current,
+    ...ownedFields,
+    updatedAt: metadata.updatedAt,
     lastEventSequence: projectionSequence,
   });
 }
