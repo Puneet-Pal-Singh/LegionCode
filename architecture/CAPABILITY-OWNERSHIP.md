@@ -1417,6 +1417,16 @@ executor. The runtime alone creates new admission records and lifecycle events.
 ports. Its one private execution capability selects both admission mode and
 executor ports, including the provider's registry-filtered captured tools.
 
+Local Turn configuration reuses the canonical chat mode and product mode schemas.
+Omitted request fields retain the local `plan` / `ask_always` defaults. Runtime
+persists the complete selection in the immutable user message; the existing
+admission fingerprint and receipt validation reject a reused request identity
+with changed configuration. Explicit Plan maps to `Run.mode=plan`; Build maps to
+`auto_edit` and is rejected before admission without actual captured execution
+ports. Each attempt resolves the existing native permission policy for its stored
+product mode. Initialize projects supported choices from those actual ports;
+it does not infer mutation availability from the general execution capability.
+
 Desktop's trusted Darwin utility composition supplies the grant-held root,
 protected private provider broker and canonical read-only Git service to this
 runtime. Its LocalTurnService uses the same process-owned persistence connection;

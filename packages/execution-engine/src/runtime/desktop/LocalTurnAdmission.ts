@@ -6,11 +6,14 @@ import {
   ThreadItemSchema,
   RunIdSchema,
   ItemIdSchema,
+  LocalTurnConfigurationSchema,
   createTurnId,
   createRunAttemptId,
   type Run,
   type Thread,
   type WorkspaceId,
+  type RunMode,
+  type LocalTurnConfiguration,
 } from "@repo/platform-protocol";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 
@@ -23,12 +26,13 @@ export interface LocalTurnAdmissionInput {
   readonly modelId: Run["modelId"];
   readonly workerId: Run["workerId"];
   readonly permissionProfileId: Run["permissionProfileId"];
+  readonly configuration?: LocalTurnConfiguration;
 }
 
 /** Runtime creates initial product records; callers supply trusted selection and identities. */
 export function createLocalTurnAdmission(
   input: LocalTurnAdmissionInput,
-  mode: "ask" | "auto_edit" = "ask",
+  mode: RunMode = "ask",
 ): TurnAdmission {
   const thread = ThreadSchema.parse(input.thread);
   if (thread.workspaceId !== input.workspaceId || thread.status !== "active") {
@@ -85,7 +89,12 @@ export function createLocalTurnAdmission(
     type: "user_message",
     role: "user",
     status: "completed",
-    content: { text: input.prompt },
+    content: {
+      text: input.prompt,
+      ...(input.configuration ? {
+        configuration: LocalTurnConfigurationSchema.parse(input.configuration),
+      } : {}),
+    },
     createdAt: now,
     completedAt: now,
     eventSequence: 0,

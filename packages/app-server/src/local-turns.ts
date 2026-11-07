@@ -1,4 +1,10 @@
-import { ModelIdSchema } from "@repo/platform-protocol";
+import {
+  ModelIdSchema,
+  LocalTurnConfigurationSchema,
+  LocalTurnConfigurationOptionsSchema,
+  type LocalTurnConfiguration,
+  type LocalTurnConfigurationOptions,
+} from "@repo/platform-protocol";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type {
   TurnAdmission,
@@ -46,6 +52,7 @@ export type LocalTurnServiceOptions = {
   threads: LocalThreadService;
   providers: LocalProviderService;
   runtime?: {
+    readonly configurationOptions: LocalTurnConfigurationOptions;
     createAdmission(input: {
       workspace: LocalWorkspaceGrant;
       thread: Thread;
@@ -53,8 +60,9 @@ export type LocalTurnServiceOptions = {
       clientRequestId: string;
       providerId: ProviderId;
       modelId: ModelId;
+      configuration: LocalTurnConfiguration;
     }): TurnAdmission;
-    createExecutor(binding: LocalWorkspaceExecutionBinding): LocalTurnExecutor;
+    createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission): LocalTurnExecutor;
   };
 };
 
@@ -92,6 +100,10 @@ export class LocalTurnService {
     });
   }
 
+  getConfigurationOptions(): LocalTurnConfigurationOptions {
+    return LocalTurnConfigurationOptionsSchema.parse(this.options.runtime?.configurationOptions);
+  }
+
   async startTurn(params: LocalTurnStartParams): Promise<TurnAdmission> {
     params = LocalTurnStartParamsSchema.parse(params);
     const thread = await this.options.threads.get(params.threadId);
@@ -125,6 +137,14 @@ export class LocalTurnService {
         "server_unavailable",
         "Local turn execution is not configured",
       );
+    const configuration = LocalTurnConfigurationSchema.parse({
+      mode: params.mode,
+      productMode: params.productMode,
+    });
+    if (!runtime.configurationOptions.modes.includes(configuration.mode) ||
+        !runtime.configurationOptions.productModes.includes(configuration.productMode)) {
+      throw new AppServerOperationError(503, "server_unavailable", "The selected local execution mode is unavailable");
+    }
     let preparedBinding: LocalWorkspaceExecutionBinding | undefined;
     let executionOwnsBinding = false;
     try {
@@ -147,9 +167,10 @@ export class LocalTurnService {
         clientRequestId: params.clientRequestId,
         providerId: selection.providerId,
         modelId: ModelIdSchema.parse(selection.modelId),
+        configuration,
       });
       // Construct ports before admission; providers execute only through execute().
-      const executor = runtime.createExecutor(binding);
+      const executor = runtime.createExecutor(binding, candidate);
       if (
         candidate.run.mode === "auto_edit" &&
         !executor.awaitResourceRelease
@@ -305,11 +326,19 @@ function validateSavedAdmission(
   params: LocalTurnStartParams,
   thread: Thread,
 ): TurnAdmission {
+  const configuration = LocalTurnConfigurationSchema.parse({ mode: params.mode, productMode: params.productMode });
+  const saved = admission.userMessage.type === "user_message"
+    ? admission.userMessage.content.configuration
+    : undefined;
+  const savedConfiguration = saved === undefined ? undefined : LocalTurnConfigurationSchema.parse(saved);
   if (
     admission.run.workspaceId !== params.workspaceId ||
     admission.run.userId !== thread.userId ||
     admission.userMessage.type !== "user_message" ||
-    admission.userMessage.content.text !== params.prompt
+    admission.userMessage.content.text !== params.prompt ||
+    (savedConfiguration
+      ? savedConfiguration.mode !== configuration.mode || savedConfiguration.productMode !== configuration.productMode
+      : params.mode !== undefined || params.productMode !== undefined)
   ) {
     throw new AppServerOperationError(
       409,
