@@ -98,3 +98,8 @@ export { WorkspaceAddMenu } from "./workspace/WorkspaceAddMenu.js";
 export { WorkspaceTabStrip, type WorkspaceContentTab } from "./workspace/WorkspaceTabStrip.js";
 export { WorkspaceSurfaceHeader } from "./workspace/WorkspaceSurfaceHeader.js";
 export { WorkspaceSidebarHeader } from "./workspace/WorkspaceSidebarHeader.js";
+
+export { useChangesPanelViewState, type DiffLayout } from "./review/useChangesPanelViewState.js";
+export { ReviewDiffToolbar } from "./review/ReviewDiffToolbar.js";
+export { ReviewFileStack } from "./review/ReviewFileStack.js";
+export { ReviewPanelLayout } from "./review/ReviewPanelLayout.js";
