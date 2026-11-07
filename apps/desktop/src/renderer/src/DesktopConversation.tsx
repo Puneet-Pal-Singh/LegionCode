@@ -19,7 +19,8 @@ interface Props {
   client: AppServerClient;
   thread: Thread;
   execution: DesktopExecutionAvailability;
-  onOpenSettings: () => void;
+  onConnectProvider: () => void;
+  onManageModels: () => void;
   providerRevision: number;
   projectName?: string;
   onProjectClick?: () => void;
@@ -39,7 +40,8 @@ function SelectedConversation({
   client,
   thread,
   execution,
-  onOpenSettings,
+  onConnectProvider,
+  onManageModels,
   providerRevision,
   onReviewTurn,
   projectName,
@@ -119,7 +121,13 @@ function SelectedConversation({
       runAttemptId={admission?.runAttemptId ?? null}
       projectName={projectName}
       onProjectClick={onProjectClick}
-      showHeroComposer={!conversation.loading && !conversation.error && !conversation.hasNewerPages && !conversation.firstPage && entries.length === 0}
+      showHeroComposer={
+        !conversation.loading &&
+        !conversation.error &&
+        !conversation.hasNewerPages &&
+        !conversation.firstPage &&
+        entries.length === 0
+      }
       showSessionPlaceholder={conversation.loading}
       placeholderError={
         conversation.error
@@ -166,7 +174,8 @@ function SelectedConversation({
                   ? conversation.stop
                   : undefined
               }
-              onOpenSettings={onOpenSettings}
+              onConnectProvider={onConnectProvider}
+              onManageModels={onManageModels}
               providerRevision={providerRevision}
               contextBudget={projection?.contextBudget ?? null}
               usage={projection?.usage ?? null}

@@ -1,4 +1,8 @@
-import { ChatErrorNotice, ChatInputBar, useComposerPreferences } from "@legioncode/client-ui";
+import {
+  ChatErrorNotice,
+  ChatInputBar,
+  useComposerPreferences,
+} from "@legioncode/client-ui";
 import {
   PRODUCT_MODES,
   type ThreadId,
@@ -22,7 +26,8 @@ interface Props {
   submissionUnavailableReason?: string;
   onSubmit: (prompt: string) => Promise<boolean>;
   onStop?: () => Promise<void>;
-  onOpenSettings: () => void;
+  onConnectProvider: () => void;
+  onManageModels: () => void;
   providerRevision: number;
   contextBudget?: ContextBudgetSnapshot | null;
   usage?: UsageCostSnapshot | null;
@@ -37,6 +42,7 @@ export function DesktopComposer(props: Props) {
 
 function ThreadComposer({
   client,
+  workspaceId,
   threadId,
   busy,
   layout,
@@ -44,7 +50,8 @@ function ThreadComposer({
   submissionUnavailableReason,
   onSubmit,
   onStop,
-  onOpenSettings,
+  onConnectProvider,
+  onManageModels,
   providerRevision,
   contextBudget = null,
   usage = null,
@@ -57,7 +64,11 @@ function ThreadComposer({
   const submittingRequest = useRef(false);
   const stoppingRequest = useRef(false);
 
-  const modelPicker = useDesktopModelPicker(client, providerRevision);
+  const modelPicker = useDesktopModelPicker(
+    client,
+    providerRevision,
+    workspaceId,
+  );
   const displayError = error ?? modelPicker.error;
   const unavailable =
     submissionUnavailableReason ??
@@ -71,7 +82,7 @@ function ThreadComposer({
           message={displayError}
           remediation="Your draft has been kept."
           actionLabel="Provider setup"
-          onOpen={modelPicker.error ? onOpenSettings : undefined}
+          onOpen={modelPicker.error ? onConnectProvider : undefined}
         />
       ) : null}
       <ChatInputBar
@@ -94,10 +105,12 @@ function ThreadComposer({
         renderModelPicker={
           isHidden
             ? undefined
-            : () => (
+            : (onModelSwitchWarning) => (
                 <DesktopModelPicker
                   controls={modelPicker}
-                  onOpenSettings={onOpenSettings}
+                  onModelSwitchWarning={onModelSwitchWarning}
+                  onConnectProvider={onConnectProvider}
+                  onManageModels={onManageModels}
                 />
               )
         }

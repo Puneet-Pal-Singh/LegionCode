@@ -48,7 +48,7 @@ function DesktopApp(): React.JSX.Element {
   const [threadLoadState, setThreadLoadState] =
     useState<ThreadLoadState>("loading");
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState<"general" | "connect-only" | "manage-models-only" | null>(null);
   const [providerRevision, setProviderRevision] = useState(0);
   const [rightPanelOpen, setRightPanelOpen] = useState(
     () => window.matchMedia("(min-width: 1280px)").matches,
@@ -104,6 +104,8 @@ function DesktopApp(): React.JSX.Element {
     ],
   );
   const savedReview = useDesktopSavedReviewSelection(reviewScope);
+
+  useEffect(() => { setSettingsTarget(null); }, [workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness]);
 
   useEffect(() => {
     const compactLayout = window.matchMedia("(max-width: 1023px)");
@@ -327,13 +329,13 @@ function DesktopApp(): React.JSX.Element {
 
   async function unarchiveThread(threadId: string): Promise<void> {
     const thread = threads.find((item) => item.id === threadId);
-    if (!thread) return;
+    if (!thread) throw new Error("The archived task is no longer available.");
     const scope = threadScope.current;
     const request = selectionRequest.current;
     try {
-      if (!appServerClient) return;
+      if (!appServerClient) throw new Error("The local environment is unavailable.");
       const updated = await appServerClient.unarchiveThread(thread.id);
-      if (scope !== threadScope.current) return;
+      if (scope !== threadScope.current) throw new Error("The workspace scope changed.");
       if (
         request === selectionRequest.current &&
         selectedThread?.id === updated.id
@@ -344,9 +346,9 @@ function DesktopApp(): React.JSX.Element {
       }
       await refreshThreads();
     } catch {
-      if (scope !== threadScope.current || request !== selectionRequest.current)
-        return;
-      setThreadError("The local thread could not be updated.");
+      if (scope === threadScope.current && request === selectionRequest.current)
+        setThreadError("The local thread could not be updated.");
+      throw new Error("The local thread could not be unarchived.");
     }
   }
 
@@ -478,7 +480,7 @@ function DesktopApp(): React.JSX.Element {
               onRemoveWorkspace={async (id) => { if (workspace?.workspaceId === id) await revokeWorkspace(); }}
               onOpenSettings={() => {
                 closeCompactSidebar();
-                setSettingsOpen(true);
+                setSettingsTarget("general");
               }}
               visible={sidebarOpen}
               onSelect={(threadId) => {
@@ -505,7 +507,7 @@ function DesktopApp(): React.JSX.Element {
                   : undefined
               }
               onArchive={archiveThread}
-              onUnarchive={unarchiveThread}
+              onUnarchive={(id) => unarchiveThread(id).catch(() => {})}
               onClose={() => setSidebarOpen(false)}
             />
           }
@@ -634,7 +636,8 @@ function DesktopApp(): React.JSX.Element {
                         "Local execution is unavailable in this environment.",
                     }
               }
-              onOpenSettings={() => setSettingsOpen(true)}
+              onConnectProvider={() => setSettingsTarget("connect-only")}
+              onManageModels={() => setSettingsTarget("manage-models-only")}
               providerRevision={providerRevision}
               onReviewTurn={(turn) => {
                 savedReview.select(turn);
@@ -672,15 +675,17 @@ function DesktopApp(): React.JSX.Element {
               onGrant={() => void grantWorkspace()}
               onCancelSelection={() => setSelection(null)}
               onRevoke={() => void revokeWorkspace()}
-              onSettings={() => setSettingsOpen(true)}
+              onSettings={() => setSettingsTarget("general")}
             />
           </section>
         </PickerModal>
       ) : null}
       <DesktopSettingsDialog
-        open={settingsOpen}
+        open={settingsTarget !== null}
+        providerDialogVariant={settingsTarget === "general" ? null : settingsTarget}
+        onUnarchiveThread={unarchiveThread}
         onClose={() => {
-          setSettingsOpen(false);
+          setSettingsTarget(null);
           setProviderRevision((value) => value + 1);
         }}
         client={appServerClient}

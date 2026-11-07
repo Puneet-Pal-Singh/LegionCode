@@ -2,6 +2,7 @@ import {
   ModelPickerPopover,
   type ModelPickerModel,
 } from "@legioncode/client-ui";
+import type { WorkspaceId } from "@repo/platform-protocol";
 import type { AppServerClient } from "@legioncode/sdk";
 import {
   createProviderProductPolicy,
@@ -11,19 +12,26 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type DesktopModelPickerClient = Pick<
   AppServerClient,
+  | "getWorkspaceGrant"
+  | "readProviderPreferences"
   | "getProviderCatalog"
   | "getProviderModels"
   | "getProviderSelection"
   | "selectProvider"
 >;
 type Selection = Awaited<ReturnType<AppServerClient["getProviderSelection"]>>;
-type Scope = { client: DesktopModelPickerClient; revision: number };
+type Scope = {
+  client: DesktopModelPickerClient;
+  revision: number;
+  workspaceId: WorkspaceId;
+};
 type PickerRead = {
   scope: Scope;
   catalog: ProviderRegistryEntry[];
   credentials: Array<{ providerId: string }>;
   models: Record<string, ModelPickerModel[]>;
   selection: Selection;
+  visibleModelIds: Record<string, Set<string>>;
   error: string | null;
 };
 
@@ -34,8 +42,12 @@ const DESKTOP_PROVIDER_POLICY = createProviderProductPolicy("production");
 export function useDesktopModelPicker(
   client: DesktopModelPickerClient,
   revision: number,
+  workspaceId: WorkspaceId,
 ) {
-  const scope = useMemo(() => ({ client, revision }), [client, revision]);
+  const scope = useMemo(
+    () => ({ client, revision, workspaceId }),
+    [client, revision, workspaceId],
+  );
   const activeScope = useRef<Scope | null>(scope);
   const [read, setRead] = useState<PickerRead | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
@@ -57,8 +69,20 @@ export function useDesktopModelPicker(
       client.getProviderCatalog(),
       client.getProviderSelection(),
       window.desktop.credential({ operation: "list" }),
+      client.getWorkspaceGrant().then((grant) => {
+        if (
+          !grant ||
+          grant.readiness !== "ready" ||
+          grant.workspaceId !== workspaceId
+        )
+          throw new Error("Workspace scope changed");
+        return client.readProviderPreferences(undefined, {
+          workspaceId,
+          grantedAt: grant.grantedAt,
+        });
+      }),
     ])
-      .then(async ([catalog, selection, statuses]) => {
+      .then(async ([catalog, selection, statuses, preferences]) => {
         if (!Array.isArray(statuses))
           throw new Error("Credential status metadata is unavailable");
         const credentials = statuses
@@ -83,6 +107,11 @@ export function useDesktopModelPicker(
             credentials,
             models: Object.fromEntries(pages),
             selection,
+            visibleModelIds: Object.fromEntries(
+              Object.entries(preferences.visibleModelIds).map(
+                ([providerId, ids]) => [providerId, new Set(ids)],
+              ),
+            ),
             error: null,
           });
         }
@@ -95,6 +124,7 @@ export function useDesktopModelPicker(
             credentials: [],
             models: {},
             selection: null,
+            visibleModelIds: {},
             error:
               "Provider models could not be loaded. Open provider setup to retry.",
           });
@@ -158,10 +188,14 @@ export function useDesktopModelPicker(
 
 export function DesktopModelPicker({
   controls,
-  onOpenSettings,
+  onConnectProvider,
+  onManageModels,
+  onModelSwitchWarning,
 }: {
   controls: ReturnType<typeof useDesktopModelPicker>;
-  onOpenSettings: () => void;
+  onConnectProvider: () => void;
+  onManageModels: () => void;
+  onModelSwitchWarning?: () => void;
 }) {
   const { current, selection } = controls;
   return (
@@ -170,12 +204,16 @@ export function DesktopModelPicker({
       catalog={current?.catalog ?? []}
       credentials={current?.credentials ?? []}
       providerModels={current?.models ?? {}}
-      visibleModelIds={{}}
+      visibleModelIds={current?.visibleModelIds ?? {}}
       selectedProviderId={selection?.providerId ?? null}
       selectedModelId={selection?.modelId ?? null}
-      onSelectModel={controls.selectModel}
-      onConnectProvider={onOpenSettings}
-      onManageModels={onOpenSettings}
+      onSelectModel={async (providerId, modelId) => {
+        const changed = selection?.providerId !== providerId || selection?.modelId !== modelId;
+        await controls.selectModel(providerId, modelId);
+        if (changed) onModelSwitchWarning?.();
+      }}
+      onConnectProvider={onConnectProvider}
+      onManageModels={onManageModels}
       isLoading={!current}
     />
   );
