@@ -7,6 +7,9 @@ import {
   LocalWorkspaceListFilesParamsSchema,
   LocalProviderPreferenceScopeSchema,
   type LocalProviderPreferenceScope,
+  LocalWorkspaceFileMentionsParamsSchema,
+  type LocalWorkspaceFileMentionsParams,
+  type LocalWorkspaceFileMentionsResult,
   LocalWorkspaceReadFileParamsSchema,
   type LocalWorkspaceListFilesParams,
   type LocalWorkspaceListFilesResult,
@@ -236,6 +239,7 @@ export type AppServerClient = {
   getRepositoryTree(params: RepositoryTreeRequest): Promise<RepositoryTreeResponse>;
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
+  listWorkspaceFileMentions(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
@@ -268,6 +272,9 @@ export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
   return {
+    listWorkspaceFileMentions: (params) => request(options, {
+      method: "workspace/fileMentions", params: LocalWorkspaceFileMentionsParamsSchema.parse(params),
+    }, AppServerResultSchemas["workspace/fileMentions"]),
     listWorkspaceFiles: (params) => request(options, {
       method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/listFiles"]),
