@@ -453,7 +453,32 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await workspaceSidebar.getByRole("button", { name: "Choose folder" }).click();
     await expect(workspaceSidebar.getByRole("region", { name: "Selected folder" }).getByText("repository", { exact: true })).toBeVisible();
     await workspaceSidebar.getByRole("button", { name: "Grant access" }).click();
-    await expect(page.getByRole("heading", { name: "Choose a task", exact: true })).toBeVisible();
+    try {
+      await expect(page.getByRole("heading", { name: "Choose a task", exact: true })).toBeVisible();
+    } catch (failure) {
+      // Fresh synthetic profile only: visible UI text, never transport/storage data.
+      // Diagnostics are best-effort and must not replace the original assertion.
+      try {
+        const sidebar = await workspaceSidebar.evaluate((element) =>
+          element.getClientRects().length ? (element as HTMLElement).innerText.slice(0, 4096) : "",
+          undefined, { timeout: 1_000 },
+        );
+        const alerts = await page.getByRole("alert").evaluateAll((elements) =>
+          elements.filter((element) => element.getClientRects().length)
+            .slice(0, 8).map((element) => (element as HTMLElement).innerText.slice(0, 512))
+            .join("\n").slice(0, 4096),
+        );
+        await test.info().attach("workspace-grant-failure-visible-text", {
+          body: JSON.stringify({ sidebar, alerts }), contentType: "application/json",
+        });
+      } catch { /* Preserve the original failure if the page is unavailable. */ }
+      try {
+        await test.info().attach("workspace-grant-failure-screenshot", {
+          body: await page.screenshot({ timeout: 1_000 }), contentType: "image/png",
+        });
+      } catch { /* Preserve the original failure if the page is unavailable. */ }
+      throw failure;
+    }
     const workspaceSummary = workspaceSidebar.locator(".desktop-workspace-summary");
     await expect(workspaceSummary.getByText("repository", { exact: true })).toBeVisible();
     await expect(workspaceSummary.getByText("main", { exact: true })).toBeVisible();
