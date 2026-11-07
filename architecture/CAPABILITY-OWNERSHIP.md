@@ -8,17 +8,20 @@ preserves the admission snapshot, skips native provider-route/context-window and
 conversation-context construction for delegated input, and omits native auth-mode
 defaults. Subscription credentials remain with the selected connection authority.
 
-`RunEngineRuntime` supplies the canonical preparation capability to the actual
-`RunEngineRequestHandler` caller. After its existing authenticated execution claim,
-that handler enters `executeDelegatedRun` before `createRuntimeState`,
-`prepareRuntimeExecutionResources` or `RuntimeKernelNativeRunner` construction.
-The delegated helper validates the frozen admitted selection and canonical IDs,
-uses the same `RuntimeKernel`/lifecycle store/approval and steering registries, and
-retains the existing checkout settlement owner. Native execution ports are
-unavailable in that composition. Missing canonical preparation reports unavailable
-before provider work. P09/P11/P12 composition must supply
-`HARNESS_RUN_PREPARATION`; no new provider loop, credential resolver or store is
-introduced by this caller.
+`RunEngineRuntime` supplies `CloudDelegatedRunPreparation` to the actual
+`RunEngineRequestHandler` caller. The handler enters `executeDelegatedRun` before
+`createRuntimeState`, `prepareRuntimeExecutionResources` or
+`RuntimeKernelNativeRunner` construction. Preparation validates canonical prompt
+admission and saved Thread/workspace ownership, obtains account and binding
+ports, claims the immutable attempt and checkout, and composes the same
+`RuntimeKernel`/lifecycle store/approval and steering registries. It retains the
+existing checkout settlement owner. Native execution ports are unavailable in
+that composition. The current secure-host capability gate rejects before a
+selected provider secret is read; the Postgres account authority also reports
+unverified account/host facts as unavailable. Missing admission authority ports
+remain an explicit composition gate. No `HARNESS_RUN_PREPARATION` environment
+callback, provider loop, alternative credential resolver or event store is used
+by this caller.
 
 The actual initial-title caller passes the execution strategy to
 `InitialThreadTitleScheduler`. External routes persist the existing canonical
@@ -31,7 +34,7 @@ alternate payer. Existing Native title behavior remains with its original owner.
 
 | Responsibility | Canonical owner | Actual wiring and integration status |
 | --- | --- | --- |
-| Pre-admission harness intent | `harness/selection.ts` | Initial chat and queue/resume configuration carry explicit `environmentId`, `selectionRevision`, and nullable `HarnessNextSelection` without inventing attempt IDs. Initial request fingerprint binds that intent; P11 must persist it with canonical admission/binding. Explicit placement is unavailable at the old Brain native composition until P09/P13 resolve it, rather than silently discarding it. P13 operations re-export this shared next-selection schema. |
+| Pre-admission harness intent | `harness/selection.ts` | Initial chat and queue/resume configuration carry explicit `environmentId`, `selectionRevision`, and nullable `HarnessNextSelection` without inventing attempt IDs. The canonical admission fingerprint and durable binding retain that intent. The actual Brain caller dispatches delegated preparation before Native construction; unresolved host/account authority remains unavailable before provider work. Public operations reuse this shared next-selection schema. |
 | Immutable admitted harness selection | `platform-protocol/src/harness` | Separate from learned external session/turn identity in private `worker-protocol/src/harness.ts`; driver-native SDK types remain private. |
 | Exclusive native/delegated execution | `RuntimeKernel` with `DelegatedTurnCoordinator` | `StartTurnInput.execution` selects the delegated port before native context/provider/tools/compaction. Existing callers omitting that selection retain native execution. Same-attempt recovery restores canonical history and the committed start baseline before any new lifecycle start/capture/hooks; it uses observation-only attachment without open/prompt dispatch. Concrete driver/App Server composition is still an integration gate, not completed by this kernel change. |
 | Private observation validation and canonical translation | `HarnessObservationIngestor` and `RuntimeLifecycleCoordinator` | Hydrate from canonical replay and validated binding facts, then validate exact session/UUID process generation and bounded ingress before staging zero-to-many existing lifecycle events. Ambiguous commits fence further appends until replay recovery. `HarnessObservationCommitPort` requires the persistence owner's atomic ingress/fingerprint plus canonical append transaction; P11 supplies that adapter. No generic event-processor success is treated as commit ACK. |
@@ -1252,11 +1255,12 @@ lifecycle state machine.
   and runtime input. External execution omits Native provider routing/tool input,
   context assembly, model discovery, Native reasoning policy and provider-driven
   title generation. The external model remains in the canonical selection.
-- This prepares the real SDK turn/submit path; it is not completed harness
-  execution. RunEngine's explicit `HARNESS_ADMISSION_COMPOSITION_REQUIRED` guard
-  still prevents execution until canonical binding/lease/driver composition is
-  supplied. Persistence must retain and recover the exact admitted selection;
-  UI defaults or current provider preferences cannot repair a missing binding.
+- The real SDK turn/submit caller now enters `CloudDelegatedRunPreparation`
+  before Native construction. The secure-host confinement gate, unverified
+  account facts and any missing durable admission ports still reject before
+  provider work; this is not completed hosted harness acceptance. Persistence
+  retains the exact admitted selection and immutable binding. UI defaults or
+  current provider preferences cannot repair a missing binding.
 
 
 ## Hosted harness admission preflight
