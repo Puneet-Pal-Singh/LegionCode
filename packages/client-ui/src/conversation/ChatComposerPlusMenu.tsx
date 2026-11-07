@@ -6,6 +6,7 @@ import { FileCode2, ImagePlus, Plus, Sparkles } from "lucide-react";
 interface ChatComposerPlusMenuProps {
   mode: RunMode;
   disabled?: boolean;
+  attachmentsAvailable?: boolean;
   onAttachImages: () => void;
   onAddRepositoryContext: () => void;
   onModeChange?: (mode: RunMode) => void;
@@ -14,6 +15,7 @@ interface ChatComposerPlusMenuProps {
 export function ChatComposerPlusMenu({
   mode,
   disabled = false,
+  attachmentsAvailable = true,
   onAttachImages,
   onAddRepositoryContext,
   onModeChange,
@@ -77,9 +79,10 @@ export function ChatComposerPlusMenu({
           <button
             type="button"
             role="menuitem"
-            disabled={disabled}
+            disabled={disabled || !attachmentsAvailable}
+            title={attachmentsAvailable ? undefined : "Image attachments are unavailable in this environment"}
             onClick={() => {
-              if (disabled) {
+              if (disabled || !attachmentsAvailable) {
                 return;
               }
               onAttachImages();
