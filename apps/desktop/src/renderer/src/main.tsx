@@ -459,7 +459,9 @@ function DesktopApp(): React.JSX.Element {
               threads={threads}
               selectedThreadId={selectedThread?.id ?? null}
               loadState={threadLoadState}
-              threadError={threadError}
+              threadError={threadError ?? (!selection ? workspaceError : null)}
+              canManageWorkspace={(id) => sdkReady && !workspaceBusy && workspace?.workspaceId === id}
+              onRemoveWorkspace={async (id) => { if (workspace?.workspaceId === id) await revokeWorkspace(); }}
               onOpenSettings={() => {
                 closeCompactSidebar();
                 setSettingsOpen(true);

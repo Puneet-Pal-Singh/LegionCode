@@ -6,7 +6,7 @@ import { useMemo } from "react";
 export interface DesktopSidebarProps extends Pick<ThreadSidebarProps,
   "visible" | "onSelect" | "onCreate" | "onAddWorkspace" | "onRenameSession" |
   "onPin" | "onUnpin" | "onArchive" | "onUnarchive" | "onClose" |
-  "onOpenSettings" | "width"
+  "onOpenSettings" | "onRemoveWorkspace" | "canManageWorkspace" | "width"
 > {
   workspace: LocalWorkspaceGrant | null;
   threads: readonly Thread[];
@@ -56,7 +56,6 @@ export function DesktopSidebar({
       {...actions}
       model={model}
       collapsibleProjects
-      canManageWorkspace={() => false}
       mutationError={threadError}
       pullRequestUnavailableReason="Pull request status is unavailable."
     />

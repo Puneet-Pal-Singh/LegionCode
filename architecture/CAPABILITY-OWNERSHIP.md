@@ -1292,6 +1292,8 @@ files/review adapters supply actual SDK state and callbacks to those same surfac
 The competing Desktop transcript, custom home, panel header/tabs and composer model
 button are removed. Native grant confirmation remains Desktop-owned content within
 the shared modal; it does not grant access before explicit native confirmation.
+The shared project removal confirmation invokes the existing local revoke command;
+native picker and revoke errors use the shared sidebar mutation notice.
 
 Local thread, grant, provider route, lifecycle replay/live continuation and immutable
 review identity remain their existing SDK/App Server owners. Empty workspace setup
