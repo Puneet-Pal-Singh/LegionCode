@@ -1,5 +1,7 @@
 export {
   APP_SERVER_PROTOCOL_VERSION,
+  APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES,
+  appServerJsonByteLength,
   AppServerCapabilitySchema,
   AppServerConnectionStatusSchema,
   AppServerEnvironmentSnapshotSchema,
