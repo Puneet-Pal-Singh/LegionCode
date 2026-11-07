@@ -119,7 +119,7 @@ function SelectedConversation({
       runAttemptId={admission?.runAttemptId ?? null}
       projectName={projectName}
       onProjectClick={onProjectClick}
-      showHeroComposer={!conversation.loading && entries.length === 0}
+      showHeroComposer={!conversation.loading && !conversation.error && !conversation.hasNewerPages && entries.length === 0}
       showSessionPlaceholder={conversation.loading}
       placeholderError={
         conversation.error
