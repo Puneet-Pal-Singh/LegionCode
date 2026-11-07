@@ -1496,3 +1496,14 @@ acknowledgement receipts. The adapter serializes commands only; it appends no
 approval events and owns no decision store. Actual LocalTurnService/App Server
 composition remains separate. The shared worker approval validator independently
 checks the approved tool input and canonical matcher before tool execution.
+
+## Plan 057 — Local Turn configuration contract foundation
+
+The canonical platform protocol reuses existing chat and product mode schemas for
+local Turn configuration, optional mode-specific permission choices and bounded
+attachment limits. The SDK exports these contracts; local start accepts optional
+mode/productMode fields and initialize may carry optional configuration options.
+This schema foundation does not select runtime behavior, project availability,
+validate actual composed ports or enable attachments, tools or mutations. The
+Turn service/runtime admission and handshake composition retain those obligations.
+Hosted request behavior and existing Git/provider contracts remain unchanged.

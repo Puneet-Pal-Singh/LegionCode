@@ -1,4 +1,12 @@
 export {
+  LocalTurnConfigurationSchema,
+  LocalTurnConfigurationOptionsSchema,
+  LocalTurnMediaLimitsSchema,
+  type LocalTurnConfiguration,
+  type LocalTurnConfigurationOptions,
+  type LocalTurnMediaLimits,
+} from "./local-turn-configuration.js";
+export {
   APP_SERVER_PROTOCOL_VERSION,
   AppServerCapabilitySchema,
   AppServerConnectionStatusSchema,
