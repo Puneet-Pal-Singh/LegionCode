@@ -538,6 +538,9 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           execution_claim_id: string | null;
           recovery_required: number;
         };
+        // Terminal lifecycle does not retire a still-owned physical generation.
+        if (state.recovery_required === 1 && binding.attachment !== null)
+          return { status: "recovery_required" as const, binding };
         if (this.isSettled(input.selection.turnId))
           return { status: "settled" as const, binding };
         if (state.recovery_required === 1)
