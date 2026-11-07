@@ -2,7 +2,6 @@ import {
   ChatErrorNotice,
   type ChatErrorNoticeProps,
 } from "../ChatErrorNotice.js";
-import { collectLifecycleTurnDiffFiles } from "@legioncode/sdk";
 import type { ChatMessageProps } from "../ChatMessage.js";
 import type { ChatMessageMetadata } from "../chat-message/types.js";
 
@@ -29,13 +28,11 @@ import {
   type CompletedTurnReview,
 } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage.js";
+import { ChangedFilesCard } from "../chat-message/ChangedFilesCard.js";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
 import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
-import {
-  resolveChangedFilesSummary,
-  resolveTerminalChangedFilesSummary,
-} from "./changedFiles.js";
+import { resolveChangedFilesSummary } from "./changedFiles.js";
 import type { ChatInterfaceEntry } from "./chatEntries.js";
 import type { ArtifactOpenHandler } from "../artifactOpen.js";
 import { ChevronDown, Folder } from "lucide-react";
@@ -376,7 +373,6 @@ function TurnWorkflowEntry({
           <TerminalMessage
             {...props}
             terminalViewModel={terminalViewModel}
-            includeCurrentTurnReview={isCurrentTurn}
             projection={entry.projection}
             hookAudits={entry.projection.hookAudits}
             metadata={buildLifecycleMessageMetadata(
@@ -428,7 +424,6 @@ function resolveMessageChangedFilesSummary(
 function TerminalMessage(
   props: ChatInterfaceViewProps & {
     terminalViewModel: LifecycleTerminalViewModel;
-    includeCurrentTurnReview: boolean;
     projection: LifecycleProjection;
     hookAudits: LifecycleProjection["hookAudits"];
     metadata?: ChatMessageMetadata;
@@ -437,17 +432,6 @@ function TerminalMessage(
   const terminal = props.terminalViewModel;
   const completedTurnReview = useCompletedTurnReview(props.projection, null);
   if (!terminal) return null;
-
-  if (terminal.state === "interrupted") return null;
-
-  if (terminal.state !== "completed") {
-    return (
-      <ConversationTerminalMarker
-        interrupted={false}
-        content={terminal.content}
-      />
-    );
-  }
 
   const openCanonicalTurnReview = () => {
     if (!completedTurnReview.turnId) return;
@@ -460,6 +444,28 @@ function TerminalMessage(
     props.onReviewOpen?.();
   };
 
+  const changedFilesSummary =
+    completedTurnReview.turnId &&
+    !completedTurnReview.error &&
+    completedTurnReview.files.length > 0
+      ? {
+          files: completedTurnReview.files,
+          loadFileDiff: completedTurnReview.loadFileDiff,
+          onReviewOpen: openCanonicalTurnReview,
+        }
+      : undefined;
+
+  if (terminal.state !== "completed") {
+    return (
+      <>
+        {terminal.state !== "interrupted" ? (
+          <ConversationTerminalMarker interrupted={false} content={terminal.content} />
+        ) : null}
+        {changedFilesSummary ? <ChangedFilesCard {...changedFilesSummary} /> : null}
+      </>
+    );
+  }
+
   return (
     <ChatMessage
       resolveHydratedImageSource={props.resolveHydratedImageSource}
@@ -469,43 +475,7 @@ function TerminalMessage(
         role: "assistant",
         content: terminal.content,
       }}
-      changedFilesSummary={
-        props.projection.workspaceSnapshotState === "unavailable"
-          ? undefined
-          : props.includeCurrentTurnReview
-            ? resolveTerminalChangedFilesSummary({
-                terminalViewModel: terminal,
-                files: props.terminalReviewFiles,
-                turnDiff: props.terminalTurnDiff,
-                loadArtifactFileDiff: (_artifactId, file) =>
-                  props.loadCompletedTurnFileDiff(file),
-                onPromptArtifactReview: (artifactId) => {
-                  props.selectPromptArtifactReview(
-                    artifactId,
-                    undefined,
-                    props.artifactIdentity ?? undefined,
-                  );
-                  props.onReviewOpen?.();
-                },
-                onReviewOpen: openCanonicalTurnReview,
-              })
-            : resolveTerminalChangedFilesSummary({
-                terminalViewModel: terminal,
-                files: collectLifecycleTurnDiffFiles(props.projection),
-                turnDiff: props.projection.turnDiff,
-                loadArtifactFileDiff: (artifactId, file) =>
-                  props.loadArtifactChangedFileDiff(artifactId, file),
-                onPromptArtifactReview: (artifactId) => {
-                  props.selectPromptArtifactReview(
-                    artifactId,
-                    undefined,
-                    props.artifactIdentity ?? undefined,
-                  );
-                  props.onReviewOpen?.();
-                },
-                onReviewOpen: openCanonicalTurnReview,
-              })
-      }
+      changedFilesSummary={changedFilesSummary}
       hookAudits={props.hookAudits}
       metadata={props.metadata}
     />
