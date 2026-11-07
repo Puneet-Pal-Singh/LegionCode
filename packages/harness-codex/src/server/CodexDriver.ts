@@ -9,6 +9,7 @@ import type {
 import {
   HarnessSessionSchema,
   HarnessControlCommandSchema,
+  HarnessObservationPayloadSchema,
   type HarnessObservationPayload,
 } from "@repo/worker-protocol";
 import { codexRuntime, codexRuntimePin } from "./runtime.js";
@@ -123,6 +124,7 @@ export class CodexDriver implements HarnessDriver {
     let stopped = false;
     let externalTurnId: string | null = null;
     let terminal = false;
+    let terminalPayloadFingerprint: string | null = null;
     let observationFailure = false;
     let accountVerified = false;
     let cleanupInitiated = false;
@@ -264,26 +266,25 @@ export class CodexDriver implements HarnessDriver {
         )
           throw new Error("Codex event identity mismatch");
         if (method === "turn/completed") {
-          if (terminal) throw new Error("Duplicate Codex terminal");
-          const status = native.observeTerminal(raw);
           const turn = z
-            .object({ turn: z.object({ id: z.string() }) })
+            .object({
+              turn: z.object({
+                id: z.string().min(1),
+                status: z.enum(["completed", "interrupted", "failed"]),
+                completedAt: z
+                  .number()
+                  .int()
+                  .nonnegative()
+                  .max(8_640_000_000_000),
+              }),
+            })
             .parse(raw).turn;
-          await emit({
+          const status = turn.status;
+          const payload = HarnessObservationPayloadSchema.parse({
             kind: "external_terminal",
             status,
             providerCompletedAt: new Date(
-              z
-                .object({
-                  turn: z.object({
-                    completedAt: z
-                      .number()
-                      .int()
-                      .nonnegative()
-                      .max(8_640_000_000_000),
-                  }),
-                })
-                .parse(raw).turn.completedAt * 1000,
+              turn.completedAt * 1000,
             ).toISOString(),
             itemId: codexItemId(selection.runAttemptId, turn.id),
             output: finalOutput,
@@ -301,6 +302,36 @@ export class CodexDriver implements HarnessDriver {
                     details: null,
                   },
           });
+          // Compare the exact bound tuple and validated canonical payload before
+          // emission. Include native data so redaction cannot conceal a changed
+          // provider error/item. Object key order is not a payload difference.
+          const fingerprint = createHash("sha256")
+            .update(
+              JSON.stringify(
+                { selection, session, externalTurnId, payload, native: raw },
+                (_key, value: unknown) =>
+                  value !== null &&
+                  typeof value === "object" &&
+                  !Array.isArray(value)
+                    ? Object.fromEntries(
+                        Object.entries(value).sort(([a], [b]) =>
+                          a < b ? -1 : a > b ? 1 : 0,
+                        ),
+                      )
+                    : value,
+              ),
+            )
+            .digest("hex");
+          if (terminalPayloadFingerprint !== null) {
+            if (fingerprint !== terminalPayloadFingerprint)
+              throw new Error("Conflicting Codex terminal");
+            return;
+          }
+          native.observeTerminal(raw);
+          await emit(payload);
+          // A failed/ambiguous canonical commit never installs a successful
+          // deduplication receipt and is never retried by this driver.
+          terminalPayloadFingerprint = fingerprint;
           terminal = true;
           pendingReplies.clear();
           pendingQuestions.clear();
