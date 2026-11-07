@@ -1,11 +1,12 @@
-import { _electron as electron, expect, test } from "@playwright/test";
+import { _electron as electron, expect, test, type Page } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+import { APP_SERVER_PROTOCOL_VERSION, AppServerResultSchemas } from "@legioncode/app-server/protocol";
 import { AppServerEnvironmentSnapshotSchema } from "@repo/platform-protocol";
+import { ProviderIdSchema } from "@repo/shared-types";
 
 const releaseDirectory = fileURLToPath(new URL("../release", import.meta.url));
 const execFile = promisify(execFileCallback);
@@ -29,6 +30,33 @@ async function findPackagedExecutable(): Promise<string> {
   );
 }
 
+// Ready has no banner in the shared shell; inspect the validated public receipt.
+async function expectEnvironmentReady(page: Page): Promise<void> {
+  await expect.poll(async () => AppServerEnvironmentSnapshotSchema.parse(
+    await page.evaluate(() => window.desktop.getEnvironment()),
+  ).status).toBe("ready");
+}
+
+async function readProviderSelection(page: Page) {
+  const response = await page.evaluate((protocolVersion) => window.desktop.request({
+    protocolVersion, method: "provider/current", params: {},
+  }), APP_SERVER_PROTOCOL_VERSION);
+  if (typeof response !== "object" || response === null || !("result" in response)) {
+    throw new Error("Provider selection receipt was unavailable");
+  }
+  return AppServerResultSchemas["provider/current"].parse(response.result).selection;
+}
+
+async function readWorkspaceGrant(page: Page) {
+  const response = await page.evaluate((protocolVersion) => window.desktop.request({
+    protocolVersion, method: "workspace/current", params: {},
+  }), APP_SERVER_PROTOCOL_VERSION);
+  if (typeof response !== "object" || response === null || !("result" in response)) {
+    throw new Error("Workspace grant receipt was unavailable");
+  }
+  return AppServerResultSchemas["workspace/current"].parse(response.result).grant;
+}
+
 test("the packaged Desktop app renders without Node.js privileges", async () => {
   const executablePath = await findPackagedExecutable();
   const testRoot = await mkdtemp(join("/tmp", "legioncode-desktop-boundary-"));
@@ -50,20 +78,18 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     await page.setViewportSize({ width: 1100, height: 800 });
     await expect(openSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
-    await expect(
-      page.getByRole("heading", { name: "LegionCode Desktop" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What should we build?", exact: true })).toBeVisible();
     await openSidebar.click();
     await workspaceSidebar.getByRole("button", { name: "Settings", exact: true }).click();
-    const settingsDialog = page.getByRole("dialog", { name: "Settings", exact: true });
-    const about = settingsDialog.locator(".desktop-about");
-    await about.locator("summary").click();
+    const settingsDialog = page.getByRole("dialog", { name: "General", exact: true });
+    await expect(settingsDialog.getByRole("heading", { name: "General", exact: true })).toBeVisible();
     const buildInfo = await page.evaluate(() => window.desktop.getBuildInfo());
-    await expect(about.getByText(buildInfo.version, { exact: true })).toBeVisible();
-    await expect(about.getByText(`${buildInfo.platform} · ${buildInfo.arch}`, { exact: true })).toBeVisible();
+    expect(buildInfo.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(buildInfo.platform).toBe("darwin");
+    expect(buildInfo.arch).toBe(process.arch);
     await settingsDialog.getByRole("button", { name: "Close settings", exact: true }).click();
     await closeSidebar.click();
-    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expectEnvironmentReady(page);
     const environment = AppServerEnvironmentSnapshotSchema.parse(
       await page.evaluate(() => window.desktop.getEnvironment()),
     );
@@ -144,7 +170,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     const restartPromise = page.evaluate(() => window.desktop.restartEnvironment());
     await expect(page.getByText("Starting environment", { exact: true })).toBeVisible();
     await restartPromise;
-    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expectEnvironmentReady(page);
 
     const rendererBoundary = await page.evaluate(() => ({
       processType: typeof (globalThis as { process?: unknown }).process,
@@ -248,10 +274,12 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     const page = await application.firstWindow();
     page.on("console", (message) => consoleText.push(message.text()));
     page.on("pageerror", (error) => consoleText.push(error.message));
-    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expectEnvironmentReady(page);
     await page.getByRole("button", { name: "Open sidebar" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Provider setup" })).toBeVisible();
+    await page.getByRole("dialog", { name: "General", exact: true }).getByRole("button", { name: "Providers", exact: true }).click();
+    const providersDialog = page.getByRole("dialog", { name: "Providers", exact: true });
+    await expect(providersDialog.getByRole("heading", { name: "Connected providers", exact: true })).toBeVisible();
 
     const candidate = await page.evaluate(async (protocolVersion) => {
       const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -266,7 +294,7 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
         throw new Error("Provider catalog response was invalid");
       }
       for (const provider of rawCatalog.result.providers) {
-        if (!isRecord(provider) || provider.providerId === "openai" || provider.launchStage !== "supported" || !Array.isArray(provider.authModes) || !provider.authModes.includes("api_key")) continue;
+        if (!isRecord(provider) || provider.providerId === "openai" || String(provider.providerId).startsWith("cloudflare-") || provider.launchStage !== "supported" || !Array.isArray(provider.authModes) || !provider.authModes.includes("api_key")) continue;
         const rawModels = await request({
           protocolVersion,
           method: "provider/models",
@@ -289,23 +317,34 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     expect(candidate, "a supported non-OpenAI registry model from the local catalog").not.toBeNull();
     if (!candidate) throw new Error("No supported non-OpenAI registry model was returned by the local catalog");
 
-    const providerButton = page.getByRole("button", { name: new RegExp(candidate.displayName) });
-    await providerButton.click();
-    const credentialInput = page.getByLabel(`${candidate.displayName} API key`);
+    const availableProvider = providersDialog.getByRole("heading", { name: "Popular providers", exact: true }).locator("..").locator("div.flex.min-h-20").filter({ has: page.getByText(candidate.displayName, { exact: true }) });
+    await availableProvider.getByRole("button", { name: "Connect", exact: true }).click();
+    const credentialInput = providersDialog.getByLabel(`${candidate.displayName} API key`);
     await credentialInput.fill(firstSentinel);
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
-    await expect(page.getByText("Provider credential saved and route selected.", { exact: true })).toBeVisible();
-    await expect(page.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
+    await providersDialog.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(providersDialog.getByText("API key saved and provider connected.", { exact: true })).toBeVisible();
+    await expect.poll(() => readProviderSelection(page)).toMatchObject({ providerId: candidate.providerId, modelId: candidate.modelId });
+    // The shared form unmounts after save; reopening it must not restore plaintext.
+    await expect(credentialInput).toHaveCount(0);
+    const connectedProvider = providersDialog.getByRole("heading", { name: "Connected providers", exact: true }).locator("..").locator("div.flex.min-h-20").filter({ has: page.getByText(candidate.displayName, { exact: true }) });
+    await expect(connectedProvider.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
+    // Shared Web management replaces a key by disconnecting, then reconnecting.
+    await connectedProvider.getByRole("button", { name: "Disconnect", exact: true }).click();
+    await expect.poll(() => readProviderSelection(page)).toBeNull();
+    await availableProvider.getByRole("button", { name: "Connect", exact: true }).click();
     await expect(credentialInput).toHaveValue("");
-
     await credentialInput.fill(replacementSentinel);
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
-    await expect(page.getByText("Provider credential saved and route selected.", { exact: true })).toBeVisible();
-    await expect(credentialInput).toHaveValue("");
+    await providersDialog.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(connectedProvider.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
+    await expect.poll(() => readProviderSelection(page)).toMatchObject({ providerId: candidate.providerId, modelId: candidate.modelId });
+    await expect(credentialInput).toHaveCount(0);
 
+    // The chooser retains Web's two-column icon/text rows at both sizes.
+    // Use a different available provider to reopen the catalog without changing the saved key.
+    await providersDialog.getByRole("heading", { name: "Popular providers", exact: true }).locator("..").getByRole("button", { name: "Connect", exact: true }).first().click();
+    await providersDialog.getByRole("button", { name: "Back to providers", exact: true }).click();
     await page.setViewportSize({ width: 1100, height: 900 });
-    await page.getByRole("button", { name: "Back to providers" }).click();
-    const wideProviderButton = page.getByRole("button", { name: new RegExp(candidate.displayName) }).first();
+    const wideProviderButton = providersDialog.getByRole("button", { name: new RegExp(candidate.displayName) }).first();
     const wideLayout = await wideProviderButton.evaluate((element) => ({
       display: getComputedStyle(element).display,
       columns: getComputedStyle(element).gridTemplateColumns,
@@ -315,17 +354,13 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     expect(wideTracks).toHaveLength(2);
     expect(Number.parseFloat(wideTracks[0]!)).toBe(32);
     expect(Number.parseFloat(wideTracks[1]!)).toBeGreaterThan(0);
-    await page.getByRole("heading", { name: "Provider setup" }).evaluate((heading) => {
-      const scrollHost = heading.closest(".desktop-settings-body");
-      if (!(scrollHost instanceof HTMLElement)) throw new Error("Settings scroll container was not found");
-      scrollHost.scrollTop += heading.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top - 8;
-    });
+    await providersDialog.getByRole("heading", { name: "Providers", exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("provider-setup-wide.png"), fullPage: true });
 
     await page.setViewportSize({ width: 420, height: 900 });
-    await expect(page.getByRole("heading", { name: "Provider setup" })).toBeVisible();
-    await expect(page.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
-    const narrowProviderButton = page.getByRole("button", { name: new RegExp(candidate.displayName) }).first();
+    await expect(providersDialog.getByRole("heading", { name: "Providers", exact: true })).toBeVisible();
+    await expect.poll(() => readProviderSelection(page)).toMatchObject({ providerId: candidate.providerId, modelId: candidate.modelId });
+    const narrowProviderButton = providersDialog.getByRole("button", { name: new RegExp(candidate.displayName) }).first();
     const narrowLayout = await narrowProviderButton.evaluate((element) => ({
       display: getComputedStyle(element).display,
       columns: getComputedStyle(element).gridTemplateColumns,
@@ -335,16 +370,13 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     expect(narrowTracks).toHaveLength(2);
     expect(Number.parseFloat(narrowTracks[0]!)).toBe(32);
     expect(Number.parseFloat(narrowTracks[1]!)).toBeGreaterThan(0);
-    await page.getByRole("heading", { name: "Provider setup" }).evaluate((heading) => {
-      const scrollHost = heading.closest(".desktop-settings-body");
-      if (!(scrollHost instanceof HTMLElement)) throw new Error("Settings scroll container was not found");
-      scrollHost.scrollTop += heading.getBoundingClientRect().top - scrollHost.getBoundingClientRect().top - 8;
-    });
+    await providersDialog.getByRole("heading", { name: "Providers", exact: true }).scrollIntoViewIfNeeded();
     const narrowOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - window.innerWidth,
     );
     expect(narrowOverflow).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("provider-setup-narrow.png"), fullPage: true });
+    await providersDialog.getByRole("button", { name: "Back", exact: true }).click();
 
     const ciphertextPath = join(userDataDirectory, "provider-credentials", "credentials.enc.json");
     const ciphertextBeforeSecondLaunch = await readFile(ciphertextPath, "utf8");
@@ -353,7 +385,7 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     await execFile(executablePath, [`--user-data-dir=${userDataDirectory}`], { timeout: 10_000 });
     expect(await readFile(ciphertextPath, "utf8")).toBe(ciphertextBeforeSecondLaunch);
     await expect.poll(() => application!.windows().length).toBe(1);
-    await expect(page.getByText(`${candidate.displayName}: Saved`, { exact: true })).toBeVisible();
+    await expect(connectedProvider.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
 
     await application.close();
     application = undefined;
@@ -362,14 +394,18 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const restartedPage = await application.firstWindow();
-    await expect(restartedPage.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expectEnvironmentReady(restartedPage);
     await restartedPage.getByRole("button", { name: "Open sidebar" }).click();
     await restartedPage.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(restartedPage.getByText(new RegExp(`Selected route: ${candidate.displayName} / ${candidate.modelId}`))).toBeVisible();
-    await expect(restartedPage.getByText(new RegExp(`${candidate.displayName}: Saved`))).toBeVisible();
+    await restartedPage.getByRole("dialog", { name: "General", exact: true }).getByRole("button", { name: "Providers", exact: true }).click();
+    const restartedProviders = restartedPage.getByRole("dialog", { name: "Providers", exact: true });
+    await expect.poll(() => readProviderSelection(restartedPage)).toMatchObject({ providerId: candidate.providerId, modelId: candidate.modelId });
+    const restoredProvider = restartedProviders.getByRole("heading", { name: "Connected providers", exact: true }).locator("..").locator("div.flex.min-h-20").filter({ has: restartedPage.getByText(candidate.displayName, { exact: true }) });
+    await expect(restoredProvider.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
 
-    await restartedPage.getByRole("button", { name: "Delete key", exact: true }).click();
-    await expect(restartedPage.getByText("No provider route selected.", { exact: true })).toBeVisible();
+    await restoredProvider.getByRole("button", { name: "Disconnect", exact: true }).click();
+    await expect.poll(() => readProviderSelection(restartedPage)).toBeNull();
+    await expect(restoredProvider).toHaveCount(0);
     await application.close();
     application = undefined;
     application = await electron.launch({
@@ -377,11 +413,15 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const deletedPage = await application.firstWindow();
-    await expect(deletedPage.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expectEnvironmentReady(deletedPage);
     await deletedPage.getByRole("button", { name: "Open sidebar" }).click();
     await deletedPage.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(deletedPage.getByText("No provider route selected.", { exact: true })).toBeVisible();
-    await expect(deletedPage.getByText(new RegExp(`${candidate.displayName}: Missing`))).toBeVisible();
+    await deletedPage.getByRole("dialog", { name: "General", exact: true }).getByRole("button", { name: "Providers", exact: true }).click();
+    await expect.poll(() => readProviderSelection(deletedPage)).toBeNull();
+    await expect(deletedPage.getByText("No provider keys connected yet.", { exact: true })).toBeVisible();
+    await expect.poll(() => deletedPage.evaluate((providerId) => window.desktop.credential({
+      operation: "status", providerId,
+    }), ProviderIdSchema.parse(candidate.providerId))).toMatchObject({ providerId: candidate.providerId, status: "missing" });
 
     const rendererEvidence = await deletedPage.evaluate(() => ({
       credentialMethods: Object.keys(window.desktop).filter((name) => name.toLowerCase().includes("credential") || name.toLowerCase().includes("apikey")),
@@ -441,7 +481,7 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await page.setViewportSize({ width: 1100, height: 800 });
     await expect(initialOpenSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
-    await expect(page.getByText("Environment ready", { exact: true })).toBeVisible();
+    await expectEnvironmentReady(page);
 
     await application.evaluate(({ dialog }, selectedPath) => {
       dialog.showOpenDialog = async () => ({
@@ -450,11 +490,11 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       });
     }, repositoryRoot);
     await initialOpenSidebar.click();
-    await workspaceSidebar.getByRole("button", { name: "Choose folder" }).click();
-    await expect(workspaceSidebar.getByRole("region", { name: "Selected folder" }).getByText("repository", { exact: true })).toBeVisible();
-    await workspaceSidebar.getByRole("button", { name: "Grant access" }).click();
+    await workspaceSidebar.getByRole("button", { name: "Add project", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Grant workspace access", exact: true }).getByRole("region", { name: "Selected folder" }).getByText("repository", { exact: true })).toBeVisible();
+    await page.getByRole("dialog", { name: "Grant workspace access", exact: true }).getByRole("button", { name: "Grant access", exact: true }).click();
     try {
-      await expect(page.getByRole("heading", { name: "Choose a task", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1 }).filter({ has: page.getByRole("button", { name: "Change project from repository", exact: true }) })).toBeVisible();
     } catch (failure) {
       // Fresh synthetic profile only: visible UI text, never transport/storage data.
       // Diagnostics are best-effort and must not replace the original assertion.
@@ -479,9 +519,8 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       } catch { /* Preserve the original failure if the page is unavailable. */ }
       throw failure;
     }
-    const workspaceSummary = workspaceSidebar.locator(".desktop-workspace-summary");
-    await expect(workspaceSummary.getByText("repository", { exact: true })).toBeVisible();
-    await expect(workspaceSummary.getByText("main", { exact: true })).toBeVisible();
+    await expect(workspaceSidebar.getByRole("group", { name: "repository", exact: true })).toBeVisible();
+    await expect.poll(() => readWorkspaceGrant(page)).toMatchObject({ displayName: "repository", branch: "main", readiness: "ready" });
     await expect(workspaceSidebar).toBeVisible();
     await expect(initialCloseSidebar).toBeVisible();
     await initialCloseSidebar.click();
@@ -542,7 +581,7 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     });
     const reopenedPage = await application.firstWindow();
     await reopenedPage.setViewportSize({ width: 960, height: 800 });
-    await expect(reopenedPage.getByRole("heading", { name: "Choose a task", exact: true })).toBeVisible();
+    await expect(reopenedPage.getByRole("heading", { level: 1 }).filter({ has: reopenedPage.getByRole("button", { name: "Change project from repository", exact: true }) })).toBeVisible();
     const reopenedOpenSidebar = reopenedPage.getByRole("button", { name: "Open sidebar" });
     const reopenedSidebar = reopenedPage.getByTestId("workspace-sidebar");
     const reopenedCloseSidebar = reopenedSidebar.getByRole("button", { name: "Close sidebar" });
@@ -553,7 +592,8 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       "true",
     );
     await expect(reopenedCloseSidebar).toBeFocused();
-    await expect(reopenedSidebar.locator(".desktop-workspace-summary").getByText("repository", { exact: true })).toBeVisible();
+    await expect(reopenedSidebar.getByRole("group", { name: "repository", exact: true })).toBeVisible();
+    await expect.poll(() => readWorkspaceGrant(reopenedPage)).toMatchObject({ displayName: "repository", branch: "main", readiness: "ready" });
     await reopenedPage.getByRole("button", { name: /Archived/ }).click();
     await expect(reopenedPage.getByRole("option", { name: "Renamed thread" })).toBeVisible();
     await reopenedPage.getByRole("option", { name: "Renamed thread" }).click();
@@ -573,9 +613,14 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await expect(reopenedSidebar).toBeHidden();
     await expect(reopenedOpenSidebar).toBeFocused();
     await reopenedOpenSidebar.click();
-    await reopenedSidebar.getByRole("button", { name: "Revoke access" }).click();
-    await expect(reopenedPage.getByRole("heading", { name: "Open a local workspace", exact: true })).toBeVisible();
-    await expect(reopenedSidebar.locator(".desktop-workspace-summary").getByText("No folder selected", { exact: true })).toBeVisible();
+    const reopenedProject = reopenedSidebar.getByRole("group", { name: "repository", exact: true });
+    await reopenedProject.hover();
+    await reopenedProject.getByRole("button", { name: "Workspace actions for repository", exact: true }).click();
+    await reopenedProject.getByRole("menuitem", { name: "Remove", exact: true }).click();
+    await reopenedProject.getByRole("group", { name: "Confirm removal of repository", exact: true }).getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(reopenedPage.getByRole("heading", { name: "What should we build?", exact: true })).toBeVisible();
+    await expect(reopenedSidebar.getByRole("group", { name: "repository", exact: true })).toHaveCount(0);
+    await expect.poll(() => readWorkspaceGrant(reopenedPage)).toBeNull();
 
     await application.close();
     application = undefined;
@@ -584,9 +629,10 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const revokedPage = await application.firstWindow();
-    await expect(revokedPage.getByRole("heading", { name: "Open a local workspace", exact: true })).toBeVisible();
+    await expect(revokedPage.getByRole("heading", { name: "What should we build?", exact: true })).toBeVisible();
     await revokedPage.getByRole("button", { name: "Open sidebar" }).click();
-    await expect(revokedPage.getByTestId("workspace-sidebar").locator(".desktop-workspace-summary").getByText("No folder selected", { exact: true })).toBeVisible();
+    await expect(revokedPage.getByTestId("workspace-sidebar").getByRole("group", { name: "repository", exact: true })).toHaveCount(0);
+    await expect.poll(() => readWorkspaceGrant(revokedPage)).toBeNull();
   } finally {
     await application?.close();
     await rm(testRoot, { recursive: true, force: true });
