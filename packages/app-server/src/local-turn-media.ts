@@ -34,6 +34,15 @@ export interface LocalTurnPreparedMedia {
   persist(scope: LocalTurnMediaScope): Promise<readonly ChatImageAttachmentRef[]>;
 }
 
+/** Resource disposition only. The callback reads the existing canonical admission
+ * owner after this attempt's append has settled. Unknown outcomes return false.
+ */
+export interface LocalTurnMediaDisposal {
+  discardUnadmitted(
+    confirmScopeAbsence: (scope: LocalTurnMediaScope) => Promise<boolean>,
+  ): Promise<boolean>;
+}
+
 /** The concrete owner keeps bytes outside the durable admission/lifecycle payloads. */
 export interface LocalTurnMediaPort {
   readonly limits: LocalTurnMediaLimits;
