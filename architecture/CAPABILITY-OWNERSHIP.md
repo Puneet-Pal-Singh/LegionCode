@@ -1551,3 +1551,15 @@ single next/newest row exceeding the budget fails explicitly with
 `history_row_too_large`; no partial Turn or fake empty history is returned. The
 App Server validates the final encoded history envelope against the same budget,
 and the SDK retains the existing response cap through the same shared constant.
+
+## Saved Turn artifact commit command boundary
+
+SDK `commitTurnArtifact` sends `git/commitTurnArtifact` using the canonical
+`CommitTurnArtifactRequestSchema` and validates `CommitTurnArtifactResponseSchema`.
+App Server dispatches only local requests to the optional structural
+`localTurnArtifactCommitService.commitTurnArtifact` port; missing or nonlocal
+composition returns typed `503 server_unavailable` with `retryable: false`.
+The private handler remains the owner of authorized settled-Turn artifact
+selection and canonical Git mutation. Handler injection, local composition,
+capability advertisement and UI activation are not implemented by this boundary.
+No live-Git selector, fallback commit path or second artifact owner is introduced.
