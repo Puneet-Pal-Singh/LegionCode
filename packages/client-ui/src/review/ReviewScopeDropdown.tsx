@@ -9,6 +9,7 @@ interface ReviewScopeDropdownProps {
   onChange: (scope: ReviewScope) => void;
   canonicalAvailable?: boolean;
   className?: string;
+  availableScopes?: readonly ReviewScope[];
 }
 
 const REVIEW_SCOPE_OPTIONS: Array<{
@@ -45,12 +46,15 @@ export function ReviewScopeDropdown({
   onChange,
   canonicalAvailable = false,
   className,
+  availableScopes,
 }: ReviewScopeDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectedOption =
     REVIEW_SCOPE_OPTIONS.find((option) => option.value === value) ??
     DEFAULT_REVIEW_SCOPE_OPTION;
   const options = REVIEW_SCOPE_OPTIONS.filter((option) => {
+    if (availableScopes)
+      return availableScopes.some((scope) => scope === option.value);
     if (option.value === "turn-diff") return canonicalAvailable;
     if (option.value === "prompt-artifact") return !canonicalAvailable;
     return true;

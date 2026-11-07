@@ -743,7 +743,7 @@ The hint supplies no identity or permission and does not bypass provider scope.
 | --- | --- | --- |
 | Saved session repository | Brain transcript/session repository | Session creation accepts `repository: null`. Migration `0034_projectless_session_repository` normalizes the old `New Project` label. No new sentinel repository is written. |
 | Active chat repository context | Hosted session workspace context, projected by Web | Explicit project selection, SDK-backed session workspace context and session branch preferences supply repository/branch identity. Global browser context restoration and workspace-selection bootstrap are removed; a null repository cannot match a repository context. |
-| Projects and Recents | SDK sidebar projection over saved session metadata | Web opts into separate collapsible Projects and Recents sections in the shared ThreadSidebar. Recents presents the existing projectless selection group, including its empty state; it creates no workspace identity. Project groups, pinning, search, status and archive still use the SDK session projection. Desktop retains its existing grouped presentation. |
+| Projects and Recents | SDK sidebar projection over saved session metadata | Web opts into separate collapsible Projects and Recents sections in the shared ThreadSidebar. Recents presents the existing projectless selection group, including its empty state; it creates no workspace identity. Project groups, pinning, search, status and archive still use the SDK session projection. Desktop uses the same collapsible Projects presentation through DesktopSidebar, mapping actual local SDK thread metadata and pin/archive commands without adding a second session owner. |
 | Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. Sidebar Add project reads the mounted composer through its draft reader port before switching sessions; the composer remains the unsent draft owner. The modal is portaled to the viewport with focus isolation and a light backdrop blur. Home keeps the centered composer and dynamic project/settings island; section expansion is local UI state. Setup uses the same sidebar header/tabs/Close controls as conversation and the shell owns panel width across both surfaces. |
 
 | Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
@@ -1278,3 +1278,29 @@ activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
 dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
 request/result contract. Hosted dispatch rejects these local commands. Desktop
 sidebar callbacks and visible restart acceptance remain client integration work.
+
+
+### Plan 057 shared Web and Desktop presentation
+
+`packages/client-ui` owns the existing Web sidebar, conversation hero/transcript,
+composer, inline model picker, workspace panel header/tabs, file preview/tree
+drawer and review toolbar/file stack. Web consumes the moved source through thin
+wrappers, retaining its authenticated transport, account menu, provider policy and
+repository picker bindings. The shared picker overlay retains Web focus isolation.
+DesktopSidebar, DesktopConversation, DesktopComposer, DesktopModelPicker and the
+files/review adapters supply actual SDK state and callbacks to those same surfaces.
+The competing Desktop transcript, custom home, panel header/tabs and composer model
+button are removed. Native grant confirmation remains Desktop-owned content within
+the shared modal; it does not grant access before explicit native confirmation.
+The shared project removal confirmation invokes the existing local revoke command;
+native picker and revoke errors use the shared sidebar mutation notice.
+Shared workspace sizing preserves Web's existing viewport-based initial width and
+resize bounds; Desktop supplies that width to the frame and mounts the same
+Resizer, avoiding the narrow generic-frame default for the Web review toolbar.
+
+Local thread, grant, provider route, lifecycle replay/live continuation and immutable
+review identity remain their existing SDK/App Server owners. Empty workspace setup
+selects an existing active thread or creates a real local thread before showing
+the shared composer. Local capability availability still gates execution and saved
+review; this presentation migration does not activate an unwired backend or prove
+installed execution, immutable capture or safe commits.

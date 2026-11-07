@@ -4,19 +4,14 @@
 
 .desktop-workspace-frame { flex: 1 1 auto; }
 .desktop-topbar-workspace { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lc-color-text-tertiary); font-size: 0.75rem; }
-.desktop-home { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; text-align: center; }
-.desktop-home-brand { margin-bottom: 1.5rem; color: var(--lc-color-text-primary); font-size: 1.4rem; font-weight: 650; letter-spacing: -0.04em; }
-.desktop-home-brand span { color: var(--lc-color-text-tertiary); }
-.desktop-home h2 { max-width: 32rem; margin: 0; color: var(--lc-color-text-primary); font-size: 1.1rem; font-weight: 500; overflow-wrap: anywhere; }
-.desktop-home p { max-width: 25rem; margin: 0.75rem 0 0; color: var(--lc-color-text-tertiary); font-size: 0.85rem; line-height: 1.6; }
 .desktop-rail-footer { display: grid; gap: 0.65rem; font-size: 0.75rem; }
 .desktop-workspace-summary { display: grid; gap: 0.25rem; }
 .desktop-workspace-summary > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lc-color-text-primary); font-size: 0.8rem; font-weight: 500; }
 .desktop-workspace-summary > span, .desktop-workspace-summary p { margin: 0; color: var(--lc-color-text-tertiary); }
 .desktop-rail-caption { font-size: 0.65rem; }
 .desktop-inline-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.desktop-inline-actions button, .desktop-settings-button, .desktop-settings-header button, .lc-workspace-topbar-actions button { min-height: 2rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.4rem; padding: 0.3rem 0.55rem; background: transparent; color: var(--lc-color-text-secondary); cursor: pointer; font: inherit; font-size: 0.75rem; }
-.desktop-inline-actions button:hover, .desktop-settings-button:hover, .desktop-settings-header button:hover, .lc-workspace-topbar-actions button:hover { background: var(--lc-color-surface-elevated); color: var(--lc-color-text-primary); }
+.desktop-inline-actions button, .desktop-settings-button, .desktop-settings-header button { min-height: 2rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.4rem; padding: 0.3rem 0.55rem; background: transparent; color: var(--lc-color-text-secondary); cursor: pointer; font: inherit; font-size: 0.75rem; }
+.desktop-inline-actions button:hover, .desktop-settings-button:hover, .desktop-settings-header button:hover { background: var(--lc-color-surface-elevated); color: var(--lc-color-text-primary); }
 .desktop-inline-actions button:disabled { cursor: default; opacity: 0.5; }
 .desktop-settings-button { text-align: left; border-color: transparent; }
 .desktop-workspace-confirm { padding: 0.65rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.5rem; background: var(--lc-color-background); }

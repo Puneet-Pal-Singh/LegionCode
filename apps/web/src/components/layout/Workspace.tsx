@@ -1,3 +1,4 @@
+import { clampRightSidebarWidth } from "@legioncode/client-ui";
 import {
   useRef,
   useEffect,
@@ -758,7 +759,7 @@ export function Workspace({
                 onResizeEnd={() => setIsResizing(false)}
                 onResize={(delta) =>
                   setSidebarWidth((prev) =>
-                    Math.max(320, Math.min(720, prev + delta)),
+                    clampRightSidebarWidth(prev + delta),
                   )
                 }
               />

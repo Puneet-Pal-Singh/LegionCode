@@ -4,6 +4,7 @@ import {
   ClientShellLoading,
   ChatErrorNotice,
   WorkspaceFrame,
+  getInitialRightSidebarWidth as getInitialSharedRightSidebarWidth,
   type AppServerEnvironmentSnapshot,
 } from "@legioncode/client-ui";
 import { motion, AnimatePresence } from "framer-motion";
@@ -66,8 +67,6 @@ import {
 import { isSessionPersistenceReady } from "./lib/session-persistence";
 
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
-const MIN_RIGHT_SIDEBAR_WIDTH = 420;
-const MAX_RIGHT_SIDEBAR_WIDTH = 720;
 
 const HOSTED_ENVIRONMENT: AppServerEnvironmentSnapshot = {
   kind: "hosted",
@@ -80,11 +79,7 @@ const HOSTED_ENVIRONMENT: AppServerEnvironmentSnapshot = {
 };
 
 function getInitialRightSidebarWidth(): number {
-  const availableWidth = window.innerWidth - DEFAULT_LEFT_SIDEBAR_WIDTH;
-  return Math.max(
-    MIN_RIGHT_SIDEBAR_WIDTH,
-    Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
-  );
+  return getInitialSharedRightSidebarWidth(window.innerWidth);
 }
 
 /**

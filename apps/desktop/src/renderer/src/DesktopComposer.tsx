@@ -1,17 +1,22 @@
-import { ChatInputBar } from "@legioncode/client-ui";
-import type { AppServerClient } from "@legioncode/sdk";
+import { ChatErrorNotice, ChatInputBar } from "@legioncode/client-ui";
 import {
   PRODUCT_MODES,
   type ThreadId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import {
+  DesktopModelPicker,
+  useDesktopModelPicker,
+  type DesktopModelPickerClient,
+} from "./DesktopModelPicker";
 
 interface Props {
-  client: Pick<AppServerClient, "getProviderSelection">;
+  client: DesktopModelPickerClient;
   workspaceId: WorkspaceId;
   threadId: ThreadId;
   busy: boolean;
+  layout?: "hero" | "docked";
   isHidden?: boolean;
   submissionUnavailableReason?: string;
   onSubmit: (prompt: string) => Promise<boolean>;
@@ -19,8 +24,6 @@ interface Props {
   onOpenSettings: () => void;
   providerRevision: number;
 }
-
-type Selection = Awaited<ReturnType<AppServerClient["getProviderSelection"]>>;
 
 /** Draft and delivery state only. The provider route is read from the App Server. */
 export function DesktopComposer(props: Props) {
@@ -33,6 +36,7 @@ function ThreadComposer({
   client,
   threadId,
   busy,
+  layout,
   isHidden = false,
   submissionUnavailableReason,
   onSubmit,
@@ -44,56 +48,29 @@ function ThreadComposer({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [route, setRoute] = useState<{
-    client: Props["client"];
-    selection: Selection;
-    error?: string;
-  } | null>(null);
   const submittingRequest = useRef(false);
   const stoppingRequest = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    setRoute(null);
-    void client
-      .getProviderSelection()
-      .then((selection) => {
-        if (active) setRoute({ client, selection });
-      })
-      .catch(() => {
-        if (active)
-          setRoute({
-            client,
-            selection: null,
-            error:
-              "Provider selection could not be loaded. Open Settings to retry.",
-          });
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, providerRevision]);
-
-  const selection = route?.client === client ? route.selection : null;
+  const modelPicker = useDesktopModelPicker(client, providerRevision);
+  const displayError = error ?? modelPicker.error;
   const unavailable =
     submissionUnavailableReason ??
     (submitting ? "Confirming message delivery…" : undefined) ??
-    (route?.client !== client
-      ? "Loading the selected provider and model…"
-      : route.error) ??
-    (!selection
-      ? "Select a provider and model in Settings before sending."
-      : undefined);
+    modelPicker.unavailableReason;
 
   return (
     <div>
-      {error ? (
-        <p role="alert" className="mb-2 text-sm text-red-300">
-          {error}
-        </p>
+      {displayError ? (
+        <ChatErrorNotice
+          message={displayError}
+          remediation="Your draft has been kept."
+          actionLabel="Provider setup"
+          onOpen={modelPicker.error ? onOpenSettings : undefined}
+        />
       ) : null}
       <ChatInputBar
         isHidden={isHidden}
+        layout={layout}
         sessionId={threadId}
         input={input}
         onChange={(value) => {
@@ -105,30 +82,15 @@ function ThreadComposer({
         showContextWindowUsage={false}
         submissionUnavailableReason={unavailable}
         attachmentsAvailable={false}
-        renderModelPicker={() => (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label="Select provider and model"
-            className="max-w-64 truncate rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-            title={
-              selection
-                ? `${selection.providerId} / ${selection.modelId}`
-                : "Select provider and model in Settings"
-            }
-          >
-            {selection
-              ? `${selection.providerId} / ${selection.modelId}`
-              : "Select model"}
-          </button>
-        )}
-        providerNotice={
-          unavailable ? undefined : (
-            <p className="text-xs text-zinc-500">
-              Local read-only turn. Attachments, Queue and Steer are
-              unavailable.
-            </p>
-          )
+        renderModelPicker={
+          isHidden
+            ? undefined
+            : () => (
+                <DesktopModelPicker
+                  controls={modelPicker}
+                  onOpenSettings={onOpenSettings}
+                />
+              )
         }
         isLoading={busy}
         canStop={busy && Boolean(onStop) && !stopping}

@@ -8,7 +8,7 @@ export { ClientShell } from "./shell/ClientShell.js";
 export { ClientShellLoading } from "./shell/ClientShellLoading.js";
 export { WorkspaceFrame, type WorkspaceFrameProps } from "./workspace/WorkspaceFrame.js";
 export { WorkspaceTopBar, type WorkspaceTopBarProps } from "./workspace/WorkspaceTopBar.js";
-export { ThreadSidebar, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
+export { ThreadSidebar, SidebarSettingsButton, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
 export {
   ConnectProviderChooser,
   type ConnectProviderChooserProps,
@@ -17,6 +17,11 @@ export {
   ProviderIcon,
   type ProviderIconProps,
 } from "./provider/ProviderIcon.js";
+export { ModelPickerPopover, type ModelPickerPopoverProps } from "./provider/ModelPickerPopover.js";
+export { ModelPickerDetailsPanel, type ModelPickerDetailsPanelProps } from "./provider/ModelPickerDetailsPanel.js";
+export type { ModelPickerModel, ModelPickerDiscoveryView, ModelPickerModelsMetadata } from "./provider/modelPickerTypes.js";
+export { formatModelDisplayName } from "./provider/modelDisplayName.js";
+export { isProviderModelAvailable, getProviderModelUnavailableReason } from "./provider/providerModelAvailability.js";
 export { cn } from "./classnames.js";
 export { MessageContent, MarkdownMessageContent } from "./conversation/chat-message/MessageContent.js";
 export { MessageActions } from "./conversation/chat-message/MessageActions.js";
@@ -82,3 +87,31 @@ export {
   type FileExplorerEntry,
   type FileExplorerPage,
 } from "./files/FileExplorer.js";
+
+export { useOutsideDismiss } from "./hooks/useOutsideDismiss.js";
+export { FileChangesIcon } from "./workspace/FileChangesIcon.js";
+export { FilesToggleButton } from "./workspace/FilesToggleButton.js";
+export { Resizer } from "./workspace/Resizer.js";
+export { ResizableWorkspaceRail } from "./workspace/ResizableWorkspaceRail.js";
+
+export { WorkspaceAddMenu } from "./workspace/WorkspaceAddMenu.js";
+export { WorkspaceTabStrip, type WorkspaceContentTab } from "./workspace/WorkspaceTabStrip.js";
+export { WorkspaceSurfaceHeader } from "./workspace/WorkspaceSurfaceHeader.js";
+export { WorkspaceSidebarHeader } from "./workspace/WorkspaceSidebarHeader.js";
+
+export { useChangesPanelViewState, type DiffLayout } from "./review/useChangesPanelViewState.js";
+export { ReviewDiffToolbar } from "./review/ReviewDiffToolbar.js";
+export { ReviewFileStack } from "./review/ReviewFileStack.js";
+export { ReviewPanelLayout } from "./review/ReviewPanelLayout.js";
+
+export { ArtifactView } from "./files/ArtifactView.js";
+export { FileBreadcrumbs } from "./workspace/FileBreadcrumbs.js";
+export { FileOptionsMenu } from "./workspace/FileOptionsMenu.js";
+export { WorkspaceFileNavigationBar } from "./workspace/WorkspaceFileNavigationBar.js";
+export { WorkspaceContentView } from "./workspace/WorkspaceContentView.js";
+export { WorkspaceTreeDrawer } from "./workspace/WorkspaceTreeDrawer.js";
+
+export { PickerModal } from "./workspace/PickerModal.js";
+export { HeroComposer as ConversationHero } from "./conversation/chat-interface/ChatInterfaceView.js";
+
+export { getInitialRightSidebarWidth, clampRightSidebarWidth } from "./workspace/rightPanelSizing.js";

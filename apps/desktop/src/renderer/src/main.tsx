@@ -2,12 +2,15 @@ import {
   ClientErrorBoundary,
   ClientShell,
   ClientShellLoading,
-  ThreadSidebar,
+  ConversationHero,
+  getInitialRightSidebarWidth,
+  clampRightSidebarWidth,
+  FilesToggleButton,
+  PickerModal,
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
-import { createAppServerClient, projectThreadSidebar } from "@legioncode/sdk";
-import type { ThreadSidebarDisplayStatus } from "@legioncode/sdk";
+import { createAppServerClient } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
@@ -17,6 +20,7 @@ import type {
   DesktopBuildInfo,
   WorkspaceSelection,
 } from "../../shared/desktop-api";
+import { DesktopSidebar } from "./DesktopSidebar";
 import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
@@ -45,35 +49,59 @@ function DesktopApp(): React.JSX.Element {
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [providerRevision, setProviderRevision] = useState(0);
-  const [rightPanelOpen, setRightPanelOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
+  const [rightPanelOpen, setRightPanelOpen] = useState(
+    () => window.matchMedia("(min-width: 1280px)").matches,
+  );
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => getInitialRightSidebarWidth(window.innerWidth));
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
-  const rightPanelButton = useRef<HTMLButtonElement>(null);
+  const emptyDraftRequest = useRef<string | null>(null);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => !window.matchMedia("(max-width: 1023px)").matches,
   );
   const appServerClient = useMemo(
-    () => build
-      ? createAppServerClient({
-          clientId: "legioncode-desktop",
-          clientVersion: build.version,
-          transport: { request: (envelope) => window.desktop.request(envelope) },
-        })
-      : null,
+    () =>
+      build
+        ? createAppServerClient({
+            clientId: "legioncode-desktop",
+            clientVersion: build.version,
+            transport: {
+              request: (envelope) => window.desktop.request(envelope),
+            },
+          })
+        : null,
     [build?.version],
   );
 
-  const reviewScope = useMemo(() => appServerClient && sdkReady
-    && environment?.status === "ready" && environment.kind === "local"
-    && workspace?.readiness === "ready" && selectedThread?.workspaceId === workspace.workspaceId
-    ? {
-      client: appServerClient, workspaceId: workspace.workspaceId,
-      threadId: selectedThread.id, grantedAt: workspace.grantedAt, readiness: workspace.readiness,
-    } : null,
-  [appServerClient, sdkReady, environment?.status, environment?.kind,
-    workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness,
-    selectedThread?.workspaceId, selectedThread?.id]);
+  const reviewScope = useMemo(
+    () =>
+      appServerClient &&
+      sdkReady &&
+      environment?.status === "ready" &&
+      environment.kind === "local" &&
+      workspace?.readiness === "ready" &&
+      selectedThread?.workspaceId === workspace.workspaceId
+        ? {
+            client: appServerClient,
+            workspaceId: workspace.workspaceId,
+            threadId: selectedThread.id,
+            grantedAt: workspace.grantedAt,
+            readiness: workspace.readiness,
+          }
+        : null,
+    [
+      appServerClient,
+      sdkReady,
+      environment?.status,
+      environment?.kind,
+      workspace?.workspaceId,
+      workspace?.grantedAt,
+      workspace?.readiness,
+      selectedThread?.workspaceId,
+      selectedThread?.id,
+    ],
+  );
   const savedReview = useDesktopSavedReviewSelection(reviewScope);
 
   useEffect(() => {
@@ -82,7 +110,8 @@ function DesktopApp(): React.JSX.Element {
       if (event.matches) setSidebarOpen(false);
     };
     compactLayout.addEventListener("change", closeSidebarOnCompact);
-    return () => compactLayout.removeEventListener("change", closeSidebarOnCompact);
+    return () =>
+      compactLayout.removeEventListener("change", closeSidebarOnCompact);
   }, []);
 
   useEffect(() => {
@@ -99,11 +128,14 @@ function DesktopApp(): React.JSX.Element {
     setSelectedThread(null);
     if (!appServerClient || environment?.status !== "ready") return;
     let active = true;
-    void appServerClient.initialize().then(() => {
-      if (active) setSdkReady(true);
-    }).catch(() => {
-      if (active) setThreadLoadState("error");
-    });
+    void appServerClient
+      .initialize()
+      .then(() => {
+        if (active) setSdkReady(true);
+      })
+      .catch(() => {
+        if (active) setThreadLoadState("error");
+      });
     return () => {
       active = false;
     };
@@ -134,8 +166,39 @@ function DesktopApp(): React.JSX.Element {
         setWorkspaceError("The local workspace grant could not be loaded.");
         setThreadLoadState("ready");
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [appServerClient, sdkReady]);
+
+  useEffect(() => {
+    if (
+      !sdkReady ||
+      workspace?.readiness !== "ready" ||
+      threadLoadState !== "ready" ||
+      selectedThread ||
+      threadError
+    )
+      return;
+    const latest = threads.find((thread) => thread.status !== "archived");
+    if (latest) {
+      setSelectedThread(latest);
+      return;
+    }
+    const intent = `${workspace.workspaceId}:${workspace.grantedAt}:${threads.map((thread) => thread.id).join(":")}`;
+    if (emptyDraftRequest.current === intent) return;
+    emptyDraftRequest.current = intent;
+    void createThread();
+  }, [
+    sdkReady,
+    workspace?.workspaceId,
+    workspace?.grantedAt,
+    workspace?.readiness,
+    threadLoadState,
+    selectedThread,
+    threadError,
+    threads,
+  ]);
 
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
     const scope = threadScope.current;
@@ -145,17 +208,27 @@ function DesktopApp(): React.JSX.Element {
     try {
       if (!appServerClient) return;
       const nextThreads = await appServerClient.listThreads();
-      if (scope !== threadScope.current || request !== threadListRequest.current) return;
+      if (
+        scope !== threadScope.current ||
+        request !== threadListRequest.current
+      )
+        return;
       setThreads(nextThreads);
       setThreadLoadState("ready");
       if (selection === selectionRequest.current) {
         setSelectedThread((current) => {
           const selectionId = preferredSelectionId ?? current?.id;
-          return nextThreads.find((thread) => thread.id === selectionId) ?? null;
+          return (
+            nextThreads.find((thread) => thread.id === selectionId) ?? null
+          );
         });
       }
     } catch {
-      if (scope !== threadScope.current || request !== threadListRequest.current) return;
+      if (
+        scope !== threadScope.current ||
+        request !== threadListRequest.current
+      )
+        return;
       setThreadLoadState("error");
     }
   }
@@ -177,7 +250,10 @@ function DesktopApp(): React.JSX.Element {
         await refreshThreads();
       }
     } catch {
-      if (scope === threadScope.current && request === selectionRequest.current) {
+      if (
+        scope === threadScope.current &&
+        request === selectionRequest.current
+      ) {
         setThreadError("The local thread could not be created.");
       }
     }
@@ -202,19 +278,23 @@ function DesktopApp(): React.JSX.Element {
 
   async function renameThread(threadId: string, title: string): Promise<void> {
     const known = threads.find((thread) => thread.id === threadId);
-    if (!known || !appServerClient) throw new Error("The local thread is unavailable.");
+    if (!known || !appServerClient)
+      throw new Error("The local thread is unavailable.");
     const scope = threadScope.current;
     const request = selectionRequest.current;
     try {
       const renamed = await appServerClient.renameThread(known.id, title);
       if (scope !== threadScope.current) return;
       if (request === selectionRequest.current) {
-        setSelectedThread((current) => current?.id === renamed.id ? renamed : current);
+        setSelectedThread((current) =>
+          current?.id === renamed.id ? renamed : current,
+        );
       }
       // A newer selection suppresses selection writes, not same-scope metadata refresh.
       await refreshThreads();
     } catch {
-      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current)
+        return;
       throw new Error("Thread titles must contain 1 to 80 characters.");
     }
   }
@@ -228,12 +308,18 @@ function DesktopApp(): React.JSX.Element {
       if (!appServerClient) return;
       const updated = await appServerClient.archiveThread(thread.id);
       if (scope !== threadScope.current) return;
-      if (request === selectionRequest.current && selectedThread?.id === updated.id) {
-        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      if (
+        request === selectionRequest.current &&
+        selectedThread?.id === updated.id
+      ) {
+        setSelectedThread((current) =>
+          current?.id === updated.id ? updated : current,
+        );
       }
       await refreshThreads();
     } catch {
-      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current)
+        return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -247,17 +333,26 @@ function DesktopApp(): React.JSX.Element {
       if (!appServerClient) return;
       const updated = await appServerClient.unarchiveThread(thread.id);
       if (scope !== threadScope.current) return;
-      if (request === selectionRequest.current && selectedThread?.id === updated.id) {
-        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+      if (
+        request === selectionRequest.current &&
+        selectedThread?.id === updated.id
+      ) {
+        setSelectedThread((current) =>
+          current?.id === updated.id ? updated : current,
+        );
       }
       await refreshThreads();
     } catch {
-      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current)
+        return;
       setThreadError("The local thread could not be updated.");
     }
   }
 
-  async function setThreadPinned(threadId: string, pinned: boolean): Promise<void> {
+  async function setThreadPinned(
+    threadId: string,
+    pinned: boolean,
+  ): Promise<void> {
     const thread = threads.find((item) => item.id === threadId);
     if (!thread || !appServerClient) return;
     const scope = threadScope.current;
@@ -268,11 +363,14 @@ function DesktopApp(): React.JSX.Element {
         : await appServerClient.unpinThread(thread.id);
       if (scope !== threadScope.current) return;
       if (request === selectionRequest.current) {
-        setSelectedThread((current) => current?.id === updated.id ? updated : current);
+        setSelectedThread((current) =>
+          current?.id === updated.id ? updated : current,
+        );
       }
       await refreshThreads();
     } catch {
-      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current)
+        return;
       setThreadError("The local thread could not be updated.");
     }
   }
@@ -340,36 +438,6 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  const sidebarModel = useMemo(
-    () => projectThreadSidebar({
-      state: threadLoadState === "error"
-        ? { status: "error", message: "The local thread list could not be loaded." }
-        : threadLoadState === "loading"
-          ? { status: "loading" }
-          : { status: "ready" },
-      workspaces: workspace
-        ? [{
-            workspaceId: workspace.workspaceId,
-            label: workspace.displayName,
-            placement: "local",
-          }]
-        : [],
-      threads: threads.map((thread) => ({
-        selectionId: thread.id,
-        threadId: thread.id,
-        workspaceId: thread.workspaceId,
-        title: thread.title,
-        updatedAt: thread.updatedAt,
-        pinnedAt: thread.pinnedAt,
-        archivedAt: thread.archivedAt,
-        isUnread: false,
-        displayStatus: "idle" satisfies ThreadSidebarDisplayStatus,
-      })),
-      selectedSelectionId: selectedThread?.id ?? null,
-    }),
-    [threadLoadState, workspace, threads, selectedThread?.id],
-  );
-
   if (!build || !environment) {
     return <ClientShellLoading label="Loading Desktop" />;
   }
@@ -380,117 +448,234 @@ function DesktopApp(): React.JSX.Element {
 
   return (
     <>
-      <ClientShell environment={environment} onEnvironmentRetry={() => void window.desktop.restartEnvironment()}>
+      <ClientShell
+        environment={environment.status === "ready" ? undefined : environment}
+        onEnvironmentRetry={() => void window.desktop.restartEnvironment()}
+      >
         <WorkspaceFrame
           className="desktop-workspace-frame"
           sidebarOpen={sidebarOpen}
           onSidebarOpenChange={setSidebarOpen}
-          sidebar={(
-            <ThreadSidebar
-              pullRequestUnavailableReason="Pull request status is unavailable."
-              model={sidebarModel}
+          sidebar={
+            <DesktopSidebar
+              width={320}
+              workspace={workspace}
+              threads={threads}
+              selectedThreadId={selectedThread?.id ?? null}
+              loadState={threadLoadState}
+              threadError={threadError ?? (!selection ? workspaceError : null)}
+              canManageWorkspace={(id) => sdkReady && !workspaceBusy && workspace?.workspaceId === id}
+              onRemoveWorkspace={async (id) => { if (workspace?.workspaceId === id) await revokeWorkspace(); }}
+              onOpenSettings={() => {
+                closeCompactSidebar();
+                setSettingsOpen(true);
+              }}
               visible={sidebarOpen}
-              onSelect={(threadId) => { closeCompactSidebar(); void openThread(threadId); }}
-              onCreate={workspace?.readiness === "ready" && sdkReady ? () => void createThread() : undefined}
-              onAddWorkspace={sdkReady ? () => void chooseWorkspace() : undefined}
+              onSelect={(threadId) => {
+                closeCompactSidebar();
+                void openThread(threadId);
+              }}
+              onCreate={
+                workspace?.readiness === "ready" && sdkReady
+                  ? () => void createThread()
+                  : undefined
+              }
+              onAddWorkspace={
+                sdkReady ? () => void chooseWorkspace() : undefined
+              }
               onRenameSession={renameThread}
-              onPin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, true) : undefined}
-              onUnpin={workspace?.readiness === "ready" && sdkReady ? (threadId) => setThreadPinned(threadId, false) : undefined}
+              onPin={
+                workspace?.readiness === "ready" && sdkReady
+                  ? (threadId) => setThreadPinned(threadId, true)
+                  : undefined
+              }
+              onUnpin={
+                workspace?.readiness === "ready" && sdkReady
+                  ? (threadId) => setThreadPinned(threadId, false)
+                  : undefined
+              }
               onArchive={archiveThread}
               onUnarchive={unarchiveThread}
               onClose={() => setSidebarOpen(false)}
-              footer={(
-                <>
-                  {threadError ? <p role="alert" className="desktop-rail-error">{threadError}</p> : null}
-                  <DesktopWorkspaceControls
-                    workspace={workspace}
-                    selection={selection}
-                    ready={sdkReady}
-                    busy={workspaceBusy}
-                    error={workspaceError}
-                    onChoose={() => void chooseWorkspace()}
-                    onGrant={() => void grantWorkspace()}
-                    onCancelSelection={() => setSelection(null)}
-                    onRevoke={() => void revokeWorkspace()}
-                    onSettings={() => { closeCompactSidebar(); setSettingsOpen(true); }}
-                  />
-                </>
-              )}
             />
-          )}
-          topBar={(
+          }
+          topBar={
             <WorkspaceTopBar
-              title={selectedThread?.title ?? "LegionCode Desktop"}
-              leading={workspace ? <span className="desktop-topbar-workspace">{workspace.displayName}</span> : undefined}
-              actions={(
-                <button ref={rightPanelButton} type="button" aria-expanded={rightPanelOpen} aria-label="Toggle files and review" onClick={() => setRightPanelOpen((open) => !open)}>
-                  Files and review
-                </button>
-              )}
+              title={selectedThread?.title}
+              actions={
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                  <FilesToggleButton
+                    isOpen={rightPanelOpen}
+                    onToggle={() => setRightPanelOpen((open) => !open)}
+                  />
+                </div>
+              }
             />
-          )}
-          rightPanel={rightPanelOpen ? (
-            <DesktopRightPanel
-              workspace={workspace}
-              threadId={selectedThread?.id ?? null}
-              review={reviewScope ? {
-                scope: reviewScope,
-                selection: savedReview.selection,
-                content: <DesktopReview
-                  client={savedReview.client}
-                  selection={savedReview.selection}
-                  scope={{ workspaceId: reviewScope.workspaceId, threadId: reviewScope.threadId, grantGrantedAt: reviewScope.grantedAt }}
-                  availability={environment.status === "ready" && environment.capabilities.includes("artifact-review-v1") ? { available: true } : {
-                    available: false, reason: "This environment does not provide saved turn review.",
-                  }}
-                />,
-              } : null}
-              files={appServerClient && sdkReady && environment.status === "ready" && environment.kind === "local" && workspace?.readiness === "ready" ? {
-                workspaceId: workspace.workspaceId,
-                grantedAt: workspace.grantedAt,
-                readiness: workspace.readiness,
-                content: <DesktopWorkspaceFilesMount
-                  client={appServerClient}
-                  workspaceId={workspace.workspaceId}
-                  grantedAt={workspace.grantedAt}
-                  readiness={workspace.readiness}
-                  availability={environment.capabilities.includes("workspace-files-v1") ? { available: true } : {
-                    available: false,
-                    reason: environment.unavailableCapabilities.find((item) => item.capability === "workspace-files-v1")?.reason
-                      ?? "This local environment does not provide workspace file reads.",
-                  }}
-                />,
-              } : undefined}
-              filesUnavailableReason="Local workspace file reads are unavailable in this environment."
-              commitUnavailableReason="Committing saved changes is unavailable."
-              onClose={() => { setRightPanelOpen(false); rightPanelButton.current?.focus(); }}
-            />
-          ) : undefined}
+          }
+          rightPanel={
+            rightPanelOpen ? (
+              <DesktopRightPanel
+                onResize={(delta) => setRightPanelWidth((width) => clampRightSidebarWidth(width + delta))}
+                workspace={workspace}
+                threadId={selectedThread?.id ?? null}
+                review={
+                  reviewScope
+                    ? {
+                        scope: reviewScope,
+                        selection: savedReview.selection,
+                        content: (controls) => (
+                          <DesktopReview
+                            controls={controls}
+                            client={savedReview.client}
+                            selection={savedReview.selection}
+                            scope={{
+                              workspaceId: reviewScope.workspaceId,
+                              threadId: reviewScope.threadId,
+                              grantGrantedAt: reviewScope.grantedAt,
+                            }}
+                            availability={
+                              environment.status === "ready" &&
+                              environment.capabilities.includes(
+                                "artifact-review-v1",
+                              )
+                                ? { available: true }
+                                : {
+                                    available: false,
+                                    reason:
+                                      "This environment does not provide saved turn review.",
+                                  }
+                            }
+                          />
+                        ),
+                      }
+                    : null
+                }
+                files={
+                  appServerClient &&
+                  sdkReady &&
+                  environment.status === "ready" &&
+                  environment.kind === "local" &&
+                  workspace?.readiness === "ready"
+                    ? {
+                        workspaceId: workspace.workspaceId,
+                        grantedAt: workspace.grantedAt,
+                        readiness: workspace.readiness,
+                        content: (controls) => (
+                          <DesktopWorkspaceFilesMount
+                            controls={controls}
+                            client={appServerClient}
+                            workspaceId={workspace.workspaceId}
+                            grantedAt={workspace.grantedAt}
+                            readiness={workspace.readiness}
+                            availability={
+                              environment.capabilities.includes(
+                                "workspace-files-v1",
+                              )
+                                ? { available: true }
+                                : {
+                                    available: false,
+                                    reason:
+                                      environment.unavailableCapabilities.find(
+                                        (item) =>
+                                          item.capability ===
+                                          "workspace-files-v1",
+                                      )?.reason ??
+                                      "This local environment does not provide workspace file reads.",
+                                  }
+                            }
+                          />
+                        ),
+                      }
+                    : undefined
+                }
+                filesUnavailableReason="Local workspace file reads are unavailable in this environment."
+                onClose={() => {
+                  setRightPanelOpen(false);
+                  document
+                    .querySelector<HTMLButtonElement>(
+                      'button[aria-label="Toggle files sidebar"]',
+                    )
+                    ?.focus();
+                }}
+              />
+            ) : undefined
+          }
+          rightPanelWidth={rightPanelWidth}
           rightPanelLabel="Files and saved turn review"
         >
-          {workspace?.readiness === "ready" && selectedThread && appServerClient && sdkReady ? (
+          {workspace?.readiness === "ready" &&
+          selectedThread &&
+          appServerClient &&
+          sdkReady ? (
             <DesktopConversation
               key={`${workspace.workspaceId}:${workspace.grantedAt}:${workspace.readiness}`}
               client={appServerClient}
               thread={selectedThread}
-              execution={environment.status === "ready" && environment.capabilities.includes("turn-execution-v1") ? { available: true } : {
-                available: false,
-                reason: "Local execution is unavailable in this environment.",
-              }}
+              projectName={workspace.displayName}
+              onProjectClick={() => void chooseWorkspace()}
+              execution={
+                environment.status === "ready" &&
+                environment.capabilities.includes("turn-execution-v1")
+                  ? { available: true }
+                  : {
+                      available: false,
+                      reason:
+                        "Local execution is unavailable in this environment.",
+                    }
+              }
               onOpenSettings={() => setSettingsOpen(true)}
               providerRevision={providerRevision}
-              onReviewTurn={(turn) => { savedReview.select(turn); setRightPanelOpen(true); }}
+              onReviewTurn={(turn) => {
+                savedReview.select(turn);
+                setRightPanelOpen(true);
+              }}
             />
-          ) : <div className="desktop-home">
-            <span className="desktop-home-brand">Legion<span>Code</span></span>
-            <h2>{selectedThread?.title ?? (workspace?.readiness === "ready" ? "Choose a task" : "Open a local workspace")}</h2>
-            <p>{selectedThread ? `Saved in ${workspace?.displayName ?? "your local workspace"}.`
-              : workspace?.readiness === "ready" ? "Open a saved task or choose New task in the sidebar."
-              : "Choose a folder in the sidebar and grant access to get started."}</p>
-          </div>}
+          ) : (
+            <ConversationHero
+              projectName={workspace?.displayName}
+              onProjectClick={() => void chooseWorkspace()}
+            >
+              {workspace?.readiness === "ready" &&
+              threadLoadState === "loading" ? (
+                <ClientShellLoading label="Loading conversation" />
+              ) : null}
+            </ConversationHero>
+          )}
         </WorkspaceFrame>
       </ClientShell>
-      <DesktopSettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); setProviderRevision((value) => value + 1); }} client={appServerClient} ready={sdkReady} build={build} />
+      {selection ? (
+        <PickerModal>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Grant workspace access"
+            className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-950 p-6 text-zinc-100"
+          >
+            <DesktopWorkspaceControls
+              workspace={workspace}
+              selection={selection}
+              ready={sdkReady}
+              busy={workspaceBusy}
+              error={workspaceError}
+              onChoose={() => void chooseWorkspace()}
+              onGrant={() => void grantWorkspace()}
+              onCancelSelection={() => setSelection(null)}
+              onRevoke={() => void revokeWorkspace()}
+              onSettings={() => setSettingsOpen(true)}
+            />
+          </section>
+        </PickerModal>
+      ) : null}
+      <DesktopSettingsDialog
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false);
+          setProviderRevision((value) => value + 1);
+        }}
+        client={appServerClient}
+        ready={sdkReady}
+        build={build}
+      />
     </>
   );
 }

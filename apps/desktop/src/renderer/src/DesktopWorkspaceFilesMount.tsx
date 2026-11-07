@@ -11,6 +11,7 @@ interface Props {
   grantedAt: LocalWorkspaceGrant["grantedAt"];
   readiness: LocalWorkspaceGrant["readiness"];
   availability: DesktopWorkspaceFilesProps["availability"];
+  controls: DesktopWorkspaceFilesProps["controls"];
 }
 
 type ReadScope = Pick<
@@ -25,6 +26,7 @@ export function DesktopWorkspaceFilesMount({
   grantedAt,
   readiness,
   availability,
+  controls,
 }: Props) {
   const [scope, setScope] = useState<ReadScope>({
     client,
@@ -85,7 +87,7 @@ export function DesktopWorkspaceFilesMount({
   if (readiness !== "ready")
     return <p role="status">Restore workspace access to browse files.</p>;
   return (
-    <div className="space-y-3">
+    <div className="flex h-full min-h-0 flex-col">
       {availability.available ? (
         <div className="flex justify-end">
           <button
@@ -97,12 +99,15 @@ export function DesktopWorkspaceFilesMount({
           </button>
         </div>
       ) : null}
-      <DesktopWorkspaceFiles
-        key={`${scope.workspaceId}:${scope.grantedAt}:${scope.readiness}:${refresh}`}
-        client={scopedClient}
-        workspaceId={workspaceId}
-        availability={availability}
-      />
+      <div className="min-h-0 flex-1">
+        <DesktopWorkspaceFiles
+          key={`${scope.workspaceId}:${scope.grantedAt}:${scope.readiness}:${refresh}`}
+          client={scopedClient}
+          workspaceId={workspaceId}
+          availability={availability}
+          controls={controls}
+        />
+      </div>
     </div>
   );
 }

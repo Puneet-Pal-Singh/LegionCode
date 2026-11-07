@@ -1,5 +1,6 @@
 import { LogOut, Settings, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { SidebarSettingsButton } from "@legioncode/client-ui";
 
 export interface SidebarAccountUser {
   login: string;
@@ -70,16 +71,7 @@ export function SidebarAccountMenu({
   }
 
   if (!user || !onLogout) {
-    return (
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
-      >
-        <Settings size={15} className="text-zinc-400" aria-hidden="true" />
-        Settings
-      </button>
-    );
+    return <SidebarSettingsButton onOpenSettings={onOpenSettings} />;
   }
 
   return (
