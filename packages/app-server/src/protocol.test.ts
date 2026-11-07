@@ -181,7 +181,12 @@ describe("App Server protocol", () => {
       // Status needs only the real grant owner; thread storage is outside this check.
       const threads: Pick<LocalThreadService, "get"> = { get: async () => { throw new Error("Thread lookup is not part of status"); } };
       const operations = new LocalHarnessOperations({ environmentId: localScope.environmentId,
-        workspaceService, threadService: threads as LocalThreadService, readInstances: () => [localStatus] });
+        workspaceService, threadService: threads as LocalThreadService, controlPlane: {
+          status: async () => ({ instances: [localStatus] }),
+          setup: async () => { throw new Error("Setup is outside this status protocol fixture"); },
+          readSelection: async () => { throw new Error("Selection is outside this status protocol fixture"); },
+          select: async () => { throw new Error("Selection is outside this status protocol fixture"); },
+        } });
       await expect(operations.status(localScope)).resolves.toEqual({ instances: [localStatus] });
       await expect(operations.status({ ...localScope, workspaceId: "wrk_ungranted001" })).rejects.toMatchObject({ statusCode: 403, code: "unauthorized" });
       await expect(operations.status({ ...localScope, environmentId: "another-environment" })).rejects.toMatchObject({ statusCode: 403, code: "unauthorized" });
