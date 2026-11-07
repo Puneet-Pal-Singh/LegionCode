@@ -23,9 +23,10 @@ export class LocalChatMediaReads {
   async readImage(input: LocalChatImageReadParams) {
     const request = LocalChatImageReadParamsSchema.parse(input);
     const admission = TurnAdmissionSchema.parse(await this.options.turns.getTurn(request.turnId));
-    if (admission.turn.id !== request.turnId) throw unavailable();
+    const prompt = admission.userMessage;
+    if (admission.turn.id !== request.turnId || prompt.type !== "user_message") throw unavailable();
     const references = z.array(ChatImageAttachmentRefSchema).max(LOCAL_CHAT_MEDIA_LIMITS.maxImages)
-      .safeParse(admission.userMessage.content.images);
+      .safeParse(prompt.content.images);
     const reference = references.success
       ? references.data.find((ref) => ref.attachmentId === request.attachmentId) : undefined;
     if (!reference) throw new AppServerOperationError(404, "not_found", "Conversation image was not found");
@@ -39,7 +40,7 @@ export class LocalChatMediaReads {
         reference,
       });
       const current = TurnAdmissionSchema.parse(await this.options.turns.getTurn(request.turnId));
-      if (!isDeepStrictEqual(current, admission) || saved.fingerprint !== admission.userMessage.content.imageFingerprint) throw unavailable();
+      if (!isDeepStrictEqual(current, admission) || saved.fingerprint !== prompt.content.imageFingerprint) throw unavailable();
       if (request.offset >= saved.bytes.byteLength) {
         throw new AppServerOperationError(400, "invalid_request", "Image byte range is invalid");
       }
