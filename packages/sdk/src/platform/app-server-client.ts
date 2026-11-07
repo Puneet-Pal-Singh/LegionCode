@@ -182,8 +182,8 @@ const GitMutationMetadataSchema = z.object({
 export type AppServerClient = {
   startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
   getTurn(turnId: string): Promise<TurnAdmission>;
-  /** latest:true reads a bounded chronological tail with server-measured hasEarlier;
-   * omit it to retain forward pagination using the returned opaque afterCursor. */
+  /** latest:true reads a chronological tail with server-measured hasEarlier.
+   * limit is a row maximum; use actual nextCursor, never row count, to continue. */
   getThreadHistoryPage(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
   interruptLocalTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
   initialize(
@@ -287,9 +287,16 @@ export function createAppServerClient(
     getTurn: async (turnId) => (await request(options, {
       method: "turn/get", params: { turnId: TurnIdSchema.parse(turnId) },
     }, AppServerResultSchemas["turn/get"])).admission,
-    getThreadHistoryPage: (params) => request(options, {
-      method: "thread/history", params: LocalThreadHistoryParamsSchema.parse(params),
-    }, AppServerResultSchemas["thread/history"]),
+    getThreadHistoryPage: async (params) => {
+      const verified = LocalThreadHistoryParamsSchema.parse(params);
+      const page = await request(options, {
+        method: "thread/history", params: verified,
+      }, AppServerResultSchemas["thread/history"]);
+      if (verified.latest && typeof page.hasEarlier !== "boolean") {
+        throw invalidResponse("thread/history", "Latest history did not include its earlier-history receipt");
+      }
+      return page;
+    },
     interruptLocalTurn: (params) => request(options, {
       method: "turn/interrupt", params: LocalTurnInterruptParamsSchema.parse(params),
     }, AppServerResultSchemas["turn/interrupt"]),

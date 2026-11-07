@@ -173,6 +173,7 @@ export const LocalThreadHistoryParamsSchema = z.object({
   afterCursor: EventCursorSchema.nullable().optional(),
   /** Explicit bounded tail; omitted keeps the existing forward cursor behavior. */
   latest: z.boolean().optional(),
+  /** Maximum whole Turns; the response byte budget can return fewer rows. */
   limit: z.number().int().min(1).max(100).optional(),
 }).strict().refine((params) => !params.latest || params.afterCursor == null,
   "Latest history cannot be combined with an after cursor");
