@@ -14,6 +14,9 @@
     "./local-workspace-files": "./src/local-workspace-files.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts",
+    "./local-workspace-writer-lease": "./src/local-workspace-writer-lease.ts",
+    "./local-captured-execution": "./src/local-captured-execution.ts",
+    "./local-capture-git": "./src/local-capture-git.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {
