@@ -28,6 +28,7 @@ import {
 import { RegistryToolAuthorization } from "@legioncode/execution-engine/runtime/contracts/RegistryToolAuthorization";
 import { createLocalTurnAdmission } from "@legioncode/execution-engine/runtime/desktop/LocalTurnAdmission";
 import { LocalTurnExecutor } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
+import type { LocalTurnAttemptIdentity } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import type { LocalTurnExecutionCapability } from "@legioncode/execution-engine/runtime/desktop/LocalTurnExecutionCapability";
 import { createLocalNativeProviderPorts } from "@legioncode/execution-engine/runtime/desktop/LocalNativeProviderPorts";
 import { createNativeReadExecutionService } from "@legioncode/execution-engine/runtime/desktop/LocalNativeReadExecutionService";
@@ -55,6 +56,11 @@ export interface LocalNativeRuntimeOptions {
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
+  /** The same host writer owner releases only after this factory's combined proof. */
+  readonly releaseExecution?: (
+    attempt: LocalTurnAttemptIdentity,
+    proof: LocalTurnExecutor<LocalWorkspaceExecutionBinding>["awaitResourceRelease"],
+  ) => Promise<boolean>;
   /** Canonical Git owner. Success requires actual child/pipe closure; rejection is uncertain. */
   readonly createGitService: (
     binding: LocalWorkspaceExecutionBinding,
@@ -84,6 +90,12 @@ export function createLocalNativeRuntime(
     options.capability
       ? Object.freeze({ ...options.capability })
       : { artifactCapture: "omitted_read_only" };
+  const releaseExecution = options.releaseExecution;
+  if (capability.artifactCapture === "required" && !releaseExecution) {
+    throw new Error(
+      "Captured execution requires the canonical host writer's release port",
+    );
+  }
   return {
     createAdmission(input) {
       if (input.workspace.readiness !== "ready")
@@ -109,6 +121,7 @@ export function createLocalNativeRuntime(
         rootDirectory: binding.rootDirectory,
       });
       let manifestGitClosureUnknown = false;
+      let attempt: LocalTurnAttemptIdentity | undefined;
       const executor = new LocalTurnExecutor<LocalWorkspaceExecutionBinding>({
         capability,
         producerId: workerId,
@@ -187,14 +200,41 @@ export function createLocalNativeRuntime(
           };
         },
       });
+      const proveRelease = async (turnId: TurnAdmission["turn"]["id"]) => {
+        if (manifestGitClosureUnknown) return false;
+        const releasable = await executor.awaitResourceRelease(turnId);
+        return releasable && !manifestGitClosureUnknown;
+      };
       return {
-        execute: executor.execute.bind(executor),
+        execute(admission) {
+          const identity: LocalTurnAttemptIdentity = {
+            workspaceId: admission.run.workspaceId,
+            threadId: admission.run.threadId,
+            runId: admission.run.id,
+            turnId: admission.turn.id,
+            runAttemptId: admission.runAttemptId,
+          };
+          const previous = attempt;
+          if (
+            previous &&
+            (Object.keys(identity) as Array<keyof typeof identity>).some(
+              (key) => identity[key] !== previous[key],
+            )
+          )
+            throw new Error(
+              "Native host executor already owns a different admitted attempt",
+            );
+          attempt ??= Object.freeze(identity);
+          return executor.execute(admission);
+        },
         interrupt: executor.interrupt.bind(executor),
         resolveApproval: executor.resolveApproval,
         async awaitResourceRelease(turnId) {
-          if (manifestGitClosureUnknown) return false;
-          const releasable = await executor.awaitResourceRelease(turnId);
-          return releasable && !manifestGitClosureUnknown;
+          if (!(await proveRelease(turnId))) return false;
+          if (capability.artifactCapture === "omitted_read_only") return true;
+          if (!attempt || attempt.turnId !== turnId || !releaseExecution)
+            return false;
+          return releaseExecution(attempt, proveRelease);
         },
       };
     },
