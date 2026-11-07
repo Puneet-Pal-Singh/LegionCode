@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   FormCreated,
   OpenCodeEvent,
@@ -8,28 +9,44 @@ import { OpenCodeClient, OpenCodeTransportError } from "./OpenCodeClient.js";
 type Form = FormCreated["data"]["form"];
 type Answer = SessionFormReplyInput["answer"];
 type Pending = {
-  sessionID: string;
-  committed: Promise<void>;
+  readonly sessionID: string;
+  readonly committed: Promise<void>;
   claimed: boolean;
 };
 
+type Dispatched = Readonly<
+  { sessionID: string; requestID: string } & (
+    | { kind: "permission"; decision: "once" | "reject" }
+    | { kind: "form_reply"; answerFingerprint: string }
+    | { kind: "form_cancel" }
+  )
+>;
+
 /** Single-use native handles for this transport generation, gated by canonical commit. */
 export class OpenCodePendingRequests {
-  private readonly permissions = new Map<
-    string,
-    Pending & { decision?: "once" | "reject" }
-  >();
-  private readonly forms = new Map<
-    string,
-    Pending & {
-      form: Form;
-      sent?: { kind: "reply"; answer: Answer } | { kind: "cancel" };
-    }
-  >();
+  private readonly permissions = new Map<string, Pending>();
+  private readonly forms = new Map<string, Pending & { form: Form }>();
   private readonly seen = new Set<string>();
+  // Immutable effect receipts outlive claim handles, including Stop and HTTP ACK.
+  // Only native confirmation deduplicates observation; it never sends an effect.
+  private readonly dispatched = new Map<string, Dispatched>();
+  private readonly confirmed = new Set<string>();
   private stopping = false;
+  private released = false;
 
-  constructor(private readonly transport: OpenCodeClient) {}
+  constructor(private readonly transport: OpenCodeClient) {
+    // Keep receipts throughout the live generation's observation drain. A lost
+    // or closed transport cannot deliver more valid native confirmations.
+    void transport.disconnected.then(() => {
+      this.stopping = true;
+      this.released = true;
+      this.permissions.clear();
+      this.forms.clear();
+      this.dispatched.clear();
+      this.confirmed.clear();
+      this.seen.clear();
+    });
+  }
 
   get pending(): number {
     return this.permissions.size + this.forms.size;
@@ -39,35 +56,43 @@ export class OpenCodePendingRequests {
     event: OpenCodeEvent,
     commit: () => Promise<void>,
   ): Promise<void> {
-    // A native settlement can arrive before the HTTP reply receipt. Require the
-    // exact dispatched decision, not merely absence from a pending-request map.
+    if (this.released)
+      return this.transport.invalidate(
+        "observation after request receipt release",
+      );
+    // Stop revokes claims, not already-dispatched evidence. Require the exact
+    // native decision/answer in every state; cancellation is not a wildcard.
+    let confirmation: string | undefined;
     if (event.type === "permission.replied") {
-      const pending = this.permissions.get(event.data.requestID);
+      confirmation = `permission:${event.data.requestID}`;
+      const receipt = this.dispatched.get(confirmation);
       if (
-        this.stopping
-          ? event.data.reply !== "reject"
-          : !pending ||
-            pending.sessionID !== event.data.sessionID ||
-            pending.decision !== event.data.reply
-      ) {
+        !receipt ||
+        receipt.kind !== "permission" ||
+        receipt.sessionID !== event.data.sessionID ||
+        receipt.requestID !== event.data.requestID ||
+        receipt.decision !== event.data.reply
+      )
         return this.transport.invalidate(
           "permission settled outside canonical reply",
         );
-      }
     }
     if (event.type === "form.replied" || event.type === "form.cancelled") {
-      const pending = this.forms.get(event.data.id);
+      confirmation = `form:${event.data.id}`;
+      const receipt = this.dispatched.get(confirmation);
       const matches =
-        pending?.sessionID === event.data.sessionID &&
+        receipt?.sessionID === event.data.sessionID &&
+        receipt.requestID === event.data.id &&
         (event.type === "form.cancelled"
-          ? pending.sent?.kind === "cancel"
-          : pending.sent?.kind === "reply" &&
-            sameAnswer(pending.sent.answer, event.data.answer));
-      if (this.stopping ? event.type !== "form.cancelled" : !matches)
+          ? receipt.kind === "form_cancel"
+          : receipt.kind === "form_reply" &&
+            receipt.answerFingerprint === answerFingerprint(event.data.answer));
+      if (!matches)
         return this.transport.invalidate(
           "question settled outside canonical reply",
         );
     }
+    if (confirmation && this.confirmed.has(confirmation)) return;
     if (!this.stopping && event.type === "permission.asked")
       this.reserve(`permission:${event.data.id}`);
     if (!this.stopping && event.type === "form.created")
@@ -91,6 +116,7 @@ export class OpenCodePendingRequests {
       }
     }
     await committed;
+    if (confirmation && !this.released) this.confirmed.add(confirmation);
     if (event.type === "permission.replied")
       this.permissions.delete(event.data.requestID);
     if (event.type === "form.replied" || event.type === "form.cancelled")
@@ -114,7 +140,12 @@ export class OpenCodePendingRequests {
     const pending = await this.claim(this.permissions.get(requestID));
     await this.transport.mutate("permission.reply", (api, signal) => {
       this.assertNotStopping();
-      pending.decision = decision;
+      this.remember(`permission:${requestID}`, {
+        kind: "permission",
+        sessionID: pending.sessionID,
+        requestID,
+        decision,
+      });
       return api.permission.reply(
         { sessionID: pending.sessionID, requestID, decision },
         { signal },
@@ -134,7 +165,12 @@ export class OpenCodePendingRequests {
     const pending = await this.claim(this.forms.get(formID));
     await this.transport.mutate("form.reply", (api, signal) => {
       this.assertNotStopping();
-      pending.sent = { kind: "reply", answer: captured };
+      this.remember(`form:${formID}`, {
+        kind: "form_reply",
+        sessionID: pending.sessionID,
+        requestID: formID,
+        answerFingerprint: answerFingerprint(captured),
+      });
       return api.session.form.reply(
         { sessionID: pending.sessionID, formID, answer: captured },
         { signal },
@@ -146,7 +182,11 @@ export class OpenCodePendingRequests {
     const pending = await this.claim(this.forms.get(formID));
     await this.transport.mutate("form.cancel", (api, signal) => {
       this.assertNotStopping();
-      pending.sent = { kind: "cancel" };
+      this.remember(`form:${formID}`, {
+        kind: "form_cancel",
+        sessionID: pending.sessionID,
+        requestID: formID,
+      });
       return api.session.form.cancel(
         { sessionID: pending.sessionID, formID },
         { signal },
@@ -155,9 +195,21 @@ export class OpenCodePendingRequests {
   }
 
   fence(): void {
+    // Drop all claim capabilities immediately. Dispatched receipts remain read-only
+    // until transport retirement, so late confirmations can drain without a gap.
     this.stopping = true;
     this.permissions.clear();
     this.forms.clear();
+  }
+
+  private remember(id: string, receipt: Dispatched): void {
+    if (
+      !this.seen.has(id) ||
+      this.dispatched.has(id) ||
+      this.dispatched.size >= 1000
+    )
+      return this.transport.invalidate("dispatched receipt bound or duplicate");
+    this.dispatched.set(id, Object.freeze(receipt));
   }
 
   private async claim<T extends Pending>(pending: T | undefined): Promise<T> {
@@ -181,12 +233,15 @@ export class OpenCodePendingRequests {
   }
 }
 
-function sameAnswer(expected: Answer, actual: Answer): boolean {
-  const keys = Object.keys(expected).sort();
-  return (
-    JSON.stringify(keys) === JSON.stringify(Object.keys(actual).sort()) &&
-    keys.every(
-      (key) => JSON.stringify(expected[key]) === JSON.stringify(actual[key]),
+function answerFingerprint(answer: Answer): string {
+  // Preserve native array order; object field order has no answer meaning.
+  return createHash("sha256")
+    .update(
+      JSON.stringify(
+        Object.keys(answer)
+          .sort()
+          .map((key) => [key, answer[key]]),
+      ),
     )
-  );
+    .digest("hex");
 }
