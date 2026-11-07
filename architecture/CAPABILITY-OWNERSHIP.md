@@ -1273,3 +1273,15 @@ activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
 dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
 request/result contract. Hosted dispatch rejects these local commands. Desktop
 sidebar callbacks and visible restart acceptance remain client integration work.
+
+## Plan 057 — Local immutable Turn artifact storage
+
+`LocalPersistence.turnArtifacts` composes `createLocalTurnArtifactStore` with the
+same process-owned SQLite connection and storage guard. The existing metadata
+table retains immutable baseline, terminal and diff payloads, keyed by the exact
+user, workspace, Thread, Run, Turn and Run Attempt. Reads validate payload hashes
+and the diff's persisted baseline/final captures; startup rejects corrupt records.
+The store produces no lifecycle events and creates no separate database owner.
+Native capture, authorized query and commit consumers remain separate integration
+work. Stored Git tree IDs do not retain their object closure or enable capture or
+Git mutation capabilities.
