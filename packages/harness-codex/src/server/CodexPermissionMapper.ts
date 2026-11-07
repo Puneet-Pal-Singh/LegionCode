@@ -65,9 +65,9 @@ export function codexPermission(
         ? "Allow this Codex command once?"
         : "Allow this Codex file change once?",
       options: [
-        { id: "approved", label: "Allow once", description: null },
-        { id: "denied", label: "Deny", description: null },
-        { id: "cancelled", label: "Cancel", description: null },
+        { id: "allow_once", label: "Allow once", description: null },
+        { id: "deny", label: "Deny", description: null },
+        { id: "cancel", label: "Cancel", description: null },
       ],
       metadata: {
         source: "harness_reported",
