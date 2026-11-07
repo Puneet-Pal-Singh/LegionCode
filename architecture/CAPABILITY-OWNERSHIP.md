@@ -1494,3 +1494,15 @@ its explicit maxResponseBytes override and bounded response reader are unchanged
 This foundation does not increase limits, alter history queries or add a second
 transport owner. Whole-Turn history selection and final server envelope checks
 remain separate consumers of this shared contract.
+
+## Plan 057 — Bounded local admission history storage
+
+`LocalTurnAdmissions.listByThread` remains the sole query over canonical admission
+and event references. Optional latest reads use insertion order, one bounded extra
+identity and chronological output; forward cursors keep their existing ownership.
+Both directions use the shared response budget to return whole fitting Turns,
+with an actual returned-row cursor and real earlier-history evidence. A single
+next/newest oversized Turn fails with `history_row_too_large`; no row is skipped
+or truncated. Thread authorization, public protocol and Turn-service translation
+remain their existing owners' separate integration responsibilities. No history
+payload copy, table, projection or lifecycle producer is added.
