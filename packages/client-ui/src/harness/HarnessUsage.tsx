@@ -1,3 +1,4 @@
+import type { HarnessSelection } from "@repo/platform-protocol";
 import {
   projectHarnessUsage,
   projectHarnessAccountUsage,
@@ -9,6 +10,8 @@ import {
 
 export interface HarnessUsageProps {
   scope?: HarnessUsageScope;
+  /** Immutable runtime admission receipt, never the current picker selection. */
+  admittedSelection?: HarnessSelection | null;
   events?: readonly LifecycleEvent[];
   observation?: HarnessUsageObservation | null;
   onManageUsage?: () => void;
@@ -17,20 +20,20 @@ export interface HarnessUsageProps {
 /** Presentation only: reads canonical replay/continuation, never polls a provider. */
 export function HarnessUsage({
   scope,
+  admittedSelection = null,
   events = [],
   observation = null,
   onManageUsage,
 }: HarnessUsageProps): React.JSX.Element {
-  const account = observation ? projectHarnessAccountUsage(observation) : null;
-  const activity =
-    account?.activity.filter(
-      (measurement) =>
-        !scope ||
-        (measurement.threadId === scope.threadId &&
-          measurement.turnId === scope.turnId &&
-          measurement.runAttemptId === scope.runAttemptId),
-    ) ?? [];
-  const sample = scope && !account ? projectHarnessUsage(scope, events) : null;
+  const projection = projectHarnessAccountUsage(
+    observation,
+    scope,
+    events,
+    admittedSelection,
+  );
+  const account = projection.account;
+  const activity = projection.activity;
+  const sample = scope ? projectHarnessUsage(scope, events) : null;
   const usage = sample?.payload.usage;
   const elapsedMs = scope
     ? projectHarnessAttemptElapsedMs(scope, events)
@@ -40,7 +43,11 @@ export function HarnessUsage({
       <h3>Account quota</h3>
       {account ? (
         <>
-          <p>Billing route: {account.billingRoute}</p>
+          <p>Observed account billing route: {account.billingRoute}</p>
+          <p>
+            Account: {account.accountId} · Environment: {account.environmentId}
+          </p>
+          <p>Connection: {account.connectionId}</p>
           <p>Account-wide quota: {account.quota.state}</p>
           <p>Source: {account.quota.source ?? "Unavailable"}</p>
           <p>
@@ -53,6 +60,15 @@ export function HarnessUsage({
               "Unavailable"
             )}
           </p>
+          {account.quota.state === "stale" ? (
+            <p>Cached allowance; current remaining quota is unknown.</p>
+          ) : account.quota.state === "unavailable" ||
+            account.quota.state === "unsupported" ? (
+            <p>
+              Remaining quota is unknown. Run tokens do not establish an
+              allowance.
+            </p>
+          ) : null}
           {account.quota.windows?.map((window, index) => (
             <dl key={index}>
               <dt>{window.label ?? window.bucketId ?? "Quota window"}</dt>
@@ -61,7 +77,10 @@ export function HarnessUsage({
                   ? "Utilization unavailable"
                   : `${window.utilizationPercent}% used`}
               </dd>
-              <Metric label="Remaining" value={window.remaining} />
+              <Metric
+                label="Remaining at last check"
+                value={window.remaining}
+              />
               <Metric label="Limit" value={window.limit} />
               <dt>Unit</dt>
               <dd>{window.unit ?? "Unavailable"}</dd>
@@ -70,9 +89,15 @@ export function HarnessUsage({
             </dl>
           ))}
           {account.quota.windows?.length === 0 ? (
-            <p>No numerical windows reported.</p>
+            <p>No numerical windows reported. Remaining quota is unknown.</p>
           ) : null}
           <p>Account-wide allowance may include usage from other apps.</p>
+          {projection.accountMatchesAttempt === false ? (
+            <p>
+              This account observation does not match the admitted attempt. Its
+              activity is excluded.
+            </p>
+          ) : null}
         </>
       ) : (
         <p>Unavailable. No account observation received.</p>
@@ -82,148 +107,151 @@ export function HarnessUsage({
           Manage usage
         </button>
       ) : null}
-      {account ? (
+      <h3>Admitted inference billing</h3>
+      {projection.admittedSelection ? (
         <>
-          <h3>Measured activity</h3>
-          {account.conflictingMeasurementCount > 0 ? (
-            <p>
-              {account.conflictingMeasurementCount} conflicting measurements
-              excluded.
-            </p>
-          ) : null}
-          {activity.length === 0 ? (
-            <p>No activity measurements reported.</p>
-          ) : null}
-          {activity.slice(0, 50).map((measurement) => (
-            <div
-              key={JSON.stringify([
-                measurement.runAttemptId,
-                measurement.instanceId,
-                measurement.externalSessionId,
-                measurement.processGeneration,
-                measurement.source,
-                measurement.sequence,
-                measurement.measurementId,
-              ])}
-            >
-              <p>
-                {measurement.measurementSource === "estimate"
-                  ? "Estimated"
-                  : "Provider-reported"}{" "}
-                {measurement.scope} sample · {measurement.aggregation}
-              </p>
-              <p>
-                Provider: {measurement.providerId} · Model:{" "}
-                {measurement.modelId}
-              </p>
-              <p>
-                Attempt: {measurement.runAttemptId} · Child coverage:{" "}
-                {measurement.childCoverage}
-              </p>
-              <dl>
-                <Metric label="Input tokens" value={measurement.inputTokens} />
-                <Metric
-                  label="Uncached input tokens"
-                  value={measurement.uncachedInputTokens}
-                />
-                <Metric
-                  label="Cache read input tokens"
-                  value={measurement.cacheReadInputTokens}
-                />
-                <Metric
-                  label="Cache creation input tokens"
-                  value={measurement.cacheCreationInputTokens}
-                />
-                <Metric
-                  label="Estimated cost (USD)"
-                  value={measurement.estimatedCostUsd}
-                />
-                <Metric
-                  label="Output tokens"
-                  value={measurement.outputTokens}
-                />
-                <Metric
-                  label="Cached input tokens"
-                  value={measurement.cachedInputTokens}
-                />
-                <Metric
-                  label="Reasoning tokens"
-                  value={measurement.reasoningTokens}
-                />
-                <Metric
-                  label="Total tokens in sample"
-                  value={measurement.totalTokens}
-                />
-              </dl>
-              <p>
-                Source: {measurement.source} ·{" "}
-                <time dateTime={measurement.observedAt}>
-                  {measurement.observedAt}
-                </time>
-              </p>
-            </div>
-          ))}
-          {activity.length > 50 ? <p>Showing up to 50 measurements.</p> : null}
           <p>
-            Samples are not summed across requests, sessions or children.
-            Reasoning tokens are included in output. Monetary estimates are not
-            subscription charges.
+            Admitted inference billing route:{" "}
+            {projection.admittedSelection.billingSource}
           </p>
-          <h3>Provider limit notifications</h3>
           <p>
-            Limit notifications do not establish remaining subscription
-            allowance.
+            Connection: {projection.admittedSelection.connectionId} ·
+            Environment: {projection.admittedSelection.environmentId}
           </p>
-          {account.conflictingLimitNotificationCount > 0 ? (
-            <p>
-              {account.conflictingLimitNotificationCount} conflicting limit
-              notifications excluded.
-            </p>
-          ) : null}
-          {account.providerLimits.length === 0 ? (
-            <p>No limit notifications reported.</p>
-          ) : null}
-          {account.providerLimits
-            .filter(
-              (notification) =>
-                !scope ||
-                (notification.threadId === scope.threadId &&
-                  notification.turnId === scope.turnId &&
-                  notification.runAttemptId === scope.runAttemptId),
-            )
-            .slice(0, 50)
-            .map((notification) => (
-              <div
-                key={JSON.stringify([
-                  notification.runAttemptId,
-                  notification.instanceId,
-                  notification.externalSessionId,
-                  notification.processGeneration,
-                  notification.sequence,
-                  notification.source,
-                  notification.notificationId,
-                ])}
-              >
-                <p>
-                  {notification.status} · Scope: {notification.scope} ·{" "}
-                  {notification.limitKind ?? "Limit kind unavailable"}
-                </p>
-                <p>Resets: {notification.resetsAt ?? "Unavailable"}</p>
-                <p>
-                  Source: {notification.source} ·{" "}
-                  <time dateTime={notification.observedAt}>
-                    {notification.observedAt}
-                  </time>
-                </p>
-              </div>
-            ))}
         </>
-      ) : null}
-      {!account ? (
+      ) : (
+        <p>Admitted inference payer: Unavailable.</p>
+      )}
+      <>
+        <h3>Run token and model cost samples</h3>
+        {projection.conflictingMeasurementCount > 0 ? (
+          <p>
+            {projection.conflictingMeasurementCount} conflicting measurements
+            excluded.
+          </p>
+        ) : null}
+        {activity.length === 0 ? (
+          <p>No activity measurements reported.</p>
+        ) : null}
+        {activity.slice(0, 50).map((measurement) => (
+          <div
+            key={JSON.stringify([
+              measurement.runAttemptId,
+              measurement.instanceId,
+              measurement.externalSessionId,
+              measurement.processGeneration,
+              measurement.source,
+              measurement.sequence,
+              measurement.measurementId,
+            ])}
+          >
+            <p>
+              {measurement.measurementSource === "estimate"
+                ? "Estimated"
+                : "Provider-reported"}{" "}
+              {measurement.scope} sample · {measurement.aggregation}
+            </p>
+            <p>
+              Provider: {measurement.providerId} · Model: {measurement.modelId}
+            </p>
+            <p>
+              Attempt: {measurement.runAttemptId} · Child coverage:{" "}
+              {measurement.childCoverage}
+            </p>
+            <dl>
+              <Metric label="Input tokens" value={measurement.inputTokens} />
+              <Metric
+                label="Uncached input tokens"
+                value={measurement.uncachedInputTokens}
+              />
+              <Metric
+                label="Cache read input tokens"
+                value={measurement.cacheReadInputTokens}
+              />
+              <Metric
+                label="Cache creation input tokens"
+                value={measurement.cacheCreationInputTokens}
+              />
+              <Metric
+                label="Estimated model cost (USD)"
+                value={measurement.estimatedCostUsd}
+                monetary
+              />
+              <Metric label="Output tokens" value={measurement.outputTokens} />
+              <Metric
+                label="Cached input tokens"
+                value={measurement.cachedInputTokens}
+              />
+              <Metric
+                label="Reasoning tokens"
+                value={measurement.reasoningTokens}
+              />
+              <Metric
+                label="Total tokens in sample"
+                value={measurement.totalTokens}
+              />
+            </dl>
+            <p>
+              Source: {measurement.source} ·{" "}
+              <time dateTime={measurement.observedAt}>
+                {measurement.observedAt}
+              </time>
+            </p>
+          </div>
+        ))}
+        {activity.length > 50 ? <p>Showing up to 50 measurements.</p> : null}
+        <p>
+          Samples are not summed across requests, sessions or children.
+          Reasoning tokens are included in output. Monetary estimates are not
+          subscription charges.
+        </p>
+        <h3>Provider limit notifications</h3>
+        <p>
+          Limit notifications do not establish remaining subscription allowance.
+        </p>
+        {projection.conflictingLimitNotificationCount > 0 ? (
+          <p>
+            {projection.conflictingLimitNotificationCount} conflicting limit
+            notifications excluded.
+          </p>
+        ) : null}
+        {projection.providerLimits.length === 0 ? (
+          <p>No limit notifications reported.</p>
+        ) : null}
+        {projection.providerLimits.slice(0, 50).map((notification) => (
+          <div
+            key={JSON.stringify([
+              notification.runAttemptId,
+              notification.instanceId,
+              notification.externalSessionId,
+              notification.processGeneration,
+              notification.sequence,
+              notification.source,
+              notification.notificationId,
+            ])}
+          >
+            <p>
+              {notification.status} · Scope: {notification.scope} ·{" "}
+              {notification.limitKind ?? "Limit kind unavailable"}
+            </p>
+            <p>Resets: {notification.resetsAt ?? "Unavailable"}</p>
+            <p>
+              Source: {notification.source} ·{" "}
+              <time dateTime={notification.observedAt}>
+                {notification.observedAt}
+              </time>
+            </p>
+          </div>
+        ))}
+        {projection.providerLimits.length > 50 ? (
+          <p>Showing up to 50 limit notifications.</p>
+        ) : null}
+      </>
+      {scope ? (
         <>
           <h3>
             {!usage
-              ? "Token usage"
+              ? "Canonical attempt token sample"
               : usage.measurementSource === "estimate"
                 ? "Estimated token sample"
                 : "Provider-reported token sample"}
@@ -232,6 +260,11 @@ export function HarnessUsage({
             <>
               <dl>
                 <Metric label="Input tokens" value={usage.inputTokens} />
+                <Metric
+                  label={`Estimated turn model cost (${usage.currency})`}
+                  value={usage.currentTurnCost}
+                  monetary
+                />
                 <Metric label="Output tokens" value={usage.outputTokens} />
                 <Metric
                   label="Cached input tokens"
@@ -256,7 +289,9 @@ export function HarnessUsage({
               </p>
               <p>
                 Latest sample for this attempt. Child usage coverage and attempt
-                totals are unavailable.
+                totals are unavailable. Model cost estimates are not
+                subscription charges. This sample may overlap the detailed
+                measurements above; do not add them.
               </p>
             </>
           ) : (
@@ -275,17 +310,39 @@ export function HarnessUsage({
           <p>Recorded start-to-settlement time, including waits.</p>
         </>
       ) : null}
-      <h3>LegionCode compute and storage charges</h3>
-      <p>Unavailable.</p>
+      <h3>LegionCode compute, storage and payer</h3>
+      <p>Compute usage and charges: Unavailable.</p>
+      <p>Storage usage and charges: Unavailable.</p>
+      <p>Compute and storage payer: Unavailable.</p>
+      <p>
+        Account billing route does not establish this attempt's payer. Model
+        tokens and recorded elapsed time do not establish metered cloud compute
+        or storage. Subscription inference does not imply free cloud compute.
+      </p>
     </section>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number | null }) {
+function Metric({
+  label,
+  value,
+  monetary = false,
+}: {
+  label: string;
+  value: number | null;
+  monetary?: boolean;
+}) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value === null ? "Unavailable" : value.toLocaleString()}</dd>
+      <dd>
+        {value === null
+          ? "Unavailable"
+          : value.toLocaleString(
+              undefined,
+              monetary ? { maximumSignificantDigits: 10 } : undefined,
+            )}
+      </dd>
     </div>
   );
 }
