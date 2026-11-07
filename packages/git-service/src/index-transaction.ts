@@ -119,6 +119,7 @@ if (!input.indexTransaction) {
       throw new Error("Cannot establish Git HEAD state");
     };
     const beforeHead = await headState();
+    let beforeTree = beforeHead;
     const branchName = await required(["branch", "--show-current"]);
     if (!branchName) throw new Error("Git commit requires a named branch");
     let commitIndex = privateIndex;
@@ -127,6 +128,9 @@ if (!input.indexTransaction) {
     if (guard.expectedTerminalTreeId) {
       const conflict = () => { throw Object.assign(new Error("Immutable artifact content conflict"), { result: { exitCode: 1, stdout: "", stderr: "Immutable artifact content conflict", artifactConflict: true } }); };
       if (guard.expectedHeadSha && beforeHead !== guard.expectedHeadSha) conflict();
+      // Keep the unborn sentinel for ref-state detection, never use it as a
+      // treeish in immutable-content or hook changed-path comparisons.
+      if (beforeHead.startsWith("unborn:")) beforeTree = await required(["mktree"]);
       // Preserve native partial-commit refusal during an unfinished Git operation.
       for (const state of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]) {
         const statePath = await required(["rev-parse", "--path-format=absolute", "--git-path", state]);
@@ -139,7 +143,7 @@ if (!input.indexTransaction) {
         if (leaves.split("\0").some(entry => entry.startsWith("040000 "))) conflict();
       }
       if (guard.expectedBaselineTreeId) {
-        const baseline = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", beforeHead, guard.expectedBaselineTreeId, "--", ...guard.paths]);
+        const baseline = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", beforeTree, guard.expectedBaselineTreeId, "--", ...guard.paths]);
         if (baseline.exitCode === 1) conflict();
         if (baseline.exitCode !== 0) throw Object.assign(new Error(baseline.stderr), { result: baseline });
       }
@@ -161,7 +165,7 @@ if (!input.indexTransaction) {
         const originalHooks = await required(["rev-parse", "--path-format=absolute", "--git-path", "hooks"]);
         fs.mkdirSync(hooks, { mode: 0o700 });
         fs.writeFileSync(path.join(hooks, "package.json"), JSON.stringify({ type: "commonjs" }), { mode: 0o600 });
-        fs.writeFileSync(path.join(hooks, "guard.json"), JSON.stringify({ originalHooks, cwd: input.cwd, index: commitIndex, terminalTree: guard.expectedTerminalTreeId, beforeHead, paths: guard.paths }), { mode: 0o600 });
+        fs.writeFileSync(path.join(hooks, "guard.json"), JSON.stringify({ originalHooks, cwd: input.cwd, index: commitIndex, terminalTree: guard.expectedTerminalTreeId, beforeHead: beforeTree, paths: guard.paths }), { mode: 0o600 });
         const wrapper = "#!/usr/bin/env node\nconst fs = require(\"node:fs\");\nconst path = require(\"node:path\");\nconst { spawnSync } = require(\"node:child_process\");\nconst config = JSON.parse(fs.readFileSync(path.join(__dirname, \"guard.json\"), \"utf8\"));\nconst name = path.basename(process.argv[1]);\nconst original = path.join(config.originalHooks, name);\nconst fail = (message, code = 1) => {\n  fs.appendFileSync(path.join(__dirname, \"failure\"), name + \": \" + message + \"\\n\");\n  process.stderr.write(\"legion-artifact-guard-conflict: \" + message + \"\\n\");\n  process.exit(code);\n};\ntry {\n  fs.accessSync(original, fs.constants.X_OK);\n  const result = spawnSync(original, process.argv.slice(2), { stdio: \"inherit\", env: process.env });\n  if (result.error || result.status !== 0) fail(\"Repository hook failed\", result.status || 1);\n} catch (error) {\n  if (error.code !== \"ENOENT\" && error.code !== \"EACCES\") fail(\"Repository hook could not be inspected\");\n}\nconst environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith(\"GIT_\")));\nconst currentIndex = path.resolve(process.env.GIT_INDEX_FILE || config.index);\nif (path.dirname(currentIndex) !== path.dirname(config.index)) fail(\"Repository hook received an unexpected index context\");\nenvironment.GIT_INDEX_FILE = currentIndex;\nenvironment.GIT_OPTIONAL_LOCKS = \"0\";\nconst git = args => spawnSync(\"git\", [\"--work-tree=\" + config.cwd, \"-c\", \"core.fsmonitor=false\", ...args], { cwd: config.cwd, env: environment, encoding: \"utf8\", maxBuffer: 16 * 1024 * 1024 });\nconst selected = git([\"--literal-pathspecs\", \"diff\", \"--no-ext-diff\", \"--no-textconv\", \"--cached\", \"--quiet\", config.terminalTree, \"--\", ...config.paths]);\nconst changed = git([\"diff\", \"--no-ext-diff\", \"--no-textconv\", \"--cached\", \"--name-only\", \"-z\", config.beforeHead]);\nif (selected.status !== 0 || changed.status !== 0 || changed.stdout.split(\"\\0\").filter(Boolean).some(value => !config.paths.includes(value))) {\n  fail(\"Repository hook changed immutable artifact content or additional paths\");\n}\n";
         for (const name of ["pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"]) fs.writeFileSync(path.join(hooks, name), wrapper, { mode: 0o700 });
         commitArgs = ["-c", "core.hooksPath=" + hooks, ...commitArgs];
@@ -185,7 +189,7 @@ if (!input.indexTransaction) {
       result = { ...result, commitSha, branchName };
       if (guard.expectedTerminalTreeId) {
         const verified = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", guard.expectedTerminalTreeId, commitSha, "--", ...guard.paths], undefined, true);
-        const changed = await run(["diff", "--name-only", "-z", beforeHead, commitSha], undefined, true);
+        const changed = await run(["diff", "--name-only", "-z", beforeTree, commitSha], undefined, true);
         const finalIndex = await run(["diff", "--no-ext-diff", "--no-textconv", "--cached", "--quiet", commitSha], commitIndex, true);
         if (finalIndex.exitCode !== 0 || fs.existsSync(path.join(directory, "guarded-hooks", "failure"))) throw new Error("Repository hook changed or failed after the artifact commit; inspect outcome");
         if (verified.exitCode !== 0 || changed.exitCode !== 0 || changed.stdout.split("\0").filter(Boolean).some(candidate => !guard.paths.includes(candidate))) {
