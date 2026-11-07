@@ -23,6 +23,7 @@ import {
 } from "@repo/worker-protocol";
 import { OpenCodeTransportError } from "./OpenCodeClient.js";
 import { OpenCodeUsageReader } from "./OpenCodeUsageReader.js";
+import { openCodeFailure } from "./OpenCodeErrorMapper.js";
 
 type Terminal = Extract<
   HarnessObservationPayload,
@@ -31,12 +32,13 @@ type Terminal = Extract<
 
 /** Native translation only. Host journals payloads; runtime validates and appends them. */
 export class OpenCodeEventMapper {
-  private readonly toolNames = new Map<string, string>();
+  private readonly tools = new Map<string, { name: string; called: boolean }>();
   private readonly rootText = new Map<string, string>();
   private readonly usage: OpenCodeUsageReader;
   private pendingTerminal: Terminal | undefined;
   private terminalDelivered = false;
-  private latestProviderCompletion = 0;
+  private rootExecutionActive = false;
+  private usageSequence = 0;
 
   constructor(
     private readonly options: {
@@ -58,8 +60,21 @@ export class OpenCodeEventMapper {
     if (this.terminalDelivered)
       throw new OpenCodeTransportError("observation after quiescence", true);
     try {
+      const origin =
+        event.type === "form.created"
+          ? event.data.form.sessionID
+          : "sessionID" in event.data
+            ? event.data.sessionID
+            : undefined;
       return this.translate(event).map((payload) =>
-        HarnessObservationPayloadSchema.parse(payload),
+        HarnessObservationPayloadSchema.parse(
+          origin &&
+            origin !== this.options.session.externalSessionId &&
+            payload.kind !== "external_terminal" &&
+            payload.kind !== "quiescence"
+            ? { ...payload, background: true }
+            : payload,
+        ),
       );
     } catch {
       throw new OpenCodeTransportError("event translation", true);
@@ -89,16 +104,12 @@ export class OpenCodeEventMapper {
         true,
       );
     }
-    if (this.pendingTerminal.status === "completed" && this.toolNames.size) {
+    if (this.pendingTerminal.status === "completed" && this.tools.size) {
       throw new OpenCodeTransportError("unsettled tool observations", true);
     }
     this.terminalDelivered = true;
-    return {
-      ...this.pendingTerminal,
-      providerCompletedAt: new Date(
-        this.latestProviderCompletion,
-      ).toISOString(),
-    };
+    // Descendant completion and host settlement must not rewrite foreground time.
+    return { ...this.pendingTerminal };
   }
 
   private translate(
@@ -115,9 +126,25 @@ export class OpenCodeEventMapper {
           throw new OpenCodeTransportError("native policy changed", true);
         return [];
       case "session.execution.started":
-        if (event.data.sessionID === this.options.session.externalSessionId)
+        if (event.data.sessionID === this.options.session.externalSessionId) {
+          if (
+            this.rootExecutionActive ||
+            (this.pendingTerminal &&
+              this.pendingTerminal.status !== "completed")
+          )
+            throw new OpenCodeTransportError(
+              "unexpected root execution transition",
+              true,
+            );
+          // Native child/background wakeups can open another busy period for
+          // this same admitted prompt. No prompt is resent or session resumed.
+          this.rootExecutionActive = true;
           this.pendingTerminal = undefined;
+        }
         return [];
+      case "session.moved":
+        throw new OpenCodeTransportError("native workspace changed", true);
+      case "session.model.selected":
       case "session.step.started":
         if (
           event.data.model.id !== this.options.model.id ||
@@ -165,19 +192,24 @@ export class OpenCodeEventMapper {
           : [];
       }
       case "session.tool.input.started": {
-        if (this.toolNames.size >= 1000)
-          throw new OpenCodeTransportError("tool observation bound", true);
-        this.toolNames.set(this.toolKey(event.data), event.data.name);
+        const key = this.toolKey(event.data);
+        if (this.tools.size >= 1000 || this.tools.has(key))
+          throw new OpenCodeTransportError(
+            "tool observation bound or duplicate",
+            true,
+          );
+        this.tools.set(key, { name: event.data.name, called: false });
         return [];
       }
       case "session.tool.called": {
         const key = this.toolKey(event.data);
-        const name = this.toolNames.get(key);
-        if (!name)
+        const tool = this.tools.get(key);
+        if (!tool || tool.called)
           throw new OpenCodeTransportError(
             "tool call without input start",
             true,
           );
+        tool.called = true;
         return [
           {
             kind: "tool_started",
@@ -186,7 +218,7 @@ export class OpenCodeEventMapper {
               toolCallId: ToolCallIdSchema.parse(
                 `toolcall_${this.hash("tool", key)}`,
               ),
-              toolName: name,
+              toolName: tool.name,
               input: JsonRecordSchema.parse(event.data.input),
             },
           },
@@ -199,9 +231,9 @@ export class OpenCodeEventMapper {
             true,
           );
         const key = this.toolKey(event.data);
-        if (!this.toolNames.has(key))
+        if (!this.tools.get(key)?.called)
           throw new OpenCodeTransportError("tool result without start", true);
-        this.toolNames.delete(key);
+        this.tools.delete(key);
         return [
           {
             kind: "tool_completed",
@@ -215,26 +247,14 @@ export class OpenCodeEventMapper {
       }
       case "session.tool.failed": {
         const key = this.toolKey(event.data);
-        if (!this.toolNames.has(key))
+        if (!this.tools.get(key)?.called)
           throw new OpenCodeTransportError("tool failure without start", true);
-        this.toolNames.delete(key);
+        this.tools.delete(key);
         return [
           {
             kind: "tool_failed",
             itemId: this.item("tool", key),
-            failure: {
-              code:
-                event.data.error.type === "permission.rejected"
-                  ? "policy_denied"
-                  : "command_failed",
-              message:
-                event.data.error.type === "permission.rejected"
-                  ? "OpenCode action was denied."
-                  : "OpenCode tool failed.",
-              retryable: false,
-              correlationId: null,
-              details: null,
-            },
+            failure: openCodeFailure(event.data.error, "command_failed"),
           },
         ];
       }
@@ -249,6 +269,11 @@ export class OpenCodeEventMapper {
           assistantMessageID: event.data.source.messageID,
           id: event.data.source.id,
         });
+        if (!this.tools.get(key)?.called)
+          throw new OpenCodeTransportError(
+            "permission without observed tool call",
+            true,
+          );
         const requestId = event.data.id;
         return [
           {
@@ -296,19 +321,31 @@ export class OpenCodeEventMapper {
           },
         ];
       }
-      case "session.usage.updated":
-        return [{ kind: "usage", usage: this.usage.observe(event) }];
+      case "session.usage.updated": {
+        const usage = this.usage.observe(event);
+        return [
+          {
+            kind: "activity_measurement",
+            measurement: this.usage.measurement({
+              usage,
+              selection: this.options.selection,
+              session: this.options.session,
+              measurementId: `opencode_usage_${this.hash("usage", event.id)}`,
+              sequence: ++this.usageSequence,
+              observedAt: new Date(event.created).toISOString(),
+            }),
+          },
+          { kind: "usage", usage },
+        ];
+      }
       case "session.execution.succeeded":
       case "session.execution.failed":
       case "session.execution.interrupted": {
-        this.latestProviderCompletion = Math.max(
-          this.latestProviderCompletion,
-          event.created,
-        );
         if (event.data.sessionID !== this.options.session.externalSessionId)
           return [];
-        if (this.pendingTerminal)
+        if (this.pendingTerminal || !this.rootExecutionActive)
           throw new OpenCodeTransportError("duplicate native terminal", true);
+        this.rootExecutionActive = false;
         this.pendingTerminal = {
           kind: "external_terminal",
           providerCompletedAt: new Date(event.created).toISOString(),
@@ -322,13 +359,7 @@ export class OpenCodeEventMapper {
           output: [...this.rootText.values()].join("\n"),
           error:
             event.type === "session.execution.failed"
-              ? {
-                  code: "provider_unavailable",
-                  message: "OpenCode execution failed.",
-                  retryable: false,
-                  correlationId: null,
-                  details: null,
-                }
+              ? openCodeFailure(event.data.error)
               : null,
         };
         return [];
