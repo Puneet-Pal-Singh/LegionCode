@@ -279,9 +279,17 @@ export class LocalTurnService {
     const page = await this.options.persistence.turnAdmissions.listByThread({
       threadId: thread.id,
       afterCursor: params.afterCursor ?? null,
-      limit: params.limit ?? 50,
+      limit: params.limit ?? (params.latest ? 25 : 50),
+      latest: params.latest,
     });
-    return { admissions: [...page.admissions], nextCursor: page.nextCursor };
+    const current = await this.options.threads.get(thread.id);
+    if (current.workspaceId !== params.workspaceId) {
+      throw new AppServerOperationError(404, "not_found", "Local thread was not found in the granted workspace");
+    }
+    return {
+      admissions: [...page.admissions], nextCursor: page.nextCursor,
+      ...(params.latest ? { hasEarlier: page.hasEarlier } : {}),
+    };
   }
 
   async replayLifecycleEvents(params: ReplayLifecycleEventsRequest) {

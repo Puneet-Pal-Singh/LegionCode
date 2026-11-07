@@ -1525,3 +1525,16 @@ No filesystem URL or source path reaches a renderer. Provider hydration uses the
 same original store and shared normalizer, with no durable provider data URLs.
 The private blob namespace assumes the trusted invoking-user host profile; it
 does not claim protection against another process controlling that namespace.
+
+## Local bounded latest history
+
+`LocalTurnAdmissions.listByThread` remains the sole local history query over
+canonical admission/event references. Explicit `thread/history` `latest: true`
+selects at most the requested limit plus one identity in descending event
+insertion order, reconstructs only the selected page and returns it chronologically.
+`hasEarlier` comes from the extra row; `nextCursor` is the real newest returned
+event cursor. A latest request cannot combine an `afterCursor`. The local service
+defaults latest reads to 25 and reauthorizes the current Thread after the query.
+Omitting latest retains forward pagination and its existing 50-row service
+default, cursor semantics and response shape. No separate history index, timestamp
+ordering, lifecycle producer or inferred UI cursor is introduced.

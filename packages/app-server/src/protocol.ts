@@ -205,12 +205,17 @@ export const LocalThreadHistoryParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   threadId: ThreadIdSchema,
   afterCursor: EventCursorSchema.nullable().optional(),
+  /** Explicit bounded tail; omitted keeps the existing forward cursor behavior. */
+  latest: z.boolean().optional(),
   limit: z.number().int().min(1).max(100).optional(),
-}).strict();
+}).strict().refine((params) => !params.latest || params.afterCursor == null,
+  "Latest history cannot be combined with an after cursor");
 export type LocalThreadHistoryParams = z.infer<typeof LocalThreadHistoryParamsSchema>;
 export const LocalThreadHistoryResultSchema = z.object({
   admissions: z.array(TurnAdmissionSchema),
   nextCursor: EventCursorSchema.nullable(),
+  /** Present on latest requests, measured by a real one-row lookbehind. */
+  hasEarlier: z.boolean().optional(),
 }).strict();
 export type LocalThreadHistoryResult = z.infer<typeof LocalThreadHistoryResultSchema>;
 export const LocalTurnInterruptParamsSchema = z.object({
