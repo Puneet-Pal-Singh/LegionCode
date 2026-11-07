@@ -48,6 +48,9 @@ export interface DesktopRightPanelProps {
   environmentSummary?: ReactNode;
 }
 
+// Match the shared frame's full-width right-panel breakpoint.
+const COMPACT_RIGHT_PANEL_QUERY = "(max-width: 767px)";
+
 /** Shared Web presentation; grant identity and all reads stay in Desktop's SDK adapters. */
 export function DesktopRightPanel({
   workspace,
@@ -60,6 +63,16 @@ export function DesktopRightPanel({
   headerWidth,
   environmentSummary,
 }: DesktopRightPanelProps) {
+  const [isCompact, setIsCompact] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(COMPACT_RIGHT_PANEL_QUERY).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(COMPACT_RIGHT_PANEL_QUERY);
+    const update = (event: MediaQueryListEvent): void => setIsCompact(event.matches);
+    setIsCompact(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const [isViewingContent, setIsViewingContent] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [hasFilesTab, setHasFilesTab] = useState(false);
@@ -220,7 +233,8 @@ export function DesktopRightPanel({
         <WorkspaceSidebarHeader
           {...headerActions}
           isViewingContent={isViewingContent}
-          sidebarWidth={headerWidth}
+          position={isCompact ? "inline" : "fixed"}
+          sidebarWidth={isCompact ? "100%" : headerWidth}
           environmentSummary={environmentSummary}
           onCloseReview={onClose}
           onCloseSidebar={onClose}
