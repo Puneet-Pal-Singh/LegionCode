@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild main.ts --bundle --platform=node --format=esm --external:@repo/harness-codex/server --external:@repo/harness-claude/server --external:@repo/harness-opencode/server --banner:js='import { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);' --outfile=dist/main.mjs",
+    "build": "node scripts/package-runtime.mjs",
     "check-types": "tsc --noEmit"
   },
+  "files": [
+    "dist/runtime"
+  ],
   "dependencies": {
     "@repo/harness-core": "workspace:*",
     "@repo/harness-codex": "workspace:*",
