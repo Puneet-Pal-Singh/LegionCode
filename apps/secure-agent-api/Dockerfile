@@ -71,8 +71,28 @@ RUN python3 -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
 COPY --from=go-builder /app/redis-binary /usr/local/bin/my-redis-server
 RUN chmod +x /usr/local/bin/my-redis-server && mkdir -p /data
 
-# The separately built Node entry contains only trusted host/status/bridge code.
-# Driver packages are Node-only; provider launch remains capability-gated.
-COPY harness-host/dist/main.mjs /opt/legioncode/harness-host/main.mjs
+# The production archive contains the shared Node driver bundles, frozen-lock
+# SDK/peer/native assets, and integrity-pinned Codex/OpenCode executables.
+# Build with `pnpm build:cloud-harness-host` before building this app context.
+# Bind the archive during extraction so it is not retained as a second large
+# image layer in addition to the installed runtimes.
+RUN --mount=type=bind,source=harness-host/dist/runtime.tar,target=/tmp/legioncode-harness-runtime.tar,ro \
+    node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)' \
+    && mkdir -p /opt/legioncode/harness-host \
+    && tar --no-same-owner -xf /tmp/legioncode-harness-runtime.tar -C /opt/legioncode/harness-host \
+    && chown -R root:root /opt/legioncode/harness-host \
+    && chmod -R go-w /opt/legioncode/harness-host \
+    && groupadd --gid 65532 legion-harness \
+    && useradd --uid 65532 --gid 65532 --home-dir /home/legion-harness --create-home --shell /usr/sbin/nologin legion-harness \
+    && install -d -m 0700 -o 65532 -g 65532 /home/legion-harness \
+       /var/lib/legioncode/harness /var/lib/legioncode/harness/instances \
+       /var/lib/legioncode/harness/journals /var/lib/legioncode/harness/workspaces
+
+# Keep Sandbox 0.12.3's control-plane entrypoint and root startup unchanged.
+# main.mjs drops supplementary groups/GID/UID and ambient credentials before
+# importing the Node host. Private instance config is outside checkout/snapshots;
+# it is supplied by admitted host authority, never populated from a user's home.
+# This identity is NOT filesystem/network/control-endpoint confinement and does
+# not enable the separately owned cloud harness availability/release gates.
 
 WORKDIR /root
