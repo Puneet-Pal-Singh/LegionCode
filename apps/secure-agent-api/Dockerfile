@@ -84,7 +84,7 @@ RUN --mount=type=bind,source=harness-host/dist/runtime.tar,target=/tmp/legioncod
     && chown -R root:root /opt/legioncode/harness-host \
     && chmod -R go-w /opt/legioncode/harness-host \
     && groupadd --gid 65532 legion-harness \
-    && useradd --uid 65532 --gid 65532 --home-dir /home/legion-harness --create-home --shell /usr/sbin/nologin legion-harness \
+    && useradd --no-log-init --uid 65532 --gid 65532 --home-dir /home/legion-harness --create-home --shell /usr/sbin/nologin legion-harness \
     && install -d -m 0700 -o 65532 -g 65532 /home/legion-harness \
        /var/lib/legioncode/harness /var/lib/legioncode/harness/instances \
        /var/lib/legioncode/harness/journals /var/lib/legioncode/harness/workspaces
