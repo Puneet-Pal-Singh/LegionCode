@@ -149,8 +149,30 @@ export async function createVerifiedMacGitExecution(
     version.outputClosed ||
     !version.quiescent ||
     !version.stdout.trim().startsWith("git version ")
-  )
-    throw unavailable("Canonical Mac Git readiness was not proved");
+  ) {
+    const timedOut = "timedOut" in version && version.timedOut === true;
+    const versionPrefix = version.stdout.trim().startsWith("git version ");
+    // Only this failed fixed --version probe is classified; no output is exposed.
+    const stderr = version.stderr.toLowerCase();
+    const stderrCategory = stderr.includes("xcrun: error:") ? "developer_tool_error"
+      : stderr.includes("sandbox-exec:") ? "sandbox_launcher_error"
+      : stderr.includes("operation not permitted") ? "operation_denied" : "other";
+    const message = timedOut ? "Canonical Mac Git readiness timed out"
+      : version.exitCode !== 0 ? "Canonical Mac Git readiness returned a nonzero exit status"
+      : version.truncated ? "Canonical Mac Git readiness output was truncated"
+      : !versionPrefix ? "Canonical Mac Git readiness version format was invalid"
+      : "Canonical Mac Git readiness was not proved";
+    throw new GitServiceError("git_process_containment_unavailable", message, {
+      ...(Number.isInteger(version.exitCode) && version.exitCode >= 0 && version.exitCode <= 255
+        ? { exitCode: version.exitCode } : {}),
+      readinessTimedOut: timedOut,
+      readinessTruncated: version.truncated,
+      readinessOutputClosed: version.outputClosed,
+      readinessQuiescent: version.quiescent,
+      readinessVersionPrefix: versionPrefix,
+      readinessStderrCategory: stderrCategory,
+    });
+  }
 
   return { scope: "single_executable_nofork", run };
 }

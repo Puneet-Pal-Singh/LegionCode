@@ -34,6 +34,10 @@ const REASONS = new Map<string, string>([
   ["Native filesystem cleanup failed; workspace capture is required", "native_cleanup_uncertain"],
   ["Git and its guardian require trusted canonical paths", "git_executables_untrusted"],
   ["Canonical Mac Git readiness was not proved", "git_readiness_unproved"],
+  ["Canonical Mac Git readiness timed out", "git_readiness_timed_out"],
+  ["Canonical Mac Git readiness returned a nonzero exit status", "git_readiness_exit_nonzero"],
+  ["Canonical Mac Git readiness output was truncated", "git_readiness_output_truncated"],
+  ["Canonical Mac Git readiness version format was invalid", "git_readiness_version_format"],
   ["Canonical Mac Git execution did not prove process closure", "git_lifetime_uncertain"],
   ["Mac Git process closure was not proved", "git_lifetime_uncertain"],
   ["Trusted private Git configuration context is unavailable", "git_configuration_unavailable"],
@@ -49,20 +53,39 @@ const GIT_CODES = new Set<GitServiceErrorCode>([
   "invalid_branch_ref", "invalid_git_input", "malformed_status_output", "unsupported_status_record",
 ]);
 const NODE_CODES = new Set(["ENOENT", "EACCES", "EPERM", "ENOTDIR", "ELOOP"]);
+const STDERR_MESSAGES = new Map([
+  ["developer_tool_error", "Developer tool lookup reported an error."],
+  ["sandbox_launcher_error", "The process sandbox launcher reported an error."],
+  ["operation_denied", "The Git readiness operation was denied."],
+]);
 
-function safeCategory(error: unknown): Record<string, string | number> {
+function safeCategory(error: unknown): Record<string, string | number | boolean> {
   try {
     const reason = error instanceof Error ? REASONS.get(error.message) ?? "unknown" : "unknown";
     if (error instanceof NativeFilesystemError) return {
       failureCategory: "native_filesystem", reason,
       ...(Number.isInteger(error.code) && error.code >= 1 && error.code <= 5 ? { nativeCode: error.code } : {}),
     };
-    if (error instanceof GitServiceError) return {
-      failureCategory: "git_service", reason,
-      ...(GIT_CODES.has(error.code) ? { gitCode: error.code } : {}),
-      ...(typeof error.context.exitCode === "number" && Number.isSafeInteger(error.context.exitCode)
-        ? { exitCode: error.context.exitCode } : {}),
-    };
+    if (error instanceof GitServiceError) {
+      const readiness = error.code === "git_process_containment_unavailable" && reason.startsWith("git_readiness_");
+      const metadata: Record<string, string | number | boolean> = {
+        failureCategory: "git_service", reason,
+        ...(GIT_CODES.has(error.code) ? { gitCode: error.code } : {}),
+        ...(typeof error.context.exitCode === "number" && Number.isSafeInteger(error.context.exitCode)
+          && (!readiness || (error.context.exitCode >= 0 && error.context.exitCode <= 255))
+          ? { exitCode: error.context.exitCode } : {}),
+      };
+      if (readiness) {
+        for (const key of ["readinessTimedOut", "readinessTruncated", "readinessOutputClosed", "readinessQuiescent", "readinessVersionPrefix"]) {
+          const value = error.context[key];
+          if (typeof value === "boolean") metadata[key] = value;
+        }
+        const category = error.context.readinessStderrCategory;
+        if (typeof category === "string" && (STDERR_MESSAGES.has(category) || category === "other"))
+          metadata.readinessStderrCategory = category;
+      }
+      return metadata;
+    }
     if (error instanceof SingleProcessMacLifetimeUncertainError)
       return { failureCategory: "git_lifetime_uncertain", reason: "git_lifetime_uncertain" };
     if (error instanceof SingleProcessMacCapabilityError)
@@ -82,8 +105,12 @@ export function workspaceGrantFailure(error: unknown, stage: LocalWorkspaceGrant
   const metadata = safeCategory(error);
   const reason = typeof metadata.reason === "string" ? metadata.reason : "unknown";
   const detail = reason === "unknown" ? "" : ` ${reason.replaceAll("_", " ")}.`;
+  const exitDetail = reason.startsWith("git_readiness_") && typeof metadata.exitCode === "number"
+    ? ` Exit status ${metadata.exitCode}.` : "";
+  const stderrDetail = typeof metadata.readinessStderrCategory === "string"
+    ? STDERR_MESSAGES.get(metadata.readinessStderrCategory) : undefined;
   return new AppServerOperationError(
-    400, "invalid_request", `${STAGES[stage]}${detail}`,
+    400, "invalid_request", `${STAGES[stage]}${detail}${exitDetail}${stderrDetail ? ` ${stderrDetail}` : ""}`,
     `workspace_grant_${stage}`, false, undefined, metadata,
   );
 }
