@@ -45,6 +45,18 @@ export class LocalWorkspaceLease {
     }
   }
   async assertSettled(admission: TurnAdmission): Promise<void> {
+    await this.assertCanonicalSettlement(admission);
+    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
+      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+    if (binding?.attachment) {
+      throw new Error("Local checkout lease retains its external stream until canonical integrity retirement is verified");
+    }
+  }
+
+  /** Canonical terminal/artifact precondition for the owner-driven release path.
+   * Passing this check alone never retires an external stream or releases a lease.
+   */
+  async assertCanonicalSettlement(admission: TurnAdmission): Promise<void> {
     const history = await this.history(admission);
     const terminal = history.at(-1);
     if (!terminal || !["turn.completed", "turn.failed", "turn.interrupted"].includes(terminal.type)) {
@@ -53,20 +65,16 @@ export class LocalWorkspaceLease {
     const events = await this.persistence.events.listAll();
     const artifacts = events.filter((event) => event.type === "artifact.created" && event.runId === admission.run.id);
     const hasStartEvidence = history.some((event) => event.type === "workspace.snapshot_captured") || artifacts.length > 0;
-    // A canonical pre-execution failure/Stop with no start evidence cannot have launched a provider.
-    if (!hasStartEvidence && terminal.type !== "turn.completed") return;
+    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
+      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+    // A learned attachment invalidates the pre-start exemption even when start
+    // evidence is missing. Missing evidence must retain, never release, ownership.
+    if (!hasStartEvidence && !binding?.attachment && terminal.type !== "turn.completed") return;
     const snapshot = artifacts.some((event) => event.type === "artifact.created" &&
       event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.phase === "snapshot:terminal");
     const diff = artifacts.some((event) => event.type === "artifact.created" &&
       event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.role === "turn_diff");
     if (!snapshot || !diff) throw new Error("Local checkout lease retains ownership until immutable artifact settlement");
-    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
-      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
-    if (binding?.attachment) {
-      // Core's sticky stream-integrity marker cannot be cleared by physical
-      // quiescence/artifacts alone. P04/P11 must supply canonical retirement proof.
-      throw new Error("Local checkout lease retains its external stream until canonical integrity retirement is verified");
-    }
   }
   private async history(admission: TurnAdmission): Promise<LifecycleEvent[]> {
     const history: LifecycleEvent[] = [];
