@@ -630,3 +630,10 @@ export {
   type HostedWorkspaceListItem,
   type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";
+
+export {
+  CommitTurnArtifactRequestSchema,
+  CommitTurnArtifactResponseSchema,
+  type CommitTurnArtifactRequest,
+  type CommitTurnArtifactResponse,
+} from "./git-artifact-operations.js";

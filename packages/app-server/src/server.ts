@@ -30,6 +30,8 @@ import type {
   InterruptTurnResponse,
   GetTurnDiffRequest,
   GetTurnDiffResponse,
+  CommitTurnArtifactRequest,
+  CommitTurnArtifactResponse,
   LifecycleEvent,
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
@@ -161,6 +163,9 @@ export type AppServerComposition = {
   };
   localTurnArtifactReadsService?: {
     getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
+  };
+  localTurnArtifactCommitService?: {
+    commitTurnArtifact(request: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
   };
   hostedGitOperationsService?: {
     status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
@@ -487,6 +492,12 @@ async function dispatch(
     case "git/stage": {
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.stage(request.params);
+    }
+    case "git/commitTurnArtifact": {
+      if (composition.environment !== "local" || !composition.localTurnArtifactCommitService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local Turn artifact commits are unavailable");
+      }
+      return composition.localTurnArtifactCommitService.commitTurnArtifact(request.params);
     }
     case "git/commit": {
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
