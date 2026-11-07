@@ -119,3 +119,5 @@ export { getInitialRightSidebarWidth, clampRightSidebarWidth } from "./workspace
 export { EnvironmentSummaryMenu, type EnvironmentSummaryMenuProps, type EnvironmentSavedSources } from "./workspace/EnvironmentSummaryMenu.js";
 
 export { WorkspaceReviewControls } from "./workspace/WorkspaceReviewControls.js";
+
+export { readComposerPreferences, updateComposerPreferences, useComposerPreferences, type ComposerPreferences } from "./conversation/composerPreferences.js";
