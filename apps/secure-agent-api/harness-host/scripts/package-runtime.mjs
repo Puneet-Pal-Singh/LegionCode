@@ -1,4 +1,3 @@
-import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -14,8 +13,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isAbsolute, join, relative, sep } from "node:path";
+import {
+  compileHost,
+  hostDirectory as host,
+  repositoryRoot as root,
+} from "./build.mjs";
 import { installRuntimeAssets } from "./runtime-assets.mjs";
 import { stageNodeDependencies } from "./stage-node-dependencies.mjs";
 
@@ -30,8 +33,6 @@ if (
     "Cloud harness packaging requires Linux x64 glibc and Node >=22",
   );
 }
-const host = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const root = resolve(host, "../../..");
 const dist = join(host, "dist");
 const runtime = join(dist, "runtime");
 const scratch = await mkdtemp(join(tmpdir(), "legion-harness-package-"));
@@ -52,38 +53,10 @@ try {
     ],
     { cwd: root, stdio: "inherit" },
   );
-  await rm(dist, { recursive: true, force: true });
+  await rm(runtime, { recursive: true, force: true });
+  await rm(join(dist, "runtime.tar"), { force: true });
   await mkdir(runtime, { recursive: true });
-  const result = await build({
-    absWorkingDir: root,
-    entryPoints: {
-      host: join(host, "main.ts"),
-      "drivers/codex": "packages/harness-codex/src/server.ts",
-      "drivers/claude": "packages/harness-claude/src/server.ts",
-      "drivers/opencode": "packages/harness-opencode/src/server.ts",
-    },
-    bundle: true,
-    splitting: true,
-    platform: "node",
-    target: "node22",
-    format: "esm",
-    outdir: runtime,
-    outExtension: { ".js": ".mjs" },
-    // Keep the official SDK's relative/native asset lookup intact. All shared
-    // driver code (including OpenCode's typed Promise client) is bundled here.
-    external: ["@anthropic-ai/claude-agent-sdk"],
-    banner: {
-      js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
-    },
-    metafile: true,
-  });
-  for (const output of Object.values(result.metafile.outputs)) {
-    for (const dependency of output.imports) {
-      if (dependency.external && dependency.path.startsWith("@repo/")) {
-        throw new Error("Unpackaged workspace import in Node runtime");
-      }
-    }
-  }
+  await compileHost(runtime);
 
   if (!(await readFile(join(root, "pnpm-lock.yaml"))).equals(lock)) {
     throw new Error("Packaging changed the root lockfile");

@@ -73,7 +73,8 @@ RUN chmod +x /usr/local/bin/my-redis-server && mkdir -p /data
 
 # The production archive contains the shared Node driver bundles, frozen-lock
 # SDK/peer/native assets, and integrity-pinned Codex/OpenCode executables.
-# Build with `pnpm build:cloud-harness-host` before building this app context.
+# Build with `pnpm --filter @legioncode/cloud-harness-host package:runtime`
+# on Linux x64 glibc / Node >=22 before building this app context.
 # Bind the archive during extraction so it is not retained as a second large
 # image layer in addition to the installed runtimes.
 RUN --mount=type=bind,source=harness-host/dist/runtime.tar,target=/tmp/legioncode-harness-runtime.tar,ro \
