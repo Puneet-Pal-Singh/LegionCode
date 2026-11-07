@@ -56,11 +56,11 @@ export interface LocalHarnessRuntimeBinding {
     }>;
 }
 export interface LocalHarnessRuntimeServices {
-  /** Same-writer setup receipts and selection CAS, plus safe local catalog/health
-   * readers. The bootstrap receives this process's LocalPersistence; it must not
-   * open another writer or reuse the hosted credential/selection authority.
+  /** Optional supported catalog and verified local health readers only.
+   * Setup/selection and durable identities belong to the constructor's actual
+   * same-writer control-plane module, independently of credential bootstrap.
    */
-  readonly operations: HarnessOperations;
+  readonly operations: Partial<Pick<HarnessOperations, "models" | "status">>;
   /** Existing main/vault or provider-owned local reference authority. Safe metadata reads only. */
   resolveBinding(input: { readonly selection: HarnessNextSelection; readonly thread: Thread;
     readonly grant: StoredLocalWorkspaceGrant }): Promise<LocalHarnessRuntimeBinding>;
