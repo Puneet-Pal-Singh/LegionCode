@@ -1,8 +1,8 @@
 import { cn } from "../classnames.js";
 
 interface DiffFileSummaryProps {
-  additions: number;
-  deletions: number;
+  additions: number | null;
+  deletions: number | null;
   diffPath: string;
   isDeleted: boolean;
   isNewFile: boolean;
@@ -25,7 +25,7 @@ export function DiffFileSummary({
         inline && "flex items-center justify-between gap-3",
       )}
     >
-      <p className="truncate font-mono text-sm text-zinc-200">{diffPath}</p>
+      <p title={diffPath} className="truncate font-mono text-sm text-zinc-200">{diffPath}</p>
       <div
         className={cn(
           "flex shrink-0 flex-wrap items-center gap-2 text-xs text-zinc-400",
@@ -42,8 +42,14 @@ export function DiffFileSummary({
             Deleted file
           </span>
         ) : null}
-        <span className="text-emerald-400">+{additions}</span>
-        <span className="text-red-400">-{deletions}</span>
+        {additions === null || deletions === null ? (
+          <span>Line statistics unavailable</span>
+        ) : (
+          <>
+            <span className="text-emerald-400">+{additions}</span>
+            <span className="text-red-400">-{deletions}</span>
+          </>
+        )}
       </div>
     </div>
   );
