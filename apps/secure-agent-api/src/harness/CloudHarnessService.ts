@@ -101,7 +101,11 @@ export function handleCloudHarnessBridge(
   if (!bearer || request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
     return Response.json({ code: "unauthorized" }, { status: 401 });
   const pair = new WebSocketPair();
-  const [client, server] = Object.values(pair);
+  const client = pair[0];
+  const capturedServer = pair[1];
+  if (!client || !capturedServer)
+    return Response.json({ code: "unavailable" }, { status: 503 });
+  const server = capturedServer;
   let closed = false;
   let activeRequests = 0;
   let pendingBytes = 0;
@@ -127,13 +131,16 @@ export function handleCloudHarnessBridge(
     );
   };
   const verify = async () => {
-    if (!connection) throw new Error("Harness service handshake required");
-    const scope = connection.scope;
+    const capturedConnection = connection;
+    if (closed || !capturedConnection)
+      throw new Error("Harness service handshake required");
+    const scope = capturedConnection.scope;
     const stub = env.AGENT_RUNTIME.get(
       env.AGENT_RUNTIME.idFromName(scope.sessionId),
     );
-    const record = await stub.getHarnessExecutionSession(connection.lease);
-    if (!record) throw new Error("Harness checkout lease unavailable");
+    const record = await stub.getHarnessExecutionSession(capturedConnection.lease);
+    if (closed || connection !== capturedConnection || !record)
+      throw new Error("Harness checkout lease unavailable");
     const lease = SessionCreateResponseSchema.shape.lease.parse(record.lease);
     const a = new TextEncoder().encode(bearer),
       b = new TextEncoder().encode(record.token);
@@ -142,9 +149,9 @@ export function handleCloudHarnessBridge(
       diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
     if (
       diff ||
-      lease.leaseId !== connection.lease.leaseId ||
-      lease.sandboxId !== connection.lease.sandboxId ||
-      lease.generation !== connection.lease.generation ||
+      lease.leaseId !== capturedConnection.lease.leaseId ||
+      lease.sandboxId !== capturedConnection.lease.sandboxId ||
+      lease.generation !== capturedConnection.lease.generation ||
       lease.workspaceScope.runId !== scope.runId ||
       lease.workspaceScope.workspaceId !== scope.workspaceId ||
       lease.workspaceScope.threadId !== scope.threadId ||
@@ -154,11 +161,11 @@ export function handleCloudHarnessBridge(
       throw new Error("Harness checkout ownership mismatch");
     // Cleanup remains lease/process scoped even after provider auth revocation.
     // Missing/replaced leases never create/borrow a replacement checkout.
-    return { record, lease };
+    return { record, lease, scope };
   };
   const dispatch = async (operation: HarnessServiceRequest) => {
     const target = cloudHarnessRequestTarget(operation);
-    await verify();
+    const { scope } = await verify();
     if (!isCloudHarnessCleanup(target)) {
       send({
         type: "error",
@@ -167,7 +174,7 @@ export function handleCloudHarnessBridge(
       });
       return;
     }
-    if (target.session.runAttemptId !== connection!.scope.runAttemptId)
+    if (target.session.runAttemptId !== scope.runAttemptId)
       throw new Error("Harness cleanup scope mismatch");
     const { record } = await verify();
     // The trusted Node host binds its cleanup-only grant to this existing
