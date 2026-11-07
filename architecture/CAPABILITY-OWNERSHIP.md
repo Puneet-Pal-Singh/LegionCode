@@ -1531,10 +1531,23 @@ does not claim protection against another process controlling that namespace.
 `LocalTurnAdmissions.listByThread` remains the sole local history query over
 canonical admission/event references. Explicit `thread/history` `latest: true`
 selects at most the requested limit plus one identity in descending event
-insertion order, reconstructs only the selected page and returns it chronologically.
+insertion order, reconstructs bounded candidates and returns its newest fitting
+whole-Turn suffix chronologically.
 `hasEarlier` comes from the extra row; `nextCursor` is the real newest returned
 event cursor. A latest request cannot combine an `afterCursor`. The local service
 defaults latest reads to 25 and reauthorizes the current Thread after the query.
 Omitting latest retains forward pagination and its existing 50-row service
 default, cursor semantics and response shape. No separate history index, timestamp
 ordering, lifecycle producer or inferred UI cursor is introduced.
+
+Both forward and latest local history responses retain the shared one-MiB
+App Server JSON body budget. The query owner measures actual serialized rows,
+comma separators, opaque cursor and response envelope using the shared protocol
+byte helper. Forward pages keep a fitting prefix and return the last actual row's
+cursor, so continuation never skips a dropped row. Latest pages keep a fitting
+suffix, including the newest Turn, and report real omitted earlier rows. Limit is
+a maximum row count; callers never infer completion from fewer returned rows. A
+single next/newest row exceeding the budget fails explicitly with
+`history_row_too_large`; no partial Turn or fake empty history is returned. The
+App Server validates the final encoded history envelope against the same budget,
+and the SDK retains the existing response cap through the same shared constant.

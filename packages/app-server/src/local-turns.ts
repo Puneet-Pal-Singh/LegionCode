@@ -6,6 +6,7 @@ import {
   type LocalTurnConfigurationOptions,
 } from "@repo/platform-protocol";
 import type { LocalPersistence } from "@repo/event-store/local";
+import { EventStoreError } from "@repo/event-store/errors";
 import type {
   TurnAdmission,
   Thread,
@@ -281,6 +282,11 @@ export class LocalTurnService {
       afterCursor: params.afterCursor ?? null,
       limit: params.limit ?? (params.latest ? 25 : 50),
       latest: params.latest,
+    }).catch((error: unknown) => {
+      if (error instanceof EventStoreError && error.code === "history_row_too_large") {
+        throw new AppServerOperationError(503, "server_unavailable", "The next history Turn exceeds the supported response size", "history_row_too_large", false);
+      }
+      throw error;
     });
     const current = await this.options.threads.get(thread.id);
     if (current.workspaceId !== params.workspaceId) {
