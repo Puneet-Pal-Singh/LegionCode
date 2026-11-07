@@ -1304,3 +1304,23 @@ selects an existing active thread or creates a real local thread before showing
 the shared composer. Local capability availability still gates execution and saved
 review; this presentation migration does not activate an unwired backend or prove
 installed execution, immutable capture or safe commits.
+
+### Local workspace provider preferences
+
+`LocalProviderPreferences` owns secret-free model visibility and default metadata
+for the currently granted workspace. The existing SDK preferences read/update
+methods accept an optional canonical `localScope` tuple; the local service requires
+its WorkspaceId and grantedAt, captures physical authorization at enqueue, checks
+the same grant before persistence and before returning, and serializes mutations.
+Web retains its existing authenticated preference service and unchanged parameters.
+Local provider resolution remains unsupported; the explicit environment-level
+provider route remains `LocalProviderService`, separate from workspace visibility.
+
+`LocalProviderPreferencesRecords` stores versioned, bounded records in the existing
+process-owned SQLite metadata table, keyed by canonical WorkspaceId. It creates no
+second database or credential store. User identity reuses the existing
+`LocalThreadService.LOCAL_USER_ID` owner; local Turn admission already inherits that
+Thread principal. Foreign stored user/workspace/credential identities are rejected.
+Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
+factory composition owns injecting this service with the same grant authority and
+SQLite instance. These source changes do not claim installed persistence proof.
