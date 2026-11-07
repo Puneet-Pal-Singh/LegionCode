@@ -34,6 +34,7 @@ export class OpenCodeServerOwner {
     ) {
       throw new OpenCodeTransportError("private server configuration", false);
     }
+    await assertPrivateConfiguration(host);
     await claimFreshStore(host);
     let transport: OpenCodeClient | undefined;
     try {
@@ -65,6 +66,39 @@ export class OpenCodeServerOwner {
       await transport?.close();
       throw new OpenCodeTransportError("server startup", true);
     }
+  }
+}
+
+/** Native defaults otherwise read the real HOME's provider/config and saved state. */
+async function assertPrivateConfiguration(host: HarnessHost): Promise<void> {
+  const instance = await realpath(host.instanceDirectory);
+  const names = ["XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"];
+  if (host.environment.OPENCODE_CONFIG_DIR !== undefined)
+    names.push("OPENCODE_CONFIG_DIR");
+  if (host.environment.OPENCODE_TEST_HOME !== undefined)
+    throw new OpenCodeTransportError("native home override unavailable", false);
+  for (const name of names) {
+    const configured = host.environment[name];
+    if (!configured || !isAbsolute(configured))
+      throw new OpenCodeTransportError(
+        "isolated native configuration required",
+        false,
+      );
+    const directory = await realpath(configured);
+    const child = relative(instance, directory);
+    const metadata = await stat(directory);
+    if (
+      !child ||
+      child === ".." ||
+      child.startsWith(`..${sep}`) ||
+      isAbsolute(child) ||
+      !metadata.isDirectory() ||
+      (metadata.mode & 0o077) !== 0
+    )
+      throw new OpenCodeTransportError(
+        "unisolated native configuration",
+        false,
+      );
   }
 }
 
