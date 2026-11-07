@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@legioncode/execution-engine": "workspace:*",
+    "@repo/chat-media": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
     "@repo/permission-policy": "workspace:*",
