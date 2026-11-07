@@ -28,8 +28,8 @@ export function HarnessUsage({
   const projection = projectHarnessAccountUsage(
     observation,
     scope,
-    events,
-    admittedSelection,
+    scope ? events : [],
+    scope ? admittedSelection : null,
   );
   const account = projection.account;
   const activity = projection.activity;
@@ -40,14 +40,16 @@ export function HarnessUsage({
     : null;
   return (
     <section aria-label="Harness usage" className="lc-harness-usage">
+      {!scope ? (
+        <p>
+          Account usage only. No attempt is selected; its frozen inference payer
+          is unknown.
+        </p>
+      ) : null}
       <h3>Account quota</h3>
       {account ? (
         <>
           <p>Observed account billing route: {account.billingRoute}</p>
-          <p>
-            Account: {account.accountId} · Environment: {account.environmentId}
-          </p>
-          <p>Connection: {account.connectionId}</p>
           <p>Account-wide quota: {account.quota.state}</p>
           <p>Source: {account.quota.source ?? "Unavailable"}</p>
           <p>
@@ -71,7 +73,7 @@ export function HarnessUsage({
           ) : null}
           {account.quota.windows?.map((window, index) => (
             <dl key={index}>
-              <dt>{window.label ?? window.bucketId ?? "Quota window"}</dt>
+              <dt>{window.label ?? "Quota window"}</dt>
               <dd>
                 {window.utilizationPercent === null
                   ? "Utilization unavailable"
@@ -107,23 +109,28 @@ export function HarnessUsage({
           Manage usage
         </button>
       ) : null}
-      <h3>Admitted inference billing</h3>
-      {projection.admittedSelection ? (
+      {scope ? (
         <>
-          <p>
-            Admitted inference billing route:{" "}
-            {projection.admittedSelection.billingSource}
-          </p>
-          <p>
-            Connection: {projection.admittedSelection.connectionId} ·
-            Environment: {projection.admittedSelection.environmentId}
-          </p>
+          <h3>Admitted inference billing</h3>
+          {projection.admittedSelection ? (
+            <p>
+              Admitted inference billing route:{" "}
+              {projection.admittedSelection.billingSource}
+            </p>
+          ) : (
+            <p>
+              Frozen attempt payer: Unknown. No admitted binding receipt is
+              available.
+            </p>
+          )}
         </>
-      ) : (
-        <p>Admitted inference payer: Unavailable.</p>
-      )}
+      ) : null}
       <>
-        <h3>Run token and model cost samples</h3>
+        <h3>
+          {scope
+            ? "Run token and model cost samples"
+            : "Reported model activity for this account"}
+        </h3>
         {projection.conflictingMeasurementCount > 0 ? (
           <p>
             {projection.conflictingMeasurementCount} conflicting measurements
@@ -155,8 +162,12 @@ export function HarnessUsage({
               Provider: {measurement.providerId} · Model: {measurement.modelId}
             </p>
             <p>
-              Attempt: {measurement.runAttemptId} · Child coverage:{" "}
-              {measurement.childCoverage}
+              Child usage coverage:{" "}
+              {measurement.childCoverage === "self_only"
+                ? "This session only"
+                : measurement.childCoverage === "includes_children"
+                  ? "Includes child sessions"
+                  : "Unknown"}
             </p>
             <dl>
               <Metric label="Input tokens" value={measurement.inputTokens} />
@@ -282,7 +293,6 @@ export function HarnessUsage({
               <p>
                 Provider: {usage.providerId} · Model: {usage.modelId}
               </p>
-              <p>Attempt: {sample.runAttemptId}</p>
               <p>
                 Reported at{" "}
                 <time dateTime={sample.createdAt}>{sample.createdAt}</time>
@@ -315,7 +325,7 @@ export function HarnessUsage({
       <p>Storage usage and charges: Unavailable.</p>
       <p>Compute and storage payer: Unavailable.</p>
       <p>
-        Account billing route does not establish this attempt's payer. Model
+        Account billing route does not establish a frozen attempt payer. Model
         tokens and recorded elapsed time do not establish metered cloud compute
         or storage. Subscription inference does not imply free cloud compute.
       </p>

@@ -6,6 +6,8 @@ import type {
   HarnessStatusRequest,
 } from "@legioncode/sdk";
 
+import { HarnessUsage } from "./HarnessUsage.js";
+
 import {
   HarnessConnectionSetup,
   type HarnessConnectionSetupProps,
@@ -179,6 +181,7 @@ function HarnessConnectionSettingsContent({
               {new Date(instance.observedAt).toLocaleString()}
             </time>
           </p>
+          <HarnessUsage observation={instance.usage} />
           {instance.connectionId && instance.state === "ready" ? (
             <ConnectionModels
               key={instance.connectionId + instance.observedAt}
