@@ -3,6 +3,18 @@ import { fstatSync } from "node:fs";
 import { lstat, type FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { Writable } from "node:stream";
+import {
+  openNativePrivateFileTransaction,
+  validatePrivateDirectoryPath,
+  type NativePrivateFileTransaction,
+} from "./NativePrivateFileTransaction.js";
+export type { NativePrivateFileTransaction } from "./NativePrivateFileTransaction.js";
+
+/** Physical closure of this trusted helper, which never forks or execs. */
+export interface NativeFilesystemExecution {
+  readonly closed: Promise<void>;
+  readonly quiescent: boolean;
+}
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES = 64 * 1024;
@@ -52,6 +64,9 @@ export class NativeFilesystemBridge {
       readonly rootDirectory: FileHandle;
       /** Borrowed canonical writer lease; never acquired, unlocked or closed here. */
       readonly writerLease?: { readonly fd: number };
+      readonly observeExecution?: (
+        execution: NativeFilesystemExecution,
+      ) => void;
     },
   ) {}
 
@@ -240,12 +255,50 @@ export class NativeFilesystemBridge {
     });
   }
 
+  /** Runtime-private metadata port; ordinary file tools retain their protected paths. */
+  async withPrivateFileTransaction<T>(
+    input: {
+      readonly directory: string;
+      readonly file: string;
+      readonly signal: AbortSignal;
+      readonly beforePublish: () => Promise<void>;
+    },
+    operation: (transaction: NativePrivateFileTransaction) => Promise<T>,
+  ): Promise<T> {
+    const outcome = await this.withHelper(
+      "T",
+      { path: input.directory, signal: input.signal },
+      async (reader, pipe) => {
+        const transaction = await openNativePrivateFileTransaction({
+          ...input,
+          reader,
+          pipe,
+        });
+        try {
+          const value = await operation(transaction);
+          if (!transaction.finalized)
+            throw new NativeFilesystemError(
+              3,
+              "Private transaction owner did not finalize its session",
+            );
+          return { ok: true as const, value };
+        } catch (error) {
+          if (!transaction.finalized) await transaction.quarantine();
+          return { ok: false as const, error };
+        }
+      },
+    );
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
+  }
+
   private async withHelper<T>(
-    operation: "R" | "M" | "D",
+    operation: "R" | "M" | "D" | "T",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
-    validateLocalFilesystemPath(input.path, operation === "D");
+    if (operation === "T") validatePrivateDirectoryPath(input.path);
+    else validateLocalFilesystemPath(input.path, operation === "D");
     if (
       !isAbsolute(this.options.helperPath) ||
       this.options.helperPath.includes("\0")
@@ -273,21 +326,38 @@ export class NativeFilesystemBridge {
       );
     }
     const leaseFd = this.options.writerLease?.fd;
-    if (operation === "M") {
-      if (!Number.isSafeInteger(leaseFd) || leaseFd! < 4 || !fstatSync(leaseFd!).isFile()) {
-        throw new NativeFilesystemError(5, "Mutation requires the trusted canonical writer lease descriptor");
+    if (operation === "M" || operation === "T") {
+      if (
+        !Number.isSafeInteger(leaseFd) ||
+        leaseFd! < 4 ||
+        !fstatSync(leaseFd!).isFile()
+      ) {
+        throw new NativeFilesystemError(
+          5,
+          "Mutation requires the trusted canonical writer lease descriptor",
+        );
       }
     }
     input.signal.throwIfAborted();
     const child = spawn(this.options.helperPath, [], {
       // FD6 duplicates the SAME open description through native cleanup.
-      stdio: operation === "M"
-        ? ["pipe", "pipe", "pipe", this.options.rootDirectory.fd, "ignore", "ignore", leaseFd!]
-        : ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
+      stdio:
+        operation === "M" || operation === "T"
+          ? [
+              "pipe",
+              "pipe",
+              "pipe",
+              this.options.rootDirectory.fd,
+              "ignore",
+              "ignore",
+              leaseFd!,
+            ]
+          : ["pipe", "pipe", "pipe", this.options.rootDirectory.fd],
       env: {},
       shell: false,
       windowsHide: true,
     });
+    let physicallyClosed = false;
     const closed = new Promise<{
       code: number | null;
       signal: NodeJS.Signals | null;
@@ -297,9 +367,10 @@ export class NativeFilesystemBridge {
       child.once("error", (cause) => {
         error = cause;
       });
-      child.once("close", (code, signal) =>
-        resolve({ code, signal, ...(error ? { error } : {}) }),
-      );
+      child.once("close", (code, signal) => {
+        physicallyClosed = true;
+        resolve({ code, signal, ...(error ? { error } : {}) });
+      });
     });
     const stdin = child.stdin!,
       stdout = child.stdout!,
@@ -315,6 +386,12 @@ export class NativeFilesystemBridge {
     const reader = new FrameReader(stdout[Symbol.asyncIterator]());
     let completed = false;
     try {
+      this.options.observeExecution?.({
+        closed: closed.then(() => undefined),
+        get quiescent() {
+          return physicallyClosed;
+        },
+      });
       const path = Buffer.from(input.path, "utf8");
       await send(
         stdin,

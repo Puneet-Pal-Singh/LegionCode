@@ -307,13 +307,16 @@ done:
   return result;
 }
 
+#include "legioncode-fs-transaction.h"
+
 static int run(void) {
   unsigned char header[6]; uint32_t path_length; char name[MAX_PATH_BYTES + 1];
-  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D') ||
+  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D' && header[5] != 'T') ||
       read_u32(&path_length) || !path_length || path_length > MAX_PATH_BYTES ||
       read_exact(0, requested_path, path_length)) return stopped ? cancelled() : fail(1, "Invalid native filesystem protocol");
   if (memchr(requested_path, 0, path_length)) return fail(1, "NUL is not allowed in a workspace path");
   requested_path[path_length] = 0;
+  if (header[5] == 'T') return run_private_transaction(requested_path);
   if (header[5] == 'D') return list_directory();
   parent_fd = open_parent(requested_path, name);
   if (parent_fd < 0) return fail(5, "Workspace parent must exist without symlinks or protected components");
