@@ -351,6 +351,7 @@ function DesktopApp(): React.JSX.Element {
           sidebar={(
             <ThreadSidebar
               model={sidebarModel}
+              visible={sidebarOpen}
               onSelect={(threadId) => { closeCompactSidebar(); void openThread(threadId); }}
               onCreate={workspace?.readiness === "ready" && sdkReady ? () => void createThread() : undefined}
               onAddWorkspace={sdkReady ? () => void chooseWorkspace() : undefined}
