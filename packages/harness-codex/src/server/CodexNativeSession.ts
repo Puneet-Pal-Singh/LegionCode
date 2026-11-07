@@ -16,7 +16,7 @@ export class CodexNativeSession {
   private startSubmitted = false;
   private opening = false;
   private nativeIdle = false;
-  private terminalObserved = false;
+  private terminalStatus: "completed" | "interrupted" | "failed" | null = null;
 
   constructor(private readonly transport: CodexStdioTransport) {}
 
@@ -101,7 +101,7 @@ export class CodexNativeSession {
     this.assertThread(params.threadId);
     if (
       this.activeTurnId === null ||
-      this.terminalObserved ||
+      this.terminalStatus !== null ||
       params.expectedTurnId !== this.activeTurnId
     )
       throw new CodexTransportError("invalid_frame", "rejected");
@@ -115,7 +115,7 @@ export class CodexNativeSession {
     if (
       this.externalThreadId === null ||
       this.activeTurnId === null ||
-      this.terminalObserved
+      this.terminalStatus !== null
     )
       throw new CodexTransportError("invalid_frame", "rejected");
     const params: TurnInterruptParams = {
@@ -144,8 +144,9 @@ export class CodexNativeSession {
   /** Validate turn ownership before the driver translates a native terminal fact. */
   observeTerminal(params: unknown): "completed" | "interrupted" | "failed" {
     if (
+      this.externalThreadId === null ||
+      this.activeTurnId === null ||
       !record(params) ||
-      this.terminalObserved ||
       params.threadId !== this.externalThreadId ||
       !record(params.turn) ||
       params.turn.id !== this.activeTurnId ||
@@ -161,8 +162,12 @@ export class CodexNativeSession {
       status !== "failed"
     )
       this.invalidResponse();
-    // No next-start permission or process-quiescence claim follows foreground completion.
-    this.terminalObserved = true;
+    if (this.terminalStatus !== null && this.terminalStatus !== status)
+      this.invalidResponse();
+    // Same owned tuple/status is idempotent here. The driver compares the full
+    // validated terminal payload and owns its single observation emission.
+    // No next-start permission or quiescence claim follows completion/duplication.
+    this.terminalStatus = status;
     return status;
   }
 
