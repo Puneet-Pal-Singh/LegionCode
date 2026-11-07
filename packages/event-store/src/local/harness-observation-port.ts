@@ -290,6 +290,31 @@ export class LocalHarnessObservationCommitPort {
       return this.database
         .transaction(() => {
           this.active(origin.session);
+          // The immediate transaction serializes this fence with canonical
+          // terminal append; checking before entering it leaves a reply race.
+          const claim = this.database
+            .prepare(
+              "SELECT execution_claim_id FROM harness_bindings WHERE turn_id=?",
+            )
+            .get(this.selection.turnId) as
+            | { execution_claim_id: string | null }
+            | undefined;
+          const latest = this.database
+            .prepare(
+              "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence DESC LIMIT 1",
+            )
+            .get(this.selection.turnId) as { event_json: string } | undefined;
+          if (
+            !claim?.execution_claim_id ||
+            (latest &&
+              ["turn.completed", "turn.failed", "turn.interrupted"].includes(
+                LifecycleEventSchema.parse(JSON.parse(latest.event_json)).type,
+              ))
+          )
+            throw new HarnessPersistenceError(
+              "stale_origin",
+              "Reply requires an unsettled claimed admission",
+            );
           const selected = HarnessSelectionSchema.parse(
             JSON.parse(this.selection.selectionJson),
           );

@@ -311,6 +311,29 @@ export class PostgresHarnessObservationCommitPort {
     try {
       return await this.client.transaction(async (tx) => {
         await turnLock(tx, this.selection.turnId);
+        // Recheck inside the reservation transaction: the coordinator's earlier
+        // assertActive can race terminal settlement while awaiting this lock.
+        const admission = await tx.query(
+          `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id=a.session_id
+          WHERE a.turn_id=$1 AND a.run_attempt_id=$2 AND a.session_id::text=$3 AND a.run_id=$4
+          AND a.thread_id=$5 AND a.workspace_id=$6 AND s.user_id::text=$7
+          AND a.admission_state='admitted' AND a.execution_state IN ('running','recovery_required')
+          AND a.execution_claim_id IS NOT NULL FOR UPDATE OF a`,
+          [
+            this.selection.turnId,
+            this.selection.runAttemptId,
+            this.selection.sessionId,
+            this.selection.runId,
+            this.selection.threadId,
+            this.selection.workspaceId,
+            this.selection.userId,
+          ],
+        );
+        if (!admission.rows[0])
+          throw new HarnessPersistenceError(
+            "stale_origin",
+            "Reply requires an unsettled claimed admission",
+          );
         await this.active(tx, origin.session);
         const selected = HarnessSelectionSchema.parse(
           JSON.parse(this.selection.selectionJson),
