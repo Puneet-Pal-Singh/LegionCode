@@ -19,14 +19,18 @@ import {
   TurnAdmissionSchema,
   type TurnAdmission,
 } from "@repo/platform-protocol/conversation";
-import type { z } from "zod";
+import { z } from "zod";
 
-const CommandSchema = CommitTurnArtifactRequestSchema.extend({
+const CommandSchema = CommitTurnArtifactRequestSchema.omit({ selection: true }).extend({
   workspaceId: WorkspaceIdSchema,
   threadId: ThreadIdSchema,
   runId: RunIdSchema,
   runAttemptId: RunAttemptIdSchema,
   artifactId: ArtifactIdSchema,
+  paths: z.array(z.string().min(1).max(2_048)).min(1).max(4_000).refine(
+    (paths) => new Set(paths).size === paths.length,
+    "Saved commit selection cannot contain duplicate paths",
+  ),
 }).strict();
 
 export type LocalArtifactCommitCommand = z.infer<typeof CommandSchema>;
@@ -158,7 +162,14 @@ export class LocalGitService {
       );
     }
     await this.requireTerminalArtifact(command);
-    const paths = [...new Set(source.paths)];
+    const allowed = new Set(source.paths);
+    const paths = command.paths;
+    if (paths.some((path) => !allowed.has(path))) {
+      throw new LocalGitOperationError(
+        "artifact_conflict",
+        "Commit selection must belong to the immutable captured artifact",
+      );
+    }
     if (paths.length === 0)
       throw new LocalGitOperationError(
         "artifact_unavailable",
