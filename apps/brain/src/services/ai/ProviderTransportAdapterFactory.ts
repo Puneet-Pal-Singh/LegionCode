@@ -4,7 +4,11 @@ import type {
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { ProviderAdapter } from "../providers";
-import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
+import {
+  createProviderInferenceAdapter,
+  toOpenAICompatibleBaseURL,
+} from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
+export { toOpenAICompatibleBaseURL } from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
 import { ValidationError } from "../../domain/errors";
 import {
   createGoogleAdapter,
@@ -35,7 +39,8 @@ export function createTransportAdapter(
   }
 
   if (route.transport === "openai-responses") {
-    return new OpenAIResponsesAdapter({
+    return createProviderInferenceAdapter({
+      transport: "openai-responses",
       apiKey,
       endpoint: route.endpoint,
       providerId: route.providerId,
@@ -44,7 +49,8 @@ export function createTransportAdapter(
   }
 
   if (route.transport === "anthropic-messages") {
-    return new AnthropicMessagesAdapter({
+    return createProviderInferenceAdapter({
+      transport: "anthropic-messages",
       apiKey,
       endpoint: route.endpoint,
       providerId: route.providerId,
@@ -53,12 +59,7 @@ export function createTransportAdapter(
   }
 
   if (route.transport === "google-generative") {
-    return createGoogleAdapter(
-      env,
-      apiKey,
-      route.endpoint,
-      route.providerId,
-    );
+    return createGoogleAdapter(env, apiKey, route.endpoint, route.providerId);
   }
 
   throw new ValidationError(
@@ -82,11 +83,4 @@ function resolveTransportHeaders(
     return buildCloudflareAIRouteHeaders(connectionConfig);
   }
   return undefined;
-}
-
-export function toOpenAICompatibleBaseURL(endpoint: string): string {
-  const trimmed = endpoint.replace(/\/$/, "");
-  return trimmed.endsWith("/chat/completions")
-    ? trimmed.slice(0, -"/chat/completions".length)
-    : trimmed;
 }

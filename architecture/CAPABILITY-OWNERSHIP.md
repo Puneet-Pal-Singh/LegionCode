@@ -1,5 +1,51 @@
 # Capability ownership
 
+## Plan 057 — Local read-only Turn execution
+
+`RuntimeKernel` owns local lifecycle and terminal settlement. Its explicit
+`artifactCapture: "omitted_read_only"` capability requires a read-only run mode,
+a restricted read-only worker and no executable hooks. Default repository turns
+continue to require real Git/artifact capture. Omitted capture emits no snapshot,
+diff or artifact event.
+
+`execution-engine/src/runtime/desktop/LocalReadOnlyTurnExecutor` creates canonical
+initial admission records and owns one kernel handle per admitted attempt.
+`LocalReadOnlyToolWorker` dispatches only `read_file` through the
+existing registry and gateway; `LocalReadOnlyExecutionService` resolves the
+same generation-bound grant handle before each operation and before returning bounded output.
+The host's private `LocalWorkspaceService.bindForExecution` owns grant/regrant
+invalidation. Its handle is shared with capture ports for the attempt, never a
+renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
+terminal retries cannot enqueue a later Stop.
+
+`engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
+owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
+The local factory reuses native context assembly/compaction and connects the same
+provider's tool tracker to the local worker. It creates no legacy Run repository
+or recorder; hosted callers retain their existing optional budget and projection
+observer ports. Protected provider adaptation stays behind the supplied text
+gateway, with canonical Turn/Thread identity.
+
+The App Server consumer/composition and protected provider resolution remain
+integration dependencies owned by workers01/04. Durable admission uses worker02's
+canonical `TurnAdmission` contract; the executor does not own a prompt store.
+The real Desktop acceptance loop is pending that wiring and installed Mac proof.
+The default Node descriptor reader is Linux-only. Mac supplies the actual
+`NativeFilesystemBridge.readFile` bound to the same held-root-FD grant handle via
+`createNativeReadExecutionService({attempt, binding, readFile})`, returned from
+`createReadExecutionService(admission, theSameBinding, signal)`. This read-only
+adapter has no helper-path, framing, file-opening or mutation authority. Both
+backends share `formatLocalReadFile`; no pathname fallback or directory-read
+capability is exposed. Helper compile/package and protected startup path remain
+owned by the native helper/packaging/private host composition.
+
+Sources inspected: [Codex isolated ghost-commit capture](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/git-utils/src/ghost_commits.rs#L302)
+keeps capture indexing isolated; [T3 checkpoint service](https://github.com/pingdotgg/t3code/blob/2756da402b5d795baa05762cba1706a2c0e2fac8/apps/server/src/orchestration-v2/CheckpointCaptureService.ts#L68)
+checks persisted terminal/checkpoint state before retrying capture.
+[OpenCode read tool at 3729fd57068445104ea464a952d41798ed30ea20](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/tool/read.ts)
+uses bounded text reads. These references support keeping capture ownership and
+local execution behind existing ports; they introduce no external harness driver.
+
 ## Unused Web run-summary reader retirement
 
 The unreferenced `useRunSummary` hook, its implementation-only tests and its
@@ -1117,6 +1163,23 @@ advertise `turn-execution-v1`. Atomic admission, native read-only execution,
 protected provider delivery and the renderer binding remain separate integration
 dependencies. The mounted end-to-end Desktop execution path is not yet complete.
 
+
+## Plan 057 — Canonical local turn command contracts
+
+Local start/get/paged thread-history intent uses canonical TurnAdmission records;
+no local identity, lifecycle event or terminal schema is introduced. Local versus
+hosted interruption is explicitly dispatched by environment and existing hosted
+SDK validation remains unchanged. Native composition supplies the local operation
+owner in its integration slice; these contracts do not advertise execution.
+
+SDK createAppServerLifecycleClient adapts an existing AppServerClient to the
+canonical replay/follow port. It reuses cursor ordering, retry classification,
+status delivery and the runtime terminal events. Its bounded IPC read suppresses
+late results after abort without converting transport closure into settlement.
+The existing client case verifies empty initial replay, continuation/resume,
+abort suppression and permanent not-found failure. No renderer polling loop or
+second lifecycle reducer is introduced.
+
 ## Plan 057.6C — Atomic native Turn admission persistence
 
 | Responsibility | Canonical owner | Producer and consumer status |
@@ -1131,3 +1194,43 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+
+
+## Plan 057 — Native root-FD filesystem primitive
+
+The runtime-private `NativeFilesystemBridge` in execution-engine launches the
+POSIX C `legioncode-fs-helper` with no arguments, an empty environment and the
+trusted grant directory object inherited at FD 3. The bounded LCFM/1 pipe
+protocol supports a 4 MiB regular-file read and staged file replacement/creation.
+The helper traverses components with `openat(O_DIRECTORY | O_NOFOLLOW)`, retains
+the same parent FD, and rewalks the relative parent before commit. Staged inode
+and bytes are checked through a held FD; publication uses `renameat` or an
+exclusive `linkat` for new files. It preserves existing ordinary mode/group.
+This is atomic entry publication with optimistic conflict checks, not CAS against
+arbitrary external writers; no sandbox or ACL/xattr preservation is claimed.
+
+The root FD authorizes the selected directory object, not a mutable path alias.
+Worker01 supplies the main-only trusted executable path; worker12 compiles and
+packages that executable. Worker03 owns the actual read/executor consumer, root
+FD grant binding, canonical permission admission and runtime lifecycle. Reads
+must use that bound FD, and mutation composition must retain the real writer
+lease through native close and final capture. Worker05 owns only this private
+filesystem implementation and its guarded file worker. The helper receives no
+provider keys and writes no lifecycle events. There is no `/dev/fd`, path-magic,
+Python or JavaScript mutation fallback. Abort signals request native cleanup;
+actual process/pipe closure, never acknowledgement alone, establishes quiescence.
+
+The primitive alone advertises no Desktop capability. Native read integration,
+installed Mac proof, and guarded edit/command enablement remain separate consumer
+boundaries. Mutators must not use `omitted_read_only` capture. Their full-capture
+and lease gates remain with worker03/07. The source is independently compiled and
+its bridge exercised against real Linux files in cloud; no new test code is added.
+
+### Private host credential contract foundation
+
+Desktop main and its utility process share the bounded correlated credential
+message schemas/client under main/runtime-credentials.ts. The public DesktopApi
+has no credential-read operation. The contract foundation alone wires no broker,
+provider, startup path or execution capability; trusted main and utility
+composition consume it in their separate integration slices. It is not an HTTP
+credential transport or a renderer API.
