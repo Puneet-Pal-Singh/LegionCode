@@ -204,6 +204,7 @@ export class DefaultGitService {
       cwd: workspaceRoot,
       args: ["rev-parse", "--show-toplevel"],
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+      readOnlyProbe: true,
     });
     if (repositoryRootResult.exitCode !== 0) {
       throw createGitCommandFailedError(
@@ -217,6 +218,7 @@ export class DefaultGitService {
       cwd: workspaceRoot,
       args: GIT_STATUS_PORCELAIN_V2_ARGS,
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+      readOnlyProbe: true,
     });
     if (statusResult.exitCode !== 0) {
       throw createGitCommandFailedError(
@@ -230,6 +232,7 @@ export class DefaultGitService {
       cwd: workspaceRoot,
       args: ["config", "--null", "--list"],
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+      readOnlyProbe: true,
     });
     const remoteUrl =
       configResult.exitCode === 0
@@ -298,36 +301,33 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const message = validateCommitMessage(input.message);
-    await this.stageFiles({ workspace: input.workspace, paths });
-    await this.writeCommitAuthor(input);
+    if (this.executor.supportsIndexTransactions !== true) {
+      throw new GitServiceError("git_process_containment_unavailable", "Git executor does not advertise contained atomic index transactions");
+    }
+    const args = [
+      "-c", `user.name=${input.author.name}`,
+      "-c", `user.email=${input.author.email}`,
+      "--literal-pathspecs", "commit", "--only", "-m", message, "--", ...paths,
+    ];
 
     const result = await this.executor.execute({
       runId,
       cwd: workspaceRoot,
-      args: ["commit", "-m", message],
+      args,
+      indexTransaction: { paths },
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
+    if (result.indexPublication === "indeterminate") {
+      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically", { reason: result.stderr, exitCode: result.exitCode });
+    }
     if (result.exitCode !== 0) {
-      throw createGitCommandFailedError(
-        ["commit", "-m", message],
-        result.exitCode,
-        getCommandErrorText(result),
-      );
+      throw createGitCommandFailedError(args, result.exitCode, getCommandErrorText(result));
     }
 
-    const commitSha = await this.readRequiredGitValue(input.workspace, [
-      "rev-parse",
-      "HEAD",
-    ]);
-    const branchName = await this.readRequiredGitValue(input.workspace, [
-      "branch",
-      "--show-current",
-    ]);
-    return {
-      commitSha,
-      branchName,
-      committedPaths: paths,
-    };
+    if (!result.commitSha || !result.branchName) {
+      throw new GitServiceError("git_commit_indeterminate", "Git committed but result verification failed; do not retry automatically");
+    }
+    return { commitSha: result.commitSha, branchName: result.branchName, committedPaths: paths };
   }
 
   async push(input: GitPushInput): Promise<GitPushResult> {
@@ -676,42 +676,6 @@ export class DefaultGitService {
       return new Map();
     }
     return parseNullDelimitedConfig(result.stdout);
-  }
-
-  private async writeCommitAuthor(input: GitCommitInput): Promise<void> {
-    await this.writeGitConfigValue(
-      input.workspace,
-      "user.name",
-      input.author.name,
-    );
-    await this.writeGitConfigValue(
-      input.workspace,
-      "user.email",
-      input.author.email,
-    );
-  }
-
-  private async writeGitConfigValue(
-    workspace: GitCommitInput["workspace"],
-    key: "user.name" | "user.email",
-    value: string,
-  ): Promise<void> {
-    const runId = RunIdSchema.parse(workspace.runId);
-    const workspaceRoot = validateWorkspaceRoot(workspace.filesystemRoot);
-    const args = ["config", key, value];
-    const result = await this.executor.execute({
-      runId,
-      cwd: workspaceRoot,
-      args,
-      timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
-    });
-    if (result.exitCode !== 0) {
-      throw createGitCommandFailedError(
-        args,
-        result.exitCode,
-        getCommandErrorText(result),
-      );
-    }
   }
 
   private async readRequiredGitValue(
