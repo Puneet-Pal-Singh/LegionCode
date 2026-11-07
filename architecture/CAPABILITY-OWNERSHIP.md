@@ -1209,6 +1209,20 @@ boundaries. Mutators must not use `omitted_read_only` capture. Their full-captur
 and lease gates remain with worker03/07. The source is independently compiled and
 its bridge exercised against real Linux files in cloud; no new test code is added.
 
+### Private Git metadata and index transactions
+
+The same private native owner resolves ordinary and linked Git metadata for the
+approved trusted-host namespace contract. Bounded nofollow gitfile/commondir and
+backlink checks distinguish per-worktree index authority from common objects and
+refs. Association lookup is cheap; mutation-purpose storage validation rejects
+redirected paths, borrowed object stores, reftable layout and over-budget scans.
+The private T session checks the fresh layout before writes, retains its original
+root/writer descriptors through actual close and publishes only its owned index.
+These checks do not atomically bind stock Git pathname opens or enable mutations.
+Before activation the canonical Git owner additionally requires the supported
+files ref backend and no replacement refs; native storage validation requires
+absent/empty external-object alternates and grafts for this initial profile.
+
 ### Native grant-scoped directory queries
 
 `NativeFilesystemBridge.listDirectory` uses the same private root FD and helper,
