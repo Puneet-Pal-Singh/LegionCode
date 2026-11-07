@@ -15,7 +15,6 @@ import { InvalidTranscriptSnapshotError } from "./types.js";
 import {
   assertHasParts,
   firstSequence,
-  lastSequence,
 } from "./transcriptUtils.js";
 
 interface Clock {

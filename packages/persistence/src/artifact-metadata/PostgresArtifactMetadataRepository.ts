@@ -10,7 +10,6 @@ import {
 } from "@repo/platform-protocol";
 import type { SqlClient, SqlRow } from "../sql.js";
 import {
-  ARTIFACT_METADATA_VERSION,
   ArtifactMetadataRecordSchema,
   projectArtifactMetadataEvent,
   type ArtifactMetadataRecord,
