@@ -1255,6 +1255,8 @@ attempt's immutable artifact store. It reauthorizes before returning and never
 reads live Git. The adapter introduces no event producer, artifact payload store
 or client-owned projection. Actual routing and capability advertisement remain
 with the trusted App Server composition after capture/store integration.
+Internal commit preparation uses the same verified record and immutable artifact
+ID; this read does not grant Git mutation authority.
 
 ## Shared workspace file explorer presentation
 
