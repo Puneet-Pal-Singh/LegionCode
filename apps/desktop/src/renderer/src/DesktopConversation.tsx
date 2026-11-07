@@ -168,6 +168,8 @@ function SelectedConversation({
               }
               onOpenSettings={onOpenSettings}
               providerRevision={providerRevision}
+              contextBudget={projection?.contextBudget ?? null}
+              usage={projection?.usage ?? null}
             />
           </div>
         </>

@@ -1,10 +1,11 @@
-import { ChatErrorNotice, ChatInputBar } from "@legioncode/client-ui";
+import { ChatErrorNotice, ChatInputBar, useComposerPreferences } from "@legioncode/client-ui";
 import {
   PRODUCT_MODES,
   type ThreadId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 import { useRef, useState } from "react";
+import type { ContextBudgetSnapshot, UsageCostSnapshot } from "@legioncode/sdk";
 import {
   DesktopModelPicker,
   useDesktopModelPicker,
@@ -23,6 +24,8 @@ interface Props {
   onStop?: () => Promise<void>;
   onOpenSettings: () => void;
   providerRevision: number;
+  contextBudget?: ContextBudgetSnapshot | null;
+  usage?: UsageCostSnapshot | null;
 }
 
 /** Draft and delivery state only. The provider route is read from the App Server. */
@@ -43,7 +46,10 @@ function ThreadComposer({
   onStop,
   onOpenSettings,
   providerRevision,
+  contextBudget = null,
+  usage = null,
 }: Props) {
+  const preferences = useComposerPreferences();
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -79,7 +85,10 @@ function ThreadComposer({
         }}
         mode="plan"
         permissionMode={PRODUCT_MODES.ASK_ALWAYS}
-        showContextWindowUsage={false}
+        composerPreferences={preferences}
+        contextBudget={contextBudget}
+        usage={usage}
+        showContextWindowUsage={preferences.showContextWindowUsage}
         submissionUnavailableReason={unavailable}
         attachmentsAvailable={false}
         renderModelPicker={
