@@ -57,6 +57,7 @@ export interface ChatInputBarProps {
   isHidden?: boolean;
   submissionUnavailableReason?: string;
   attachmentsAvailable?: boolean;
+  attachmentsUnavailableReason?: string;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
   providerNotice?: ReactNode;
   providerQuota?: ReactNode;
@@ -83,10 +84,13 @@ export interface ChatInputBarProps {
   placeholder?: string;
   sessionId: string;
   mode?: RunMode;
+  availableModes?: readonly RunMode[];
   onModeChange?: (mode: RunMode) => void;
-  repoTree?: Array<{ path: string; type: string; sha: string }>;
+  repoTree?: Array<{ path: string; type: string; sha?: string }>;
   isLoadingRepoTree?: boolean;
   repoTreeError?: string | null;
+  repoTreeNotice?: string | null;
+  onFileMentionQueryChange?: (query: string | null) => void;
   retryRepoTree?: () => void;
   layout?: "docked" | "hero";
   contextBudget?: ContextBudgetSnapshot | null;
@@ -94,6 +98,7 @@ export interface ChatInputBarProps {
   onCompact?: () => void;
   onContextOpen?: () => void;
   permissionMode?: ProductMode;
+  permissionEnvironment?: "hosted" | "local";
   onPermissionModeChange?: (mode: ProductMode) => void;
 }
 
@@ -117,6 +122,7 @@ export function ChatInputBar({
   isHidden = false,
   submissionUnavailableReason,
   attachmentsAvailable = true,
+  attachmentsUnavailableReason,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -127,9 +133,12 @@ export function ChatInputBar({
   sessionId,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
+  availableModes,
   repoTree = [],
   isLoadingRepoTree = false,
   repoTreeError = null,
+  repoTreeNotice = null,
+  onFileMentionQueryChange,
   retryRepoTree,
   layout = "docked",
   contextBudget = null,
@@ -137,6 +146,7 @@ export function ChatInputBar({
   onCompact,
   onContextOpen,
   permissionMode,
+  permissionEnvironment,
   onPermissionModeChange,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -162,6 +172,10 @@ export function ChatInputBar({
   const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
+  const unavailableReason = submissionUnavailableReason ??
+    (hasImageAttachments && !attachmentsAvailable
+      ? attachmentsUnavailableReason
+      : undefined);
   const submissionAvailable = !submissionUnavailableReason &&
     (attachmentsAvailable || !hasImageAttachments);
   const canSubmit = submissionAvailable && (hasInput || hasReviewComments || hasImageAttachments);
@@ -215,6 +229,7 @@ export function ChatInputBar({
   );
   const shouldShowFilePicker =
     activeMention !== null && dismissedMentionKey !== activeMentionKey;
+  useEffect(() => { onFileMentionQueryChange?.(!isHidden && shouldShowFilePicker ? activeMention?.query ?? null : null); }, [isHidden, shouldShowFilePicker, activeMention?.query, onFileMentionQueryChange]);
   const canCompactContext =
     Boolean(onCompact) &&
     contextBudget !== null &&
@@ -403,6 +418,7 @@ export function ChatInputBar({
     if (guardActiveRunSwitch()) {
       return;
     }
+    if (availableModes && !availableModes.includes(nextMode)) return;
     onModeChange?.(nextMode);
   };
 
@@ -530,6 +546,7 @@ export function ChatInputBar({
               aria-label="Repository files"
               className="max-h-[19rem] overflow-y-auto p-2"
             >
+              {repoTreeNotice && !isLoadingRepoTree && !repoTreeError ? <div role="status" className="px-3 py-2 text-[11px] text-amber-200">{repoTreeNotice}</div> : null}
               {isLoadingRepoTree ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
                   Loading repository files...
@@ -746,7 +763,7 @@ export function ChatInputBar({
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
             onSelect={syncCursorPosition}
-            aria-describedby={submissionUnavailableReason ? unavailableDescriptionId : undefined}
+            aria-describedby={unavailableReason ? unavailableDescriptionId : undefined}
             aria-autocomplete="list"
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -777,7 +794,7 @@ export function ChatInputBar({
                   Plan mode inspects and outlines steps without running normal
                   mutating execution.
                 </span>
-                {onModeChange ? (
+                {onModeChange && (!availableModes || availableModes.includes("build")) ? (
                   <button
                     type="button"
                     onClick={() => handleModeChange("build")}
@@ -802,9 +819,9 @@ export function ChatInputBar({
             </div>
           ) : null}
 
-          {submissionUnavailableReason ? (
+          {unavailableReason ? (
             <p id={unavailableDescriptionId} role="status" className="mt-3 text-xs text-zinc-400">
-              {submissionUnavailableReason}
+              {unavailableReason}
             </p>
           ) : null}
           {providerNotice}
@@ -814,6 +831,7 @@ export function ChatInputBar({
             <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
               <ChatComposerPlusMenu
                 mode={mode}
+                availableModes={availableModes}
                 attachmentsAvailable={attachmentsAvailable}
                 disabled={isComposerActiveRun}
                 onModeChange={onModeChange ? handleModeChange : undefined}
@@ -829,6 +847,7 @@ export function ChatInputBar({
               <ChatComposerPermissionControl
                 key={sessionId}
                 value={permissionMode}
+                environmentKind={permissionEnvironment}
                 onChange={onPermissionModeChange}
                 disabled={isComposerActiveRun || isHidden}
               />
