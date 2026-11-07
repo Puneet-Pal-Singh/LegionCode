@@ -2,26 +2,50 @@ import { z } from "zod";
 import { ArtifactIdSchema, TurnIdSchema } from "./ids.js";
 import { GitObjectIdSchema } from "./task-workspaces.js";
 
-const SavedPathSchema = z.string().min(1).max(2_048).refine((path) =>
-  !path.startsWith("/") &&
-  !/^[A-Za-z]:/u.test(path) &&
-  !path.includes("\\") &&
-  !/[\u0000-\u001f\u007f]/u.test(path) &&
-  !path.split("/").some((segment) =>
-    !segment || segment === "." || segment === ".." || segment.toLowerCase() === ".git",
-  ), "Saved selection must contain repository-relative file paths");
+const SavedPathSchema = z
+  .string()
+  .min(1)
+  .max(2_048)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      !/^[A-Za-z]:/u.test(path) &&
+      !path.includes("\\") &&
+      !Array.from(path).some((character) => {
+        const code = character.charCodeAt(0);
+        return code <= 31 || code === 127;
+      }) &&
+      !path
+        .split("/")
+        .some(
+          (segment) =>
+            !segment ||
+            segment === "." ||
+            segment === ".." ||
+            segment.toLowerCase() === ".git",
+        ),
+    "Saved selection must contain repository-relative file paths",
+  );
 
 export const TurnArtifactCommitSelectionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("all") }).strict(),
-  z.object({
-    kind: z.literal("paths"),
-    paths: z.array(SavedPathSchema).min(1).max(2_000).refine(
-      (paths) => new Set(paths).size === paths.length,
-      "Saved selection cannot contain duplicate paths",
-    ),
-  }).strict(),
+  z
+    .object({
+      kind: z.literal("paths"),
+      paths: z
+        .array(SavedPathSchema)
+        .min(1)
+        .max(2_000)
+        .refine(
+          (paths) => new Set(paths).size === paths.length,
+          "Saved selection cannot contain duplicate paths",
+        ),
+    })
+    .strict(),
 ]);
-export type TurnArtifactCommitSelection = z.infer<typeof TurnArtifactCommitSelectionSchema>;
+export type TurnArtifactCommitSelection = z.infer<
+  typeof TurnArtifactCommitSelectionSchema
+>;
 
 /** Selects the one published immutable diff of an authorized settled Turn.
  * Requested paths select saved file entries, never current filesystem content.
