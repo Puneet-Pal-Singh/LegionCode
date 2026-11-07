@@ -1583,3 +1583,16 @@ The private handler remains the owner of authorized settled-Turn artifact
 selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
+
+## Desktop immutable saved-change commit presentation
+
+Web retains Git orchestration and defaults while `GitCommitDialogView` owns its
+shared presentation and surface styles. Desktop consumes the one selected saved
+review read, requires explicit author input, and submits only the settled Turn,
+message and explicit all/saved-entry-path selection through SDK
+`commitTurnArtifact`. Artifact identity and Git scope remain server-derived.
+Push and PR remain unavailable until their actual services are composed. A
+transient delivery record survives dialog close and temporary read reloads;
+uncertain commits never automatically retry and only a matching validated
+positive receipt clears that uncertainty. This UI does not advertise a command
+capability or stage/read current worktree contents.
