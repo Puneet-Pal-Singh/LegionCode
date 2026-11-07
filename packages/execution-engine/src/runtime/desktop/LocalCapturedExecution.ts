@@ -1,7 +1,4 @@
-import {
-  RuntimeKernelError,
-  type WorkerProtocolPort,
-} from "@repo/runtime-kernel";
+import { RuntimeKernelError } from "@repo/runtime-kernel";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import { codingToolRegistry } from "../tools/CodingToolRegistry.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
@@ -60,15 +57,29 @@ export async function prepareLocalCapturedExecution(
   const assertSettlementCurrent = async () => {
     // Revoke aborts tools, but the host retains this exact writer fence/root until capture finishes.
     await lease.assertSettlementCurrent();
-    while (!(await supplied.worker.awaitQuiescence({ turnId: expected.turnId, timeoutMs: 500 }))) {
+    while (
+      !(await supplied.worker.awaitQuiescence({
+        turnId: expected.turnId,
+        timeoutMs: 500,
+      }))
+    ) {
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
       await lease.assertSettlementCurrent();
     }
     await lease.assertSettlementCurrent();
   };
-  const assertWorkspace = (workspace: { runId: string; filesystemRoot: string }) => {
-    if (workspace.runId !== expected.runId || workspace.filesystemRoot !== binding.filesystemRoot) {
-      throw new RuntimeKernelError("invalid_turn_identity", "Capture is outside its configured exact attempt");
+  const assertWorkspace = (workspace: {
+    runId: string;
+    filesystemRoot: string;
+  }) => {
+    if (
+      workspace.runId !== expected.runId ||
+      workspace.filesystemRoot !== binding.filesystemRoot
+    ) {
+      throw new RuntimeKernelError(
+        "invalid_turn_identity",
+        "Capture is outside its configured exact attempt",
+      );
     }
   };
   await assertCurrent();
@@ -114,7 +125,11 @@ export async function prepareLocalCapturedExecution(
       ) => {
         await assertSettlementCurrent();
         assertWorkspace(input.workspace);
-        if (input.snapshotKey !== expected.turnId) throw new RuntimeKernelError("invalid_turn_identity", "Capture key does not match the admitted turn");
+        if (input.snapshotKey !== expected.turnId)
+          throw new RuntimeKernelError(
+            "invalid_turn_identity",
+            "Capture key does not match the admitted turn",
+          );
         const result = await supplied.gitSnapshots.captureSnapshot(input);
         assertWorkspace(result);
         await assertSettlementCurrent();
