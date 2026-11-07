@@ -1465,3 +1465,12 @@ The private handler remains the owner of authorized settled-Turn artifact
 selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
+
+## Plan 057 — Canonical local text request byte budget
+
+The existing local HTTP reader enforces the protocol-exported 256 KiB request
+budget after authentication and before schema validation/dispatch. This replaces
+its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
+envelope. Timeouts, response limits, prompt validation and uncertain-delivery
+semantics retain their existing owners. Image-specific opt-in capacity and local
+media composition are separate changes; this budget enables no execution mode.
