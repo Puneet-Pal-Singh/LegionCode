@@ -34,6 +34,9 @@ export function ChatComposerPlusMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const isMenuOpen = isOpen && !disabled;
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
   const menuStyle = useViewportPopoverPosition(
     isMenuOpen,
     containerRef,
