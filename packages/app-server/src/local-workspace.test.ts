@@ -7,6 +7,7 @@ import type { GitRepositoryProbeResult } from "@repo/git-service";
 import { LocalPersistence } from "@repo/event-store/local";
 
 import { LocalWorkspaceService } from "./local-workspace.js";
+import { createLocalArtifactCapture } from "./local-artifact-capture.js";
 
 class FakeGitService {
   constructor(private readonly repositoryRoot: string) {}
@@ -23,7 +24,7 @@ class FakeGitService {
 
 describe("LocalWorkspaceService", () => {
   it("persists a root grant and reopens it with a fresh Git probe", async () => {
-    const storageDirectory = await mkdtemp(join(tmpdir(), "legioncode-grant-"));
+    const storageDirectory = await realpath(await mkdtemp(join(tmpdir(), "legioncode-grant-")));
     const repositoryRoot = join(storageDirectory, "repository");
     await mkdir(repositoryRoot);
     const gitService = new FakeGitService(await realpath(repositoryRoot));
@@ -46,6 +47,31 @@ describe("LocalWorkspaceService", () => {
       }).getCurrent();
       expect(reopened).toMatchObject({ workspaceId: granted.workspaceId, readiness: "ready" });
 
+      const controller = new AbortController();
+      const binding = { workspace: granted, filesystemRoot: repositoryRoot, signal: controller.signal,
+        assertCurrent() { if (this.signal.aborted) throw new Error("Workspace grant changed"); } };
+      const capture = createLocalArtifactCapture({
+        binding, assertSettlementCurrent: () => binding.assertCurrent(), storageDirectory,
+        scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
+        git: {
+          probeRepository: (input) => gitService.probeRepository(input),
+          captureSnapshot: async ({ workspace }) => ({ ...workspace, headSha: "a".repeat(40), treeId: "b".repeat(40) }),
+          getSnapshotDiff: async () => ({ files: [], patch: "" }),
+        },
+      });
+      const captureInput = { workspace: { runId: "run_capture001", filesystemRoot: repositoryRoot }, snapshotKey: "trn_capture001" };
+      await expect(capture.captureSnapshot(captureInput)).resolves.toMatchObject({ treeId: "b".repeat(40) });
+      await expect(capture.captureSnapshot({ ...captureInput, workspace: { ...captureInput.workspace, runId: "run_other001" } })).rejects.toThrow("run mismatch");
+      controller.abort();
+      await expect(capture.captureSnapshot(captureInput)).rejects.toThrow("grant changed");
+      const unsafe = createLocalArtifactCapture({
+        binding: { ...binding, signal: new AbortController().signal, assertCurrent() {} }, assertSettlementCurrent() {}, storageDirectory: repositoryRoot,
+        scope: { workspaceId: granted.workspaceId, runId: "run_capture001", turnId: "trn_capture001", runAttemptId: "attempt_capture001" },
+        git: { probeRepository: (input) => gitService.probeRepository(input),
+          captureSnapshot: async ({ workspace }) => ({ ...workspace, headSha: "a".repeat(40), treeId: "b".repeat(40) }),
+          getSnapshotDiff: async () => ({ files: [], patch: "" }) },
+      });
+      await expect(unsafe.captureSnapshot(captureInput)).rejects.toThrow("outside the captured repository");
       const reopenedService = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants });
       await reopenedService.revoke();
       await expect(reopenedService.getCurrent()).resolves.toBeNull();
