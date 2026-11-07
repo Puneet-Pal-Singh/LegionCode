@@ -287,7 +287,7 @@ function SelectedSavedCommit({
   };
   if (!isOpen) return null;
   return (
-    <PickerModal layer="dialog">
+    <PickerModal layer="dialog" backdrop={false}>
       <div
         ref={dialogRef}
         role="dialog"
