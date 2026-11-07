@@ -22,7 +22,7 @@ export function DesktopApproval({ client, admission, projection, canStop, onStop
   const matching = approval.options.find((option) => option.id === "allow_matching_in_chat") ?? null;
   const decisions = approval.options.flatMap((option): ApprovalDecisionKind[] => {
     switch (option.id) {
-      case "approve": return ["allow_once"];
+      case "approve": case "allow_once": return ["allow_once"];
       case "allow_matching_in_chat": return ["allow_persistent_rule"];
       case "deny": return ["deny"];
       case "cancel": case "abort": return ["abort"];
