@@ -335,7 +335,7 @@ export class DefaultGitService {
       throw new GitServiceError("git_artifact_conflict", "Selected files no longer match the immutable artifact or its baseline");
     }
     if (result.indexPublication === "indeterminate") {
-      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically");
+      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically", { reason: result.stderr, exitCode: result.exitCode });
     }
     if (result.exitCode !== 0) {
       throw createGitCommandFailedError(args, result.exitCode, getCommandErrorText(result));
