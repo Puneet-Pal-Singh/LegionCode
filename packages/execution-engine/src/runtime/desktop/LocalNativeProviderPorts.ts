@@ -1,3 +1,5 @@
+import { selectLocalCapturedTools } from "./LocalCapturedExecution.js";
+import type { LocalCapturedExecutionPorts } from "./LocalTurnExecutionCapability.js";
 import type { CoreMessage, CoreTool } from "ai";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import type { RuntimeKernelDependencies } from "@repo/runtime-kernel";
@@ -29,6 +31,10 @@ export function createLocalNativeProviderPorts(options: {
   readonly metadata?: RunInput["metadata"];
   readonly repositoryContext?: RunInput["repositoryContext"];
   readonly budget?: KernelAgenticProviderOptions["budget"];
+  readonly execution?: Pick<
+    LocalCapturedExecutionPorts,
+    "availableToolIds" | "backendCapabilities" | "tools"
+  >;
 }): Pick<
   RuntimeKernelDependencies,
   "provider" | "contextAssembly" | "contextCompaction"
@@ -44,7 +50,7 @@ export function createLocalNativeProviderPorts(options: {
   }
   const input: RunInput = {
     agentType: "coding",
-    mode: "plan",
+    mode: options.execution ? "build" : "plan",
     prompt: admission.userMessage.content.text,
     // The legacy gateway field carries the actual local Thread identity, never a fabricated hosted Session.
     sessionId: admission.run.threadId,
@@ -54,12 +60,21 @@ export function createLocalNativeProviderPorts(options: {
     metadata: options.metadata,
     repositoryContext: options.repositoryContext,
   };
-  const registry = getCodingCoreToolRegistry();
-  const tools: Record<string, CoreTool> = {};
-  for (const id of LOCAL_READ_ONLY_TOOL_IDS) {
-    const tool = registry[id];
-    if (!tool) throw new Error("Registered local read tool is unavailable");
-    tools[id] = tool;
+  if (options.execution && admission.run.mode !== "auto_edit") {
+    throw new Error(
+      "Captured tools require the runtime's mutating admission mode",
+    );
+  }
+  const tools: Record<string, CoreTool> = options.execution
+    ? { ...selectLocalCapturedTools(options.execution) }
+    : {};
+  if (!options.execution) {
+    const registry = getCodingCoreToolRegistry();
+    for (const id of LOCAL_READ_ONLY_TOOL_IDS) {
+      const tool = registry[id];
+      if (!tool) throw new Error("Registered local read tool is unavailable");
+      tools[id] = tool;
+    }
   }
   const provider = new KernelAgenticProvider({
     runId: admission.run.id,

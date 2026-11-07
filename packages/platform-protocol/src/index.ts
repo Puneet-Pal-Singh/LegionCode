@@ -103,10 +103,7 @@ export {
   HostedChatSubmissionResultSchema,
   type HostedChatSubmissionResult,
 } from "./chat-submission.js";
-export {
-  ChatRunModeSchema,
-  type ChatRunMode,
-} from "./run-mode.js";
+export { ChatRunModeSchema, type ChatRunMode } from "./run-mode.js";
 export {
   WORKFLOW_INTENTS,
   WORKFLOW_ENTRYPOINTS,
@@ -620,3 +617,12 @@ export {
   type HostedWorkspaceListItem,
   type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";
+
+export {
+  TurnArtifactCommitSelectionSchema,
+  type TurnArtifactCommitSelection,
+  CommitTurnArtifactRequestSchema,
+  CommitTurnArtifactResponseSchema,
+  type CommitTurnArtifactRequest,
+  type CommitTurnArtifactResponse,
+} from "./git-artifact-operations.js";
