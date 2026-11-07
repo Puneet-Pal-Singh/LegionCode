@@ -4,7 +4,7 @@ import { LocalPersistence } from "@repo/event-store/local";
 import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
 import type { AppServerComposition } from "./server.js";
 import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
-import { LocalWorkspaceService } from "./local-workspace.js";
+import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./local-workspace.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 
@@ -28,6 +28,7 @@ export type LocalAppServerParentPort = {
 };
 
 export type LocalWorkspaceFilesCompositionOptions = {
+  createProbeService?: LocalWorkspaceServiceOptions["createProbeService"];
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
 };
 
@@ -39,6 +40,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
   try {
     const workspaceService = new LocalWorkspaceService({
       workspaceGrants: persistence.workspaceGrants,
+      createProbeService: options?.createProbeService,
       protectedHostRoots: [
         config.storageDirectory, ...(config.protectedHostRoots ?? []),
         ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),

@@ -16,14 +16,16 @@ import {
   type LocalWorkspaceGrant,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { DefaultGitService } from "@repo/git-service";
-import { createNodeGitExecutor } from "./local-node-git-executor.js";
+import type { DefaultGitService } from "@repo/git-service";
+import type { VerifiedMacGitOptions } from "./local-mac-git-execution.js";
+import { LocalWorkspaceRootPin } from "./local-workspace-root-pin.js";
 
 export type LocalWorkspaceServiceOptions = {
   workspaceGrants: LocalPersistence["workspaceGrants"];
   /** Trusted host storage/app/helper locations; never workspace request fields. */
   protectedHostRoots?: readonly string[];
   gitService?: Pick<DefaultGitService, "probeRepository">;
+  createProbeService?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<Pick<DefaultGitService, "probeRepository">>;
 };
 
 /** Trusted runtime handle. This physical root is never returned by App Server. */
@@ -36,6 +38,8 @@ export interface LocalWorkspaceExecutionBinding {
   readonly generation: number;
   readonly signal: AbortSignal;
   assertCurrent(): void;
+  /** Retained authority only for authorized final settlement of the same admitted scope. */
+  assertSettlementCurrent(): void;
 }
 
 export class LocalWorkspaceService {
@@ -44,34 +48,43 @@ export class LocalWorkspaceService {
   private executionController = new AbortController();
   private readonly protectedHostRoots: readonly string[];
   private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
-  private readonly gitService: Pick<
-    DefaultGitService,
-    "probeRepository"
-  >;
+  private readonly gitService: LocalWorkspaceServiceOptions["gitService"];
+  private readonly createProbeService: LocalWorkspaceServiceOptions["createProbeService"];
+  // Strong references are intentional: unknown physical closure must not let GC close/reuse an FD.
+  private readonly quarantinedPins = new Set<LocalWorkspaceRootPin>();
 
   constructor(options: LocalWorkspaceServiceOptions) {
     this.workspaceGrants = options.workspaceGrants;
     this.protectedHostRoots = Object.freeze([...(options.protectedHostRoots ?? [])]);
-    this.gitService = options.gitService ?? new DefaultGitService(createNodeGitExecutor());
+    if (options.gitService && options.createProbeService) throw new Error("Repository probe owner must be explicit");
+    this.gitService = options.gitService;
+    this.createProbeService = options.createProbeService;
   }
 
   async getCurrent(): Promise<LocalWorkspaceGrant | null> {
     if (this.transitioning) return null;
     const generation = this.generation;
+    const signal = this.executionController.signal;
     const stored = await this.workspaceGrants.read();
     if (!stored || generation !== this.generation) return null;
-    const grant = await this.probeStoredGrant(stored);
-    return generation === this.generation && !this.transitioning ? grant : null;
+    this.assertProbingAvailable();
+    const grant = await this.probeStoredGrant(stored, generation, signal);
+    if (generation !== this.generation || this.transitioning) return null;
+    this.assertProbingAvailable();
+    signal.throwIfAborted();
+    return grant;
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
+    this.assertProbingAvailable();
     const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
     const generation = this.invalidateExecutionBindings();
+    const signal = this.executionController.signal;
     this.transitioning = true;
     try {
     const canonicalPath = await validateSelectedDirectory(path);
     await this.assertOutsideProtectedRoots(canonicalPath);
-    const { repoRoot, probe } = await this.readRepository(canonicalPath);
+    const { repoRoot, probe } = await this.readRepository(canonicalPath, generation, signal);
     if (repoRoot !== canonicalPath) {
       throw new Error("Workspace selection must be the repository root");
     }
@@ -99,6 +112,7 @@ export class LocalWorkspaceService {
   }
 
   async bindForExecution(workspaceId: WorkspaceId): Promise<LocalWorkspaceExecutionBinding> {
+    this.assertProbingAvailable();
     if (this.transitioning) throw new Error("Local workspace grant is changing");
     const generation = this.generation;
     const signal = this.executionController.signal;
@@ -108,40 +122,22 @@ export class LocalWorkspaceService {
       throw new Error("Workspace is not granted for local execution");
     }
     await this.assertOutsideProtectedRoots(stored.path);
-    this.assertGeneration(generation);
-    const before = await lstat(stored.path);
-    if (!before.isDirectory() || before.isSymbolicLink()) {
-      throw new Error("Local workspace root is no longer a real directory");
-    }
-    const rootDirectory = await open(
-      stored.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-    );
+    const pin = await this.openRootPin(stored.path, generation, signal);
     try {
-      const opened = await rootDirectory.stat();
-      if (opened.dev !== before.dev || opened.ino !== before.ino) {
-        throw new Error("Local workspace root changed during binding");
-      }
-      const workspace = await this.probeStoredGrant(stored);
-      this.assertGeneration(generation);
-      const after = await lstat(stored.path);
-      this.assertGeneration(generation);
-      if (!after.isDirectory() || after.isSymbolicLink() ||
-          after.dev !== opened.dev || after.ino !== opened.ino) {
-        throw new Error("Local workspace root changed during binding");
-      }
+      const workspace = await this.probeStoredGrant(stored, generation, signal, pin);
+      await pin.assertPathCurrent();
       if (workspace.readiness !== "ready") throw new Error("Workspace is not ready for local execution");
-      let closing: Promise<void> | null = null;
       return Object.freeze({
-        workspace, filesystemRoot: stored.path, rootDirectory, generation, signal,
-        close: () => { closing ??= rootDirectory.close(); return closing; },
+        workspace, filesystemRoot: stored.path, rootDirectory: pin.rootDirectory, generation, signal,
+        close: () => pin.close(),
+        assertSettlementCurrent: () => pin.assertSettlementCurrent(),
         assertCurrent: () => {
-          this.assertGeneration(generation);
-          if (closing) throw new Error("Local workspace binding is closed");
+          pin.assertCurrent();
           if (this.transitioning) throw new Error("Local workspace grant is changing");
         },
       });
     } catch (error) {
-      await rootDirectory.close();
+      if (!pin.quarantined) await pin.close();
       throw error;
     }
   }
@@ -159,11 +155,14 @@ export class LocalWorkspaceService {
 
   private async probeStoredGrant(
     stored: StoredLocalWorkspaceGrant,
+    generation: number,
+    signal: AbortSignal,
+    pin?: LocalWorkspaceRootPin,
   ): Promise<LocalWorkspaceGrant> {
     try {
       const canonicalPath = await validateSelectedDirectory(stored.path);
       await this.assertOutsideProtectedRoots(canonicalPath);
-      const { repoRoot, probe } = await this.readRepository(canonicalPath);
+      const { repoRoot, probe } = await this.readRepository(canonicalPath, generation, signal, pin);
       if (repoRoot !== stored.path) {
         return invalidGrant(stored.grant, "Authorized repository path changed");
       }
@@ -193,9 +192,54 @@ export class LocalWorkspaceService {
     }
   }
 
-  private async readRepository(path: string) {
-    const probe = await this.gitService.probeRepository({ workspaceRoot: path });
-    return { repoRoot: await realpath(probe.repositoryRoot), probe };
+  private assertProbingAvailable(): void {
+    if (this.quarantinedPins.size) throw new Error("Repository probing is quarantined until host restart");
+  }
+
+  private async openRootPin(path: string, generation: number, signal: AbortSignal): Promise<LocalWorkspaceRootPin> {
+    this.assertProbingAvailable();
+    this.assertGeneration(generation);
+    signal.throwIfAborted();
+    const before = await lstat(path, { bigint: true });
+    if (!before.isDirectory() || before.isSymbolicLink()) throw new Error("Workspace root is not a real directory");
+    const rootDirectory = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    let pin: LocalWorkspaceRootPin | undefined;
+    try {
+      const opened = await rootDirectory.stat({ bigint: true });
+      if (!opened.isDirectory() || opened.dev !== before.dev || opened.ino !== before.ino) {
+        throw new Error("Workspace root changed during binding");
+      }
+      pin = new LocalWorkspaceRootPin(path, rootDirectory, signal, opened,
+        () => { this.assertProbingAvailable(); this.assertGeneration(generation); },
+        (unknownPin) => {
+          this.quarantinedPins.add(unknownPin);
+          this.executionController.abort("Repository probe closure was not proved");
+        });
+      await pin.assertPathCurrent();
+      return pin;
+    } catch (error) {
+      if (!pin?.quarantined) await rootDirectory.close();
+      throw error;
+    }
+  }
+
+  private async readRepository(path: string, generation: number, signal: AbortSignal, suppliedPin?: LocalWorkspaceRootPin) {
+    const pin = suppliedPin ?? await this.openRootPin(path, generation, signal);
+    try {
+      pin.assertCurrent();
+      const service = this.createProbeService
+        ? await this.createProbeService({ probeRoot: path, withRootAuthority: pin.withRootAuthority })
+        : this.gitService;
+      if (!service) throw new Error("Canonical repository probing is unavailable");
+      pin.assertCurrent();
+      const probe = await service.probeRepository({ workspaceRoot: path });
+      await pin.assertPathCurrent();
+      const repoRoot = await realpath(probe.repositoryRoot);
+      pin.assertCurrent();
+      return { repoRoot, probe };
+    } finally {
+      if (!suppliedPin && !pin.quarantined) await pin.close();
+    }
   }
 
 }
