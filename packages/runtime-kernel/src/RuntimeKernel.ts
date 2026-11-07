@@ -2,6 +2,7 @@ import { bootstrapDelegatedRecovery } from "./harness/DelegatedRecoveryBootstrap
 import { HarnessSelectionSchema } from "@repo/platform-protocol";
 import { HarnessStartCommandSchema } from "@repo/worker-protocol";
 import { DelegatedTurnCoordinator, type DelegatedExecutionDependencies } from "./harness/DelegatedTurnCoordinator.js";
+import { omitsReadOnlyArtifacts } from "./ReadOnlyArtifactPolicy.js";
 import {
   ItemIdSchema,
   RunAttemptIdSchema,
@@ -52,6 +53,8 @@ export interface RuntimeKernelDependencies {
   readonly lifecycleEvents: RuntimeLifecycleEventStore;
   readonly gitSnapshots?: RuntimeGitSnapshotPort;
   readonly turnArtifacts?: RuntimeTurnArtifactPort;
+  /** Explicit opt-in for a backend that cannot mutate the workspace. */
+  readonly artifactCapture?: "required" | "omitted_read_only";
   readonly workspaceManifests?: Pick<WorkspaceManifestRepository, "getLatestByRunId">;
   readonly contextAssembly?: ContextAssemblyPort;
   readonly contextCompaction?: ContextCompactionPort;
@@ -161,7 +164,32 @@ export class RuntimeKernel {
   }
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
-    const prepared = await this.prepareTurn(input);
+    let prepared: PreparedTurn;
+    try {
+      prepared = await this.prepareTurn(input);
+    } catch (error) {
+      // A durable local admission must settle even if its workspace was revoked before start.
+      if (
+        this.dependencies.artifactCapture === "omitted_read_only" &&
+        input.execution?.kind !== "delegated" &&
+        input.run.harnessSelection?.selection == null &&
+        !this.lifecycles.has(input.turn.id)
+      ) {
+        const run = RunSchema.parse(input.run);
+        const turn = TurnSchema.parse(input.turn);
+        const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
+        this.assertTurnIdentity(run, turn);
+        const lifecycle = this.createLifecycle(run, turn, attempt, input);
+        await lifecycle.start();
+        if (this.dependencies.signal?.aborted) {
+          await lifecycle.interrupt(cancellationReason(this.dependencies.signal) ?? "Turn interrupted during preparation");
+        } else {
+          await this.recoverFailedTurn(lifecycle, error);
+        }
+        this.pendingInterrupts.delete(turn.id);
+      }
+      throw error;
+    }
     this.preparedTurns.set(prepared.turn.id, prepared);
     const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
     if (pendingReason) {
@@ -222,7 +250,8 @@ export class RuntimeKernel {
       await this.dependencies.delegated.assertActive({ selection, leaseId: delegatedInput.leaseId,
         filesystemRoot: workspace.filesystemRoot });
     }
-    const artifactSettlement = workspace
+    const omitArtifacts = omitsReadOnlyArtifacts(this.dependencies, run, input.execution);
+    const artifactSettlement = workspace && !omitArtifacts
       ? this.createArtifactSettlement(run, turn, workspace) : null;
     const recoverySession = recoveryRequested ? delegatedInput?.resumeSession : null;
     if (recoveryRequested && (!recoverySession || recoverySession.runAttemptId !== runAttemptId || recoverySession.instanceId !== delegatedInput?.selection.instanceId)) {
@@ -300,6 +329,7 @@ export class RuntimeKernel {
           workspace,
         };
       }
+      prepared.executionSignal.throwIfAborted();
       await this.runHooks(prepared);
       const result = prepared.delegated
         ? { status: "completed" as const, ...await prepared.delegated.execute() }
@@ -454,6 +484,14 @@ export class RuntimeKernel {
     }
   }
 
+  getTurnTerminalStatus(turnId: Turn["id"]): RuntimeLifecycleCoordinator["terminalStatus"] {
+    return this.lifecycles.get(turnId)?.terminalStatus ?? null;
+  }
+
+  isTurnTerminal(turnId: Turn["id"]): boolean {
+    return this.getTurnTerminalStatus(turnId) !== null;
+  }
+
   isTurnReady(turnId: Turn["id"]): boolean {
     return this.lifecycles.has(turnId) && this.executions.has(turnId);
   }
@@ -548,6 +586,7 @@ export class RuntimeKernel {
       toolCallCount <= this.maxToolCalls;
       toolCallCount += 1
     ) {
+      prepared.executionSignal.throwIfAborted();
       const currentContext = this.activeContexts.get(turn.id) ?? context;
       const effectiveContext = this.compactedContexts.has(turn.id)
         ? currentContext
@@ -593,7 +632,9 @@ export class RuntimeKernel {
       };
       let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
       try {
+        prepared.executionSignal.throwIfAborted();
         step = await this.requireNativePorts().provider.generateNext(providerInput);
+        prepared.executionSignal.throwIfAborted();
       } catch (error) {
         if (error instanceof RuntimeKernelError) throw error;
         throw new RuntimeKernelError(

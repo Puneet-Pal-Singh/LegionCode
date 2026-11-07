@@ -626,8 +626,12 @@ export class RuntimeLifecycleCoordinator {
    * outcome frozen for durable recovery rather than attempting a conflicting one. */
   get isTerminalDecided(): boolean { return this.isTerminal || this.terminalOutcome !== null; }
 
+  get terminalStatus(): "completed" | "interrupted" | "failed" | null {
+    return this.status === "completed" || this.status === "interrupted" || this.status === "failed" ? this.status : null;
+  }
+
   get isTerminal(): boolean {
-    return ["completed", "interrupted", "failed"].includes(this.status);
+    return this.terminalStatus !== null;
   }
 
   async start(): Promise<{

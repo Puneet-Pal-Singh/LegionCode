@@ -432,3 +432,13 @@ export {
 } from "@repo/platform-protocol";
 
 export { AppServerEnvironmentIdSchema } from "@repo/platform-protocol";
+
+export type {
+  LocalTurnStartParams,
+  LocalTurnInterruptParams,
+  LocalThreadHistoryParams,
+  LocalThreadHistoryResult,
+} from "@legioncode/app-server/protocol";
+export { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol";
+
+export { createAppServerLifecycleClient } from "./platform/app-server-lifecycle.js";

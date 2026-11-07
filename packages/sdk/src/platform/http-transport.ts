@@ -608,7 +608,7 @@ function createGenericJsonError(
   );
 }
 
-function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod): HostedOperationError {
+export function mapHostedLifecycleError(error: unknown, method: HostedLifecycleMethod): HostedOperationError {
   if (error instanceof AppServerClientError) {
     if (error.code === "server_error" && error.serverError) {
       const serverError = error.serverError;
