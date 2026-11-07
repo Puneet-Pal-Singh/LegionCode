@@ -4,7 +4,10 @@ import { LocalPersistence } from "@repo/event-store/local";
 import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
 import type { AppServerComposition } from "./server.js";
 import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
-import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./local-workspace.js";
+import { LocalWorkspaceService } from "./local-workspace.js";
+import { DefaultGitService } from "@repo/git-service";
+import { createNodeGitExecutor } from "./local-node-git-executor.js";
+import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 
@@ -28,7 +31,7 @@ export type LocalAppServerParentPort = {
 };
 
 export type LocalWorkspaceFilesCompositionOptions = {
-  createProbeService?: LocalWorkspaceServiceOptions["createProbeService"];
+  createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
 };
 
@@ -38,9 +41,14 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
   }
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
+    const createProbeExecution = options?.createProbeExecution;
     const workspaceService = new LocalWorkspaceService({
       workspaceGrants: persistence.workspaceGrants,
-      createProbeService: options?.createProbeService,
+      createProbeService: createProbeExecution ? async (authority) => {
+        const macExecution = await createProbeExecution(authority);
+        const git = new DefaultGitService(createNodeGitExecutor({ macExecution }));
+        return { probeRepository: (input) => git.probeRepository(input) };
+      } : undefined,
       protectedHostRoots: [
         config.storageDirectory, ...(config.protectedHostRoots ?? []),
         ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),

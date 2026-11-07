@@ -95,8 +95,12 @@ export class LocalWorkspaceService {
       grant,
     };
     this.assertGeneration(generation);
+    this.assertProbingAvailable();
+    signal.throwIfAborted();
     await this.workspaceGrants.write(stored);
     this.assertGeneration(generation);
+    this.assertProbingAvailable();
+    signal.throwIfAborted();
     return grant;
     } finally {
       if (generation === this.generation) this.transitioning = false;
