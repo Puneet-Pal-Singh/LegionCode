@@ -301,6 +301,19 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const message = validateCommitMessage(input.message);
+    if (input.expectedTerminalTreeId === undefined && (input.expectedBaselineTreeId !== undefined || input.expectedHeadSha !== undefined || input.expectedBranchRef !== undefined)) {
+      throw new GitServiceError("invalid_git_input", "Artifact baseline guards require a terminal tree");
+    }
+    let expectedBranchRef: string | undefined;
+    if (input.expectedBranchRef !== undefined) {
+      if (!input.expectedBranchRef.startsWith("refs/heads/")) {
+        throw new GitServiceError("invalid_git_input", "Artifact publication requires an explicit branch ref");
+      }
+      expectedBranchRef = `refs/heads/${validateBranchNamePolicy(input.expectedBranchRef.slice(11))}`;
+    }
+    if (input.expectedTerminalTreeId !== undefined && this.executor.supportsArtifactIndexGuard !== true) {
+      throw new GitServiceError("git_process_containment_unavailable", "Immutable artifact commits require a proven pre-HEAD index guard");
+    }
     if (this.executor.supportsIndexTransactions !== true) {
       throw new GitServiceError("git_process_containment_unavailable", "Git executor does not advertise contained atomic index transactions");
     }
@@ -314,11 +327,23 @@ export class DefaultGitService {
       runId,
       cwd: workspaceRoot,
       args,
-      indexTransaction: { paths },
+      indexTransaction: {
+        paths,
+        ...(input.expectedTerminalTreeId !== undefined ? { expectedTerminalTreeId: validateGitObjectId(input.expectedTerminalTreeId) } : {}),
+        ...(input.expectedBaselineTreeId !== undefined ? { expectedBaselineTreeId: validateGitObjectId(input.expectedBaselineTreeId) } : {}),
+        ...(input.expectedHeadSha !== undefined ? { expectedHeadSha: validateGitObjectId(input.expectedHeadSha) } : {}),
+        ...(expectedBranchRef !== undefined ? { expectedBranchRef } : {}),
+      },
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     if (result.indexPublication === "indeterminate") {
-      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced HEAD but index publication failed; do not retry automatically", { reason: result.stderr, exitCode: result.exitCode });
+      throw new GitServiceError("git_commit_indeterminate", "Git commit may have advanced its branch but index publication failed; do not retry automatically", { reason: result.stderr, exitCode: result.exitCode });
+    }
+    if (result.exitCode === 126) {
+      throw new GitServiceError("git_process_containment_unavailable", result.stderr);
+    }
+    if (result.artifactConflict) {
+      throw new GitServiceError("git_artifact_conflict", "Selected files no longer match the immutable artifact or its baseline");
     }
     if (result.exitCode !== 0) {
       throw createGitCommandFailedError(args, result.exitCode, getCommandErrorText(result));

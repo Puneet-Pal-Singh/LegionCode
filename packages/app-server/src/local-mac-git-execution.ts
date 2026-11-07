@@ -1,5 +1,5 @@
-import { fstatSync, realpathSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { accessSync, constants, fstatSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import {
   executeSingleProcessMac,
   SingleProcessMacLifetimeUncertainError,
@@ -7,6 +7,7 @@ import {
 } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import { GitServiceError } from "@repo/git-service/errors";
 import type { GitCommandExecutionResult } from "@repo/git-service/executor";
+import { trustedLocalGitContext } from "./local-git-context.js";
 
 export type MacGitCommand = {
   cwd: string;
@@ -55,6 +56,55 @@ const MAX_INPUT_BYTES = 1_000_000;
 const unavailable = (message: string) =>
   new GitServiceError("git_process_containment_unavailable", message);
 
+/** Host-only Apple tool discovery. The system shim is not the selected Git
+ * binary. Resolve installed developer tools without launching xcrun or a shell.
+ * Inspired by OpenCode's Darwin Git discovery; containment is still proved by
+ * createVerifiedMacGitExecution, never by executable discovery.
+ */
+export function resolveTrustedMacGitExecutable(): string {
+  const failure = () => unavailable("An installed native Mac Git executable is unavailable");
+  if (process.platform !== "darwin") throw failure();
+  try {
+    const configured = process.env.DEVELOPER_DIR;
+    const selector = "/var/db/xcode_select_link";
+    let selected = Boolean(configured);
+    let directories: readonly string[];
+    if (configured) {
+      directories = [configured];
+    } else {
+      try {
+        lstatSync(selector);
+        selected = true;
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      }
+      directories = selected ? [realpathSync(selector)] : [
+        "/Applications/Xcode.app/Contents/Developer",
+        "/Library/Developer/CommandLineTools",
+      ];
+    }
+    for (const directory of directories) {
+      try {
+        if (!isAbsolute(directory) || /[\0\r\n]/u.test(directory)) throw failure();
+        const configuredRoot = realpathSync(directory);
+        const root = configuredRoot.endsWith(".app")
+          ? realpathSync(join(configuredRoot, "Contents/Developer")) : configuredRoot;
+        if (root === "/" || !statSync(root).isDirectory()) throw failure();
+        const executable = realpathSync(join(root, "usr/bin/git"));
+        const contained = relative(root, executable);
+        if (executable === "/usr/bin/git" || isAbsolute(contained) || contained === ".." ||
+            contained.startsWith(`..${sep}`) || !statSync(executable).isFile()) throw failure();
+        accessSync(executable, constants.X_OK);
+        return executable;
+      } catch (error) {
+        // Explicit host selection must not silently choose another toolchain.
+        if (selected) throw error;
+      }
+    }
+  } catch { throw failure(); }
+  throw failure();
+}
+
 /**
  * Read-only Git transport readiness uses the real canonical guardian. The Git
  * owner supplies readOnlyProbe so optional index writes and fsmonitor are off.
@@ -69,6 +119,7 @@ export async function createVerifiedMacGitExecution(
     if (!isAbsolute(path) || path.includes("\0") || realpathSync(path) !== path)
       throw unavailable("Git and its guardian require trusted canonical paths");
   }
+  const trustedGitContext = trustedLocalGitContext();
 
   const run: VerifiedMacGitExecution["run"] = async (request) => {
     if (
@@ -86,7 +137,7 @@ export async function createVerifiedMacGitExecution(
       throw unavailable("Repository probes cannot select a private Git index");
 
     // Canonical executor environments include ambient non-Git keys. The OS
-    // owner supplies fixed PATH/HOME/TMPDIR; only this Git switch crosses over.
+    // owner supplies fixed PATH and the explicit trusted host Git context.
     const environment: Record<string, string> = { GIT_OPTIONAL_LOCKS: "0" };
     for (const [key, value] of Object.entries(request.environment)) {
       if (!key.toUpperCase().startsWith("GIT_")) continue;
@@ -112,6 +163,7 @@ export async function createVerifiedMacGitExecution(
         sandbox: authority.sandbox,
         processHelperPath: options.processHelperPath,
         environment,
+        trustedGitContext,
         stdin: request.stdin,
         // This reaches the C guardian, independently of the host timer.
         timeoutMs: request.timeoutMs,
@@ -146,8 +198,30 @@ export async function createVerifiedMacGitExecution(
     version.outputClosed ||
     !version.quiescent ||
     !version.stdout.trim().startsWith("git version ")
-  )
-    throw unavailable("Canonical Mac Git readiness was not proved");
+  ) {
+    const timedOut = "timedOut" in version && version.timedOut === true;
+    const versionPrefix = version.stdout.trim().startsWith("git version ");
+    // Only this failed fixed --version probe is classified; no output is exposed.
+    const stderr = version.stderr.toLowerCase();
+    const stderrCategory = stderr.includes("xcrun: error:") ? "developer_tool_error"
+      : stderr.includes("sandbox-exec:") ? "sandbox_launcher_error"
+      : stderr.includes("operation not permitted") ? "operation_denied" : "other";
+    const message = timedOut ? "Canonical Mac Git readiness timed out"
+      : version.exitCode !== 0 ? "Canonical Mac Git readiness returned a nonzero exit status"
+      : version.truncated ? "Canonical Mac Git readiness output was truncated"
+      : !versionPrefix ? "Canonical Mac Git readiness version format was invalid"
+      : "Canonical Mac Git readiness was not proved";
+    throw new GitServiceError("git_process_containment_unavailable", message, {
+      ...(Number.isInteger(version.exitCode) && version.exitCode >= 0 && version.exitCode <= 255
+        ? { exitCode: version.exitCode } : {}),
+      readinessTimedOut: timedOut,
+      readinessTruncated: version.truncated,
+      readinessOutputClosed: version.outputClosed,
+      readinessQuiescent: version.quiescent,
+      readinessVersionPrefix: versionPrefix,
+      readinessStderrCategory: stderrCategory,
+    });
+  }
 
   return { scope: "single_executable_nofork", run };
 }

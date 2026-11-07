@@ -13,6 +13,7 @@ import {
   RepositoryTreeRequestSchema, RepositoryTreeResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
   ChatRequestBodySchema,
+  LocalTurnConfigurationSchema,
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
@@ -21,6 +22,7 @@ import {
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceGrantSchema,
   ProviderIdSchema,
   ThreadIdSchema,
   WorkspaceIdSchema,
@@ -38,6 +40,8 @@ import {
   ReplayLifecycleEventsResponseSchema,
   GetTurnDiffRequestSchema,
   GetTurnDiffResponseSchema,
+  CommitTurnArtifactRequestSchema,
+  CommitTurnArtifactResponseSchema,
   SubmitLifecycleApprovalRequestSchema,
   CompactTurnRequestSchema,
   CompactTurnResponseSchema,
@@ -131,6 +135,9 @@ export const AppServerProviderErrorSchema = NormalizedProviderErrorSchema.extend
 }).strict();
 
 const EmptyParamsSchema = z.object({}).strict();
+export const LocalProviderPreferenceScopeSchema = LocalWorkspaceGrantSchema.pick({ workspaceId: true, grantedAt: true }).strict();
+export type LocalProviderPreferenceScope = z.infer<typeof LocalProviderPreferenceScopeSchema>;
+
 const ProviderSelectionSchema = z.object({
   providerId: ProviderIdSchema,
   modelId: z.string().min(1).max(256).refine((value) => value.trim() === value),
@@ -159,6 +166,8 @@ export const LocalTurnStartParamsSchema = z.object({
   threadId: ThreadIdSchema,
   clientRequestId: EventIdempotencyKeySchema,
   prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
+  mode: LocalTurnConfigurationSchema.shape.mode.optional(),
+  productMode: LocalTurnConfigurationSchema.shape.productMode.optional(),
 }).strict();
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
@@ -367,6 +376,7 @@ export const AppServerMethodSchema = z.enum([
   "git/diff",
   "git/stage",
   "git/commit",
+  "git/commitTurnArtifact",
   "git/branch",
   "git/push",
   "git/pullRequest",
@@ -460,6 +470,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("git/diff"), params: GitDiffParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/stage"), params: GitStageParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/commit"), params: GitCommitParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("git/commitTurnArtifact"), params: CommitTurnArtifactRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/branch"), params: GitBranchParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/push"), params: GitPushParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("git/pullRequest"), params: GitPullRequestParamsSchema }).strict(),
@@ -483,8 +494,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("provider/catalog"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/models"), params: z.object({ providerId: ProviderIdSchema, runId: RunIdSchema.optional(), query: BYOKDiscoveredProviderModelsQuerySchema.strict().optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/models/refresh"), params: z.object({ providerId: BYOKProviderSlugSchema, runId: RunIdSchema.optional() }).strict() }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/read"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/update"), params: z.object({ runId: RunIdSchema.optional(), request: BYOKPreferencesUpdateRequestSchema }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/read"), params: z.object({ runId: RunIdSchema.optional(), localScope: LocalProviderPreferenceScopeSchema.optional() }).strict() }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("provider/preferences/update"), params: z.object({ runId: RunIdSchema.optional(), localScope: LocalProviderPreferenceScopeSchema.optional(), request: BYOKPreferencesUpdateRequestSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/resolve"), params: z.object({ runId: RunIdSchema.optional(), request: BYOKResolveRequestSchema.strict() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/list"), params: z.object({ runId: RunIdSchema.optional() }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("provider/credentials/connect"), params: z.object({ runId: RunIdSchema.optional(), request: BYOKCredentialConnectRequestSchema }).strict() }).strict(),
@@ -545,6 +556,7 @@ export const AppServerResultSchemas = {
   "git/diff": GitDiffResponseSchema,
   "git/stage": GitMutationSuccessSchema,
   "git/commit": GitMutationSuccessSchema,
+  "git/commitTurnArtifact": CommitTurnArtifactResponseSchema,
   "git/branch": GitBranchResultSchema,
   "git/push": GitPushResultSchema,
   "git/pullRequest": GitPullRequestResultSchema,
@@ -630,6 +642,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("git/diff", AppServerResultSchemas["git/diff"]),
   success("git/stage", AppServerResultSchemas["git/stage"]),
   success("git/commit", AppServerResultSchemas["git/commit"]),
+  success("git/commitTurnArtifact", AppServerResultSchemas["git/commitTurnArtifact"]),
   success("git/branch", AppServerResultSchemas["git/branch"]),
   success("git/push", AppServerResultSchemas["git/push"]),
   success("git/pullRequest", AppServerResultSchemas["git/pullRequest"]),

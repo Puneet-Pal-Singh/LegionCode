@@ -5,6 +5,8 @@ import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMut
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
   LocalWorkspaceListFilesParamsSchema,
+  LocalProviderPreferenceScopeSchema,
+  type LocalProviderPreferenceScope,
   LocalWorkspaceReadFileParamsSchema,
   type LocalWorkspaceListFilesParams,
   type LocalWorkspaceListFilesResult,
@@ -57,6 +59,10 @@ import {
   type ReplayLifecycleEventsResponse,
   type GetTurnDiffRequest,
   type GetTurnDiffResponse,
+  CommitTurnArtifactRequestSchema,
+  CommitTurnArtifactResponseSchema,
+  type CommitTurnArtifactRequest,
+  type CommitTurnArtifactResponse,
   type SubmitLifecycleApprovalRequest,
   type CompactTurnRequest,
   type CompactTurnResponse,
@@ -222,6 +228,7 @@ export type AppServerClient = {
   getGitStatus(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
   getGitDiff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
   stageGitFiles(params: Extract<AppServerRequest, { method: "git/stage" }>['params']): Promise<{ success: true }>;
+  commitTurnArtifact(params: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
   commitGitChanges(params: Extract<AppServerRequest, { method: "git/commit" }>['params']): Promise<{ success: true }>;
   createGitBranch(params: Extract<AppServerRequest, { method: "git/branch" }>['params']): Promise<GitBranchMutationResult>;
   pushGitBranch(params: Extract<AppServerRequest, { method: "git/push" }>['params']): Promise<GitPushMutationResult>;
@@ -254,8 +261,8 @@ export type AppServerClient = {
   updateProviderCredential(runId: string | undefined, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
   disconnectProviderCredential(runId: string | undefined, credentialId: string): Promise<void>;
   validateProviderCredential(runId: string | undefined, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
-  readProviderPreferences(runId?: string): Promise<BYOKPreference>;
-  updateProviderPreferences(runId: string | undefined, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
+  readProviderPreferences(runId?: string, localScope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
+  updateProviderPreferences(runId: string | undefined, request: BYOKPreferencesUpdateRequest, localScope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
   resolveProviderPreferences(runId: string | undefined, request: BYOKResolveRequest): Promise<BYOKResolution>;
   getProviderSelection(): Promise<ProviderSelection | null>;
   selectProvider(providerId: string, modelId: string): Promise<ProviderSelection>;
@@ -449,6 +456,9 @@ export function createAppServerClient(
     stageGitFiles: (params) => requestGitMutation(options, {
       method: "git/stage", params,
     }, AppServerResultSchemas["git/stage"]),
+    commitTurnArtifact: (params) => request(options, {
+      method: "git/commitTurnArtifact", params: CommitTurnArtifactRequestSchema.parse(params),
+    }, CommitTurnArtifactResponseSchema),
     commitGitChanges: (params) => requestGitMutation(options, {
       method: "git/commit", params,
     }, AppServerResultSchemas["git/commit"]),
@@ -566,8 +576,8 @@ export function createAppServerClient(
     updateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/update"]),
     disconnectProviderCredential: async (runId, credentialId) => { await request(options, { method: "provider/credentials/disconnect", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId } }, AppServerResultSchemas["provider/credentials/disconnect"]); },
     validateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/validate", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/validate"]),
-    readProviderPreferences: async (runId) => request(options, { method: "provider/preferences/read", params: runId === undefined ? {} : { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/preferences/read"]),
-    updateProviderPreferences: async (runId, payload) => request(options, { method: "provider/preferences/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/preferences/update"]),
+    readProviderPreferences: async (runId, localScope) => request(options, { method: "provider/preferences/read", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), ...(localScope === undefined ? {} : { localScope: LocalProviderPreferenceScopeSchema.parse(localScope) }) } }, AppServerResultSchemas["provider/preferences/read"]),
+    updateProviderPreferences: async (runId, payload, localScope) => request(options, { method: "provider/preferences/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), ...(localScope === undefined ? {} : { localScope: LocalProviderPreferenceScopeSchema.parse(localScope) }), request: payload } }, AppServerResultSchemas["provider/preferences/update"]),
     resolveProviderPreferences: async (runId, payload) => request(options, { method: "provider/resolve", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/resolve"]),
     getProviderSelection: async () => {
       const result = await request(options, { method: "provider/current", params: {} }, AppServerResultSchemas["provider/current"]);

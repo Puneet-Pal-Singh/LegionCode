@@ -1,3 +1,4 @@
+import type { LocalProviderPreferenceScope } from "./protocol.js";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
@@ -26,6 +27,8 @@ import type {
   InterruptTurnResponse,
   GetTurnDiffRequest,
   GetTurnDiffResponse,
+  CommitTurnArtifactRequest,
+  CommitTurnArtifactResponse,
   LifecycleEvent,
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
@@ -90,6 +93,10 @@ export type AppServerComposition = {
     disconnect(runId: string | undefined, credentialId: string): Promise<void>;
     validate(runId: string | undefined, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
   };
+  localProviderPreferenceService?: {
+    read(runId: string | undefined, scope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
+    update(runId: string | undefined, request: BYOKPreferencesUpdateRequest, scope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
+  };
   hostedProviderPreferenceService?: {
     read(runId: string | undefined): Promise<BYOKPreference>;
     update(runId: string | undefined, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
@@ -145,6 +152,9 @@ export type AppServerComposition = {
   hostedCheckoutReadsService?: {
     listFiles(params: Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"]): Promise<CheckoutListFilesResult>;
     readFile(params: Extract<AppServerRequest, { method: "checkout/readFile" }>["params"]): Promise<CheckoutReadFileResult>;
+  };
+  localTurnArtifactCommitService?: {
+    commitTurnArtifact(request: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
   };
   hostedGitOperationsService?: {
     status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
@@ -463,6 +473,12 @@ async function dispatch(
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.stage(request.params);
     }
+    case "git/commitTurnArtifact": {
+      if (composition.environment !== "local" || !composition.localTurnArtifactCommitService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local Turn artifact commits are unavailable", undefined, false);
+      }
+      return composition.localTurnArtifactCommitService.commitTurnArtifact(request.params);
+    }
     case "git/commit": {
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.commit(request.params);
@@ -645,14 +661,23 @@ async function dispatch(
       return composition.hostedProviderCredentialService.validate(request.params.runId, request.params.credentialId, request.params.request);
     }
     case "provider/preferences/read": {
+      if (composition.environment === "local") {
+        if (!composition.localProviderPreferenceService) throw new Error("unsupported");
+        return composition.localProviderPreferenceService.read(request.params.runId, request.params.localScope);
+      }
       if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
       return composition.hostedProviderPreferenceService.read(request.params.runId);
     }
     case "provider/preferences/update": {
+      if (composition.environment === "local") {
+        if (!composition.localProviderPreferenceService) throw new Error("unsupported");
+        return composition.localProviderPreferenceService.update(request.params.runId, request.params.request, request.params.localScope);
+      }
       if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
       return composition.hostedProviderPreferenceService.update(request.params.runId, request.params.request);
     }
     case "provider/resolve": {
+      if (composition.environment === "local") throw new Error("unsupported");
       if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
       return composition.hostedProviderPreferenceService.resolve(request.params.runId, request.params.request);
     }

@@ -5,6 +5,7 @@ import { DesktopApproval } from "./DesktopApproval";
 import { DesktopComposer } from "./DesktopComposer";
 import { DesktopTurnTranscript } from "./DesktopTurnTranscript";
 import { useDesktopConversation } from "./useDesktopConversation";
+import type { DesktopSavedReviewTurn } from "./useDesktopSavedReviewSelection";
 
 export type DesktopExecutionAvailability =
   | { available: true }
@@ -16,6 +17,7 @@ interface Props {
   execution: DesktopExecutionAvailability;
   onOpenSettings: () => void;
   providerRevision: number;
+  onReviewTurn?: (turn: DesktopSavedReviewTurn) => void;
 }
 
 export function DesktopConversation(props: Props) {
@@ -33,6 +35,7 @@ function SelectedConversation({
   execution,
   onOpenSettings,
   providerRevision,
+  onReviewTurn,
 }: Props) {
   // The current local history owner is composed with turn execution. Do not issue
   // unsupported history requests or fabricate an empty saved transcript.
@@ -135,13 +138,24 @@ function SelectedConversation({
               {thread.title}
             </h2>
           ) : null}
-          {conversation.admissions.map((item) => (
-            <DesktopTurnTranscript
-              key={item.turn.id}
-              {...item}
-              projection={conversation.projections[item.turn.id] ?? null}
-            />
-          ))}
+          {conversation.admissions.map((item) => {
+            const projection = conversation.projections[item.turn.id];
+            const terminal = projection?.turnId === item.turn.id
+              && projection.executionCapability !== "conversation" ? projection.terminal : null;
+            return (
+              <DesktopTurnTranscript
+                key={item.turn.id}
+                {...item}
+                projection={projection ?? null}
+                onReview={terminal && onReviewTurn ? () => onReviewTurn({
+                  workspaceId: item.run.workspaceId,
+                  threadId: item.turn.threadId,
+                  turnId: item.turn.id,
+                  terminalState: terminal.state,
+                }) : undefined}
+              />
+            );
+          })}
         </div>
       </div>
       <div className="shrink-0 px-4 pb-5">
