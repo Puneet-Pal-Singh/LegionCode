@@ -32,7 +32,8 @@ export function useDesktopApprovalDecision(
     if (!controller || controller.signal.aborted || !approval || projection.terminal || projection.turnId !== admission.turn.id) return;
     if (request.current) return request.current;
     const optionId = decision === "approved"
-      ? grantScope === "matching_in_chat" ? "allow_matching_in_chat" : "approve"
+      ? grantScope === "matching_in_chat" ? "allow_matching_in_chat"
+        : approval.options.some((option) => option.id === "allow_once") ? "allow_once" : "approve"
       : decision === "denied" ? "deny" : "cancel";
     if (!approval.options.some((option) => option.id === optionId || (decision === "cancelled" && option.id === "abort"))) {
       setError("This decision is not offered by the current runtime request.");
