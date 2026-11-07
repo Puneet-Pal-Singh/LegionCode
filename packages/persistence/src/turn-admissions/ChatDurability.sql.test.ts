@@ -1,9 +1,10 @@
 import { PostgresHarnessBindingRepository } from "../harness/PostgresHarnessBindingRepository.js";
+import { PostgresHarnessControlPlaneRepository } from "../harness/PostgresHarnessControlPlaneRepository.js";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { ModelIdSchema, ThreadIdSchema, TurnIdSchema } from "@repo/platform-protocol";
 import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
@@ -207,15 +208,37 @@ describe("durable admission and canonical append SQL", () => {
     const fixture = await createFixture(client);
     const admissions = new PostgresTurnAdmissionRepository(client);
     await admissions.reserve(fixture.admission);
-    await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "projection"));
+    const control = new PostgresHarnessControlPlaneRepository(client);
+    const connectionId = randomUUID();
+    const scope = { userId: fixture.userId, workspaceId: fixture.workspaceId, environmentId: "projection-environment" };
+    await client.query(
+      "INSERT INTO provider_credentials(id,user_id,workspace_id,provider_id,label,key_fingerprint,encrypted_secret_json,key_version) VALUES($1,$2,$3,'codex','projection fixture','fixture-fingerprint','{}'::jsonb,'fixture')",
+      [connectionId, fixture.userId, fixture.workspaceId],
+    );
+    const instance = await control.setupInstance(scope, {
+      workspaceId: scope.workspaceId, environmentId: scope.environmentId,
+      harness: "codex", connectionId, clientCommandId: "projection-setup",
+    }, { connectionId, ownerGeneration: 1 });
+    const chosen = { harness: "codex" as const, instanceId: instance.instanceId, connectionId, modelId: ModelIdSchema.parse("pinned") };
+    const selected = await control.select(scope, {
+      workspaceId: scope.workspaceId, environmentId: scope.environmentId,
+      sessionId: fixture.sessionId, threadId: ThreadIdSchema.parse(fixture.admission.threadId),
+      clientCommandId: "projection-select", expectedRevision: 0, selection: chosen,
+    });
+    const capture = { environmentId: scope.environmentId, selectionRevision: selected.revision, selection: chosen };
+    await admissions.admitWithPrompt({ ...admissionInput(fixture, fixture.admission, "projection"), harnessSelection: capture });
     await db.exec(`CREATE FUNCTION fail_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.canonical_turn_id IS NOT NULL THEN RAISE EXCEPTION 'projection failure'; END IF; RETURN NEW; END; $$;
       CREATE TRIGGER fail_projection BEFORE INSERT ON messages FOR EACH ROW EXECUTE FUNCTION fail_projection();`);
     const events = [lifecycleTurnStarted(fixture, 1), lifecycleItemStarted(fixture, 2), lifecycleDelta(fixture, 3, "final_answer")];
     const store = new PostgresLifecycleEventStore(client);
     const bindings = new PostgresHarnessBindingRepository(client);
-    const selection = { userId: fixture.userId, sessionId: fixture.sessionId, runId: fixture.admission.runId, workspaceId: fixture.workspaceId, threadId: fixture.admission.threadId, turnId: fixture.admission.turnId, runAttemptId: fixture.admission.runAttemptId, selectionJson: JSON.stringify({ connectionId: "selected", modelId: "pinned" }) };
-    const origin = { instanceId: "instance", externalSessionId: "external", processGeneration: "11111111-1111-4111-8111-111111111111", authOwnerGeneration: 0 };
+    const runtimeBinding = { ...chosen, environmentId: scope.environmentId, selectionRevision: selected.revision, authOwnerGeneration: 1 };
+    const selection = { userId: fixture.userId, sessionId: fixture.sessionId, runId: fixture.admission.runId, workspaceId: fixture.workspaceId, threadId: fixture.admission.threadId, turnId: fixture.admission.turnId, runAttemptId: fixture.admission.runAttemptId, selectionJson: JSON.stringify(runtimeBinding) };
+    const origin = { instanceId: instance.instanceId, externalSessionId: "external", processGeneration: "11111111-1111-4111-8111-111111111111", authOwnerGeneration: 1 };
+    await expect(bindings.freezeAndClaim({ selection: { ...selection, selectionJson: JSON.stringify({ ...runtimeBinding, modelId: "changed-model" }) }, claimId: "mismatched-claim" })).rejects.toMatchObject({ code: "binding_conflict" });
+    expect(await admissions.getByTurnId(selection.turnId)).toMatchObject({ executionState: "pending" });
     expect((await bindings.freezeAndClaim({ selection, claimId: "harness-claim" })).status).toBe("claimed");
+    expect((await client.query("SELECT harness_admission_receipt_json FROM canonical_turn_admissions WHERE turn_id=$1", [selection.turnId])).rows[0]?.harness_admission_receipt_json).toMatchObject({ capture, authOwnerGeneration: 1, binding: runtimeBinding });
     expect((await bindings.freezeAndClaim({ selection, claimId: "second-claim" })).status).toBe("already_claimed");
     await bindings.attach({ selection, origin, expectedProcessGeneration: null });
     const observation = { selection, origin, sequence: 1, observationFingerprint: "a".repeat(64), events };
