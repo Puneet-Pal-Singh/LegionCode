@@ -65,7 +65,9 @@ export interface LocalNativeRuntimeOptions {
   readonly createGitService: (
     binding: LocalWorkspaceExecutionBinding,
     signal: AbortSignal,
-  ) => Pick<DefaultGitService, "probeRepository" | "getStatus">;
+  ) =>
+    | Pick<DefaultGitService, "probeRepository" | "getStatus">
+    | Promise<Pick<DefaultGitService, "probeRepository" | "getStatus">>;
 }
 
 /** Concrete 6C composition. The host keeps the one root FD and closes it after execution. */
@@ -157,7 +159,7 @@ export function createLocalNativeRuntime(
           signal.throwIfAborted();
           const manifests = new MemoryWorkspaceManifestRepository();
           try {
-            const git = options.createGitService(bound, signal);
+            const git = await options.createGitService(bound, signal);
             await manifests.create(
               await readManifest(admission, bound, git, signal),
             );
