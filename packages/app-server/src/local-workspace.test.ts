@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,12 +31,14 @@ describe("LocalWorkspaceService", () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), "legioncode-grant-"));
     const repositoryRoot = join(storageDirectory, "repository");
     await mkdir(repositoryRoot);
+    await mkdir(join(repositoryRoot, ".git"));
     const gitService = new FakeGitService(await realpath(repositoryRoot));
+    const createMetadataInspector = metadataInspector(storageDirectory);
     let persistence: LocalPersistence | undefined;
 
     try {
       persistence = new LocalPersistence({ storageDirectory });
-      const service = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants, gitService });
+      const service = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants, gitService, createMetadataInspector });
       const granted = await service.grant({ path: repositoryRoot });
       expect(granted).toMatchObject({
         displayName: "repository",
@@ -45,6 +50,7 @@ describe("LocalWorkspaceService", () => {
       const reopened = await new LocalWorkspaceService({
         workspaceGrants: persistence.workspaceGrants,
         gitService: new FakeGitService(await realpath(repositoryRoot)),
+        createMetadataInspector,
       }).getCurrent();
       expect(reopened).toMatchObject({ workspaceId: granted.workspaceId, readiness: "ready" });
 
@@ -76,11 +82,13 @@ describe("LocalWorkspaceService", () => {
     const repositoryRoot = join(storageDirectory, "repository");
     const nestedDirectory = join(repositoryRoot, "nested");
     await mkdir(nestedDirectory, { recursive: true });
+    await mkdir(join(nestedDirectory, ".git"));
     const gitService = new FakeGitService(await realpath(repositoryRoot));
+    const createMetadataInspector = metadataInspector(storageDirectory);
     const persistence = new LocalPersistence({ storageDirectory });
 
     try {
-      const service = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants, gitService });
+      const service = new LocalWorkspaceService({ workspaceGrants: persistence.workspaceGrants, gitService, createMetadataInspector });
       await expect(service.grant({ path: nestedDirectory })).rejects.toThrow(
         "repository root",
       );
@@ -90,3 +98,12 @@ describe("LocalWorkspaceService", () => {
     }
   });
 });
+
+function metadataInspector(storageDirectory: string) {
+  const helperPath = join(storageDirectory, "native-fs-helper");
+  execFileSync("cc", ["-O2", "-o", helperPath, fileURLToPath(new URL(
+    "../../execution-engine/src/runtime/desktop/native/legioncode-fs-helper.c", import.meta.url,
+  ))]);
+  return (rootDirectory: import("node:fs/promises").FileHandle, observeExecution: NonNullable<ConstructorParameters<typeof NativeFilesystemBridge>[0]["observeExecution"]>) =>
+    new NativeFilesystemBridge({ helperPath, rootDirectory, observeExecution });
+}
