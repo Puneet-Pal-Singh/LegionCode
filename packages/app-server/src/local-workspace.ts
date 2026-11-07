@@ -45,6 +45,7 @@ export interface LocalWorkspaceExecutionBinding {
   readonly workspace: LocalWorkspaceGrant;
   readonly filesystemRoot: string;
   readonly rootDirectory: FileHandle;
+  readonly metadataIdentity: NativeGitMetadataIdentity;
   /** Call only after all execution/capture children and pipes have quiesced. */
   close(): Promise<void>;
   readonly generation: number;
@@ -207,10 +208,12 @@ export class LocalWorkspaceService {
           "Workspace is not ready for local execution; regrant may be required",
         );
       await this.assertStoredGrantCurrent(stored, generation, signal);
+      const metadataIdentity = parseNativeGitMetadataIdentity(stored.gitMetadataIdentity);
       return Object.freeze({
         workspace,
         filesystemRoot: stored.path,
         rootDirectory: pin.rootDirectory,
+        metadataIdentity,
         generation,
         signal,
         close: () => pin.close(),
