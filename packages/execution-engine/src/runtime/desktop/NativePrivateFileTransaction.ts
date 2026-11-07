@@ -14,6 +14,10 @@ export interface NativePrivateFileTransaction {
   filePath(name: string): string;
   verify(): Promise<void>;
   inspectExecutables(paths: readonly string[]): Promise<readonly (0 | 1 | 2)[]>;
+  /** Entry kinds under the held root: absent, regular, directory, symlink, unsupported. */
+  inspectEntries(
+    paths: readonly string[],
+  ): Promise<readonly (0 | 1 | 2 | 3 | 4)[]>;
   publish(source: string): Promise<void>;
   abort(): Promise<void>;
   /** Close while retaining the owned lock and private recovery evidence. */
@@ -119,6 +123,31 @@ export async function openNativePrivateFileTransaction(options: {
         const answer = (await options.reader.read(1))[0];
         if (answer !== 0 && answer !== 1 && answer !== 2)
           throw new Error("Invalid private executable receipt");
+        answers.push(answer);
+      }
+      return answers;
+    },
+    async inspectEntries(paths) {
+      active();
+      if (paths.length > 32)
+        throw new Error("Private entry inspection exceeds its bound");
+      const answers: (0 | 1 | 2 | 3 | 4)[] = [];
+      for (const path of paths) {
+        validatePrivateDirectoryPath(path);
+        await send(
+          options.pipe,
+          Buffer.concat([Buffer.from("E"), frame(path)]),
+        );
+        await options.reader.tag(69);
+        const answer = (await options.reader.read(1))[0];
+        if (
+          answer !== 0 &&
+          answer !== 1 &&
+          answer !== 2 &&
+          answer !== 3 &&
+          answer !== 4
+        )
+          throw new Error("Invalid private entry receipt");
         answers.push(answer);
       }
       return answers;

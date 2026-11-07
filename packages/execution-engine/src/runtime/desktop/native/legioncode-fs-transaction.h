@@ -135,6 +135,24 @@ static int tx_executable(const char *path) {
   if (close(directory)) return 2;
   return result;
 }
+static int tx_entry(const char *path) {
+  char copy[MAX_PATH_BYTES + 1], *name; size_t length = strlen(path);
+  if (!length || length > MAX_PATH_BYTES || path[0] == '/' || strchr(path, '\\')) return 4;
+  memcpy(copy, path, length + 1); name = strrchr(copy, '/');
+  int directory;
+  if (name) { *name++ = 0; directory = tx_open_directory(copy); }
+  else { name = copy; directory = dup(3); }
+  if (!tx_component(name)) { if (directory >= 0) close(directory); return 4; }
+  if (directory < 0) return errno == ENOENT ? 0 : 4;
+  struct stat info; int result;
+  if (fstatat(directory, name, &info, AT_SYMLINK_NOFOLLOW)) result = errno == ENOENT ? 0 : 4;
+  else if (S_ISREG(info.st_mode)) result = 1;
+  else if (S_ISDIR(info.st_mode)) result = 2;
+  else if (S_ISLNK(info.st_mode)) result = 3;
+  else result = 4;
+  if (close(directory)) return 4;
+  return result;
+}
 static int run_private_transaction(const char *path) {
   struct tx_state state; memset(&state, 0, sizeof(state));
   state.directory = state.temporary_directory = state.lock = -1;
@@ -196,6 +214,12 @@ static int run_private_transaction(const char *path) {
       char candidate[MAX_PATH_BYTES + 1];
       if (tx_string(candidate, MAX_PATH_BYTES)) { result = fail(1, "Invalid private executable inspection path"); break; }
       unsigned char answer[2] = {'H', (unsigned char)tx_executable(candidate)};
+      if (write_exact(1, answer, 2)) break; continue;
+    }
+    if (command == 'E') {
+      char candidate[MAX_PATH_BYTES + 1];
+      if (tx_string(candidate, MAX_PATH_BYTES)) { result = fail(1, "Invalid private entry inspection path"); break; }
+      unsigned char answer[2] = {'E', (unsigned char)tx_entry(candidate)};
       if (write_exact(1, answer, 2)) break; continue;
     }
     if (command == 'A') {
