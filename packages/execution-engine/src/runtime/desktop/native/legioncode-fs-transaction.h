@@ -216,10 +216,10 @@ static int run_private_transaction(const char *path) {
       unsigned char answer[2] = {'H', (unsigned char)tx_executable(candidate)};
       if (write_exact(1, answer, 2)) break; continue;
     }
-    if (command == 'E') {
+    if (command == 'K') {
       char candidate[MAX_PATH_BYTES + 1];
       if (tx_string(candidate, MAX_PATH_BYTES)) { result = fail(1, "Invalid private entry inspection path"); break; }
-      unsigned char answer[2] = {'E', (unsigned char)tx_entry(candidate)};
+      unsigned char answer[2] = {'K', (unsigned char)tx_entry(candidate)};
       if (write_exact(1, answer, 2)) break; continue;
     }
     if (command == 'A') {

@@ -136,9 +136,9 @@ export async function openNativePrivateFileTransaction(options: {
         validatePrivateDirectoryPath(path);
         await send(
           options.pipe,
-          Buffer.concat([Buffer.from("E"), frame(path)]),
+          Buffer.concat([Buffer.from("K"), frame(path)]),
         );
-        await options.reader.tag(69);
+        await options.reader.tag(75);
         const answer = (await options.reader.read(1))[0];
         if (
           answer !== 0 &&
