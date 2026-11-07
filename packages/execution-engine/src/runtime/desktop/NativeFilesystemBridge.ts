@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { fstatSync } from "node:fs";
 import { lstat, type FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import type { Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import {
   openNativePrivateFileTransaction,
   validatePrivateDirectoryPath,
@@ -372,9 +372,46 @@ export class NativeFilesystemBridge {
         resolve({ code, signal, ...(error ? { error } : {}) });
       });
     });
-    const stdin = child.stdin!,
-      stdout = child.stdout!,
-      stderr = child.stderr!;
+    const execution: NativeFilesystemExecution = {
+      closed: closed.then(() => undefined),
+      get quiescent() {
+        return physicallyClosed;
+      },
+    };
+    const closeFailedSetup = async () => {
+      // Even failed spawn/channel setup can have an owned child. Observe it
+      // before accessing pipes, drain available channels, then await real close.
+      for (const stream of child.stdio) {
+        stream?.on("error", () => undefined);
+        if (stream instanceof Readable) stream.resume();
+      }
+      if (child.stdin instanceof Writable) child.stdin.end();
+      child.kill("SIGTERM");
+      await closed;
+    };
+    try {
+      this.options.observeExecution?.(execution);
+    } catch {
+      await closeFailedSetup();
+      throw new NativeFilesystemError(
+        3,
+        "Native filesystem lifetime observer failed after spawn",
+      );
+    }
+    const stdin = child.stdin,
+      stdout = child.stdout,
+      stderr = child.stderr;
+    if (
+      !(stdin instanceof Writable) ||
+      !(stdout instanceof Readable) ||
+      !(stderr instanceof Readable)
+    ) {
+      await closeFailedSetup();
+      throw new NativeFilesystemError(
+        3,
+        "Native filesystem channels were not established",
+      );
+    }
     const stop = () => {
       child.kill("SIGTERM");
     };
@@ -386,12 +423,6 @@ export class NativeFilesystemBridge {
     const reader = new FrameReader(stdout[Symbol.asyncIterator]());
     let completed = false;
     try {
-      this.options.observeExecution?.({
-        closed: closed.then(() => undefined),
-        get quiescent() {
-          return physicallyClosed;
-        },
-      });
       const path = Buffer.from(input.path, "utf8");
       await send(
         stdin,
