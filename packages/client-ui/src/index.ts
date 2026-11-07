@@ -134,3 +134,5 @@ export { ComposerSettingsSection, type ComposerSettingsPreferences } from "./set
 export { ArchivedChatsSettingsView, type ArchivedSettingsItem } from "./settings/ArchivedChatsSettings.js";
 
 export { HooksSettingsView } from "./settings/HooksSettingsView.js";
+
+export { SharedSettingsDialog, SettingsGeneralPanel, type SharedSettingsDialogProps, type SettingsSection } from "./settings/SettingsDialog.js";
