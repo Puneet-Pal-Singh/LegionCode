@@ -87,3 +87,9 @@ export {
   type FileExplorerEntry,
   type FileExplorerPage,
 } from "./files/FileExplorer.js";
+
+export { useOutsideDismiss } from "./hooks/useOutsideDismiss.js";
+export { FileChangesIcon } from "./workspace/FileChangesIcon.js";
+export { FilesToggleButton } from "./workspace/FilesToggleButton.js";
+export { Resizer } from "./workspace/Resizer.js";
+export { ResizableWorkspaceRail } from "./workspace/ResizableWorkspaceRail.js";
