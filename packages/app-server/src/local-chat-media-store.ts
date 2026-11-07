@@ -15,8 +15,10 @@ import {
   LOCAL_CHAT_MEDIA_LIMITS, LocalChatMediaError, LocalChatMediaScopeSchema,
   createMediaRecord, mediaDigest, mediaFingerprint, mediaScopeKey,
   type LocalDecodedChatImage,
+  type LocalChatMediaRecord,
 } from "./local-chat-media-records.js";
-import type { LocalTurnMediaPort, LocalTurnMediaScope, LocalProviderImagePart } from "./local-turn-media.js";
+import type { LocalTurnMediaPort, LocalTurnMediaScope, LocalProviderImagePart, LocalTurnPreparedMedia, LocalTurnMediaDisposal } from "./local-turn-media.js";
+import { LocalChatMediaResources, type LocalChatMediaAdmissionLookup } from "./local-chat-media-resources.js";
 
 /** Original private bytes only. Shared chat-media owns every image parser and
  * normalizer; canonical admission owns all references and scope authorization.
@@ -25,13 +27,15 @@ export class LocalChatMediaStore implements LocalTurnMediaPort {
   readonly limits = LOCAL_CHAT_MEDIA_LIMITS;
   private readonly files: LocalChatMediaFiles;
   private readonly settings: ChatImageSettings;
+  private readonly resources: LocalChatMediaResources;
   private activeIO = 0;
-  constructor(options: { storageDirectory: string; settings?: ChatImageSettings }) {
+  constructor(options: { storageDirectory: string; settings?: ChatImageSettings; lookupAdmission?: LocalChatMediaAdmissionLookup }) {
     this.files = new LocalChatMediaFiles(options.storageDirectory);
+    this.resources = new LocalChatMediaResources(this.files, options.storageDirectory, options.lookupAdmission);
     this.settings = Object.freeze(ChatImageSettingsSchema.parse(options.settings ?? DEFAULT_CHAT_IMAGE_SETTINGS));
   }
 
-  async prepare(input: Parameters<LocalTurnMediaPort["prepare"]>[0], signal?: AbortSignal) {
+  async prepare(input: Parameters<LocalTurnMediaPort["prepare"]>[0], signal?: AbortSignal): Promise<LocalTurnPreparedMedia & LocalTurnMediaDisposal> {
     signal?.throwIfAborted();
     let images: LocalDecodedChatImage[];
     try {
@@ -52,8 +56,11 @@ export class LocalChatMediaStore implements LocalTurnMediaPort {
       throw new LocalChatMediaError("invalid_image", error instanceof ChatImageValidationError
         ? error.message : "Image attachments are invalid or exceed their supported limits");
     }
+    await this.withIO(() => this.resources.ready());
+    signal?.throwIfAborted();
     const fingerprint = mediaFingerprint(images);
     let scopeKey: string | undefined;
+    let record: LocalChatMediaRecord | undefined;
     let publication: Promise<readonly ChatImageAttachmentRef[]> | undefined;
     return {
       fingerprint,
@@ -62,15 +69,24 @@ export class LocalChatMediaStore implements LocalTurnMediaPort {
         const key = mediaScopeKey(scope);
         if (scopeKey !== undefined && scopeKey !== key) throw new LocalChatMediaError("conflict", "Prepared images belong to a different Turn scope");
         scopeKey = key;
+        if (images.length) record ??= createMediaRecord(scope, images);
         publication ??= this.withIO(async () => {
           signal?.throwIfAborted();
-          if (!images.length) return Object.freeze([]);
-          const record = createMediaRecord(scope, images);
-          await this.files.publish(record, images, signal);
+          if (!record) return Object.freeze([]);
+          await this.resources.publish(record, images, signal);
           signal?.throwIfAborted();
           return Object.freeze(record.images.map(({ reference }) => Object.freeze({ ...reference })));
         });
         return publication;
+      },
+      discardUnadmitted: async (confirmScopeAbsence: (scope: LocalTurnMediaScope) => Promise<boolean>) => {
+        // The token retains its bound record even when publication rejects.
+        // Do not race cleanup against an owned write or a caller's admit call.
+        await publication?.catch(() => undefined);
+        const bound = record;
+        if (!bound) return true;
+        try { return await this.withIO(() => this.resources.discardUnadmitted(bound, confirmScopeAbsence)); }
+        catch { return false; }
       },
     };
   }
@@ -92,6 +108,9 @@ export class LocalChatMediaStore implements LocalTurnMediaPort {
       for (const reference of references) {
         input.signal?.throwIfAborted();
         const image = await this.readVerified({ ...input, reference });
+        if (image.fingerprint !== input.fingerprint) {
+          throw new LocalChatMediaError("unavailable", "Stored image fingerprint does not match the admitted content");
+        }
         const normalized = normalizeChatImage(image.bytes, image.reference.mediaType, this.settings);
         parts.push(encodeProviderImage(normalized));
       }
@@ -103,6 +122,8 @@ export class LocalChatMediaStore implements LocalTurnMediaPort {
   private async readVerified(input: {
     scope: LocalTurnMediaScope; reference: ChatImageAttachmentRef; signal?: AbortSignal;
   }) {
+    input.signal?.throwIfAborted();
+    await this.resources.ready();
     input.signal?.throwIfAborted();
     const reference = ChatImageAttachmentRefSchema.parse(input.reference);
     const saved = await this.files.read(LocalChatMediaScopeSchema.parse(input.scope), reference.attachmentId);

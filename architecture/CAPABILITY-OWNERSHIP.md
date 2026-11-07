@@ -1526,6 +1526,26 @@ same original store and shared normalizer, with no durable provider data URLs.
 The private blob namespace assumes the trusted invoking-user host profile; it
 does not claim protection against another process controlling that namespace.
 
+Local media preparation tokens retain their exact bound record even when
+publication fails. The private resource journal reserves a batch before any
+original bytes are written, names one deterministic bounded staging directory,
+and bounds uncertain pending resources to eight batches plus a conservative
+80.25 MiB reservation (including staging and manifest allowances). Accepted
+images do not consume pending quota after canonical verification. Journal state
+tracks resource cleanup only; it never declares a Turn accepted or settled.
+
+The store's private `lookupAdmission` port reads the process-owned canonical
+admission repository independently of the currently granted workspace. A single
+initial recovery promise gates current-owner media writes. Full scope, admitted
+refs and image fingerprint must match before clearing an accepted batch's journal;
+its original bytes remain immutable. Fresh canonical absence permits disposal
+only for previous-owner or explicitly request-quiescent resources. Callers invoke
+`discardUnadmitted` only after their actual admission attempt settles or before it
+can start. Lookup failure or mismatched evidence retains the reservation. A
+durable discarding marker makes interrupted cleanup resumable, while unknown
+files are preserved and block new reservations. Provider hydration also requires
+the actual admitted image fingerprint before normalizing the original bytes.
+
 ## Local bounded latest history
 
 `LocalTurnAdmissions.listByThread` remains the sole local history query over

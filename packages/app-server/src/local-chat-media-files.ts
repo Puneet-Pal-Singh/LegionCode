@@ -145,7 +145,10 @@ export class LocalChatMediaFiles {
         }
         await parent.sync();
         await this.assertRoot(parent);
-      } finally { await Promise.all(opened.map(({ handle }) => handle.close())); }
+      } finally {
+        const closed = await Promise.allSettled(opened.map(({ handle }) => handle.close()));
+        if (closed.some((result) => result.status === "rejected")) throw unavailable();
+      }
     });
   }
 
