@@ -497,6 +497,9 @@ importers:
       '@legioncode/execution-engine':
         specifier: workspace:*
         version: link:../execution-engine
+      '@repo/chat-media':
+        specifier: workspace:*
+        version: link:../chat-media
       '@repo/event-store':
         specifier: workspace:*
         version: link:../event-store
