@@ -23,10 +23,43 @@ export function parseNativeGitMetadataIdentity(
 ): NativeGitMetadataIdentity {
   if (
     typeof value !== "string" ||
-    value.length > 256 ||
-    !/^gitdir-v1(?::[0-9a-f]{1,16}){8}$/u.test(value)
+    value.length > 512 ||
+    !/^(?:gitdir-v1(?::[0-9a-f]{1,16}){8}|gitdir-v2(?::[0-9a-f]{1,16}){16})$/u.test(
+      value,
+    )
   )
     throw new NativeFilesystemError(1, "Invalid native Git metadata identity");
+  return value;
+}
+
+/** Private host metadata; never a public grant, renderer path or mutation capability. */
+export interface NativeGitMetadataLayout {
+  readonly kind: "ordinary" | "linked";
+  readonly gitDirectory: string;
+  readonly commonDirectory: string;
+  readonly backlinkPath: string | null;
+  readonly identity: NativeGitMetadataIdentity;
+  /** Present only after bounded mutation-storage validation; not a capability. */
+  readonly storage?: NativeGitMetadataStorage;
+}
+export interface NativeGitMetadataStorage {
+  readonly objectsDirectory: string;
+  readonly packDirectory: string;
+  readonly infoDirectory: string;
+  readonly refsDirectory: string;
+  readonly commonLogsDirectory: string;
+  readonly worktreeLogsDirectory: string;
+  readonly repositoryInfoDirectory: string;
+  readonly alternates: "absent_or_empty";
+  readonly grafts: "absent_or_empty";
+  readonly identity: string;
+}
+function parseGitStorageIdentity(value: string): string {
+  if (
+    value.length > 512 ||
+    !/^gitstorage-v1(?::[0-9a-f]{1,16}){20}$/u.test(value)
+  )
+    throw new NativeFilesystemError(1, "Invalid Git storage identity");
   return value;
 }
 
@@ -84,8 +117,7 @@ export class NativeFilesystemBridge {
     },
   ) {}
 
-  /** Read-only inspection of normal .git metadata through the original root FD.
-   * Linked-worktree files and metadata symlinks are explicitly unsupported. */
+  /** Legacy ordinary-only identity. Linked callers require the protected G resolver. */
   async inspectGitMetadataIdentity(input: {
     readonly signal: AbortSignal;
   }): Promise<NativeGitMetadataIdentity> {
@@ -94,7 +126,7 @@ export class NativeFilesystemBridge {
       { path: ".git", signal: input.signal },
       async (reader) => {
         await reader.tag(74);
-        const bytes = await reader.read(await reader.length(256));
+        const bytes = await reader.read(await reader.length(512));
         if (bytes.some((value) => value > 127))
           throw new NativeFilesystemError(
             1,
@@ -102,6 +134,105 @@ export class NativeFilesystemBridge {
           );
         input.signal.throwIfAborted();
         return parseNativeGitMetadataIdentity(bytes.toString("ascii"));
+      },
+    );
+  }
+
+  async inspectGitMetadataLayout(input: {
+    readonly signal: AbortSignal;
+    readonly purpose?: "association" | "mutation";
+  }): Promise<NativeGitMetadataLayout> {
+    return this.withHelper(
+      "G",
+      {
+        path: input.purpose === "mutation" ? ".git/mutation" : ".git",
+        signal: input.signal,
+      },
+      async (reader) => {
+        await reader.tag(71);
+        const linked = (await reader.read(1))[0];
+        if (linked !== 0 && linked !== 1)
+          throw new NativeFilesystemError(
+            1,
+            "Invalid Git metadata layout kind",
+          );
+        const paths: string[] = [];
+        for (let index = 0; index < 3; index++) {
+          const path = decode(await reader.read(await reader.length(500)));
+          if (
+            (index < 2 || linked === 1) &&
+            (!isAbsolute(path) || /[\0\r\n]/u.test(path))
+          )
+            throw new NativeFilesystemError(
+              1,
+              "Invalid Git metadata layout path",
+            );
+          paths.push(path);
+        }
+        const identity = parseNativeGitMetadataIdentity(
+          decode(await reader.read(await reader.length(512))),
+        );
+        if (
+          (linked === 1) !== identity.startsWith("gitdir-v2:") ||
+          (linked === 0 && (paths[0] !== paths[1] || paths[2] !== ""))
+        )
+          throw new NativeFilesystemError(
+            1,
+            "Inconsistent Git metadata layout receipt",
+          );
+        const hasStorage = (await reader.read(1))[0];
+        if (hasStorage !== (input.purpose === "mutation" ? 1 : 0))
+          throw new NativeFilesystemError(
+            1,
+            "Invalid Git storage receipt kind",
+          );
+        let storage: NativeGitMetadataStorage | undefined;
+        if (hasStorage) {
+          const locations: string[] = [];
+          for (let index = 0; index < 7; index++) {
+            const path = decode(await reader.read(await reader.length(500)));
+            if (!isAbsolute(path) || /[\0\r\n]/u.test(path))
+              throw new NativeFilesystemError(1, "Invalid Git storage path");
+            locations.push(path);
+          }
+          const expected = [
+            "objects",
+            "objects/pack",
+            "objects/info",
+            "refs",
+            "logs",
+          ]
+            .map((leaf) => `${paths[1]}/${leaf}`)
+            .concat(`${paths[0]}/logs`, `${paths[1]}/info`);
+          if (locations.some((path, index) => path !== expected[index]))
+            throw new NativeFilesystemError(
+              1,
+              "Inconsistent Git storage path receipt",
+            );
+          storage = Object.freeze({
+            objectsDirectory: locations[0]!,
+            packDirectory: locations[1]!,
+            infoDirectory: locations[2]!,
+            refsDirectory: locations[3]!,
+            commonLogsDirectory: locations[4]!,
+            worktreeLogsDirectory: locations[5]!,
+            repositoryInfoDirectory: locations[6]!,
+            alternates: "absent_or_empty",
+            grafts: "absent_or_empty",
+            identity: parseGitStorageIdentity(
+              decode(await reader.read(await reader.length(512))),
+            ),
+          });
+        }
+        input.signal.throwIfAborted();
+        return Object.freeze({
+          kind: linked ? "linked" : "ordinary",
+          gitDirectory: paths[0]!,
+          commonDirectory: paths[1]!,
+          backlinkPath: linked ? paths[2]! : null,
+          identity,
+          ...(storage ? { storage } : {}),
+        });
       },
     );
   }
@@ -297,18 +428,38 @@ export class NativeFilesystemBridge {
       readonly directory: string;
       readonly file: string;
       readonly expectedIdentity: NativeGitMetadataIdentity;
+      readonly expectedLayout: NativeGitMetadataLayout;
       readonly signal: AbortSignal;
       readonly beforePublish: () => Promise<void>;
     },
     operation: (transaction: NativePrivateFileTransaction) => Promise<T>,
   ): Promise<T> {
     parseNativeGitMetadataIdentity(input.expectedIdentity);
+    const storage = input.expectedLayout.storage;
+    if (
+      !storage ||
+      input.expectedLayout.identity !== input.expectedIdentity ||
+      !isAbsolute(input.expectedLayout.gitDirectory) ||
+      !isAbsolute(input.expectedLayout.commonDirectory) ||
+      [
+        input.expectedLayout.gitDirectory,
+        input.expectedLayout.commonDirectory,
+      ].some((path) => Buffer.byteLength(path) > 500 || /[\0\r\n]/u.test(path))
+    )
+      throw new NativeFilesystemError(
+        1,
+        "Private transaction requires the verified Git metadata layout",
+      );
+    const expectedStorageIdentity = parseGitStorageIdentity(storage.identity);
     const outcome = await this.withHelper(
       "T",
       { path: input.directory, signal: input.signal },
       async (reader, pipe) => {
         const transaction = await openNativePrivateFileTransaction({
           ...input,
+          expectedDirectory: input.expectedLayout.gitDirectory,
+          expectedCommonDirectory: input.expectedLayout.commonDirectory,
+          expectedStorageIdentity,
           reader,
           pipe,
         });
@@ -331,13 +482,16 @@ export class NativeFilesystemBridge {
   }
 
   private async withHelper<T>(
-    operation: "R" | "M" | "D" | "T" | "I",
+    operation: "R" | "M" | "D" | "T" | "I" | "G",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
     if (operation === "T") validatePrivateDirectoryPath(input.path);
-    else if (operation === "I") {
-      if (input.path !== ".git")
+    else if (operation === "I" || operation === "G") {
+      if (
+        input.path !== ".git" &&
+        !(operation === "G" && input.path === ".git/mutation")
+      )
         throw new NativeFilesystemError(
           1,
           "Unsupported metadata identity target",
@@ -507,6 +661,8 @@ export class NativeFilesystemBridge {
         (outcome.code !== 0 && outcome.code !== 1) ||
         (reader.receivedError && outcome.code !== 1)
       )
+        // Unknown physical cleanup must supersede any earlier operation outcome.
+        // eslint-disable-next-line no-unsafe-finally
         throw new NativeFilesystemError(
           3,
           "Native filesystem cleanup failed; workspace capture is required",
@@ -644,7 +800,6 @@ function awaitAuthorization(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
     const finish = (outcome: { ok: true } | { ok: false; error: unknown }) => {
       if (settled) return;
       settled = true;
@@ -662,7 +817,7 @@ function awaitAuthorization(
         ),
       });
     signal.addEventListener("abort", abort, { once: true });
-    timer = setTimeout(
+    const timer = setTimeout(
       () =>
         finish({
           ok: false,

@@ -1,9 +1,12 @@
 /* Private LCFM/1 T session. The filesystem owner performs no Git operation.
  * FD3 is the original directory; FD6 is the borrowed writer open description.
  * OPEN suffix: u32 target-leaf length + target, u32 trusted-identity length
- * + identity. Identity is checked before any lock or private-file write.
+ * + identity, then expected gitdir/common paths and storage identity frames.
+ * The same native resolver checks them before any lock or private-file write.
  * Response T, exists byte,
- * u32 private-directory-name length + name. All names are FD-relative.
+ * u32 private-directory-name length + name, u32 verified gitdir length + path.
+ * Files are physically FD-relative; returned Git index labels are private paths
+ * under the verified per-worktree metadata directory (ordinary or linked).
  * V verifies ownership, H inspects a root-relative executable (response H, byte
  * 0 absent/not executable, 1 executable, 2 unsupported), P + source leaf publishes,
  * A aborts, Q retains evidence. P/A/Q acknowledge and exit. EOF always retains.
@@ -17,6 +20,8 @@ struct tx_state {
   char target[TX_NAME + 1], lock_name[TX_NAME + 6], temporary_name[80];
   struct stat directory_stat, temporary_stat, lock_stat;
   struct tx_file original;
+  struct git_metadata metadata;
+  char storage_identity[METADATA_ID_BYTES + 1];
 };
 
 static int tx_component(const char *name) {
@@ -27,11 +32,11 @@ static int tx_string(char *out, uint32_t maximum) {
   if (read_u32(&length) || !length || length > maximum || read_exact(0, out, length) || memchr(out, 0, length)) return -1;
   out[length] = 0; return 0;
 }
-static int tx_open_directory(const char *path) {
+static int tx_open_directory_at(int base, const char *path) {
   char copy[MAX_PATH_BYTES + 1]; size_t length = strlen(path);
   if (!length || length > MAX_PATH_BYTES || path[0] == '/' || strchr(path, '\\')) return -1;
   memcpy(copy, path, length + 1);
-  int current = dup(3); if (current < 0) return -1;
+  int current = dup(base); if (current < 0) return -1;
   char *part = copy;
   for (;;) {
     char *slash = strchr(part, '/'); if (slash) *slash = 0;
@@ -41,6 +46,27 @@ static int tx_open_directory(const char *path) {
     if (close(current)) { close(next); return -1; }
     current = next; if (!slash) return current; part = slash + 1;
   }
+}
+static int tx_inspection_parent(struct tx_state *state, const char *path, char *copy, char **name) {
+  int base = 3;
+  errno = EINVAL;
+  if (!strncmp(path, ".git/", 5)) { base = state->directory; path += 5; }
+  else if (*path == '/') {
+    size_t git_length = strlen(state->metadata.directory_path), common_length = strlen(state->metadata.common_path);
+    if (!strncmp(path, state->metadata.directory_path, git_length) && path[git_length] == '/') {
+      base = state->directory; path += git_length + 1;
+    } else if (!strncmp(path, state->metadata.common_path, common_length) && path[common_length] == '/') {
+      base = state->metadata.common; path += common_length + 1;
+    } else return -1;
+  }
+  size_t length = strlen(path);
+  if (!length || length > MAX_PATH_BYTES || strchr(path, '\\')) return -1;
+  memcpy(copy, path, length + 1); *name = strrchr(copy, '/');
+  int directory;
+  if (*name) { *(*name)++ = 0; directory = tx_open_directory_at(base, copy); }
+  else { *name = copy; directory = dup(base); }
+  if (!tx_component(*name)) { if (directory >= 0) close(directory); return -1; }
+  return directory;
 }
 static int tx_read(int directory, const char *name, struct tx_file *value) {
   memset(value, 0, sizeof(*value));
@@ -74,11 +100,15 @@ static int tx_identity(int directory, const char *name, const struct stat *expec
     current.st_dev == expected->st_dev && current.st_ino == expected->st_ino;
 }
 static int tx_owned(struct tx_state *state, const char *path) {
-  int current = tx_open_directory(path); struct stat identity;
-  if (current < 0) return 0;
-  int good = !fstat(current, &identity) && identity.st_dev == state->directory_stat.st_dev &&
-    identity.st_ino == state->directory_stat.st_ino;
-  if (close(current)) good = 0;
+  (void)path;
+  struct git_metadata current;
+  if (resolve_git_metadata(&current)) return 0;
+  int good = !strcmp(current.identity, state->metadata.identity) &&
+    !strcmp(current.directory_path, state->metadata.directory_path) &&
+    !strcmp(current.common_path, state->metadata.common_path);
+  struct git_storage storage;
+  if (good && (metadata_storage(&current, &storage, 0) || strcmp(storage.identity, state->storage_identity))) good = 0;
+  if (metadata_close(&current)) good = 0;
   return good && tx_identity(state->directory, state->lock_name, &state->lock_stat) &&
     tx_identity(state->directory, state->temporary_name, &state->temporary_stat);
 }
@@ -118,14 +148,9 @@ static int tx_cleanup(struct tx_state *state, int remove_lock) {
   }
   return fsync(state->directory);
 }
-static int tx_executable(const char *path) {
-  char copy[MAX_PATH_BYTES + 1], *name; size_t length = strlen(path);
-  if (!length || length > MAX_PATH_BYTES || path[0] == '/' || strchr(path, '\\')) return 2;
-  memcpy(copy, path, length + 1); name = strrchr(copy, '/');
-  int directory;
-  if (name) { *name++ = 0; directory = tx_open_directory(copy); }
-  else { name = copy; directory = dup(3); }
-  if (!tx_component(name)) { if (directory >= 0) close(directory); return 2; }
+static int tx_executable(struct tx_state *state, const char *path) {
+  char copy[MAX_PATH_BYTES + 1], *name;
+  int directory = tx_inspection_parent(state, path, copy, &name);
   if (directory < 0) return errno == ENOENT ? 0 : 2;
   struct stat info; int result;
   if (fstatat(directory, name, &info, AT_SYMLINK_NOFOLLOW)) result = errno == ENOENT ? 0 : 2;
@@ -135,14 +160,9 @@ static int tx_executable(const char *path) {
   if (close(directory)) return 2;
   return result;
 }
-static int tx_entry(const char *path) {
-  char copy[MAX_PATH_BYTES + 1], *name; size_t length = strlen(path);
-  if (!length || length > MAX_PATH_BYTES || path[0] == '/' || strchr(path, '\\')) return 4;
-  memcpy(copy, path, length + 1); name = strrchr(copy, '/');
-  int directory;
-  if (name) { *name++ = 0; directory = tx_open_directory(copy); }
-  else { name = copy; directory = dup(3); }
-  if (!tx_component(name)) { if (directory >= 0) close(directory); return 4; }
+static int tx_entry(struct tx_state *state, const char *path) {
+  char copy[MAX_PATH_BYTES + 1], *name;
+  int directory = tx_inspection_parent(state, path, copy, &name);
   if (directory < 0) return errno == ENOENT ? 0 : 4;
   struct stat info; int result;
   if (fstatat(directory, name, &info, AT_SYMLINK_NOFOLLOW)) result = errno == ENOENT ? 0 : 4;
@@ -156,19 +176,26 @@ static int tx_entry(const char *path) {
 static int run_private_transaction(const char *path) {
   struct tx_state state; memset(&state, 0, sizeof(state));
   state.directory = state.temporary_directory = state.lock = -1;
+  state.metadata.directory = state.metadata.common = -1;
   int result = 1, started_session = 0;
   struct stat root, lease;
-  if (fstat(3, &root) || !S_ISDIR(root.st_mode) || fstat(6, &lease) || !S_ISREG(lease.st_mode))
-    return fail(5, "Private transaction requires retained root and writer descriptors");
+  if (strcmp(path, ".git") || fstat(3, &root) || !S_ISDIR(root.st_mode) || fstat(6, &lease) || !S_ISREG(lease.st_mode))
+    return fail(5, "Private Git transaction requires retained root and writer descriptors");
   if (tx_string(state.target, TX_NAME) || !tx_component(state.target)) return fail(1, "Invalid private transaction target");
-  state.directory = tx_open_directory(path);
-  if (state.directory < 0 || fstat(state.directory, &state.directory_stat)) {
-    result = fail(5, "Private transaction directory must be real and root-relative; linked metadata is unsupported"); goto done;
+  char expected_identity[METADATA_ID_BYTES + 1], expected_directory[MAX_PATH_BYTES + 1], expected_common[MAX_PATH_BYTES + 1];
+  if (tx_string(expected_identity, METADATA_ID_BYTES) || tx_string(expected_directory, MAX_PATH_BYTES) ||
+      tx_string(expected_common, MAX_PATH_BYTES) || tx_string(state.storage_identity, METADATA_ID_BYTES) || resolve_git_metadata(&state.metadata) ||
+      strcmp(expected_identity, state.metadata.identity) || strcmp(expected_directory, state.metadata.directory_path) ||
+      strcmp(expected_common, state.metadata.common_path)) {
+    result = fail(2, "Private transaction metadata does not match the trusted layout"); goto done;
   }
-  char expected_identity[257], actual_identity[256];
-  if (tx_string(expected_identity, 256) || format_directory_identity(&root, &state.directory_stat, actual_identity, sizeof(actual_identity)) < 0 ||
-      strcmp(expected_identity, actual_identity)) {
-    result = fail(2, "Private transaction metadata does not match the trusted identity"); goto done;
+  struct git_storage storage;
+  if (metadata_storage(&state.metadata, &storage, 1) || strcmp(storage.identity, state.storage_identity)) {
+    result = fail(2, "Private transaction Git storage changed or is unsupported"); goto done;
+  }
+  state.directory = dup(state.metadata.directory);
+  if (state.directory < 0 || fstat(state.directory, &state.directory_stat)) {
+    result = fail(5, "Private transaction metadata directory is unavailable"); goto done;
   }
   snprintf(state.lock_name, sizeof(state.lock_name), "%s.lock", state.target);
   state.lock = openat(state.directory, state.lock_name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
@@ -193,7 +220,15 @@ static int run_private_transaction(const char *path) {
   if (state.original.exists) {
     int copy = openat(state.temporary_directory, state.target, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
     if (copy < 0) { result = fail(3, "Unable to snapshot transaction source"); goto setup_failed; }
-    int copied = write_exact(copy, state.original.bytes, state.original.length) || fsync(copy);
+    /* A fresh copy timestamp can make stale stat-cache entries look clean.
+     * Keep the private index strictly older than its original racy boundary. */
+#if defined(__APPLE__)
+    time_t seconds = state.original.stat.st_mtimespec.tv_sec;
+#else
+    time_t seconds = state.original.stat.st_mtim.tv_sec;
+#endif
+    struct timespec times[2] = {{seconds > 0 ? seconds - 1 : 0, 0}, {seconds > 0 ? seconds - 1 : 0, 0}};
+    int copied = write_exact(copy, state.original.bytes, state.original.length) || futimens(copy, times) || fsync(copy);
     if (close(copy)) copied = 1;
     if (copied) { result = fail(3, "Unable to persist transaction snapshot"); goto setup_failed; }
   }
@@ -202,7 +237,9 @@ static int run_private_transaction(const char *path) {
   }
   unsigned char header[2] = {'T', (unsigned char)state.original.exists};
   if (write_exact(1, header, 2) || write_u32((uint32_t)strlen(state.temporary_name)) ||
-      write_exact(1, state.temporary_name, strlen(state.temporary_name))) goto done;
+      write_exact(1, state.temporary_name, strlen(state.temporary_name)) ||
+      write_u32((uint32_t)strlen(state.metadata.directory_path)) ||
+      write_exact(1, state.metadata.directory_path, strlen(state.metadata.directory_path))) goto done;
   started_session = 1;
   for (;;) {
     unsigned char command;
@@ -213,13 +250,13 @@ static int run_private_transaction(const char *path) {
     if (command == 'H') {
       char candidate[MAX_PATH_BYTES + 1];
       if (tx_string(candidate, MAX_PATH_BYTES)) { result = fail(1, "Invalid private executable inspection path"); break; }
-      unsigned char answer[2] = {'H', (unsigned char)tx_executable(candidate)};
+      unsigned char answer[2] = {'H', (unsigned char)tx_executable(&state, candidate)};
       if (write_exact(1, answer, 2)) break; continue;
     }
     if (command == 'K') {
       char candidate[MAX_PATH_BYTES + 1];
       if (tx_string(candidate, MAX_PATH_BYTES)) { result = fail(1, "Invalid private entry inspection path"); break; }
-      unsigned char answer[2] = {'K', (unsigned char)tx_entry(candidate)};
+      unsigned char answer[2] = {'K', (unsigned char)tx_entry(&state, candidate)};
       if (write_exact(1, answer, 2)) break; continue;
     }
     if (command == 'A') {
@@ -254,6 +291,7 @@ done:
   if (state.lock >= 0 && close(state.lock)) result = 2;
   if (state.temporary_directory >= 0 && close(state.temporary_directory)) result = 2;
   if (state.directory >= 0 && close(state.directory)) result = 2;
+  if (metadata_close(&state.metadata)) result = 2;
   free(state.original.bytes);
   return result;
 }

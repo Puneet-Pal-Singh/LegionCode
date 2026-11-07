@@ -51,6 +51,11 @@ function frame(value: string): Buffer {
   length.writeUInt32BE(bytes.length);
   return Buffer.concat([length, bytes]);
 }
+function validateInspectionPath(path: string): void {
+  // Native T accepts absolute names ONLY beneath its verified gitdir/common
+  // handles. This does not grant ordinary file tools access to metadata.
+  validatePrivateDirectoryPath(path.startsWith("/") ? path.slice(1) : path);
+}
 function send(pipe: Writable, bytes: Buffer): Promise<void> {
   return new Promise((resolve, reject) =>
     pipe.write(bytes, (error?: Error | null) =>
@@ -63,6 +68,9 @@ export async function openNativePrivateFileTransaction(options: {
   readonly directory: string;
   readonly file: string;
   readonly expectedIdentity: string;
+  readonly expectedDirectory: string;
+  readonly expectedCommonDirectory: string;
+  readonly expectedStorageIdentity: string;
   readonly reader: NativePrivateTransactionChannel;
   readonly pipe: Writable;
   readonly beforePublish: () => Promise<void>;
@@ -70,7 +78,13 @@ export async function openNativePrivateFileTransaction(options: {
   leaf(options.file);
   await send(
     options.pipe,
-    Buffer.concat([frame(options.file), frame(options.expectedIdentity)]),
+    Buffer.concat([
+      frame(options.file),
+      frame(options.expectedIdentity),
+      frame(options.expectedDirectory),
+      frame(options.expectedCommonDirectory),
+      frame(options.expectedStorageIdentity),
+    ]),
   );
   await options.reader.tag(84);
   const exists = (await options.reader.read(1))[0];
@@ -81,7 +95,12 @@ export async function openNativePrivateFileTransaction(options: {
   ).toString("utf8");
   if (!/^\.legioncode-transaction-[a-f0-9]{32}$/u.test(name))
     throw new Error("Invalid private directory receipt");
-  const directory = `${options.directory}/${name}`;
+  const metadataDirectory = (
+    await options.reader.read(await options.reader.length(500))
+  ).toString("utf8");
+  if (metadataDirectory !== options.expectedDirectory)
+    throw new Error("Private transaction belongs to different Git metadata");
+  const directory = `${metadataDirectory}/${name}`;
   let finalized = false;
   const active = () => {
     if (finalized)
@@ -114,7 +133,7 @@ export async function openNativePrivateFileTransaction(options: {
         throw new Error("Private executable inspection exceeds its bound");
       const answers: (0 | 1 | 2)[] = [];
       for (const path of paths) {
-        validatePrivateDirectoryPath(path);
+        validateInspectionPath(path);
         await send(
           options.pipe,
           Buffer.concat([Buffer.from("H"), frame(path)]),
@@ -133,7 +152,7 @@ export async function openNativePrivateFileTransaction(options: {
         throw new Error("Private entry inspection exceeds its bound");
       const answers: (0 | 1 | 2 | 3 | 4)[] = [];
       for (const path of paths) {
-        validatePrivateDirectoryPath(path);
+        validateInspectionPath(path);
         await send(
           options.pipe,
           Buffer.concat([Buffer.from("K"), frame(path)]),
