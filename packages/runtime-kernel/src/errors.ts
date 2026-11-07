@@ -56,24 +56,30 @@ export class RuntimeLifecycleSettlementError extends Error {
 }
 
 export function toProtocolError(error: unknown): ProtocolError {
-  if (error instanceof RuntimeKernelError) {
-    if (error.code === "worker_failed") {
-      return mapWorkerFailure(error);
+  try {
+    if (error instanceof RuntimeKernelError) {
+      const code = readErrorData(error, "code");
+      if (!RUNTIME_KERNEL_ERROR_CODES.some((known) => known === code))
+        return toPublicProtocolError(null);
+      if (code === "worker_failed") {
+        return mapWorkerFailure(readErrorData(error, "causeError"));
+      }
+      if (code === "provider_failed") {
+        return mapProviderFailure(readErrorData(error, "causeError"));
+      }
+      return toPublicProtocolError({
+        code: mapProtocolErrorCode(code as RuntimeKernelErrorCode),
+        retryable: isRetryable(code as RuntimeKernelErrorCode),
+      });
     }
-    if (error.code === "provider_failed") {
-      return mapProviderFailure(error);
-    }
-    return toPublicProtocolError({
-      code: mapProtocolErrorCode(error.code),
-      retryable: isRetryable(error.code),
-    });
+  } catch {
+    // instanceof and descriptor lookup can both fail on a hostile Proxy.
   }
-
   return toPublicProtocolError(null);
 }
 
-function mapProviderFailure(error: RuntimeKernelError): ProtocolError {
-  const statusCode = readProviderStatusCode(error.causeError);
+function mapProviderFailure(cause: unknown): ProtocolError {
+  const statusCode = readProviderStatusCode(cause);
   return toPublicProtocolError({
     code: statusCode === 429 ? "rate_limited" : "provider_unavailable",
     retryable: true,
@@ -82,27 +88,34 @@ function mapProviderFailure(error: RuntimeKernelError): ProtocolError {
 }
 
 function readProviderStatusCode(error: unknown): number | null {
-  const visited = new Set<unknown>();
-  let current = error;
-  let depth = 0;
-  while (current && depth < 8 && !visited.has(current)) {
-    visited.add(current);
-    if (typeof current === "object") {
-      const record = current as Record<string, unknown>;
-      if (typeof record.statusCode === "number" && Number.isInteger(record.statusCode) &&
-        record.statusCode >= 100 && record.statusCode <= 599) return record.statusCode;
-      current =
-        record.causeError ?? record.cause ?? record.lastError ?? record.error;
+  try {
+    const visited = new Set<unknown>();
+    let current = error;
+    let depth = 0;
+    while (current && depth < 8 && !visited.has(current)) {
+      visited.add(current);
+      if (typeof current !== "object") break;
+      const statusCode = readErrorData(current, "statusCode");
+      if (typeof statusCode === "number" && Number.isInteger(statusCode) &&
+        statusCode >= 100 && statusCode <= 599) return statusCode;
+      current = readErrorData(current, "causeError") ?? readErrorData(current, "cause") ??
+        readErrorData(current, "lastError") ?? readErrorData(current, "error");
       depth += 1;
-      continue;
     }
-    break;
+  } catch {
+    // No diagnostic from an accessor or Proxy is public status evidence.
   }
   return null;
 }
 
-function mapWorkerFailure(error: RuntimeKernelError): ProtocolError {
-  return toPublicProtocolError(error.causeError, {
+function readErrorData(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
+
+function mapWorkerFailure(cause: unknown): ProtocolError {
+  return toPublicProtocolError(cause, {
     code: "command_failed",
     retryable: true,
   });

@@ -74,5 +74,27 @@ describe("ProtocolErrorSchema", () => {
       correlationId: null,
       details: null,
     });
+    let accessorCalls = 0;
+    const diagnostic = () => {
+      accessorCalls++;
+      throw new Error("CANARY_ACCESSOR_DIAGNOSTIC");
+    };
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const inputs: unknown[] = [
+      { get code() { return diagnostic(); } },
+      { code: "command_failed", get retryable() { return diagnostic(); } },
+      { code: "command_failed", get details() { return diagnostic(); } },
+      { code: "command_failed", details: { get providerStatusCode() { return diagnostic(); } } },
+      new Proxy({}, { getOwnPropertyDescriptor: diagnostic }),
+      revoked.proxy,
+    ];
+    for (const input of inputs) {
+      const error = toPublicProtocolError(input);
+      expect(ProtocolErrorSchema.safeParse(error).success).toBe(true);
+      expect(JSON.stringify(error)).not.toContain("CANARY");
+    }
+    // Only a Proxy descriptor trap runs; data-only inspection never invokes accessors.
+    expect(accessorCalls).toBe(1);
   });
 });

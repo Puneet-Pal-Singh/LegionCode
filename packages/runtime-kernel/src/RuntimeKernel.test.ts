@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
+  toProtocolError,
 } from "./errors.js";
 import type {
   RuntimeHookOrchestrationPort,
@@ -235,6 +236,22 @@ describe("RuntimeKernel canonical lifecycle", () => {
       },
     });
     expect(JSON.stringify(sink.events)).not.toContain("CANARY");
+    const diagnostic = () => { throw new Error("CANARY_PROVIDER_ACCESSOR"); };
+    for (const cause of [
+      { get statusCode() { return diagnostic(); } },
+      { get cause() { return diagnostic(); } },
+      new Proxy({}, { getOwnPropertyDescriptor: diagnostic }),
+    ]) {
+      expect(toProtocolError(new RuntimeKernelError("provider_failed", "Private failure", cause)))
+        .toMatchObject({ code: "provider_unavailable", message: "The model provider request failed." });
+    }
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(toProtocolError(revoked.proxy)).toMatchObject({ code: "internal_error" });
+    const cycle: { cause?: unknown } = {};
+    cycle.cause = cycle;
+    expect(toProtocolError(new RuntimeKernelError("provider_failed", "Private failure", cycle)))
+      .toMatchObject({ code: "provider_unavailable" });
   });
 
   it("does not expose raw provider quota diagnostics in failed-turn output", async () => {

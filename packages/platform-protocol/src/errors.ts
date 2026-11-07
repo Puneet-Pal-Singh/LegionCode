@@ -86,31 +86,50 @@ export function toPublicProtocolError(
   },
   trustedCorrelationId: string | null = null,
 ): ProtocolError {
-  const classification = PublicClassificationSchema.safeParse(input);
-  const code = classification.success ? classification.data.code : fallback.code;
-  const retryable = classification.success
-    ? classification.data.retryable ?? fallback.retryable
-    : fallback.retryable;
-  const details = PublicErrorDetailsSchema.safeParse(
-    input !== null && typeof input === "object" && "details" in input
-      ? input.details
-      : null,
-  );
-  const publicDetails: NonNullable<ProtocolError["details"]> = {};
-  if (details.success) {
-    if (details.data.providerStatusCode !== undefined)
-      publicDetails.providerStatusCode = details.data.providerStatusCode;
-    if (details.data.reason !== undefined)
-      publicDetails.reason = details.data.reason;
+  try {
+    // Inspect data properties only. SDK objects can contain accessors; even
+    // descriptor lookup can throw for a Proxy, so reflection stays in this guard.
+    const classification = PublicClassificationSchema.safeParse({
+      code: readErrorData(input, "code"),
+      retryable: readErrorData(input, "retryable"),
+    });
+    const code = classification.success ? classification.data.code : fallback.code;
+    const retryable = classification.success
+      ? classification.data.retryable ?? fallback.retryable
+      : fallback.retryable;
+    const upstreamDetails = readErrorData(input, "details");
+    const details = PublicErrorDetailsSchema.safeParse({
+      providerStatusCode: readErrorData(upstreamDetails, "providerStatusCode"),
+      reason: readErrorData(upstreamDetails, "reason"),
+    });
+    const publicDetails: NonNullable<ProtocolError["details"]> = {};
+    if (details.success) {
+      if (details.data.providerStatusCode !== undefined)
+        publicDetails.providerStatusCode = details.data.providerStatusCode;
+      if (details.data.reason !== undefined)
+        publicDetails.reason = details.data.reason;
+    }
+    return {
+      code,
+      message: PUBLIC_ERROR_MESSAGES[code],
+      retryable,
+      correlationId: trustedCorrelationId,
+      details: Object.keys(publicDetails).length > 0 ? publicDetails : null,
+    };
+  } catch {
+    // Never inspect, stringify or log a value thrown by upstream reflection.
+    return {
+      code: fallback.code,
+      message: PUBLIC_ERROR_MESSAGES[fallback.code],
+      retryable: fallback.retryable,
+      correlationId: trustedCorrelationId,
+      details: null,
+    };
   }
-  return {
-    code,
-    message: PUBLIC_ERROR_MESSAGES[code],
-    retryable,
-    correlationId: trustedCorrelationId,
-    details:
-      Object.keys(publicDetails).length > 0
-        ? publicDetails
-        : null,
-  };
+}
+
+function readErrorData(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
