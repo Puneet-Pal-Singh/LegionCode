@@ -35,6 +35,10 @@ const ALLOWED_IMPORT_FILES = new Set([
   "hooks/useTurnLifecycleProjection.ts",
   "lib/session-sidebar-selectors.ts",
   "lib/chat-request.ts",
+  // Public harness DTOs and SDK-owned frozen submission validation. Transport
+  // remains in services/api/appServerClient; no provider or Node SDK is imported.
+  "components/harness/HostedHarnessScope.tsx",
+  "lib/chat-execution-selection.ts",
   "lib/provider-recovery.ts",
   "components/chat/chat-interface/TurnLifecycleStatus.tsx",
   "components/layout/workspace/runUiState.ts",
