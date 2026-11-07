@@ -82,6 +82,7 @@ export class LocalTurnService {
     readonly workspace: LocalWorkspaceService;
     readonly leases: LocalWorkspaceLease;
     readonly harnessOperations: LocalHarnessOperations;
+    readonly settleExecution: (admission: TurnAdmission) => Promise<void>;
     readonly resolveBinding: LocalHarnessRuntimeServices["resolveBinding"];
     readonly readDiff: (turnId: TurnId) => Promise<TurnDiffPayload | null>;
     readonly recoverExecution: (runtime: RuntimeKernel, input: Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity">) => Promise<unknown>;
@@ -220,6 +221,7 @@ export class LocalTurnService {
     throw new AppServerOperationError(503, "server_unavailable", "Canonical approval decision could not be read");
   }
   get hasActiveExecutions(): boolean { return this.active.size > 0; }
+  hasExecutionOwner(turnId: TurnId): boolean { return this.active.has(turnId); }
   async shutdown(): Promise<void> {
     for (const execution of this.active.values()) execution.controller.abort();
     await Promise.all([...this.active.values()].map((execution) => execution.task));
@@ -281,7 +283,7 @@ export class LocalTurnService {
       }
       throw error;
     } finally {
-      await this.options.leases.assertSettled(execution.admission); // Unknown retains the live/durable owner.
+      await this.options.settleExecution(execution.admission); // Unknown retains the live/durable owner.
       this.active.delete(execution.admission.turn.id);
     }
   }
