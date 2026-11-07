@@ -62,10 +62,11 @@ export class LocalChatMediaFiles {
       const stage = this.stage(record.scope);
       await mkdir(stage, { mode: 0o700 });
       const directory = await open(stage, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-      const identity = await directory.stat({ bigint: true });
+      let identity: BigIntStats | undefined;
       const created: string[] = [];
       let published = false;
       try {
+        identity = await directory.stat({ bigint: true });
         for (let index = 0; index < images.length; index += 1) {
           signal?.throwIfAborted();
           const image = images[index]!;
@@ -97,7 +98,7 @@ export class LocalChatMediaFiles {
         await this.assertRoot(parent);
         signal?.throwIfAborted();
       } finally {
-        try { if (!published && same(await lstat(stage, { bigint: true }), identity)) {
+        try { if (identity && !published && same(await lstat(stage, { bigint: true }), identity)) {
           // Delete only this invocation's exact files. Unexpected evidence is
           // retained; no recursive cleanup of an unfamiliar directory.
           for (const path of created.reverse()) await unlink(path);
