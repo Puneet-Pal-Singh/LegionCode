@@ -1545,7 +1545,7 @@ describe("RunEngineRequestHandler", () => {
         new Request("https://brain.local/lifecycle-approval", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ turnId, approvalId, decision }),
+          body: JSON.stringify({ turnId, approvalId, decision, decidedBy: "usr_bodyforgery" }),
         }),
       );
 
@@ -1556,6 +1556,7 @@ describe("RunEngineRequestHandler", () => {
       approvalId,
     });
     expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith(approvalId, expect.objectContaining({ decidedBy: canonical.ownerUserId }));
 
     const retry = await submit("approved");
     expect(retry.status).toBe(200);
@@ -1836,7 +1837,7 @@ async function lifecycleApprovalFixture(
       getByTurnId: async (id: string) => id === turnId ? admission : null,
     },
   } as unknown as Env;
-  return { env, envelope, requested };
+  return { env, envelope, requested, ownerUserId: identity.ownerUserId };
 }
 
 function admittedIdentity(
