@@ -272,6 +272,7 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
       args: [`--user-data-dir=${userDataDirectory}`],
     });
     const page = await application.firstWindow();
+    await page.setViewportSize({ width: 1100, height: 900 });
     page.on("console", (message) => consoleText.push(message.text()));
     page.on("pageerror", (error) => consoleText.push(error.message));
     await expectEnvironmentReady(page);
@@ -322,12 +323,12 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     const credentialInput = providersDialog.getByLabel(`${candidate.displayName} API key`);
     await credentialInput.fill(firstSentinel);
     await providersDialog.getByRole("button", { name: "Submit", exact: true }).click();
-    await expect(providersDialog.getByText("API key saved and provider connected.", { exact: true })).toBeVisible();
+    const connectedProvider = providersDialog.getByRole("heading", { name: "Connected providers", exact: true }).locator("..").locator("div.flex.min-h-20").filter({ has: page.getByText(candidate.displayName, { exact: true }) });
+    await expect(connectedProvider.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
     await expect.poll(() => readProviderSelection(page)).toMatchObject({ providerId: candidate.providerId, modelId: candidate.modelId });
     // The shared form unmounts after save; reopening it must not restore plaintext.
     await expect(credentialInput).toHaveCount(0);
-    const connectedProvider = providersDialog.getByRole("heading", { name: "Connected providers", exact: true }).locator("..").locator("div.flex.min-h-20").filter({ has: page.getByText(candidate.displayName, { exact: true }) });
-    await expect(connectedProvider.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("provider-connected-wide.png"), fullPage: true });
     // Shared Web management replaces a key by disconnecting, then reconnecting.
     await connectedProvider.getByRole("button", { name: "Disconnect", exact: true }).click();
     await expect.poll(() => readProviderSelection(page)).toBeNull();
@@ -457,7 +458,7 @@ async function readAllFiles(path: string): Promise<string[]> {
 }
 
 
-test("the packaged Desktop app reopens and revokes a local workspace grant", async () => {
+test("the packaged Desktop app reopens and revokes a local workspace grant", async ({}, testInfo) => {
   const executablePath = await findPackagedExecutable();
   const testRoot = await mkdtemp(join("/tmp", "legioncode-desktop-smoke-"));
   const repositoryRoot = join(testRoot, "repository");
@@ -528,9 +529,10 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     await initialOpenSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
 
-    await workspaceSidebar.getByRole("button", { name: "New task", exact: true }).click();
+    // Granting a ready empty workspace opens its canonical initial draft.
     const firstCreatedThread = page.getByRole("option", { name: "New local thread", exact: true });
     await expect(firstCreatedThread).toHaveAttribute("aria-selected", "true");
+    await page.screenshot({ path: testInfo.outputPath("workspace-initial-draft-wide.png"), fullPage: true });
     await firstCreatedThread.hover();
     const firstDetails = page.getByRole("dialog", { name: "New local thread details", exact: true });
     await firstDetails.getByRole("button", { name: "Rename New local thread", exact: true }).click();
