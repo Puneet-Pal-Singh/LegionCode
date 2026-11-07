@@ -1,5 +1,4 @@
-import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
-import { LocalWorkspaceFilesService } from "@legioncode/app-server/local-workspace-files";
+import { createWorkspaceFileComposition } from "./workspace-file-composition";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
@@ -32,25 +31,7 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data, data.nativeFilesystemHelperPath ? {
-    createWorkspaceFilesService: (workspaces) => new LocalWorkspaceFilesService({
-      withWorkspace: async (workspaceId, operation) => {
-        const binding = await workspaces.bindForExecution(workspaceId);
-        try {
-          binding.assertCurrent();
-          const reader = new NativeFilesystemBridge({
-            helperPath: data.nativeFilesystemHelperPath!, rootDirectory: binding.rootDirectory,
-          });
-          const result = await operation(reader, binding.signal);
-          binding.assertCurrent();
-          return result;
-        } finally {
-          // Native operations return only after child and pipe closure.
-          await binding.close();
-        }
-      },
-    }),
-  } : undefined);
+  runLocalAppServerProcess(parentPort, data, createWorkspaceFileComposition(data));
 });
 
 process.once("uncaughtException", () => {

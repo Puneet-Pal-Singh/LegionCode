@@ -219,16 +219,21 @@ void app.whenReady().then(() => {
     app.getPath("userData"), app.getAppPath(), process.resourcesPath,
     fileURLToPath(new URL(".", import.meta.url)),
   ].map((path) => realpathSync(path));
-  const helperCandidate = app.isPackaged
-    ? join(process.resourcesPath, "native", "legioncode-fs-helper")
-    : join(app.getAppPath(), "native-bin", "legioncode-fs-helper");
-  let nativeFilesystemHelperPath: string | undefined;
-  try {
-    const helperPath = realpathSync(helperCandidate);
-    if (statSync(helperPath).isFile()) nativeFilesystemHelperPath = helperPath;
-  } catch { /* Missing native helper keeps file queries unavailable. */ }
+  const resolveHelper = (name: string): string | undefined => {
+    const candidate = app.isPackaged
+      ? join(process.resourcesPath, "native", name)
+      : join(app.getAppPath(), "native-bin", name);
+    try {
+      const helperPath = realpathSync(candidate);
+      if (statSync(helperPath).isFile()) return helperPath;
+    } catch { /* Missing packaged helper keeps native queries unavailable. */ }
+    return undefined;
+  };
+  const nativeFilesystemHelperPath = resolveHelper("legioncode-fs-helper");
+  const nativeProcessHelperPath = resolveHelper("legioncode-process-helper");
   void localAppServer.start(app.getVersion(), app.getPath("userData"), {
-    protectedHostRoots: [...new Set(protectedHostRoots)], nativeFilesystemHelperPath,
+    protectedHostRoots: [...new Set(protectedHostRoots)],
+    nativeFilesystemHelperPath, nativeProcessHelperPath,
   });
   createWindow();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
