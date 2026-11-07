@@ -1,6 +1,7 @@
 import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
 import {
   HarnessSessionSchema,
+  HarnessStartCommandSchema,
   type HarnessSession,
 } from "@repo/worker-protocol";
 import {
@@ -17,7 +18,10 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
   // Deliberately retained for this composition's lifetime: eviction requires
   // canonical terminal + physical quiescence + immutable artifact settlement,
   // plus a durable command tombstone requery. No such release port is supplied.
-  private readonly clients = new Map<string, CloudHarnessBridgeClient>();
+  private readonly clients = new Map<
+    string,
+    { client: CloudHarnessBridgeClient; startCommandFingerprint: string | null }
+  >();
   private readonly dispatched = new Set<string>();
 
   constructor(
@@ -39,35 +43,40 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       throw new Error(
         "Cloud harness prior-generation resume unavailable; recovery required",
       );
+    const command = HarnessStartCommandSchema.parse(input.command);
+    const startCommandFingerprint = await fingerprintCommand(command);
     const request = CloudHarnessRequestSchema.parse({
       type: "request",
       requestId: crypto.randomUUID(),
       operation: "open",
-      command: input.command,
+      command,
     });
     encodeCloudHarnessBridgeFrame(request); // preflight BEFORE bootstrap or credential resolution
     if (this.clients.size >= 128)
       throw new Error("Cloud harness session capacity reached");
     const client = new CloudHarnessBridgeClient(
       this.supervisor,
-      { operation: "open", command: input.command },
+      { operation: "open", command },
       this.requestTimeoutMs,
     );
     try {
       await client.connect(input.signal);
       const result = await client.request(request, () =>
-        this.claim(`open:${input.command.commandId}`),
+        this.claim(`open:${command.commandId}`),
       );
       if (result.operation !== "open")
         throw new Error("Cloud harness open correlation mismatch");
       const session = HarnessSessionSchema.parse(result.value);
       if (
-        session.runAttemptId !== input.command.selection.runAttemptId ||
-        session.instanceId !== input.command.selection.instanceId
+        session.runAttemptId !== command.selection.runAttemptId ||
+        session.instanceId !== command.selection.instanceId
       )
         throw new Error("Cloud harness learned binding mismatch");
       await this.supervisor.authorize({ operation: "observe", session });
-      this.clients.set(JSON.stringify(session), client);
+      this.clients.set(JSON.stringify(session), {
+        client,
+        startCommandFingerprint,
+      });
       return session;
     } catch {
       client.fence();
@@ -78,32 +87,53 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
   async execute(
     input: Parameters<DelegatedHarnessPort["execute"]>[0],
   ): Promise<void> {
+    const command = HarnessStartCommandSchema.parse(input.command);
+    const session = HarnessSessionSchema.parse(input.session);
     const request = CloudHarnessRequestSchema.parse({
       type: "request",
       requestId: crypto.randomUUID(),
       operation: "execute",
-      command: input.command,
-      session: input.session,
+      command,
+      session,
     });
     encodeCloudHarnessBridgeFrame(request);
-    const client = this.requireClient(input.session);
-    client.setObserver(input.session, input.observe);
+    const startCommandFingerprint = await fingerprintCommand(command);
+    const owned = this.clients.get(JSON.stringify(session));
+    if (
+      !owned ||
+      owned.startCommandFingerprint === null ||
+      owned.startCommandFingerprint !== startCommandFingerprint ||
+      session.runAttemptId !== command.selection.runAttemptId ||
+      session.instanceId !== command.selection.instanceId
+    )
+      throw new Error(
+        "Cloud harness execution binding mismatch; recovery required",
+      );
+    const client = owned.client;
+    client.setObserver(session, input.observe);
     await this.supervisor.authorize({
       operation: "execute",
-      command: input.command,
+      command,
     });
     await this.supervisor.authorize({
       operation: "execute",
-      session: input.session,
+      session,
     });
     if (input.signal.aborted)
       throw new Error("Cloud harness execution aborted; recovery required");
     const abort = () => client.fence();
     input.signal.addEventListener("abort", abort, { once: true });
     try {
-      await client.request(request, () =>
-        this.claim(`execute:${input.command.commandId}`),
-      );
+      await client.request(request, () => {
+        // Observation reattachment may have fenced dispatch during async auth.
+        if (
+          this.clients.get(JSON.stringify(session)) !== owned ||
+          owned.startCommandFingerprint !== startCommandFingerprint
+        )
+          throw new Error("Cloud harness prompt dispatch requires recovery");
+        this.claim(`execute:${command.commandId}`);
+        owned.startCommandFingerprint = null;
+      });
     } finally {
       input.signal.removeEventListener("abort", abort);
     }
@@ -114,7 +144,7 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
   ): Promise<void> {
     const key = JSON.stringify(HarnessSessionSchema.parse(input.session));
     if (input.signal.aborted) {
-      this.clients.get(key)?.fence();
+      this.clients.get(key)?.client.fence();
       throw new Error("Cloud harness observation aborted; recovery required");
     }
     const request = CloudHarnessRequestSchema.parse({
@@ -125,7 +155,9 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
     });
     encodeCloudHarnessBridgeFrame(request);
     // Explicit reattachment only. Never retry open/execute/control after loss.
-    let client = this.clients.get(key);
+    const owned = this.clients.get(key);
+    if (owned) owned.startCommandFingerprint = null;
+    let client = owned?.client;
     if (!client || client.isClosed) {
       if (!client && this.clients.size >= 128)
         throw new Error("Cloud harness session capacity reached");
@@ -136,7 +168,11 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       );
       client.setObserver(input.session, input.observe);
       await client.connect(input.signal);
-      this.clients.set(key, client);
+      this.clients.set(key, {
+        client,
+        // Observation recovery never authorizes a new prompt dispatch.
+        startCommandFingerprint: null,
+      });
     } else {
       client.setObserver(input.session, input.observe);
     }
@@ -238,12 +274,12 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
   }
 
   private requireClient(session: HarnessSession): CloudHarnessBridgeClient {
-    const client = this.clients.get(
+    const owned = this.clients.get(
       JSON.stringify(HarnessSessionSchema.parse(session)),
     );
-    if (!client)
+    if (!owned)
       throw new Error("Cloud harness session unavailable; recovery required");
-    return client;
+    return owned.client;
   }
 
   private claim(key: string): void {
@@ -252,4 +288,17 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
     // Runtime's durable admission/reply claim remains authoritative across restarts.
     this.dispatched.add(key);
   }
+}
+
+// Retain only a digest, not another lifetime copy of the admitted prompt.
+async function fingerprintCommand(
+  command: Parameters<DelegatedHarnessPort["open"]>[0]["command"],
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(command)),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
