@@ -9,14 +9,30 @@ export interface GitCommandExecutionInput {
   readonly stdin?: string;
   readonly environment?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
+  readonly readOnlyProbe?: true;
+  readonly indexTransaction?: { readonly paths: readonly string[] };
 }
 
 export interface GitCommandExecutionResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  readonly indexPublication?: "indeterminate";
+  readonly commitSha?: string;
+  readonly branchName?: string;
 }
 
 export interface GitCommandExecutor {
+  readonly supportsIndexTransactions?: true;
   execute(input: GitCommandExecutionInput): Promise<GitCommandExecutionResult>;
 }
+
+export {
+  gitIndexTransactionArgs,
+  gitCommandRunnerArgs,
+  gitCommandRunnerEnvironment,
+  gitIndexTransactionHostSource,
+  parseGitIndexTransactionResult,
+} from "./index-transaction.js";
+
+export { gitCommandEnvironment } from "./host-git-process.js";
