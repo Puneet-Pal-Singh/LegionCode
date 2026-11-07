@@ -1070,7 +1070,27 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
 
-    await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
+    const ports = createPorts();
+    const artifacts = createArtifactPorts();
+    const hooks = { runSessionStart: vi.fn(async () => {}), runUserPromptSubmit: vi.fn(async () => {}) };
+    const canonicalHistory = [...sink.events];
+    await expect((await createKernel(sink, ports, artifacts, hooks)).startTurn({ run, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
+    const readOnly = new RuntimeKernel({
+      lifecycleEvents: sink, ...ports, artifactCapture: "omitted_read_only",
+      worker: { ...ports.worker, executionCapability: "read_only" },
+      producerId: "duplicate-read-only-test",
+    });
+    await expect(readOnly.startTurn({ run: { ...run, mode: "ask" }, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
+    expect(ports.provider.generateNext).not.toHaveBeenCalled();
+    expect(ports.contextAssembly.assemble).not.toHaveBeenCalled();
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+    expect(artifacts.gitSnapshots.captureSnapshot).not.toHaveBeenCalled();
+    expect(artifacts.turnArtifacts.putSnapshot).not.toHaveBeenCalled();
+    expect(hooks.runSessionStart).not.toHaveBeenCalled();
+    expect(hooks.runUserPromptSubmit).not.toHaveBeenCalled();
+    expect(sink.events).toEqual(canonicalHistory);
 
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events).toHaveLength(12);
