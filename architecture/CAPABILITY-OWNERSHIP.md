@@ -1209,6 +1209,30 @@ boundaries. Mutators must not use `omitted_read_only` capture. Their full-captur
 and lease gates remain with worker03/07. The source is independently compiled and
 its bridge exercised against real Linux files in cloud; no new test code is added.
 
+### Native grant-scoped directory queries
+
+`NativeFilesystemBridge.listDirectory` uses the same private root FD and helper,
+without a Turn or lifecycle/store owner. Operation D opens a fresh selected
+directory description, enumerates through `fdopendir(dup(heldDirectoryFD))`, and
+reads metadata with `fstatat(AT_SYMLINK_NOFOLLOW)`. It never uses pathname opendir
+or follows symlink entries. Dot/Git entries and the reserved native stage-name
+pattern are omitted; other entries retain their real kind, including symlinks.
+Visible non-stage entries in the pre-existing reserved prefix carry
+`unavailableReason: reserved_path`; the established R/M path guard is not widened.
+
+Pages are deterministic bytewise-name prefixes, capped at 200 entries and 64 KiB
+for both native framing and serialized bridge results. Opaque cursors bind the
+canonical path, last returned name and exact directory inode/mtime/ctime version;
+changes reject rather than return a fake empty page. Each scan stops at 100000
+physical records with an explicit unsupported error. Paths remain limited to
+500 UTF-8 bytes; cursors are bounded at 16384 characters. Entry sizes are live
+no-follow metadata, not immutable review truth. `readBytes` reuses operation R so
+the query owner can report bounded binary size without guessing from a decoder
+failure. `readFile` remains its UTF-8 view. Worker01 owns the public query/SDK
+contracts; worker10 owns the actual workspace-files query service/UI; worker12
+owns the bundled binary. No runtime tool ID, event producer, filesystem fallback
+or new persistent directory authority is added.
+
 ### Private host credential contract foundation
 
 Desktop main and its utility process share the bounded correlated credential
@@ -1249,3 +1273,15 @@ activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
 dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
 request/result contract. Hosted dispatch rejects these local commands. Desktop
 sidebar callbacks and visible restart acceptance remain client integration work.
+
+## Plan 057 — Local immutable Turn artifact storage
+
+`LocalPersistence.turnArtifacts` composes `createLocalTurnArtifactStore` with the
+same process-owned SQLite connection and storage guard. The existing metadata
+table retains immutable baseline, terminal and diff payloads, keyed by the exact
+user, workspace, Thread, Run, Turn and Run Attempt. Reads validate payload hashes
+and the diff's persisted baseline/final captures; startup rejects corrupt records.
+The store produces no lifecycle events and creates no separate database owner.
+Native capture, authorized query and commit consumers remain separate integration
+work. Stored Git tree IDs do not retain their object closure or enable capture or
+Git mutation capabilities.
