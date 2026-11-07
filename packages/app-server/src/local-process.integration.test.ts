@@ -194,7 +194,7 @@ describe("local App Server HTTP integration", () => {
     const regrantedWorkspaceId = (regranted as { result: { grant: { workspaceId: string } } }).result.grant.workspaceId;
     expect(regrantedWorkspaceId).not.toBe(grant.workspaceId);
     await expect(send(baseUrl, "thread/list", {})).resolves.toMatchObject({ ok: true, result: { threads: [] } });
-    await expect(send(baseUrl, "thread/get", { threadId: thread.id })).resolves.toMatchObject({ ok: false, error: { code: "not_found" } });
+    await expect(send(baseUrl, "thread/get", { threadId: thread.id })).resolves.toMatchObject({ ok: false, error: { code: "invalid_request" } });
     await close(server);
     const persisted = new LocalPersistence({ storageDirectory });
     try {
@@ -214,7 +214,7 @@ describe("local App Server HTTP integration", () => {
     });
     await expect(send(serverUrl(reopened), "thread/get", { threadId: thread.id })).resolves.toMatchObject({
       ok: false,
-      error: { code: "not_found" },
+      error: { code: "invalid_request" },
     });
   });
 
