@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DefaultGitService } from "@repo/git-service";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "./protocol.js";
 import { createLocalAppServer } from "./local-process.js";
@@ -27,10 +28,13 @@ import { getBuiltinRegistry, builtinProviderRegistry } from "@repo/provider-core
 const credential = "local-test-credential";
 const liveServers: ReturnType<typeof createLocalAppServer>[] = [];
 const temporaryDirectories: string[] = [];
+const fixtureMetadataDirectories = new Map<string, string>();
 
 afterEach(async () => {
   await Promise.all(liveServers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  fixtureMetadataDirectories.clear();
+  vi.restoreAllMocks();
 });
 
 describe("local App Server HTTP integration", () => {
@@ -171,30 +175,46 @@ describe("local App Server HTTP integration", () => {
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
-    await writeFile(
-      join(storageDirectory, "thread-events.json"),
-      JSON.stringify({ version: 1, events: [legacyEvent] }),
-    );
-    await writeFile(
-      join(storageDirectory, "workspace-grant.json"),
-      JSON.stringify({ version: 1, path: await realpath(workspacePath), grant }),
-    );
+    const legacyEventBytes = JSON.stringify({ version: 1, events: [legacyEvent] });
+    const legacyGrantBytes = JSON.stringify({ version: 1, path: await realpath(workspacePath), grant });
+    await writeFile(join(storageDirectory, "thread-events.json"), legacyEventBytes);
+    await writeFile(join(storageDirectory, "workspace-grant.json"), legacyGrantBytes);
 
     const server = await start(storageDirectory);
     const baseUrl = serverUrl(server);
     await expect(send(baseUrl, "workspace/current", {})).resolves.toMatchObject({
       ok: true,
-      result: { grant: { workspaceId: grant.workspaceId, readiness: "ready", reason: null } },
+      result: { grant: { workspaceId: grant.workspaceId, readiness: "missing", reason: "Explicit workspace regrant is required" } },
     });
     await expect(send(baseUrl, "thread/list", {})).resolves.toMatchObject({
-      ok: true,
-      result: { threads: [{ id: thread.id, title: thread.title }] },
+      ok: false,
     });
+    const regranted = await send(baseUrl, "workspace/grant", { path: workspacePath });
+    expect(regranted).toMatchObject({ ok: true, result: { grant: { readiness: "ready" } } });
+    const regrantedWorkspaceId = (regranted as { result: { grant: { workspaceId: string } } }).result.grant.workspaceId;
+    expect(regrantedWorkspaceId).not.toBe(grant.workspaceId);
+    await expect(send(baseUrl, "thread/list", {})).resolves.toMatchObject({ ok: true, result: { threads: [] } });
+    await expect(send(baseUrl, "thread/get", { threadId: thread.id })).resolves.toMatchObject({ ok: false, error: { code: "invalid_request" } });
     await close(server);
+    const persisted = new LocalPersistence({ storageDirectory });
+    try {
+      await expect(persisted.events.listAll()).resolves.toEqual([legacyEvent]);
+      await expect(persisted.workspaceGrants.read()).resolves.toMatchObject({
+        version: 2,
+        grant: { workspaceId: regrantedWorkspaceId, readiness: "ready" },
+        gitMetadataIdentity: expect.stringMatching(/^gitdir-v1:/u),
+      });
+    } finally { persisted.close(); }
+    expect(await readFile(join(storageDirectory, "legacy", "thread-events.json"), "utf8")).toBe(legacyEventBytes);
+    expect(await readFile(join(storageDirectory, "legacy", "workspace-grant.json"), "utf8")).toBe(legacyGrantBytes);
     const reopened = await start(storageDirectory);
-    await expect(send(serverUrl(reopened), "thread/get", { threadId: thread.id })).resolves.toMatchObject({
+    await expect(send(serverUrl(reopened), "workspace/current", {})).resolves.toMatchObject({
       ok: true,
-      result: { thread: { id: thread.id, title: thread.title } },
+      result: { grant: { workspaceId: regrantedWorkspaceId, readiness: "ready" } },
+    });
+    await expect(send(serverUrl(reopened), "thread/get", { threadId: thread.id })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
     });
   });
 
@@ -393,11 +413,38 @@ async function fixture() {
   await mkdir(workspacePath);
   execFileSync("git", ["init", workspacePath], { stdio: "ignore" });
   execFileSync("git", ["-C", workspacePath, "remote", "add", "origin", "https://github.com/example/repository.git"], { stdio: "ignore" });
+  const identity = await lstat(workspacePath, { bigint: true });
+  fixtureMetadataDirectories.set(`${identity.dev}:${identity.ino}`, join(await realpath(workspacePath), ".git"));
   return { storageDirectory, workspacePath };
 }
 
 async function start(storageDirectory: string) {
-  const server = createLocalAppServer({ credential, serverVersion: "test", storageDirectory });
+  // HTTP/replay contract fixture only. Actual native grant/closure acceptance is
+  // proven separately on Mac; Linux intentionally has no native G layout port.
+  vi.spyOn(DefaultGitService.prototype, "probeRepository").mockImplementation(async ({ workspaceRoot }) => ({
+    repositoryRoot: workspaceRoot, repositoryIdentity: "github.com/example/repository", branch: "main", isDirty: false,
+  }));
+  const server = createLocalAppServer({ credential, serverVersion: "test", storageDirectory }, {
+    createMetadataInspector: (rootDirectory) => ({
+      async inspectGitMetadataLayout() {
+        const root = await rootDirectory.stat({ bigint: true });
+        const gitDirectory = fixtureMetadataDirectories.get(`${root.dev}:${root.ino}`);
+        if (!gitDirectory) throw new Error("Unknown HTTP fixture root");
+        const metadata = await lstat(gitDirectory, { bigint: true });
+        return {
+          kind: "ordinary" as const,
+          gitDirectory,
+          commonDirectory: gitDirectory,
+          backlinkPath: null,
+          identity: `gitdir-v1:${[root.dev, root.ino, 0n, 0n, metadata.dev, metadata.ino, 0n, 0n].map((value) => value.toString(16)).join(":")}`,
+        };
+      },
+    }),
+    createProbeExecution: async () => ({
+      scope: "single_executable_nofork",
+      run: async () => { throw new Error("HTTP fixture must use its unit repository probe"); },
+    }),
+  });
   liveServers.push(server);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
