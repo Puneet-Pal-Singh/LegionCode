@@ -20,8 +20,9 @@ export async function createDesktopNativeComposition(
   const gitExecutable = realpathSync("/usr/bin/git");
   return {
     ...files,
-    createTurnRuntime: (persistence) => createLocalNativeRuntime({
+    createTurnRuntime: (persistence, media) => createLocalNativeRuntime({
       persistence,
+      media,
       workerId: WorkerIdSchema.parse("worker_localdesktop"),
       permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop"),
       resolvePermissionPolicy: (productMode) => new NativePermissionPolicyResolver(productMode).resolve(),
