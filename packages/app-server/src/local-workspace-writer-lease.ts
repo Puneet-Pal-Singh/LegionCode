@@ -13,6 +13,8 @@ import type {
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 
 export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
+  assertCurrent(): Promise<void>;
+  assertSettlementCurrent(): Promise<void>;
   readonly rootDirectory: FileHandle;
   readonly writerLease: FileHandle;
   readonly filesystemRoot: string;
