@@ -117,3 +117,5 @@ export { HeroComposer as ConversationHero } from "./conversation/chat-interface/
 export { getInitialRightSidebarWidth, clampRightSidebarWidth } from "./workspace/rightPanelSizing.js";
 
 export { EnvironmentSummaryMenu, type EnvironmentSummaryMenuProps, type EnvironmentSavedSources } from "./workspace/EnvironmentSummaryMenu.js";
+
+export { WorkspaceReviewControls } from "./workspace/WorkspaceReviewControls.js";
