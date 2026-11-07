@@ -152,9 +152,6 @@
     @apply hover:bg-surface/50 hover:border-border/50;
   }
 
-  .ui-overlay {
-    @apply bg-black/78 backdrop-blur-sm;
-  }
 
   .ui-center-surface {
     @apply bg-black text-zinc-100;
@@ -164,9 +161,6 @@
     @apply border-[#1a1a1a] bg-[#0c0c0e] text-zinc-100;
   }
 
-  .ui-surface-modal {
-    @apply rounded-2xl border border-zinc-800 bg-[#151516]/98 text-zinc-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)];
-  }
 
 
   .ui-popover-label {
@@ -174,9 +168,6 @@
   }
 
 
-  .ui-surface-section {
-    @apply rounded-xl border border-zinc-800 bg-zinc-900/35;
-  }
 
 
 
