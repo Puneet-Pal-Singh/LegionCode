@@ -15,21 +15,13 @@ const execFile = promisify(execFileCallback);
 test.setTimeout(90_000);
 
 async function findPackagedExecutable(): Promise<string> {
-  if (process.platform !== "darwin") {
-    throw new Error("Packaged Desktop acceptance requires macOS and a built .app");
+  if (process.platform !== "darwin" || !["arm64", "x64"].includes(process.arch)) {
+    throw new Error("Packaged Desktop acceptance requires a supported macOS architecture");
   }
-  const releaseEntries = await readdir(releaseDirectory, {
-    withFileTypes: true,
-  });
-  const appDirectory = releaseEntries.find(
-    (entry) => entry.isDirectory() && entry.name.startsWith("mac"),
-  );
-  if (!appDirectory) {
-    throw new Error("Packaged macOS application directory was not found");
-  }
+  const appDirectory = process.arch === "arm64" ? "mac-arm64" : "mac";
   return join(
     releaseDirectory,
-    appDirectory.name,
+    appDirectory,
     "LegionCode Desktop.app",
     "Contents",
     "MacOS",
@@ -82,6 +74,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     expect(await page.evaluate(() => window.desktop.getBuildInfo())).toMatchObject({
       packaged: true,
       platform: "darwin",
+      arch: process.arch,
     });
     const actualUserData = await launchedApplication.evaluate(({ app }) => app.getPath("userData"));
     expect(await realpath(actualUserData)).toBe(await realpath(join(testRoot, "user-data")));
