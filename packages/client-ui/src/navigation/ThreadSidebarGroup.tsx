@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { HostedSessionPullRequestsResponse, ThreadSidebarDisplayStatus, ThreadSidebarItem } from "@legioncode/sdk";
 
 export interface ThreadSidebarEntry {
@@ -460,6 +460,16 @@ function ThreadSidebarRow({
     }
   }
 
+  function ownsPreviewTarget(target: EventTarget | null): boolean {
+    return target instanceof Node && Boolean(
+      rowRef.current?.contains(target) || detailsRef.current?.contains(target),
+    );
+  }
+
+  function handlePreviewMouseLeave(event: MouseEvent<HTMLElement>): void {
+    if (!ownsPreviewTarget(event.relatedTarget)) schedulePreviewClose();
+  }
+
   function schedulePreviewClose(): void {
     if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current);
     previewTimerRef.current = null;
@@ -530,7 +540,7 @@ function ThreadSidebarRow({
       ref={rowRef}
       className="group relative"
       onMouseEnter={keepPreviewOpen}
-      onMouseLeave={schedulePreviewClose}
+      onMouseLeave={handlePreviewMouseLeave}
       onFocusCapture={() => {
         if (suppressPreviewOnFocusRef.current) {
           suppressPreviewOnFocusRef.current = false;
@@ -539,10 +549,7 @@ function ThreadSidebarRow({
         keepPreviewOpen();
       }}
       onBlurCapture={(event) => {
-        const nextTarget = event.relatedTarget as Node | null;
-        if (!event.currentTarget.contains(nextTarget) && !detailsRef.current?.contains(nextTarget)) {
-          schedulePreviewClose();
-        }
+        if (!ownsPreviewTarget(event.relatedTarget)) schedulePreviewClose();
       }}
     >
       <button
@@ -681,11 +688,10 @@ function ThreadSidebarRow({
               tabIndex={-1}
               className="ui-surface-popover fixed z-[120] w-[360px] max-w-[calc(100vw-16px)] p-3 shadow-2xl shadow-black/50 outline-none focus:outline-none"
               onMouseEnter={keepPreviewOpen}
-              onMouseLeave={schedulePreviewClose}
+              onMouseLeave={handlePreviewMouseLeave}
               onFocusCapture={keepPreviewOpen}
               onBlurCapture={(event) => {
-                const nextTarget = event.relatedTarget as Node | null;
-                if (!event.currentTarget.contains(nextTarget) && !rowRef.current?.contains(nextTarget)) schedulePreviewClose();
+                if (!ownsPreviewTarget(event.relatedTarget)) schedulePreviewClose();
               }}
               style={detailsPosition ?? { left: 0, top: 0, visibility: "hidden" }}
             >
