@@ -3,11 +3,12 @@ import {
   type NativeFilesystemBridge,
   type NativeFilesystemExecution,
   type NativeGitMetadataIdentity,
+  type NativeGitMetadataLayout,
 } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
-import { basename, isAbsolute, relative, sep } from "node:path";
+import { basename, isAbsolute } from "node:path";
 
 import type {
   LocalPersistence,
@@ -25,6 +26,7 @@ import {
 import type { DefaultGitService } from "@repo/git-service";
 import type { VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 import { LocalWorkspaceRootPin } from "./local-workspace-root-pin.js";
+import { LocalWorkspaceMetadataResolver } from "./local-workspace-metadata-resolver.js";
 
 export type LocalWorkspaceServiceOptions = {
   workspaceGrants: LocalPersistence["workspaceGrants"];
@@ -34,7 +36,7 @@ export type LocalWorkspaceServiceOptions = {
   createMetadataInspector?: (
     rootDirectory: FileHandle,
     observeExecution: (execution: NativeFilesystemExecution) => void,
-  ) => Pick<NativeFilesystemBridge, "inspectGitMetadataIdentity">;
+  ) => Pick<NativeFilesystemBridge, "inspectGitMetadataLayout">;
   createProbeService?: (
     authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">,
   ) => Promise<Pick<DefaultGitService, "probeRepository">>;
@@ -46,6 +48,13 @@ export interface LocalWorkspaceExecutionBinding {
   readonly filesystemRoot: string;
   readonly rootDirectory: FileHandle;
   readonly metadataIdentity: NativeGitMetadataIdentity;
+  /** Same original pin, private layout only. Call inside its writer lease loan.
+   * Settlement supplies its retained signal and actual native-resource observer. */
+  readonly inspectMetadataLayout: (input: {
+    readonly signal: AbortSignal;
+    readonly observeExecution: (execution: NativeFilesystemExecution) => void;
+    readonly purpose?: "association" | "mutation";
+  }) => Promise<NativeGitMetadataLayout>;
   /** Same held-pin loan; pass the Turn signal as its third argument. */
   readonly withRootAuthority: LocalWorkspaceRootPin["withRootAuthority"];
   /** Call only after all execution/capture children and pipes have quiesced. */
@@ -61,23 +70,22 @@ export class LocalWorkspaceService {
   private generation = 0;
   private transitioning = false;
   private executionController = new AbortController();
-  private readonly protectedHostRoots: readonly string[];
+  private readonly metadataResolver: LocalWorkspaceMetadataResolver;
   private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
   private readonly gitService: LocalWorkspaceServiceOptions["gitService"];
-  private readonly createMetadataInspector: LocalWorkspaceServiceOptions["createMetadataInspector"];
   private readonly createProbeService: LocalWorkspaceServiceOptions["createProbeService"];
   // Strong references are intentional: unknown physical closure must not let GC close/reuse an FD.
   private readonly quarantinedPins = new Set<LocalWorkspaceRootPin>();
 
   constructor(options: LocalWorkspaceServiceOptions) {
     this.workspaceGrants = options.workspaceGrants;
-    this.protectedHostRoots = Object.freeze([
-      ...(options.protectedHostRoots ?? []),
-    ]);
+    this.metadataResolver = new LocalWorkspaceMetadataResolver({
+      protectedHostRoots: options.protectedHostRoots ?? [],
+      createInspector: options.createMetadataInspector,
+    });
     if (options.gitService && options.createProbeService)
       throw new Error("Repository probe owner must be explicit");
     this.gitService = options.gitService;
-    this.createMetadataInspector = options.createMetadataInspector;
     this.createProbeService = options.createProbeService;
   }
 
@@ -225,6 +233,23 @@ export class LocalWorkspaceService {
         filesystemRoot: stored.path,
         rootDirectory: pin.rootDirectory,
         metadataIdentity,
+        inspectMetadataLayout: async (input: {
+          signal: AbortSignal;
+          observeExecution: (execution: NativeFilesystemExecution) => void;
+          purpose?: "association" | "mutation";
+        }) => {
+          pin.assertSettlementCurrent();
+          const layout = await this.metadataResolver.inspect({
+            rootDirectory: pin.rootDirectory,
+            signal: input.signal,
+            observeExecution: input.observeExecution,
+            purpose: input.purpose,
+          });
+          pin.assertSettlementCurrent();
+          if (layout.identity !== metadataIdentity)
+            throw new Error("Retained Git metadata identity changed");
+          return layout;
+        },
         withRootAuthority: pin.withRootAuthority,
         generation,
         signal,
@@ -372,7 +397,7 @@ export class LocalWorkspaceService {
       }
       await this.assertStoredGrantCurrent(stored, generation, signal);
       return grant;
-    } catch (error) {
+    } catch {
       if (!identityVerified)
         return await this.requireRegrant(
           stored,
@@ -392,17 +417,12 @@ export class LocalWorkspaceService {
     pin: LocalWorkspaceRootPin,
   ): Promise<NativeGitMetadataIdentity> {
     pin.assertCurrent();
-    const inspector = this.createMetadataInspector?.(
-      pin.rootDirectory,
-      pin.observeNativeExecution,
-    );
-    if (!inspector)
-      throw new Error(
-        "Canonical native Git metadata identity inspection is unavailable",
-      );
-    const identity = parseNativeGitMetadataIdentity(
-      await inspector.inspectGitMetadataIdentity({ signal: pin.signal }),
-    );
+    const layout = await this.metadataResolver.inspect({
+      rootDirectory: pin.rootDirectory,
+      signal: pin.signal,
+      observeExecution: pin.observeNativeExecution,
+    });
+    const identity = layout.identity;
     await pin.assertPathCurrent();
     return identity;
   }
@@ -430,20 +450,7 @@ export class LocalWorkspaceService {
   }
 
   private async assertOutsideProtectedRoots(workspaceRoot: string): Promise<void> {
-    for (const configuredRoot of this.protectedHostRoots) {
-      if (!isAbsolute(configuredRoot) || configuredRoot.includes("\0")) {
-        throw new Error("Protected host root configuration is invalid");
-      }
-      // Resolve every time: restored grants cannot bypass changed host locations/symlinks.
-      const protectedRoot = await realpath(configuredRoot);
-      const contains = (parent: string, child: string) => {
-        const path = relative(parent, child);
-        return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-      };
-      if (contains(workspaceRoot, protectedRoot) || contains(protectedRoot, workspaceRoot)) {
-        throw new Error("Workspace overlaps protected host storage or application files");
-      }
-    }
+    await this.metadataResolver.assertOutsideProtectedRoots(workspaceRoot);
   }
 
   private assertProbingAvailable(): void {
