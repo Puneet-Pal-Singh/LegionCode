@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/package-runtime.mjs",
+    "build": "node scripts/build.mjs",
+    "package:runtime": "node scripts/package-runtime.mjs",
     "check-types": "tsc --noEmit"
   },
   "files": [
