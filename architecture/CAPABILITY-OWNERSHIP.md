@@ -1517,10 +1517,13 @@ Hosted request behavior and existing Git/provider contracts remain unchanged.
 `LocalTurnService` consumes the canonical admission repository and delegates
 approval and interruption to their existing adapters. A matching saved request
 returns its original admission without resolving a new provider or creating an
-executor. The runtime alone creates new admission records and lifecycle events.
-`createLocalNativeRuntime` supplies the existing protected provider and kernel
-ports. Its one private execution capability selects both admission mode and
-executor ports, including the provider's registry-filtered captured tools.
+executor. Runtime constructs records; the existing repository owns atomic admission
+and RuntimeKernel owns lifecycle events. Immutable admitted configuration selects
+Plan's read-only ports or Build's actually supplied captured ports; Build requires
+Supervised permissions. The same provider and registry remain execution owners.
+The runtime image helper persists references through the original-byte media port
+before admission and hydrates verified originals only for provider delivery.
+History reads use the canonical bounded repository and reauthorize before return.
 
 These modules do not activate Desktop execution. Read-only activation requires
 the actual grant-held root, protected provider and read-only Git host composition.
@@ -1528,3 +1531,6 @@ Captured activation additionally requires a physical writer fence and actual
 capture/artifact ports. The same executor supplies positive resource-settlement
 proof; the host retains uncertain resources. Transport completion does not
 establish terminal or physical truth.
+The configuration, Engine admission, bounded history, image-start contract and
+original-byte media ports are real dependencies. Their presence and this service
+source do not advertise availability or wire startup, handshake or HTTP dispatch.
