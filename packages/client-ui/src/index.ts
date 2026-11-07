@@ -121,3 +121,6 @@ export { EnvironmentSummaryMenu, type EnvironmentSummaryMenuProps, type Environm
 export { WorkspaceReviewControls } from "./workspace/WorkspaceReviewControls.js";
 
 export { readComposerPreferences, updateComposerPreferences, useComposerPreferences, type ComposerPreferences } from "./conversation/composerPreferences.js";
+
+export type { ProviderSettingsPort, ProviderSettingsCredential, ProviderSettingsModel } from "./provider/ProviderSettingsPort.js";
+export { SettingsSwitch } from "./settings/Switch.js";
