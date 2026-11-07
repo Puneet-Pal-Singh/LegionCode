@@ -875,6 +875,9 @@ the existing attempt-bound local artifact store's commit source/start snapshot
 and the retained current workspace lease before
 calling the Git owner. Its App Server/SDK/renderer dispatch remains pending the
 central composition owner; this leaf alone does not complete Desktop 7B.
+The obsolete structural Mac process adapter is removed. The separately owned
+read-only callback imports the canonical execution-engine process types and real
+guardian; it does not advertise immutable artifact commit support.
 
 
 This records the approved bounded retention and ownership decision before code
