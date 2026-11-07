@@ -1350,6 +1350,14 @@ with the trusted App Server composition after capture/store integration.
 Internal commit preparation uses the same verified record and immutable artifact
 ID; this read does not grant Git mutation authority.
 
+`LocalTurnArtifactCommitService` translates a selected Turn into that verified
+artifact and its server-derived admission scope, then delegates to the existing
+`LocalGitService`. It validates all/paths selection against saved changed entries
+and expands saved rename pairs before forwarding paths. The existing verified
+read, artifact store and Git implementation retain their owners. Protocol/SDK
+registration is shared; native mutation composition remains separate, and this
+adapter does not advertise or enable Git mutation capability.
+
 ## Shared workspace file explorer presentation
 
 The tree renderer, loaded-file filtering, expansion, pagination and stale-request
