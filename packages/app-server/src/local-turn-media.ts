@@ -28,7 +28,7 @@ export interface LocalProviderImagePart {
   readonly mimeType: ChatMediaImageType;
 }
 
-export interface LocalTurnPreparedMedia {
+export interface LocalTurnPreparedMedia extends LocalTurnMediaDisposal {
   /** Canonical codec owner's digest of the ordered, validated image inputs. */
   readonly fingerprint: string;
   persist(scope: LocalTurnMediaScope): Promise<readonly ChatImageAttachmentRef[]>;
@@ -38,6 +38,9 @@ export interface LocalTurnPreparedMedia {
  * owner after this attempt's append has settled. Unknown outcomes return false.
  */
 export interface LocalTurnMediaDisposal {
+  /** True once pending resources are settled: discarded after proven absence,
+   * or retained as verified immutable admission media. Unknown outcomes retain.
+   */
   discardUnadmitted(
     confirmScopeAbsence: (scope: LocalTurnMediaScope) => Promise<boolean>,
   ): Promise<boolean>;

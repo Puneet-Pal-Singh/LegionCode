@@ -272,6 +272,17 @@ export class LocalTurnService {
       }
       throw error;
     } finally {
+      if (preparedMedia) {
+        try {
+          // The synchronous SQLite admission attempt above has settled. Only a
+          // fresh exact-scope absence permits cleanup; unknown outcomes retain.
+          await preparedMedia.discardUnadmitted(async (scope) =>
+            await this.options.persistence.turnAdmissions.getByTurn(scope.turnId) === null,
+          );
+        } catch {
+          console.error("Local image resources retained pending canonical admission reconciliation");
+        }
+      }
       if (!executionOwnsBinding) await preparedBinding?.close();
     }
   }
