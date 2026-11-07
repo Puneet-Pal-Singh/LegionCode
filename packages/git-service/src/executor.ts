@@ -9,6 +9,7 @@ export interface GitCommandExecutionInput {
   readonly stdin?: string;
   readonly environment?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
+  readonly readOnlyProbe?: true;
   readonly indexTransaction?: {
     readonly paths: readonly string[];
     readonly expectedTerminalTreeId?: string;
@@ -36,5 +37,10 @@ export interface GitCommandExecutor {
 
 export {
   gitIndexTransactionArgs,
+  gitCommandRunnerArgs,
+  gitCommandRunnerEnvironment,
+  gitIndexTransactionHostSource,
   parseGitIndexTransactionResult,
 } from "./index-transaction.js";
+
+export { gitCommandEnvironment } from "./host-git-process.js";

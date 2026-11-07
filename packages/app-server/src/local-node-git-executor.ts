@@ -1,99 +1,150 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { compileFunction } from "node:vm";
 import type {
   GitCommandExecutor,
+  GitCommandExecutionInput,
   GitCommandExecutionResult,
 } from "@repo/git-service/executor";
 import {
-  gitIndexTransactionArgs,
+  gitCommandEnvironment,
+  gitCommandRunnerArgs,
+  gitCommandRunnerEnvironment,
+  gitIndexTransactionHostSource,
   parseGitIndexTransactionResult,
 } from "@repo/git-service/executor";
 import { GitServiceError } from "@repo/git-service/errors";
 
-export function createNodeGitExecutor(): GitCommandExecutor {
+export type LocalGitContainedCommand = {
+  cwd: string;
+  args: readonly string[];
+  environment: Readonly<Record<string, string>>;
+  indexFile?: string;
+  stdin?: string;
+  timeoutMs: number;
+};
+/** Adapter supplied by the existing canonical Mac OS process owner. It must pass
+ * the trusted environment/stdin and return only after SingleProcessMacExecution
+ * confirms quiescence. No arbitrary executable or shell comes from the client. */
+export type LocalGitMacExecution = {
+  readonly scope: "single_executable_nofork";
+  run(
+    input: LocalGitContainedCommand,
+  ): Promise<
+    GitCommandExecutionResult & {
+      readonly quiescent: boolean;
+      readonly truncated: boolean;
+      readonly outputClosed: boolean;
+    }
+  >;
+};
+
+export function createNodeGitExecutor(
+  options: { macExecution?: LocalGitMacExecution } = {},
+): GitCommandExecutor {
+  const supported =
+    process.platform === "linux" ||
+    (process.platform === "darwin" &&
+      options.macExecution?.scope === "single_executable_nofork");
   return {
+    ...(supported ? { supportsIndexTransactions: true as const } : {}),
     ...(process.platform === "linux"
-      ? {
-          supportsIndexTransactions: true as const,
-          supportsArtifactIndexGuard: true as const,
-        }
+      ? { supportsArtifactIndexGuard: true as const }
       : {}),
     async execute(input) {
-      if (input.indexTransaction && process.platform !== "linux") {
-        throw new GitServiceError(
-          "git_process_containment_unavailable",
-          "Contained local Git transactions are unavailable on this platform",
-        );
-      }
-      const transaction = input.indexTransaction !== undefined;
-      const result = await new Promise<GitCommandExecutionResult>(
-        (resolve, reject) => {
-          const child = spawn(
-            transaction ? process.execPath : "git",
-            transaction ? gitIndexTransactionArgs(input) : [...input.args],
-            {
-              cwd: input.cwd,
-              env: {
-                ...process.env,
-                ...input.environment,
-                ...(transaction ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-              },
-              detached: !transaction,
-              stdio: ["ignore", "pipe", "pipe"],
-            },
-          );
-          let stdout = "",
-            stderr = "",
-            timedOut = false;
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          let killTimer: ReturnType<typeof setTimeout> | undefined;
-          const kill = (signal: NodeJS.Signals) => {
-            if (!child.pid) return;
-            try {
-              process.kill(-child.pid, signal);
-            } catch (error) {
-              if (
-                !(
-                  error instanceof Error &&
-                  "code" in error &&
-                  error.code === "ESRCH"
-                )
-              )
-                throw error;
-            }
-          };
-          // Transaction runner owns its deadline and waits for Git termination before unlocking.
-          if (!transaction)
-            timer = setTimeout(() => {
-              timedOut = true;
-              kill("SIGTERM");
-              killTimer = setTimeout(() => kill("SIGKILL"), 250);
-            }, input.timeoutMs ?? 30_000);
-          child.stdout.on("data", (chunk) => {
-            stdout += chunk;
-          });
-          child.stderr.on("data", (chunk) => {
-            stderr += chunk;
-          });
-          child.once("error", (error) => {
-            clearTimeout(timer);
-            clearTimeout(killTimer);
-            reject(error);
-          });
-          child.once("close", (code) => {
-            clearTimeout(timer);
-            clearTimeout(killTimer);
-            if (timedOut) kill("SIGKILL");
-            resolve({ exitCode: timedOut ? 124 : (code ?? 1), stdout, stderr });
-          });
-        },
-      );
-      if (!transaction) return result;
       try {
-        return parseGitIndexTransactionResult(result.stdout);
+        gitCommandEnvironment({}, input.environment);
       } catch {
         throw new GitServiceError(
+          "invalid_git_input",
+          "Unsupported canonical Git environment override",
+        );
+      }
+      if (process.platform === "darwin") {
+        const runner = options.macExecution;
+        if (!runner)
+          throw new GitServiceError(
+            "git_process_containment_unavailable",
+            "Canonical Mac single-process Git execution is not composed",
+          );
+        const executeContainedGit = async (
+          request: LocalGitContainedCommand,
+        ) => {
+          const result = await runner.run(request);
+          if (!result.quiescent || result.outputClosed)
+            throw new GitServiceError(
+              "git_commit_indeterminate",
+              "Canonical Mac Git execution did not prove process closure",
+            );
+          if (result.truncated)
+            return {
+              exitCode: 1,
+              stdout: "",
+              stderr: "Contained Git output was truncated",
+              quiescent: true,
+            };
+          return result;
+        };
+        // Compile only fixed canonical implementation source; request data and the
+        // OS capability are separate arguments, never interpolated executable code.
+        const run = compileFunction(gitIndexTransactionHostSource(), [
+          "require",
+          "input",
+          "executeContainedGit",
+        ]) as (
+          require: ReturnType<typeof createRequire>,
+          input: GitCommandExecutionInput,
+          execute: typeof executeContainedGit,
+        ) => Promise<GitCommandExecutionResult>;
+        return await run(
+          createRequire(import.meta.url),
+          input,
+          executeContainedGit,
+        );
+      }
+      if (process.platform !== "linux")
+        throw new GitServiceError(
+          "git_process_containment_unavailable",
+          "Git descendant containment is unavailable on this platform",
+        );
+      const result = await new Promise<GitCommandExecutionResult>(
+        (resolve, reject) => {
+          const child = spawn(process.execPath, gitCommandRunnerArgs(input), {
+            cwd: input.cwd,
+            env: {
+              ...gitCommandEnvironment(process.env),
+              ...gitCommandRunnerEnvironment(input),
+              ELECTRON_RUN_AS_NODE: "1",
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          let stdout = "",
+            stderr = "";
+          child.stdout.on("data", (data) => {
+            stdout += data;
+          });
+          child.stderr.on("data", (data) => {
+            stderr += data;
+          });
+          child.once("error", reject);
+          child.once("close", (code) =>
+            resolve({ exitCode: code ?? 1, stdout, stderr }),
+          );
+        },
+      );
+      try {
+        const decoded = parseGitIndexTransactionResult(result.stdout);
+        if (decoded.exitCode === 126)
+          throw new GitServiceError(
+            "git_process_containment_unavailable",
+            decoded.stderr,
+          );
+        return decoded;
+      } catch (error) {
+        if (error instanceof GitServiceError) throw error;
+        throw new GitServiceError(
           "git_commit_indeterminate",
-          "Git transaction outcome is unavailable; do not retry automatically",
+          "Git execution outcome is unavailable; do not retry automatically",
         );
       }
     },

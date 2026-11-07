@@ -1,53 +1,85 @@
+import {
+  gitCommandEnvironment,
+  LINUX_GIT_SUPERVISOR,
+} from "./host-git-process.js";
 import type {
   GitCommandExecutionInput,
   GitCommandExecutionResult,
 } from "./executor.js";
 
-/** Runs inside the execution host, never in a client or renderer. */
-export const GIT_INDEX_TRANSACTION_SCRIPT = String.raw`
+/** Fixed source shared by the remote host runner and in-process OS callback runner. */
+export const GIT_INDEX_TRANSACTION_BODY = String.raw`
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-(async () => {
-  const input = JSON.parse(process.argv[1]);
-  // Fail before any lock/staging/HEAD operation on platforms whose pre-HEAD hook
-  // policy has not been proved. A post-commit comparison is not authorization.
-  if (input.indexTransaction && input.indexTransaction.expectedTerminalTreeId !== undefined && process.platform !== "linux") {
-    process.stdout.write(JSON.stringify({ exitCode: 126, stdout: "", stderr: "Immutable artifact commits are unavailable: pre-HEAD OS hook policy is not proved" }));
-    return;
+const prepareEnvironment = ${gitCommandEnvironment.toString()};
+const linuxSupervisor = ${JSON.stringify(LINUX_GIT_SUPERVISOR)};
+const provided = { ...input.environment };
+if (input.trustedAuthEnvironment) {
+  for (const key of ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]) provided[key] = process.env[key];
+}
+const environment = prepareEnvironment(process.env, provided);
+delete environment.GIT_INDEX_FILE;
+const deadline = Date.now() + (input.timeoutMs || 30000);
+let quiescenceProven = true;
+// No Mac pre-HEAD hook policy has been proved. Reject before any lock or staging.
+if (input.indexTransaction?.expectedTerminalTreeId !== undefined && process.platform !== "linux") {
+  return { exitCode: 126, stdout: "", stderr: "Immutable artifact commits are unavailable: pre-HEAD OS hook policy is not proved" };
+}
+const run = async (args, index, inspection = false, stdin = input.stdin) => {
+  const remaining = inspection ? 5000 : deadline - Date.now();
+  if (remaining <= 0) return { exitCode: 124, stdout: "", stderr: "Git transaction timed out" };
+  const discovery = (args.length === 2 && args[0] === "rev-parse" && args[1] === "--show-toplevel") || args[0] === "init";
+  const gitArgs = ["-c", "maintenance.auto=false", "-c", "gc.auto=0", ...(input.readOnlyProbe ? ["-c", "core.fsmonitor=false"] : []), ...(discovery ? args : ["--work-tree=" + input.cwd, ...args])];
+  if (input.readOnlyProbe) environment.GIT_OPTIONAL_LOCKS = "0";
+  const request = { cwd: input.cwd, args: gitArgs, environment, indexFile: index, timeoutMs: remaining, stdin };
+  if (typeof executeContainedGit === "function") {
+    try {
+      const result = await executeContainedGit(request);
+      if (result.quiescent !== true) throw new Error("Canonical Git OS runner did not prove quiescence");
+      return result;
+    } catch (error) {
+      quiescenceProven = false;
+      return { exitCode: 1, stdout: "", stderr: error.message, indexPublication: "indeterminate" };
+    }
   }
-  const environment = { ...process.env, ...input.environment };
-  delete environment.GIT_INDEX_FILE;
-  const deadline = Date.now() + (input.timeoutMs || 30000);
-  const run = (args, index, inspection = false, stdin) => new Promise((resolve, reject) => {
-    const remaining = inspection ? 5000 : deadline - Date.now();
-    if (remaining <= 0) return resolve({ exitCode: 124, stdout: "", stderr: "Git transaction timed out" });
-    const child = spawn("git", args, {
-      cwd: input.cwd,
-      env: index ? { ...environment, GIT_INDEX_FILE: index } : environment,
-      detached: true, stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+  if (process.platform !== "linux") return { exitCode: 126, stdout: "", stderr: "Git containment unavailable: canonical OS execution port required" };
+  return await new Promise((resolve, reject) => {
+    const wire = { cwd: input.cwd, args: gitArgs, indexFile: index, timeoutMs: remaining, readOnlyProbe: input.readOnlyProbe, trustedAuthEnvironment: environment.GIT_CONFIG_COUNT === "1" };
+    const child = spawn("python3", ["-I", "-c", linuxSupervisor, JSON.stringify(wire)], {
+      cwd: input.cwd, env: environment,
+      stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe", "pipe"],
     });
     if (stdin !== undefined) child.stdin.end(stdin);
-    let stdout = "", stderr = "", timedOut = false, killTimer;
-    const killGroup = (signal) => {
-      if (!child.pid) return;
-      try { process.kill(-child.pid, signal); }
-      catch (error) { if (error.code !== "ESRCH") throw error; }
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup("SIGTERM");
-      killTimer = setTimeout(() => killGroup("SIGKILL"), 250);
-    }, remaining);
+    let stdout = "", stderr = "", proof = "";
+    child.stdio[3].on("data", data => { proof += data; });
     child.stdout.on("data", data => { stdout += data; });
     child.stderr.on("data", data => { stderr += data; });
-    child.once("error", error => { clearTimeout(timer); clearTimeout(killTimer); reject(error); });
+    child.once("error", reject);
+    // Only the subreaper decides timeout and exits after waitpid reports ECHILD.
     child.once("close", code => {
-      clearTimeout(timer); clearTimeout(killTimer);
-      if (timedOut) killGroup("SIGKILL");
-      resolve({ exitCode: timedOut ? 124 : (code ?? 1), stdout, stderr: timedOut ? "Git transaction timed out" : stderr });
+      if (proof !== "quiescent" && code !== 126) {
+        quiescenceProven = false;
+        resolve({ exitCode: code || 1, stdout, stderr: "Git descendant quiescence could not be established", indexPublication: "indeterminate" });
+      } else resolve({ exitCode: code ?? 1, stdout, stderr });
     });
   });
+};
+if (!input.indexTransaction) {
+  let index;
+  if (input.environment?.GIT_INDEX_FILE) {
+    const actual = await run(["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    if (actual.exitCode !== 0) return actual;
+    const candidate = path.resolve(input.cwd, input.environment.GIT_INDEX_FILE);
+    if (path.dirname(candidate) !== path.dirname(actual.stdout.trim()) || !path.basename(candidate).startsWith("index.legioncode-")) {
+      return { exitCode: 1, stdout: "", stderr: "Untrusted Git index override" };
+    }
+    try { if (fs.lstatSync(candidate).isSymbolicLink()) return { exitCode: 1, stdout: "", stderr: "Git index override cannot be a symlink" }; }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    index = candidate;
+  }
+  return await run(input.args, index);
+}
   let lockPath, lockFd, lockIdentity, directory, committed = false, published = false;
   let result;
   const required = async (args, index) => {
@@ -160,6 +192,7 @@ const { spawn } = require("node:child_process");
           throw new Error("Git hooks changed the immutable artifact commit; outcome requires inspection");
         }
       }
+      if (!quiescenceProven) throw new Error("Git descendant quiescence could not be established");
       if (!ownsLock()) throw new Error("Git index lock ownership changed before publication");
       fs.writeFileSync(lockFd, fs.readFileSync(privateIndex));
       fs.fsyncSync(lockFd);
@@ -171,18 +204,55 @@ const { spawn } = require("node:child_process");
     if (committed) result = { ...result, indexPublication: "indeterminate" };
   } finally {
     if (lockFd !== undefined) {
-      if (!published && ownsLock()) fs.unlinkSync(lockPath);
+      if (!published && quiescenceProven && ownsLock()) fs.unlinkSync(lockPath);
       fs.closeSync(lockFd);
     }
     // Keep the private index as recovery evidence if HEAD advanced but publication failed.
-    if (directory && (!committed || published)) fs.rmSync(directory, { recursive: true, force: true });
+    if (directory && quiescenceProven && (!committed || published)) fs.rmSync(directory, { recursive: true, force: true });
   }
-  process.stdout.write(JSON.stringify(result));
-})().catch(error => {
+  return result;
+`;
+
+export const GIT_INDEX_TRANSACTION_SCRIPT = `
+(async (input, executeContainedGit) => { ${GIT_INDEX_TRANSACTION_BODY} })(JSON.parse(process.argv[1]))
+.then(result => process.stdout.write(JSON.stringify(result)))
+.catch(error => {
   process.stdout.write(JSON.stringify({ exitCode: 1, stdout: "", stderr: error.message, indexPublication: "indeterminate" }));
   process.exitCode = 1;
 });
 `;
+
+export function gitIndexTransactionHostSource(): string {
+  return `return (async () => { ${GIT_INDEX_TRANSACTION_BODY} })();`;
+}
+
+export function gitCommandRunnerEnvironment(
+  input: GitCommandExecutionInput,
+): Record<string, string> {
+  const environment = gitCommandEnvironment({}, input.environment);
+  delete environment.GIT_INDEX_FILE;
+  return environment;
+}
+
+export function gitCommandRunnerArgs(
+  input: GitCommandExecutionInput,
+): string[] {
+  const environment = gitCommandEnvironment({}, input.environment);
+  if (input.stdin !== undefined)
+    throw new Error("Git host runner stdin requires a contained host callback");
+  const wire = {
+    ...input,
+    environment: environment.GIT_INDEX_FILE
+      ? { GIT_INDEX_FILE: environment.GIT_INDEX_FILE }
+      : undefined,
+    trustedAuthEnvironment: environment.GIT_CONFIG_COUNT === "1",
+  };
+  const script = GIT_INDEX_TRANSACTION_SCRIPT.replace(
+    /^\s*\/\/.*$/gm,
+    "",
+  ).replace(/\r?\n/g, " ");
+  return ["-e", script, JSON.stringify(wire)];
+}
 
 export function gitIndexTransactionArgs(
   input: GitCommandExecutionInput,
@@ -192,12 +262,7 @@ export function gitIndexTransactionArgs(
       "Git index transactions require a canonical commit operation",
     );
   }
-  // Toolbox accepts only single-line arguments. This is fixed source, not user code.
-  const script = GIT_INDEX_TRANSACTION_SCRIPT.replace(
-    /^\s*\/\/.*$/gm,
-    "",
-  ).replace(/\r?\n/g, " ");
-  return ["-e", script, JSON.stringify(input)];
+  return gitCommandRunnerArgs(input);
 }
 
 export function parseGitIndexTransactionResult(
