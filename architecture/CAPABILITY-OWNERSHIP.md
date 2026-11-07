@@ -1285,3 +1285,32 @@ The store produces no lifecycle events and creates no separate database owner.
 Native capture, authorized query and commit consumers remain separate integration
 work. Stored Git tree IDs do not retain their object closure or enable capture or
 Git mutation capabilities.
+
+## Plan 057 — Approved local Git authority contract
+
+On 2026-11-08 the user approved the researched stock-Git trusted-host model for
+local capture and saved-artifact commits. `DefaultGitService` remains the only
+Git policy/command owner. The grant/native owner validates checkout, per-worktree
+metadata and common-directory associations; the existing writer lease and native
+transaction own serialization and physical resource closure. Git-native locks,
+explicit branch/ref identity and expected-old checks coordinate supported Git
+operations. Observed identity changes abort or quarantine the operation.
+
+This contract assumes repository metadata is not maliciously replaced by another
+process during execution. It does not claim atomic retained-FD binding of every
+metadata pathname used by stock Git. Guarded file tools retain their independent
+root-FD safeguards, and executable approval retains its declared host authority.
+No alternate runtime, Git parser, process runner or silent policy fallback is
+introduced. The stronger hostile-replacement contract is not selected.
+
+Saved commits must derive entries from the immutable artifact's blob/tree IDs,
+modes and deletions rather than rereading live worktree bytes. Unrelated staging
+and later worktree edits are preserved; conflicting selected staging or undisclosed
+baseline content is rejected. The existing artifact/Git owners must retain the
+required object closure before publishing saved evidence. Uncertain publication remains
+non-retryable and cannot rewrite Turn terminal truth.
+
+The reviewed native T adapter is still a dependency, not an enabled capability.
+Actual ordinary/linked layouts, private-index publication, retained objects,
+approval/Stop/settlement and installed-consumer proofs must pass before advertising
+capture or Git mutation. This decision alone does not set executor support flags.
