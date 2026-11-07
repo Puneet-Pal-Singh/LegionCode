@@ -10,6 +10,7 @@
     "./protocol": "./src/protocol.ts",
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
+    "./harness-operations": "./src/harness/HarnessOperations.ts",
     "./local-process": "./src/local-process.ts",
     "./local-harness": "./src/harness/LocalHarnessComposition.ts"
   },

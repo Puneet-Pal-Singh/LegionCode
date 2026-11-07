@@ -1,5 +1,5 @@
 import { AppServerResultSchemas } from "@legioncode/app-server/protocol";
-import type { HarnessOperations } from "@legioncode/app-server/server";
+import type { HarnessOperations } from "@legioncode/app-server/harness-operations";
 import { requestAppServerOperation, type AppServerClientOptions } from "../platform/app-server-client.js";
 
 /** The same authenticated App Server transport is used by Web and Desktop.
