@@ -1,4 +1,5 @@
 import {
+  AppServerClientError,
   createAppServerLifecycleClient,
   LocalTurnStartParamsSchema,
   followConversationLifecycleProjection,
@@ -184,8 +185,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       pendingRequest.current = null;
       accepted = !projections[admission.turn.id]?.terminal;
       return true;
-    } catch {
+    } catch (error) {
       if (!controller.signal.aborted && scope.current === controller) {
+        // The App Server rejects this exact code at its boundary before dispatch.
+        if (error instanceof AppServerClientError && error.code === "server_error" && error.serverCode === "protocol_incompatible") {
+          if (pendingRequest.current?.clientRequestId === request.clientRequestId) pendingRequest.current = null;
+          throw new Error("The local runtime needs a compatible Desktop connection. Copy your draft and restart Desktop before retrying.");
+        }
         setError("Prompt delivery is unconfirmed. Retry the unchanged draft using the same request identity, or reload saved history.");
       }
       return false;
