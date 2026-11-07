@@ -211,11 +211,13 @@ export class OpenCodeSession {
     this.fence();
     const parent = await this.transport.mutate(
       "session.interrupt",
-      (api, signal) =>
-        api.session.interrupt(
+      (api, signal) => {
+        this.requests.interruptDispatched(this.id);
+        return api.session.interrupt(
           { sessionID: this.id, resume: false },
           { signal },
-        ),
+        );
+      },
     );
     if (typeof parent.interrupted !== "boolean")
       return this.transport.invalidate("interrupt receipt validation");
@@ -241,8 +243,13 @@ export class OpenCodeSession {
       if (sessionID === this.id) continue;
       const result = await this.transport.mutate(
         "session.interrupt",
-        (api, signal) =>
-          api.session.interrupt({ sessionID, resume: false }, { signal }),
+        (api, signal) => {
+          this.requests.interruptDispatched(sessionID);
+          return api.session.interrupt(
+            { sessionID, resume: false },
+            { signal },
+          );
+        },
       );
       if (typeof result.interrupted !== "boolean")
         return this.transport.invalidate("interrupt receipt validation");
