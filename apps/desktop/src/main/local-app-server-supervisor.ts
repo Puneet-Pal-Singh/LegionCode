@@ -24,7 +24,10 @@ import {
   RuntimeCredentialRequestSchema,
   RuntimeCredentialResponseSchema,
   type RuntimeCredentialRequest,
+  type RuntimeCredentialResponse,
   type RuntimeCredentialLease,
+  type ExternalHarnessCredentialLease,
+  type ExternalHarnessCredentialRequest,
 } from "./runtime-credentials";
 import type {
   DesktopEnvironmentConnection,
@@ -49,10 +52,15 @@ export class LocalAppServerSupervisor {
     private readonly resolveRuntimeCredential?: (
       providerId: ProviderId,
     ) => Promise<RuntimeCredentialLease | null>,
+    private readonly acquireExternalHarnessCredential?: (
+      request: ExternalHarnessCredentialRequest,
+      signal: AbortSignal,
+    ) => Promise<ExternalHarnessCredentialLease | null>,
   ) {}
 
   // Timed-out deliveries still occupy a slot until their resolver settles.
   private readonly credentialLookups = new Set<symbol>();
+  private readonly credentialControllers = new Map<string, AbortController>();
   private readonly credentialRequests = new Map<
     string,
     ReturnType<typeof setTimeout>
@@ -99,11 +107,13 @@ export class LocalAppServerSupervisor {
     const credential = randomBytes(32).toString("base64url");
     this.credential = credential;
     this.storageDirectory = storageDirectory;
-    this.hostConfig = hostConfig ? Object.freeze({
-      protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
-      nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
-      nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
-    }) : undefined;
+    this.hostConfig = hostConfig
+      ? Object.freeze({
+          protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
+          nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
+          nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
+        })
+      : undefined;
     const child = utilityProcess.fork(
       fileURLToPath(new URL("./local-app-server.js", import.meta.url)),
       [],
@@ -131,6 +141,7 @@ export class LocalAppServerSupervisor {
     child.on("exit", () => this.handleChildExit(child));
     child.postMessage({
       type: "start",
+      utilityProcessGeneration: generation,
       credential,
       serverVersion,
       storageDirectory,
@@ -221,27 +232,47 @@ export class LocalAppServerSupervisor {
   ): Promise<void> {
     if (child !== this.child || generation !== this.generation || this.stopping)
       return;
+    if (
+      "purpose" in request &&
+      (!Number.isSafeInteger(generation) ||
+        generation < 1 ||
+        request.utilityProcessGeneration !== generation)
+    )
+      return;
     if (this.credentialRequests.has(request.requestId)) return;
     if (this.credentialLookups.size >= 32) {
       this.replyCredential(child, generation, request, null);
       return;
     }
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       if (this.credentialRequests.get(request.requestId) !== timer) return;
       this.credentialRequests.delete(request.requestId);
+      controller.abort();
       this.replyCredential(child, generation, request, null);
     }, 10_000);
     this.credentialRequests.set(request.requestId, timer);
+    this.credentialControllers.set(request.requestId, controller);
     const lookup = Symbol();
     this.credentialLookups.add(lookup);
-    let lease: RuntimeCredentialLease | null = null;
+    let lease: RuntimeCredentialLease | ExternalHarnessCredentialLease | null =
+      null;
     try {
       lease =
-        (await this.resolveRuntimeCredential?.(request.providerId)) ?? null;
+        "purpose" in request
+          ? ((await this.acquireExternalHarnessCredential?.(
+              request,
+              controller.signal,
+            )) ?? null)
+          : ((await this.resolveRuntimeCredential?.(request.providerId)) ??
+            null);
     } catch {
       // The private channel never forwards vault errors or their data.
     } finally {
       this.credentialLookups.delete(lookup);
+      if (this.credentialControllers.get(request.requestId) === controller) {
+        this.credentialControllers.delete(request.requestId);
+      }
     }
     if (this.credentialRequests.get(request.requestId) !== timer) return;
     clearTimeout(timer);
@@ -253,31 +284,63 @@ export class LocalAppServerSupervisor {
     child: UtilityProcess,
     generation: number,
     request: RuntimeCredentialRequest,
-    lease: RuntimeCredentialLease | null,
+    lease: RuntimeCredentialLease | ExternalHarnessCredentialLease | null,
   ): void {
     if (child !== this.child || generation !== this.generation || this.stopping)
       return;
-    const parsed = RuntimeCredentialResponseSchema.safeParse({
-      type: "runtime-credential-response",
-      requestId: request.requestId,
-      providerId: request.providerId,
-      credential: lease?.credential ?? null,
-    });
+    if ("purpose" in request && request.utilityProcessGeneration !== generation)
+      return;
+    const externalLease = lease && "result" in lease ? lease : null;
+    const nativeLease = lease && "credential" in lease ? lease : null;
+    const unavailable = {
+      status: "unavailable" as const,
+      code: "unavailable" as const,
+    };
+    const fallback: RuntimeCredentialResponse =
+      "purpose" in request
+        ? {
+            ...request,
+            type: "runtime-credential-response",
+            result: unavailable,
+          }
+        : {
+            type: "runtime-credential-response",
+            requestId: request.requestId,
+            providerId: request.providerId,
+            credential: null,
+          };
+    const parsed = RuntimeCredentialResponseSchema.safeParse(
+      "purpose" in request
+        ? {
+            ...request,
+            type: "runtime-credential-response",
+            result: externalLease?.result ?? unavailable,
+          }
+        : {
+            ...fallback,
+            credential: nativeLease?.credential ?? null,
+          },
+    );
     const scoped =
       parsed.success &&
-      (!parsed.data.credential?.connectionConfig ||
-        parsed.data.credential.connectionConfig.providerId ===
-          request.providerId);
-    const response = scoped
-      ? parsed.data
-      : {
-          type: "runtime-credential-response" as const,
-          requestId: request.requestId,
-          providerId: request.providerId,
-          credential: null,
-        };
+      ("purpose" in parsed.data ||
+        !parsed.data.credential?.connectionConfig ||
+        (!("purpose" in request) &&
+          parsed.data.credential.connectionConfig.providerId ===
+            request.providerId));
+    let response = scoped ? parsed.data : fallback;
     try {
-      if (response.credential !== null && !lease?.canDeliver()) {
+      if ("purpose" in response) {
+        if (
+          response.result.status === "acquired" &&
+          !externalLease?.canDeliver()
+        ) {
+          response = {
+            ...response,
+            result: { status: "unavailable", code: "stale_acquisition" },
+          };
+        }
+      } else if (response.credential !== null && !nativeLease?.canDeliver()) {
         response.credential = null;
       }
       if (
@@ -288,13 +351,16 @@ export class LocalAppServerSupervisor {
         return;
       child.postMessage(response);
     } catch {
-      // Process loss must not leak the secret-bearing response or fabricate settlement.
+      // Never log secret-bearing responses or custody failures.
     }
   }
 
   private clearCredentialRequests(): void {
     for (const timer of this.credentialRequests.values()) clearTimeout(timer);
     this.credentialRequests.clear();
+    for (const controller of this.credentialControllers.values())
+      controller.abort();
+    this.credentialControllers.clear();
   }
 
   private async handleMessage(
