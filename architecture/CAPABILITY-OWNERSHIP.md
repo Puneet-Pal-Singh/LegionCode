@@ -1247,6 +1247,15 @@ provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
 
+## Plan 057 — Local saved-turn diff query
+
+`LocalTurnArtifactReads` delegates grant/thread authorization to the existing turn
+owner, then requires a canonical terminal and published diff matching the same
+attempt's immutable artifact store. It reauthorizes before returning and never
+reads live Git. The adapter introduces no event producer, artifact payload store
+or client-owned projection. Actual routing and capability advertisement remain
+with the trusted App Server composition after capture/store integration.
+
 ## Shared workspace file explorer presentation
 
 The tree renderer, loaded-file filtering, expansion, pagination and stale-request
