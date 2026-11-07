@@ -53,6 +53,7 @@ export interface ThreadSidebarGroupProps {
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onRenameSession?: (selectionId: string, title: string) => Promise<void>;
   pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
+  pullRequestUnavailableReason?: string;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   archived?: boolean;
   onConfirmArchive: (selectionId: string) => Promise<void>;
@@ -267,6 +268,7 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
                     onUnarchive={props.onUnarchive}
                     onRenameSession={props.onRenameSession}
                     pullRequestResult={props.pullRequestsBySessionId?.get(item.selectionId)}
+                    pullRequestUnavailableReason={props.pullRequestUnavailableReason}
                     onVisibleSelectionChange={props.onVisibleSelectionChange}
                     archived={props.archived}
                     setPendingArchiveId={props.setPendingArchiveId}
@@ -314,6 +316,7 @@ interface ThreadSidebarRowProps {
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onRenameSession?: (selectionId: string, title: string) => Promise<void>;
   pullRequestResult?: HostedSessionPullRequestsResponse;
+  pullRequestUnavailableReason?: string;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
   archived?: boolean;
   setPendingArchiveId: (selectionId: string | null) => void;
@@ -342,6 +345,7 @@ function ThreadSidebarRow({
   onUnarchive,
   onRenameSession,
   pullRequestResult,
+  pullRequestUnavailableReason,
   onVisibleSelectionChange,
   archived,
   setPendingArchiveId,
@@ -366,7 +370,7 @@ function ThreadSidebarRow({
   const [detailsPosition, setDetailsPosition] = useState<{ left: number; top: number } | null>(null);
   const detailsId = `thread-details-${item.selectionId}`;
   const hideIndicatorCluster = hasThreadActions && !confirming;
-  const pullRequestStates = pullRequestResult?.status === "available"
+  const pullRequestStates = pullRequestUnavailableReason === undefined && pullRequestResult?.status === "available"
     ? Array.from(new Set(pullRequestResult.pullRequests.map((pullRequest) => pullRequest.state))).filter((state) => state !== "closed")
     : [];
   const indicatorSlots = Number(item.isUnread) + Number(item.displayStatus === "running" || item.displayStatus === "paused" || item.displayStatus === "failed") + pullRequestStates.length;
@@ -484,6 +488,10 @@ function ThreadSidebarRow({
   }
 
   function focusFirstPullRequestLink(): void {
+    if (pullRequestUnavailableReason !== undefined) {
+      pendingCardFocusRef.current = false;
+      return;
+    }
     const firstLink = detailsRef.current?.querySelector<HTMLAnchorElement>("a[href]");
     if (!firstLink) return;
     pendingCardFocusRef.current = false;
@@ -491,6 +499,7 @@ function ThreadSidebarRow({
   }
 
   useLayoutEffect(() => {
+    if (pullRequestUnavailableReason !== undefined) pendingCardFocusRef.current = false;
     if (!isDetailsOpen) return;
     if (pendingCardFocusRef.current) {
       focusFirstPullRequestLink();
@@ -530,7 +539,7 @@ function ThreadSidebarRow({
       window.removeEventListener("scroll", updatePosition, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isDetailsOpen, isRenaming, renameError, item.selectionId, item.title, workspaceLabel, relativeTime, pullRequestResult, onPreviewClose]);
+  }, [isDetailsOpen, isRenaming, renameError, item.selectionId, item.title, workspaceLabel, relativeTime, pullRequestResult, pullRequestUnavailableReason, onPreviewClose]);
 
   const pinAction = item.isPinned ? onUnpin : onPin;
   const PinActionIcon = item.isPinned ? PinOff : Pin;
@@ -569,7 +578,7 @@ function ThreadSidebarRow({
         tabIndex={focusedIndex === index ? 0 : -1}
         onFocus={() => onFocus(index)}
         onKeyDown={(event) => {
-          if (event.key === "ArrowRight" && (pullRequestResult === undefined || (pullRequestResult.status === "available" && pullRequestResult.pullRequests.length > 0))) {
+          if (event.key === "ArrowRight" && pullRequestUnavailableReason === undefined && (pullRequestResult === undefined || (pullRequestResult.status === "available" && pullRequestResult.pullRequests.length > 0))) {
             event.preventDefault();
             event.stopPropagation();
             pendingCardFocusRef.current = true;
@@ -609,7 +618,7 @@ function ThreadSidebarRow({
               </span>
             ) : null}
             <StatusIndicator status={item.displayStatus} />
-            {pullRequestResult?.status === "available" ? (
+            {pullRequestUnavailableReason === undefined && pullRequestResult?.status === "available" ? (
               pullRequestStates.map((state) => (
                 <span key={state} className={`inline-flex size-4 items-center justify-center ${state === "merged" ? "text-violet-400" : "text-emerald-400"}`} aria-label={state === "merged" ? "Merged pull request" : "Open pull request"} title={state === "merged" ? "Merged pull request" : "Open pull request"}>
                   {state === "merged" ? <GitMerge size={14} aria-hidden="true" /> : <GitPullRequest size={14} aria-hidden="true" />}
@@ -769,7 +778,9 @@ function ThreadSidebarRow({
                 <FolderOpen size={14} className="shrink-0" aria-hidden="true" />
                 <span className="truncate">{workspaceLabel}</span>
               </div>
-              {pullRequestResult?.status === "available" && pullRequestResult.pullRequests.length > 0 ? (
+              {pullRequestUnavailableReason !== undefined ? (
+                <p className="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">{pullRequestUnavailableReason}</p>
+              ) : pullRequestResult?.status === "available" && pullRequestResult.pullRequests.length > 0 ? (
                 <div className="mt-3 space-y-1 border-t border-zinc-800 pt-2">
                   {pullRequestResult.pullRequests.map((pullRequest) => (
                     <a key={`${pullRequest.url}`} href={pullRequest.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs text-zinc-300 hover:bg-zinc-800/70 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500">
