@@ -96,7 +96,10 @@ function ThreadComposer({
         isHidden={isHidden}
         sessionId={threadId}
         input={input}
-        onChange={setInput}
+        onChange={(value) => {
+          setInput(value);
+          setError(null);
+        }}
         mode="plan"
         permissionMode={PRODUCT_MODES.ASK_ALWAYS}
         showContextWindowUsage={false}
@@ -148,9 +151,11 @@ function ThreadComposer({
             if (accepted)
               setInput((current) => (current === prompt ? "" : current));
             return accepted;
-          } catch {
+          } catch (error) {
             setError(
-              "The message could not be confirmed. Your draft has been kept.",
+              error instanceof Error
+                ? error.message
+                : "The message could not be confirmed. Your draft has been kept.",
             );
             return false;
           } finally {

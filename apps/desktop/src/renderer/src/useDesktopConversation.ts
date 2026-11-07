@@ -1,12 +1,14 @@
 import {
   createAppServerLifecycleClient,
+  LocalTurnStartParamsSchema,
   followConversationLifecycleProjection,
   replayConversationLifecycleProjection,
   type AppServerClient,
   type ConversationLifecycleContinuationStatus,
   type LifecycleProjection,
+  type LocalTurnStartParams,
 } from "@legioncode/sdk";
-import { EventIdempotencyKeySchema, type EventCursor, type Thread, type TurnAdmission } from "@repo/platform-protocol";
+import type { EventCursor, Thread, TurnAdmission } from "@repo/platform-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const HISTORY_PAGE_SIZE = 25;
@@ -32,7 +34,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
   const scope = useRef<AbortController | null>(null);
   const loadedScope = useRef({ client, workspaceId: thread.workspaceId, threadId: thread.id });
   const scopeMatches = loadedScope.current.client === client && loadedScope.current.workspaceId === thread.workspaceId && loadedScope.current.threadId === thread.id;
-  const pendingRequest = useRef<{ prompt: string; clientRequestId: ReturnType<typeof EventIdempotencyKeySchema.parse> } | null>(null);
+  const pendingRequest = useRef<Pick<LocalTurnStartParams, "prompt" | "clientRequestId"> | null>(null);
   const commandPending = useRef(false);
 
   useEffect(() => {
@@ -149,12 +151,21 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
   async function submit(prompt: string): Promise<boolean> {
     const controller = scope.current;
     if (!enabled || !scopeMatches || !controller || controller.signal.aborted || commandPending.current || !historyReady || loading || nextCursor !== null || unsettled) return false;
-    if (pendingRequest.current && pendingRequest.current.prompt !== prompt) {
+    // Local contract rejection must never claim a delivery identity or alter
+    // conversation errors. Post-dispatch failures below remain unconfirmed.
+    const params = LocalTurnStartParamsSchema.safeParse({
+      workspaceId: thread.workspaceId, threadId: thread.id,
+      prompt, clientRequestId: pendingRequest.current?.clientRequestId ?? crypto.randomUUID(),
+    });
+    if (!params.success) {
+      throw new Error(params.error.issues[0]?.message ?? "Update the prompt before sending.");
+    }
+    if (pendingRequest.current && pendingRequest.current.prompt !== params.data.prompt) {
       setError("The previous prompt is unconfirmed. Retry its unchanged draft or reload saved history first.");
       return false;
     }
     const request = pendingRequest.current ?? {
-      prompt, clientRequestId: EventIdempotencyKeySchema.parse(crypto.randomUUID()),
+      prompt: params.data.prompt, clientRequestId: params.data.clientRequestId,
     };
     pendingRequest.current = request;
     commandPending.current = true;
@@ -162,9 +173,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
     setError(null);
     let accepted = false;
     try {
-      const admission = await client.startTurn({
-        workspaceId: thread.workspaceId, threadId: thread.id, ...request,
-      });
+      const admission = await client.startTurn(params.data);
       if (controller.signal.aborted || scope.current !== controller) return false;
       assertScope(admission, thread);
       if (admission.clientRequestId !== request.clientRequestId) throw new Error("Admission request changed");
