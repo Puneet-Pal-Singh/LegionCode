@@ -5,6 +5,7 @@ import { PermissionModeControl } from "./PermissionModeControl.js";
 
 interface ChatComposerPermissionControlProps {
   value?: ProductMode;
+  availableModes?: readonly ProductMode[];
   environmentKind?: "hosted" | "local";
   onChange?: (mode: ProductMode) => void;
   disabled: boolean;
@@ -13,12 +14,14 @@ interface ChatComposerPermissionControlProps {
 export function ChatComposerPermissionControl({
   value = PRODUCT_MODES.AUTO_FOR_SAFE,
   environmentKind,
+  availableModes,
   onChange,
   disabled,
 }: ChatComposerPermissionControlProps) {
   return (
     <PermissionModeControl
       value={value}
+      availableModes={availableModes}
       environmentKind={environmentKind}
       onChange={(mode) => onChange?.(mode)}
       disabled={disabled || !onChange}

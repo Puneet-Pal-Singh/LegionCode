@@ -14,6 +14,7 @@ import { FullAccessConfirmation } from "./FullAccessConfirmation.js";
 
 interface PermissionModeControlProps {
   value: ProductMode;
+  availableModes?: readonly ProductMode[];
   environmentKind?: "hosted" | "local";
   onChange: (mode: ProductMode) => void;
   disabled?: boolean;
@@ -63,6 +64,7 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
 
 export function PermissionModeControl({
   value,
+  availableModes,
   environmentKind = "hosted",
   onChange,
   disabled = false,
@@ -82,7 +84,8 @@ export function PermissionModeControl({
   const SelectedIcon = selectedOption.Icon;
   const isMenuOpen = isOpen && !disabled;
   const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
-  const isConfirmationVisible = isConfirmationOpen && !disabled;
+  const fullAccessAvailable = !availableModes || availableModes.includes(PRODUCT_MODES.FULL_AGENT);
+  const isConfirmationVisible = isConfirmationOpen && !disabled && fullAccessAvailable;
   const [menuStyle, setMenuStyle] = useState<{
     top: number | null;
     bottom: number | null;
@@ -145,11 +148,11 @@ export function PermissionModeControl({
   }, [isConfirmationVisible, disabled]);
 
   useEffect(() => {
-    if (disabled && isConfirmationOpen) {
+    if ((disabled || !fullAccessAvailable) && isConfirmationOpen) {
       setIsConfirmationOpen(false);
       setModeAtConfirmationOpen(null);
     }
-  }, [disabled, isConfirmationOpen]);
+  }, [disabled, fullAccessAvailable, isConfirmationOpen]);
 
   const closeConfirmation = () => {
     setIsConfirmationOpen(false);
@@ -159,6 +162,7 @@ export function PermissionModeControl({
   const confirmFullAccess = () => {
     if (
       disabled ||
+      !fullAccessAvailable ||
       modeAtConfirmationOpen === null ||
       modeAtConfirmationOpen !== value
     ) {
@@ -230,6 +234,7 @@ export function PermissionModeControl({
               {PERMISSION_MODE_OPTIONS.map((option) => {
                 const OptionIcon = option.Icon;
                 const isSelected = option.value === selectedOption.value;
+                const available = !availableModes || availableModes.includes(option.value);
                 return (
                   <button
                     key={option.value}
@@ -237,7 +242,7 @@ export function PermissionModeControl({
                     role="menuitemradio"
                     aria-checked={isSelected}
                     onClick={() => {
-                      if (disabled) {
+                      if (disabled || !available) {
                         return;
                       }
                       setIsOpen(false);
@@ -248,9 +253,10 @@ export function PermissionModeControl({
                       }
                       onChange(option.value);
                     }}
-                    disabled={disabled}
+                    disabled={disabled || !available}
+                    title={available ? undefined : "Unavailable in this environment"}
                     className={cn(
-                      "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition",
+                      "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
                       isSelected
                         ? "bg-zinc-800/70 text-zinc-100"
                         : "text-zinc-200 hover:bg-zinc-800/50",

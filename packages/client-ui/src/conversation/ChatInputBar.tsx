@@ -98,6 +98,7 @@ export interface ChatInputBarProps {
   onCompact?: () => void;
   onContextOpen?: () => void;
   permissionMode?: ProductMode;
+  availablePermissionModes?: readonly ProductMode[];
   permissionEnvironment?: "hosted" | "local";
   onPermissionModeChange?: (mode: ProductMode) => void;
 }
@@ -146,6 +147,7 @@ export function ChatInputBar({
   onCompact,
   onContextOpen,
   permissionMode,
+  availablePermissionModes,
   permissionEnvironment,
   onPermissionModeChange,
 }: ChatInputBarProps) {
@@ -847,6 +849,7 @@ export function ChatInputBar({
               <ChatComposerPermissionControl
                 key={sessionId}
                 value={permissionMode}
+                availableModes={availablePermissionModes}
                 environmentKind={permissionEnvironment}
                 onChange={onPermissionModeChange}
                 disabled={isComposerActiveRun || isHidden}

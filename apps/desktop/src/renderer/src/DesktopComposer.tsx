@@ -107,6 +107,8 @@ function ThreadComposer({
     );
   }, [initialMode]);
   const configuration = pendingConfiguration ?? draftConfiguration;
+  const availableProductModes = configurationOptions?.productModesByMode?.[configuration.mode]
+    ?? configurationOptions?.productModes ?? [];
   const configurationLocked = busy || pendingConfiguration !== null;
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -158,7 +160,9 @@ function ThreadComposer({
       ? "Local execution configuration is unavailable. Restart Desktop to reconnect."
       : !configurationOptions.modes.includes(configuration.mode)
         ? "This execution mode is unavailable in the current environment."
-        : undefined) ??
+        : !availableProductModes.includes(configuration.productMode)
+          ? "This permission level is unavailable in the current environment."
+          : undefined) ??
     (submitting ? "Confirming message delivery…" : undefined) ??
     (pendingSelection ? undefined : modelPicker.unavailableReason);
 
@@ -192,15 +196,26 @@ function ThreadComposer({
             : (mode) => {
                 if (!configurationOptions.modes.includes(mode)) return;
                 configurationTouched.current = true;
-                setDraftConfiguration((current) => ({ ...current, mode }));
+                setDraftConfiguration((current) => {
+                  const allowed = configurationOptions.productModesByMode?.[mode]
+                    ?? configurationOptions.productModes;
+                  const supervised = LocalTurnConfigurationSchema.parse({ mode }).productMode;
+                  return {
+                    ...current, mode,
+                    productMode: allowed.includes(current.productMode)
+                      ? current.productMode
+                      : allowed.includes(supervised) ? supervised : current.productMode,
+                  };
+                });
               }
         }
         permissionMode={configuration.productMode}
+        availablePermissionModes={availableProductModes}
         onPermissionModeChange={
           configurationLocked || !configurationOptions
             ? undefined
             : (productMode) => {
-                if (!configurationOptions.productModes.includes(productMode))
+                if (!availableProductModes.includes(productMode))
                   return;
                 configurationTouched.current = true;
                 setDraftConfiguration((current) => ({
