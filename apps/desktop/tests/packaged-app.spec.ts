@@ -515,6 +515,40 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
         });
       } catch { /* Preserve the original failure if the page is unavailable. */ }
       try {
+        const diagnostic = await page.evaluate(async (protocolVersion) => {
+          const isRecord = (value: unknown): value is Record<string, unknown> =>
+            typeof value === "object" && value !== null && !Array.isArray(value);
+          const text = (value: unknown) => typeof value === "string" ? value.slice(0, 300) : null;
+          const sidebar = document.querySelector('[data-testid="workspace-sidebar"]');
+          const messages = Array.from(sidebar?.querySelectorAll('[role="alert"], [role="status"]') ?? [])
+            .slice(0, 4).map((element) => text(element.textContent));
+          try {
+            // Preload validates the canonical response. Retain only these public
+            // fields, never the envelope, headers, host configuration or console.
+            const response = await Promise.race([
+              window.desktop.request({ protocolVersion, method: "workspace/current", params: {} }),
+              new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2000)),
+            ]);
+            if (response === null) return { messages, current: "request_timeout" };
+            if (!isRecord(response) || response.method !== "workspace/current") return { messages, current: "invalid_response" };
+            if (response.ok === false) {
+              const operationError = isRecord(response.error) ? response.error : {};
+              return { messages, current: { ok: false, code: text(operationError.code), message: text(operationError.message) } };
+            }
+            const grant = isRecord(response.result) ? response.result.grant : undefined;
+            return { messages, current: { ok: response.ok === true, grant: isRecord(grant) ? {
+              workspaceId: text(grant.workspaceId), readiness: text(grant.readiness),
+              displayName: text(grant.displayName), branch: text(grant.branch), reason: text(grant.reason),
+            } : null } };
+          } catch { return { messages, current: "request_rejected" }; }
+        }, APP_SERVER_PROTOCOL_VERSION);
+        const body = JSON.stringify(diagnostic);
+        await test.info().attach("workspace-grant-failure", {
+          body: Buffer.from(Buffer.byteLength(body) <= 4096 ? body : '{"diagnostic":"public_fields_exceed_4KiB"}'),
+          contentType: "application/json",
+        });
+      } catch { /* Preserve the original assertion if diagnostics are unavailable. */ }
+      try {
         await test.info().attach("workspace-grant-failure-screenshot", {
           body: await page.screenshot({ timeout: 1_000 }), contentType: "image/png",
         });
