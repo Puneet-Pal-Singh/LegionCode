@@ -19,6 +19,13 @@ import {
   createAppServerHttpTransport,
   type AppServerHttpTransportOptions,
 } from "@legioncode/sdk/platform/app-server-http-transport";
+import { type ProviderId } from "@repo/shared-types";
+import {
+  RuntimeCredentialRequestSchema,
+  RuntimeCredentialResponseSchema,
+  type RuntimeCredentialRequest,
+  type RuntimeCredentialLease,
+} from "./runtime-credentials";
 import type {
   DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,
@@ -26,7 +33,9 @@ import type {
   LocalAppServerHostConfig,
 } from "../shared/desktop-api";
 
-type RequestHeaders = NonNullable<AppServerHttpTransportOptions["requestHeaders"]>;
+type RequestHeaders = NonNullable<
+  AppServerHttpTransportOptions["requestHeaders"]
+>;
 
 const STARTUP_TIMEOUT_MS = 5_000;
 const LIVENESS_CHECK_MS = 250;
@@ -35,7 +44,19 @@ type SupervisedEnvironment = DesktopEnvironmentConfig & {
 };
 
 export class LocalAppServerSupervisor {
-  constructor(private readonly requestHeaders?: RequestHeaders) {}
+  constructor(
+    private readonly requestHeaders?: RequestHeaders,
+    private readonly resolveRuntimeCredential?: (
+      providerId: ProviderId,
+    ) => Promise<RuntimeCredentialLease | null>,
+  ) {}
+
+  // Timed-out deliveries still occupy a slot until their resolver settles.
+  private readonly credentialLookups = new Set<symbol>();
+  private readonly credentialRequests = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   private child: UtilityProcess | null = null;
   private childPid: number | null = null;
@@ -99,6 +120,11 @@ export class LocalAppServerSupervisor {
       LIVENESS_CHECK_MS,
     );
     child.on("message", (message) => {
+      const request = RuntimeCredentialRequestSchema.safeParse(message);
+      if (request.success) {
+        void this.handleCredentialRequest(child, generation, request.data);
+        return;
+      }
       void this.handleMessage(child, generation, message, serverVersion);
     });
     child.on("error", () => this.handleChildExit(child));
@@ -122,6 +148,7 @@ export class LocalAppServerSupervisor {
   async stop(): Promise<void> {
     this.generation += 1;
     this.stopping = true;
+    this.clearCredentialRequests();
     this.clearStartupTimer();
     this.clearLivenessTimer();
     const child = this.child;
@@ -130,7 +157,9 @@ export class LocalAppServerSupervisor {
     this.credential = null;
     this.transport = null;
     if (!child) {
-      this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      this.update(
+        createSnapshot("stopped", "Local App Server stopped cleanly"),
+      );
       return;
     }
     await new Promise<void>((resolve) => {
@@ -185,6 +214,89 @@ export class LocalAppServerSupervisor {
     return response;
   }
 
+  private async handleCredentialRequest(
+    child: UtilityProcess,
+    generation: number,
+    request: RuntimeCredentialRequest,
+  ): Promise<void> {
+    if (child !== this.child || generation !== this.generation || this.stopping)
+      return;
+    if (this.credentialRequests.has(request.requestId)) return;
+    if (this.credentialLookups.size >= 32) {
+      this.replyCredential(child, generation, request, null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (this.credentialRequests.get(request.requestId) !== timer) return;
+      this.credentialRequests.delete(request.requestId);
+      this.replyCredential(child, generation, request, null);
+    }, 10_000);
+    this.credentialRequests.set(request.requestId, timer);
+    const lookup = Symbol();
+    this.credentialLookups.add(lookup);
+    let lease: RuntimeCredentialLease | null = null;
+    try {
+      lease =
+        (await this.resolveRuntimeCredential?.(request.providerId)) ?? null;
+    } catch {
+      // The private channel never forwards vault errors or their data.
+    } finally {
+      this.credentialLookups.delete(lookup);
+    }
+    if (this.credentialRequests.get(request.requestId) !== timer) return;
+    clearTimeout(timer);
+    this.credentialRequests.delete(request.requestId);
+    this.replyCredential(child, generation, request, lease);
+  }
+
+  private replyCredential(
+    child: UtilityProcess,
+    generation: number,
+    request: RuntimeCredentialRequest,
+    lease: RuntimeCredentialLease | null,
+  ): void {
+    if (child !== this.child || generation !== this.generation || this.stopping)
+      return;
+    const parsed = RuntimeCredentialResponseSchema.safeParse({
+      type: "runtime-credential-response",
+      requestId: request.requestId,
+      providerId: request.providerId,
+      credential: lease?.credential ?? null,
+    });
+    const scoped =
+      parsed.success &&
+      (!parsed.data.credential?.connectionConfig ||
+        parsed.data.credential.connectionConfig.providerId ===
+          request.providerId);
+    const response = scoped
+      ? parsed.data
+      : {
+          type: "runtime-credential-response" as const,
+          requestId: request.requestId,
+          providerId: request.providerId,
+          credential: null,
+        };
+    try {
+      if (response.credential !== null && !lease?.canDeliver()) {
+        response.credential = null;
+      }
+      if (
+        child !== this.child ||
+        generation !== this.generation ||
+        this.stopping
+      )
+        return;
+      child.postMessage(response);
+    } catch {
+      // Process loss must not leak the secret-bearing response or fabricate settlement.
+    }
+  }
+
+  private clearCredentialRequests(): void {
+    for (const timer of this.credentialRequests.values()) clearTimeout(timer);
+    this.credentialRequests.clear();
+  }
+
   private async handleMessage(
     child: UtilityProcess,
     generation: number,
@@ -203,7 +315,9 @@ export class LocalAppServerSupervisor {
     this.clearStartupTimer();
     const credential = this.credential;
     if (!isLoopbackBaseUrl(baseUrl) || !credential) {
-      this.update(createSnapshot("degraded", "Local App Server address was rejected"));
+      this.update(
+        createSnapshot("degraded", "Local App Server address was rejected"),
+      );
       this.terminateChild(child);
       return;
     }
@@ -248,6 +362,7 @@ export class LocalAppServerSupervisor {
 
   private handleChildExit(child: UtilityProcess): void {
     if (child !== this.child) return;
+    this.clearCredentialRequests();
     this.clearStartupTimer();
     this.clearLivenessTimer();
     this.child = null;
@@ -255,11 +370,14 @@ export class LocalAppServerSupervisor {
     this.credential = null;
     this.transport = null;
     if (this.stopping) return;
-    this.update(createSnapshot("offline", "Local App Server stopped unexpectedly"));
+    this.update(
+      createSnapshot("offline", "Local App Server stopped unexpectedly"),
+    );
   }
 
   private terminateChild(child: UtilityProcess): void {
     this.stopping = true;
+    this.clearCredentialRequests();
     child.kill();
   }
 
