@@ -512,7 +512,7 @@ function TerminalMessage(
   );
 }
 
-function HeroComposer({
+export function HeroComposer({
   children,
   projectName,
   onProjectClick,

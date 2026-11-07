@@ -110,3 +110,6 @@ export { FileOptionsMenu } from "./workspace/FileOptionsMenu.js";
 export { WorkspaceFileNavigationBar } from "./workspace/WorkspaceFileNavigationBar.js";
 export { WorkspaceContentView } from "./workspace/WorkspaceContentView.js";
 export { WorkspaceTreeDrawer } from "./workspace/WorkspaceTreeDrawer.js";
+
+export { PickerModal } from "./workspace/PickerModal.js";
+export { HeroComposer as ConversationHero } from "./conversation/chat-interface/ChatInterfaceView.js";
