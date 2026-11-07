@@ -11,12 +11,13 @@ import type {
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
   SubmitLifecycleApprovalRequest,
+  ProtocolErrorCode,
 } from "@repo/platform-protocol";
 import {
   CompactTurnResponseSchema,
   GetTurnDiffResponseSchema,
   LifecycleEventSchema,
-  ProtocolErrorSchema,
+  toPublicProtocolError,
   ReplayLifecycleEventsResponseSchema,
   runIdFromTurnId,
 } from "@repo/platform-protocol";
@@ -139,7 +140,15 @@ async function compact(
       headers: { "Content-Type": "application/json" },
       signal: request.signal,
     });
-    return await readRuntimeResponse(response, CompactTurnResponseSchema);
+    const result = await readRuntimeResponse(response, CompactTurnResponseSchema);
+    return result.error === null
+      ? result
+      : {
+          ...result,
+          error: toPublicProtocolError({
+            code: result.status === "unsupported" ? "capability_unsupported" : "command_failed",
+          }).message,
+        };
   } catch (error) {
     throw mapLifecycleFailure(error);
   }
@@ -180,7 +189,7 @@ async function readRuntimeResponse<Schema extends z.ZodTypeAny>(
     );
   }
 
-  if (!response.ok) throw runtimeError(response.status, payload);
+  if (!response.ok) throw runtimeError(response.status, payload, correlationId);
   try {
     return schema.parse(payload);
   } catch {
@@ -188,32 +197,32 @@ async function readRuntimeResponse<Schema extends z.ZodTypeAny>(
   }
 }
 
-function runtimeError(status: number, payload: unknown): AppServerOperationError {
-  const protocolError = ProtocolErrorSchema.safeParse(payload);
-  if (protocolError.success) {
-    const error = protocolError.data;
-    return new AppServerOperationError(status, statusCategory(status), error.message, error.code, error.retryable, error.correlationId ?? undefined);
-  }
-  const nested = payload && typeof payload === "object" ? (payload as Record<string, unknown>).error : undefined;
-  const nestedProtocolError = ProtocolErrorSchema.safeParse(nested);
-  if (nestedProtocolError.success) {
-    const error = nestedProtocolError.data;
-    return new AppServerOperationError(status, statusCategory(status), error.message, error.code, error.retryable, error.correlationId ?? undefined);
-  }
-
-  const fields = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  const nestedFields = fields.error && typeof fields.error === "object" ? fields.error as Record<string, unknown> : {};
-  const code = typeof fields.code === "string" ? fields.code : typeof nestedFields.code === "string" ? nestedFields.code : "API_ERROR";
-  const message = typeof fields.message === "string" ? fields.message : typeof nestedFields.message === "string" ? nestedFields.message : `HTTP ${status}`;
-  const correlationId = typeof fields.correlationId === "string" ? fields.correlationId : typeof nestedFields.correlationId === "string" ? nestedFields.correlationId : undefined;
+function runtimeError(status: number, payload: unknown, correlationId: string): AppServerOperationError {
+  const nested = payload !== null && typeof payload === "object" && "error" in payload
+    ? payload.error
+    : undefined;
+  const error = toPublicProtocolError(nested ?? payload, {
+    code: runtimeStatusCode(status),
+    retryable: status >= 500 || status === 408 || status === 429,
+  }, correlationId);
   return new AppServerOperationError(
     status,
     statusCategory(status),
-    message,
-    code,
-    status >= 500 || status === 429,
-    correlationId,
+    error.message,
+    error.code,
+    error.retryable,
+    error.correlationId ?? undefined,
   );
+}
+
+function runtimeStatusCode(status: number): ProtocolErrorCode {
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 409) return "conflict";
+  if (status === 429) return "rate_limited";
+  if (status === 408) return "command_timed_out";
+  return status >= 500 ? "internal_error" : "validation_failed";
 }
 
 function mapLifecycleFailure(error: unknown): AppServerOperationError {
