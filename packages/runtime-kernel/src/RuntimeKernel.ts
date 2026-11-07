@@ -8,6 +8,7 @@ import {
   RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
+  LifecycleEventSchema,
   LifecycleTransitionError,
   type LifecycleEvent,
   type Run,
@@ -165,6 +166,8 @@ export class RuntimeKernel {
   }
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
+    // Rejection must not enter the preparation-failure lifecycle appender.
+    await this.assertLifecycleStartAllowed(input);
     let prepared: PreparedTurn;
     try {
       prepared = await this.prepareTurn(input);
@@ -219,6 +222,42 @@ export class RuntimeKernel {
       this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
     }
+  }
+
+  private async assertLifecycleStartAllowed(input: StartTurnInput): Promise<void> {
+    const run = RunSchema.parse(input.run);
+    const turn = TurnSchema.parse(input.turn);
+    const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
+    this.assertTurnIdentity(run, turn);
+    this.assertTurnAvailable(turn);
+    // This read prevents blind restart; durable admission/checkout claims still
+    // exclusively arbitrate concurrent writers. A supplied cursor is no claim.
+    const replay = await this.dependencies.lifecycleEvents.replay({
+      turnId: turn.id, afterSequence: null, limit: 1,
+    });
+    this.assertTurnAvailable(turn);
+    if (!Array.isArray(replay.events) || replay.events.length > 1)
+      throw new RuntimeKernelError("invalid_turn_identity", "Lifecycle preflight exceeded its replay limit");
+    const recovery = input.execution?.kind === "delegated" && input.execution.recovery === "same_attempt";
+    if (replay.events.length === 0) {
+      if (replay.nextSequence !== null || turn.lastEventSequence !== 0 || recovery)
+        throw new RuntimeKernelError("invalid_turn_identity", "Empty canonical lifecycle conflicts with the requested cursor or recovery");
+      return;
+    }
+    const parsed = LifecycleEventSchema.safeParse(replay.events[0]);
+    if (!parsed.success)
+      throw new RuntimeKernelError("invalid_turn_identity", "Canonical lifecycle preflight returned a malformed event");
+    const first = parsed.data;
+    if (
+      first.turnId !== turn.id || first.threadId !== run.threadId ||
+      first.runAttemptId !== attempt || first.sequence !== 1 ||
+      (replay.nextSequence !== null && replay.nextSequence !== first.sequence)
+    )
+      throw new RuntimeKernelError("invalid_turn_identity", "Canonical lifecycle preflight has a different identity or sequence");
+    if (!recovery)
+      throw new RuntimeKernelError("turn_already_owned", "Canonical lifecycle history requires explicit supported recovery");
+    // Only the existing delegated strategy may continue to its full persisted
+    // session/generation, frozen binding and committed start-snapshot checks.
   }
 
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
