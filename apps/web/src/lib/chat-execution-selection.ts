@@ -49,7 +49,8 @@ export function readFrozenChatRequest(
   )
     throw new Error("Frozen chat submission envelope is invalid.");
   const parsed = CanonicalChatRequestBodySchema.parse(envelope.params);
-  const { messages: _messages, ...request } = parsed;
+  const request = { ...parsed };
+  Reflect.deleteProperty(request, "messages");
   return ChatRequestBodySchema.parse(request);
 }
 
