@@ -353,6 +353,7 @@ function DesktopApp(): React.JSX.Element {
           onSidebarOpenChange={setSidebarOpen}
           sidebar={(
             <ThreadSidebar
+              pullRequestUnavailableReason="Pull request status is unavailable."
               model={sidebarModel}
               visible={sidebarOpen}
               onSelect={(threadId) => { closeCompactSidebar(); void openThread(threadId); }}
