@@ -26,6 +26,9 @@ let quiescenceProven = true;
 if (input.indexTransaction?.expectedTerminalTreeId !== undefined && process.platform !== "linux") {
   return { exitCode: 126, stdout: "", stderr: "Immutable artifact commits are unavailable: pre-HEAD OS hook policy is not proved" };
 }
+if (input.indexTransaction?.expectedTerminalTreeId !== undefined && input.indexTransaction.expectedBranchRef !== undefined) {
+  return { exitCode: 126, stdout: "", stderr: "Explicit artifact branch publication is unavailable in the Linux porcelain transaction" };
+}
 const run = async (args, index, inspection = false, stdin = input.stdin) => {
   const remaining = inspection ? 5000 : deadline - Date.now();
   if (remaining <= 0) return { exitCode: 124, stdout: "", stderr: "Git transaction timed out" };
@@ -101,7 +104,8 @@ if (!input.indexTransaction) {
     const privateIndex = path.join(directory, "index");
     try { fs.copyFileSync(indexPath, privateIndex, fs.constants.COPYFILE_EXCL); }
     catch (error) { if (error.code !== "ENOENT") throw error; await required(["read-tree", "--empty"], privateIndex); }
-    const presentPaths = input.indexTransaction.paths.filter(candidate => {
+    const guard = input.indexTransaction;
+    const presentPaths = guard.expectedTerminalTreeId ? [] : guard.paths.filter(candidate => {
       try { fs.lstatSync(path.resolve(input.cwd, candidate)); return true; }
       catch (error) { if (error.code === "ENOENT") return false; throw error; }
     });
@@ -124,7 +128,6 @@ if (!input.indexTransaction) {
     if (!branchName) throw new Error("Git commit requires a named branch");
     let commitIndex = privateIndex;
     let commitArgs = input.args;
-    const guard = input.indexTransaction;
     if (guard.expectedTerminalTreeId) {
       const conflict = () => { throw Object.assign(new Error("Immutable artifact content conflict"), { result: { exitCode: 1, stdout: "", stderr: "Immutable artifact content conflict", artifactConflict: true } }); };
       if (guard.expectedHeadSha && beforeHead !== guard.expectedHeadSha) conflict();
@@ -136,8 +139,6 @@ if (!input.indexTransaction) {
         const statePath = await required(["rev-parse", "--path-format=absolute", "--git-path", state]);
         if (fs.existsSync(statePath)) conflict();
       }
-      const absentPaths = guard.paths.filter(candidate => !presentPaths.includes(candidate));
-      if (absentPaths.length) await required(["--literal-pathspecs", "update-index", "--force-remove", "--", ...absentPaths], privateIndex);
       for (const tree of [guard.expectedTerminalTreeId, guard.expectedBaselineTreeId].filter(Boolean)) {
         const leaves = await required(["--literal-pathspecs", "ls-tree", "-z", tree, "--", ...guard.paths]);
         if (leaves.split("\0").some(entry => entry.startsWith("040000 "))) conflict();
@@ -147,16 +148,28 @@ if (!input.indexTransaction) {
         if (baseline.exitCode === 1) conflict();
         if (baseline.exitCode !== 0) throw Object.assign(new Error(baseline.stderr), { result: baseline });
       }
-      const matches = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--cached", "--quiet", guard.expectedTerminalTreeId, "--", ...guard.paths], privateIndex);
-      if (matches.exitCode === 1) conflict();
-      if (matches.exitCode !== 0) throw Object.assign(new Error(matches.stderr), { result: matches });
-      const entries = await run(["--literal-pathspecs", "ls-files", "--stage", "-z", "--", ...guard.paths], privateIndex);
+      // Only the saved tree supplies selected blobs, modes and deletions. The
+      // live worktree and the user's selected staging are not commit inputs.
+      const savedIndex = path.join(directory, "artifact-index");
+      await required(["read-tree", guard.expectedTerminalTreeId], savedIndex);
+      const selectedStaging = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--cached", "--name-only", "-z", beforeTree, "--", ...guard.paths], privateIndex);
+      if (selectedStaging.exitCode !== 0) throw Object.assign(new Error(selectedStaging.stderr), { result: selectedStaging });
+      const stagedPaths = selectedStaging.stdout.split("\0").filter(Boolean);
+      if (stagedPaths.some(candidate => !guard.paths.includes(candidate))) conflict();
+      if (stagedPaths.length) {
+        const matches = await run(["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--cached", "--quiet", guard.expectedTerminalTreeId, "--", ...stagedPaths], privateIndex);
+        if (matches.exitCode === 1) conflict();
+        if (matches.exitCode !== 0) throw Object.assign(new Error(matches.stderr), { result: matches });
+      }
+      const entries = await run(["--literal-pathspecs", "ls-files", "--stage", "-z", "--", ...guard.paths], savedIndex);
       if (entries.exitCode !== 0) throw Object.assign(new Error(entries.stderr), { result: entries });
       commitIndex = path.join(directory, "commit-index");
       await required(["read-tree", beforeHead.startsWith("unborn:") ? "--empty" : beforeHead], commitIndex);
-      await required(["--literal-pathspecs", "update-index", "--force-remove", "--", ...guard.paths], commitIndex);
-      const installed = await run(["update-index", "-z", "--index-info"], commitIndex, false, entries.stdout);
-      if (installed.exitCode !== 0) throw Object.assign(new Error(installed.stderr), { result: installed });
+      for (const selectedIndex of [commitIndex, privateIndex]) {
+        await required(["--literal-pathspecs", "update-index", "--force-remove", "--", ...guard.paths], selectedIndex);
+        const installed = await run(["update-index", "-z", "--index-info"], selectedIndex, false, entries.stdout);
+        if (installed.exitCode !== 0) throw Object.assign(new Error(installed.stderr), { result: installed });
+      }
       // Commit only the validated immutable index. Never re-read live files via --only.
       const separator = input.args.indexOf("--");
       const hooks = path.join(directory, "guarded-hooks");
