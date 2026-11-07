@@ -9,6 +9,8 @@ import {
 } from "@repo/permission-policy";
 import {
   PermissionProfileIdSchema,
+  LocalTurnConfigurationSchema,
+  PRODUCT_MODES,
   UserIdSchema,
   WorkerIdSchema,
   type EventCursor,
@@ -16,6 +18,8 @@ import {
   type PermissionProfileId,
   type TurnAdmission,
   type WorkerId,
+  type ProductMode,
+  type LocalTurnConfiguration,
 } from "@repo/platform-protocol";
 import {
   RuntimeKernelError,
@@ -39,6 +43,8 @@ import {
 } from "@legioncode/execution-engine/runtime/provider/ProtectedProviderGateway";
 import type { LocalTurnRuntime } from "./local-turns.js";
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
+import type { LocalTurnMediaPort } from "./local-turn-media.js";
+import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
 type NativeMessages = Parameters<
@@ -52,9 +58,10 @@ export interface LocalNativeRuntimeOptions {
   >;
   readonly workerId: WorkerId;
   readonly permissionProfileId: PermissionProfileId;
-  readonly permissionPolicy: PermissionPolicy;
+  readonly resolvePermissionPolicy: (productMode: ProductMode) => Promise<PermissionPolicy>;
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
+  readonly media?: LocalTurnMediaPort;
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
   /** The same host writer owner releases only after this factory's combined proof. */
   readonly releaseExecution?: (
@@ -78,9 +85,8 @@ export function createLocalNativeRuntime(
   const permissionProfileId = PermissionProfileIdSchema.parse(
     options.permissionProfileId,
   );
-  const permissionPolicy = PermissionPolicySchema.parse(
-    options.permissionPolicy,
-  );
+  const profileFor = (configuration: LocalTurnConfiguration) =>
+    PermissionProfileIdSchema.parse(`${permissionProfileId}_${configuration.productMode}`);
   const helperPath = options.nativeFilesystemHelperPath;
   if (!isAbsolute(helperPath) || helperPath.includes("\0")) {
     throw new Error(
@@ -88,21 +94,37 @@ export function createLocalNativeRuntime(
     );
   }
   const approvals = createApprovalWaitPort(options.persistence.lifecycleEvents);
-  const capability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding> =
+  const availableCapability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding> =
     options.capability
       ? Object.freeze({ ...options.capability })
       : { artifactCapture: "omitted_read_only" };
   const releaseExecution = options.releaseExecution;
-  if (capability.artifactCapture === "required" && !releaseExecution) {
+  if (availableCapability.artifactCapture === "required" && !releaseExecution) {
     throw new Error(
       "Captured execution requires the canonical host writer's release port",
     );
   }
   return {
-    createAdmission(input) {
+    configurationOptions: {
+      modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
+      productModes: Object.values(PRODUCT_MODES),
+      productModesByMode: {
+        plan: Object.values(PRODUCT_MODES),
+        ...(availableCapability.artifactCapture === "required" ? { build: [PRODUCT_MODES.ASK_ALWAYS] } : {}),
+      },
+      ...(options.media ? { attachments: options.media.limits } : {}),
+    },
+    async createAdmission(input) {
       if (input.workspace.readiness !== "ready")
         throw new Error("Native workspace is unavailable");
-      return createLocalTurnAdmission(
+      const configuration = LocalTurnConfigurationSchema.parse(input.configuration);
+      if (configuration.mode === "build" && availableCapability.artifactCapture !== "required") {
+        throw new Error("Local Build mode requires the actual captured execution ports");
+      }
+      if (configuration.mode === "build" && configuration.productMode !== PRODUCT_MODES.ASK_ALWAYS) {
+        throw new Error("Local Build mode requires Supervised permissions");
+      }
+      const admission = createLocalTurnAdmission(
         {
           thread: input.thread,
           workspaceId: input.workspace.workspaceId,
@@ -111,13 +133,22 @@ export function createLocalNativeRuntime(
           providerId: input.providerId,
           modelId: input.modelId,
           workerId,
-          permissionProfileId,
+          permissionProfileId: profileFor(configuration),
+          configuration,
+          imageFingerprint: input.media?.preparation.fingerprint,
         },
-        capability.artifactCapture === "required" ? "auto_edit" : "ask",
+        configuration.mode === "build" ? "auto_edit" : "plan",
       );
+      if (!input.media) return admission;
+      if (!options.media) throw new Error("Local image admission is unavailable");
+      return attachPreparedLocalImages(admission, input.media.preparation, input.media.imageCount, options.media);
     },
-    createExecutor(binding) {
+    createExecutor(binding, preparedAdmission) {
       binding.assertCurrent();
+      const configuration = readConfiguration(preparedAdmission);
+      const selectedProfileId = profileFor(configuration);
+      const capability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding> =
+        configuration.mode === "build" ? availableCapability : { artifactCapture: "omitted_read_only" };
       const filesystem = new NativeFilesystemBridge({
         helperPath,
         rootDirectory: binding.rootDirectory,
@@ -134,7 +165,10 @@ export function createLocalNativeRuntime(
           if (
             admission.run.workspaceId !== binding.workspace.workspaceId ||
             admission.run.workerId !== workerId ||
-            admission.run.permissionProfileId !== permissionProfileId
+            admission.run.permissionProfileId !== selectedProfileId ||
+            readConfiguration(admission).mode !== configuration.mode ||
+            readConfiguration(admission).productMode !== configuration.productMode ||
+            admission.run.mode !== (configuration.mode === "build" ? "auto_edit" : "plan")
           ) {
             throw new Error(
               "Native admission does not match its trusted runtime binding",
@@ -157,6 +191,10 @@ export function createLocalNativeRuntime(
         },
         async createKernelPorts(admission, bound, signal, execution) {
           signal.throwIfAborted();
+          const permissionPolicy = PermissionPolicySchema.parse(
+            await options.resolvePermissionPolicy(configuration.productMode),
+          );
+          signal.throwIfAborted();
           const manifests = new MemoryWorkspaceManifestRepository();
           try {
             const git = await options.createGitService(bound, signal);
@@ -173,6 +211,7 @@ export function createLocalNativeRuntime(
             options.persistence,
             admission,
             signal,
+            options.media,
           );
           bound.assertCurrent();
           signal.throwIfAborted();
@@ -193,7 +232,7 @@ export function createLocalNativeRuntime(
             workspaceManifests: manifests,
             toolAuthorization: new RegistryToolAuthorization({
               async resolve(profileId) {
-                if (profileId !== permissionProfileId)
+                if (profileId !== selectedProfileId)
                   throw new Error("Unknown native permission profile");
                 return permissionPolicy;
               },
@@ -241,6 +280,13 @@ export function createLocalNativeRuntime(
       };
     },
   };
+}
+
+function readConfiguration(admission: TurnAdmission): LocalTurnConfiguration {
+  if (admission.userMessage.type !== "user_message") {
+    throw new Error("Native execution requires its admitted user configuration");
+  }
+  return LocalTurnConfigurationSchema.parse(admission.userMessage.content.configuration);
 }
 
 async function readManifest(
@@ -322,6 +368,7 @@ async function readConversation(
   persistence: LocalNativeRuntimeOptions["persistence"],
   current: TurnAdmission,
   signal: AbortSignal,
+  media?: LocalTurnMediaPort,
 ): Promise<NativeMessages> {
   const messages: NativeMessages = [];
   let afterCursor: EventCursor | null = null;
@@ -336,10 +383,10 @@ async function readConversation(
       if (admission.run.workspaceId !== current.run.workspaceId)
         throw new Error("Native history crosses a workspace boundary");
       if (admission.turn.id === current.turn.id) {
-        messages.push({ role: "user", content: prompt(current) });
+        messages.push(await localUserProviderMessage(current, media, signal));
         return messages;
       }
-      messages.push({ role: "user", content: prompt(admission) });
+      messages.push(await localUserProviderMessage(admission, media, signal));
       const events = await readLifecycle(
         persistence.lifecycleEvents,
         admission.turn.id,
@@ -371,16 +418,6 @@ async function readConversation(
   throw new Error(
     "Native admission is missing from canonical conversation history",
   );
-}
-
-function prompt(admission: TurnAdmission): string {
-  if (
-    admission.userMessage.type !== "user_message" ||
-    typeof admission.userMessage.content.text !== "string"
-  ) {
-    throw new Error("Canonical admission has no user prompt");
-  }
-  return admission.userMessage.content.text;
 }
 
 async function readLifecycle(

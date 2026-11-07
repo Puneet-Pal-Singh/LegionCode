@@ -1,5 +1,13 @@
-import { ModelIdSchema } from "@repo/platform-protocol";
+import {
+  ModelIdSchema,
+  ContentDigestSchema,
+  LocalTurnConfigurationSchema,
+  LocalTurnConfigurationOptionsSchema,
+  type LocalTurnConfiguration,
+  type LocalTurnConfigurationOptions,
+} from "@repo/platform-protocol";
 import type { LocalPersistence } from "@repo/event-store/local";
+import { EventStoreError } from "@repo/event-store/errors";
 import type {
   TurnAdmission,
   Thread,
@@ -22,9 +30,11 @@ import type {
   LocalWorkspaceExecutionBinding,
 } from "./local-workspace.js";
 import type { LocalThreadService } from "./local-threads.js";
-import type { LocalProviderService } from "./local-providers.js";
+import type { LocalProviderService, ProviderSelection } from "./local-providers.js";
 import { AppServerOperationError } from "./server.js";
 import { LocalApprovalService } from "./local-approvals.js";
+import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-media.js";
+import { localTurnImageReferences } from "./local-turn-images.js";
 import {
   LocalInterruptionService,
   LocalInterruptionAttemptNotActiveError,
@@ -45,7 +55,9 @@ export type LocalTurnServiceOptions = {
   workspaces: LocalWorkspaceService;
   threads: LocalThreadService;
   providers: LocalProviderService;
+  media?: LocalTurnMediaPort;
   runtime?: {
+    readonly configurationOptions: LocalTurnConfigurationOptions;
     createAdmission(input: {
       workspace: LocalWorkspaceGrant;
       thread: Thread;
@@ -53,8 +65,10 @@ export type LocalTurnServiceOptions = {
       clientRequestId: string;
       providerId: ProviderId;
       modelId: ModelId;
-    }): TurnAdmission;
-    createExecutor(binding: LocalWorkspaceExecutionBinding): LocalTurnExecutor;
+      configuration: LocalTurnConfiguration;
+      media?: { preparation: LocalTurnPreparedMedia; imageCount: number };
+    }): Promise<TurnAdmission>;
+    createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission): LocalTurnExecutor;
   };
 };
 
@@ -92,8 +106,13 @@ export class LocalTurnService {
     });
   }
 
+  getConfigurationOptions(): LocalTurnConfigurationOptions {
+    return LocalTurnConfigurationOptionsSchema.parse(this.options.runtime?.configurationOptions);
+  }
+
   async startTurn(params: LocalTurnStartParams): Promise<TurnAdmission> {
     params = LocalTurnStartParamsSchema.parse(params);
+    const images = params.images ?? [];
     const thread = await this.options.threads.get(params.threadId);
     if (thread.workspaceId !== params.workspaceId) {
       throw new AppServerOperationError(
@@ -109,7 +128,14 @@ export class LocalTurnService {
       );
     if (previous) {
       // A receipt retry does not create records, acquire execution authority or resolve credentials.
-      return validateSavedAdmission(previous, params, thread);
+      let preparation: LocalTurnPreparedMedia | undefined;
+      try {
+        preparation = await this.prepareImages(images);
+      } catch {
+        throw new AppServerOperationError(409, "conflict", "Admission request key has different image content");
+      }
+      const currentThread = await this.options.threads.get(thread.id);
+      return validateSavedAdmission(previous, params, currentThread, preparation?.fingerprint);
     }
     if (thread.status !== "active") {
       throw new AppServerOperationError(
@@ -125,7 +151,18 @@ export class LocalTurnService {
         "server_unavailable",
         "Local turn execution is not configured",
       );
+    const configuration = LocalTurnConfigurationSchema.parse({
+      mode: params.mode,
+      productMode: params.productMode,
+    });
+    const productModes = runtime.configurationOptions.productModesByMode?.[configuration.mode]
+      ?? runtime.configurationOptions.productModes;
+    if (!runtime.configurationOptions.modes.includes(configuration.mode) ||
+        !productModes.includes(configuration.productMode)) {
+      throw new AppServerOperationError(503, "server_unavailable", "The selected local execution mode is unavailable");
+    }
     let preparedBinding: LocalWorkspaceExecutionBinding | undefined;
+    let preparedMedia: LocalTurnPreparedMedia | undefined;
     let executionOwnsBinding = false;
     try {
       const binding = await this.options.workspaces.bindForExecution(
@@ -139,17 +176,33 @@ export class LocalTurnService {
           "conflict",
           "Select a protected provider and model before starting a turn",
         );
+      assertProviderSelection(selection, params.expectedSelection);
+      const hasImages = images.length > 0 || await this.hasImageHistory(thread.id);
+      if (hasImages && this.options.providers.listModels(selection.providerId).models
+        .find((model) => model.id === selection.modelId)?.capabilities?.supportsVision !== true) {
+        throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
+      }
+      preparedMedia = await this.prepareImages(images, binding.signal);
       binding.assertCurrent();
-      const candidate = runtime.createAdmission({
-        workspace: binding.workspace,
-        thread,
-        prompt: params.prompt,
-        clientRequestId: params.clientRequestId,
-        providerId: selection.providerId,
-        modelId: ModelIdSchema.parse(selection.modelId),
-      });
+      let candidate: TurnAdmission;
+      try {
+        candidate = await runtime.createAdmission({
+          workspace: binding.workspace,
+          thread,
+          prompt: params.prompt,
+          clientRequestId: params.clientRequestId,
+          providerId: selection.providerId,
+          modelId: ModelIdSchema.parse(selection.modelId),
+          configuration,
+          ...(preparedMedia ? { media: { preparation: preparedMedia, imageCount: images.length } } : {}),
+        });
+      } catch (error) {
+        if (!preparedMedia) throw error;
+        // Candidate preparation has not called the sole atomic admission owner.
+        throw new AppServerOperationError(503, "server_unavailable", "Image attachments are unavailable", "local_image_unavailable", false);
+      }
       // Construct ports before admission; providers execute only through execute().
-      const executor = runtime.createExecutor(binding);
+      const executor = runtime.createExecutor(binding, candidate);
       if (
         candidate.run.mode === "auto_edit" &&
         !executor.awaitResourceRelease
@@ -160,6 +213,8 @@ export class LocalTurnService {
           "Captured local execution requires runtime resource-settlement confirmation",
         );
       }
+      binding.assertCurrent();
+      assertProviderSelection(await this.options.providers.getSelection(), selection);
       binding.assertCurrent();
       const { admission, newlyAdmitted } =
         await this.options.persistence.turnAdmissions.admit(candidate);
@@ -215,12 +270,48 @@ export class LocalTurnService {
             "Local thread was not found in the granted workspace",
           );
         }
-        return validateSavedAdmission(saved, params, currentThread);
+        return validateSavedAdmission(saved, params, currentThread, preparedMedia?.fingerprint);
       }
       throw error;
     } finally {
+      if (preparedMedia) {
+        try {
+          // The synchronous SQLite admission attempt above has settled. Only a
+          // fresh exact-scope absence permits cleanup; unknown outcomes retain.
+          await preparedMedia.discardUnadmitted(async (scope) =>
+            await this.options.persistence.turnAdmissions.getByTurn(scope.turnId) === null,
+          );
+        } catch {
+          console.error("Local image resources retained pending canonical admission reconciliation");
+        }
+      }
       if (!executionOwnsBinding) await preparedBinding?.close();
     }
+  }
+
+  private async prepareImages(images: LocalTurnStartParams["images"], signal?: AbortSignal): Promise<LocalTurnPreparedMedia | undefined> {
+    if (!images?.length) return undefined;
+    if (!this.options.media) {
+      throw new AppServerOperationError(503, "server_unavailable", "Local image input is unavailable", "local_image_unavailable", false);
+    }
+    try {
+      const prepared = await this.options.media.prepare(images, signal);
+      ContentDigestSchema.parse(prepared.fingerprint);
+      return prepared;
+    } catch {
+      signal?.throwIfAborted();
+      throw new AppServerOperationError(400, "invalid_request", "Image attachments could not be validated", "local_image_validation_failed", false);
+    }
+  }
+
+  private async hasImageHistory(threadId: Thread["id"]): Promise<boolean> {
+    let afterCursor: LocalThreadHistoryParams["afterCursor"] = null;
+    do {
+      const page = await this.options.persistence.turnAdmissions.listByThread({ threadId, afterCursor, limit: 100 });
+      if (page.admissions.some((admission) => localTurnImageReferences(admission).length > 0)) return true;
+      afterCursor = page.nextCursor;
+    } while (afterCursor !== null);
+    return false;
   }
 
   async getTurn(turnId: TurnId): Promise<TurnAdmission> {
@@ -255,9 +346,22 @@ export class LocalTurnService {
     const page = await this.options.persistence.turnAdmissions.listByThread({
       threadId: thread.id,
       afterCursor: params.afterCursor ?? null,
-      limit: params.limit ?? 50,
+      limit: params.limit ?? (params.latest ? 25 : 50),
+      latest: params.latest,
+    }).catch((error: unknown) => {
+      if (error instanceof EventStoreError && error.code === "history_row_too_large") {
+        throw new AppServerOperationError(503, "server_unavailable", "The next history Turn exceeds the supported response size", "history_row_too_large", false);
+      }
+      throw error;
     });
-    return { admissions: [...page.admissions], nextCursor: page.nextCursor };
+    const current = await this.options.threads.get(thread.id);
+    if (current.workspaceId !== params.workspaceId) {
+      throw new AppServerOperationError(404, "not_found", "Local thread was not found in the granted workspace");
+    }
+    return {
+      admissions: [...page.admissions], nextCursor: page.nextCursor,
+      ...(params.latest ? { hasEarlier: page.hasEarlier } : {}),
+    };
   }
 
   async replayLifecycleEvents(params: ReplayLifecycleEventsRequest) {
@@ -304,12 +408,26 @@ function validateSavedAdmission(
   admission: TurnAdmission,
   params: LocalTurnStartParams,
   thread: Thread,
+  imageFingerprint?: string,
 ): TurnAdmission {
+  const configuration = LocalTurnConfigurationSchema.parse({ mode: params.mode, productMode: params.productMode });
+  const saved = admission.userMessage.type === "user_message"
+    ? admission.userMessage.content.configuration
+    : undefined;
+  const savedConfiguration = saved === undefined ? undefined : LocalTurnConfigurationSchema.parse(saved);
   if (
     admission.run.workspaceId !== params.workspaceId ||
     admission.run.userId !== thread.userId ||
     admission.userMessage.type !== "user_message" ||
-    admission.userMessage.content.text !== params.prompt
+    admission.userMessage.content.text !== params.prompt ||
+    admission.userMessage.content.imageFingerprint !== imageFingerprint ||
+    (params.expectedSelection !== undefined && (
+      admission.run.providerId !== params.expectedSelection.providerId ||
+      admission.run.modelId !== params.expectedSelection.modelId
+    )) ||
+    (savedConfiguration
+      ? savedConfiguration.mode !== configuration.mode || savedConfiguration.productMode !== configuration.productMode
+      : params.mode !== undefined || params.productMode !== undefined)
   ) {
     throw new AppServerOperationError(
       409,
@@ -318,4 +436,19 @@ function validateSavedAdmission(
     );
   }
   return admission;
+}
+
+function assertProviderSelection(
+  selection: ProviderSelection | null,
+  expected: Pick<ProviderSelection, "providerId" | "modelId"> | undefined,
+): void {
+  if (expected && (!selection || selection.providerId !== expected.providerId || selection.modelId !== expected.modelId)) {
+    throw new AppServerOperationError(
+      409,
+      "conflict",
+      "The selected provider or model changed before this message was admitted",
+      "local_provider_selection_changed",
+      false,
+    );
+  }
 }
