@@ -1,6 +1,8 @@
 import { sameNativePermissions } from "./OpenCodePermissionPolicy.js";
 import { questionPayload } from "./OpenCodeQuestionMapper.js";
 import { createHash } from "node:crypto";
+import { OpenCodeEvent as NativeEventSchema } from "@opencode/protocol/groups/event";
+import { Schema } from "effect";
 import type {
   ModelRef,
   OpenCodeEvent,
@@ -39,6 +41,8 @@ export class OpenCodeEventMapper {
   private terminalDelivered = false;
   private rootExecutionActive = false;
   private usageSequence = 0;
+  private readonly terminalIds = new Map<string, string>();
+  private readonly terminalPositions = new Map<string, string>();
 
   constructor(
     private readonly options: {
@@ -57,16 +61,18 @@ export class OpenCodeEventMapper {
   }
 
   map(event: OpenCodeEvent): ReadonlyArray<HarnessObservationPayload> {
-    if (this.terminalDelivered)
-      throw new OpenCodeTransportError("observation after quiescence", true);
     try {
+      const receipt = this.terminalReceipt(event);
+      if (receipt?.duplicate) return [];
+      if (this.terminalDelivered)
+        throw new OpenCodeTransportError("observation after quiescence", true);
       const origin =
         event.type === "form.created"
           ? event.data.form.sessionID
           : "sessionID" in event.data
             ? event.data.sessionID
             : undefined;
-      return this.translate(event).map((payload) =>
+      const payloads = this.translate(event).map((payload) =>
         HarnessObservationPayloadSchema.parse(
           origin &&
             origin !== this.options.session.externalSessionId &&
@@ -76,9 +82,72 @@ export class OpenCodeEventMapper {
             : payload,
         ),
       );
+      // Remember only successfully translated, validated evidence. Repeated
+      // native delivery must not repeat state transitions or canonical payloads.
+      if (receipt) {
+        this.terminalIds.set(event.id, receipt.fingerprint);
+        this.terminalPositions.set(receipt.position, receipt.fingerprint);
+      }
+      return payloads;
     } catch {
       throw new OpenCodeTransportError("event translation", true);
     }
+  }
+
+  private terminalReceipt(event: OpenCodeEvent):
+    | {
+        position: string;
+        fingerprint: string;
+        duplicate: boolean;
+      }
+    | undefined {
+    if (
+      event.type !== "session.execution.succeeded" &&
+      event.type !== "session.execution.failed" &&
+      event.type !== "session.execution.interrupted"
+    )
+      return undefined;
+    if (
+      !validNativeEvent(event) ||
+      event.durable.aggregateID !== event.data.sessionID
+    )
+      throw new OpenCodeTransportError(
+        "invalid native terminal identity",
+        true,
+      );
+    const position = JSON.stringify([
+      event.data.sessionID,
+      event.durable.aggregateID,
+      event.durable.seq,
+      event.durable.version,
+    ]);
+    const fingerprint = createHash("sha256")
+      .update(
+        JSON.stringify(event, (_key, value: unknown) =>
+          value !== null && typeof value === "object" && !Array.isArray(value)
+            ? Object.fromEntries(
+                Object.entries(value).sort(([a], [b]) =>
+                  a < b ? -1 : a > b ? 1 : 0,
+                ),
+              )
+            : value,
+        ),
+      )
+      .digest("hex");
+    const byId = this.terminalIds.get(event.id);
+    const byPosition = this.terminalPositions.get(position);
+    if (
+      (byId !== undefined && byId !== fingerprint) ||
+      (byPosition !== undefined && byPosition !== fingerprint)
+    )
+      throw new OpenCodeTransportError(
+        "conflicting native terminal evidence",
+        true,
+      );
+    const duplicate = byId === fingerprint && byPosition === fingerprint;
+    if (!duplicate && this.terminalIds.size >= 1000)
+      throw new OpenCodeTransportError("native terminal receipt bound", true);
+    return { position, fingerprint, duplicate };
   }
 
   get foregroundEnded(): boolean {
@@ -407,3 +476,5 @@ export class OpenCodeEventMapper {
     return ItemIdSchema.parse(`itm_${this.hash(domain, externalId)}`);
   }
 }
+
+const validNativeEvent = Schema.is(Schema.toEncoded(NativeEventSchema));
