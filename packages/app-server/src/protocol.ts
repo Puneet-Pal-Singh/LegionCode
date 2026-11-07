@@ -630,7 +630,10 @@ export const AppServerFailureResponseSchema = z
   })
   .strict();
 
-export const AppServerResponseSchema = z.union([
+export const AppServerResponseSchema: z.ZodUnion<[
+  typeof AppServerSuccessResponseSchema,
+  typeof AppServerFailureResponseSchema,
+]> = z.union([
   AppServerSuccessResponseSchema,
   AppServerFailureResponseSchema,
 ]);
@@ -642,13 +645,17 @@ export type AppServerFailureResponse = z.infer<
   typeof AppServerFailureResponseSchema
 >;
 
-function success<
-  const Method extends AppServerMethod,
-  Schema extends z.ZodTypeAny,
->(
+type SuccessResponseSchema<Method extends AppServerMethod> = z.ZodObject<{
+  protocolVersion: z.ZodLiteral<typeof APP_SERVER_PROTOCOL_VERSION>;
+  method: z.ZodLiteral<Method>;
+  ok: z.ZodLiteral<true>;
+  result: (typeof AppServerResultSchemas)[Method];
+}, "strict">;
+
+function success<const Method extends AppServerMethod>(
   method: Method,
-  result: Schema,
-) {
+  result: (typeof AppServerResultSchemas)[Method],
+): SuccessResponseSchema<Method> {
   return z
     .object({
       protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
