@@ -1,6 +1,5 @@
 import { constants, type BigIntStats } from "node:fs";
-import { lstat, mkdir, open, realpath, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { lstat, mkdir, open, opendir, realpath, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -9,7 +8,7 @@ import {
 } from "./local-chat-media-records.js";
 import type { LocalTurnMediaScope } from "./local-turn-media.js";
 
-const MAX_MANIFEST_BYTES = 32 * 1024;
+export const MAX_MANIFEST_BYTES = 32 * 1024;
 type Identity = { dev: bigint; ino: bigint };
 const same = (a: Identity, b: Identity) => a.dev === b.dev && a.ino === b.ino;
 const unavailable = () => new LocalChatMediaError("unavailable", "Local image bytes could not be verified");
@@ -27,6 +26,24 @@ export class LocalChatMediaFiles {
     this.root = join(storageDirectory, "chat-media");
   }
 
+  async ready(): Promise<void> { await this.withRoot(async () => undefined); }
+  async hasBatch(scope: LocalTurnMediaScope): Promise<boolean> {
+    return this.withRoot(async () => (await this.readRecordIfPresent(join(this.root, mediaScopeKey(scope)), scope)) !== null);
+  }
+  async verify(record: LocalChatMediaRecord): Promise<void> {
+    await this.withRoot(async (parent) => {
+      const target = join(this.root, mediaScopeKey(record.scope));
+      const saved = await this.readRecordIfPresent(target, record.scope);
+      if (!saved || !isDeepStrictEqual(saved, record)) throw unavailable();
+      await this.verifyImages(target, saved);
+      await this.assertRoot(parent);
+    });
+  }
+  async hasStage(scope: LocalTurnMediaScope): Promise<boolean> {
+    try { await lstat(this.stage(scope)); return true; }
+    catch (error) { if (hasCode(error, "ENOENT")) return false; throw error; }
+  }
+
   async publish(record: LocalChatMediaRecord, images: readonly LocalDecodedChatImage[], signal?: AbortSignal): Promise<void> {
     await this.withRoot(async (parent) => {
       signal?.throwIfAborted();
@@ -40,7 +57,9 @@ export class LocalChatMediaFiles {
         signal?.throwIfAborted();
         return;
       }
-      const stage = join(this.root, `.pending-${randomUUID()}`);
+      // The durable resource journal names this one bounded staging directory.
+      // A failed/crashed prior stage must be reconciled, never overwritten.
+      const stage = this.stage(record.scope);
       await mkdir(stage, { mode: 0o700 });
       const directory = await open(stage, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       const identity = await directory.stat({ bigint: true });
@@ -88,6 +107,49 @@ export class LocalChatMediaFiles {
       }
     });
   }
+
+  /** Only the resource owner calls this after canonical absence proof. Marking
+   * the journal before deletion makes a crash halfway through cleanup resumable. */
+  async discardPending(record: LocalChatMediaRecord, markDiscarding: () => Promise<void>, resumed: boolean): Promise<void> {
+    await this.withRoot(async (parent) => {
+      const allowed = new Set(["manifest.json", ...record.images.map(({ reference }) => `${reference.attachmentId}.bin`)]);
+      const opened: { path: string; handle: FileHandle; names: string[]; identity: Identity }[] = [];
+      try {
+        for (const path of [this.stage(record.scope), join(this.root, mediaScopeKey(record.scope))]) {
+          let handle: FileHandle;
+          try { handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
+          catch (error) { if (hasCode(error, "ENOENT")) continue; throw error; }
+          let identity: BigIntStats;
+          try { identity = await handle.stat({ bigint: true }); }
+          catch (error) { await handle.close(); throw error; }
+          const directory = { path, handle, identity, names: [] as string[] };
+          opened.push(directory);
+          requirePrivate(identity, true);
+          for await (const entry of await opendir(path)) {
+            if (directory.names.length >= allowed.size || !allowed.has(entry.name) || !entry.isFile()) throw unavailable();
+            directory.names.push(entry.name);
+          }
+          if (!resumed && path !== this.stage(record.scope)) {
+            const saved = await this.readRecordIfPresent(path, record.scope);
+            if (!saved || !isDeepStrictEqual(saved, record)) throw unavailable();
+          }
+        }
+        await this.assertRoot(parent);
+        await markDiscarding();
+        for (const directory of opened) {
+          const current = await lstat(directory.path, { bigint: true });
+          if (current.isSymbolicLink() || !same(current, directory.identity)) throw unavailable();
+          for (const name of directory.names) await unlink(join(directory.path, name));
+          await directory.handle.sync();
+          await rmdir(directory.path);
+        }
+        await parent.sync();
+        await this.assertRoot(parent);
+      } finally { await Promise.all(opened.map(({ handle }) => handle.close())); }
+    });
+  }
+
+  private stage(scope: LocalTurnMediaScope): string { return join(this.root, `.pending-${mediaScopeKey(scope)}`); }
 
   async read(scope: LocalTurnMediaScope, attachmentId: string): Promise<{
     record: LocalChatMediaRecord; image: LocalChatMediaRecord["images"][number]; bytes: Uint8Array;
@@ -156,7 +218,7 @@ async function writeImmutable(path: string, bytes: Uint8Array, created: () => vo
   try { await file.writeFile(bytes); await file.chmod(0o400); await file.sync(); }
   finally { await file.close(); }
 }
-async function readBounded(path: string, limit: number): Promise<Uint8Array> {
+export async function readBounded(path: string, limit: number): Promise<Uint8Array> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const before = await file.stat({ bigint: true });
@@ -174,10 +236,10 @@ async function readBounded(path: string, limit: number): Promise<Uint8Array> {
     return bytes;
   } finally { await file.close(); }
 }
-function requirePrivate(stats: BigIntStats, directory: boolean): void {
+export function requirePrivate(stats: BigIntStats, directory: boolean): void {
   if ((directory ? !stats.isDirectory() : !stats.isFile()) || (stats.mode & 0o077n) !== 0n ||
     (typeof process.getuid === "function" && stats.uid !== BigInt(process.getuid()))) throw unavailable();
 }
-function hasCode(error: unknown, code: string): boolean {
+export function hasCode(error: unknown, code: string): boolean {
   return error !== null && typeof error === "object" && "code" in error && error.code === code;
 }
