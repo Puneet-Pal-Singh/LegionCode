@@ -13,6 +13,7 @@ import {
   RepositoryTreeRequestSchema, RepositoryTreeResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
   ChatRequestBodySchema,
+  ChatImageAttachmentRefSchema,
   LocalTurnConfigurationSchema,
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
@@ -357,6 +358,30 @@ export const LocalWorkspaceFileMentionsResultSchema = z.object({
 );
 export type LocalWorkspaceFileMentionsParams = z.infer<typeof LocalWorkspaceFileMentionsParamsSchema>;
 export type LocalWorkspaceFileMentionsResult = z.infer<typeof LocalWorkspaceFileMentionsResultSchema>;
+/** Original image preview bytes are transferred in chunks beneath the existing
+ * response-body cap; no filesystem path or durable data URL crosses this port. */
+export const LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES = 256 * 1024;
+export const LocalChatImageReadParamsSchema = z.object({
+  turnId: TurnIdSchema,
+  attachmentId: ChatImageAttachmentRefSchema.shape.attachmentId,
+  offset: z.number().int().min(0).max(5 * 1024 * 1024),
+  limit: z.number().int().min(1).max(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES).optional(),
+}).strict();
+export const LocalChatImageReadResultSchema = z.object({
+  reference: ChatImageAttachmentRefSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  offset: z.number().int().min(0).max(5 * 1024 * 1024),
+  byteLength: z.number().int().min(1).max(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES),
+  dataBase64: z.string().min(4).max(4 * Math.ceil(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES / 3)).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u),
+  nextOffset: z.number().int().positive().max(5 * 1024 * 1024).nullable(),
+}).strict().refine((chunk) =>
+  chunk.dataBase64.length === 4 * Math.ceil(chunk.byteLength / 3) &&
+  chunk.offset + chunk.byteLength <= chunk.reference.byteSize &&
+  chunk.nextOffset === (chunk.offset + chunk.byteLength < chunk.reference.byteSize ? chunk.offset + chunk.byteLength : null),
+  "Image chunk must preserve its exact byte range and immutable reference",
+);
+export type LocalChatImageReadParams = z.infer<typeof LocalChatImageReadParamsSchema>;
+export type LocalChatImageReadResult = z.infer<typeof LocalChatImageReadResultSchema>;
 
 
 const GitStatusParamsSchema = GitRequestContextSchema;
@@ -440,6 +465,7 @@ export const AppServerMethodSchema = z.enum([
   "repository/contents",
   "workspace/listFiles",
   "workspace/fileMentions",
+  "media/readImage",
   "workspace/readFile",
   "workspace/current",
   "workspace/grant",
@@ -530,6 +556,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/listFiles"), params: LocalWorkspaceListFilesParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/fileMentions"), params: LocalWorkspaceFileMentionsParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: LocalChatImageReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
@@ -616,6 +643,7 @@ export const AppServerResultSchemas = {
   initialize: AppServerInitializeResponseSchema,
   "workspace/listFiles": LocalWorkspaceListFilesResultSchema,
   "workspace/fileMentions": LocalWorkspaceFileMentionsResultSchema,
+  "media/readImage": LocalChatImageReadResultSchema,
   "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
@@ -702,6 +730,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("initialize", AppServerResultSchemas.initialize),
   success("workspace/listFiles", AppServerResultSchemas["workspace/listFiles"]),
   success("workspace/fileMentions", AppServerResultSchemas["workspace/fileMentions"]),
+  success("media/readImage", AppServerResultSchemas["media/readImage"]),
   success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),

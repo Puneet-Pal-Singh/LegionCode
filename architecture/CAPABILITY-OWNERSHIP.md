@@ -1503,3 +1503,25 @@ returns an explicit truncation reason; it never claims a complete empty tree.
 Desktop's hook scopes replies to client, workspace, grant timestamp, readiness
 and requested folder, coalesces in-flight queries and exposes the existing shared
 composer's loading/error/retry props. No renderer filesystem access is introduced.
+
+## Local chat image bytes and rehydration
+
+`LocalChatMediaStore` owns original image blobs below the App Server's private
+`storageDirectory/chat-media`, outside workspace grants. Shared `@repo/chat-media`
+validation and full normalization both succeed before persistence. Four images,
+five MiB each and ten MiB total are enforced; filenames are metadata only. Each
+exact user/workspace/thread/run/turn/attempt has an immutable ordered fingerprint
+and scope-hashed batch directory. New batches publish by atomic rename only after
+original files, manifest and directory are synced; the parent is synced before
+references return. Startup never imports profile/workspace images or data URLs.
+Canonical admission stores only attachment references and the image fingerprint.
+
+`LocalChatMediaReads` reaches the existing authorized Turn owner before and after
+every read, checks the admitted reference and fingerprint, then supplies verified
+original bytes through bounded `media/readImage` chunks. Reads verify full scope,
+reference, MIME, size and SHA-256. The SDK `readLocalChatImage` checks each range
+and the complete SHA-256 before returning bytes; clients own transient Blob URLs.
+No filesystem URL or source path reaches a renderer. Provider hydration uses the
+same original store and shared normalizer, with no durable provider data URLs.
+The private blob namespace assumes the trusted invoking-user host profile; it
+does not claim protection against another process controlling that namespace.
