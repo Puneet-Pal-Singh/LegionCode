@@ -103,6 +103,7 @@ export class LocalPersistence {
   readonly lifecycleEvents: LifecycleEventStore;
   readonly environmentId: string;
   readonly harnessBindings: HarnessBindingRepository;
+  readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
@@ -190,6 +191,7 @@ export class LocalPersistence {
     }
 
     const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
+    this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
     this.harnessBindings = {
       freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),
       markRecoveryRequired: (input) => this.guardHarnessStorage(() => harnessBindings.markRecoveryRequired(input)),
