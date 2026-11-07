@@ -1136,7 +1136,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       payload: {
         outcome: {
           status: "interrupted",
-          reason: "User stopped before execution",
+          reason: "The operation was cancelled.",
         },
       },
     });
