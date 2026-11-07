@@ -192,14 +192,17 @@ export function DesktopModelPicker({
   onManageModels,
   onModelSwitchWarning,
   disabled = false,
+  selectionOverride,
 }: {
   controls: ReturnType<typeof useDesktopModelPicker>;
   onConnectProvider: () => void;
   onManageModels: () => void;
   onModelSwitchWarning?: () => void;
   disabled?: boolean;
+  selectionOverride?: NonNullable<Selection>;
 }) {
-  const { current, selection } = controls;
+  const { current } = controls;
+  const selection = selectionOverride ?? controls.selection;
   return (
     <ModelPickerPopover
       policy={DESKTOP_PROVIDER_POLICY}

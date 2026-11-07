@@ -160,7 +160,7 @@ function ThreadComposer({
         ? "This execution mode is unavailable in the current environment."
         : undefined) ??
     (submitting ? "Confirming message delivery…" : undefined) ??
-    modelPicker.unavailableReason;
+    (pendingSelection ? undefined : modelPicker.unavailableReason);
 
   return (
     <div>
@@ -222,6 +222,7 @@ function ThreadComposer({
             : (onModelSwitchWarning) => (
                 <DesktopModelPicker
                   controls={modelPicker}
+                  selectionOverride={pendingSelection ?? undefined}
                   disabled={configurationLocked}
                   onModelSwitchWarning={onModelSwitchWarning}
                   onConnectProvider={onConnectProvider}
