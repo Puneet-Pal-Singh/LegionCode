@@ -23,6 +23,13 @@ export type SingleExecutableProcessInput = {
   /** Canonical Git owner only; not run_executable/model/renderer inputs. */
   environment?: Readonly<Record<string, string>>;
   stdin?: string;
+  /** Private canonical Git context; required for environment/stdin invocation.
+   * Trusted host composition supplies this, never run_executable/model input. */
+  trustedGitContext?: {
+    readonly homeDirectory: string;
+    readonly temporaryDirectory: string;
+    readonly xdgConfigHome?: string;
+  };
   /** Also drives the independent guardian deadline, never just a JS timer. */
   timeoutMs?: number;
 };
