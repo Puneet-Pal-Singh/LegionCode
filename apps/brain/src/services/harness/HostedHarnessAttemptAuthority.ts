@@ -2,6 +2,7 @@ import { AppServerOperationError } from "@legioncode/app-server/server";
 import {
   PostgresHarnessAdmissionBindingPort,
   PostgresTurnAdmissionRepository,
+  type SqlClient,
 } from "@repo/persistence";
 import type { HostedHarnessOperationContext } from "../../integration/app-server/HostedHarnessOperations";
 import type { Env } from "../../types/ai";
@@ -14,6 +15,7 @@ export async function authorizeHostedHarnessAttempt(
   env: Env,
   context: HostedHarnessOperationContext,
   binding: HarnessAttemptCredentialBinding,
+  transaction?: SqlClient,
 ) {
   if (
     context.signal.aborted ||
@@ -22,13 +24,37 @@ export async function authorizeHostedHarnessAttempt(
     binding.environmentId !== context.environmentId
   )
     throw missing();
+  if (transaction) {
+    await transaction.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+      [binding.turnId],
+    );
+    const owned = await transaction.query(
+      `SELECT s.id FROM canonical_turn_admissions a
+       JOIN sessions s ON s.id=a.session_id
+       JOIN workspaces w ON w.id=s.workspace_id
+       WHERE a.turn_id=$1 AND a.run_attempt_id=$2 AND s.user_id::text=$3
+         AND a.workspace_id=$4 AND s.workspace_id::text=$4
+         AND w.user_id::text=$3 AND w.status='active' AND s.archived_at IS NULL
+         AND s.thread_id=a.thread_id
+       FOR SHARE OF s,w`,
+      [
+        binding.turnId,
+        binding.runAttemptId,
+        binding.userId,
+        binding.workspaceId,
+      ],
+    );
+    if (!owned.rows[0]) throw missing();
+  }
+  const repositories = (client: SqlClient) => ({
+    admissions: new PostgresTurnAdmissionRepository(client),
+    bindings: new PostgresHarnessAdmissionBindingPort(client),
+  });
   const selection = await withBrainPersistenceRepository(
     env,
-    undefined,
-    (client) => ({
-      admissions: new PostgresTurnAdmissionRepository(client),
-      bindings: new PostgresHarnessAdmissionBindingPort(client),
-    }),
+    transaction ? repositories(transaction) : undefined,
+    repositories,
     async ({ admissions, bindings }) => {
       const admission = await admissions.getByTurnId(binding.turnId);
       if (

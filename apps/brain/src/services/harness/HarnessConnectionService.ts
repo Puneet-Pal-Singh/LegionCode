@@ -3,12 +3,14 @@ import {
   projectRuntimeCredentialMaterial,
   type CredentialAcquisition,
   type CredentialSecret,
+  type RuntimeCredentialMaterial,
   type ProviderConnectionConfig,
   type ProviderId,
 } from "@repo/shared-types";
 import type {
   CredentialConnectionStore,
   ProviderCredentialRecord,
+  SqlClient,
 } from "@repo/persistence";
 import type { RunAttemptId, TurnId } from "@repo/platform-protocol";
 
@@ -29,7 +31,11 @@ export interface HarnessAttemptCredentialBinding extends HarnessConnectionScope 
  */
 export interface HarnessConnectionPolicy {
   authorize(scope: HarnessConnectionScope): Promise<void>;
-  authorizeAttempt(binding: HarnessAttemptCredentialBinding): Promise<void>;
+  authorizeAttempt(
+    binding: HarnessAttemptCredentialBinding,
+    transaction?: SqlClient,
+  ): Promise<void>;
+  readonly signal?: AbortSignal;
   assertRouteAllowed(
     scope: HarnessConnectionScope,
     providerId: ProviderId,
@@ -52,11 +58,29 @@ export interface HarnessConnectionMetadata {
   status: ProviderCredentialRecord["status"];
 }
 
+export interface HarnessRuntimeCredentialResolution {
+  metadata: HarnessConnectionMetadata;
+  secret: RuntimeCredentialMaterial;
+}
+/** Private custody delivery. Projection must be synchronous inside the authority
+ * transaction; neither an SQL-backed port nor refresh material may escape it. */
+export interface HarnessAttemptCredentialDeliveryPort {
+  deliver(
+    binding: HarnessAttemptCredentialBinding,
+    expected: CredentialAcquisition,
+    project: (
+      record: ProviderCredentialRecord,
+      secret: CredentialSecret,
+    ) => HarnessRuntimeCredentialResolution | null,
+  ): Promise<HarnessRuntimeCredentialResolution | null>;
+}
+
 /** External provider custody only; this does not implement app-session login. */
 export class HarnessConnectionService {
   constructor(
     private readonly store: CredentialConnectionStore,
     private readonly policy: HarnessConnectionPolicy,
+    private readonly delivery?: HarnessAttemptCredentialDeliveryPort,
   ) {}
   async create(
     scope: HarnessConnectionScope,
@@ -114,6 +138,9 @@ export class HarnessConnectionService {
   }
 
   async resolveForAttempt(binding: HarnessAttemptCredentialBinding) {
+    binding = { ...binding };
+    if (!this.delivery)
+      throw new Error("Atomic harness credential delivery is unavailable");
     await this.policy.authorizeAttempt(binding);
     await this.policy.ensureReady();
     const before = await this.store.getConnection(binding.connectionId);
@@ -132,34 +159,20 @@ export class HarnessConnectionService {
       before.providerId,
       before.credentialKind,
     );
-    const acquired = await this.store.acquireConnection(expected(before));
-    if (!acquired) return null;
-    // Decryption/storage I/O can outlive Stop or an execution-claim fence. The
-    // encrypted store checks credential CAS; the admission owner must separately
-    // revalidate the attempt before any material leaves this custody boundary.
-    await this.policy.authorizeAttempt(binding);
-    const current = await this.store.getConnection(binding.connectionId);
-    if (
-      !current ||
-      current.credentialId !== acquired.record.credentialId ||
-      current.userId !== binding.userId ||
-      current.providerId !== binding.providerId ||
-      current.authOwnerGeneration !== binding.ownerGeneration ||
-      current.tokenMaterialVersion !== acquired.record.tokenMaterialVersion ||
-      current.credentialKind !== acquired.secret.type ||
-      current.status !== "connected" ||
-      current.deletedAt !== null ||
-      current.refreshClaimId !== null
-    )
-      return null;
-    // Long-lived refresh material never crosses the harness resolver port.
-    if (acquired.secret.type === "oauth") {
-      if (acquired.secret.expiresAt <= Date.now()) return null;
-    }
-    return {
-      metadata: metadata(current),
-      secret: projectRuntimeCredentialMaterial(acquired.secret),
-    };
+    // Preflight above captures CAS only. Delivery's transaction owns the final
+    // admission + credential decision, decryption and synchronous projection.
+    return this.delivery.deliver(
+      binding,
+      expected(before),
+      (record, secret) => {
+        if (secret.type === "oauth" && secret.expiresAt <= Date.now())
+          return null;
+        return {
+          metadata: metadata(record),
+          secret: projectRuntimeCredentialMaterial(secret),
+        };
+      },
+    );
   }
   async refresh(
     scope: HarnessConnectionScope,
