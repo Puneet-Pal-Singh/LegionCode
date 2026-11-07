@@ -9,6 +9,10 @@ import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import {
+  LifecycleEventSchema,
+  TurnDiffPayloadSchema,
+} from "@repo/platform-protocol";
+import {
   createLocalTurnAdmission,
   type LocalTurnAdmissionInput,
 } from "./LocalTurnAdmission.js";
@@ -366,6 +370,29 @@ export class LocalTurnExecutor<
     return owned ? owned.awaitQuiescence(timeoutMs) : false;
   }
 
+  /**
+   * Only a positive result permits the host to close this attempt's binding/fence.
+   * False (including preflight without a known worker) requires retaining the same
+   * executor and quarantining its binding for reconciliation, never a fresh lease.
+   */
+  async awaitResourceRelease(
+    turnId: StartTurnInput["turn"]["id"],
+  ): Promise<boolean> {
+    const owned = this.turns.get(turnId);
+    if (!owned) return false;
+    try {
+      // Execution can reject after a durable failed/interrupted terminal, or after
+      // a terminal append committed but its acknowledgement was lost.
+      await owned.result.catch(() => undefined);
+      if (!owned.finished || !(await owned.awaitQuiescence(500))) return false;
+      if (!(await this.hasDurableSettlement(owned.identity))) return false;
+      return await owned.awaitQuiescence(500);
+    } catch {
+      // Unreadable settlement or unknown physical closure is not release proof.
+      return false;
+    }
+  }
+
   readonly resolveApproval: RuntimeKernel["resolveApproval"] = async (
     turnId,
     approvalId,
@@ -383,6 +410,75 @@ export class LocalTurnExecutor<
         "Turn is not owned by this executor",
       );
     return owned.kernel;
+  }
+
+  private async hasDurableSettlement(
+    identity: LocalTurnAttemptIdentity,
+  ): Promise<boolean> {
+    let afterSequence: number | null = null;
+    let sequence = 0;
+    let terminal: "completed" | "failed" | "interrupted" | null = null;
+    let captured = this.capability.artifactCapture === "omitted_read_only";
+    do {
+      const page = await this.options.lifecycleEvents.replay({
+        turnId: identity.turnId,
+        afterSequence,
+        limit: 1000,
+      });
+      for (const event of page.events) {
+        if (
+          terminal ||
+          event.turnId !== identity.turnId ||
+          event.threadId !== identity.threadId ||
+          event.runAttemptId !== identity.runAttemptId ||
+          event.producer.id !== this.options.producerId ||
+          event.sequence !== sequence + 1
+        ) {
+          return false;
+        }
+        sequence = event.sequence;
+        if (event.type === "turn.diff_updated") {
+          // The canonical kernel emits this only after both immutable artifact
+          // writes settle. Replay recovers that receipt without recapturing.
+          const diff = TurnDiffPayloadSchema.safeParse(event.payload.diff);
+          if (
+            !diff.success ||
+            diff.data.turnId !== identity.turnId ||
+            diff.data.startSnapshot.phase !== "start" ||
+            diff.data.terminalSnapshot.phase !== "terminal" ||
+            diff.data.startSnapshot.snapshotKey !== identity.turnId ||
+            diff.data.terminalSnapshot.snapshotKey !== identity.turnId
+          ) {
+            return false;
+          }
+          captured = true;
+        }
+        if (
+          event.type === "workspace.snapshot_unavailable" &&
+          this.capability.artifactCapture === "required"
+        ) {
+          captured = false;
+        }
+        if (
+          event.type === "turn.completed" ||
+          event.type === "turn.failed" ||
+          event.type === "turn.interrupted"
+        ) {
+          if (!LifecycleEventSchema.safeParse(event).success) return false;
+          terminal = event.payload.outcome.status;
+        }
+      }
+      if (
+        page.nextSequence !== null &&
+        (page.events.length === 0 || page.nextSequence !== sequence)
+      ) {
+        return false;
+      }
+      afterSequence = page.nextSequence;
+    } while (afterSequence !== null);
+    // A failed/interrupted canonical terminal can truthfully retain unavailable
+    // capture/error references. Completion alone requires successful capture.
+    return terminal !== null && (terminal !== "completed" || captured);
   }
 }
 
