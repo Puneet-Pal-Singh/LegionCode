@@ -9,8 +9,12 @@ import {
 import {
   PostgresHarnessControlPlaneRepository,
   PostgresHarnessBindingRepository,
+  PostgresHarnessAdmissionBindingPort,
+  PostgresTurnAdmissionRepository,
+  type SqlClient,
   HarnessControlPlaneConflictError,
 } from "@repo/persistence";
+import { StoredHarnessAttachmentSchema } from "@repo/event-store";
 import { AppServerController } from "../../controllers/AppServerController";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { builtinProviderRegistry } from "@repo/provider-core";
@@ -24,8 +28,6 @@ import type {
   HostedHarnessOperationContext,
 } from "../../integration/app-server/HostedHarnessOperations";
 import { composeHostedTurnCommands } from "../../integration/app-server/HostedTurnCommands";
-import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
-import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
 import { withWorkspaceRepository } from "../workspaces/WorkspacePersistenceFactory";
 import { withBrainPersistenceRepository } from "../persistence/BrainPersistenceRepositoryFactory";
 import { createPostgresHarnessConnectionService } from "../providers/stores/PostgresStoreFactory";
@@ -63,6 +65,7 @@ export function createPostgresHostedHarnessControlPlane(
     });
   const authorizeEnvironment = async (
     context: HostedHarnessOperationContext,
+    transaction?: SqlClient,
   ) => {
     const configured = AppServerEnvironmentIdSchema.safeParse(
       (env as Env & { APP_SERVER_ENVIRONMENT_ID?: string })
@@ -71,6 +74,9 @@ export function createPostgresHostedHarnessControlPlane(
     if (!configured.success)
       throw unavailable("Hosted environment identity is not configured");
     if (context.environmentId !== configured.data) throw missing();
+    // The transactional attempt helper below locks the owned active workspace
+    // and session on this supplied client, rather than consulting another pool.
+    if (transaction) return;
     const owned = await withWorkspaceRepository(env, async (repository) =>
       (await repository.listWorkspaces(context.userId)).some(
         ({ workspace }) =>
@@ -95,12 +101,14 @@ export function createPostgresHostedHarnessControlPlane(
             throw missing();
           await authorizeEnvironment(context);
         },
-        async authorizeAttempt(binding) {
-          await authorizeEnvironment(context);
+        signal: context.signal,
+        async authorizeAttempt(binding, transaction) {
+          await authorizeEnvironment(context, transaction);
           const selected = await authorizeHostedHarnessAttempt(
             env,
             context,
             binding,
+            transaction,
           );
           validateHarnessProvider(selected.harness, binding);
         },
@@ -126,57 +134,127 @@ export function createPostgresHostedHarnessControlPlane(
             throw unavailable("Selected provider route is unavailable");
         },
         async fenceRevoked(scope, connectionId, ownerGeneration) {
-          // Enumerate existing canonical conversations, then verify each target
-          // against admission + frozen binding rather than trusting UI run IDs.
-          const sessions = await withTranscriptRepository(
+          // The revoked credential row is the durable fence. Enumerate canonical
+          // bindings, including startup/recovery and archived/inactive sessions;
+          // a session's current activeRunId is not the process ownership ledger.
+          const active = await withBrainPersistenceRepository(
             env,
-            async (repository) => {
-              const [current, archived] = await Promise.all([
-                repository.listSessions(scope.userId),
-                repository.listArchivedSessions(scope.userId),
-              ]);
-              return [...current.sessions, ...archived];
-            },
-          );
-          const active = [];
-          const seen = new Set<string>();
-          for (const session of sessions) {
-            if (!session.activeRunId || seen.has(session.id)) continue;
-            seen.add(session.id);
-            const admission = await withTurnAdmissionRepository(
-              env,
-              (repository) =>
-                repository.getBySessionAndRunId(
-                  session.id,
-                  session.activeRunId!,
-                ),
-            );
-            if (
-              !admission ||
-              admission.userId !== scope.userId ||
-              admission.state !== "admitted" ||
-              admission.executionState === "settled"
-            )
-              continue;
-            const stored = await withBrainPersistenceRepository(
-              env,
-              undefined,
-              (client) => new PostgresHarnessBindingRepository(client),
-              (repository) =>
-                repository.read({
+            undefined,
+            (client) => client,
+            async (client) => {
+              const revoked = await client.query(
+                "SELECT id FROM provider_credentials WHERE user_id::text=$1 AND id::text=$2 AND status='revoked' AND auth_owner_generation >= $3",
+                [scope.userId, connectionId, ownerGeneration],
+              );
+              if (!revoked.rows[0]) throw missing();
+              const candidates = await client.query<{ turn_id: string }>(
+                `SELECT a.turn_id FROM harness_bindings b
+                 JOIN canonical_turn_admissions a ON a.turn_id=b.turn_id AND a.run_attempt_id=b.run_attempt_id
+                 JOIN sessions s ON s.id=a.session_id
+                 WHERE b.user_id=$1 AND s.user_id::text=$1
+                   AND a.admission_state='admitted' AND a.execution_state <> 'settled'
+                   AND (b.selection_json->>'selectionJson')::jsonb->>'connectionId'=$2
+                 ORDER BY a.turn_id LIMIT 1001`,
+                [scope.userId, connectionId],
+              );
+              if (candidates.rows.length > 1000)
+                throw unavailable(
+                  "Credential revoked; process fence capacity exceeded",
+                );
+              const admissions = new PostgresTurnAdmissionRepository(client);
+              const bindings = new PostgresHarnessBindingRepository(client);
+              const authority = new PostgresHarnessAdmissionBindingPort(client);
+              const targets = [];
+              for (const { turn_id } of candidates.rows) {
+                const admission = await admissions.getByTurnId(turn_id);
+                if (
+                  !admission ||
+                  admission.userId !== scope.userId ||
+                  admission.state !== "admitted" ||
+                  admission.executionState === "settled"
+                )
+                  continue;
+                if (
+                  !admission.workspaceId ||
+                  !admission.harnessSelection?.selection ||
+                  !admission.requestFingerprint
+                )
+                  throw missing();
+                const stored = await bindings.read({
                   userId: scope.userId,
                   turnId: admission.turnId,
                   runAttemptId: admission.runAttemptId,
-                }),
-            );
-            if (!stored) continue;
-            const selected = HarnessSelectionSchema.unwrap().parse(JSON.parse(stored.selection.selectionJson));
-            if (
-              selected.connectionId === connectionId &&
-              selected.authOwnerGeneration < ownerGeneration
-            )
-              active.push(admission);
-          }
+                });
+                if (!stored) throw missing();
+                const selection = HarnessSelectionSchema.parse(
+                  JSON.parse(stored.selection.selectionJson),
+                );
+                const selected = await authority.lookupImmutable(
+                  {
+                    userId: scope.userId,
+                    workspaceId: admission.workspaceId,
+                    environmentId: selection.environmentId,
+                    sessionId: admission.sessionId,
+                    threadId: admission.threadId,
+                    turnId: admission.turnId,
+                    runAttemptId: admission.runAttemptId,
+                    runId: admission.runId,
+                  },
+                  admission.harnessSelection,
+                  admission.requestFingerprint,
+                );
+                if (
+                  !selected ||
+                  selected.connectionId !== connectionId ||
+                  selected.authOwnerGeneration >= ownerGeneration
+                )
+                  continue;
+                const generations = await client.query<{
+                  process_generation: string;
+                  origin_json: unknown;
+                }>(
+                  "SELECT process_generation,origin_json FROM harness_process_generations WHERE turn_id=$1 ORDER BY process_generation LIMIT 129",
+                  [admission.turnId],
+                );
+                if (generations.rows.length > 128)
+                  throw unavailable(
+                    "Credential revoked; process generation capacity exceeded",
+                  );
+                let attachedGenerationFound = stored.attachment === null;
+                for (const generation of generations.rows) {
+                  const origin = StoredHarnessAttachmentSchema.parse(
+                    typeof generation.origin_json === "string"
+                      ? JSON.parse(generation.origin_json)
+                      : generation.origin_json,
+                  );
+                  if (
+                    origin.processGeneration !==
+                      generation.process_generation ||
+                    origin.instanceId !== selected.instanceId ||
+                    origin.authOwnerGeneration !== selected.authOwnerGeneration
+                  )
+                    throw missing();
+                  if (
+                    stored.attachment?.processGeneration ===
+                      origin.processGeneration &&
+                    stored.attachment.externalSessionId ===
+                      origin.externalSessionId
+                  )
+                    attachedGenerationFound = true;
+                }
+                if (!attachedGenerationFound)
+                  throw unavailable(
+                    "Credential revoked; persisted process origin is incomplete",
+                  );
+                // Address the canonical attempt even before attachment/startup.
+                // Runtime/host proof that every generation quiesces remains a
+                // release gate; enumeration is not physical termination evidence.
+                targets.push(admission);
+              }
+              return targets;
+            },
+          );
+          // No credential/admission locks or live SQL port cross into RPC work.
           const commands = composeHostedTurnCommands(env, scope.userId);
           for (const attempt of active) {
             const params = InterruptTurnRequestSchema.parse({
