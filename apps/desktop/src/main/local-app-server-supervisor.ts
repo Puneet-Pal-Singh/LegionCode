@@ -23,6 +23,7 @@ import type {
   DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,
   LocalAppServerMessage,
+  LocalAppServerHostConfig,
 } from "../shared/desktop-api";
 
 type RequestHeaders = NonNullable<AppServerHttpTransportOptions["requestHeaders"]>;
@@ -40,6 +41,7 @@ export class LocalAppServerSupervisor {
   private childPid: number | null = null;
   private credential: string | null = null;
   private storageDirectory: string | null = null;
+  private hostConfig: LocalAppServerHostConfig | undefined;
   private transport: AppServerTransport | null = null;
   private config: SupervisedEnvironment = createSnapshot("starting");
   private readonly listeners = new Set<
@@ -63,7 +65,11 @@ export class LocalAppServerSupervisor {
     return () => this.listeners.delete(listener);
   }
 
-  async start(serverVersion: string, storageDirectory: string): Promise<void> {
+  async start(
+    serverVersion: string,
+    storageDirectory: string,
+    hostConfig?: LocalAppServerHostConfig,
+  ): Promise<void> {
     const generation = ++this.generation;
     this.stopping = false;
     this.childPid = null;
@@ -72,6 +78,11 @@ export class LocalAppServerSupervisor {
     const credential = randomBytes(32).toString("base64url");
     this.credential = credential;
     this.storageDirectory = storageDirectory;
+    this.hostConfig = hostConfig ? Object.freeze({
+      protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
+      nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
+      nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
+    }) : undefined;
     const child = utilityProcess.fork(
       fileURLToPath(new URL("./local-app-server.js", import.meta.url)),
       [],
@@ -97,6 +108,9 @@ export class LocalAppServerSupervisor {
       credential,
       serverVersion,
       storageDirectory,
+      protectedHostRoots: this.hostConfig?.protectedHostRoots,
+      nativeFilesystemHelperPath: this.hostConfig?.nativeFilesystemHelperPath,
+      nativeProcessHelperPath: this.hostConfig?.nativeProcessHelperPath,
     });
     this.startupTimer = setTimeout(() => {
       if (child !== this.child || generation !== this.generation) return;
@@ -155,7 +169,7 @@ export class LocalAppServerSupervisor {
     if (!this.storageDirectory) {
       throw new Error("Local App Server storage is not configured");
     }
-    await this.start(serverVersion, this.storageDirectory);
+    await this.start(serverVersion, this.storageDirectory, this.hostConfig);
   }
 
   async request(envelope: AppServerRequest): Promise<unknown> {
