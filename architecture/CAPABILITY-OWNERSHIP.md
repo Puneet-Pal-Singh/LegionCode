@@ -1342,3 +1342,22 @@ Thread principal. Foreign stored user/workspace/credential identities are reject
 Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
+
+### Shared settings and protected Desktop provider adapters
+
+`client-ui` owns the moved Web SettingsDialog, ProviderDialog, ManageModelsDialog,
+composer preferences controls, archived-chat list, hook view and switch presentation.
+Thin Web adapters retain their authenticated provider store, canonical credential
+IDs, product policy, archive/hook services and browser UI-preference owner.
+
+`DesktopSettingsDialog` renders those same surfaces. Its one provider projection
+uses SDK catalog/model/route/preferences methods and protected main-process
+credential status/save/delete commands; it never reads a saved secret or creates
+synthetic hosted credential IDs. Native model visibility writes carry the captured
+workspace/grant revision through the canonical preferences port. Connect/model
+management routing is explicit, and composer values use the same shared UI-cache
+owner as Web. Archived tasks use real Thread reads/unarchive commands. Unsupported
+local permanent deletion and hook-definition management remain explicit, disabled
+capabilities; they do not fabricate empty server data or successful mutations.
+Runtime factory composition and installed UI/provider/persistence proof remain
+separate from this presentation adapter source.
