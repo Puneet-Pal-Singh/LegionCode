@@ -1,4 +1,5 @@
 import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
+import type { HarnessSession } from "@repo/worker-protocol";
 import type { HarnessRecoveryInput } from "./HarnessSessionManager.js";
 import { HarnessSessionManager } from "./HarnessSessionManager.js";
 
@@ -33,5 +34,14 @@ export class HarnessExecutionPort implements DelegatedHarnessPort {
     input: Parameters<DelegatedHarnessPort["awaitQuiescence"]>[0],
   ): ReturnType<DelegatedHarnessPort["awaitQuiescence"]> {
     return this.sessions.awaitQuiescence(input);
+  }
+  /** LOCAL calls only after canonical terminal and immutable artifact settlement.
+   * Resolves after the manager verifies observation integrity, quiescence,
+   * journal ACK drain, process cleanup, canonical journal settlement and detach.
+   * This does not retire a durable binding or release the workspace lease;
+   * those owners act only after this succeeds for the exact session generation.
+   */
+  releaseAfterCanonicalSettlement(session: HarnessSession): Promise<void> {
+    return this.sessions.release(session);
   }
 }
