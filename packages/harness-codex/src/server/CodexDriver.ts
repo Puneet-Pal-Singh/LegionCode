@@ -14,6 +14,7 @@ import {
 import { codexRuntime, codexRuntimePin } from "./runtime.js";
 import {
   CodexStdioTransport,
+  CodexTransportError,
   type CodexServerRequest,
 } from "./transport/CodexStdioTransport.js";
 import { initializeCodex } from "./initialize.js";
@@ -26,6 +27,7 @@ import {
 } from "./CodexEventMapper.js";
 import { codexQuestion } from "./CodexQuestionMapper.js";
 import { codexPermission } from "./CodexPermissionMapper.js";
+import { CodexAuthentication } from "./CodexAuthentication.js";
 
 /** Concrete native loop driver; the shared host owns launch policy, delivery journal and process cleanup. */
 export class CodexDriver implements HarnessDriver {
@@ -102,15 +104,12 @@ export class CodexDriver implements HarnessDriver {
       selection.billingSource !== "subscription"
     )
       throw new Error("Codex selected payer route is unsupported");
-    if (
-      selection.billingSource === "subscription" &&
-      ["OPENAI_API_KEY", "CODEX_API_KEY", "AZURE_OPENAI_API_KEY"].some((name) =>
-        Boolean(host.environment[name]),
-      )
-    )
-      throw new Error(
-        "Codex subscription binding contains API-key credentials",
-      );
+    const authentication = new CodexAuthentication(
+      selection.billingSource,
+      this.options.accountBinding.identityFingerprint,
+      host.environment,
+      this.options.modelProvider ?? "openai",
+    );
     const digest = createHash("sha256")
       .update(await readFile(this.executable))
       .digest("hex");
@@ -119,7 +118,7 @@ export class CodexDriver implements HarnessDriver {
     if (signal.aborted) throw new Error("Codex opening interrupted");
     const child = await host.launch({
       executable: this.executable,
-      args: ["app-server"],
+      args: authentication.launchArgs(),
     });
     let stopped = false;
     let externalTurnId: string | null = null;
@@ -157,6 +156,7 @@ export class CodexDriver implements HarnessDriver {
     const fail = () => {
       if (stopped) return;
       stopped = true;
+      authentication.cancel();
       pendingReplies.clear();
       pendingQuestions.clear();
       rejectTurn(new Error("Codex execution unavailable"));
@@ -218,6 +218,13 @@ export class CodexDriver implements HarnessDriver {
       await observe({ session, externalTurnId, payload: owned });
     };
     const notification = (method: string, raw: unknown) => {
+      try {
+        if (authentication.observeNotification(method, raw)) return;
+      } catch {
+        observationFailure = true;
+        fail();
+        return;
+      }
       if (
         method === "model/rerouted" ||
         (accountVerified &&
@@ -388,16 +395,7 @@ export class CodexDriver implements HarnessDriver {
     const native = new CodexNativeSession(transport);
     const accountReader = new CodexUsageReader(transport);
     const verifyPayer = async () => {
-      const account = await accountReader.account();
-      if (
-        account.route !== selection.billingSource ||
-        account.identityFingerprint === null ||
-        account.identityFingerprint !==
-          this.options.accountBinding?.identityFingerprint
-      )
-        throw new Error(
-          "Codex account identity or payer differs from selected connection",
-        );
+      await authentication.verify(accountReader);
       accountVerified = true;
     };
     void child.exited.then(() => {
@@ -413,6 +411,7 @@ export class CodexDriver implements HarnessDriver {
       );
       if (initialized.codexHome !== host.instanceDirectory)
         throw new Error("Codex instance home mismatch");
+      await authentication.establish(transport);
       await verifyPayer();
       if (stopped || signal.aborted)
         throw new Error("Codex account binding fenced");
@@ -527,40 +526,57 @@ export class CodexDriver implements HarnessDriver {
             JSON.stringify(target) !== JSON.stringify(learnedSession)
           )
             throw new Error("Codex control fenced");
-          if (control.kind === "dispose") {
-            fail();
-            transport.close();
+          try {
+            if (control.kind === "dispose") {
+              fail();
+              transport.close();
+              return { accepted: true };
+            }
+            if (control.kind === "interrupt") {
+              pendingReplies.clear();
+              pendingQuestions.clear();
+              if (externalTurnId) await native.interrupt();
+              else fail();
+              return { accepted: true };
+            }
+            if (!externalTurnId || (terminal && control.kind === "steer"))
+              throw new Error("Codex turn unavailable");
+            if (control.kind === "steer") {
+              await native.steer({
+                threadId,
+                expectedTurnId: control.expectedExternalTurnId,
+                input: [
+                  { type: "text", text: control.text, text_elements: [] },
+                ],
+              });
+            } else if (control.kind === "user_input_reply") {
+              const handle = pendingQuestions.get(
+                control.reply.replyTo.requestId,
+              );
+              if (!handle) throw new Error("Codex question reply unavailable");
+              handle.reply(control.reply);
+              pendingQuestions.delete(control.reply.replyTo.requestId);
+            } else {
+              const handle = pendingReplies.get(
+                control.reply.replyTo.requestId,
+              );
+              if (!handle) throw new Error("Codex reply unavailable");
+              handle.reply(control.reply);
+              pendingReplies.delete(control.reply.replyTo.requestId);
+            }
             return { accepted: true };
+          } catch (error) {
+            // Lost start/steer/reply/interrupt outcomes cannot leave this owner
+            // available for another command. Canonical recovery decides next steps.
+            if (
+              error instanceof CodexTransportError &&
+              error.outcome === "unknown"
+            ) {
+              observationFailure = true;
+              fail();
+            }
+            throw error;
           }
-          if (control.kind === "interrupt") {
-            pendingReplies.clear();
-            pendingQuestions.clear();
-            if (externalTurnId) await native.interrupt();
-            else fail();
-            return { accepted: true };
-          }
-          if (!externalTurnId || (terminal && control.kind === "steer"))
-            throw new Error("Codex turn unavailable");
-          if (control.kind === "steer") {
-            await native.steer({
-              threadId,
-              expectedTurnId: control.expectedExternalTurnId,
-              input: [{ type: "text", text: control.text, text_elements: [] }],
-            });
-          } else if (control.kind === "user_input_reply") {
-            const handle = pendingQuestions.get(
-              control.reply.replyTo.requestId,
-            );
-            if (!handle) throw new Error("Codex question reply unavailable");
-            handle.reply(control.reply);
-            pendingQuestions.delete(control.reply.replyTo.requestId);
-          } else {
-            const handle = pendingReplies.get(control.reply.replyTo.requestId);
-            if (!handle) throw new Error("Codex reply unavailable");
-            handle.reply(control.reply);
-            pendingReplies.delete(control.reply.replyTo.requestId);
-          }
-          return { accepted: true };
         },
         awaitQuiescence: async ({ timeoutMs }) => {
           if (
