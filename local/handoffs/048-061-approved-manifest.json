@@ -1,7 +1,7 @@
 {
   "base_sha": "b7169c36c6ee83da68c3fee9a0a109c0576fb71d",
   "repository": "Puneet-Pal-Singh/LegionCode",
-  "approved_at": "2026-11-06",
+  "approved_at": "2026-11-07",
   "files": {
     "architecture/HARNESS-INTEGRATION.md": {
       "sha256": "d882293acb546e2c153b7feaef1bc3fd0e8d297b36f2603bed39a8396788c3d7",
@@ -28,12 +28,12 @@
       "bytes": 31814
     },
     "plans/rebuild/product-plans/LLD/057-local-first-desktop-golden-loop.md": {
-      "sha256": "6e67ee20d886e2e8eac0a73b70c41aef0f9e45d074e51076f9143c11c829326a",
-      "bytes": 42874
+      "sha256": "03bfd087d6c4eafbf1dbab1455d7797833c977c1f276e14448aeb435690a37f5",
+      "bytes": 46542
     },
     "plans/rebuild/product-plans/058-WEB-FIRST-THIN-CLIENT-EXTRACTION-PLAN.md": {
-      "sha256": "075d6cd95da10937849366911e0a00c4daa04985e530148174647bfee0249b63",
-      "bytes": 19587
+      "sha256": "4543ddc715593e3d9dfd5470ea1bcb4de097d5031354b98c0cb338c8c0337cdd",
+      "bytes": 22194
     },
     "local/architecture/RUNTIME-ARCHITECTURE.md": {
       "sha256": "fd59e1039246ac767b8e8d4f5115fea123c6ea8124418bf3565a1373a9b5f466",
@@ -68,12 +68,19 @@
       "bytes": 2051
     },
     "architecture/CAPABILITY-OWNERSHIP.md": {
-      "sha256": "d3a843131e73d4ad442b5165828661eadbf79e9c99f23a7da617db92a91c0aab",
-      "bytes": 102976
+      "sha256": "f267d8c440ab9bd38fb9aa683aca9704a30446691320beabd3d9bba5ddd7c055",
+      "bytes": 115373
+    },
+    "architecture/RUNTIME-ARCHITECTURE.md": {
+      "sha256": "cb908caf4a0a8ac14cc6740fb3e7da8e14971134ef2fc69dd85f9423e97b62c5",
+      "bytes": 16128
     }
   },
   "source_changes": [],
   "excluded": "All unrelated dirty/untracked source changes and provider homes/credentials. Current dev capability ledger retained.",
-  "runtime_architecture": "Tracked architecture/RUNTIME-ARCHITECTURE.md absent. Exact pre-existing local/architecture copy included as provenance; reconcile with current code/ledger before affected edits.",
-  "instructions": "AGENTS uses current dev plus approved Desktop placement and independent harness paragraphs; retain current dev SDK paths and atomic commit guidance."
+  "runtime_architecture": "Current dev still lacks tracked authority. Exact reconciled tracked architecture from implementation checkpoint 01e10d92 is included with unchanged local provenance. Recheck current code/ledger before affected edits.",
+  "instructions": "Current reviewed dev plus approved independent harness decisions; AGENTS differs from current dev only by approved Desktop cloud/local and independent-harness paragraphs. Updated 057 nofork policy has no filesystem/network claim and cannot satisfy full 048/061 host boundary. 058 accepted completion is scoped; no inherited harness acceptance. Keep current dev ledger; implementation owner reconciles harness rows with actual wiring. No dirty source, secrets or provider homes included.",
+  "integration_base_sha": "798ff8d2870c199a0315bd0899fec2ed05bbf516",
+  "implementation_checkpoint_sha": "01e10d9228319d4048ea96d271fa4d2ddad3b71e",
+  "handoff_predecessor_sha": "748cd663c95032470bd842e6658c4d39586b6716"
 }

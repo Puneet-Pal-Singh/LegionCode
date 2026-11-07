@@ -32,6 +32,19 @@ execution still required. Later product slices remain pending. This
 LLD replaces the earlier interpretation that it covered only the corrective
 work: completing every gate in this document completes Plan 057.
 
+User-directed execution priority (2026-11-07, Asia/Kolkata): complete Desktop
+UI integration first: live workspace files, sidebar pinning, then the shared
+center conversation and composer. Next connect immutable capture, saved diffs
+and canonical commits through their existing owners and required native
+adapters. Reuse the shipped shared UI; do not redesign or duplicate it.
+Presentation and query integration must not wait for unrelated execution
+foundations. Until their actual ports are connected, commands use truthful
+capability gates; no fake transcript, artifact, successful commit or product
+state may stand in for the missing implementation. OpenAI execution, approval,
+edit/command/Stop integration follows this UI pass, then the installed full
+workflow and final beta checks. This changes implementation order, not the
+full-plan acceptance or security requirements below.
+
 Approved sequencing note (2026-10-10, Asia/Kolkata): execute Plan 058's
 Web-first extraction and hosted-authority slices before resuming unfinished
 057.6C native execution. Preserve merged Desktop work and the recovery worktree.
@@ -611,6 +624,48 @@ prompt
 ```
 
 ### 057.6D — Approval and interruption
+
+Initial Mac command boundary (2026-11-06, Asia/Kolkata): the first native
+command capability is an explicitly selected executable and argument vector,
+through the canonical runtime tool contract. A trusted launcher must install
+a fixed OS-enforced process-fork denial before untrusted execution. The host
+tracks the actual process through same-PID execution/session changes and must
+confirm its exit before command quiescence or artifact settlement. A process
+group, elapsed timeout, or unsupported kqueue descendant notification is not
+proof that detached descendants have stopped.
+
+This capability does not advertise generic Bash or subprocess workflows.
+Commands that need child processes, including npm wrappers and pipelines, are
+explicitly unavailable; there is no shell-string allowlist, command rewriting,
+or silent fallback. The golden-loop test may invoke the acceptance fixture's
+existing Node assertion directly with its exact arguments, after the approved
+edit. Do not add test code to satisfy this proof.
+
+The proposed Mac enforcement uses the host's deprecated Seatbelt launcher.
+Its availability and fork denial must be verified on the supported packaged
+Mac artifact; absence or failed enforcement leaves this capability unavailable.
+This process policy is not a general filesystem, network, or IPC sandbox.
+Workspace grants, guarded edits, permissions, credentials, and artifact capture
+retain their existing canonical owners. Independent harness drivers remain
+under Plans 048/061 and do not inherit an unproven command-containment claim.
+The beta's command limitation must be presented truthfully before this slice
+can close. General subprocess support requires a separately proven execution
+boundary; it cannot be inferred from the initial single-process proof.
+
+Scope reconciliation (2026-11-06): use one explicit
+`single_executable_nofork` production policy. It enforces fork denial and
+own-process-only signals so the command cannot signal its guardian. It does
+not promise workspace-only file access or denied network access; approved
+commands retain the invoking user's host file and network authority. The
+canonical command approval must disclose that authority, exact executable and
+arguments, and unavailable subprocess support before execution. Pass a
+sanitized minimal environment without provider credentials. Remove stronger
+filesystem/network confinement claims from capability types, registry metadata,
+presentation and the ownership ledger. There is no alternate policy or runtime
+fallback. Enable only after actual packaged Mac bootstrap, fork denial,
+same-PID lifetime, owner-loss cleanup and the guardian-held writer lock are
+proven with this exact policy. Guarded file tools retain their independent
+root-FD and workspace-grant enforcement.
 
 Implement:
 
