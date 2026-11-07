@@ -114,12 +114,28 @@ export class LocalTurnAdmissions {
     return row ? this.reconstruct(row) : null;
   }
 
-  listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number }): {
-    admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+  listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): {
+    admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
   } {
     ThreadIdSchema.parse(input.threadId);
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1_000) {
       throw new EventStoreError("invalid_replay_limit", "Admission history limit must be between 1 and 1000");
+    }
+    if (input.latest) {
+      if (input.afterCursor !== null) {
+        throw new EventStoreError("cursor_conflict", "Latest admission history cannot be combined with an after cursor");
+      }
+      // Read one extra identity, not the entire canonical Turn history. Event
+      // insertion order remains authoritative even when timestamps are equal.
+      const rows = this.database.prepare(`SELECT a.*, e.cursor AS history_cursor FROM turn_admissions a JOIN events e ON e.event_id = a.run_event_id
+        WHERE a.thread_id = ? ORDER BY e.insertion_order DESC LIMIT ?`)
+        .all(input.threadId, input.limit + 1) as (AdmissionRow & { history_cursor: string })[];
+      const selected = rows.slice(0, input.limit).reverse();
+      return {
+        admissions: selected.map((row) => this.reconstruct(row)),
+        nextCursor: selected.length ? EventCursorSchema.parse(selected.at(-1)?.history_cursor) : null,
+        hasEarlier: rows.length > input.limit,
+      };
     }
     let afterOrder = 0;
     if (input.afterCursor !== null) {
