@@ -46,6 +46,8 @@ export interface LocalWorkspaceExecutionBinding {
   readonly filesystemRoot: string;
   readonly rootDirectory: FileHandle;
   readonly metadataIdentity: NativeGitMetadataIdentity;
+  /** Same held-pin loan; pass the Turn signal as its third argument. */
+  readonly withRootAuthority: LocalWorkspaceRootPin["withRootAuthority"];
   /** Call only after all execution/capture children and pipes have quiesced. */
   close(): Promise<void>;
   readonly generation: number;
@@ -214,6 +216,7 @@ export class LocalWorkspaceService {
         filesystemRoot: stored.path,
         rootDirectory: pin.rootDirectory,
         metadataIdentity,
+        withRootAuthority: pin.withRootAuthority,
         generation,
         signal,
         close: () => pin.close(),

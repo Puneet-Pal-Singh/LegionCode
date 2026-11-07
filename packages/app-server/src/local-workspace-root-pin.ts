@@ -71,20 +71,23 @@ export class LocalWorkspaceRootPin {
   readonly withRootAuthority = async <T>(
     cwd: string,
     operation: (authority: MacGitAuthority) => Promise<T>,
+    turnSignal?: AbortSignal,
   ): Promise<T> => {
     this.assertCurrent();
     if (cwd !== this.path) throw new Error("Repository probe requested a different root");
-    const loan = this.borrow(operation);
+    const signal = turnSignal ? AbortSignal.any([this.signal, turnSignal]) : this.signal;
+    signal.throwIfAborted();
+    const loan = this.borrow(operation, signal);
     this.loans.add(loan);
     try { return await loan; } finally { this.loans.delete(loan); }
   };
 
-  private async borrow<T>(operation: (authority: MacGitAuthority) => Promise<T>): Promise<T> {
+  private async borrow<T>(operation: (authority: MacGitAuthority) => Promise<T>, signal: AbortSignal): Promise<T> {
     let result: T;
     try {
       result = await operation({
         cwdFd: this.rootDirectory.fd,
-        signal: this.signal,
+        signal,
         sandbox: { scope: "single_executable_nofork", filesystemRoot: this.path },
       });
       if (typeof result !== "object" || result === null ||
@@ -99,7 +102,7 @@ export class LocalWorkspaceRootPin {
     }
     // Revoke after a positive closure receipt invalidates the result, not the pin's closure proof.
     this.assertOwner();
-    this.signal.throwIfAborted();
+    signal.throwIfAborted();
     return result;
   }
 
