@@ -1,8 +1,10 @@
-import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { DefaultGitService } from "@repo/git-service";
+import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { GitRepositoryProbeResult } from "@repo/git-service";
 import { LocalPersistence } from "@repo/event-store/local";
 import { WorkspaceIdSchema } from "@repo/platform-protocol";
@@ -71,6 +73,20 @@ describe("LocalWorkspaceService", () => {
       await expect(reopenedService.getCurrent()).resolves.toBeNull();
       await expect(reopenedService.requireExecutionGrant(granted.workspaceId))
         .rejects.toThrow("grant is unavailable");
+
+      // The production local host executor supports unborn repositories and new
+      // files through the same atomic index transaction as the Sandbox adapter.
+      const executor = createNodeGitExecutor();
+      expect((await executor.execute({ cwd: repositoryRoot, args: ["init", "-b", "main"] })).exitCode).toBe(0);
+      await writeFile(join(repositoryRoot, "new.txt"), "new local content\n");
+      const committed = await new DefaultGitService(executor).commit({
+        workspace: { runId: "run_localgitproof", filesystemRoot: repositoryRoot },
+        paths: ["new.txt"], message: "initial local file",
+        author: { name: "Local proof", email: "local@example.com" },
+      });
+      expect(committed.branchName).toBe("main");
+      expect(committed.commitSha).toMatch(/^[a-f0-9]{40,64}$/);
+      expect((await executor.execute({ cwd: repositoryRoot, args: ["status", "--porcelain"] })).stdout).toBe("");
     } finally {
       persistence?.close();
       await rm(storageDirectory, { recursive: true, force: true });
