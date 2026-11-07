@@ -7,6 +7,7 @@ import {
 } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import { GitServiceError } from "@repo/git-service/errors";
 import type { GitCommandExecutionResult } from "@repo/git-service/executor";
+import { trustedLocalGitContext } from "./local-git-context.js";
 
 export type MacGitCommand = {
   cwd: string;
@@ -69,6 +70,7 @@ export async function createVerifiedMacGitExecution(
     if (!isAbsolute(path) || path.includes("\0") || realpathSync(path) !== path)
       throw unavailable("Git and its guardian require trusted canonical paths");
   }
+  const trustedGitContext = trustedLocalGitContext();
 
   const run: VerifiedMacGitExecution["run"] = async (request) => {
     if (
@@ -86,7 +88,7 @@ export async function createVerifiedMacGitExecution(
       throw unavailable("Repository probes cannot select a private Git index");
 
     // Canonical executor environments include ambient non-Git keys. The OS
-    // owner supplies fixed PATH/HOME/TMPDIR; only this Git switch crosses over.
+    // owner supplies fixed PATH and the explicit trusted host Git context.
     const environment: Record<string, string> = { GIT_OPTIONAL_LOCKS: "0" };
     for (const [key, value] of Object.entries(request.environment)) {
       if (!key.toUpperCase().startsWith("GIT_")) continue;
@@ -112,6 +114,7 @@ export async function createVerifiedMacGitExecution(
         sandbox: authority.sandbox,
         processHelperPath: options.processHelperPath,
         environment,
+        trustedGitContext,
         stdin: request.stdin,
         // This reaches the C guardian, independently of the host timer.
         timeoutMs: request.timeoutMs,

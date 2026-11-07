@@ -1,10 +1,14 @@
+import { fileURLToPath } from "node:url";
+import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
+import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import { execFileSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DefaultGitService } from "@repo/git-service";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "./protocol.js";
 import { createLocalAppServer } from "./local-process.js";
@@ -31,6 +35,7 @@ const temporaryDirectories: string[] = [];
 afterEach(async () => {
   await Promise.all(liveServers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  vi.restoreAllMocks();
 });
 
 describe("local App Server HTTP integration", () => {
@@ -175,9 +180,18 @@ describe("local App Server HTTP integration", () => {
       join(storageDirectory, "thread-events.json"),
       JSON.stringify({ version: 1, events: [legacyEvent] }),
     );
+    // This migration fixture carries an explicitly witnessed identity. Path-only
+    // legacy grants intentionally cannot become ready without a user regrant.
+    const rootDirectory = await open(workspacePath, "r");
+    let gitMetadataIdentity: string;
+    try {
+      gitMetadataIdentity = await new NativeFilesystemBridge({
+        helperPath: join(storageDirectory, "native-fs-helper"), rootDirectory,
+      }).inspectGitMetadataIdentity({ signal: new AbortController().signal });
+    } finally { await rootDirectory.close(); }
     await writeFile(
       join(storageDirectory, "workspace-grant.json"),
-      JSON.stringify({ version: 1, path: await realpath(workspacePath), grant }),
+      JSON.stringify({ version: 2, path: await realpath(workspacePath), grant, gitMetadataIdentity }),
     );
 
     const server = await start(storageDirectory);
@@ -393,11 +407,32 @@ async function fixture() {
   await mkdir(workspacePath);
   execFileSync("git", ["init", workspacePath], { stdio: "ignore" });
   execFileSync("git", ["-C", workspacePath, "remote", "add", "origin", "https://github.com/example/repository.git"], { stdio: "ignore" });
+  execFileSync("cc", ["-O2", "-o", join(storageDirectory, "native-fs-helper"), fileURLToPath(new URL(
+    "../../execution-engine/src/runtime/desktop/native/legioncode-fs-helper.c", import.meta.url,
+  ))]);
   return { storageDirectory, workspacePath };
 }
 
 async function start(storageDirectory: string) {
-  const server = createLocalAppServer({ credential, serverVersion: "test", storageDirectory });
+  // These existing cases exercise HTTP/replay, not Git process conformance.
+  // Stub only the canonical probe port; native identity inspection remains real.
+  vi.spyOn(DefaultGitService.prototype, "probeRepository").mockImplementation(async ({ workspaceRoot }) => ({
+    repositoryRoot: workspaceRoot, repositoryIdentity: "github.com/example/repository", branch: "main", isDirty: false,
+  }));
+  const server = createLocalAppServer({ credential, serverVersion: "test", storageDirectory }, {
+    createMetadataInspector: (rootDirectory, observeExecution) => new NativeFilesystemBridge({
+      helperPath: join(storageDirectory, "native-fs-helper"), rootDirectory, observeExecution,
+    }),
+    // HTTP fixtures run on the canonical Linux executor. The explicit contained
+    // port supplies no production Mac capability and no alternate Git owner.
+    createProbeExecution: async () => ({
+      scope: "single_executable_nofork",
+      run: async (input) => ({
+        ...await createNodeGitExecutor().execute({ ...input, readOnlyProbe: true }),
+        quiescent: true, truncated: false, outputClosed: false,
+      }),
+    }),
+  });
   liveServers.push(server);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

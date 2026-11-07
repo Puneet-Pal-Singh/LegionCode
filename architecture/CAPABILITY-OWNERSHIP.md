@@ -15,7 +15,12 @@ existing registry and gateway; `LocalReadOnlyExecutionService` resolves the
 same generation-bound grant handle before each operation and before returning bounded output.
 The host's private `LocalWorkspaceService.bindForExecution` owns grant/regrant
 invalidation. Its handle is shared with capture ports for the attempt, never a
-renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
+renderer/SDK field. Thread metadata uses this same grant owner's
+`getAuthorizedCurrent`: each existing serialization/revalidation check verifies
+persisted physical root/Git metadata identity, generation and held-root lifetime
+afresh without rerunning Git readiness. Public `getCurrent` retains live Git
+branch/status/config projection; no readiness cache or second grant authority is
+introduced. Stop checks the owned workspace/thread/run/turn/attempt tuple;
 terminal retries cannot enqueue a later Stop.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery

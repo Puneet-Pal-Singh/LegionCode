@@ -62,6 +62,12 @@ export type StoredLocalWorkspaceGrant = {
   readonly version: 1;
   readonly path: string;
   readonly grant: LocalWorkspaceGrant;
+} | {
+  readonly version: 2;
+  readonly path: string;
+  readonly grant: LocalWorkspaceGrant;
+  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
+  readonly gitMetadataIdentity: string;
 };
 
 export interface LocalPersistenceOptions {
@@ -807,7 +813,16 @@ function platformFingerprint(event: PlatformEvent): string {
 }
 
 function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
-  const grant = StoredGrantSchema.parse(value);
+  // Legacy records remain readable, but only explicit grant can establish identity.
+  const grant = z.union([
+    StoredGrantSchema,
+    z.object({
+      version: z.literal(2),
+      path: LocalWorkspaceGrantPathSchema,
+      grant: LocalWorkspaceGrantSchema,
+      gitMetadataIdentity: z.string().min(1).max(256),
+    }).strict(),
+  ]).parse(value);
   if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
     throw new Error("Workspace grant path is invalid");
   }
