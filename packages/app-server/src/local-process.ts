@@ -12,6 +12,7 @@ import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
+import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import {
   AppServerRequestSchema,
   LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER,
@@ -87,8 +88,12 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
       providers: providerService,
       runtime,
     }) : undefined;
+    const artifactReads = turnService ? new LocalTurnArtifactReads({
+      turns: turnService,
+      persistence,
+    }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -141,6 +146,7 @@ async function handleRequest(
   workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
   turnService?: LocalTurnService,
   providerPreferences?: LocalProviderPreferences,
+  artifactReads?: LocalTurnArtifactReads,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -159,6 +165,7 @@ async function handleRequest(
     localWorkspaceFilesService: workspaceFilesService,
     localTurnService: turnService,
     localProviderPreferenceService: providerPreferences,
+    localTurnArtifactReadsService: artifactReads,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>

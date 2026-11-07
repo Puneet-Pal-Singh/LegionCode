@@ -1477,3 +1477,7 @@ until those owners supply and compose the real boundaries.
 Local App Server `turn/diff` dispatches only to `LocalTurnArtifactReads` for local
 composition. The startup owner injects the existing authorized Turn service and
 the same `LocalPersistence` instance; no hosted or live-Git fallback is used.
+The process factory now composes this reader with the actual LocalTurnService.
+Initialize advertises saved review only when that query is injected. A completed
+read-only Turn with no published immutable capture returns `diff: null`; the read
+capability does not claim that mutation, capture or selected commit is available.

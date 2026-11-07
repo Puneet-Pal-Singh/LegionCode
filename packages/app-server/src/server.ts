@@ -544,6 +544,7 @@ async function dispatch(
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
           localTurnExecutionAvailable: Boolean(composition.localTurnService),
           localTurnConfiguration: composition.localTurnService?.getConfigurationOptions(),
+          localSavedReviewAvailable: Boolean(composition.localTurnArtifactReadsService),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");
