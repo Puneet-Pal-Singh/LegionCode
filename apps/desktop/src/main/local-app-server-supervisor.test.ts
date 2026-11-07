@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
 const mocks = vi.hoisted(() => ({
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 
 type FakeChild = {
   pid: number;
+  messages: unknown[];
   postMessage(message: unknown): void;
   kill(): void;
   emit(event: string, ...args: unknown[]): void;
@@ -35,11 +36,14 @@ vi.mock("@legioncode/sdk/platform/app-server-http-transport", () => ({
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 
 class TestChild extends EventEmitter implements FakeChild {
+  readonly messages: unknown[] = [];
   constructor(readonly pid: number) {
     super();
   }
 
-  postMessage(_message: unknown): void {}
+  postMessage(message: unknown): void {
+    this.messages.push(message);
+  }
 
   kill(): void {}
 }
@@ -74,6 +78,11 @@ function childAt(index: number): FakeChild {
 }
 
 describe("Local App Server supervisor generation safety", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     mocks.children.length = 0;
     mocks.initialize.mockReset();
@@ -102,12 +111,66 @@ describe("Local App Server supervisor generation safety", () => {
     mocks.initialize.mockResolvedValue(handshake);
     const requestResult = deferred<unknown>();
     mocks.request.mockReturnValue(requestResult.promise);
-    const supervisor = new LocalAppServerSupervisor();
+    const credentialResult = deferred<{ credential: { apiKey: string }; canDeliver: () => boolean } | null>();
+    const resolveCredential = vi
+      .fn()
+      .mockResolvedValue({ credential: { apiKey: "fixture-runtime-secret" }, canDeliver: () => true });
+    const supervisor = new LocalAppServerSupervisor(
+      undefined,
+      resolveCredential,
+    );
     await supervisor.start("1.0.0", "/private/user-data");
     const child = childAt(0);
     child.emit("message", { type: "ready", baseUrl: "http://127.0.0.1:4312" });
     await settleMessages();
     expect(supervisor.getEnvironment().status).toBe("ready");
+    const credentialRequest = {
+      type: "runtime-credential-request",
+      requestId: "a05fc404-efca-4ab5-a421-8a77ae6d02bf",
+      providerId: "openai",
+    };
+    child.emit("message", credentialRequest);
+    await settleMessages();
+    expect(resolveCredential).toHaveBeenCalledWith("openai");
+    expect(child.messages.at(-1)).toEqual({
+      ...credentialRequest,
+      type: "runtime-credential-response",
+      credential: { apiKey: "fixture-runtime-secret" },
+    });
+    expect(JSON.stringify(supervisor.getEnvironment())).not.toContain(
+      "fixture-runtime-secret",
+    );
+    vi.useFakeTimers();
+    vi.spyOn(process, "kill").mockReturnValue(true);
+    resolveCredential.mockReturnValue(credentialResult.promise);
+    for (let index = 0; index < 32; index += 1) {
+      child.emit("message", {
+        ...credentialRequest,
+        requestId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+      });
+    }
+    child.emit("message", {
+      ...credentialRequest,
+      requestId: "00000000-0000-4000-8000-000000000000",
+    });
+    child.emit("message", {
+      ...credentialRequest,
+      requestId: "00000000-0000-4000-8000-000000000032",
+    });
+    expect(resolveCredential).toHaveBeenCalledTimes(33);
+    expect(child.messages.at(-1)).toMatchObject({
+      requestId: "00000000-0000-4000-8000-000000000032",
+      credential: null,
+    });
+    const messagesBeforeTimeout = child.messages.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(child.messages).toHaveLength(messagesBeforeTimeout + 32);
+    expect(child.messages.at(-1)).toMatchObject({ credential: null });
+    child.emit("message", {
+      ...credentialRequest,
+      requestId: "a05fc404-efca-4ab5-a421-8a77ae6d02be",
+    });
+    const messagesBeforeStop = child.messages.length;
 
     const request = supervisor.request({
       protocolVersion: "1.0.0",
@@ -117,8 +180,13 @@ describe("Local App Server supervisor generation safety", () => {
     const stopping = supervisor.stop();
     child.emit("exit");
     await stopping;
+    credentialResult.resolve({ credential: { apiKey: "fixture-stale-secret" }, canDeliver: () => true });
+    await settleMessages();
+    expect(child.messages).toHaveLength(messagesBeforeStop);
     requestResult.resolve({ ok: true });
-    await expect(request).rejects.toThrow("Local App Server changed during the request");
+    await expect(request).rejects.toThrow(
+      "Local App Server changed during the request",
+    );
   });
 
   it("coalesces concurrent restart requests around the same child", async () => {
