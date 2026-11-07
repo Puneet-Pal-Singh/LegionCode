@@ -51,6 +51,9 @@ export function createNodeGitExecutor(
       options.macExecution.supportsIndexTransactions === true);
   return {
     ...(supported ? { supportsIndexTransactions: true as const } : {}),
+    ...(process.platform === "linux"
+      ? { supportsArtifactIndexGuard: true as const }
+      : {}),
     async execute(input) {
       try {
         gitCommandEnvironment({}, input.environment);
