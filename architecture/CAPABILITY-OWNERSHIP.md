@@ -1454,3 +1454,13 @@ The private handler remains the owner of authorized settled-Turn artifact
 selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
+
+## Plan 057 — Saved artifact commit composition
+
+`createLocalArtifactCommitComposition` reauthorizes the immutable saved scope,
+borrows the existing workspace writer lease and constructs the canonical
+`LocalGitService` with that same binding and native Git factory. Release awaits
+the lease's actual resource proof. Unknown acquisition or cleanup retains the
+original binding, and cleanup uncertainty never discards a real commit receipt.
+This backend factory does not activate Electron services or advertise mutation
+capability; trusted host construction and installed acceptance remain separate.
