@@ -132,3 +132,5 @@ export { SharedProviderDialog, type ProviderDialogProps, type SharedProviderDial
 export { ComposerSettingsSection, type ComposerSettingsPreferences } from "./settings/ComposerSettingsSection.js";
 
 export { ArchivedChatsSettingsView, type ArchivedSettingsItem } from "./settings/ArchivedChatsSettings.js";
+
+export { HooksSettingsView } from "./settings/HooksSettingsView.js";
