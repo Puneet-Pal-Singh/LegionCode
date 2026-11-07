@@ -417,3 +417,4 @@ export {
   type LocalTurnConfigurationOptions,
   type LocalTurnMediaLimits,
 } from "@repo/platform-protocol";
+export { readLocalChatImage } from "./platform/local-chat-image.js";
