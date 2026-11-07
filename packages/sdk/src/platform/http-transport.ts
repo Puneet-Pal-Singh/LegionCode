@@ -2,7 +2,6 @@ import {
   ArtifactIdSchema,
   RunIdSchema,
   ThreadIdSchema,
-  TurnIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
 import type { ThreadInputCommand } from "@repo/platform-protocol";
