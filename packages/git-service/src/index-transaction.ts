@@ -30,7 +30,7 @@ const run = async (args, index, inspection = false, stdin = input.stdin) => {
   const remaining = inspection ? 5000 : deadline - Date.now();
   if (remaining <= 0) return { exitCode: 124, stdout: "", stderr: "Git transaction timed out" };
   const discovery = (args.length === 2 && args[0] === "rev-parse" && args[1] === "--show-toplevel") || args[0] === "init";
-  const gitArgs = ["-c", "maintenance.auto=false", "-c", "gc.auto=0", ...(input.readOnlyProbe ? ["-c", "core.fsmonitor=false"] : []), ...(discovery ? args : ["--work-tree=" + input.cwd, ...args])];
+  const gitArgs = ["-c", "maintenance.auto=false", "-c", "gc.auto=0", ...(input.readOnlyProbe ? ["-c", "core.fsmonitor=false"] : []), ...(discovery ? args : ["--work-tree=.", ...args])];
   if (input.readOnlyProbe) environment.GIT_OPTIONAL_LOCKS = "0";
   const request = { cwd: input.cwd, args: gitArgs, environment, indexFile: index, timeoutMs: remaining, stdin };
   if (typeof executeContainedGit === "function") {
