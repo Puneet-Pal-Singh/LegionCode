@@ -93,3 +93,8 @@ export { FileChangesIcon } from "./workspace/FileChangesIcon.js";
 export { FilesToggleButton } from "./workspace/FilesToggleButton.js";
 export { Resizer } from "./workspace/Resizer.js";
 export { ResizableWorkspaceRail } from "./workspace/ResizableWorkspaceRail.js";
+
+export { WorkspaceAddMenu } from "./workspace/WorkspaceAddMenu.js";
+export { WorkspaceTabStrip, type WorkspaceContentTab } from "./workspace/WorkspaceTabStrip.js";
+export { WorkspaceSurfaceHeader } from "./workspace/WorkspaceSurfaceHeader.js";
+export { WorkspaceSidebarHeader } from "./workspace/WorkspaceSidebarHeader.js";
