@@ -82,6 +82,15 @@ export class LocalWorkspaceService {
   }
 
   async getCurrent(): Promise<LocalWorkspaceGrant | null> {
+    return this.getCurrentGrant("git");
+  }
+
+  /** Fresh physical authorization for Thread metadata, not a Git readiness projection. */
+  async getAuthorizedCurrent(): Promise<LocalWorkspaceGrant | null> {
+    return this.getCurrentGrant("physical");
+  }
+
+  private async getCurrentGrant(projection: "physical" | "git"): Promise<LocalWorkspaceGrant | null> {
     if (this.transitioning) return null;
     const generation = this.generation;
     const signal = this.executionController.signal;
@@ -95,7 +104,7 @@ export class LocalWorkspaceService {
       );
     }
     this.assertProbingAvailable();
-    const grant = await this.probeStoredGrant(stored, generation, signal);
+    const grant = await this.verifyStoredGrant(stored, generation, signal, undefined, projection);
     if (generation !== this.generation || this.transitioning) return null;
     this.assertProbingAvailable();
     if (grant.readiness !== "ready") return grant;
@@ -198,7 +207,7 @@ export class LocalWorkspaceService {
       }
     })();
     try {
-      const workspace = await this.probeStoredGrant(
+      const workspace = await this.verifyStoredGrant(
         stored,
         generation,
         signal,
@@ -295,11 +304,12 @@ export class LocalWorkspaceService {
     if (generation !== this.generation) throw new Error("Local workspace grant changed during the operation");
   }
 
-  private async probeStoredGrant(
+  private async verifyStoredGrant(
     stored: StoredLocalWorkspaceGrant,
     generation: number,
     signal: AbortSignal,
     pin?: LocalWorkspaceRootPin,
+    projection: "physical" | "git" = "git",
   ): Promise<LocalWorkspaceGrant> {
     if (stored.version !== 2 || stored.grant.readiness !== "ready") {
       if (generation === this.generation)
@@ -333,18 +343,20 @@ export class LocalWorkspaceService {
           "Workspace or Git metadata identity changed; explicit regrant is required",
         );
       }
-      const { repoRoot, probe } = await this.readRepository(
-        canonicalPath,
-        generation,
-        signal,
-        currentPin,
-      );
-      if (repoRoot !== stored.path) {
-        return await this.requireRegrant(
-          stored,
-          generation,
-          "Authorized repository path changed; explicit regrant is required",
+      // Physical scope is witnessed afresh above; branch/config/status are a
+      // separate public projection and do not authorize Thread metadata writes.
+      let grant = stored.grant;
+      if (projection === "git") {
+        const { repoRoot, probe } = await this.readRepository(
+          canonicalPath, generation, signal, currentPin,
         );
+        if (repoRoot !== stored.path) {
+          return await this.requireRegrant(
+            stored, generation,
+            "Authorized repository path changed; explicit regrant is required",
+          );
+        }
+        grant = buildGrant(repoRoot, probe, stored.grant.workspaceId, stored.grant);
       }
       try {
         await this.assertIdentity(
@@ -359,12 +371,7 @@ export class LocalWorkspaceService {
         );
       }
       await this.assertStoredGrantCurrent(stored, generation, signal);
-      return buildGrant(
-        repoRoot,
-        probe,
-        stored.grant.workspaceId,
-        stored.grant,
-      );
+      return grant;
     } catch (error) {
       if (!identityVerified)
         return await this.requireRegrant(

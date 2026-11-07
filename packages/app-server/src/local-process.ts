@@ -59,7 +59,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
     });
     const threadService = new LocalThreadService({
       events: persistence.events,
-      getWorkspace: () => workspaceService.getCurrent(),
+      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
     });
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
