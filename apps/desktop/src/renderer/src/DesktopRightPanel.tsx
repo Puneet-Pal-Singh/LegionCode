@@ -8,10 +8,10 @@ export interface DesktopRightPanelReview {
 }
 
 export interface DesktopRightPanelProps {
-  workspace: Pick<LocalWorkspaceGrant, "workspaceId" | "displayName" | "readiness"> | null;
+  workspace: Pick<LocalWorkspaceGrant, "workspaceId" | "displayName" | "readiness" | "grantedAt"> | null;
   threadId: ThreadId | null;
   review: DesktopRightPanelReview | null;
-  files?: { workspaceId: WorkspaceId; content: ReactNode };
+  files?: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt" | "readiness"> & { content: ReactNode };
   filesUnavailableReason: string;
   commitUnavailableReason: string;
   onClose?: () => void;
@@ -71,8 +71,9 @@ export function DesktopRightPanel({
       </div>
       <section id={`${id}-files-panel`} role="tabpanel" aria-labelledby={`${id}-files-tab`} hidden={tab !== "files"} className="min-h-0 flex-1 overflow-auto p-4">
         <p className="mb-3 text-xs text-zinc-500">Current workspace files are separate from saved turn changes.</p>
-        {workspaceReady && files && files.workspaceId === workspace.workspaceId ? (
-          <div key={files.workspaceId}>{files.content}</div>
+        {workspaceReady && files && files.workspaceId === workspace.workspaceId
+          && files.grantedAt === workspace.grantedAt && files.readiness === workspace.readiness ? (
+          <div key={`${files.workspaceId}:${files.grantedAt}:${files.readiness}`}>{files.content}</div>
         ) : (
           <p role="status" className="text-sm text-zinc-400">
             {!workspace ? "Choose a folder and grant workspace access to browse files."

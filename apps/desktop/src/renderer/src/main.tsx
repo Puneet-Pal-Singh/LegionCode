@@ -397,9 +397,13 @@ function DesktopApp(): React.JSX.Element {
               review={null}
               files={appServerClient && sdkReady && environment.status === "ready" && environment.kind === "local" && workspace?.readiness === "ready" ? {
                 workspaceId: workspace.workspaceId,
+                grantedAt: workspace.grantedAt,
+                readiness: workspace.readiness,
                 content: <DesktopWorkspaceFilesMount
                   client={appServerClient}
                   workspaceId={workspace.workspaceId}
+                  grantedAt={workspace.grantedAt}
+                  readiness={workspace.readiness}
                   availability={environment.capabilities.includes("workspace-files-v1") ? { available: true } : {
                     available: false,
                     reason: environment.unavailableCapabilities.find((item) => item.capability === "workspace-files-v1")?.reason
