@@ -33,8 +33,10 @@ export class LocalThreadService {
     this.getWorkspace = options.getWorkspace;
     this.pins = new LocalThreadPinService({
       events: this.eventStore,
-      getAuthorizedThread: (threadId) => this.get(threadId),
-      serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(threadId, mutation),
+      serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(
+        threadId,
+        (workspace) => mutation({ readThread: () => this.readAuthorizedThread(threadId, workspace) }),
+      ),
     });
   }
 
@@ -90,7 +92,7 @@ export class LocalThreadService {
 
   rename(threadId: string, input: unknown): Promise<Thread> {
     const id = ThreadIdSchema.parse(threadId);
-    return this.serializeMetadataMutation(id, () => this.renameCurrent(id, input));
+    return this.serializeMetadataMutation(id, (workspace) => this.renameCurrent(id, input, workspace));
   }
 
   pin(threadId: string): Promise<Thread> {
@@ -101,9 +103,8 @@ export class LocalThreadService {
     return this.pins.unpin(threadId);
   }
 
-  private async renameCurrent(threadId: ThreadId, input: unknown): Promise<Thread> {
-    const workspace = await this.requireWorkspace();
-    const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
+  private async renameCurrent(threadId: ThreadId, input: unknown, workspace: LocalWorkspaceGrant): Promise<Thread> {
+    const thread = await this.readAuthorizedThread(threadId, workspace);
     const request = ThreadRenameParamsSchema.parse({
       ...(input && typeof input === "object" ? input : {}),
       threadId,
@@ -132,7 +133,7 @@ export class LocalThreadService {
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
-    return await this.projectThread(thread.id, workspace.workspaceId);
+    return await this.readAuthorizedThread(thread.id, workspace);
   }
 
   async archive(threadId: string): Promise<Thread> {
@@ -145,12 +146,11 @@ export class LocalThreadService {
 
   private setArchived(threadId: string, archived: boolean): Promise<Thread> {
     const id = ThreadIdSchema.parse(threadId);
-    return this.serializeMetadataMutation(id, () => this.setArchivedCurrent(id, archived));
+    return this.serializeMetadataMutation(id, (workspace) => this.setArchivedCurrent(id, archived, workspace));
   }
 
-  private async setArchivedCurrent(threadId: ThreadId, archived: boolean): Promise<Thread> {
-    const workspace = await this.requireWorkspace();
-    const thread = await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
+  private async setArchivedCurrent(threadId: ThreadId, archived: boolean, workspace: LocalWorkspaceGrant): Promise<Thread> {
+    const thread = await this.readAuthorizedThread(threadId, workspace);
     if ((thread.status === "archived") === archived) return thread;
     const timestamp = new Date().toISOString();
     const metadataEvents = await this.eventStore.listAll();
@@ -164,6 +164,7 @@ export class LocalThreadService {
       updatedAt: timestamp,
       lastEventSequence: nextMetadataSequence,
     });
+    await this.assertWorkspaceCurrent(workspace);
     await this.eventStore.append({
       threadId: thread.id,
       workspaceId: thread.workspaceId,
@@ -176,13 +177,22 @@ export class LocalThreadService {
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
-    return await this.projectThread(thread.id, workspace.workspaceId);
+    return await this.readAuthorizedThread(thread.id, workspace);
   }
 
   /** Every existing-Thread metadata writer acquires this one service-owned queue. */
-  private serializeMetadataMutation<T>(threadId: ThreadId, mutation: () => Promise<T>): Promise<T> {
+  private serializeMetadataMutation<T>(
+    threadId: ThreadId,
+    mutation: (workspace: LocalWorkspaceGrant) => Promise<T>,
+  ): Promise<T> {
     const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
-    const result = previous.then(mutation);
+    // Capture at enqueue time: waiting actions must not adopt a replacement grant.
+    const result = Promise.allSettled([previous, this.requireWorkspace()] as const).then(async ([, grant]) => {
+      if (grant.status === "rejected") throw grant.reason;
+      const workspace = grant.value;
+      await this.assertWorkspaceCurrent(workspace);
+      return mutation(workspace);
+    });
     // A failed action must not poison the next action or leave a rejected cleanup promise.
     const settled = result.then(() => undefined, () => undefined);
     this.metadataMutations.set(threadId, settled);
@@ -190,6 +200,21 @@ export class LocalThreadService {
       if (this.metadataMutations.get(threadId) === settled) this.metadataMutations.delete(threadId);
     });
     return result;
+  }
+
+  private async readAuthorizedThread(threadId: ThreadId, workspace: LocalWorkspaceGrant): Promise<Thread> {
+    const thread = await this.projectThread(threadId, workspace.workspaceId);
+    await this.assertWorkspaceCurrent(workspace);
+    if (thread.userId !== LOCAL_USER_ID) throw new LocalThreadNotFoundError();
+    return thread;
+  }
+
+  private async assertWorkspaceCurrent(expected: LocalWorkspaceGrant): Promise<void> {
+    const current = await this.requireWorkspace();
+    if (current.workspaceId !== expected.workspaceId || current.grantedAt !== expected.grantedAt
+      || current.repositoryIdentity !== expected.repositoryIdentity) {
+      throw new Error("Local workspace grant changed during Thread metadata mutation");
+    }
   }
 
   private async projectThread(threadId: ThreadId, workspaceId: WorkspaceId): Promise<Thread> {

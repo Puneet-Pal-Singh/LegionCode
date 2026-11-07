@@ -12,10 +12,11 @@ import { EventStoreError } from "@repo/event-store/errors";
 
 export type LocalThreadPinServiceOptions = {
   readonly events: Pick<LocalPersistence["events"], "append" | "replay">;
-  /** Resolve the current canonical Thread through the existing workspace grant owner. */
-  readonly getAuthorizedThread: (threadId: ThreadId) => Promise<Thread>;
   /** Required: the SAME per-thread queue used by every metadata writer, including rename/archive. */
-  readonly serializeMetadataMutation: <T>(threadId: ThreadId, mutation: () => Promise<T>) => Promise<T>;
+  readonly serializeMetadataMutation: <T>(
+    threadId: ThreadId,
+    mutation: (scope: { readonly readThread: () => Promise<Thread> }) => Promise<T>,
+  ) => Promise<T>;
 };
 
 /** Pin metadata only. The canonical Thread service owns authorization and mutation serialization. */
@@ -32,13 +33,13 @@ export class LocalThreadPinService {
 
   private setPinned(threadId: ThreadId, pinned: boolean): Promise<Thread> {
     // Delegate directly from LocalThreadService.pin/unpin: do not nest a second queue acquisition.
-    return this.options.serializeMetadataMutation(threadId, async () => {
-      const authorized = ThreadSchema.parse(await this.options.getAuthorizedThread(threadId));
+    return this.options.serializeMetadataMutation(threadId, async ({ readThread }) => {
+      const authorized = ThreadSchema.parse(await readThread());
       if (authorized.id !== threadId) throw new EventStoreError("corrupt_event_stream", "Authorized Thread does not match the requested identity");
       if ((authorized.pinnedAt !== null) === pinned) return authorized;
       const nextSequence = await this.readThreadSequence(threadId, authorized.workspaceId) + 1;
       // Resolve again after replay so the full event payload uses the latest authorized metadata.
-      const current = ThreadSchema.parse(await this.options.getAuthorizedThread(threadId));
+      const current = ThreadSchema.parse(await readThread());
       if (current.id !== threadId || authorized.id !== threadId || current.userId !== authorized.userId
         || current.workspaceId !== authorized.workspaceId) {
         throw new EventStoreError("corrupt_event_stream", "Authorized Thread identity changed during pin mutation");
@@ -60,7 +61,7 @@ export class LocalThreadPinService {
         producer: { kind: "control_plane", id: "local-app-server" },
         schemaVersion: EVENT_SCHEMA_VERSION,
       });
-      return ThreadSchema.parse(await this.options.getAuthorizedThread(threadId));
+      return ThreadSchema.parse(await readThread());
     });
   }
 
