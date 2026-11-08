@@ -374,3 +374,8 @@ export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-rec
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";
 export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";
+
+export { DESKTOP_AUTH_INTENT, DESKTOP_AUTH_CHALLENGE_MAX_AGE_MS, DesktopAuthChallengeError } from "./identity/desktop-auth-types.js";
+export type { DesktopAuthChallengeScope, CreateDesktopAuthChallengeInput, PrepareDesktopAuthConsentInput, AuthorizeDesktopAuthChallengeInput, RedeemDesktopAuthChallengeInput, DesktopAuthConsentRecord, DesktopAuthRedeemedSession, DesktopAuthRedeemResult, DesktopAuthChallengeRepository } from "./identity/desktop-auth-types.js";
+export { desktopAuthChallengesMigration } from "./migrations/0036-desktop-auth-challenges.js";
+export { desktopAuthChallenges } from "./schema/desktop-auth.js";

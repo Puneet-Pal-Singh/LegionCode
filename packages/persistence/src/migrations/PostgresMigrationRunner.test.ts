@@ -1,3 +1,5 @@
+import { desktopAuthChallengesMigration } from "./0036-desktop-auth-challenges.js";
+import { persistenceMigrations } from "./0001-runtime-event-inbox.js";
 import { describe, expect, it } from "vitest";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
@@ -68,6 +70,10 @@ describe("PostgresMigrationRunner", () => {
   });
 
   it("applies only pending migrations", async () => {
+    expect(persistenceMigrations.filter(migration => migration.id === desktopAuthChallengesMigration.id)).toEqual([desktopAuthChallengesMigration]);
+    expect(desktopAuthChallengesMigration.statements[0]).toContain("CREATE TABLE desktop_auth_challenges");
+    expect(desktopAuthChallengesMigration.statements[0]).toContain("REFERENCES auth_sessions(id) ON DELETE CASCADE");
+    expect(desktopAuthChallengesMigration.statements[0]).toContain("CHECK(consumed_at IS NULL OR authorized_at IS NOT NULL)");
     const client = new RecordingSqlClient();
     const ledger = new FakeLedger(new Set(["0001_done"]));
     const runner = new PostgresMigrationRunner(client, ledger);
