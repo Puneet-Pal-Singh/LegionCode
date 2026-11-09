@@ -104,15 +104,15 @@ interface HoveredModelDetails {
 }
 
 function resolveModelDetailsSide(
-  rowRect: DOMRect,
-): "left" | "right" {
-  const spaceRight = window.innerWidth - rowRect.right - VIEWPORT_PADDING_PX;
-  const spaceLeft = rowRect.left - VIEWPORT_PADDING_PX;
+  popoverRect: DOMRect,
+): "left" | "right" | null {
+  const spaceRight = window.innerWidth - popoverRect.right - VIEWPORT_PADDING_PX;
+  const spaceLeft = popoverRect.left - VIEWPORT_PADDING_PX;
   const requiredWidth = MODEL_DETAILS_WIDTH_PX + MODEL_DETAILS_GAP_PX;
 
   if (spaceRight >= requiredWidth) return "right";
   if (spaceLeft >= requiredWidth) return "left";
-  return spaceRight >= spaceLeft ? "right" : "left";
+  return null;
 }
 
 function resolveModelDetailsTop(
@@ -563,11 +563,16 @@ export function ModelPickerPopover({
   ): void => {
     const popoverRect = popoverContentRef.current?.getBoundingClientRect();
     if (!popoverRect) return;
+    const side = resolveModelDetailsSide(popoverRect);
+    if (!side) {
+      setHoveredModel(null);
+      return;
+    }
     const rowRect = row.getBoundingClientRect();
     setHoveredModel({
       model,
       providerName,
-      side: resolveModelDetailsSide(rowRect),
+      side,
       topPx: resolveModelDetailsTop(rowRect, popoverRect),
     });
   };
