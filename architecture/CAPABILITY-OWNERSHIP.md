@@ -1761,3 +1761,45 @@ provider startup, without turn execution, saved review or commit capabilities.
 Discovery does not prove containment: the original root authority, canonical
 readiness predicate, guardian and no-fork profile remain mandatory. No system
 shim, PATH, shell or xcrun process fallback is introduced.
+
+### Local workspace provider preferences
+
+`LocalProviderPreferences` owns secret-free model visibility and default metadata
+for the currently granted workspace. The existing SDK preferences read/update
+methods accept an optional canonical `localScope` tuple; the local service requires
+its WorkspaceId and grantedAt, captures physical authorization at enqueue, checks
+the same grant before persistence and before returning, and serializes mutations.
+Web retains its existing authenticated preference service and unchanged parameters.
+Local provider resolution remains unsupported; the explicit environment-level
+provider route remains `LocalProviderService`, separate from workspace visibility.
+
+`LocalProviderPreferencesRecords` stores versioned, bounded records in the existing
+process-owned SQLite metadata table, keyed by canonical WorkspaceId. It creates no
+second database or credential store. User identity reuses the existing
+`LocalThreadService.LOCAL_USER_ID` owner; local Turn admission already inherits that
+Thread principal. Foreign stored user/workspace/credential identities are rejected.
+Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
+factory composition owns injecting this service with the same grant authority and
+SQLite instance. These source changes do not claim installed persistence proof.
+
+## Plan 057 — Local approval command adapter
+
+`LocalApprovalService` reauthorizes the recorded Thread through the current
+workspace grant and local actor, binds the approval to its recorded tool item and
+Run Attempt, and delegates to `RuntimeKernel.resolveApproval`. Canonical lifecycle
+replay supplies the winning decision and duplicate, conflict, restart and lost
+acknowledgement receipts. The adapter serializes commands only; it appends no
+approval events and owns no decision store. Actual LocalTurnService/App Server
+composition remains separate. The shared worker approval validator independently
+checks the approved tool input and canonical matcher before tool execution.
+
+## Plan 057 — Local Turn configuration contract foundation
+
+The canonical platform protocol reuses existing chat and product mode schemas for
+local Turn configuration, optional mode-specific permission choices and bounded
+attachment limits. The SDK exports these contracts; local start accepts optional
+mode/productMode fields and initialize may carry optional configuration options.
+This schema foundation does not select runtime behavior, project availability,
+validate actual composed ports or enable attachments, tools or mutations. The
+Turn service/runtime admission and handshake composition retain those obligations.
+Hosted request behavior and existing Git/provider contracts remain unchanged.
