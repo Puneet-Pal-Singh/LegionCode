@@ -11,7 +11,7 @@
  * - Deterministic run-scoped selection via ProviderStore
  */
 
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
@@ -35,34 +35,16 @@ import {
 import { isProviderModelAvailable } from "./providerModelAvailability.js";
 import { formatModelDisplayName } from "./modelDisplayName.js";
 import { ModelPickerDetailsPanel } from "./ModelPickerDetailsPanel.js";
+import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
+import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
-const ESTIMATED_POPOVER_HEIGHT_PX = 352;
 const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
 const MODEL_DETAILS_GAP_PX = 8;
 const MODEL_DETAILS_WIDTH_PX = 256;
 const ESTIMATED_MODEL_DETAILS_HEIGHT_PX = 184;
-
-interface PopoverPlacement {
-  topPx: number | null;
-  bottomPx: number | null;
-  leftPx: number;
-  widthPx: number;
-}
-
-function isSamePlacement(
-  first: PopoverPlacement,
-  second: PopoverPlacement,
-): boolean {
-  return (
-    first.topPx === second.topPx &&
-    first.bottomPx === second.bottomPx &&
-    first.leftPx === second.leftPx &&
-    first.widthPx === second.widthPx
-  );
-}
 
 /**
  * Props for ModelPickerPopover
@@ -306,12 +288,6 @@ export function ModelPickerPopover({
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => { if (disabled) setIsOpen(false); }, [disabled]);
-  const [placement, setPlacement] = useState<PopoverPlacement>({
-    topPx: VIEWPORT_PADDING_PX,
-    bottomPx: null,
-    leftPx: VIEWPORT_PADDING_PX,
-    widthPx: PREFERRED_POPOVER_WIDTH_PX,
-  });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
   const [hoveredModel, setHoveredModel] = useState<HoveredModelDetails | null>(
@@ -321,6 +297,36 @@ export function ModelPickerPopover({
   const popoverContentRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const popoverPosition = useViewportPopoverPosition(
+    isOpen && !disabled,
+    triggerButtonRef,
+    popoverContentRef,
+    {
+      align: "auto",
+      placement: "auto",
+      viewportPadding: VIEWPORT_PADDING_PX,
+      gap: POPOVER_GAP_PX,
+      preferredWidth: PREFERRED_POPOVER_WIDTH_PX,
+      minWidth: MIN_POPOVER_WIDTH_PX,
+    },
+  );
+  const closePopover = useCallback(() => {
+    setIsOpen(false);
+    setHoveredModel(null);
+  }, []);
+  const dismissRefs = useMemo(() => [popoverContentRef], []);
+  useOutsideDismiss(popoverRef, isOpen && !disabled, closePopover, {
+    additionalRefs: dismissRefs,
+    escapeFocusRef: triggerButtonRef,
+  });
+  useEffect(() => {
+    setHoveredModel(null);
+  }, [
+    popoverPosition.left,
+    popoverPosition.top,
+    popoverPosition.width,
+    popoverPosition.maxHeight,
+  ]);
   const connectedProviderIds = useMemo(
     () => buildConnectedProviderIds(credentials),
     [credentials],
@@ -475,6 +481,15 @@ export function ModelPickerPopover({
     setSearchQuery("");
     try {
       await onSelectModel(providerId, modelId);
+      requestAnimationFrame(() => {
+        const trigger = triggerButtonRef.current;
+        if (
+          trigger?.isConnected &&
+          !trigger.disabled &&
+          !popoverContentRef.current &&
+          document.activeElement === document.body
+        ) trigger.focus();
+      });
     } catch (error) {
       console.error(
         "[model-picker/select] Failed to persist model selection:",
@@ -529,86 +544,14 @@ export function ModelPickerPopover({
     selectedProviderId,
   ]);
 
-  // Close on outside click
+  // Wait for measured placement before focusing, without scrolling the composer.
   useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent): void => {
-      const target = event.target as Node;
-      if (
-        !popoverRef.current?.contains(target) &&
-        !popoverContentRef.current?.contains(target)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen]);
-
-  // Focus search input when popover opens
-  useEffect(() => {
-    if (isOpen && searchInputRef.current) {
-      searchInputRef.current.focus();
+    if (isOpen && popoverPosition.visibility === "visible") {
+      searchInputRef.current?.focus({ preventScroll: true });
     }
-  }, [isOpen]);
-
-  const resolvePlacement = (): PopoverPlacement => {
-    const triggerRect = triggerButtonRef.current?.getBoundingClientRect();
-    if (!triggerRect) {
-      return {
-        topPx: VIEWPORT_PADDING_PX,
-        bottomPx: null,
-        leftPx: VIEWPORT_PADDING_PX,
-        widthPx: PREFERRED_POPOVER_WIDTH_PX,
-      };
-    }
-
-    const spaceBelow = window.innerHeight - triggerRect.bottom;
-    const spaceAbove = triggerRect.top;
-    const requiredHeight = ESTIMATED_POPOVER_HEIGHT_PX + POPOVER_GAP_PX;
-    const vertical: "up" | "down" =
-      spaceBelow < requiredHeight && spaceAbove > spaceBelow ? "up" : "down";
-
-    const spaceRight =
-      window.innerWidth - triggerRect.left - VIEWPORT_PADDING_PX;
-    const spaceLeft = triggerRect.right - VIEWPORT_PADDING_PX;
-    const horizontal: "start" | "end" =
-      spaceRight < PREFERRED_POPOVER_WIDTH_PX && spaceLeft > spaceRight
-        ? "end"
-        : "start";
-
-    const availableWidth = horizontal === "start" ? spaceRight : spaceLeft;
-    const widthPx = Math.max(
-      MIN_POPOVER_WIDTH_PX,
-      Math.min(PREFERRED_POPOVER_WIDTH_PX, Math.floor(availableWidth)),
-    );
-    const preferredLeft =
-      horizontal === "start" ? triggerRect.left : triggerRect.right - widthPx;
-    const leftPx = Math.min(
-      Math.max(VIEWPORT_PADDING_PX, preferredLeft),
-      Math.max(
-        VIEWPORT_PADDING_PX,
-        window.innerWidth - widthPx - VIEWPORT_PADDING_PX,
-      ),
-    );
-
-    return {
-      topPx: vertical === "down" ? triggerRect.bottom + POPOVER_GAP_PX : null,
-      bottomPx:
-        vertical === "up"
-          ? window.innerHeight - triggerRect.top + POPOVER_GAP_PX
-          : null,
-      leftPx,
-      widthPx,
-    };
-  };
+  }, [isOpen, popoverPosition.visibility]);
 
   const handleToggle = (): void => {
-    if (!isOpen) {
-      setPlacement(resolvePlacement());
-    }
     setHoveredModel(null);
     setIsOpen((current) => !current);
   };
@@ -628,31 +571,6 @@ export function ModelPickerPopover({
       topPx: resolveModelDetailsTop(rowRect, popoverRect),
     });
   };
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handleViewportChange = (): void => {
-      const nextPlacement = resolvePlacement();
-      setHoveredModel(null);
-      setPlacement((currentPlacement) =>
-        isSamePlacement(currentPlacement, nextPlacement)
-          ? currentPlacement
-          : nextPlacement,
-      );
-    };
-
-    window.addEventListener("resize", handleViewportChange);
-    window.addEventListener("scroll", handleViewportChange, true);
-
-    return () => {
-      window.removeEventListener("resize", handleViewportChange);
-      window.removeEventListener("scroll", handleViewportChange, true);
-    };
-  }, [isOpen]);
-
   return (
     <div ref={popoverRef} className="relative min-w-0 max-w-full">
       {/* Trigger Button */}
@@ -687,20 +605,22 @@ export function ModelPickerPopover({
               ref={popoverContentRef}
               className="fixed z-50"
               style={{
-                top: placement.topPx ?? undefined,
-                bottom: placement.bottomPx ?? undefined,
-                left: placement.leftPx,
-                width: `${placement.widthPx}px`,
+                ...popoverPosition,
                 maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
               }}
             >
           <div
             data-testid="model-picker-popover"
-            className="ui-surface-popover flex max-h-96 flex-col overflow-hidden"
+            className="ui-surface-popover flex min-h-0 max-h-96 flex-col overflow-hidden"
+            style={{
+              maxHeight: popoverPosition.maxHeight === undefined
+                ? undefined
+                : `min(24rem, ${popoverPosition.maxHeight}px)`,
+            }}
           >
             {!isLoading && (
               <>
-                <div className="border-b border-neutral-800 p-2">
+                <div className="shrink-0 border-b border-neutral-800 p-2">
                   <div className="relative flex-1">
                     <Search
                       size={15}
@@ -724,15 +644,18 @@ export function ModelPickerPopover({
 
             {/* Provider Groups */}
             <div
-              className={`flex flex-1 flex-col overflow-hidden ${
-                isLoading ? "min-h-[12rem]" : ""
-              }`}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              style={isLoading ? {
+                minHeight: popoverPosition.maxHeight === undefined
+                  ? "12rem"
+                  : `min(12rem, ${popoverPosition.maxHeight}px)`,
+              } : undefined}
             >
               {isLoadingModelsInline && (
                 <div
                   role="status"
                   aria-live="polite"
-                  className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
+                  className="shrink-0 border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
                 >
                   {modelLoadingLabel}
                 </div>
@@ -740,7 +663,7 @@ export function ModelPickerPopover({
               <div
                 data-testid="model-picker-model-list"
                 onScroll={() => setHoveredModel(null)}
-                className={`overflow-y-auto flex-1 ${
+                className={`min-h-0 overflow-y-auto flex-1 ${
                   isLoading ? "flex items-center justify-center" : ""
                 }`}
               >
@@ -946,7 +869,7 @@ export function ModelPickerPopover({
               </div>
               {hasMoreSelectedProviderModels &&
                 canLoadMoreSelectedProviderModels && (
-                  <div className="border-t border-neutral-800 p-2">
+                  <div className="shrink-0 border-t border-neutral-800 p-2">
                     <button
                       type="button"
                       onMouseDown={(event) => event.stopPropagation()}
@@ -965,7 +888,7 @@ export function ModelPickerPopover({
                   </div>
                 )}
               {!isLoading ? (
-                <div className="flex items-center justify-between border-t border-neutral-800 p-2">
+                <div className="flex shrink-0 items-center justify-between border-t border-neutral-800 p-2">
                   <button
                     type="button"
                     onClick={() => {

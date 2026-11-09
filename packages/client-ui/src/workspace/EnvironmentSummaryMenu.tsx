@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -24,6 +23,7 @@ import type {
   RepositoryReadRepository,
 } from "@legioncode/sdk";
 import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
+import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 import { cn } from "../classnames.js";
 import type { ChatImagePreview } from "../conversation/ChatImageGallery.js";
 
@@ -558,78 +558,4 @@ function SummaryButton({
       {chevron ? <ChevronDown size={15} className="text-zinc-500" /> : null}
     </button>
   );
-}
-
-export function useViewportPopoverPosition(
-  isOpen: boolean,
-  triggerRef: RefObject<HTMLElement | null>,
-  panelRef: RefObject<HTMLElement | null>,
-  {
-    align = "end",
-    placement = "below",
-  }: {
-    align?: "start" | "end";
-    placement?: "above" | "below";
-  } = {},
-): CSSProperties {
-  const [position, setPosition] = useState<CSSProperties>({
-    position: "fixed",
-    left: 0,
-    top: 0,
-    visibility: "hidden",
-  });
-
-  useLayoutEffect(() => {
-    if (!isOpen) return;
-    const updatePosition = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
-      const panel = panelRef.current?.getBoundingClientRect();
-      if (!trigger || !panel) return;
-
-      const left = Math.max(
-        8,
-        Math.min(
-          align === "start" ? trigger.left : trigger.right - panel.width,
-          window.innerWidth - panel.width - 8,
-        ),
-      );
-      const below = trigger.bottom + 8;
-      const above = trigger.top - panel.height - 8;
-      const top =
-        placement === "above"
-          ? Math.max(
-              8,
-              Math.min(
-                above >= 8 ? above : below,
-                Math.max(8, window.innerHeight - panel.height - 8),
-              ),
-            )
-          : below + panel.height <= window.innerHeight - 8
-            ? below
-            : Math.max(8, above);
-      setPosition({
-        position: "fixed",
-        left,
-        top,
-        maxHeight: Math.max(0, window.innerHeight - 16),
-        visibility: "visible",
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(updatePosition);
-    if (panelRef.current) resizeObserver?.observe(panelRef.current);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-      resizeObserver?.disconnect();
-    };
-  }, [align, isOpen, panelRef, placement, triggerRef]);
-
-  return position;
 }

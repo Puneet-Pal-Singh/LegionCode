@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import type { RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileCode2, ImagePlus, Plus, Sparkles } from "lucide-react";
-import { useViewportPopoverPosition } from "../workspace/EnvironmentSummaryMenu.js";
+import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 
 interface ChatComposerPlusMenuProps {
   mode: RunMode;

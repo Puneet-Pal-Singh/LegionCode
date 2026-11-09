@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -11,6 +11,8 @@ import {
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
 import { cn } from "../classnames.js";
 import { FullAccessConfirmation } from "./FullAccessConfirmation.js";
+import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
+import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 
 interface PermissionModeControlProps {
   value: ProductMode;
@@ -86,55 +88,18 @@ export function PermissionModeControl({
   const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
   const fullAccessAvailable = !availableModes || availableModes.includes(PRODUCT_MODES.FULL_AGENT);
   const isConfirmationVisible = isConfirmationOpen && !disabled && fullAccessAvailable;
-  const [menuStyle, setMenuStyle] = useState<{
-    top: number | null;
-    bottom: number | null;
-    left: number;
-  }>({ top: null, bottom: 16, left: 16 });
-
-  const updateMenuPosition = useCallback(() => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const width = Math.min(304, window.innerWidth - 32);
-    const left = Math.min(
-      Math.max(16, rect.left),
-      Math.max(16, window.innerWidth - width - 16),
-    );
-    setMenuStyle(
-      menuPlacement === "below"
-        ? { top: rect.bottom + 8, bottom: null, left }
-        : {
-            top: null,
-            bottom: Math.max(16, window.innerHeight - rect.top + 8),
-            left,
-          },
-    );
-  }, [menuPlacement]);
-
-  useEffect(() => {
-    const frame = isMenuOpen
-      ? requestAnimationFrame(updateMenuPosition)
-      : undefined;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        !containerRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    return () => {
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      document.removeEventListener("mousedown", handleClickOutside);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [isMenuOpen, updateMenuPosition]);
+  const menuStyle = useViewportPopoverPosition(
+    isMenuOpen,
+    controlButtonRef,
+    menuRef,
+    { align: "start", placement: menuPlacement, viewportPadding: 16 },
+  );
+  const closeMenu = useCallback(() => setIsOpen(false), []);
+  const dismissRefs = useMemo(() => [menuRef], []);
+  useOutsideDismiss(containerRef, isMenuOpen, closeMenu, {
+    additionalRefs: dismissRefs,
+    escapeFocusRef: controlButtonRef,
+  });
 
   useEffect(() => {
     if (
@@ -223,12 +188,8 @@ export function PermissionModeControl({
             <div
               ref={menuRef}
               role="menu"
-              className="ui-surface-popover fixed z-50 w-[19rem] p-1.5"
-              style={{
-                top: menuStyle.top ?? undefined,
-                bottom: menuStyle.bottom ?? undefined,
-                left: menuStyle.left,
-              }}
+              className="ui-surface-popover fixed z-50 w-[19rem] max-w-[calc(100vw-32px)] overflow-y-auto p-1.5"
+              style={menuStyle}
               data-testid="permission-mode-menu"
             >
               {PERMISSION_MODE_OPTIONS.map((option) => {
@@ -252,6 +213,9 @@ export function PermissionModeControl({
                         return;
                       }
                       onChange(option.value);
+                      if (!controlButtonRef.current?.disabled) {
+                        controlButtonRef.current?.focus();
+                      }
                     }}
                     disabled={disabled || !available}
                     title={available ? undefined : "Unavailable in this environment"}
