@@ -671,14 +671,14 @@ function SettingsConnectPanel({
             connectedProviders.map((provider, index) => (
               <div
                 key={provider.providerId}
-                className={`flex min-h-20 items-center justify-between gap-4 px-5 py-4 ${
+                className={`flex min-h-20 flex-wrap items-center justify-between gap-4 px-5 py-4 ${
                   index > 0 ? "border-t border-zinc-800/70" : ""
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-[min(100%,12rem)] flex-1 items-center gap-3">
                   <ProviderIcon providerId={provider.providerId} />
-                  <div className="flex min-w-0 items-center gap-2">
-                    <p className="truncate text-sm font-medium text-zinc-100">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="max-w-full truncate text-sm font-medium text-zinc-100">
                       {provider.displayName}
                     </p>
                     <span className="rounded border border-zinc-700 bg-zinc-800/70 px-1.5 py-0.5 text-xs text-zinc-400">
@@ -695,7 +695,7 @@ function SettingsConnectPanel({
                     disconnectingCredentialId ===
                     providerCredentialKey(provider.credential)
                   }
-                  className="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ml-auto shrink-0 rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {disconnectingCredentialId ===
                   providerCredentialKey(provider.credential)
@@ -721,14 +721,14 @@ function SettingsConnectPanel({
             availableProviders.map((provider, index) => (
               <div
                 key={provider.providerId}
-                className={`flex min-h-20 items-center justify-between gap-4 px-5 py-4 ${
+                className={`flex min-h-20 flex-wrap items-center justify-between gap-4 px-5 py-4 ${
                   index > 0 ? "border-t border-zinc-800/70" : ""
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-[min(100%,12rem)] flex-1 items-center gap-3">
                   <ProviderIcon providerId={provider.providerId} />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-100">
+                    <p className="text-sm font-medium text-zinc-100 [overflow-wrap:anywhere]">
                       {provider.displayName}
                     </p>
                     <p className="mt-1 truncate text-sm text-zinc-500">
@@ -740,7 +740,7 @@ function SettingsConnectPanel({
                 <button
                   type="button"
                   onClick={() => onOpenConnectView(provider.providerId)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-zinc-800"
+                  className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-zinc-800"
                 >
                   <Plus size={14} />
                   Connect
