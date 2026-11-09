@@ -654,7 +654,7 @@ export function ModelPickerPopover({
   }, [isOpen]);
 
   return (
-    <div ref={popoverRef} className="relative">
+    <div ref={popoverRef} className="relative min-w-0 max-w-full">
       {/* Trigger Button */}
       <button
         ref={triggerButtonRef}
@@ -662,7 +662,7 @@ export function ModelPickerPopover({
         disabled={disabled}
         onClick={disabled ? undefined : handleToggle}
         className={`
-          inline-flex h-8 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-lg
+          inline-flex h-8 min-w-0 max-w-[min(18rem,100%,calc(100vw-6rem))] items-center gap-2 rounded-lg
           px-2 text-sm font-medium text-neutral-400
           transition-colors hover:bg-neutral-800/70 hover:text-neutral-100
           focus:outline-none focus:ring-1 focus:ring-zinc-400

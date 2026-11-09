@@ -34,6 +34,7 @@ import type { ContextBudgetSnapshot, UsageCostSnapshot } from "@legioncode/sdk";
 import {
   ChatComposerContextControl,
   ChatComposerPermissionControl,
+  ChatComposerToolbar,
 } from "./ChatComposerStatusControls.js";
 import { MarkdownMessageContent } from "./chat-message/MessageContent.js";
 import {
@@ -827,10 +828,8 @@ export function ChatInputBar({
             </p>
           ) : null}
           {providerNotice}
-          {/* Toolbar */}
-          <div className="mt-2 flex min-w-0 items-center justify-between gap-2 pt-2">
-            {/* Left: Add button + Model picker */}
-            <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
+          <ChatComposerToolbar
+            addControl={
               <ChatComposerPlusMenu
                 mode={mode}
                 availableModes={availableModes}
@@ -840,12 +839,11 @@ export function ChatInputBar({
                 onAttachImages={() => { if (attachmentsAvailable) imageInputRef.current?.click(); }}
                 onAddRepositoryContext={insertMentionTrigger}
               />
-
-              <div className="h-3.5 w-px bg-zinc-700/80" />
-
-              {renderModelPicker?.(() =>
-                showSwitchWarning(IDLE_SWITCH_WARNING),
-              )}
+            }
+            modelPicker={renderModelPicker?.(() =>
+              showSwitchWarning(IDLE_SWITCH_WARNING),
+            )}
+            permissionControl={
               <ChatComposerPermissionControl
                 key={sessionId}
                 value={permissionMode}
@@ -854,38 +852,37 @@ export function ChatInputBar({
                 onChange={onPermissionModeChange}
                 disabled={isComposerActiveRun || isHidden}
               />
-
-              {providerQuota}
-            </div>
-
-            {/* Attachment and voice actions stay hidden until they trigger real flows. */}
-            <div className="flex shrink-0 items-center gap-1.5">
-              {showContextWindowUsage ? (
-                <ChatComposerContextControl
-                  budget={contextBudget}
-                  usage={usage}
-                  onCompact={onCompact}
-                  onOpenDetails={onContextOpen}
+            }
+            providerQuota={providerQuota}
+            actions={
+              <>
+                {showContextWindowUsage ? (
+                  <ChatComposerContextControl
+                    budget={contextBudget}
+                    usage={usage}
+                    onCompact={onCompact}
+                    onOpenDetails={onContextOpen}
+                  />
+                ) : null}
+                <ComposerSubmitControls
+                  isActive={isComposerActiveRun}
+                  canResume={submissionAvailable && canResume && !canSubmit}
+                  onResume={onResume}
+                  canSubmit={canSubmit}
+                  canSendMessage={canSendMessage}
+                  canStop={shouldShowStop}
+                  followUpAvailable={
+                    submissionAvailable && onFollowUpSubmit !== undefined && !hasReviewComments
+                  }
+                  preferences={composerPreferences}
+                  modifierShortcutLabel={modifierShortcutLabel}
+                  onSend={() => void submitComposer()}
+                  onFollowUp={(delivery) => void submitComposer(delivery)}
+                  onStop={onStop}
                 />
-              ) : null}
-              <ComposerSubmitControls
-                isActive={isComposerActiveRun}
-                canResume={submissionAvailable && canResume && !canSubmit}
-                onResume={onResume}
-                canSubmit={canSubmit}
-                canSendMessage={canSendMessage}
-                canStop={shouldShowStop}
-                followUpAvailable={
-                  submissionAvailable && onFollowUpSubmit !== undefined && !hasReviewComments
-                }
-                preferences={composerPreferences}
-                modifierShortcutLabel={modifierShortcutLabel}
-                onSend={() => void submitComposer()}
-                onFollowUp={(delivery) => void submitComposer(delivery)}
-                onStop={onStop}
-              />
-            </div>
-          </div>
+              </>
+            }
+          />
         </div>
       </form>
       {providerDialog}
