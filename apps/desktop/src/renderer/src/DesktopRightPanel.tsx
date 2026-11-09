@@ -225,9 +225,10 @@ export function DesktopRightPanel({
   );
   return (
     <>
+      {/* Keep pane chrome above the topbar and below app dialogs; expanded review is a sibling. */}
       <aside
         aria-label="Workspace files and review"
-        className="relative flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-[#111113] text-zinc-200"
+        className="relative isolate z-30 flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800 bg-[#111113] text-zinc-200"
       >
         {onResize ? <Resizer side="right" onResize={onResize} /> : null}
         <WorkspaceSidebarHeader
