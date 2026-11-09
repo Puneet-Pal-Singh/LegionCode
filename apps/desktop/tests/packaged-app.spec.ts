@@ -350,11 +350,13 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     const wideLayout = await wideProviderButton.evaluate((element) => ({
       display: getComputedStyle(element).display,
       columns: getComputedStyle(element).gridTemplateColumns,
+      rootFontSize: getComputedStyle(document.documentElement).fontSize,
     }));
     expect(wideLayout.display).toBe("grid");
+    expect(wideLayout.rootFontSize).toBe("13px");
     const wideTracks = wideLayout.columns.trim().split(/\s+/);
     expect(wideTracks).toHaveLength(2);
-    expect(Number.parseFloat(wideTracks[0]!)).toBe(32);
+    expect(Number.parseFloat(wideTracks[0]!)).toBe(26);
     expect(Number.parseFloat(wideTracks[1]!)).toBeGreaterThan(0);
     await providersDialog.getByRole("heading", { name: "Providers", exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("provider-setup-wide.png"), fullPage: true });
@@ -366,12 +368,14 @@ test("the packaged Desktop app stores a shared-catalog provider credential in OS
     const narrowLayout = await narrowProviderButton.evaluate((element) => ({
       display: getComputedStyle(element).display,
       columns: getComputedStyle(element).gridTemplateColumns,
+      rootFontSize: getComputedStyle(document.documentElement).fontSize,
     }));
     await page.screenshot({ path: testInfo.outputPath("provider-setup-narrow.png"), fullPage: true });
     expect(narrowLayout.display).toBe("grid");
+    expect(narrowLayout.rootFontSize).toBe("13px");
     const narrowTracks = narrowLayout.columns.trim().split(/\s+/);
     expect(narrowTracks).toHaveLength(2);
-    expect(Number.parseFloat(narrowTracks[0]!)).toBe(32);
+    expect(Number.parseFloat(narrowTracks[0]!)).toBe(26);
     expect(Number.parseFloat(narrowTracks[1]!)).toBeGreaterThan(0);
     await providersDialog.getByRole("heading", { name: "Providers", exact: true }).scrollIntoViewIfNeeded();
     const narrowOverflow = await page.evaluate(() =>
