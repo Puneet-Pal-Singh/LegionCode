@@ -327,7 +327,7 @@ export function SharedSettingsDialog({
           className="ui-surface-modal relative flex h-[82vh] w-full max-w-6xl overflow-hidden font-sans"
           onClick={(event) => event.stopPropagation()}
         >
-          <aside className="ui-sidebar-surface relative z-10 flex w-32 shrink-0 flex-col border-r px-2 py-5 sm:w-72 sm:px-5">
+          <aside className="ui-sidebar-surface relative z-10 flex min-h-0 w-32 shrink-0 flex-col overflow-y-auto border-r px-2 py-5 sm:w-72 sm:px-5">
             <div className="mb-4 text-sm font-semibold text-zinc-200">
               Settings
             </div>
