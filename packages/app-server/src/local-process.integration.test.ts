@@ -35,7 +35,7 @@ const temporaryDirectories: string[] = [];
 const fixtureMetadataDirectories = new Map<string, string>();
 
 afterEach(async () => {
-  await Promise.all(liveServers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  await Promise.all(liveServers.splice(0).map((server) => server.requestShutdown()));
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
   fixtureMetadataDirectories.clear();
   vi.restoreAllMocks();
@@ -495,7 +495,7 @@ async function start(storageDirectory: string) {
 }
 
 async function close(server: Awaited<ReturnType<typeof createLocalAppServer>>) {
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  await server.requestShutdown();
   const index = liveServers.indexOf(server);
   if (index >= 0) liveServers.splice(index, 1);
 }
