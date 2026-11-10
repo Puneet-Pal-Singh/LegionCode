@@ -32,3 +32,46 @@ export type {
   ThreadInputMutation,
   ThreadInputRepository,
 } from "./thread-inputs/types.js";
+export {
+  HarnessPersistenceError,
+  StoredHarnessOpeningSchema,
+  assertHarnessOpeningSelection,
+  assertHarnessOpeningIntent,
+  assertHarnessOpeningOrigin,
+  validateHarnessOpeningCommand,
+  validateHarnessOpeningHistory,
+  StoredHarnessSelectionSchema,
+  StoredHarnessAttachmentSchema,
+  harnessSelectionFingerprint,
+  assertHarnessSelection,
+  assertHarnessOrigin,
+  assertHarnessAttachmentChange,
+  validateHarnessObservation,
+  assertEventScope,
+  assertLearnedExternalTurn,
+  sameHarnessOrigin,
+  fingerprintHarnessObservation,
+} from "./local/harness-bindings.js";
+export type {
+  StoredHarnessOpening,
+  ReserveHarnessOpeningInput,
+  HarnessOpeningInput,
+  HarnessOpeningReservation,
+  StoredHarnessSelection,
+  StoredHarnessAttachment,
+  StoredHarnessBinding,
+  HarnessObservationCommit,
+  HarnessObservationAck,
+  HarnessBindingRepository,
+  HarnessExecutionClaimResult,
+} from "./local/harness-bindings.js";
+
+export { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
+
+export { rethrowHarnessCommitFailure } from "./local/harness-bindings.js";
+
+export {
+  LocalHarnessControlPlane,
+  LocalHarnessControlPlaneError,
+} from "./local/harness-control-plane.js";
+export type { LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
