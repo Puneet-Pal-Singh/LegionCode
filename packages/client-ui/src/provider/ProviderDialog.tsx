@@ -26,6 +26,7 @@ import {
 } from "@repo/shared-types";
 import { ConnectProviderChooser } from "./ConnectProviderChooser.js";
 import { ManageModelsDialog } from "./ManageModelsDialog.js";
+import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
 
 /**
  * Provider Dialog Props
@@ -140,6 +141,7 @@ export function SharedProviderDialog({
     }
 
     const handleEscape = (event: KeyboardEvent): void => {
+      if (shouldIgnoreGlobalKeyDown(event)) return;
       if (event.key !== "Escape") {
         return;
       }

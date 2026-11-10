@@ -33,6 +33,7 @@ import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
 import { SettingsSwitch as Switch } from "./Switch.js";
 import { formatModelDisplayName } from "../provider/modelDisplayName.js";
 import type { ReactNode } from "react";
+import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
 
 const DISCONNECT_TOAST_DURATION_MS = 4_000;
 
@@ -125,6 +126,7 @@ export function SharedSettingsDialog({
     }
 
     const handleEscape = (event: KeyboardEvent): void => {
+      if (shouldIgnoreGlobalKeyDown(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();
@@ -141,6 +143,7 @@ export function SharedSettingsDialog({
     }
 
     const handleTabKey = (event: KeyboardEvent): void => {
+      if (shouldIgnoreGlobalKeyDown(event)) return;
       if (event.key !== "Tab") {
         return;
       }

@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { shouldIgnoreGlobalKeyDown } from "./global-keydown.js";
 
 const NO_ADDITIONAL_REFS: readonly RefObject<HTMLElement | null>[] = [];
 
@@ -31,7 +32,7 @@ export function useOutsideDismiss(
       if (
         !escapeFocusRef ||
         event.key !== "Escape" ||
-        event.defaultPrevented
+        shouldIgnoreGlobalKeyDown(event)
       ) return;
       event.preventDefault();
       event.stopPropagation();

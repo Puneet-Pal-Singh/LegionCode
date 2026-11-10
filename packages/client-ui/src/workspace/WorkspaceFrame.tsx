@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PanelLeftOpen } from "lucide-react";
+import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
 
 const COMPACT_WORKSPACE_QUERY = "(max-width: 1023px)";
 const SIDEBAR_FOCUSABLE_SELECTOR =
@@ -72,6 +73,7 @@ export function WorkspaceFrame({
     if (!isCompact || !isSidebarOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (shouldIgnoreGlobalKeyDown(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         setSidebarOpen(false);
