@@ -4,6 +4,17 @@ export interface GitWorkspaceContext {
   readonly workingBranch: string;
 }
 
+/** Observational Git reads may have no Run; a supplied ID is still validated. */
+export interface GitReadFilesystemContext {
+  readonly runId?: string;
+  readonly filesystemRoot: string;
+}
+
+export interface GitReadStatusInput {
+  readonly runId?: string;
+  readonly workspaceRoot: string;
+}
+
 export interface GitFilesystemContext {
   readonly runId: string;
   readonly filesystemRoot: string;
@@ -22,7 +33,7 @@ export type GitRepositoryHead = {
 } & ({ readonly kind: "born" } | { readonly kind: "unborn" });
 
 export interface GitDiffInput {
-  readonly workspace: GitFilesystemContext;
+  readonly workspace: GitReadFilesystemContext;
   readonly paths: readonly string[];
   readonly staged: boolean;
 }
@@ -47,12 +58,12 @@ export interface GitFileLineCount {
 }
 
 export interface GitFileLineCountsInput {
-  readonly workspace: GitFilesystemContext;
+  readonly workspace: GitReadFilesystemContext;
   readonly paths: readonly string[];
 }
 
 export interface GitUntrackedFileInput {
-  readonly workspace: GitFilesystemContext;
+  readonly workspace: GitReadFilesystemContext;
   readonly path: string;
 }
 
@@ -218,7 +229,7 @@ export type GitChangedFileStatus =
   | "untracked";
 
 export interface GitService {
-  getStatus(input: GitStatusInput): Promise<GitStatusResult>;
+  getStatus(input: GitReadStatusInput): Promise<GitStatusResult>;
   getDiff(input: GitDiffInput): Promise<GitDiffResult>;
   getFileLineCounts(
     input: GitFileLineCountsInput,

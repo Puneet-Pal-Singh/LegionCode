@@ -34,6 +34,9 @@ import type {
   GitFetchInput,
   GitFileLineCount,
   GitFileLineCountsInput,
+  GitFilesystemContext,
+  GitReadFilesystemContext,
+  GitReadStatusInput,
   GitPatchCaptureResult,
   GitPullInput,
   GitPushInput,
@@ -77,8 +80,8 @@ export class DefaultGitService {
     return readGitRepositoryHead(this.executor, input);
   }
 
-  async getStatus(input: GitStatusInput): Promise<GitStatusResult> {
-    const runId = RunIdSchema.parse(input.runId);
+  async getStatus(input: GitReadStatusInput): Promise<GitStatusResult> {
+    const runId = readRunId(input.runId);
     const workspaceRoot = validateWorkspaceRoot(input.workspaceRoot);
     const result = await this.executor.execute({
       runId,
@@ -99,7 +102,7 @@ export class DefaultGitService {
   }
 
   async getDiff(input: GitDiffInput): Promise<GitDiffResult> {
-    const runId = RunIdSchema.parse(input.workspace.runId);
+    const runId = readRunId(input.workspace.runId);
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths =
       input.paths.length > 0 ? validateExplicitRepoPaths(input.paths) : [];
@@ -134,7 +137,7 @@ export class DefaultGitService {
   async getFileLineCounts(
     input: GitFileLineCountsInput,
   ): Promise<readonly GitFileLineCount[]> {
-    const runId = RunIdSchema.parse(input.workspace.runId);
+    const runId = readRunId(input.workspace.runId);
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const counts = new Map<string, Omit<GitFileLineCount, "path">>();
@@ -166,7 +169,7 @@ export class DefaultGitService {
     input: GitUntrackedFileInput,
   ): Promise<GitUntrackedFileDiffResult | null> {
     const path = validateRepoRelativePath(input.path);
-    const result = await this.executeGit(input.workspace, [
+    const result = await this.executeReadGit(input.workspace, [
       "ls-files",
       "--others",
       "--exclude-standard",
@@ -176,7 +179,7 @@ export class DefaultGitService {
     if (result.exitCode !== 0 || !hasExactPath(result.stdout, path)) {
       return null;
     }
-    const diffResult = await this.executeGit(input.workspace, [
+    const diffResult = await this.executeReadGit(input.workspace, [
       "diff",
       "--binary",
       "--no-index",
@@ -520,12 +523,12 @@ export class DefaultGitService {
 
   private async mergeNumstat(
     workspaceRoot: string,
-    runId: string,
+    runId: string | undefined,
     counts: Map<string, Omit<GitFileLineCount, "path">>,
     args: readonly string[],
   ): Promise<void> {
     const result = await this.executor.execute({
-      runId: RunIdSchema.parse(runId),
+      runId: readRunId(runId),
       cwd: workspaceRoot,
       args,
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
@@ -539,7 +542,7 @@ export class DefaultGitService {
     workspace: GitFileLineCountsInput["workspace"],
     path: string,
   ): Promise<number | null> {
-    const result = await this.executeGit(workspace, [
+    const result = await this.executeReadGit(workspace, [
       "ls-files",
       "--others",
       "--exclude-standard",
@@ -549,7 +552,7 @@ export class DefaultGitService {
     if (result.exitCode !== 0 || !hasExactPath(result.stdout, path)) {
       return null;
     }
-    const countResult = await this.executeGit(workspace, [
+    const countResult = await this.executeReadGit(workspace, [
       "diff",
       "--no-index",
       "--numstat",
@@ -666,7 +669,7 @@ export class DefaultGitService {
   }
 
   private async executeRequired(
-    workspace: GitFileLineCountsInput["workspace"],
+    workspace: GitFilesystemContext,
     args: readonly string[],
     environment?: Readonly<Record<string, string>>,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -682,12 +685,23 @@ export class DefaultGitService {
   }
 
   private async executeGit(
-    workspace: GitFileLineCountsInput["workspace"],
+    workspace: GitFilesystemContext,
+    args: readonly string[],
+    environment?: Readonly<Record<string, string>>,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    // Preserve the required identity boundary for all existing scoped operations.
+    return this.executeReadGit({
+      ...workspace, runId: RunIdSchema.parse(workspace.runId),
+    }, args, environment);
+  }
+
+  private async executeReadGit(
+    workspace: GitReadFilesystemContext,
     args: readonly string[],
     environment?: Readonly<Record<string, string>>,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     return await this.executor.execute({
-      runId: RunIdSchema.parse(workspace.runId),
+      runId: readRunId(workspace.runId),
       cwd: validateWorkspaceRoot(workspace.filesystemRoot),
       args,
       environment,
@@ -908,4 +922,9 @@ function validateGitAuthEnvironment(
     );
   }
   return environment;
+}
+
+/** Only explicit read contexts may omit Run correlation. */
+function readRunId(runId: string | undefined) {
+  return runId === undefined ? undefined : RunIdSchema.parse(runId);
 }
