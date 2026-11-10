@@ -1850,3 +1850,8 @@ uses an explicit private fatal reason and retains the process and owners. The
 Desktop supervisor owns validated IPC, child/transport retention and exit
 observation; neither the public SDK nor renderer receives this control. Pending
 fatal exit status remains sticky across repeated normal shutdown requests.
+
+A private closed receipt is sent only after the same positive physical and
+SQLite closure barrier, before process exit. Exit observation alone is not this
+receipt. A shutdown request also prevents a late listen callback from publishing
+readiness; the supervisor binds receipts to its actual child instance.

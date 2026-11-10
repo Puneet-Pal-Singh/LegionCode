@@ -39,6 +39,7 @@ export type LocalAppServerStartConfig = {
 
 export type LocalAppServerMessage =
   | { type: "ready"; baseUrl: string }
+  | { type: "closed" }
   | { type: "fatal"; reason?: "runtime-shutdown-failed" };
 
 /** Private utility-process control, never an HTTP or renderer capability. */
@@ -148,11 +149,17 @@ export async function runLocalAppServerProcess(
     type: "fatal", reason: "runtime-shutdown-failed",
   }));
   let finalExitCode = 0;
+  let stopRequested = false;
   let exitAfterClosed: Promise<void> | undefined;
   const exitAfterSettlement = (exitCode: number): Promise<void> => {
+    stopRequested = true;
     if (exitCode !== 0) finalExitCode = 1;
     const closed = server.requestShutdown();
-    exitAfterClosed ??= closed.then(() => { process.exit(finalExitCode); }, () => undefined);
+    exitAfterClosed ??= closed.then(() => {
+      // Physical closure receipt is separate from observing child process exit.
+      try { parentPort.postMessage({ type: "closed" }); }
+      finally { process.exit(finalExitCode); }
+    }, () => undefined);
     return closed;
   };
   server.once("error", () => {
@@ -161,6 +168,7 @@ export async function runLocalAppServerProcess(
   });
   process.on("SIGTERM", () => exitAfterSettlement(0));
   server.listen(0, "127.0.0.1", () => {
+    if (stopRequested) return;
     const address = server.address();
     if (!address || typeof address === "string") {
       parentPort.postMessage({ type: "fatal" });
