@@ -19,6 +19,11 @@ import type { LocalProviderService } from "../local-providers.js";
 import { LocalThreadNotFoundError, type LocalThreadService } from "../local-threads.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 
+// Private Node entry for the process owner; never a renderer/protocol export.
+export type { LocalHarnessBackend, LocalHarnessInitializationResult } from "./LocalHarnessRestart.js";
+export { LocalHarnessRecoveryError } from "./LocalTurnService.js";
+export type { LocalHarnessShutdownResult } from "./LocalTurnService.js";
+
 type HostConfiguration = Omit<Parameters<typeof createHarnessHost>[0], "workspaceRoot">;
 type ConfigureHost = (command: Parameters<HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>;
 
