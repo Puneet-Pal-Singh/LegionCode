@@ -1490,14 +1490,22 @@ Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
 
-## Plan 057 — Canonical local text request byte budget
+## Plan 057 — Canonical local request byte budgets
 
 The existing local HTTP reader enforces the protocol-exported 256 KiB request
 budget after authentication and before schema validation/dispatch. This replaces
 its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
 envelope. Timeouts, response limits, prompt validation and uncertain-delivery
-semantics retain their existing owners. Image-specific opt-in capacity and local
-media composition are separate changes; this budget enables no execution mode.
+semantics retain their existing owners. The same protocol owner gives image-bearing
+`turn/start` envelopes a bounded opt-in budget: four images and at most 10 MiB
+decoded in aggregate, with base64 expansion plus the text envelope budget. The SDK
+sets the private opt-in only for authenticated loopback transport; the local HTTP
+reader authenticates before accepting that capacity, then requires the canonical
+start schema and an image-bearing method before dispatch. Other methods keep the
+text budget. The start contract reuses canonical image/text-presence validation
+and may carry an expected provider/model assertion; actual media normalization,
+quota, immutable storage, provider-route checks and runtime admission remain with
+their composed owners. These request contracts enable no execution mode.
 
 ## Plan 057 — Local approval command adapter
 
