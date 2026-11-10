@@ -1765,6 +1765,9 @@ Saved selection and preference reads validate structure and supported-provider
 identity without catalog access. Preference updates validate only introduced
 model references through the same discovery service; unchanged or removed saved
 references remain recoverable during outages.
+The shared catalog's static refresh reuses the same declared-model helper as
+static reads and returns the existing refresh DTO without adapter discovery,
+credential resolution or provider API calls.
 
 ProtectedProviderInference requires the admitted discovered model identity and
 uses the canonical provider route resolver with the protected connection config.
