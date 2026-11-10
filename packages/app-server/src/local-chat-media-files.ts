@@ -4,9 +4,8 @@ import { isAbsolute, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   LOCAL_CHAT_MEDIA_LIMITS, LocalChatMediaError, mediaDigest, mediaScopeKey,
-  verifyMediaRecord, type LocalChatMediaRecord, type LocalDecodedChatImage,
+  verifyMediaRecord, type LocalChatMediaRecord, type LocalDecodedChatImage, type LocalChatMediaStoredScope,
 } from "./local-chat-media-records.js";
-import type { LocalTurnMediaScope } from "./local-turn-media.js";
 
 export const MAX_MANIFEST_BYTES = 32 * 1024;
 type Identity = { dev: bigint; ino: bigint };
@@ -27,7 +26,7 @@ export class LocalChatMediaFiles {
   }
 
   async ready(): Promise<void> { await this.withRoot(async () => undefined); }
-  async hasBatch(scope: LocalTurnMediaScope): Promise<boolean> {
+  async hasBatch(scope: LocalChatMediaStoredScope): Promise<boolean> {
     return this.withRoot(async () => (await this.readRecordIfPresent(join(this.root, mediaScopeKey(scope)), scope)) !== null);
   }
   async verify(record: LocalChatMediaRecord): Promise<void> {
@@ -39,7 +38,7 @@ export class LocalChatMediaFiles {
       await this.assertRoot(parent);
     });
   }
-  async hasStage(scope: LocalTurnMediaScope): Promise<boolean> {
+  async hasStage(scope: LocalChatMediaStoredScope): Promise<boolean> {
     try { await lstat(this.stage(scope)); return true; }
     catch (error) { if (hasCode(error, "ENOENT")) return false; throw error; }
   }
@@ -153,9 +152,9 @@ export class LocalChatMediaFiles {
     });
   }
 
-  private stage(scope: LocalTurnMediaScope): string { return join(this.root, `.pending-${mediaScopeKey(scope)}`); }
+  private stage(scope: LocalChatMediaStoredScope): string { return join(this.root, `.pending-${mediaScopeKey(scope)}`); }
 
-  async read(scope: LocalTurnMediaScope, attachmentId: string): Promise<{
+  async read(scope: LocalChatMediaStoredScope, attachmentId: string): Promise<{
     record: LocalChatMediaRecord; image: LocalChatMediaRecord["images"][number]; bytes: Uint8Array;
   }> {
     return this.withRoot(async (parent) => {
@@ -176,7 +175,7 @@ export class LocalChatMediaFiles {
       if (bytes.byteLength !== image.reference.byteSize || mediaDigest(bytes) !== image.sha256) throw unavailable();
     }
   }
-  private async readRecordIfPresent(directory: string, scope: LocalTurnMediaScope): Promise<LocalChatMediaRecord | null> {
+  private async readRecordIfPresent(directory: string, scope: LocalChatMediaStoredScope): Promise<LocalChatMediaRecord | null> {
     let handle: FileHandle;
     try { handle = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
     catch (error) { if (hasCode(error, "ENOENT")) return null; throw unavailable(); }

@@ -2410,3 +2410,26 @@ preparation label or new receipt is substituted for surviving-child exclusion.
 - Completion-triggered queue reconciliation is registered with the existing preparation tracker before its first await, because the released executor is already removed. Shutdown drains this original operation before persistence closes. Receipt retries check the canonical stored delivery before requiring a still-active executor. Native inbox startup applies the same opaque delegated-owner boundary as its lifecycle projection.
 
 - Canonical terminal projection pauses queued advancement for both accepted-but-unapplied inputs and targeted pending/claimed inputs with no authoritative delivery receipt. It preserves the exact inbox row and never invents an accepted sequence or silently retries unknown delivery.
+## Plan 057 — Queued input media ownership
+
+The existing LocalChatMediaStore owns queued original image bytes in the same
+private files and resource journal, with the same codec and bounded image/count,
+pending-byte and concurrent-I/O limits. Version-one Turn manifests, attachment
+identities and paths remain unchanged. Queued manifests bind actual canonical
+user/workspace/thread/input identity and immutable mediaRevision before any Run
+or Turn exists. Mutable queue metadata/receipt versions do not rename that batch.
+
+The existing SQLite queue owner supplies exact scope/fingerprint/reference
+lookups, including consumed history. Startup and pending cleanup use those actual
+receipts; missing lookup, conflicting or unknown ownership retains resources.
+Promotion verifies original bytes and current canonical queue ownership before
+and after reads and before/after publication into the actual Native Turn scope.
+Active steering borrows normalized provider images only after the same checks;
+no inline pixels become queue columns or lifecycle payloads.
+
+The existing authenticated image-request opt-in recognizes only image-bearing
+start, steer, enqueue and update methods under its unchanged byte limit. SDK and
+Desktop already consume that shared helper. Queue claims, durable publication,
+Native safe points and the constructor lookup wiring remain the existing queue
+and runtime owners' integration responsibility; this media leaf alone does not
+advertise queue or steering availability.
