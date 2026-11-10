@@ -1,0 +1,164 @@
+{
+  "source": "3d306c43a9a9f49ca4e1377bad51f309402606eb",
+  "parents": [
+    "15bde679e35af79d120c563e195a9346771c66b6",
+    "c8ca81d5ec9a20d46cbf2fe1fac3830875e06027"
+  ],
+  "source_status": "",
+  "changed_source_paths": [],
+  "executor": {
+    "host": "8575502e05f6",
+    "kernel": "Linux 6.18.57 x86_64",
+    "cloud": "connected/running",
+    "node": "v24.22.1",
+    "abi": "137",
+    "writable_isolated_worktree": true
+  },
+  "approved_handoffs": [
+    {
+      "sha": "2c61f920cb7ba197dfe9d564510443d657f1c2a3",
+      "manifest_sha256": "97ea115ad92803beced687c0335643cf5e3773842cdc54cef4e025892ff329b3",
+      "verified_hashes_and_lengths": 19
+    },
+    {
+      "sha": "876e496690feb6284087bfdf95110b184c9cc0f9",
+      "manifest_sha256": "c5b25ae00a3a503b3000984239cf8d3355124ff8652d4730be0c5603fe031ad8",
+      "verified_hashes_and_lengths": 19
+    }
+  ],
+  "local_process_sha256": "1f3c602ec8df2f9144cfe56679ec3104935f73968eaeae7ed5e51cc610b365a3",
+  "engine_artifact_reuse": {
+    "source": "97baba33c0f7f811edadedfc06e67184ff08a7cc",
+    "identical_package_git_tree": "cef5ded8d60fac741473ff63e07f556e2fc69ded",
+    "actual_dist_files": 768,
+    "output_inventory_sha256": "8b19e2391140094c0f1ab6f9ea2eeb3224b708d828849e870dbad72d5effcb8b",
+    "no_stubs": true
+  },
+  "native_binding": {
+    "version": "12.8.0",
+    "sha256": "acc62d357832055089d6b358e5568d8b8bbe542f250dbde06543a080dd32dc3b",
+    "bytes": 2226328
+  },
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk test -- src/platform/app-server-client.test.ts",
+      "exit_code": 0,
+      "seconds": 2.21,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-01.log",
+      "sha256": "253970963faf4ea63c670a3a3b47a87fa3f66e3b723864db1526f17704370c94"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server test -- src/protocol.test.ts",
+      "exit_code": 0,
+      "seconds": 1.58,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-02.log",
+      "sha256": "deda119c2c6fd5ef75362064c40ff742b0dc4fea6d31e1861fa827588d8ff3fe"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server build",
+      "exit_code": 0,
+      "seconds": 13.62,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-03.log",
+      "sha256": "b5dbb1a4da8cb1111c0f08409fc6d1c095802d8daa714383f454646dff2c879e"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server check-types",
+      "exit_code": 0,
+      "seconds": 13.21,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-04.log",
+      "sha256": "16f22814ad492402f44e406acd6836aa3a58db5e7db8313b1b4a79b16451589d"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk build",
+      "exit_code": 0,
+      "seconds": 7.77,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-05.log",
+      "sha256": "7f9048c33ff61df6cfb62968d028cc38cc45bc2099fedaab9623d06b2d311009"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk check-types",
+      "exit_code": 0,
+      "seconds": 7.44,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-06.log",
+      "sha256": "c7b7edf64f8afdd9020e82ef656cd3a0888b23b0fe74b41b9cafcb2eb044026d"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/desktop build",
+      "exit_code": 0,
+      "seconds": 15.79,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-07.log",
+      "sha256": "726ba9a413075a084b2b65399cf5ce79f073607c37ac0e3266bc5dfc123a09c2"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/desktop check-types",
+      "exit_code": 0,
+      "seconds": 16.57,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-08.log",
+      "sha256": "69c731cd50447d48b8ddd3c6a9d9aee448266f384ddce8d35e70a4ad520a81f3"
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exit_code": 0,
+      "seconds": 4.01,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-09.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0"
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "exit_code": 0,
+      "seconds": 0.32,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-10.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1"
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exit_code": 0,
+      "seconds": 2.64,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/check-11.log",
+      "sha256": "aeb19ccd8b1b2fab6e5e15d66b4ced37c918a825e86544aaa217415c6457c9a0"
+    },
+    {
+      "command": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm_config_cache=/workspace/work/npm-cache npm_config_devdir=/workspace/work/node-gyp corepack pnpm install --frozen-lockfile --offline --ignore-scripts --store-dir /workspace/work/pnpm-store --cache-dir /workspace/work/pnpm-cache",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/install.log",
+      "sha256": "9f60c3c51e40aed35b996c84375715c46f6e4a6d9a9304d446af10d3e564bb9d"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server test -- src/local-process.integration.test.ts",
+      "exit_code": 1,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/http.log",
+      "sha256": "4a27cd5f320facce0262e2f5f3aed8865ad2d60f7c639acae5681fc19aa2617d"
+    },
+    {
+      "command": "npm_config_devdir=/workspace/work/node-gyp corepack pnpm --store-dir /workspace/work/pnpm-store --filter @repo/event-store rebuild better-sqlite3",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/sqlite-rebuild.log",
+      "sha256": "60b6a7388d00927e6f070c47e0130454795075164e76d083d148ca057b758ba4"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server test -- src/local-process.integration.test.ts",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/http-final.log",
+      "sha256": "1eb49d48bb11c06ff030ad04e3b9796bd26791351e7fca1ce0e67dbb65afd50f"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk test",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-REPLAY-3D306-20261111/sdk-existing.log",
+      "sha256": "e96aff9c1d5f9871089f9d9d7a0d7c775c66b85f1375ed2b5fa07e60d5730d78"
+    }
+  ],
+  "case_counts": {
+    "real_http": 7,
+    "protocol": 5,
+    "targeted_sdk_app_server_client": 8,
+    "full_existing_sdk_suite": 165,
+    "existing_gate_cases": 39
+  },
+  "limits": [
+    "Initial HTTP 6/7 failed only because ignore-scripts installation lacked actual SQLite binding; pinned real rebuild and unchanged rerun passed7/7.",
+    "User expected39 SDKcases; actual full existing SDK command collected165 cases in25files, allpassed; no new cases/registrations.",
+    "Linux Node24 compile/fixture evidence; no installedMac, provider/account, realconfinement or physicalclosure acceptance.",
+    "Private process-owner review remains mergegate. No PR/deploy/sourcechanges/movingdev merges."
+  ]
+}
