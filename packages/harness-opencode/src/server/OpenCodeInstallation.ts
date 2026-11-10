@@ -1,8 +1,10 @@
 /** Product, protocol and Promise client are a single reviewed compatibility family. */
 export const OPENCODE_VERSION = "2.2.5";
 export const OPENCODE_TRANSPORT = "opencode_v2";
+// npm 2.2.5 provenance reports release.yml run 41135857908 as this source.
+// Historical research revisions and verification limits remain in the transport decision.
 export const OPENCODE_SOURCE_REVISION =
-  "76ff9a6ab25fca4b8f0f5c43e4ef12bd0c10cc3e";
+  "958f965d35ed44d32b018fd55b02a5357a7748fd";
 
 export function requireOpenCodeVersion(
   version: string,

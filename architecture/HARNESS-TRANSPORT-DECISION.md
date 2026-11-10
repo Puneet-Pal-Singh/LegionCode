@@ -288,6 +288,18 @@ research snapshots inspected on 2026-11-06, not an exhaustive security audit.
 | OpenCode v2 | `76ff9a6ab25fca4b8f0f5c43e4ef12bd0c10cc3e` | first-party ACP modules, native session/event protocol, event feed and client exports |
 | T3 Code | `291bcc392c421902cb18b2bf39023bdcae6d5cbe` | provider construction guide and native OpenCode v2 client/server |
 
+Runtime provenance clarification (2026-11-10): for the unchanged OpenCode 2.2.5
+pin, npm's [published provenance](https://registry.npmjs.org/-/npm/v1/attestations/@opencode%2fcli-linux-x64@2.2.5)
+reports source `958f965d35ed44d32b018fd55b02a5357a7748fd` from
+[release workflow run 41135857908](https://github.com/anomalyco/opencode/actions/runs/41135857908/attempts/1).
+That build source, the v2.2.5 tag `9bbb8ce18c80f099e0e448775f59d965ead40a21`
+and the earlier research snapshot above are distinct. The cached published CLI
+archive matches the existing pinned SHA-512; offline bundle cryptographic checks
+passed. Current TUF freshness was not verified: refresh failed, and the bundled
+seed root metadata expired on 2026-01-22. This clarification changes no runtime
+version, transport, artifact hash or acceptance gate; the research links remain
+historical evidence, not a claim of installed native conformance.
+
 T3 is **hybrid**: its [provider guide](https://github.com/pingdotgg/t3code/blob/291bcc392c421902cb18b2bf39023bdcae6d5cbe/docs/internals/adding-a-provider.md)
 directs ACP agents to a shared ACP adapter and other protocols to dedicated
 native adapters, with capability-driven clients. Its native OpenCode
