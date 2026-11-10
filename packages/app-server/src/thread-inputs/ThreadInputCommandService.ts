@@ -79,9 +79,14 @@ export class ThreadInputCommandService {
   }
 
   private async steer(scope: ThreadInputScope, command: InputCommand<"turn.steer">): Promise<ThreadInputCommandOutcome> {
-    const targetConflict = await this.ports.assertSteeringTarget(scope, command, command.content.images.length > 0);
-    if (targetConflict) return { statusCode: 409, result: targetConflict };
     const inputId = await canonicalThreadInputId(scope, command.clientInputId);
+    const previous = await this.ports.repository.getById({ ...scope, itemId: inputId });
+    // Reconcile a saved receipt before consulting a potentially ended executor.
+    // The original request fingerprint is still checked by enqueue below.
+    if (!isDeliveryReceipt(previous?.receipt ?? null) && previous?.receipt?.status !== "conflict") {
+      const targetConflict = await this.ports.assertSteeringTarget(scope, command, command.content.images.length > 0);
+      if (targetConflict) return { statusCode: 409, result: targetConflict };
+    }
     const media = await this.ports.prepareMedia({ scope, inputId, clientInputId: command.clientInputId, mediaRevision: 1, images: command.content.images });
     try {
       await this.ports.authorize(command);
