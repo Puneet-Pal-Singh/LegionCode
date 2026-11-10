@@ -250,7 +250,7 @@ static inline bool lc_exclude(const lc_child_intent *intent, uint64_t deadline) 
     if (!lc_pause(deadline)) return false;
   }
 }
-static inline bool lc_intent_acquire(int fd, int root_fd, int namespace_fd) {
+static inline bool lc_intent_acquire(int fd, int root_fd, int namespace_fd, bool initialize_empty) {
   struct stat root, lease, directory; uint64_t now;
   if (!lc_supported() || !lc_clock(&now) || fstat(root_fd, &root) || !S_ISDIR(root.st_mode) ||
       fstat(fd, &lease) || !S_ISREG(lease.st_mode) || lease.st_uid != geteuid() || (lease.st_mode & 0777) != 0600 ||
@@ -258,15 +258,13 @@ static inline bool lc_intent_acquire(int fd, int root_fd, int namespace_fd) {
       (directory.st_mode & 0777) != 0700) return false;
   uint64_t deadline = now + 4000; if (!lc_journal_lock(fd, deadline, false)) return false;
   bool okay = false; lc_intent_log log; memset(&log, 0, sizeof(log));
-  if (lease.st_size < (off_t)LC_INTENT_RECORD_BYTES) {
-    unsigned char prefix[LC_INTENT_RECORD_BYTES];
-    if (lease.st_size < 0 || (lease.st_size && (!lc_io(fd, prefix, (size_t)lease.st_size, 0, false) ||
-        memcmp(prefix, "LCNFI001H", (size_t)lease.st_size < 9 ? (size_t)lease.st_size : 9)))) goto out;
+  if (lease.st_size == 0) {
+    if (!initialize_empty) goto out;
     lc_child_intent header; memset(&header, 0, sizeof(header)); memcpy(header.bytes, "LCNFI001H", 9);
     lc_put64(header.bytes + 24, (uint64_t)root.st_dev); lc_put64(header.bytes + 32, (uint64_t)root.st_ino);
     lc_put64(header.bytes + 40, (uint64_t)directory.st_dev); lc_put64(header.bytes + 48, (uint64_t)directory.st_ino);
     lc_put64(header.bytes + 56, (uint64_t)lease.st_dev); lc_put64(header.bytes + 64, (uint64_t)lease.st_ino);
-    if (!lc_boot(header.bytes + 72) || ftruncate(fd, 0) || !lc_append(fd, &header, 1)) goto out;
+    if (!lc_boot(header.bytes + 72) || !lc_append(fd, &header, 1)) goto out;
   }
   if (!lc_log_read(fd, &log, true) || !lc_borrowed_header(fd, root_fd, &log.header) ||
       lc_get64(log.header.bytes + 40) != (uint64_t)directory.st_dev ||
@@ -326,7 +324,7 @@ unlock:
 /* No guessed PID-only or timestamp fallback on unsupported native APIs. */
 static inline int lc_writer_lock(int fd) { (void)fd; return 70; }
 static inline bool lc_intent_probe(void) { return false; }
-static inline bool lc_intent_acquire(int fd, int root, int directory) { (void)fd; (void)root; (void)directory; return false; }
+static inline bool lc_intent_acquire(int fd, int root, int directory, bool initialize_empty) { (void)fd; (void)root; (void)directory; (void)initialize_empty; return false; }
 static inline bool lc_borrowed_header(int fd, int root, lc_child_intent *header) { (void)fd; (void)root; (void)header; return false; }
 static inline bool lc_intent_begin(int fd, int root, pid_t child, lc_child_intent *intent) { (void)fd; (void)root; (void)child; (void)intent; return false; }
 static inline bool lc_intent_complete(int fd, const lc_child_intent *intent) { (void)fd; (void)intent; return false; }

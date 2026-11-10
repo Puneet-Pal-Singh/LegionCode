@@ -2,7 +2,8 @@
  *
  * CLI: --timeout-ms N [--term-grace-ms N] [--cwd-fd 5] [--cwd-relative PATH]
  *      [--lease-fd 6] --profile TRUSTED_SEATBELT_PROFILE -- /absolute/executable [argv...]
- * Lock-only CLI: --acquire-lease-fd 6 --root-fd 5 --namespace-fd 7.
+ * Lock-only CLI: --acquire-lease-fd 6 --root-fd 5 --namespace-fd 7
+ *                --initialize-empty 1|0 (1 only for the owner's actual O_EXCL inode).
  * --probe-writer-intent validates the actual Darwin identity/signaling ABI.
  * FD3: G releases the pipe-gated child after its started receipt; C/other bytes
  *      cancel; EOF means owner loss. FD4: trusted NDJSON v1 receipts only.
@@ -138,13 +139,18 @@ static int acquire_lease(void) {
   return lc_writer_lock(LEASE_FD);
 }
 
-static int lease_only(void) {
+static int lease_only(bool initialize_empty) {
   const char *state;
   char data[96];
   int outcome, size;
   if (!configure_pipe(STATUS_FD, true) || !set_handler(SIGPIPE, SIG_IGN)) return 64;
-  outcome = acquire_lease();
-  if (outcome == 0 && !lc_intent_acquire(LEASE_FD, ROOT_FD, NAMESPACE_FD)) outcome = 70;
+  struct stat existing;
+  if (fstat(LEASE_FD, &existing) || !S_ISREG(existing.st_mode)) outcome = 70;
+  else if (existing.st_size == 0 && !initialize_empty) outcome = 75;
+  else outcome = acquire_lease();
+  // Existing empty state is not historical child-exclusion proof. The busy
+  // result above took no new OFD lock, including during concurrent fresh init.
+  if (outcome == 0 && !lc_intent_acquire(LEASE_FD, ROOT_FD, NAMESPACE_FD, initialize_empty)) outcome = 70;
   state = outcome == 0 ? "acquired" : (outcome == 75 ? "busy" : "error");
   size = snprintf(data, sizeof(data),
     "{\"v\":2,\"event\":\"lease\",\"state\":\"%s\",\"intentVersion\":1}\n", state);
@@ -275,9 +281,11 @@ int main(int argc, char **argv) {
   sigset_t empty;
 
   if (argc == 2 && strcmp(argv[1], "--probe-writer-intent") == 0) return intent_probe();
-  if (argc == 7 && strcmp(argv[1], "--acquire-lease-fd") == 0 && strcmp(argv[2], "6") == 0 &&
+  if (argc == 9 && strcmp(argv[1], "--acquire-lease-fd") == 0 && strcmp(argv[2], "6") == 0 &&
       strcmp(argv[3], "--root-fd") == 0 && strcmp(argv[4], "5") == 0 &&
-      strcmp(argv[5], "--namespace-fd") == 0 && strcmp(argv[6], "7") == 0) return lease_only();
+      strcmp(argv[5], "--namespace-fd") == 0 && strcmp(argv[6], "7") == 0 &&
+      strcmp(argv[7], "--initialize-empty") == 0 &&
+      (strcmp(argv[8], "0") == 0 || strcmp(argv[8], "1") == 0)) return lease_only(strcmp(argv[8], "1") == 0);
 
   for (int index = 1; index < argc; ++index) {
     if (strcmp(argv[index], "--") == 0) { target = index + 1; break; }

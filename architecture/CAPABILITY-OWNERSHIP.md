@@ -2182,6 +2182,12 @@ helper closure retains the existing startup failure owner. Stable-identity struc
 and unsupported platforms remain unavailable. The same namespace/inode is retained,
 but old binaries do not produce intents: all active writer profiles must migrate
 to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
+Only the owner's actual fresh O_EXCL-created inode may initialize an empty WAL,
+through the required private --initialize-empty flag. An existing empty inode
+returns known busy before taking a new writer lock; it cannot certify legacy
+child exclusion. A partial initial header remains unverified rather than being
+rewritten. Existing complete WAL headers still undergo the same identity,
+checksum and pending-child reconciliation before any capability is exposed.
 
 A live Node owner already retains the same open description when a guardian is
 lost. This boundary addresses combined Node-host and guardian loss before target
