@@ -1,0 +1,163 @@
+{
+  "base": "3d306c43a9a9f49ca4e1377bad51f309402606eb",
+  "merge_head": "7f3105e7929c48b3e5d79f3db20d34367f3cf313",
+  "implementation_modified": false,
+  "entries": [
+    {
+      "path": "architecture/CAPABILITY-OWNERSHIP.md",
+      "conflict_regions": 1,
+      "stages": {
+        "1": {
+          "git_blob": "4fe0f76849823817baede3a81550284d36cbf308",
+          "sha256": "a86e25d35a745dcc8ec9b1c611d155ef6c2dbba374f0885a6b4890a425f86be9",
+          "bytes": 182498
+        },
+        "2": {
+          "git_blob": "5a1a667078d298274c34f6782d400dfcbb8544a9",
+          "sha256": "033f5eef66236122606b70f72543504c377ce99f59dd8e21fb9e49ed55782595",
+          "bytes": 186503
+        },
+        "3": {
+          "git_blob": "38800ad885965e5c68e6c27b88cdd972f8db7c4c",
+          "sha256": "c1d120675a0d7a720b51233356c73ed693978aeea3164786c4e47e20a3203978",
+          "bytes": 190039
+        }
+      },
+      "proposed_sha256": "768301e0c7a8708c1da8ee1f6d2fa614b93074d607d01916ff2b7f0d3bc87aaa",
+      "resolution": "retain both append-only ledger sections"
+    },
+    {
+      "path": "packages/event-store/src/local.ts",
+      "conflict_regions": 1,
+      "stages": {
+        "1": {
+          "git_blob": "2218bdeec8779043353987ce56b85c9969c04e33",
+          "sha256": "be5addfa54c472a50e47c614c008f230a71b17aa0fb3a24e4713ed36943f7c93",
+          "bytes": 40898
+        },
+        "2": {
+          "git_blob": "1769acf8c043683bdeb06e141717a19daa4352a5",
+          "sha256": "906b93f0a5238443753de3c0d7e62733f45f5304dce0e528e137d5d618df4dcb",
+          "bytes": 45828
+        },
+        "3": {
+          "git_blob": "0a21e4eb6917b5dd355462dd634e702ecf0d7ea8",
+          "sha256": "ef74bad71c97d19cd116fb8d2eb0599eb9216db2179f6940557efc4a2c37f2b3",
+          "bytes": 44841
+        }
+      },
+      "proposed_sha256": "f6e19063f3f6e68e08b7c9f276c0b9bf7ac31828a76caad6918718a7b1e60937",
+      "resolution": "incoming canonical stricter admission/producer and versioned grant parser; retain nonconflicting local opening/cancellation/retirement"
+    },
+    {
+      "path": "packages/event-store/src/local/harness-bindings.ts",
+      "conflict_regions": 1,
+      "stages": {
+        "1": null,
+        "2": {
+          "git_blob": "9091dd03644aee3b8141ecaac9a74f993d673661",
+          "sha256": "1df3a6997c3aab1a8dc477a425e631ceff9c3e44cfac62dd2c40fca40a4c07bb",
+          "bytes": 64820
+        },
+        "3": {
+          "git_blob": "1036e129cbfd1dc0007da99eaca6be6b22cc9228",
+          "sha256": "59793fdafbaa171cf64d07d4bf33bda107b7e893ccf17b17c1c2a8e032ab1243",
+          "bytes": 65067
+        }
+      },
+      "proposed_sha256": "087a624b764c7a7ae55a6f96922d8564a140e30f6b1f432d67ae9d59e9ca15f4",
+      "resolution": "incoming canonical stricter admission/producer and versioned grant parser; retain nonconflicting local opening/cancellation/retirement"
+    },
+    {
+      "path": "packages/event-store/src/local/harness-control-plane.ts",
+      "conflict_regions": 1,
+      "stages": {
+        "1": null,
+        "2": {
+          "git_blob": "6a918c6fbdbf3835f7c18aff462a3933deb55503",
+          "sha256": "3ba8a230f094dbe24ecfd5267ae154cf3f130586ff9debce68551de579724c59",
+          "bytes": 16300
+        },
+        "3": {
+          "git_blob": "176cc54989c5a9177a9b221763fbe7c01d4c97fe",
+          "sha256": "58150eeb4513d8e469bd140aed6d55198f05b1a467e6850ed0156f73c6782a9b",
+          "bytes": 15882
+        }
+      },
+      "proposed_sha256": "8db06ed5aef0bccf8541ba07224d3ebe68d7c32193da2622dce31ff24144d2e8",
+      "resolution": "incoming canonical stricter admission/producer and versioned grant parser; retain nonconflicting local opening/cancellation/retirement"
+    },
+    {
+      "path": "packages/platform-protocol/src/index.ts",
+      "conflict_regions": 1,
+      "stages": {
+        "1": {
+          "git_blob": "79a571e1fa0530da68636925ac7081ae12101484",
+          "sha256": "5d6159d6dfd1c278f36cd1d34293e8751d475e94589b050251509b75327afd9d",
+          "bytes": 18202
+        },
+        "2": {
+          "git_blob": "cdb0851fbe74c46482725685677228c6606fa520",
+          "sha256": "24beb4cdad160fa1b15926eb92c9536fb748a173488f70c68cdfc42802360d44",
+          "bytes": 19132
+        },
+        "3": {
+          "git_blob": "70007e11b2cdd0f6f96b85bbdabf6eafef5ffaf4",
+          "sha256": "860b99a7e953196ad7d3a807a77282da9b44ee74c67bea4231e32e9b5fb21ecf",
+          "bytes": 19068
+        }
+      },
+      "proposed_sha256": "ec2c6f7ead10f9d99a2b450c95fd6080593014d913b9f3b66cf84bb8c302d706",
+      "resolution": "retain local environment-ID export"
+    },
+    {
+      "path": "packages/runtime-kernel/src/RuntimeKernel.ts",
+      "conflict_regions": 1,
+      "stages": {
+        "1": {
+          "git_blob": "662ea626691bcfb8268e6cd14894bb4077f06ea8",
+          "sha256": "1165facf6712f5992923e236c0f3c9b38e9344a345000baf98a12954685da1c2",
+          "bytes": 35317
+        },
+        "2": {
+          "git_blob": "1c253e530d3f29ebd8fd3287ae239f873d3b75d9",
+          "sha256": "21beed48a003e17301550bd98dbc142b9779828786e92c926b446fb2c722d7cb",
+          "bytes": 46420
+        },
+        "3": {
+          "git_blob": "90aef62bed819915e8796e6c1f70239140a9fcad",
+          "sha256": "21a8b1f09007b0aadbd01115b159f9a84ff85424ed53798deef2dbf53625e672",
+          "bytes": 46427
+        }
+      },
+      "proposed_sha256": "9f891d86a3df75f931d8e83ae6f37502c1d7c4ef328158a85e58b9f656771a7f",
+      "resolution": "incoming canonical stricter admission/producer and versioned grant parser; retain nonconflicting local opening/cancellation/retirement"
+    },
+    {
+      "path": "packages/worker-protocol/src/harness.ts",
+      "conflict_regions": 1,
+      "stages": {
+        "1": null,
+        "2": {
+          "git_blob": "4e8175e0467fc34e2b14622d9e904258666827c4",
+          "sha256": "0d51d5c9432d12f315702838258248225c7db1ca0f0413fb3f2a995ecf85bbcb",
+          "bytes": 16338
+        },
+        "3": {
+          "git_blob": "13cf175adff48112a0ddada5a5a926556f2a86d3",
+          "sha256": "eaeb1208400bdf5547c02084787f4cf2977added308e6db4d46cea59354010d5",
+          "bytes": 16318
+        }
+      },
+      "proposed_sha256": "1fac922d3242cc5676527ab9561e0779b793c55dfc3ca2b8de1d607da3edba11",
+      "resolution": "incoming canonical stricter admission/producer and versioned grant parser; retain nonconflicting local opening/cancellation/retirement"
+    }
+  ],
+  "notes": [
+    "READONLY review proposal; no conflict files resolved/staged",
+    "Worker unused JsonRecordSchema import removed while actual typed UsageCostSnapshot remains",
+    "ControlPlane adopts parseStoredGrant v1/v2 strict canonical parser, removes older v1 passthrough; keeps full stored identity fingerprint",
+    "Bindings adopts settled append rejection and safe run harnessSelection property access",
+    "RuntimeKernel rejects absent admitted selection rather than conditional match bypass"
+  ]
+}
