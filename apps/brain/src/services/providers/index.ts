@@ -6,7 +6,7 @@
 export { ProviderCredentialService } from "./ProviderCredentialService";
 export { CloudCredentialVault } from "./CloudCredentialVault";
 export { DesktopCredentialVaultStub } from "./DesktopCredentialVaultStub";
-export { ProviderCatalogService } from "./ProviderCatalogService";
+export { ProviderCatalogService } from "@repo/provider-core/discovery";
 export { ProviderConnectionService } from "./ProviderConnectionService";
 export { ProviderConfigService } from "./ProviderConfigService";
 export { ProviderRegistryService } from "./ProviderRegistryService";
@@ -42,7 +42,7 @@ export {
   type ProviderModelRankingSignals,
   type ProviderModelRankingInput,
   type ProviderModelRankingResult,
-} from "./model-discovery";
+} from "@repo/provider-core/discovery";
 export {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,

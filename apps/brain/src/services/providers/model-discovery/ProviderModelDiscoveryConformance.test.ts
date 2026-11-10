@@ -3,10 +3,10 @@ import {
   BYOKDiscoveredProviderModelsResponseSchema,
   type ProviderId,
 } from "@repo/shared-types";
-import type { ProviderModelCacheStore } from "../stores/ProviderModelCacheStore";
-import type { ProviderCredentialService } from "../ProviderCredentialService";
-import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
-import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
+import type { ProviderModelCacheStore } from "@repo/provider-core/discovery";
+import type { ProviderModelCredentialPort } from "@repo/provider-core/discovery";
+import type { ProviderModelCatalogPort } from "@repo/provider-core/discovery";
+import { ProviderModelDiscoveryService } from "@repo/provider-core/discovery";
 
 function createStoreStub() {
   let cache: {
@@ -51,9 +51,8 @@ describe("ProviderModelDiscovery Conformance", () => {
   it("maintains response schema parity for openrouter and google", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "api-key"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "api-key" })),
+    } as unknown as ProviderModelCredentialPort;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
       credentialService,
@@ -85,9 +84,8 @@ describe("ProviderModelDiscovery Conformance", () => {
   it("returns typed auth errors when provider credentials are missing", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => null),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => null),
+    } as unknown as ProviderModelCredentialPort;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
       credentialService,
@@ -106,9 +104,8 @@ describe("ProviderModelDiscovery Conformance", () => {
     const store = createStoreStub();
     store.getModelCache.mockRejectedValueOnce(new Error("cache down"));
     const credentialService = {
-      getApiKey: vi.fn(async () => "api-key"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "api-key" })),
+    } as unknown as ProviderModelCredentialPort;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
       credentialService,
@@ -126,9 +123,8 @@ describe("ProviderModelDiscovery Conformance", () => {
   it("fails fast with typed API error for invalid cursor", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "api-key"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "api-key" })),
+    } as unknown as ProviderModelCredentialPort;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
       credentialService,

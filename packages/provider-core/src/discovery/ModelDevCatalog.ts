@@ -230,7 +230,7 @@ async function fetchAndParseCatalog(
   try {
     const raw = await fetchJson(url);
     return parseModelDevCatalog(raw);
-  } catch (_error) {
+  } catch {
     return null;
   }
 }

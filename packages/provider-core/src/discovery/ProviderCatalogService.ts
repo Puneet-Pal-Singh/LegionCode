@@ -12,19 +12,16 @@ import type {
   ProviderCatalogResponse,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { builtinProviderRegistry } from "@repo/provider-core";
-import { ProviderRegistryService } from "./ProviderRegistryService";
-import { ProviderModelDiscoveryService } from "./model-discovery";
+import { isLaunchVisibleProvider } from "@repo/shared-types";
+import { builtinProviderRegistry } from "../registry.js";
+import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService.js";
+import type { PlatformProviderModelsPort, ProviderModelRegistryPort } from "./ports.js";
 import {
   ProviderModelDiscoveryApiError,
   ProviderModelDiscoveryAuthError,
   ProviderModelCacheError,
   ProviderModelNormalizationError,
-} from "./model-discovery/errors";
-import {
-  AXIS_PROVIDER_ID,
-  getAxisDiscoveredModels,
-} from "./axis";
+} from "./errors.js";
 
 type ProviderCatalogVisibilityResolver = (
   provider: ProviderRegistryEntry,
@@ -32,14 +29,15 @@ type ProviderCatalogVisibilityResolver = (
 
 export class ProviderCatalogService {
   constructor(
-    private readonly registryService: ProviderRegistryService,
+    private readonly registryService: ProviderModelRegistryPort,
     private readonly modelDiscoveryService: ProviderModelDiscoveryService,
     private readonly canExposeProvider: ProviderCatalogVisibilityResolver = async () =>
       true,
+    private readonly platformProviders?: PlatformProviderModelsPort,
   ) {}
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
-    const registryProviders = this.registryService.listLaunchVisibleProviders();
+    const registryProviders = this.registryService.listProviders().filter(isLaunchVisibleProvider);
     const providers: ProviderCatalogEntry[] = [];
 
     for (const provider of registryProviders) {
@@ -76,10 +74,11 @@ export class ProviderCatalogService {
       );
     }
 
-    if (providerId === AXIS_PROVIDER_ID) {
+    const platformModels = this.platformProviders?.getModels(providerId);
+    if (platformModels) {
       const models = await this.modelDiscoveryService.enrichModels(
         providerId,
-        getAxisDiscoveredModels(),
+        platformModels,
       );
       return createRegistryResponse(providerId, query, models);
     }
@@ -128,13 +127,14 @@ export class ProviderCatalogService {
   async refreshDiscoveredModels(
     providerId: string,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    if (providerId === AXIS_PROVIDER_ID) {
+    const platformModels = this.platformProviders?.getModels(providerId);
+    if (platformModels) {
       return {
-        providerId: AXIS_PROVIDER_ID,
+        providerId,
         refreshedAt: new Date().toISOString(),
         source: "provider_api",
         cacheInvalidated: false,
-        modelsCount: getAxisDiscoveredModels().length,
+        modelsCount: platformModels.length,
       };
     }
     return this.modelDiscoveryService.refreshDiscoveredModels(providerId);

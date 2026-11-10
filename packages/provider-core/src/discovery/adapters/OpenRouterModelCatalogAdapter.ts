@@ -6,18 +6,18 @@ import type {
   BYOKModelInputModality,
   BYOKModelOutputModality,
 } from "@repo/shared-types";
-import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
-import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts";
+import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort.js";
+import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts.js";
 import type {
   ProviderModelCredentialContext,
   OpenRouterDiscoveryCategory,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
-} from "../types";
+} from "../types.js";
 import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
-} from "../errors";
+} from "../errors.js";
 
 const OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_USER_MODELS_ENDPOINT =

@@ -4,7 +4,7 @@ import type {
   CloudflareWorkersAIConnectionConfig,
   ProviderModelTransport,
 } from "@repo/shared-types";
-import { ProviderModelDiscoveryApiError } from "../model-discovery/errors";
+import { ProviderModelDiscoveryApiError } from "./errors.js";
 
 export interface CloudflareAIRouteInput {
   config: CloudflareConnectionConfig;
