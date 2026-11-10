@@ -36,6 +36,7 @@ const MAX_FILES = 200;
 const MAX_PATCH_BYTES = 64 * 1024;
 const MAX_PATCH_LINES = 4_096;
 const MAX_RESULT_BYTES = 512 * 1024;
+const READ_TIMEOUT_MS = 15_000;
 
 /** Observational current-workspace queries, separate from immutable Turn review. */
 export class LocalWorkspaceGitReads {
@@ -132,12 +133,13 @@ export class LocalWorkspaceGitReads {
     if (this.operations.size >= MAX_READS) return Promise.reject(unavailable("workspace_git_busy"));
     const owner: ReadOperation = { cleanupUnknown: false };
     this.operations.add(owner);
+    const deadline = AbortSignal.timeout(READ_TIMEOUT_MS);
     // Register the original operation before invoking any asynchronous binding.
     const pending = Promise.resolve().then(async () => {
       try {
         owner.binding = await this.bindWorkspace(workspaceId);
         const binding = owner.binding;
-        const signal = AbortSignal.any([binding.signal, this.controller.signal]);
+        const signal = AbortSignal.any([binding.signal, this.controller.signal, deadline]);
         const check = async () => {
           signal.throwIfAborted();
           await binding.assertCurrent();
