@@ -573,7 +573,6 @@ export class ThreadInputCommandService {
     const repository = hostedThreadInputRepository(this.env);
     await advanceThreadInputQueue(scope, {
       repository,
-      proveIdle: async () => (await repository.list(scope)).activeRunId ? "active" : "idle",
       startQueued: ({ command, explicitStart }) => this.startQueuedInput({
         request: input.request, executionContext: input.executionContext, userId: input.userId,
         sessionId: input.sessionId, correlationId: input.correlationId, command, explicitStart,

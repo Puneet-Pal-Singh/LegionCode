@@ -38,9 +38,9 @@ export interface ThreadInputCommandPorts {
   deliverSteer(scope: ThreadInputScope, item: StoredThreadInput): Promise<
     { readonly acceptedSequence: number } | Extract<ThreadInputReceipt, { status: "conflict" }>
   >;
-  /** Must include actual physical cleanup, never infer idle from a latest-run pointer. */
-  proveIdle(scope: ThreadInputScope): Promise<"idle" | "active" | "unknown">;
-  /** Storage adapter atomically consumes the item with canonical admission. */
+  /** Placement MUST positively settle predecessor resources under its held
+   * successor authority BEFORE atomic item consumption/canonical admission.
+   * An ambiguous dispatch pauses its original durable owner before throwing. */
   startQueued(input: {
     readonly scope: ThreadInputScope;
     readonly command: InputCommand<"thread.input.start">;

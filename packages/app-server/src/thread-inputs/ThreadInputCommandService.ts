@@ -170,7 +170,6 @@ export class ThreadInputCommandService {
   private async tryAdvance(scope: ThreadInputScope): Promise<void> {
     await advanceThreadInputQueue(scope, {
       repository: this.ports.repository,
-      proveIdle: this.ports.proveIdle.bind(this.ports),
       startQueued: async (input) => (await this.start(input.scope, input.command, input.explicitStart)).result as ThreadInputReceipt,
     });
   }
@@ -188,18 +187,13 @@ export class ThreadInputCommandService {
 /** Common completed-turn/idle enqueue policy. Adapters retain physical proof and
  * canonical admission; this function never delivers an input itself. */
 export async function advanceThreadInputQueue(scope: ThreadInputScope,
-  ports: Pick<ThreadInputCommandPorts, "repository" | "proveIdle" | "startQueued">): Promise<void> {
+  ports: Pick<ThreadInputCommandPorts, "repository" | "startQueued">): Promise<void> {
   const snapshot = await ports.repository.list(scope);
   if (snapshot.paused || snapshot.activeRunId) return;
   const next = snapshot.items.find((item) => item.delivery === "queue" && item.state === "pending");
   if (!next) return;
-  let idle: "idle" | "active" | "unknown";
-  try { idle = await ports.proveIdle(scope); } catch { idle = "unknown"; }
-  if (idle === "active") return;
-  if (idle !== "idle") {
-    await ports.repository.setPaused({ ...scope, paused: true, reason: "Input delivery or resource cleanup requires reconciliation." });
-    return;
-  }
+  // This is logical eligibility only. The actual start adapter verifies held
+  // physical successor authority and predecessor closure before admission.
   try {
     await ports.startQueued({ scope, explicitStart: false,
       command: StartQueuedThreadInputCommandSchema.parse({ operation: "thread.input.start", threadId: scope.threadId,
