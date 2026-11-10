@@ -5,8 +5,8 @@ import {
   APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength,
   ChatImageAttachmentRefSchema, ItemIdSchema, LifecycleEventSchema,
   PlatformEventSchema, ThreadInputQueueItemSchema, ThreadInputQueueSnapshotSchema,
-  ThreadInputReceiptSchema, TurnAdmissionSchema,
-  type LifecycleEvent, type PlatformEvent, type TurnAdmission,
+  ThreadInputReceiptSchema, TurnAdmissionSchema, TurnIdSchema,
+  type LifecycleEvent, type PlatformEvent, type TurnAdmission, type TurnId,
 } from "@repo/platform-protocol";
 import { LocalPersistenceError } from "../errors.js";
 import { readLocalOwnedThread } from "../local-thread-ownership.js";
@@ -36,6 +36,7 @@ type State = { thread_id: string; user_id: string; workspace_id: string; revisio
 export type LocalQueuedInputStart = ThreadInputScope & {
   readonly itemId: string; readonly expectedVersion: number; readonly expectedRevision: number;
   readonly explicitStart: boolean; readonly candidate: TurnAdmission;
+  readonly expectedPredecessorTurnId: TurnId | null;
 };
 
 /** One adapter on LocalPersistence's existing connection. All command, receipt,
@@ -208,6 +209,10 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
       }
       if (state.revision !== input.expectedRevision) throw new ThreadInputConflictError("Queue revision changed", "queue_revision_conflict");
       if (item.state !== "pending" || item.delivery !== "queue" || item.version !== input.expectedVersion) throw new ThreadInputConflictError("Queue item changed", "queue_item_changed");
+      const expectedPredecessorTurnId = TurnIdSchema.nullable().parse(input.expectedPredecessorTurnId);
+      const latestCanonical = this.admissions.listByThread({ threadId: input.threadId, latest: true, limit: 1, afterCursor: null });
+      if ((latestCanonical.admissions.at(-1)?.turn.id ?? null) !== expectedPredecessorTurnId)
+        throw new ThreadInputConflictError("Thread predecessor changed before queued admission", "queue_revision_conflict");
       const latest = this.latest(input);
       if (latest && !latest.terminal) throw new ThreadInputConflictError("Thread is not idle", "thread_not_idle");
       if (!input.explicitStart && (state.paused || latest?.terminal?.type !== "turn.completed")) throw new ThreadInputConflictError("Queue is paused or has no completed predecessor", "queue_paused");

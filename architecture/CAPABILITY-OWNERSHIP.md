@@ -2455,3 +2455,7 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
 
 - Existing media/readImage authorizes the actual Turn, resolves initial-prompt or accepted/applied/unconfirmed input attachment references through canonical owners, and reauthorizes after the bounded read. Accepted inputs use the same queued-media original-byte reader with full immutable scope/fingerprint/ref-set checks.
 - No synthetic Turn scope, normalized replacement bytes, renderer body fallback or new endpoint is introduced. Pending queue previews remain a separate strict-scope consumer; Native route activation still waits for held-successor admission. No new tests.
+
+### Queued successor admission race guard
+
+- The private queue/admission transaction requires the exact predecessor Turn ID returned by held-successor physical verification (null only for a fresh Thread). It rereads the latest canonical admission on the same immediate SQLite writer before admitWithin and rejects any intervening ordinary or queued admission. No public schema or physical-proof shortcut is added.
