@@ -12,16 +12,16 @@
       "bytes": 25514
     },
     "plans/rebuild/product-plans/048-PAIRED-LOCAL-HOST-AND-MULTI-HARNESS-ADOPTION-PLAN.md": {
-      "sha256": "08e510aca9c218577bb62f4eb1f3ee2970b4d50dbdcdcad27ee05af4eac9b43b",
-      "bytes": 23166
+      "sha256": "2a2e01f863bf77e7becaccad00fbbbbca1eba0546e8684867d94b49aaec256ee",
+      "bytes": 23905
     },
     "plans/rebuild/product-plans/LLD/048-local-harness-integration-and-chatgpt-plan-usage.md": {
-      "sha256": "01d33670c8a7a6c6727efb827ecf5ea04adbb39ed1bb37824de9b34a70b20070",
-      "bytes": 52476
+      "sha256": "d602de11e7f3696154dcaa2988afc3da02b0a7b9523009c53f77443a0a81cdee",
+      "bytes": 54436
     },
     "plans/rebuild/product-plans/061-CLOUD-HARNESS-INTEGRATION-PLAN.md": {
-      "sha256": "004ac61cfc61b305a75afadd3088476c89b807ff7aee5e956851aadc194e93d7",
-      "bytes": 28608
+      "sha256": "9c62b953f7a8cb5b86bdfcabbd9b3b4790df95c4942f57dc0ddbf00e07d5922b",
+      "bytes": 29130
     },
     "plans/rebuild/product-plans/057-LOCAL-FIRST-DESKTOP-VERTICAL-SLICES-AND-SHARED-CLIENT-EXTRACTION-PLAN.md": {
       "sha256": "7fbea89dd5cd6061947a6d791cedcffa83664fac9ab36afa11828a496b4968bf",
@@ -91,5 +91,8 @@
     "codex",
     "opencode"
   ],
-  "scope_note": "Codex and OpenCode first, cloud acceptance061 plus independent048Mac work. Claude preserved, not critical path. This commit carries approved local planning updates only; source checkpoint still requires reviewed-dev reconciliation. Primary dirty source and primary capability ledger are excluded. Reviewed integration instructions and tracked architecture authority retained; current primary AGENTS has stale pre-SDK wording overridden by user fixed construction."
+  "scope_note": "Codex and OpenCode first, cloud acceptance061 plus independent048Mac work. Claude preserved, not critical path. This commit carries approved local planning updates only; source checkpoint still requires reviewed-dev reconciliation. Primary dirty source and primary capability ledger are excluded. Reviewed integration instructions and tracked architecture authority retained; current primary AGENTS has stale pre-SDK wording overridden by user fixed construction.",
+  "coordinator_checkpoint_at": "2026-11-11 Asia/Kolkata",
+  "reviewed_integration_base": "40eef70370796788dcadf2a1e8a83b2653421232",
+  "checkpoint_scope": "Three existing plan documents only: actual merged custody checkpoint and user-required periodic upstream review; architecture/transport decisions and other approved document bytes unchanged."
 }

@@ -1,11 +1,17 @@
 # 061 — Independent Cloud Harness Integration
 
 Date: 2026-11-06 (Asia/Kolkata)
-Status: Planned; research and design only. No code, provider connection, secret
-transfer, external account change or deployment performed by this plan.
+Status: Implementation in progress. Shared credential custody [PR #813](https://github.com/Puneet-Pal-Singh/LegionCode/pull/813)
+merged into `dev` at `40eef70370796788dcadf2a1e8a83b2653421232`. The actual
+cloud launch boundary, supported selected-account route and full product-path
+acceptance remain incomplete. No production deployment is authorized.
 
 Local counterpart: [Plan 048](048-PAIRED-LOCAL-HOST-AND-MULTI-HARNESS-ADOPTION-PLAN.md)
 and [LLD 048](LLD/048-local-harness-integration-and-chatgpt-plan-usage.md).
+Recheck T3 Code and OpenCode at integration milestones, before runtime/client/schema
+pin changes and before merging affected PRs. Use the dated evidence and acceptance
+deltas in LLD 048 section 13.1.1; reference behavior is not hosted-access approval
+or proof of account quota, execution confinement or physical cleanup.
 Mac delivery remains owned by Plan 057 and its existing LLD.
 
 Fixed construction authority:

@@ -1,12 +1,22 @@
 # 048 — Paired Local Host And Multi-Harness Adoption Plan
 
-Status: Planned; no implementation started by this revision. Codex, Claude
-Agent and OpenCode v2 are independent integration tracks, with no completion
-dependency on Plan 057, Plan 058, the Native golden loop or another driver.
+Status: Implementation in progress; no external harness release is accepted.
+Codex and OpenCode are the first delivery tracks; Claude Agent remains an
+independent initial-scope track. These integrations have no completion dependency
+on Plan 057, Plan 058, the Native golden loop or another driver.
 Connected-local pairing and cloud relay retain Plan 047 Gate C and their
 authorization/continuation conformance gates.
 
 Created: 2026-07-18
+
+Checkpoint, 2026-11-11: shared credential custody [PR #813](https://github.com/Puneet-Pal-Singh/LegionCode/pull/813)
+merged into `dev` at `40eef70370796788dcadf2a1e8a83b2653421232`. Local SDK/App
+Server/runtime/driver wiring and reserved-opening cancellation are reviewable
+source, with installed full-harness acceptance, actual physical settlement and
+selected-account proof still outstanding. Compilation and synthetic fixtures
+do not close L1/L2/L3/L4. Recheck T3 Code and OpenCode at integration milestones,
+before runtime/client/schema pin changes and before merging affected PRs; record
+source revisions and relevant acceptance deltas in LLD 048 section 13.1.1.
 
 Uses current SDK/App Server/runtime contracts. Integration slices own any
 missing in-path wiring and proof through canonical owners. Plans 025, 033,

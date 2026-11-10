@@ -587,6 +587,35 @@ Pinned evidence:
 - T3 [Codex accounts](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-codex.md), [Claude setup](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-claude.md), [OpenCode setup](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-opencode.md) and [ACP registry/auth/distribution](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-acp.md).
 - OpenCode [installation](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/index.mdx), [provider accounts and storage precedence](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/cli/providers.mdx), [server/web clients](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/cli/web.mdx), [updates/configuration](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/config.mdx), [permission scope](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/permissions.mdx) and [ACP interface](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/cli/acp.mdx).
 
+### 13.1.1 Continuing upstream review — 2026-11-11
+
+Recheck both upstream projects at integration milestones, before changing any
+runtime/client/schema pin and before merging affected PRs. Record exact revisions,
+read relevant source changes and repeat affected existing checks; do not silently
+upgrade, copy another product's authority or infer release acceptance.
+
+The pre-merge review for PR #813 inspected T3 Code
+`871b00907d0bcf2705224de6c6e90de925c7cbb9` and OpenCode development
+`d22bc1d1b6b57e6f9b30c242c03bf5eaa00e127f`. LegionCode's reviewed OpenCode
+executable remains pinned to 2.2.5. These newer research revisions do not change
+that runtime/client/schema compatibility claim.
+
+- T3 [native todo projection](https://github.com/pingdotgg/t3code/commit/71a1c49b75a209284ea24617e6a4b0cc339390e7)
+  projects recognized successful OpenCode `todowrite` metadata into checklists,
+  including reconnect recovery, status changes, cancellations and clears. If
+  adopted, translate through existing canonical workflow contracts and preserve
+  failed/unrecognized tool results; do not create a provider-owned product store
+  or advertise planning capability before the real consumer/replay is wired.
+- OpenCode [PTY protocol8](https://github.com/anomalyco/opencode/commit/d22bc1d1b6b57e6f9b30c242c03bf5eaa00e127f)
+  changes persistent process records and the PTY dependency to 0.5.0. A future
+  runtime upgrade must reprove daemon/server compatibility, background writers,
+  Stop and restart ownership; native process exit or a foreground final remains
+  insufficient proof of workspace quiescence.
+- T3 [Codex image-generation rows](https://github.com/pingdotgg/t3code/commit/5be6bc99c234b0db92ffb0b3ebd8746fd579112b)
+  preserve tool identity across failure/cancellation and keep an image reply from
+  replacing its tool row. This is a translation/presentation consideration,
+  not an additional LegionCode feature or capability claim in this checkpoint.
+
 ### 13.2 Shared user flow
 
 Settings → Agents → Add agent is shared client-ui using the existing SDK/App
