@@ -75,7 +75,7 @@ export function createLocalTurnAdmission(
     id: createTurnId(),
     threadId: thread.id,
     runId: run.id,
-    parentTurnId: null,
+    parentTurnId: thread.lastTerminalTurnId,
     status: "queued",
     startedAt: null,
     completedAt: null,

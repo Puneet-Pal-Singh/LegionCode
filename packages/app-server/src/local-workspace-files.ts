@@ -3,6 +3,8 @@ import { isUtf8 } from "node:buffer";
 import { LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, type CheckoutReadFileResult, type LocalWorkspaceListFilesParams, type LocalWorkspaceListFilesResult, type LocalWorkspaceReadFileParams } from "./protocol.js";
 import { AppServerOperationError } from "./server.js";
 import type { WorkspaceId } from "@repo/platform-protocol";
+import type { LocalWorkspaceFileMentionsParams, LocalWorkspaceFileMentionsResult } from "./protocol.js";
+import { collectWorkspaceFileMentions } from "./local-workspace-file-mentions.js";
 
 const MAX_ACTIVE_WORKSPACE_FILE_READS = 4;
 
@@ -50,6 +52,12 @@ export class LocalWorkspaceFilesService {
   private activeReads = 0;
 
   constructor(private readonly binding: LocalWorkspaceFilesBinding) {}
+
+  async fileMentions(input: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult> {
+    return this.withWorkspace(input.workspaceId, (reader, signal) =>
+      collectWorkspaceFileMentions(reader, signal, input),
+    );
+  }
 
   async listFiles(input: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult> {
     return this.withWorkspace(input.workspaceId, async (reader, signal) => {

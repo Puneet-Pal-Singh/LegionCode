@@ -8,6 +8,7 @@ import {
 import type {
   RuntimeKernelDependencies,
   StartTurnInput,
+  ToolAuthorizationPort,
   WorkerProtocolPort,
   WorkerToolResult,
 } from "@repo/runtime-kernel";
@@ -15,7 +16,7 @@ import {
   EDIT_FILE_TOOL_INPUT_SCHEMA,
   WRITE_FILE_TOOL_INPUT_SCHEMA,
 } from "../tools/CodingToolRegistry.js";
-import { assertLocalToolApproved } from "./LocalToolApproval.js";
+import { assertLocalFileToolAuthorized } from "./LocalToolApproval.js";
 import { replaceExactText } from "../tools/ExactTextEdit.js";
 import { RuntimeWorkspaceScope } from "../engine/RuntimeWorkspaceScope.js";
 import {
@@ -33,9 +34,9 @@ export type LocalMutationIdentity = {
   readonly runAttemptId: StartTurnInput["runAttemptId"];
 };
 
-/** Supervised file-only worker. Composition must supply a real writer lease and
- * full baseline/final capture readiness; omitted_read_only is never sufficient.
- * Only the kernel's recorded, exact approved tool request can reach native I/O.
+/** Guarded file-only worker. Composition supplies the real writer lease, full
+ * capture and the same trusted policy owner as the kernel. Native I/O requires
+ * the exact recorded active tool plus its explicit approval or policy decision.
  */
 export class LocalGuardedFileWorker implements WorkerProtocolPort {
   private readonly identity: LocalMutationIdentity;
@@ -65,6 +66,7 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
         assertCurrent(): void | Promise<void>;
       };
       readonly helperPath: string;
+      readonly toolAuthorization: ToolAuthorizationPort;
       readonly observeExecution?: (
         execution: NativeFilesystemExecution,
       ) => void;
@@ -222,9 +224,10 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
         throw new Error("Mutation root FD does not match the current grant");
       }
       await this.options.assertMutationReady(this.identity);
-      await assertLocalToolApproved({
+      await assertLocalFileToolAuthorized({
         admission: this.admission,
         lifecycleEvents: this.options.lifecycleEvents,
+        toolAuthorization: this.options.toolAuthorization,
         input,
         schema:
           name === "edit_file"
