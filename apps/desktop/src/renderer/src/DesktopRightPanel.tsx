@@ -46,7 +46,7 @@ export interface DesktopRightPanelProps {
   onClose?: () => void;
   onResize?: (delta: number) => void;
   headerWidth?: number;
-  environmentSummary?: (onOpenChanges: () => void) => ReactNode;
+  changesRequestId?: number;
 }
 
 // Match the shared frame's full-width right-panel breakpoint.
@@ -62,7 +62,7 @@ export function DesktopRightPanel({
   onClose,
   onResize,
   headerWidth,
-  environmentSummary,
+  changesRequestId = 0,
 }: DesktopRightPanelProps) {
   const [isCompact, setIsCompact] = useState(
     () => typeof window !== "undefined" && window.matchMedia(COMPACT_RIGHT_PANEL_QUERY).matches,
@@ -79,6 +79,11 @@ export function DesktopRightPanel({
   const [hasFilesTab, setHasFilesTab] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(true);
   const [isChangesOpen, setIsChangesOpen] = useState(false);
+  useEffect(() => {
+    if (changesRequestId === 0) return;
+    setIsViewingContent(false);
+    setIsChangesOpen(true);
+  }, [changesRequestId]);
   const fileScope = JSON.stringify([
     workspace?.workspaceId,
     workspace?.grantedAt,
@@ -234,7 +239,6 @@ export function DesktopRightPanel({
           isViewingContent={isViewingContent}
           position={isCompact ? "inline" : "fixed"}
           sidebarWidth={isCompact ? "100%" : headerWidth}
-          environmentSummary={environmentSummary?.(headerActions.onOpenChanges)}
           onCloseReview={onClose}
           onCloseSidebar={onClose}
           onExpand={() => setIsExpanded(true)}

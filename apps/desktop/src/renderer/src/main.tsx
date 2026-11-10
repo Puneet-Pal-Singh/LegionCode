@@ -62,6 +62,7 @@ function DesktopApp(): React.JSX.Element {
   );
   const [rightPanelWidth, setRightPanelWidth] = useState(() => getInitialRightSidebarWidth(window.innerWidth));
   const rightPanelToggleRef = useRef<HTMLButtonElement>(null);
+  const [changesRequestId, setChangesRequestId] = useState(0);
   const restoreRightPanelFocus = useRef(false);
   useEffect(() => {
     if (rightPanelOpen || !restoreRightPanelFocus.current) return;
@@ -741,20 +742,25 @@ function DesktopApp(): React.JSX.Element {
           topBar={
             <WorkspaceTopBar
               title={selectedThread?.title}
-              actions={!rightPanelOpen ? <>
-                <WorkspaceReviewControls
-                  onToggleRightSidebar={() => setRightPanelOpen((open) => !open)}
-                  toggleButtonRef={rightPanelToggleRef}
-                />
-                {environmentSummary(() => setRightPanelOpen(true))}
-              </> : undefined}
+              actions={<>
+                {environmentSummary(() => {
+                  setRightPanelOpen(true);
+                  setChangesRequestId((id) => id + 1);
+                })}
+                {!rightPanelOpen ? (
+                  <WorkspaceReviewControls
+                    onToggleRightSidebar={() => setRightPanelOpen((open) => !open)}
+                    toggleButtonRef={rightPanelToggleRef}
+                  />
+                ) : null}
+              </>}
             />
           }
           rightPanel={
             rightPanelOpen ? (
               <DesktopRightPanel
                 headerWidth={rightPanelWidth}
-                environmentSummary={environmentSummary}
+                changesRequestId={changesRequestId}
                 onResize={(delta) => setRightPanelWidth((width) => clampRightSidebarWidth(width + delta))}
                 workspace={workspace}
                 threadId={selectedThread?.id ?? null}
