@@ -380,7 +380,30 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
+  function threadMutationUnavailableReason(threadId: string): string | undefined {
+    const thread = sidebarThreads.find((item) => item.id === threadId);
+    if (!thread) return "The local task is unavailable.";
+    if (!sdkReady || workspaceBusy || workspaceCommand.current || workspacePickerActive.current) {
+      return "Task actions are unavailable while project access is changing.";
+    }
+    if (workspace?.readiness !== "ready" || thread.workspaceId !== workspace.workspaceId) {
+      const project = projects.navigation?.projects.find((item) => item.workspaceId === thread.workspaceId);
+      return project?.association === "unlinked"
+        ? "Recover this saved project's folder association before changing its tasks."
+        : "Open this task and restore its project's access before changing it.";
+    }
+    if (!threads.some((item) => item.id === threadId)) {
+      return "Load this project's tasks before changing them.";
+    }
+    return undefined;
+  }
+
   async function renameThread(threadId: string, title: string): Promise<void> {
+    const unavailableReason = threadMutationUnavailableReason(threadId);
+    if (unavailableReason) {
+      setThreadError(unavailableReason);
+      throw new Error(unavailableReason);
+    }
     const known = threads.find((thread) => thread.id === threadId);
     if (!known || !appServerClient)
       throw new Error("The local thread is unavailable.");
@@ -399,11 +422,16 @@ function DesktopApp(): React.JSX.Element {
     } catch {
       if (scope !== threadScope.current || request !== selectionRequest.current)
         return;
-      throw new Error("Thread titles must contain 1 to 80 characters.");
+      throw new Error("The local task could not be renamed. Check project access and try again.");
     }
   }
 
   async function archiveThread(threadId: string): Promise<void> {
+    const unavailableReason = threadMutationUnavailableReason(threadId);
+    if (unavailableReason) {
+      setThreadError(unavailableReason);
+      return;
+    }
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) return;
     const scope = threadScope.current;
@@ -429,6 +457,11 @@ function DesktopApp(): React.JSX.Element {
   }
 
   async function unarchiveThread(threadId: string): Promise<void> {
+    const unavailableReason = threadMutationUnavailableReason(threadId);
+    if (unavailableReason) {
+      setThreadError(unavailableReason);
+      return;
+    }
     const thread = threads.find((item) => item.id === threadId);
     if (!thread) throw new Error("The archived task is no longer available.");
     const scope = threadScope.current;
@@ -457,6 +490,11 @@ function DesktopApp(): React.JSX.Element {
     threadId: string,
     pinned: boolean,
   ): Promise<void> {
+    const unavailableReason = threadMutationUnavailableReason(threadId);
+    if (unavailableReason) {
+      setThreadError(unavailableReason);
+      return;
+    }
     const thread = threads.find((item) => item.id === threadId);
     if (!thread || !appServerClient) return;
     const scope = threadScope.current;
@@ -693,16 +731,9 @@ function DesktopApp(): React.JSX.Element {
                 sdkReady ? () => void chooseWorkspace() : undefined
               }
               onRenameSession={renameThread}
-              onPin={
-                workspace?.readiness === "ready" && sdkReady
-                  ? (threadId) => setThreadPinned(threadId, true)
-                  : undefined
-              }
-              onUnpin={
-                workspace?.readiness === "ready" && sdkReady
-                  ? (threadId) => setThreadPinned(threadId, false)
-                  : undefined
-              }
+              threadMutationUnavailableReason={threadMutationUnavailableReason}
+              onPin={(threadId) => setThreadPinned(threadId, true)}
+              onUnpin={(threadId) => setThreadPinned(threadId, false)}
               onArchive={archiveThread}
               onUnarchive={(id) => unarchiveThread(id).catch(() => {})}
               onClose={() => setSidebarOpen(false)}

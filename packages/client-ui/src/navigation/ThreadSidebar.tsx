@@ -40,6 +40,8 @@ export interface ThreadSidebarProps {
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onRenameSession?: (selectionId: string, title: string) => Promise<void>;
+  /** Optional host scope gate. Opening a row remains available for access recovery. */
+  threadMutationUnavailableReason?: (selectionId: string) => string | undefined;
   pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
   /** Explicitly unavailable host reader; omitted preserves asynchronous lookup behavior. */
   pullRequestUnavailableReason?: string;
@@ -70,6 +72,7 @@ export function ThreadSidebar({
   onArchive,
   onUnarchive,
   onRenameSession,
+  threadMutationUnavailableReason,
   pullRequestsBySessionId,
   pullRequestUnavailableReason,
   onVisibleSelectionChange,
@@ -357,6 +360,7 @@ export function ThreadSidebar({
                   pullRequestsBySessionId={pullRequestsBySessionId}
                   pullRequestUnavailableReason={pullRequestUnavailableReason}
                   onRenameSession={onRenameSession}
+                  threadMutationUnavailableReason={threadMutationUnavailableReason}
                   onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
                   onUnpin={onUnpin}
@@ -408,6 +412,7 @@ export function ThreadSidebar({
                   pullRequestsBySessionId={pullRequestsBySessionId}
                   pullRequestUnavailableReason={pullRequestUnavailableReason}
                   onRenameSession={onRenameSession}
+                  threadMutationUnavailableReason={threadMutationUnavailableReason}
                   onVisibleSelectionChange={onVisibleSelectionChange}
                   onPin={onPin}
                   onUnpin={onUnpin}
@@ -458,6 +463,7 @@ export function ThreadSidebar({
                     pullRequestsBySessionId={pullRequestsBySessionId}
                     pullRequestUnavailableReason={pullRequestUnavailableReason}
                     onRenameSession={onRenameSession}
+                    threadMutationUnavailableReason={threadMutationUnavailableReason}
                     onVisibleSelectionChange={onVisibleSelectionChange}
                     onConfirmArchive={confirmArchive}
                     onCancelArchive={() => setPendingArchiveId(null)}

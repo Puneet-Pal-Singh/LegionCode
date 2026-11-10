@@ -6,7 +6,8 @@ import { useMemo } from "react";
 export interface DesktopSidebarProps extends Pick<ThreadSidebarProps,
   "visible" | "onSelect" | "onCreate" | "onAddWorkspace" | "onRenameSession" |
   "onPin" | "onUnpin" | "onArchive" | "onUnarchive" | "onClose" |
-  "onOpenSettings" | "onRemoveWorkspace" | "canManageWorkspace" | "width"
+  "onOpenSettings" | "onRemoveWorkspace" | "canManageWorkspace" | "width" |
+  "threadMutationUnavailableReason"
 > {
   workspace: LocalWorkspaceGrant | null;
   projects: readonly LocalWorkspaceProject[];

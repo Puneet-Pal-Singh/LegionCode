@@ -81,6 +81,11 @@ remain visible with the existing unknown-workspace/recovery presentation.
 The existing shared Remove-project menu calls the canonical forget operation;
 Desktop reloads navigation and the current grant before retaining a selected
 conversation. The existing Revoke-access control still calls revoke only.
+The shared sidebar's optional per-row mutation-unavailable reason disables existing task mutation
+controls accessibly for inactive project rows while keeping Open available for
+normal native-picker recovery. Web omits this optional port. Desktop also checks
+that scope at callback entry; existing canonical metadata writers retain their
+physical grant and serialization checks.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
