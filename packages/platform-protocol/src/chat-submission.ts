@@ -1,4 +1,3 @@
-import { HarnessAdmissionSelectionSchema } from "./harness/selection.js";
 import { ReasoningEffortSchema } from "./capabilities.js";
 import { ProductModeSchema } from "./permissions.js";
 import { TurnScopeBootstrapSchema } from "./turn-scope-bootstrap.js";
@@ -16,7 +15,6 @@ const SerializableToolDefinitionSchema = z.object({
 });
 
 export const ChatRequestBodySchema = z.object({
-  harnessSelection: HarnessAdmissionSelectionSchema.optional(),
   // The Vercel AI SDK adds its chat instance identifier to every request.
   // Canonical thread/turn/run identity remains in `identity`; this transport
   // identifier is accepted only so the adapter boundary can ignore it.

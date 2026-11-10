@@ -2170,9 +2170,11 @@ bytes and their real wire digest remain read/transport responsibilities.
 
 The platform protocol owns harness family, immutable pre-admission selection,
 instance/operation and measured-usage contracts, canonical question descriptors
-and response normalization. Run, Chat request and queued input records may carry
-optional captured selection; omission preserves existing Native records and
-clients. The existing lifecycle schema adds typed passive harness measurements
+and response normalization. Active Run, Chat request and queued-input schemas
+remain unchanged and reject unsupported captured selection. Run capture must land
+with the Kernel's resolved-strategy guard; Chat capture requires routed admission,
+and queued capture requires its actual producer migration. Reference contracts
+alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
 and provider-limit observations, without introducing a producer or state store.
 
 The worker protocol consumes those public contracts for scoped host commands,

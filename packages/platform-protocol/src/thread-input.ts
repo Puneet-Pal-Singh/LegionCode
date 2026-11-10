@@ -1,4 +1,3 @@
-import { HarnessAdmissionSelectionSchema } from "./harness/selection.js";
 import { z } from "zod";
 import {
   ChatImageAttachmentRefSchema,
@@ -51,7 +50,6 @@ export const ThreadInputUpdateContentSchema = z
 
 export const ThreadInputConfigurationSchema = z
   .object({
-    harnessSelection: HarnessAdmissionSelectionSchema.optional(),
     mode: RunModeSchema.optional(),
     providerId: ProviderIdSchema.optional(),
     modelId: ModelIdSchema.optional(),
