@@ -1,6 +1,9 @@
 import type { SqlClient, SqlRow } from "../sql.js";
 import type {
   RepositoryRecord,
+  UpdateWorkspaceConfigurationInput,
+  WorkspaceConfigurationRecord,
+  WorkspaceConfigurationUpdateResult,
   SelectWorkspaceInput,
   WorkspaceBootstrapRecord,
   WorkspaceListItem,
@@ -29,6 +32,7 @@ interface WorkspaceSelectionRow extends SqlRow {
   workspace_created_at: string | Date;
   workspace_updated_at: string | Date;
   last_opened_at: string | Date;
+  configuration_version: number;
   selected_workspace_id?: string;
   selected_repo_id?: string;
   selected_branch?: string;
@@ -37,6 +41,69 @@ interface WorkspaceSelectionRow extends SqlRow {
 
 export class PostgresWorkspaceRepository implements WorkspaceRepository {
   constructor(private readonly client: SqlClient) {}
+
+  async findWorkspaceConfiguration(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceConfigurationRecord | null> {
+    const result = await this.client.query<WorkspaceSelectionRow>(
+      FIND_CONFIGURATION_SQL,
+      [userId, workspaceId],
+    );
+    return result.rows[0] ? mapConfigurationRow(result.rows[0]) : null;
+  }
+
+  async updateWorkspaceConfiguration(
+    input: UpdateWorkspaceConfigurationInput,
+  ): Promise<WorkspaceConfigurationUpdateResult> {
+    return this.client.transaction(async (tx) => {
+      // Same workspace -> selection lock order as selectWorkspace. A selection
+      // for another workspace is never inserted or rebound by a settings edit.
+      const current = (
+        await tx.query<WorkspaceSelectionRow>(
+          `${FIND_CONFIGURATION_SQL} FOR UPDATE OF workspaces`,
+          [input.userId, input.workspaceId],
+        )
+      ).rows[0];
+      if (!current) return { status: "not_found" };
+      if (current.configuration_version !== input.expectedVersion)
+        return { status: "conflict" };
+      const name = input.patch.name ?? current.workspace_name;
+      const branch = input.patch.selectedBranch ?? current.last_selected_branch;
+      if (
+        name === current.workspace_name &&
+        branch === current.last_selected_branch
+      ) {
+        return {
+          status: "updated",
+          configuration: mapConfigurationRow(current),
+        };
+      }
+      const result = await tx.query<WorkspaceSelectionRow>(
+        UPDATE_CONFIGURATION_SQL,
+        [
+          input.userId,
+          input.workspaceId,
+          input.expectedVersion,
+          name,
+          branch,
+          input.now,
+        ],
+      );
+      const updated = readReturnedRow(result.rows[0], "workspaces");
+      await tx.query(UPDATE_SELECTED_BRANCH_SQL, [
+        input.userId,
+        input.workspaceId,
+        current.repo_id,
+        branch,
+        input.now,
+      ]);
+      return {
+        status: "updated",
+        configuration: mapConfigurationRow({ ...current, ...updated }),
+      };
+    });
+  }
 
   async selectWorkspace(
     input: SelectWorkspaceInput,
@@ -121,11 +188,27 @@ async function upsertWorkspaceSelection(
 ): Promise<WorkspaceSelectionRecord> {
   const result = await client.query<WorkspaceSelectionRow>(
     UPSERT_WORKSPACE_SELECTION_SQL,
-    [input.userId, workspace.id, repository.id, input.selectedBranch, input.now],
+    [
+      input.userId,
+      workspace.id,
+      repository.id,
+      input.selectedBranch,
+      input.now,
+    ],
   );
   return mapSelectionRow(
     readReturnedRow(result.rows[0], "workspace_selections"),
   );
+}
+
+function mapConfigurationRow(
+  row: WorkspaceSelectionRow,
+): WorkspaceConfigurationRecord {
+  return {
+    repository: mapRepositoryRow(row),
+    workspace: mapWorkspaceRow(row),
+    version: row.configuration_version,
+  };
 }
 
 function mapBootstrapRow(row: WorkspaceSelectionRow): WorkspaceBootstrapRecord {
@@ -188,7 +271,9 @@ function mapSelectionRow(row: WorkspaceSelectionRow): WorkspaceSelectionRecord {
     selectedWorkspaceId: row.selected_workspace_id ?? row.workspace_id,
     selectedRepoId: row.selected_repo_id ?? row.repo_id,
     selectedBranch: row.selected_branch ?? row.last_selected_branch,
-    updatedAt: toIsoString(row.selection_updated_at ?? row.workspace_updated_at),
+    updatedAt: toIsoString(
+      row.selection_updated_at ?? row.workspace_updated_at,
+    ),
   };
 }
 
@@ -229,7 +314,8 @@ const WORKSPACE_COLUMNS = `
   workspaces.status,
   workspaces.created_at AS workspace_created_at,
   workspaces.updated_at AS workspace_updated_at,
-  workspaces.last_opened_at
+  workspaces.last_opened_at,
+  workspaces.configuration_version
 `;
 
 const UPSERT_REPOSITORY_SQL = `
@@ -270,7 +356,11 @@ const UPSERT_WORKSPACE_SQL = `
   VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $6)
   ON CONFLICT (user_id, repo_id)
   DO UPDATE SET
-    name = EXCLUDED.name,
+    configuration_version = workspaces.configuration_version + CASE
+      WHEN workspaces.last_selected_branch IS DISTINCT FROM EXCLUDED.last_selected_branch
+        OR workspaces.default_branch IS DISTINCT FROM EXCLUDED.default_branch
+        OR workspaces.status IS DISTINCT FROM 'active'
+      THEN 1 ELSE 0 END,
     default_branch = EXCLUDED.default_branch,
     last_selected_branch = EXCLUDED.last_selected_branch,
     status = 'active',
@@ -330,4 +420,24 @@ const LIST_WORKSPACES_SQL = `
     ON workspace_selections.user_id = workspaces.user_id
   WHERE workspaces.user_id = $1
   ORDER BY workspaces.updated_at DESC
+`;
+
+const FIND_CONFIGURATION_SQL = `
+  SELECT ${REPOSITORY_COLUMNS}, ${WORKSPACE_COLUMNS}
+  FROM workspaces
+  INNER JOIN repos ON repos.id = workspaces.repo_id
+  WHERE workspaces.user_id = $1 AND workspaces.id = $2 AND workspaces.status = 'active'
+`;
+
+const UPDATE_CONFIGURATION_SQL = `
+  UPDATE workspaces SET
+    name = $4, last_selected_branch = $5,
+    configuration_version = configuration_version + 1, updated_at = $6
+  WHERE user_id = $1 AND id = $2 AND configuration_version = $3 AND status = 'active'
+  RETURNING ${WORKSPACE_COLUMNS}
+`;
+
+const UPDATE_SELECTED_BRANCH_SQL = `
+  UPDATE workspace_selections SET selected_branch = $4, updated_at = $5
+  WHERE user_id = $1 AND selected_workspace_id = $2 AND selected_repo_id = $3
 `;

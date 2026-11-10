@@ -1,3 +1,4 @@
+export { workspaceConfigurationVersionMigration } from "./migrations/0041-workspace-configuration-version.js";
 export type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "./sql.js";
 export {
   PgSqlClient,
@@ -234,6 +235,9 @@ export {
 export type {
   RepositoryRecord,
   SelectWorkspaceInput,
+  WorkspaceConfigurationRecord,
+  UpdateWorkspaceConfigurationInput,
+  WorkspaceConfigurationUpdateResult,
   WorkspaceBootstrapRecord,
   WorkspaceListItem,
   WorkspaceRecord,

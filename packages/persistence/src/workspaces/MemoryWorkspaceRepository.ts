@@ -1,5 +1,8 @@
 import type {
   RepositoryRecord,
+  UpdateWorkspaceConfigurationInput,
+  WorkspaceConfigurationRecord,
+  WorkspaceConfigurationUpdateResult,
   SelectWorkspaceInput,
   WorkspaceBootstrapRecord,
   WorkspaceListItem,
@@ -10,11 +13,78 @@ import type {
 
 export class MemoryWorkspaceRepository implements WorkspaceRepository {
   private readonly reposByKey = new Map<string, RepositoryRecord>();
-  private readonly workspacesByKey = new Map<string, WorkspaceRecord>();
+  private readonly workspacesByKey = new Map<
+    string,
+    WorkspaceRecord & { configurationVersion: number }
+  >();
   private readonly selectionsByUserId = new Map<
     string,
     WorkspaceSelectionRecord
   >();
+
+  async findWorkspaceConfiguration(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceConfigurationRecord | null> {
+    const stored = Array.from(this.workspacesByKey.values()).find(
+      (workspace) =>
+        workspace.id === workspaceId &&
+        workspace.userId === userId &&
+        workspace.status === "active",
+    );
+    if (!stored) return null;
+    const { configurationVersion: version, ...workspace } = stored;
+    return {
+      workspace: { ...workspace },
+      repository: { ...this.requireRepository(workspace.repoId) },
+      version,
+    };
+  }
+
+  async updateWorkspaceConfiguration(
+    input: UpdateWorkspaceConfigurationInput,
+  ): Promise<WorkspaceConfigurationUpdateResult> {
+    // No awaits between reading the revision and updating both records.
+    const stored = Array.from(this.workspacesByKey.values()).find(
+      (workspace) =>
+        workspace.id === input.workspaceId &&
+        workspace.userId === input.userId &&
+        workspace.status === "active",
+    );
+    if (!stored) return { status: "not_found" };
+    if (stored.configurationVersion !== input.expectedVersion)
+      return { status: "conflict" };
+    const name = input.patch.name ?? stored.name;
+    const branch = input.patch.selectedBranch ?? stored.lastSelectedBranch;
+    if (name !== stored.name || branch !== stored.lastSelectedBranch) {
+      Object.assign(stored, {
+        name,
+        lastSelectedBranch: branch,
+        configurationVersion: stored.configurationVersion + 1,
+        updatedAt: input.now,
+      });
+      const selection = this.selectionsByUserId.get(input.userId);
+      if (
+        selection?.selectedWorkspaceId === stored.id &&
+        selection.selectedRepoId === stored.repoId
+      ) {
+        this.selectionsByUserId.set(input.userId, {
+          ...selection,
+          selectedBranch: branch,
+          updatedAt: input.now,
+        });
+      }
+    }
+    const { configurationVersion: version, ...workspace } = stored;
+    return {
+      status: "updated",
+      configuration: {
+        workspace: { ...workspace },
+        repository: { ...this.requireRepository(stored.repoId) },
+        version,
+      },
+    };
+  }
 
   async selectWorkspace(
     input: SelectWorkspaceInput,
@@ -50,7 +120,7 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
       .filter((workspace) => workspace.userId === userId)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((workspace) => ({
-        workspace,
+        workspace: publicWorkspace(workspace),
         repository: this.requireRepository(workspace.repoId),
         selected: selection?.selectedWorkspaceId === workspace.id,
       }));
@@ -86,17 +156,25 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
       id: existing?.id ?? `workspace-${this.workspacesByKey.size + 1}`,
       userId: input.userId,
       repoId: repository.id,
-      name: input.workspaceName ?? repository.fullName,
+      name: existing?.name ?? input.workspaceName ?? repository.fullName,
       defaultBranch: repository.defaultBranch,
       lastSelectedBranch: input.selectedBranch,
       status: "active" as const,
       createdAt: existing?.createdAt ?? input.now,
       updatedAt: input.now,
       lastOpenedAt: input.now,
+      configurationVersion: existing
+        ? existing.configurationVersion +
+          (existing.lastSelectedBranch !== input.selectedBranch ||
+          existing.defaultBranch !== repository.defaultBranch ||
+          existing.status !== "active"
+            ? 1
+            : 0)
+        : 1,
     };
 
     this.workspacesByKey.set(key, workspace);
-    return workspace;
+    return publicWorkspace(workspace);
   }
 
   private buildBootstrapRecord(
@@ -117,7 +195,7 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
     if (!workspace) {
       throw new Error(`Missing workspace: ${workspaceId}`);
     }
-    return workspace;
+    return publicWorkspace(workspace);
   }
 
   private requireRepository(repoId: string): RepositoryRecord {
@@ -133,4 +211,11 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
 
 function buildRepoKey(input: SelectWorkspaceInput["repository"]): string {
   return `${input.provider}:${input.owner}:${input.name}`;
+}
+
+function publicWorkspace(
+  stored: WorkspaceRecord & { configurationVersion: number },
+): WorkspaceRecord {
+  const { configurationVersion: _version, ...workspace } = stored;
+  return workspace;
 }

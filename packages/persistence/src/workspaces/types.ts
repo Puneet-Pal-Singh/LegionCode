@@ -67,8 +67,37 @@ export interface WorkspaceListItem {
   selected: boolean;
 }
 
+/** Configuration of an existing primary-repository workspace; not execution readiness. */
+export interface WorkspaceConfigurationRecord {
+  repository: RepositoryRecord;
+  workspace: WorkspaceRecord;
+  version: number;
+}
+
+export interface UpdateWorkspaceConfigurationInput {
+  userId: string;
+  workspaceId: string;
+  expectedVersion: number;
+  patch: { name?: string; selectedBranch?: string };
+  now: string;
+}
+
+export type WorkspaceConfigurationUpdateResult =
+  | { status: "updated"; configuration: WorkspaceConfigurationRecord }
+  | { status: "conflict" }
+  | { status: "not_found" };
+
 export interface WorkspaceRepository {
-  selectWorkspace(input: SelectWorkspaceInput): Promise<WorkspaceBootstrapRecord>;
+  findWorkspaceConfiguration(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceConfigurationRecord | null>;
+  updateWorkspaceConfiguration(
+    input: UpdateWorkspaceConfigurationInput,
+  ): Promise<WorkspaceConfigurationUpdateResult>;
+  selectWorkspace(
+    input: SelectWorkspaceInput,
+  ): Promise<WorkspaceBootstrapRecord>;
   findWorkspaceSelection(
     userId: string,
   ): Promise<WorkspaceBootstrapRecord | null>;

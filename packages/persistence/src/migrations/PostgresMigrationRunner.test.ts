@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { workspaceConfigurationVersionMigration } from "./0041-workspace-configuration-version.js";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
@@ -77,6 +78,7 @@ describe("PostgresMigrationRunner", () => {
       { id: "0002_pending", description: "pending", statements: ["SELECT 2"] },
       legacyHistoryImportReceiptsMigration,
       projectlessSessionRepositoryMigration,
+      workspaceConfigurationVersionMigration,
     ]);
 
     expect(result).toEqual({
@@ -84,6 +86,7 @@ describe("PostgresMigrationRunner", () => {
         "0002_pending",
         "0034_legacy_history_import_receipts",
         "0034_projectless_session_repository",
+        "0041_workspace_configuration_version",
       ],
       skipped: ["0001_done"],
     });
@@ -92,11 +95,13 @@ describe("PostgresMigrationRunner", () => {
       "SELECT 2",
       ...legacyHistoryImportReceiptsMigration.statements,
       ...projectlessSessionRepositoryMigration.statements,
+      ...workspaceConfigurationVersionMigration.statements,
     ]);
     expect(ledger.recorded).toEqual([
       "0002_pending",
       "0034_legacy_history_import_receipts",
       "0034_projectless_session_repository",
+      "0041_workspace_configuration_version",
     ]);
     expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
       "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
@@ -107,11 +112,15 @@ describe("PostgresMigrationRunner", () => {
     expect(legacyHistoryImportReceiptsMigration.statements[3]).toContain(
       "WHERE source_kind = 'local_wrangler_sqlite'",
     );
+    expect(workspaceConfigurationVersionMigration.statements).toEqual([
+      "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS configuration_version INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE workspaces ADD CONSTRAINT workspaces_configuration_version_positive_check CHECK (configuration_version > 0)",
+    ]);
     expect(projectlessSessionRepositoryMigration.statements[0]).toContain(
       "UPDATE sessions SET repository = NULL WHERE repository = 'New Project'",
     );
     const alreadyApplied = new PostgresMigrationRunner(client, new FakeLedger(new Set(ledger.recorded)));
-    expect(await alreadyApplied.runPending([projectlessSessionRepositoryMigration])).toEqual({ applied: [], skipped: ["0034_projectless_session_repository"] });
+    expect(await alreadyApplied.runPending([projectlessSessionRepositoryMigration, workspaceConfigurationVersionMigration])).toEqual({ applied: [], skipped: ["0034_projectless_session_repository", "0041_workspace_configuration_version"] });
   });
 
   it("adds migration context to statement failures", async () => {
