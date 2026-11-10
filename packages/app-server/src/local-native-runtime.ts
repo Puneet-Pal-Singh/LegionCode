@@ -124,6 +124,12 @@ export function createLocalNativeRuntime(
         plan: Object.values(PRODUCT_MODES),
         ...(availableCapability.artifactCapture === "required" ? { build: Object.values(PRODUCT_MODES) } : {}),
       },
+      commandExecution: {
+        plan: "unavailable",
+        ...(availableCapability.artifactCapture === "required" && availableCapability.commandExecution
+          ? { build: availableCapability.commandExecution }
+          : {}),
+      },
       ...(options.media ? { attachments: options.media.limits } : {}),
     },
     async createAdmission(input) {

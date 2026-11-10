@@ -69,6 +69,7 @@ export function createLocalCapturedExecutionCapability(
 > {
   return {
     artifactCapture: "required",
+    commandExecution: "single_executable_nofork",
     async createExecutionPorts(
       input: TurnAdmission,
       binding: LocalWorkspaceExecutionBinding,
