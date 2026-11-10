@@ -1,3 +1,5 @@
+import type { SubmitUserInputResponseRequest } from "@repo/platform-protocol";
+import { createHarnessClient, type HarnessClient } from "../harness/client.js";
 import { CheckoutListFilesParamsSchema, CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
 import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
@@ -186,6 +188,7 @@ const GitMutationMetadataSchema = z.object({
 }).strict();
 
 export type AppServerClient = {
+  readonly harness: HarnessClient;
   startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
   getTurn(turnId: string): Promise<TurnAdmission>;
   /** latest:true reads a chronological tail with server-measured hasEarlier.
@@ -227,6 +230,7 @@ export type AppServerClient = {
   replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
   getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+  submitUserInputResponse(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
   compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
@@ -289,6 +293,7 @@ export function createAppServerClient(
     readLocalChatImageChunk: (params) => request(options, {
       method: "media/readImage", params: LocalChatImageReadParamsSchema.parse(params),
     }, AppServerResultSchemas["media/readImage"]),
+    harness: createHarnessClient(options),
     listWorkspaceFiles: (params) => request(options, {
       method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/listFiles"]),
@@ -449,6 +454,9 @@ export function createAppServerClient(
     submitLifecycleApproval: async (params) => request(options, {
       method: "turn/approval", params,
     }, AppServerResultSchemas["turn/approval"]),
+    submitUserInputResponse: async (params) => request(options, {
+      method: "turn/userInput", params,
+    }, AppServerResultSchemas["turn/userInput"]),
     compactTurn: async (params) => request(options, {
       method: "turn/compact", params,
     }, AppServerResultSchemas["turn/compact"]),
@@ -749,3 +757,6 @@ function acknowledgementFromHeaders(
     runAttemptId: headers.get("X-Run-Attempt-Id"),
   };
 }
+
+// Shared internal request path for SDK operation groups.
+export { request as requestAppServerOperation };

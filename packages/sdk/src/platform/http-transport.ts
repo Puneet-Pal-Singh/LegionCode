@@ -2,7 +2,6 @@ import {
   ArtifactIdSchema,
   RunIdSchema,
   ThreadIdSchema,
-  TurnIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
 import type { ThreadInputCommand } from "@repo/platform-protocol";
@@ -16,9 +15,6 @@ import { createAppServerClient, AppServerClientError } from "./app-server-client
 import { createAppServerHttpTransport, AppServerTransportError } from "./app-server-http-transport.js";
 import { AppServerErrorSchema, AppServerFailureResponseSchema } from "@legioncode/app-server/protocol";
 import type {
-  SubmitUserInputResponseRequest,
-} from "./lifecycle-types.js";
-import type {
   ListArtifactsRequest,
   ListThreadsRequest,
   PlatformClientOperationOptions,
@@ -29,7 +25,7 @@ import type {
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
-type HostedLifecycleMethod = "turn/submit" | "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
+type HostedLifecycleMethod = "turn/submit" | "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact" | "turn/userInput";
 type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
 type HostedThreadInputMethod = "turn/steer" | "turn/resume" |
   "thread/input/enqueue" | "thread/input/list" | "thread/input/update" |
@@ -185,13 +181,7 @@ export function createPlatformHttpTransport(
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
     submitLifecycleApproval: (payload, options) => hostedOperation("turn/approval", options?.signal, (client) => client.submitLifecycleApproval(payload)),
-    submitUserInputResponse: (payload, options) =>
-      request.json(
-        "POST",
-        buildUserInputResponsePath(payload),
-        payload,
-        options,
-      ),
+    submitUserInputResponse: (payload, options) => hostedOperation("turn/userInput", options?.signal, (client) => client.submitUserInputResponse(payload)),
     getTurnDiff: (payload, options) => hostedOperation("turn/diff", options?.signal, (client) => client.getTurnDiff(payload)),
     getArtifact: (artifactId, options) =>
       request.json("GET", buildArtifactPath(artifactId), undefined, options),
@@ -742,6 +732,7 @@ function hostedResponseContractError(method: HostedLifecycleMethod): PlatformCli
     "turn/lifecycleEvents": "replayLifecycleEvents",
     "turn/diff": "getTurnDiff",
     "turn/approval": "submitLifecycleApproval",
+    "turn/userInput": "submitUserInputResponse",
     "turn/compact": "compactTurn",
   };
   const operation = operationByMethod[method];
@@ -886,14 +877,6 @@ function buildApprovalPath(request: SubmitApprovalRequest): string {
   const runId = encodeURIComponent(RunIdSchema.parse(request.runId));
   const approvalId = encodeURIComponent(request.approvalId);
   return `/runs/${runId}/approvals/${approvalId}`;
-}
-
-function buildUserInputResponsePath(
-  request: SubmitUserInputResponseRequest,
-): string {
-  const turnId = encodeURIComponent(TurnIdSchema.parse(request.turnId));
-  const requestId = encodeURIComponent(request.requestId);
-  return `/turns/${turnId}/user-input/${requestId}`;
 }
 
 function buildArtifactPath(artifactId: ArtifactId): string {

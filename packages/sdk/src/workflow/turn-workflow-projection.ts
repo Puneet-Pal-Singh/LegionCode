@@ -99,11 +99,20 @@ export interface WorkflowRequest {
 export interface WorkflowRequestQuestion {
   readonly id: string;
   readonly question: string;
+  readonly header?: string | null;
+  readonly multiple?: boolean;
+  readonly required?: boolean;
+  readonly allowCustom?: boolean;
+  readonly customMultiple?: boolean;
+  readonly maxAnswerLength?: number;
+  readonly options?: readonly { readonly id: string; readonly label: string; readonly description: string | null }[];
 }
 
 export interface WorkflowRequestAnswer {
   readonly questionId: string;
   readonly value: string;
+  /** Exact canonical IDs/text; display labels never become reply authority. */
+  readonly values?: readonly string[];
 }
 
 export interface PlanWorkflowStep {

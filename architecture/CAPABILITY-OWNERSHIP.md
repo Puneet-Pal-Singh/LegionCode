@@ -2116,3 +2116,12 @@ original operations through the existing combined server barrier. The read
 deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
+
+
+### 048/061 LOCAL prerequisite reconciliation (2026-11-10)
+
+The LOCAL packet reconciles approved handoff `37d5a77548669d1661b2cf2db26314cc7213adb7` and tracked opening ownership source `acb94a831331ede53297fd7ddb440407537aabed` onto reviewed source `944f0079fc58dd4ca8362ab378cc4a6c9b654b14`. Constructor and Native-versus-durable command routing preserve the reviewed correction `8e3dfd8d19eaab50989e8ec98e94accbefdd6ae1`.
+
+Canonical protocol and RuntimeKernel own frozen selection, question claims and lifecycle settlement. The four Node harness packages own external transport/session mechanics; the local SQLite owner owns opening reservations, binding/control-plane records, observation commits and attachment retirement. Persistence exports the shared storage schema/types without adopting hosted Postgres, migration or credential-custody implementations. LocalHarnessComposition and the actual App Server constructor share the existing workspace/thread/provider/SQLite resource graph; saved commands select their durable backend while Native start/configuration authority remains separate. Existing Native restoration, media, history, preferences, review/commit and live Git-read owners remain authoritative.
+
+The same attached shutdown owner retains both original Native and delegated initialization promises and drains both before positive persistence closure, after signaling the actual shutdown owners. Its initialization result includes retained `recovery_required` outcomes. Private process readiness/listen/control remains separately owned and must consume this actual result before launch; this prerequisite checkpoint does not certify readiness. Physical Mac external-harness confinement, account proof, installed runtime packaging and acceptance remain unavailable release gates. This packet excludes hosted PG/custody, Brain, Desktop and mounted UI.

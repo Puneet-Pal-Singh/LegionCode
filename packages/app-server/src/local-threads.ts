@@ -13,6 +13,7 @@ import {
   type PlatformEvent,
   type Thread,
   type ThreadId,
+  type UserId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 
@@ -41,6 +42,10 @@ export class LocalThreadService {
         (workspace) => mutation({ readThread: () => this.readAuthorizedThread(threadId, workspace) }),
       ),
     });
+  }
+
+  get actorUserId(): UserId {
+    return LOCAL_USER_ID;
   }
 
   async list(): Promise<Thread[]> {

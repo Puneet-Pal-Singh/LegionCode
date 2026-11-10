@@ -1,3 +1,6 @@
+import type { SubmitUserInputResponseRequest } from "@repo/platform-protocol";
+import type { HarnessOperations } from "./harness/HarnessOperations.js";
+export type { HarnessOperations } from "./harness/HarnessOperations.js";
 import type { LocalProviderPreferenceScope } from "./protocol.js";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
@@ -58,9 +61,11 @@ import type { LocalProviderService, ProviderConfiguration } from "./local-provid
 import type { EditArtifactDiffResponse, PromptArtifactReviewSource } from "@repo/shared-types";
 
 export type AppServerComposition = {
+  harnessOperations?: HarnessOperations;
   environment: "local" | "hosted";
   serverId: string;
   serverVersion: string;
+  environmentId?: string | null;
   workspaceService?: LocalWorkspaceService;
   localWorkspaceFilesService?: {
     fileMentions?(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
@@ -85,6 +90,7 @@ export type AppServerComposition = {
     contents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   };
   threadService?: LocalThreadService;
+  /** Native configuration/start authority; saved routing is not launch readiness. */
   localTurnService?: {
     getConfigurationOptions(): LocalTurnConfigurationOptions;
     startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
@@ -92,7 +98,10 @@ export type AppServerComposition = {
     readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
     interruptTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+    submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
   };
+  /** Saved commands follow their durable owner independently of Native launch. */
+  localTurnCommands?: Omit<NonNullable<AppServerComposition["localTurnService"]>, "getConfigurationOptions" | "startTurn">;
   providerService?: LocalProviderService;
   hostedProviderDiscoveryService?: {
     catalog(runId?: string): Promise<{ providers: ProviderRegistryEntry[] }>;
@@ -155,6 +164,7 @@ export type AppServerComposition = {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
     getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+    submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
     compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   };
   hostedEditArtifactReadsService?: {
@@ -353,6 +363,37 @@ async function dispatch(
   composition: AppServerComposition,
 ): Promise<unknown> {
   switch (request.method) {
+    case "harness/setup": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(
+        503, "server_unavailable", "Harness operations are unavailable in this environment", "HARNESS_UNAVAILABLE", false,
+      );
+      return composition.harnessOperations.setup(request.params);
+    }
+    case "harness/status": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(
+        503, "server_unavailable", "Harness operations are unavailable in this environment", "HARNESS_UNAVAILABLE", false,
+      );
+      return composition.harnessOperations.status(request.params);
+    }
+    case "harness/models": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(
+        503, "server_unavailable", "Harness operations are unavailable in this environment", "HARNESS_UNAVAILABLE", false,
+      );
+      return composition.harnessOperations.models(request.params);
+    }
+    case "harness/selection/read": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(
+        503, "server_unavailable", "Harness operations are unavailable in this environment", "HARNESS_UNAVAILABLE", false,
+      );
+      return composition.harnessOperations.readSelection(request.params);
+    }
+    case "harness/selection/select": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(
+        503, "server_unavailable", "Harness operations are unavailable in this environment", "HARNESS_UNAVAILABLE", false,
+      );
+      return composition.harnessOperations.select(request.params);
+    }
+
     case "repository/list": {
       if (!composition.hostedRepositoryReadService) throw new Error("unsupported");
       return composition.hostedRepositoryReadService.list(request.params);
@@ -394,12 +435,14 @@ async function dispatch(
       return { admission: await composition.localTurnService.startTurn(request.params) };
     }
     case "turn/get": {
-      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
-      return { admission: await composition.localTurnService.getTurn(request.params.turnId) };
+      const service = composition.localTurnCommands ?? composition.localTurnService;
+      if (composition.environment !== "local" || !service) throw new Error("unsupported");
+      return { admission: await service.getTurn(request.params.turnId) };
     }
     case "thread/history": {
-      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
-      return composition.localTurnService.readHistory(request.params);
+      const service = composition.localTurnCommands ?? composition.localTurnService;
+      if (composition.environment !== "local" || !service) throw new Error("unsupported");
+      return service.readHistory(request.params);
     }
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
@@ -416,8 +459,9 @@ async function dispatch(
     }
     case "turn/interrupt": {
       if (composition.environment === "local") {
-        if (!composition.localTurnService || typeof request.params.sessionId === "string") throw new Error("unsupported");
-        return composition.localTurnService.interruptTurn(request.params);
+        const service = composition.localTurnCommands ?? composition.localTurnService;
+        if (!service || typeof request.params.sessionId === "string") throw new Error("unsupported");
+        return service.interruptTurn(request.params);
       }
       if (typeof request.params.sessionId !== "string") {
         throw new AppServerOperationError(400, "invalid_request", "Hosted interruption requires its session scope");
@@ -456,11 +500,22 @@ async function dispatch(
     }
     case "turn/approval": {
       if (composition.environment === "local") {
-        if (!composition.localTurnService) throw new Error("unsupported");
-        return composition.localTurnService.submitLifecycleApproval(request.params);
+        const service = composition.localTurnCommands ?? composition.localTurnService;
+        if (!service) throw new Error("unsupported");
+        return service.submitLifecycleApproval(request.params);
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
+    }
+    case "turn/userInput": {
+      if (composition.environment === "local") {
+        const service = composition.localTurnCommands ?? composition.localTurnService;
+        if (!service?.submitUserInputResponse) throw new AppServerOperationError(503, "server_unavailable", "Local question responses are unavailable", undefined, false);
+        return service.submitUserInputResponse(request.params);
+      }
+      const service = composition.hostedLifecycleOperationsService;
+      if (!service?.submitUserInputResponse) throw new Error("unsupported");
+      return service.submitUserInputResponse(request.params);
     }
     case "turn/compact": {
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
@@ -590,6 +645,7 @@ async function dispatch(
         {
           environment: composition.environment,
           serverId: composition.serverId,
+          environmentId: composition.environmentId,
           serverVersion: composition.serverVersion,
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
           localWorkspaceGitReadsAvailable: Boolean(composition.localWorkspaceGitReadsService),
