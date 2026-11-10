@@ -62,6 +62,14 @@ export function composeHostedThreadInputOperations(request: Request, env: Env, u
   });
   return { execute: async (command) => {
     try {
+      // Preserve Hosted's existing update visibility: terminal inbox rows were
+      // absent from the original pending/consuming queue snapshot.
+      if (command.operation === "thread.input.update") {
+        const scope = await resolveThreadScope(env, userId, command);
+        const visible = await repository.list(scope);
+        if (!visible.items.some((item) => item.itemId === command.itemId))
+          throw operationError(404, "not_found", "Queue item not found", "QUEUE_ITEM_NOT_FOUND");
+      }
       const result = await service.execute(command);
       const statusCode = (command.operation === "thread.input.update" || command.operation === "thread.input.remove") && result.statusCode === 409
         ? 200 : result.statusCode;
