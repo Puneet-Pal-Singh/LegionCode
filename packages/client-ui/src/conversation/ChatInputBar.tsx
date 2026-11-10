@@ -54,6 +54,7 @@ const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
 
 export interface ChatInputBarProps {
+  workspaceBar?: ReactNode;
   imageDraft?: ChatImageAttachmentDraftBinding;
   composerPreferences?: ComposerPreferences;
   isHidden?: boolean;
@@ -118,6 +119,7 @@ function OwnedImageDraftInputBar(props: ChatInputBarProps) {
 }
 
 function ChatInputBarView({
+  workspaceBar,
   imageDraft,
   composerPreferences = {
     plainTextComposer: true,
@@ -665,6 +667,7 @@ function ChatInputBarView({
           </div>
         ) : null}
 
+        {!isHidden && workspaceBar ? <div className="mb-2 min-w-0">{workspaceBar}</div> : null}
         <div
           data-testid="chat-composer-drop-zone"
           onDragOver={(event) => {

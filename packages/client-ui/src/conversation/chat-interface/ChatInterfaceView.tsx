@@ -46,6 +46,7 @@ export interface ChatInterfaceViewProps {
   runAttemptId: string | null;
   artifactIdentity?: EditArtifactIdentity | null;
   showHeroComposer: boolean;
+  showProjectChip?: boolean;
   projectName?: string;
   onProjectClick?: () => void;
   showSessionPlaceholder: boolean;
@@ -131,6 +132,7 @@ export const ChatInterfaceView = forwardRef<
           <HeroComposer
             projectName={props.projectName}
             onProjectClick={props.onProjectClick}
+            showProjectChip={props.showProjectChip}
           >
             {props.renderComposer("hero")}
           </HeroComposer>
@@ -516,10 +518,12 @@ export function HeroComposer({
   children,
   projectName,
   onProjectClick,
+  showProjectChip = true,
 }: {
   children: ReactNode;
   projectName?: string;
   onProjectClick?: () => void;
+  showProjectChip?: boolean;
 }) {
   return (
     <div className="mx-auto flex min-h-full min-w-0 w-full max-w-4xl items-center justify-center py-8">
@@ -538,7 +542,7 @@ export function HeroComposer({
             </button>
           ) : null}
         </h1>
-        {projectName ? (
+        {projectName && showProjectChip ? (
           <div className="mb-4 flex justify-center">
             <button
               type="button"

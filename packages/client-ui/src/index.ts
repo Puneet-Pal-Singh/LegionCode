@@ -53,6 +53,7 @@ export { PendingWorkflowSurface } from "./conversation/workflow/PendingWorkflowS
 export { ApprovalDock } from "./conversation/approval/ApprovalDock.js";
 export { getDisplayedApprovalDecisions } from "./conversation/approval/approvalDecisions.js";
 export { ChatInputBar, type ChatInputBarProps } from "./conversation/ChatInputBar.js";
+export { ComposerWorkspaceBar, type ComposerWorkspaceBarProps } from "./conversation/ComposerWorkspaceBar.js";
 export { ChatComposerPlusMenu } from "./conversation/ChatComposerPlusMenu.js";
 export { ChatImageDropOverlay } from "./conversation/ChatImageDropOverlay.js";
 export { PermissionModeControl } from "./conversation/PermissionModeControl.js";
