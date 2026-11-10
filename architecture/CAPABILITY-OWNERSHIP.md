@@ -1617,6 +1617,52 @@ history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
 
+## Plan 057 — Private bounded startup admission enumeration
+
+LocalTurnAdmissions exposes a private cursor page over its existing canonical
+admission references, limited to 25 records and one MiB of reconstructed data.
+It validates the actual run-event cursor and resumes after the last returned
+record, without a copied status table or recovery writer. Startup admission
+index validation streams existing rows instead of collecting the whole index.
+The sole LocalPersistence owner guards the query; Native runtime policy and
+before-ready reconciliation remain separate consumers and own settlement.
+
+## Local chat image read and SDK hydration boundary
+
+`LocalChatMediaReads` delegates current grant/Thread authorization to the existing
+Turn owner before and after each read, checks canonical user-message membership
+and fingerprint, and reads verified originals from the existing media store.
+The shared `media/readImage` contract transfers bounded 256 KiB chunks without
+host paths. Its optional App Server port rejects absent or nonlocal composition
+with non-retryable 503; actual host injection remains separate.
+SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
+and the complete SHA-256 before returning bytes, with abort checks before return.
+Clients own transient display URLs. No blob store, admission/lifecycle producer,
+capability advertisement or Desktop activation is added by this boundary.
+
+## Plan 057 — Native Plan process-loss reconciliation
+
+The runtime lifecycle coordinator remains the only terminal writer. Its shared
+restoration reducer retains the existing isolated approval-wait policy and adds
+strict Native read-only restoration, including tool names/batches, durable
+approval/tool receipts and context compaction. Recovery finishes already-durable
+item results before failing remaining work; a typed compaction failure now uses
+the canonical item failure envelope.
+
+The Engine's `LocalNativePlanRecovery` adapter validates the admitted worker,
+permission profile and immutable Plan configuration. It reads complete scoped
+lifecycle history in bounded pages, stages coordinator-produced repair and failure
+events, and appends them in one atomic batch. Durable terminal replay reconciles
+lost acknowledgements. Completed receipts remain unchanged. Oversized unsettled,
+corrupt, mutating or independently owned history does not authorize a partial
+restore. No provider, tool, credential, workspace or writer fence is reacquired,
+replayed or released. Startup must call this adapter only after the existing
+SQLite exclusive-lock owner is open and before new commands become ready.
+
+The private admission enumeration, native runtime port and App Server before-ready
+barrier are separately owned integration dependencies. This leaf does not claim
+to activate that startup barrier or recover captured Build resources.
+
 ## Plan 057 — Canonical named repository HEAD evidence
 
 `DefaultGitService.readRepositoryHead` owns the read-only named-HEAD observation
