@@ -1,77 +1,92 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, open, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { inspectNativeFileHelper } from "./build-file-helper.mjs";
+
+const supportedIntentFrame = '{"v":2,"event":"intent_probe","state":"supported","intentVersion":1}\n';
+const acquiredFrame = '{"v":2,"event":"lease","state":"acquired","intentVersion":1}\n';
 
 export async function verifyBundledProcessHelper(
   executablePath,
   platform,
   architecture,
 ) {
-  const diagnostics = await inspectNativeFileHelper(
-    executablePath,
-    platform,
-    architecture,
-  );
+  const diagnostics = await inspectNativeFileHelper(executablePath, platform, architecture);
+  const probe = await readHelperReceipt(executablePath, ["--probe-writer-intent"]);
+  if (!probe.equals(Buffer.from(supportedIntentFrame))) throw unavailable();
+
   const directory = await mkdtemp(join(tmpdir(), "legioncode-package-fence-"));
-  let lease;
+  let lease, root, namespace;
   try {
-    lease = await open(join(directory, "fence"), "wx", 0o600);
-    await new Promise((resolve, reject) => {
-      const child = spawn(executablePath, ["--acquire-lease-fd", "6"], {
-        env: {},
-        shell: false,
-        stdio: [
-          "ignore",
-          "ignore",
-          "pipe",
-          "ignore",
-          "pipe",
-          "ignore",
-          lease.fd,
-        ],
-      });
-      const chunks = [];
-      let size = 0;
-      let failed = false;
-      const stop = () => {
-        failed = true;
-        child.kill("SIGKILL");
-      };
-      const timer = setTimeout(stop, 5_000);
-      child.once("error", stop);
-      child.stderr.on("error", stop);
-      child.stderr.resume();
-      const status = child.stdio[4];
-      status.on("error", stop);
-      status.on("data", (chunk) => {
-        size += chunk.length;
-        if (size > 128) {
-          stop();
-          return;
-        }
-        chunks.push(chunk);
-      });
-      child.once("close", (code, signal) => {
-        clearTimeout(timer);
-        const receipt = Buffer.concat(chunks).toString("utf8");
-        if (
-          failed ||
-          code !== 0 ||
-          signal !== null ||
-          receipt !== '{"v":1,"event":"lease","state":"acquired"}\n'
-        ) {
-          reject(new Error("Bundled process helper FD6 invocation failed"));
-        } else resolve();
-      });
-    });
-    return { ...diagnostics, protocol: "guardian-fd6-v1" };
+    const rootPath = join(directory, "root"), namespacePath = join(directory, "namespace");
+    await mkdir(rootPath, { mode: 0o700 });
+    await mkdir(namespacePath, { mode: 0o700 });
+    root = await open(rootPath, "r");
+    namespace = await open(namespacePath, "r");
+    // Actual exclusive creation, never an existing empty/legacy fence inode.
+    lease = await open(join(namespacePath, "fence"), "wx", 0o600);
+    const receipt = await readHelperReceipt(executablePath, [
+      "--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7", "--initialize-empty", "1",
+    ], [root.fd, lease.fd, namespace.fd]);
+    if (!receipt.equals(Buffer.from(acquiredFrame))) throw unavailable();
+    return { ...diagnostics, protocol: "guardian-fd6-v2", intentProbe: JSON.parse(probe.toString("utf8")) };
   } finally {
-    try {
-      await lease?.close();
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    // Preserve the scratch inode/handles on uncertain cleanup rather than
+    // unlinking a namespace before all original borrowed descriptors close.
+    const closed = await Promise.allSettled([lease, root, namespace].filter(Boolean).map((handle) => handle.close()));
+    if (closed.some((result) => result.status === "rejected")) throw unavailable();
+    await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** Artifact validation only: bounded status/diagnostic bytes and the original
+ * trusted helper close event. A deadline requests stop; it never settles close. */
+function readHelperReceipt(executablePath, args, descriptors = []) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(executablePath, args, {
+        env: {}, shell: false,
+        stdio: ["ignore", "pipe", "pipe", "ignore", "pipe", ...descriptors],
+      });
+    } catch {
+      reject(unavailable());
+      return;
+    }
+    const chunks = [];
+    let failed = false, stopping = false;
+    const stop = () => {
+      failed = true;
+      if (stopping) return;
+      stopping = true;
+      if (child.exitCode === null && child.signalCode === null) {
+        try { child.kill("SIGKILL"); } catch { /* Await actual close below. */ }
+      }
+    };
+    const timer = setTimeout(stop, 5_000);
+    child.on("error", stop);
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      if (failed || code !== 0 || signal !== null) reject(unavailable());
+      else resolve(Buffer.concat(chunks));
+    });
+    for (const [stream, limit, save] of [
+      [child.stdio[4], 128, true], [child.stdout, 1024, false], [child.stderr, 1024, false],
+    ]) {
+      if (!(stream instanceof Readable)) { stop(); continue; }
+      let size = 0;
+      stream.on("error", stop);
+      stream.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > limit) stop();
+        else if (save) chunks.push(chunk);
+      });
+    }
+  });
+}
+
+function unavailable() {
+  return new Error("Bundled native writer intent ABI verification failed");
 }
