@@ -2149,12 +2149,19 @@ comes from the exact owned active workspace; updates recheck its GitHub access
 and resolve an explicitly changed branch through the authenticated client.
 
 The existing Postgres workspace row holds the configuration version. Updates
-compare the expected version under its row lock, then atomically change the
-saved branch and any matching current selection. Stale writes fail, including
+lock the canonical repository before the owned active workspace, compare the
+privately captured verified repository identity and expected version, then
+atomically change the saved branch and any matching current selection. Stale writes fail, including
 stale no-ops; current no-ops retain their version. Existing selection preserves
 configured names and increments the same version when branch, default branch
 or active state changes. Editing an unselected workspace never selects it.
 `MemoryWorkspaceRepository` implements the same contract for existing consumers.
+
+The existing repository UPSERT cannot rebind a namespace to another provider
+repository identity, including transitions to or from legacy unknown identity.
+Ingress and returned Memory records are detached from caller mutation. Identity
+conflicts are typed nonretryable errors; recovery requires an explicitly reviewed
+identity operation, not automatic reselection or a parallel repository registry.
 
 Workspace list/select renders saved names; session workspace context and
 `AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
@@ -2163,3 +2170,14 @@ owners and are not rewritten. Configuration reads perform no GitHub or execution
 probe. These records are saved settings, not prepared machines: this slice adds
 no allocation, scripts, network policy, setup secrets, preparation principal,
 Ready binding, runtime identity or alternate environment registry.
+
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
