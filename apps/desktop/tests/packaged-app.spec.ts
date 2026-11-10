@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -60,18 +61,27 @@ async function readWorkspaceGrant(page: Page) {
 test("the packaged Desktop app renders without Node.js privileges", async () => {
   const executablePath = await findPackagedExecutable();
   const testRoot = await mkdtemp(join("/tmp", "legioncode-desktop-boundary-"));
+  const userDataDirectory = join(testRoot, "user-data");
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  let fixtureMain: ChildProcess | undefined;
+  let fixtureProfileVerified = false;
+  let crashedFixture = false;
+  let crashUtilitiesAbsent = false;
 
   try {
     const launchedApplication = await electron.launch({
       executablePath,
-      args: [`--user-data-dir=${join(testRoot, "user-data")}`],
+      args: [`--user-data-dir=${userDataDirectory}`],
       env: {
         ...process.env,
         ELECTRON_RENDERER_URL: "http://127.0.0.1:1/packaged-override-must-be-ignored",
       },
     });
     application = launchedApplication;
+    const actualUserData = await launchedApplication.evaluate(({ app }) => app.getPath("userData"));
+    expect(await realpath(actualUserData)).toBe(await realpath(userDataDirectory));
+    fixtureMain = launchedApplication.process();
+    fixtureProfileVerified = true;
     const page = await launchedApplication.firstWindow();
     await page.setViewportSize({ width: 420, height: 900 });
     const openSidebar = page.getByRole("button", { name: "Open sidebar" });
@@ -106,8 +116,6 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
       platform: "darwin",
       arch: process.arch,
     });
-    const actualUserData = await launchedApplication.evaluate(({ app }) => app.getPath("userData"));
-    expect(await realpath(actualUserData)).toBe(await realpath(join(testRoot, "user-data")));
     await openSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
     await expect(closeSidebar).toBeVisible();
@@ -169,8 +177,7 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     });
     expect(foreignOrigin.status).toBe(403);
     await foreignOrigin.arrayBuffer();
-    process.kill(appServerMetric.pid, "SIGKILL");
-    await expect(page.getByText("Environment offline", { exact: true })).toBeVisible();
+    // A healthy restart must receive genuine physical/SQLite closure first.
     const restartPromise = page.evaluate(() => window.desktop.restartEnvironment());
     await expect(page.getByText("Starting environment", { exact: true })).toBeVisible();
     await restartPromise;
@@ -247,6 +254,8 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     expect(restartedServers[0]!.pid).not.toBe(appServerMetric.pid);
     await launchedApplication.close();
     application = undefined;
+    fixtureMain = undefined;
+    fixtureProfileVerified = false;
     await expect.poll(() => {
       try {
         process.kill(restartedServers[0]!.pid, 0);
@@ -256,9 +265,64 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
         throw error;
       }
     }, { timeout: 10_000, message: "Local App Server must exit after Desktop quits" }).toBe(true);
+
+    // Preserve abrupt-crash coverage separately from successful shutdown. This
+    // same isolated profile never grants a workspace or starts a Turn.
+    const crashApplication = await electron.launch({
+      executablePath,
+      args: [`--user-data-dir=${userDataDirectory}`],
+    });
+    application = crashApplication;
+    const crashUserData = await crashApplication.evaluate(({ app }) => app.getPath("userData"));
+    expect(await realpath(crashUserData)).toBe(await realpath(userDataDirectory));
+    fixtureMain = crashApplication.process();
+    fixtureProfileVerified = true;
+    const crashPage = await crashApplication.firstWindow();
+    await expectEnvironmentReady(crashPage);
+    expect(await readWorkspaceGrant(crashPage)).toBeNull();
+    const crashServers = (await crashApplication.evaluate(({ app }) => app.getAppMetrics()))
+      .filter((metric) => metric.name === "LegionCode Local App Server");
+    expect(crashServers).toHaveLength(1);
+    const crashServer = crashServers[0];
+    if (!crashServer) throw new Error("Isolated fixture Local App Server was not found");
+    crashedFixture = true;
+    process.kill(crashServer.pid, "SIGKILL");
+    await expect(crashPage.getByText("Environment offline", { exact: true })).toBeVisible();
+    await expect(crashPage.evaluate(() => window.desktop.restartEnvironment()))
+      .rejects.toThrow(/closure.*unconfirmed/i);
+    const crashEnvironment = AppServerEnvironmentSnapshotSchema.parse(
+      await crashPage.evaluate(() => window.desktop.getEnvironment()),
+    );
+    expect(crashEnvironment.status).not.toBe("ready");
+    expect(crashEnvironment.reason).toContain("closure is unconfirmed");
+    await expect.poll(async () => (await crashApplication.evaluate(({ app }) => app.getAppMetrics()))
+      .filter((metric) => metric.name === "LegionCode Local App Server")
+      .map((metric) => metric.pid)).toEqual([]);
+    crashUtilitiesAbsent = true;
   } finally {
-    await application?.close();
-    await rm(testRoot, { recursive: true, force: true });
+    if (application && fixtureProfileVerified) {
+      if (crashedFixture) {
+        // Harness cleanup only: product Quit correctly refuses unknown closure.
+        // Target the exact launched fixture Main, never discover/kill other apps.
+        if (!fixtureMain?.pid || fixtureMain.pid === process.pid) {
+          throw new Error("The isolated fixture Main process could not be verified");
+        }
+        expect(fixtureMain.spawnargs).toContain(`--user-data-dir=${userDataDirectory}`);
+        if (fixtureMain.exitCode === null && fixtureMain.signalCode === null) {
+          const exited = once(fixtureMain, "exit", { signal: AbortSignal.timeout(10_000) });
+          fixtureMain.kill("SIGKILL");
+          await exited;
+        }
+      } else {
+        await application.close();
+      }
+      application = undefined;
+    }
+    // An unverified or still-running fixture retains its directory. Process exit
+    // above is teardown observation, never a positive runtime-closure receipt.
+    if (!application && (!crashedFixture || crashUtilitiesAbsent)) {
+      await rm(testRoot, { recursive: true, force: true });
+    }
   }
 });
 

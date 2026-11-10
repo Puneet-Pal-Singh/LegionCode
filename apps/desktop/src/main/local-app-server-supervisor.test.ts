@@ -99,6 +99,7 @@ describe("Local App Server supervisor generation safety", () => {
     await settleMessages();
 
     const stopping = supervisor.stop();
+    child.emit("message", { type: "closed" });
     child.emit("exit");
     await stopping;
     handshakeResult.resolve(handshake);
@@ -178,6 +179,7 @@ describe("Local App Server supervisor generation safety", () => {
       params: {},
     });
     const stopping = supervisor.stop();
+    child.emit("message", { type: "closed" });
     child.emit("exit");
     await stopping;
     credentialResult.resolve({ credential: { apiKey: "fixture-stale-secret" }, canDeliver: () => true });
@@ -197,11 +199,13 @@ describe("Local App Server supervisor generation safety", () => {
     const firstRestart = supervisor.restart("1.0.0");
     const secondRestart = supervisor.restart("1.0.0");
     expect(mocks.children).toHaveLength(1);
+    firstChild.emit("message", { type: "closed" });
     firstChild.emit("exit");
     await Promise.all([firstRestart, secondRestart]);
 
     expect(mocks.children).toHaveLength(2);
     const stopping = supervisor.stop();
+    childAt(1).emit("message", { type: "closed" });
     childAt(1).emit("exit");
     await stopping;
   });
@@ -212,6 +216,7 @@ describe("Local App Server supervisor generation safety", () => {
     const child = childAt(0);
     const restart = supervisor.restart("1.0.0");
     const shutdown = supervisor.stop();
+    child.emit("message", { type: "closed" });
     child.emit("exit");
     await Promise.all([restart, shutdown]);
 

@@ -4,6 +4,7 @@ import type {
   RuntimeGitSnapshotPort,
   RuntimeTurnArtifactPort,
   WorkerProtocolPort,
+  ToolAuthorizationPort,
 } from "@repo/runtime-kernel";
 import type { ToolBackendCapability } from "../tools/CodingToolRegistry.js";
 import type { LocalTurnAttemptIdentity } from "./LocalReadOnlyTurnExecutor.js";
@@ -46,5 +47,7 @@ export type LocalTurnExecutionCapability<
         admission: TurnAdmission,
         binding: TBinding,
         signal: AbortSignal,
+        /** Same immutable per-attempt policy owner also supplied to RuntimeKernel. */
+        toolAuthorization: ToolAuthorizationPort,
       ) => Promise<LocalCapturedExecutionPorts>;
     };

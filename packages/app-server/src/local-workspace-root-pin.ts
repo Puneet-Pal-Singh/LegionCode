@@ -116,7 +116,13 @@ export class LocalWorkspaceRootPin {
     this.state = "closing";
     await Promise.allSettled([...this.loans]);
     if (this.quarantined) throw new Error("Workspace root pin is quarantined until host restart");
-    await this.rootDirectory.close();
-    this.state = "closed";
+    try {
+      await this.rootDirectory.close();
+      this.state = "closed";
+    } catch (error) {
+      this.state = "quarantined";
+      this.retainQuarantined(this);
+      throw error;
+    }
   }
 }

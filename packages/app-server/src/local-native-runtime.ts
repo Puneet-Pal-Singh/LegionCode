@@ -30,6 +30,7 @@ import {
   parseWorkspaceManifest,
 } from "@repo/workspace-core";
 import { RegistryToolAuthorization } from "@legioncode/execution-engine/runtime/contracts/RegistryToolAuthorization";
+import { reconcileLocalNativePlanTurn } from "@legioncode/execution-engine/runtime/desktop/LocalNativePlanRecovery";
 import { createLocalTurnAdmission } from "@legioncode/execution-engine/runtime/desktop/LocalTurnAdmission";
 import { LocalTurnExecutor } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import type { LocalTurnAttemptIdentity } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
@@ -74,8 +75,8 @@ export interface LocalNativeRuntimeOptions {
     binding: LocalWorkspaceExecutionBinding,
     signal: AbortSignal,
   ) =>
-    | Pick<DefaultGitService, "probeRepository" | "getStatus">
-    | Promise<Pick<DefaultGitService, "probeRepository" | "getStatus">>;
+    | Pick<DefaultGitService, "probeRepository" | "getStatus" | "readRepositoryHead">
+    | Promise<Pick<DefaultGitService, "probeRepository" | "getStatus" | "readRepositoryHead">>;
 }
 
 /** Concrete 6C composition. The host keeps the one root FD and closes it after execution. */
@@ -106,12 +107,22 @@ export function createLocalNativeRuntime(
     );
   }
   return {
+    reconcileLostTurn(admission) {
+      return reconcileLocalNativePlanTurn({
+        admission,
+        lifecycleEvents: options.persistence.lifecycleEvents,
+        workerId,
+        permissionProfileId,
+        producerId: workerId,
+        clock: { now: () => new Date().toISOString() },
+      });
+    },
     configurationOptions: {
       modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
       productModes: Object.values(PRODUCT_MODES),
       productModesByMode: {
         plan: Object.values(PRODUCT_MODES),
-        ...(availableCapability.artifactCapture === "required" ? { build: [PRODUCT_MODES.ASK_ALWAYS] } : {}),
+        ...(availableCapability.artifactCapture === "required" ? { build: Object.values(PRODUCT_MODES) } : {}),
       },
       ...(options.media ? { attachments: options.media.limits } : {}),
     },
@@ -121,9 +132,6 @@ export function createLocalNativeRuntime(
       const configuration = LocalTurnConfigurationSchema.parse(input.configuration);
       if (configuration.mode === "build" && availableCapability.artifactCapture !== "required") {
         throw new Error("Local Build mode requires the actual captured execution ports");
-      }
-      if (configuration.mode === "build" && configuration.productMode !== PRODUCT_MODES.ASK_ALWAYS) {
-        throw new Error("Local Build mode requires Supervised permissions");
       }
       const admission = createLocalTurnAdmission(
         {
@@ -154,16 +162,45 @@ export function createLocalNativeRuntime(
       const selectedProfileId = profileFor(configuration);
       const capability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding> =
         configuration.mode === "build" ? availableCapability : { artifactCapture: "omitted_read_only" };
+      let permissionPolicy: Promise<PermissionPolicy> | undefined;
+      const resolvePolicy = () => permissionPolicy ??= Promise.resolve()
+        .then(() => options.resolvePermissionPolicy(configuration.productMode))
+        .then((policy) => PermissionPolicySchema.parse(policy));
+      const toolAuthorization = new RegistryToolAuthorization({
+        async resolve(profileId) {
+          if (profileId !== selectedProfileId) throw new Error("Unknown native permission profile");
+          return resolvePolicy();
+        },
+      });
       const filesystem = new NativeFilesystemBridge({
         helperPath,
         rootDirectory: binding.rootDirectory,
       });
       let manifestGitClosureUnknown = false;
+      let kernelPortsReturned = false;
       let attempt: LocalTurnAttemptIdentity | undefined;
       const executor = new LocalTurnExecutor<LocalWorkspaceExecutionBinding>({
         capability,
+        toolAuthorization,
         producerId: workerId,
         lifecycleEvents: options.persistence.lifecycleEvents,
+        ...(capability.artifactCapture === "omitted_read_only" ? {
+          awaitPreparationQuiescence: async (identity: LocalTurnAttemptIdentity) => {
+            const expected = {
+              workspaceId: preparedAdmission.run.workspaceId,
+              threadId: preparedAdmission.run.threadId,
+              runId: preparedAdmission.run.id,
+              turnId: preparedAdmission.turn.id,
+              runAttemptId: preparedAdmission.runAttemptId,
+            };
+            if ((Object.keys(expected) as Array<keyof typeof expected>).some((key) => identity[key] !== expected[key])) return false;
+            // No NativeFS tool can run before this factory returns kernel ports.
+            // Every attempted Git operation either returned positive closure or
+            // set the sticky unknown marker. The Engine additionally requires
+            // settled execution and exact durable canonical terminal evidence.
+            return !kernelPortsReturned && !manifestGitClosureUnknown;
+          },
+        } : {}),
         async bindWorkspace(admission, signal) {
           signal.throwIfAborted();
           binding.assertCurrent();
@@ -196,9 +233,7 @@ export function createLocalNativeRuntime(
         },
         async createKernelPorts(admission, bound, signal, execution) {
           signal.throwIfAborted();
-          const permissionPolicy = PermissionPolicySchema.parse(
-            await options.resolvePermissionPolicy(configuration.productMode),
-          );
+          await resolvePolicy();
           signal.throwIfAborted();
           const manifests = new MemoryWorkspaceManifestRepository();
           try {
@@ -230,21 +265,20 @@ export function createLocalNativeRuntime(
             admission,
             messages,
             gateway,
+            ...(modelSnapshot.contextWindow !== undefined ? {
+              metadata: { contextWindowTokens: modelSnapshot.contextWindow },
+            } : {}),
             signal,
             execution,
           });
-          return {
+          const kernelPorts = {
             ...provider,
             workspaceManifests: manifests,
-            toolAuthorization: new RegistryToolAuthorization({
-              async resolve(profileId) {
-                if (profileId !== selectedProfileId)
-                  throw new Error("Unknown native permission profile");
-                return permissionPolicy;
-              },
-            }),
+            toolAuthorization,
             approvals,
           };
+          kernelPortsReturned = true;
+          return kernelPorts;
         },
       });
       const proveRelease = async (turnId: TurnAdmission["turn"]["id"]) => {
@@ -309,18 +343,30 @@ async function readManifest(
     runId: admission.run.id,
     workspaceRoot: binding.filesystemRoot,
   });
+  const head = await git.readRepositoryHead({
+    runId: admission.run.id,
+    workspaceRoot: binding.filesystemRoot,
+  });
   await assertHeldRoot(binding, signal);
+  const objectIdLength = head.objectFormat === "sha1" ? 40 : head.objectFormat === "sha256" ? 64 : 0;
+  const absentHead = "0".repeat(objectIdLength);
+  const headMatchesStatus = objectIdLength > 0 && head.headSha.length === objectIdLength && /^[0-9a-f]+$/.test(head.headSha) && (
+    head.kind === "born"
+      ? status.branch.oid === head.headSha && head.headSha !== absentHead
+      : head.kind === "unborn" && status.branch.oid === "(initial)" && head.headSha === absentHead
+  );
   if (
     probe.repositoryRoot !== binding.filesystemRoot ||
     probe.repositoryIdentity !== binding.workspace.repositoryIdentity ||
-    !status.branch.oid ||
+    !headMatchesStatus ||
+    head.branchRef !== `refs/heads/${status.branch.head}` ||
     !status.branch.head ||
     status.branch.detached ||
     probe.branch !== status.branch.head ||
     binding.workspace.branch !== status.branch.head
   ) {
     throw new Error(
-      "Native read-only execution requires the current granted repository, commit and named branch",
+      "Native execution requires the current granted repository, named branch and verified HEAD state",
     );
   }
   return parseWorkspaceManifest({
@@ -331,8 +377,10 @@ async function readManifest(
     repoUrl: pathToFileURL(binding.filesystemRoot).href,
     baseBranch: status.branch.head,
     workingBranch: status.branch.head,
-    baseSha: status.branch.oid,
-    headSha: status.branch.oid,
+    // For unborn repositories, this is the Git owner's format-sized absent-HEAD
+    // guard. It is never a synthesized commit or a claim that HEAD exists.
+    baseSha: head.headSha,
+    headSha: head.headSha,
     executionLocation: "desktop_local",
     workerId: admission.run.workerId,
     filesystemRoot: binding.filesystemRoot,

@@ -168,7 +168,6 @@ export class ProviderModelDiscoveryService {
         providerId,
         query.view,
         surfaceModels,
-        query.limit,
       );
       const page = toPage(ranked, query.cursor, query.limit);
       const stale =
@@ -241,7 +240,6 @@ export class ProviderModelDiscoveryService {
     providerId: string,
     view: BYOKDiscoveredProviderModelsQuery["view"],
     models: ProviderModelCacheRecord["models"],
-    limit: number,
   ) {
     if (view !== "popular") {
       return models;
@@ -338,7 +336,7 @@ export class ProviderModelDiscoveryService {
       if (isCloudflareConfigForProvider(providerId, candidate)) {
         config = candidate;
       }
-    } catch (_error) {
+    } catch {
       config = undefined;
     }
     return models.map((model) => {
@@ -516,7 +514,7 @@ export class ProviderModelDiscoveryService {
       const credential = await this.credentialService.resolveCredential(providerId);
       apiKey = credential?.apiKey ?? null;
       connectionConfig = credential?.connectionConfig;
-    } catch (_error) {
+    } catch {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
       );
@@ -743,7 +741,7 @@ export class ProviderModelDiscoveryService {
       const credential = await this.credentialService.resolveCredential(providerId);
       apiKey = credential?.apiKey ?? null;
       connectionConfig = credential?.connectionConfig;
-    } catch (_error) {
+    } catch {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
       );

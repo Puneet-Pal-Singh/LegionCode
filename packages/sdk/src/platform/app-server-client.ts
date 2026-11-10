@@ -5,6 +5,9 @@ import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMut
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
   LocalWorkspaceListFilesParamsSchema,
+  LocalWorkspaceFileMentionsParamsSchema,
+  type LocalWorkspaceFileMentionsParams,
+  type LocalWorkspaceFileMentionsResult,
   LocalChatImageReadParamsSchema,
   type LocalChatImageReadParams,
   type LocalChatImageReadResult,

@@ -1,3 +1,4 @@
+import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import Database from "better-sqlite3";
 import { LocalWorkspaceProjectRecords } from "./local-workspace-projects.js";
 import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
@@ -114,6 +115,7 @@ export class LocalPersistence {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
     getByTurn(turnId: string): Promise<TurnAdmission | null>;
+    readThreadSummary(scope: LocalThreadRuntimeScope): Promise<LocalThreadRuntimeSummary | null>;
     listForRecovery(input: { afterCursor: EventCursor | null; limit: number }): Promise<{
       admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
     }>;
@@ -177,6 +179,7 @@ export class LocalPersistence {
         admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
         findByRequest: async (threadId, requestId) => this.guardStorage(() => admissions.findByRequest(threadId, requestId)),
         getByTurn: async (turnId) => this.guardStorage(() => admissions.getByTurn(turnId)),
+        readThreadSummary: async (scope) => this.guardStorage(() => admissions.readThreadSummary(scope)),
         listForRecovery: async (input) => this.guardStorage(() => admissions.listForRecovery(input)),
         listByThread: async (input) => this.guardStorage(() => admissions.listByThread(input)),
       };
