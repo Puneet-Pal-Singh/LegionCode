@@ -1,10 +1,12 @@
 import {
   LifecycleEventSchema,
+  ToolCallItemContentSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol";
 import type {
   RuntimeKernelDependencies,
   StartTurnInput,
+  ToolAuthorizationPort,
   WorkerProtocolPort,
 } from "@repo/runtime-kernel";
 import { createGrantMatcherKey } from "../contracts/RegistryToolAuthorization.js";
@@ -102,6 +104,67 @@ export async function assertLocalToolApproved(options: LocalToolApprovalOptions)
     throw new Error(
       "Canonical approval receipt does not authorize this active tool request",
     );
+  input.signal?.throwIfAborted();
+}
+
+/** File writes may reuse the same trusted policy owner selected by the kernel.
+ * Commands never use this path. No approval record is synthesized or inferred.
+ */
+export async function assertLocalFileToolAuthorized(
+  options: LocalToolApprovalOptions & { readonly toolAuthorization: ToolAuthorizationPort },
+): Promise<void> {
+  const { admission, input, schema } = options;
+  if (input.toolCall.toolName !== "write_file" && input.toolCall.toolName !== "edit_file") {
+    throw new Error("Automatic authorization is restricted to canonical file tools");
+  }
+  if (input.approval !== null) return assertLocalToolApproved(options);
+  const { events, tool, parsed } = await readCanonicalLocalToolRequest(options, false);
+  const itemStarts = events.filter((event) => event.type === "item.started" && event.itemId === tool.itemId);
+  const itemStart = itemStarts[0];
+  if (itemStarts.length !== 1 || itemStart?.type !== "item.started" ||
+    itemStart.payload.kind !== "tool_call" || itemStart.sequence >= tool.sequence ||
+    events.some((event) =>
+      ("itemId" in event && event.itemId === tool.itemId &&
+        ["item.completed", "item.failed", "item.declined", "item.interrupted"].includes(event.type)) ||
+      ("toolCallId" in event && event.toolCallId === input.toolCall.toolCallId &&
+        ["tool_call.completed", "tool_call.failed", "tool_call.declined", "tool_call.interrupted"].includes(event.type)))) {
+    throw new Error("Canonical file tool request is no longer active");
+  }
+  const approvalItems = events.filter((event) =>
+    event.type === "item.started" && event.payload.kind === "approval_request");
+  for (const item of approvalItems) {
+    if (item.type !== "item.started") throw new Error("Canonical approval item is invalid");
+    const parents = events.filter((event) => event.type === "tool_call.started" &&
+      event.itemId === item.payload.parentItemId && event.sequence < item.sequence);
+    if (parents.length !== 1 || item.itemId === tool.itemId ||
+      item.payload.parentItemId === tool.itemId) {
+      throw new Error("A canonical approval item requires its explicit receipt");
+    }
+  }
+  for (const event of events) {
+    if (event.type !== "approval.requested" && event.type !== "approval.decided") continue;
+    const parents = approvalItems.filter((item) => item.type === "item.started" &&
+      item.itemId === event.itemId && item.sequence < event.sequence);
+    const parent = parents[0];
+    const requests = event.type === "approval.decided" ? events.filter((request) =>
+      request.type === "approval.requested" && request.approvalId === event.approvalId &&
+      request.itemId === event.itemId && request.sequence < event.sequence) : null;
+    if (parents.length !== 1 || parent?.type !== "item.started" ||
+      (requests !== null && requests.length !== 1) ||
+      parent.payload.parentItemId === tool.itemId || event.itemId === tool.itemId) {
+      throw new Error("Canonical approval evidence cannot authorize an automatic file write");
+    }
+  }
+  const toolCall = ToolCallItemContentSchema.parse({ ...input.toolCall, input: parsed });
+  const authorization = await options.toolAuthorization.authorize({
+    run: admission.run, itemId: tool.itemId, toolCall,
+  });
+  if (authorization.status !== "authorized" ||
+    authorization.toolCall.toolCallId !== toolCall.toolCallId ||
+    authorization.toolCall.toolName !== toolCall.toolName ||
+    JSON.stringify(schema.parse(authorization.toolCall.input)) !== JSON.stringify(parsed)) {
+    throw new Error("The canonical policy does not authorize this exact file tool request");
+  }
   input.signal?.throwIfAborted();
 }
 
