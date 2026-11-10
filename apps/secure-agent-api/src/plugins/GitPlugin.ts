@@ -3,8 +3,6 @@ import {
   DefaultGitService,
   GitServiceError,
   type GitFileLineCount,
-  type GitStatusEntry,
-  type GitStatusResult,
 } from "@repo/git-service";
 import { z } from "zod";
 import type {
@@ -14,12 +12,12 @@ import type {
   PluginExecutionContext,
 } from "../interfaces/types";
 import { GitTools } from "../schemas/git";
+import { buildGitStatusResponse } from "@repo/shared-types";
 import type {
   GitCommitIdentity,
   DiffContent,
   DiffHunk,
   FileStatus,
-  GitStatusResponse,
 } from "@repo/shared-types";
 import { normalizeRunId, validateRepoRelativePath } from "./security/PathGuard";
 import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
@@ -384,10 +382,11 @@ export class GitPlugin implements IPlugin {
       runId,
       gitService,
     );
-    const parsed = this.buildStatusResponse(
+    const parsed = buildGitStatusResponse(
       statusResult,
       repoIdentity,
       commitIdentity,
+      { excludePath: (path) => this.isInternalStatusEntry(path) },
     );
 
     if (parsed.files.length > 0) {
@@ -417,42 +416,6 @@ export class GitPlugin implements IPlugin {
     return new DefaultGitService(
       new SandboxGitCommandExecutor(sandbox, toolboxContext, operation),
     );
-  }
-
-  private buildStatusResponse(
-    status: GitStatusResult,
-    repoIdentity: string | null,
-    commitIdentity: GitCommitIdentity | null,
-  ): GitStatusResponse {
-    const files = status.entries.flatMap((entry) =>
-      this.toSharedFileStatus(entry),
-    );
-    return {
-      files,
-      ahead: status.branch.ahead ?? 0,
-      behind: status.branch.behind ?? 0,
-      branch: status.branch.head ?? "",
-      repoIdentity,
-      commitIdentity,
-      hasStaged: status.entries.some((entry) => isStatusEntryStaged(entry)),
-      hasUnstaged: status.entries.some((entry) => isStatusEntryUnstaged(entry)),
-      gitAvailable: true,
-    };
-  }
-
-  private toSharedFileStatus(entry: GitStatusEntry): FileStatus[] {
-    if (this.isInternalStatusEntry(entry.path)) {
-      return [];
-    }
-    return [
-      {
-        path: entry.path,
-        status: toSharedStatus(entry),
-        additions: 0,
-        deletions: 0,
-        isStaged: isStatusEntryStaged(entry),
-      },
-    ];
   }
 
   private isInternalStatusEntry(filePath: string): boolean {
@@ -1441,36 +1404,6 @@ function normalizeExplicitFileList(files: string[] | undefined): string[] {
     throw new Error("Explicit file paths are required for this git operation");
   }
   return files.map((file) => validateRepoRelativePath(file));
-}
-
-function toSharedStatus(entry: GitStatusEntry): FileStatus["status"] {
-  switch (entry.status) {
-    case "added":
-    case "deleted":
-    case "renamed":
-    case "untracked":
-      return entry.status;
-    case "copied":
-      return "added";
-    case "type_changed":
-    case "modified":
-    case "unmerged":
-      return "modified";
-  }
-}
-
-function isStatusEntryStaged(entry: GitStatusEntry): boolean {
-  if (entry.kind === "untracked") {
-    return false;
-  }
-  return entry.xy.index !== ".";
-}
-
-function isStatusEntryUnstaged(entry: GitStatusEntry): boolean {
-  if (entry.kind === "untracked") {
-    return true;
-  }
-  return entry.xy.worktree !== ".";
 }
 
 function normalizeExplicitCommitIdentity(

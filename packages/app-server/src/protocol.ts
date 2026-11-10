@@ -406,11 +406,22 @@ export type LocalChatImageReadParams = z.infer<typeof LocalChatImageReadParamsSc
 export type LocalChatImageReadResult = z.infer<typeof LocalChatImageReadResultSchema>;
 
 
-const GitStatusParamsSchema = GitRequestContextSchema;
-const GitDiffParamsSchema = GitRequestContextSchema.extend({
+export const LocalWorkspaceGitStatusParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+}).strict();
+export const LocalWorkspaceGitDiffParamsSchema = LocalWorkspaceGitStatusParamsSchema.extend({
+  path: LocalWorkspaceRelativePathSchema.refine((path) => path !== ".", "Git diff requires a file path"),
+  staged: z.boolean().optional(),
+}).strict();
+export type LocalWorkspaceGitStatusParams = z.infer<typeof LocalWorkspaceGitStatusParamsSchema>;
+export type LocalWorkspaceGitDiffParams = z.infer<typeof LocalWorkspaceGitDiffParamsSchema>;
+
+const GitStatusParamsSchema = z.union([GitRequestContextSchema, LocalWorkspaceGitStatusParamsSchema]);
+const HostedGitDiffParamsSchema = GitRequestContextSchema.extend({
   path: z.string().min(1).optional(),
   staged: z.boolean().optional(),
 }).strict();
+const GitDiffParamsSchema = z.union([HostedGitDiffParamsSchema, LocalWorkspaceGitDiffParamsSchema]);
 const GitStageParamsSchema = GitRequestContextSchema.extend({
   files: z.array(z.string().min(1)),
   unstage: z.boolean().optional(),
