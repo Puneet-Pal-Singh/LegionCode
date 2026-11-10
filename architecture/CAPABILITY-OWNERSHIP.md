@@ -1842,3 +1842,11 @@ Run_executable still requires explicit approval and the unchanged no-fork port.
 No permission-mode string, profile suffix, synthesized approval, policy copy or
 second lifecycle authority bypasses these checks. Native mode advertisement and
 per-attempt policy construction remain separate composition work.
+
+The private utility-process startup returns a narrow requestShutdown control.
+It starts the same admission/Stop fence and HTTP/physical closure barrier;
+success exits only after positive closed resolution. Runtime shutdown failure
+uses an explicit private fatal reason and retains the process and owners. The
+Desktop supervisor owns validated IPC, child/transport retention and exit
+observation; neither the public SDK nor renderer receives this control. Pending
+fatal exit status remains sticky across repeated normal shutdown requests.

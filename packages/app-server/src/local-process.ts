@@ -39,7 +39,12 @@ export type LocalAppServerStartConfig = {
 
 export type LocalAppServerMessage =
   | { type: "ready"; baseUrl: string }
-  | { type: "fatal" };
+  | { type: "fatal"; reason?: "runtime-shutdown-failed" };
+
+/** Private utility-process control, never an HTTP or renderer capability. */
+export type LocalAppServerProcessControl = {
+  requestShutdown(): Promise<void>;
+};
 
 export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
@@ -130,7 +135,7 @@ export async function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
   options?: LocalAppServerCompositionOptions,
-): Promise<void> {
+): Promise<LocalAppServerProcessControl | undefined> {
   let server: Awaited<ReturnType<typeof createLocalAppServer>>;
   try {
     server = await createLocalAppServer(config, options);
@@ -139,9 +144,16 @@ export async function runLocalAppServerProcess(
     process.exit(1);
     return;
   }
-  server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
-  const exitAfterSettlement = (exitCode: number) => {
-    void server.requestShutdown().then(() => process.exit(exitCode), () => undefined);
+  server.once("runtime-shutdown-failed", () => parentPort.postMessage({
+    type: "fatal", reason: "runtime-shutdown-failed",
+  }));
+  let finalExitCode = 0;
+  let exitAfterClosed: Promise<void> | undefined;
+  const exitAfterSettlement = (exitCode: number): Promise<void> => {
+    if (exitCode !== 0) finalExitCode = 1;
+    const closed = server.requestShutdown();
+    exitAfterClosed ??= closed.then(() => { process.exit(finalExitCode); }, () => undefined);
+    return closed;
   };
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
@@ -160,6 +172,7 @@ export async function runLocalAppServerProcess(
       baseUrl: `http://127.0.0.1:${address.port}`,
     });
   });
+  return { requestShutdown: () => exitAfterSettlement(0) };
 }
 
 async function handleRequest(
