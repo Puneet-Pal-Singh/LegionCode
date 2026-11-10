@@ -2285,3 +2285,9 @@ with the local queue adapter and retain one-record streaming memory.
 - Queued-start CAS and `LocalTurnAdmissions.admitWithin` commit together. Accepted/applied/unconfirmed receipts and the accepted canonical platform user message are projected in the existing lifecycle append transaction. Pending intent is not transcript content.
 - Startup validates scope, indexed rows, canonical delivery receipts and accepted user bodies. The current v1/v2 workspace-grant parser is extracted without changing its contract. Queue bytes remain metadata-only; the existing media owner stores attachments.
 - This is a storage prerequisite. Native command routing, positive physical-idle proof, provider history and the shared Hosted adapter must be composed before claiming Queue or Steer availability. No new tests or registrations.
+
+### Shared queued input command owner
+
+- AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
+- Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
+- Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.

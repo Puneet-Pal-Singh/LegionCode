@@ -1,7 +1,8 @@
+import { advanceThreadInputQueue } from "@legioncode/app-server/thread-inputs";
+import { hostedThreadInputRepository } from "./ThreadInputRepositoryPort";
 import {
   ResumeTurnReceiptSchema,
   StartedThreadInputReceiptSchema,
-  StartQueuedThreadInputCommandSchema,
   ThreadInputReceiptSchema,
   TurnScopeBootstrapSchema,
   type ThreadInputCommand,
@@ -569,28 +570,13 @@ export class ThreadInputCommandService {
       // Terminal append projects failure/Stop pause in the same canonical transaction.
       return;
     }
-    const snapshot = await withThreadInputRepository(this.env, (repository) =>
-      repository.list(scope),
-    );
-    if (snapshot.paused) return;
-    const next = snapshot.items.find(
-      (item) => item.delivery === "queue" && item.state === "pending",
-    );
-    if (!next) return;
-    await this.startQueuedInput({
-      request: input.request,
-      executionContext: input.executionContext,
-      userId: input.userId,
-      sessionId: input.sessionId,
-      correlationId: input.correlationId,
-      explicitStart: false,
-      command: StartQueuedThreadInputCommandSchema.parse({
-        operation: "thread.input.start",
-        threadId: input.threadId,
-        workspaceId: input.workspaceId,
-        itemId: next.itemId,
-        expectedVersion: next.version,
-        expectedThreadRevision: snapshot.revision,
+    const repository = hostedThreadInputRepository(this.env);
+    await advanceThreadInputQueue(scope, {
+      repository,
+      proveIdle: async () => (await repository.list(scope)).activeRunId ? "active" : "idle",
+      startQueued: ({ command, explicitStart }) => this.startQueuedInput({
+        request: input.request, executionContext: input.executionContext, userId: input.userId,
+        sessionId: input.sessionId, correlationId: input.correlationId, command, explicitStart,
       }),
     });
   }
