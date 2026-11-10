@@ -2440,6 +2440,23 @@ existing revoke-before-hide flow without deleting chat or artifact records.
 Desktop hides passive submission-availability prose inside the shared composer
 while retaining canonical send guards, busy/Stop controls and actionable notices.
 
+The shared ComposerWorkspaceBar owns presentation and transient menu/focus state
+for project and execution-location controls above the composer. Desktop's actual
+Main picker/token/grant flow remains its project selection owner; Web retains
+the existing authorized repository picker and AgentSetup ProjectChooser with
+draft handoff. The shared optional trigger wrapper preserves saved-project,
+new-project and no-project actions instead of adding a second chooser. Duplicate
+standalone hero/footer project chips are omitted only at migrated mounts.
+Failed Desktop grants retain the mounted conversation and draft until a confirmed
+grant replaces the scope. Bound project changes without draft handoff are guarded.
+The bar does not persist execution placement, allocate resources or supply an
+environment identity. Desktop's current placement is local, Web's is hosted;
+unconnected destinations and environment setup remain explicitly unavailable
+until the canonical authenticated configuration/preparation ports are wired.
+No environment catalogue, preparation receipt, ready binding, script or secret
+setting is synthesized by either client. Versioned preparation belongs to the
+existing workspace/bootstrap owners; active admission keeps its frozen binding.
+
 The canonical executable tool publishes its existing absolute-path restriction
 as a provider-visible JSON Schema pattern and description. All Native provider
 adapters consume that one registry definition; no PATH lookup, shell expansion,
