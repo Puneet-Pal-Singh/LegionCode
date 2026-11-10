@@ -89,6 +89,14 @@ describe("AppServerClient", () => {
               environment: "local",
               capabilities: [],
               unavailableCapabilities: [],
+              localTurnConfiguration: {
+                modes: ["plan", "build"],
+                productModes: ["ask_always"],
+                commandExecution: {
+                  plan: "unavailable",
+                  build: "single_executable_nofork",
+                },
+              },
             },
           };
         },
@@ -106,6 +114,10 @@ describe("AppServerClient", () => {
       },
     });
     expect(response.environment).toBe("local");
+    expect(response.localTurnConfiguration?.commandExecution).toEqual({
+      plan: "unavailable",
+      build: "single_executable_nofork",
+    });
 
     const interruptRequest = InterruptTurnRequestSchema.parse({
       runId: "run_123456",

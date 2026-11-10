@@ -19,10 +19,20 @@ export const LocalTurnMediaLimitsSchema = z.object({
 
 export type LocalTurnMediaLimits = z.infer<typeof LocalTurnMediaLimitsSchema>;
 
+/** Declared agent command backend; independent of approvals and artifact capture. */
+export const LocalCommandExecutionProfileSchema = z.enum([
+  "unavailable",
+  "single_executable_nofork",
+]);
+
+export type LocalCommandExecutionProfile = z.infer<typeof LocalCommandExecutionProfileSchema>;
+
 export const LocalTurnConfigurationOptionsSchema = z.object({
   modes: z.array(ChatRunModeSchema).min(1).max(2),
   productModes: z.array(ProductModeSchema).min(1).max(4),
   productModesByMode: z.record(ChatRunModeSchema, z.array(ProductModeSchema).min(1).max(4)).optional(),
+  /** Omitted entries are unknown, never an inferred execution or isolation promise. */
+  commandExecution: z.record(ChatRunModeSchema, LocalCommandExecutionProfileSchema).optional(),
   attachments: LocalTurnMediaLimitsSchema.optional(),
 }).strict();
 

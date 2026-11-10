@@ -36,5 +36,38 @@ describe("App Server handshake contract", () => {
 
     expect(parsed.capabilities).toEqual([]);
     expect(parsed.unavailableCapabilities).toHaveLength(1);
+    expect(parsed.localTurnConfiguration).toBeUndefined();
+
+    const localTurnConfiguration = {
+      modes: ["plan", "build"],
+      productModes: ["ask_always"],
+      commandExecution: {
+        plan: "unavailable",
+        build: "single_executable_nofork",
+      },
+    };
+    const configured = AppServerInitializeResponseSchema.parse({
+      ...parsed,
+      localTurnConfiguration,
+    });
+    expect(configured.localTurnConfiguration?.commandExecution).toEqual(
+      localTurnConfiguration.commandExecution,
+    );
+    expect(AppServerInitializeResponseSchema.parse({
+      ...parsed,
+      localTurnConfiguration: {
+        modes: ["plan"],
+        productModes: ["ask_always"],
+      },
+    }).localTurnConfiguration?.commandExecution).toBeUndefined();
+    for (const commandExecution of [
+      { plan: "unavailable", build: "general_shell" },
+      { cloud: "single_executable_nofork" },
+    ]) {
+      expect(AppServerInitializeResponseSchema.safeParse({
+        ...parsed,
+        localTurnConfiguration: { ...localTurnConfiguration, commandExecution },
+      }).success).toBe(false);
+    }
   });
 });
