@@ -9,7 +9,7 @@ import {
   type ThreadId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   LocalTurnConfigurationSchema,
   type LocalTurnConfiguration,
@@ -41,6 +41,7 @@ export interface DesktopComposerProps {
   unboundDraft?: DesktopComposerDraftBinding;
   draft?: DesktopComposerDraftBinding;
   imageDraft?: ChatImageAttachmentDraftBinding;
+  workspaceBar?: ReactNode;
   busy: boolean;
   layout?: "hero" | "docked";
   isHidden?: boolean;
@@ -90,6 +91,7 @@ function ThreadComposer({
   unboundDraft,
   draft,
   imageDraft,
+  workspaceBar,
   busy,
   layout,
   isHidden = false,
@@ -198,6 +200,7 @@ function ThreadComposer({
         />
       ) : null}
       <ChatInputBar
+        workspaceBar={workspaceBar}
         imageDraft={imageDraft}
         isHidden={isHidden}
         {...mentions}
