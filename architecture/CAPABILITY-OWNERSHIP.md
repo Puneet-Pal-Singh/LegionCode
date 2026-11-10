@@ -2186,3 +2186,20 @@ The active SDK legacy question wrapper remains unchanged until that consumer
 migrates its shared route and removes the old DTO; this foundation alone does not
 claim that client/runtime integration. Native capture, current byte paging and
 provider custody retain their existing owners and exports.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It stores no credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the unchanged strict Run schema still rejects that field until its
+Kernel strategy guard is merged atomically. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
