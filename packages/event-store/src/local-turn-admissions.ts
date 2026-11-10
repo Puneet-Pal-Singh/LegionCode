@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, APP_SERVER_PROTOCOL_VERSION, appServerJsonByteLength } from "@repo/platform-protocol";
 import type Database from "better-sqlite3";
-import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, type PlatformEvent } from "@repo/platform-protocol";
+import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, UserIdSchema, WorkspaceIdSchema, type PlatformEvent } from "@repo/platform-protocol";
 import { TurnAdmissionSchema, type TurnAdmission, type Thread } from "@repo/platform-protocol/conversation";
 import { LifecycleEventSchema, type LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import type { AppendEventInput } from "./types.js";
+import { hasDelegatedOwnership, readLocalThreadParents, readLocalThreadRuntimeSummary, type LocalThreadRuntimeScope } from "./local-thread-runtime-summary.js";
 
 type AdmissionRow = {
   thread_id: string; request_id: string; workspace_id: string; run_id: string;
@@ -26,11 +27,13 @@ export class LocalTurnAdmissions {
     const table = this.database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'turn_admissions'").get();
     if (marker && (marker.value !== "1" || !table)) throw corrupt("Admission index is missing or unsupported");
     if (!table) {
-      const history = this.database.prepare("SELECT event_json FROM events WHERE family = 'platform' AND stream_type = 'run' AND sequence = 1").all() as { event_json: string }[];
-      if (history.some(({ event_json }) => {
+      const history = this.database.prepare("SELECT event_json FROM events WHERE family = 'platform' AND stream_type = 'run' AND sequence = 1").iterate() as Iterable<{ event_json: string }>;
+      for (const { event_json } of history) {
         const event = PlatformEventSchema.parse(JSON.parse(event_json));
-        return event.type === "run.created" && event.producer.kind === "runtime_kernel" && event.producer.id === "local-admission";
-      })) throw corrupt("Canonical admission history has no matching index");
+        if (event.type === "run.created" && event.producer.kind === "runtime_kernel" && event.producer.id === "local-admission") {
+          throw corrupt("Canonical admission history has no matching index");
+        }
+      }
     }
     if (!marker) {
       if (table) throw corrupt("Admission index has no migration marker");
@@ -46,10 +49,10 @@ export class LocalTurnAdmissions {
       }).immediate();
     }
     this.validateSchema();
-    const rows = this.database.prepare("SELECT * FROM turn_admissions").all() as AdmissionRow[];
+    const rows = this.database.prepare("SELECT * FROM turn_admissions").iterate() as Iterable<AdmissionRow>;
     for (const row of rows) this.reconstruct(row);
     const unindexed = this.database.prepare(`SELECT e.event_json FROM events e LEFT JOIN turn_admissions a ON a.run_event_id = e.event_id
-      WHERE e.family = 'platform' AND e.stream_type = 'run' AND e.sequence = 1 AND a.run_event_id IS NULL`).all() as { event_json: string }[];
+      WHERE e.family = 'platform' AND e.stream_type = 'run' AND e.sequence = 1 AND a.run_event_id IS NULL`).iterate() as Iterable<{ event_json: string }>;
     for (const { event_json } of unindexed) {
       const event = PlatformEventSchema.parse(JSON.parse(event_json));
       if (event.type === "run.created" && event.producer.kind === "runtime_kernel" && event.producer.id === "local-admission") {
@@ -75,6 +78,13 @@ export class LocalTurnAdmissions {
         if (event) this.assertLifecycleIdentity(event);
         if (!event || !["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)) {
           throw new EventStoreError("idempotency_conflict", "Thread has an unsettled admitted Turn");
+        }
+      }
+      if (!hasDelegatedOwnership(candidate)) {
+        const scope = { threadId: candidate.run.threadId, userId: candidate.run.userId, workspaceId: candidate.run.workspaceId };
+        const parents = readLocalThreadParents(this.database, scope, this.readThreadSummary(scope));
+        if (candidate.turn.parentTurnId !== parents.parentTurnId || candidate.userMessage.parentItemId !== parents.parentItemId) {
+          throw new EventStoreError("idempotency_conflict", "Local conversation changed before admission");
         }
       }
       const duplicate = this.database.prepare(`SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? OR run_attempt_id = ? OR item_id = ?
@@ -113,6 +123,58 @@ export class LocalTurnAdmissions {
     TurnIdSchema.parse(turnId);
     const row = this.database.prepare("SELECT * FROM turn_admissions WHERE turn_id = ?").get(turnId) as AdmissionRow | undefined;
     return row ? this.reconstruct(row) : null;
+  }
+
+  readThreadSummary(input: LocalThreadRuntimeScope) {
+    const scope = {
+      threadId: ThreadIdSchema.parse(input.threadId),
+      userId: UserIdSchema.parse(input.userId),
+      workspaceId: WorkspaceIdSchema.parse(input.workspaceId),
+    };
+    const rows = this.database.prepare(`SELECT a.* FROM turn_admissions a
+      JOIN events e ON e.event_id = a.run_event_id WHERE a.thread_id = ?
+      ORDER BY e.insertion_order`).iterate(scope.threadId) as Iterable<AdmissionRow>;
+    const reconstruct = (row: AdmissionRow) => this.reconstruct(row);
+    function* admissions() {
+      for (const row of rows) yield reconstruct(row);
+    }
+    return readLocalThreadRuntimeSummary(this.database, scope, admissions());
+  }
+
+  /** Private startup enumeration: records stay in their canonical event streams.
+   * The exclusive persistence owner must finish reconciliation before commands. */
+  listForRecovery(input: { afterCursor: EventCursor | null; limit: number }): {
+    admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+  } {
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 25) {
+      throw new EventStoreError("invalid_replay_limit", "Recovery admission limit must be between 1 and 25");
+    }
+    let afterOrder = 0;
+    if (input.afterCursor !== null) {
+      const cursor = EventCursorSchema.parse(input.afterCursor);
+      const anchor = this.database.prepare(`SELECT e.insertion_order FROM turn_admissions a
+        JOIN events e ON e.event_id = a.run_event_id WHERE e.cursor = ?`).get(cursor) as { insertion_order: number } | undefined;
+      if (!anchor) throw new EventStoreError("cursor_not_found", "Recovery cursor does not identify an admission");
+      afterOrder = anchor.insertion_order;
+    }
+    const rows = this.database.prepare(`SELECT a.*, e.cursor AS recovery_cursor FROM turn_admissions a
+      JOIN events e ON e.event_id = a.run_event_id WHERE e.insertion_order > ?
+      ORDER BY e.insertion_order LIMIT ?`).all(afterOrder, input.limit) as (AdmissionRow & { recovery_cursor: string })[];
+    const admissions: TurnAdmission[] = [];
+    let bytes = 0;
+    let nextCursor: EventCursor | null = null;
+    for (const row of rows) {
+      const admission = this.reconstruct(row);
+      const size = appServerJsonByteLength(admission);
+      if (bytes + size > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+        if (!admissions.length) throw new EventStoreError("history_row_too_large", "Recovery admission exceeds the supported byte budget");
+        break;
+      }
+      admissions.push(admission);
+      bytes += size;
+      nextCursor = EventCursorSchema.parse(row.recovery_cursor);
+    }
+    return { admissions, nextCursor };
   }
 
   listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): {
@@ -241,7 +303,7 @@ export class LocalTurnAdmissions {
         || event.runId !== row.run_id || event.scopeType !== "run" || event.scopeId !== row.run_id || event.producer.kind !== "runtime_kernel")) throw corrupt("Admission references have inconsistent identities");
       const admission = TurnAdmissionSchema.parse({ clientRequestId: row.request_id, run: run.payload.run, turn: turn.payload.turn,
         runAttemptId: row.run_attempt_id, userMessage: prompt.payload.item });
-      const lifecycleRows = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ?").all(row.turn_id) as { event_json: string }[];
+      const lifecycleRows = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ?").iterate(row.turn_id) as Iterable<{ event_json: string }>;
       for (const saved of lifecycleRows) this.assertLifecycleIdentity(LifecycleEventSchema.parse(JSON.parse(saved.event_json)));
       if (admission.run.id !== row.run_id || admission.turn.id !== row.turn_id || admission.userMessage.id !== row.item_id || requestFingerprint(admission) !== row.fingerprint) throw corrupt("Admission fingerprint is inconsistent");
       return admission;
