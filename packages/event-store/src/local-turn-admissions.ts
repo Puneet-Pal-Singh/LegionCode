@@ -26,11 +26,13 @@ export class LocalTurnAdmissions {
     const table = this.database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'turn_admissions'").get();
     if (marker && (marker.value !== "1" || !table)) throw corrupt("Admission index is missing or unsupported");
     if (!table) {
-      const history = this.database.prepare("SELECT event_json FROM events WHERE family = 'platform' AND stream_type = 'run' AND sequence = 1").all() as { event_json: string }[];
-      if (history.some(({ event_json }) => {
+      const history = this.database.prepare("SELECT event_json FROM events WHERE family = 'platform' AND stream_type = 'run' AND sequence = 1").iterate() as Iterable<{ event_json: string }>;
+      for (const { event_json } of history) {
         const event = PlatformEventSchema.parse(JSON.parse(event_json));
-        return event.type === "run.created" && event.producer.kind === "runtime_kernel" && event.producer.id === "local-admission";
-      })) throw corrupt("Canonical admission history has no matching index");
+        if (event.type === "run.created" && event.producer.kind === "runtime_kernel" && event.producer.id === "local-admission") {
+          throw corrupt("Canonical admission history has no matching index");
+        }
+      }
     }
     if (!marker) {
       if (table) throw corrupt("Admission index has no migration marker");
@@ -277,7 +279,7 @@ export class LocalTurnAdmissions {
         || event.runId !== row.run_id || event.scopeType !== "run" || event.scopeId !== row.run_id || event.producer.kind !== "runtime_kernel")) throw corrupt("Admission references have inconsistent identities");
       const admission = TurnAdmissionSchema.parse({ clientRequestId: row.request_id, run: run.payload.run, turn: turn.payload.turn,
         runAttemptId: row.run_attempt_id, userMessage: prompt.payload.item });
-      const lifecycleRows = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ?").all(row.turn_id) as { event_json: string }[];
+      const lifecycleRows = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ?").iterate(row.turn_id) as Iterable<{ event_json: string }>;
       for (const saved of lifecycleRows) this.assertLifecycleIdentity(LifecycleEventSchema.parse(JSON.parse(saved.event_json)));
       if (admission.run.id !== row.run_id || admission.turn.id !== row.turn_id || admission.userMessage.id !== row.item_id || requestFingerprint(admission) !== row.fingerprint) throw corrupt("Admission fingerprint is inconsistent");
       return admission;
