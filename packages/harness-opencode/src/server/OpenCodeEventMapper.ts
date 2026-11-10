@@ -387,7 +387,7 @@ export class OpenCodeEventMapper {
             authOwnerGeneration: this.options.selection.authOwnerGeneration,
           },
         });
-        if (payload.kind !== "approval_requested")
+        if (payload.kind !== "approval_requested" || payload.request.itemId === null)
           throw new OpenCodeTransportError("permission mapping", true);
         this.rememberRequest({
           requestType: "approval",
