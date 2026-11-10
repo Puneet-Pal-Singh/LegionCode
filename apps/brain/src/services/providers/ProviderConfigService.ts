@@ -29,7 +29,7 @@ import type {
   ProviderId,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { ProviderIdSchema } from "@repo/shared-types";
+import { ProviderIdSchema, BYOKConnectRequestSchema, BYOKDisconnectRequestSchema } from "@repo/shared-types";
 import type { CredentialStore } from "./stores/CredentialStore";
 import type { PreferenceStore } from "./stores/PreferenceStore";
 import type { ProviderAuditLog } from "./stores/ProviderAuditLog";
@@ -74,6 +74,15 @@ export class ProviderConfigService {
     this.credentialVault = new CloudCredentialVault(
       options.credentialStore,
       options.userId,
+      async (providerId) => {
+        const preferences = await options.preferenceStore.getPreferences();
+        return preferences.defaultProviderId === providerId
+          ? preferences.defaultCredentialId
+          : undefined;
+      },
+      async (input) => {
+        await options.credentialStore.reconnectCredential(input, options.preferenceStore);
+      },
     );
     this.credentialService = new ProviderCredentialService(
       options.env,
@@ -98,6 +107,7 @@ export class ProviderConfigService {
   }
 
   async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
+    request = BYOKConnectRequestSchema.parse(request);
     await this.ensureStorageReady();
     try {
       const response = await this.credentialService.connect(request);
@@ -147,6 +157,7 @@ export class ProviderConfigService {
   async disconnect(
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
+    request = BYOKDisconnectRequestSchema.parse(request);
     await this.ensureStorageReady();
     try {
       const response = await this.credentialService.disconnect(request);
@@ -242,6 +253,14 @@ export class ProviderConfigService {
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
     await this.ensureStorageReady();
     return this.getCatalogService().refreshDiscoveredModels(providerId);
+  }
+
+  async resolveCredential(providerId: ProviderId): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
+    await this.ensureStorageReady();
+    return this.credentialService.resolveCredential(providerId);
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {

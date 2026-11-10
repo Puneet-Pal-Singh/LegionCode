@@ -210,6 +210,8 @@ export type {
   IdentitySessionRepository,
 } from "./identity/types.js";
 export type {
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   CredentialStore,
   ProviderAuditEvent,
   ProviderAuditLog,
@@ -378,3 +380,8 @@ export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-rec
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";
 export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";
+
+export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDefaultFence.js";
+export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
+export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
+export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";

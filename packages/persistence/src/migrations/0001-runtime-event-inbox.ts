@@ -37,6 +37,7 @@ import { legacyHistoryImportReceiptsMigration } from "./0034-legacy-history-impo
 import { workspaceConfigurationVersionMigration } from "./0041-workspace-configuration-version.js";
 import type { SqlMigration } from "./types.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
+import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
   buildRuntimeEventInboxStatusSqlList();
@@ -115,5 +116,6 @@ export const persistenceMigrations = [
   threadInputsAndContinuationsMigration,
   legacyHistoryImportReceiptsMigration,
   projectlessSessionRepositoryMigration,
+  providerConnectionCustodyMigration,
   workspaceConfigurationVersionMigration,
 ] as const;
