@@ -1,16 +1,16 @@
 import { z } from "zod";
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
-import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
-import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts";
+import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort.js";
+import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts.js";
 import type {
   ProviderModelCredentialContext,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
-} from "../types";
+} from "../types.js";
 import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
-} from "../errors";
+} from "../errors.js";
 
 const OpenAICompatibleModelsSchema = z.object({
   data: z.array(

@@ -2,16 +2,16 @@ import { z } from "zod";
 import type {
   BYOKDiscoveredProviderModel,
 } from "@repo/shared-types";
-import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
+import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort.js";
 import type {
   ProviderModelCredentialContext,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
-} from "../types";
+} from "../types.js";
 import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
-} from "../errors";
+} from "../errors.js";
 
 const OPENCODE_GO_PROVIDER_ID = "opencode-go";
 const OPENCODE_GO_MODELS_ENDPOINT = "https://opencode.ai/zen/go/v1/models";

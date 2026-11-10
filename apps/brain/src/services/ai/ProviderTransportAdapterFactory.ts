@@ -14,7 +14,7 @@ import {
   createGoogleAdapter,
   createOpenAIAdapter,
 } from "./ProviderAdapterFactory";
-import { buildCloudflareAIRouteHeaders } from "../providers/cloudflare/CloudflareAIRouteBuilder";
+import { buildCloudflareAIRouteHeaders } from "@repo/provider-core/discovery";
 
 export interface ProviderTransportRoute {
   providerId: string;

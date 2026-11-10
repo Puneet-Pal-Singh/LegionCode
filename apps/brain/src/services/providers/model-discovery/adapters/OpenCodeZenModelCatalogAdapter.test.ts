@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenCodeZenModelCatalogAdapter } from "./OpenCodeZenModelCatalogAdapter";
-import { ProviderModelDiscoveryApiError } from "../errors";
+import { OpenCodeZenModelCatalogAdapter } from "@repo/provider-core/discovery";
+import { ProviderModelDiscoveryApiError } from "@repo/provider-core/discovery";
 
 describe("OpenCodeZenModelCatalogAdapter", () => {
   afterEach(() => {

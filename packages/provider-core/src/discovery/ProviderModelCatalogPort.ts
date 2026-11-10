@@ -4,7 +4,7 @@ import type {
   ProviderModelCredentialContext,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
-} from "./types";
+} from "./types.js";
 
 export interface ProviderModelCatalogPort {
   fetchAll(
