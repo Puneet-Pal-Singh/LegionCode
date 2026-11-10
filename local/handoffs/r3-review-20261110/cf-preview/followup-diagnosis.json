@@ -1,0 +1,186 @@
+{
+  "purpose": "Offline source explanation and unapplied diagnostic-only proposal; no live retry authorization",
+  "source": "6adadbd10243dfe351e021e8b891869cca385a78",
+  "review_artifact_input": "55c864815e1e6555509bc387c0133fb5c170b5e3 (cached exact postimage hashes verified; Git object unavailable locally)",
+  "handoff": "876e496690feb6284087bfdf95110b184c9cc0f9",
+  "handoff_manifest_sha256": "c5b25ae00a3a503b3000984239cf8d3355124ff8652d4730be0c5603fe031ad8",
+  "handoff_documents_verified": 19,
+  "linux_host": "8575502e05f6",
+  "vendor_sha256": "3df343f7390ca138b0ce9282f0a420fab2261cd518857a74ba82097fc3e20810",
+  "findings": [
+    "preview_upload_returned only proves createWorkerPreview resolved; it is before tail WebSocket setup and before #previewToken returns. It does not validate preview token readiness.",
+    "#previewToken swallows Error named AbortError, including errors after upload-return during optional tail setup; #updatePreviewToken then silently returns on missing token. This path emits neither rejection nor proxy_access.",
+    "A newer onBundleComplete synchronously increments #currentBundleId while prior upload is awaiting; old result is then silently dropped before proxy_access, even if upload returned. onBundleStart aborts previous signal.",
+    "Neither silent-return path sets exitCode or calls process.exit. It explains missing proxy_access but does NOT establish CLI exit1 cause.",
+    "DevEnv routes controller errors through handleErrorEvent; events.once(devEnv,teardown) rejects on error. main normally catches/rethrows parse errors to existing cli_main_rejected marker. No such marker was observed; evidence cannot choose external termination, unhandled background failure, observer incompleteness or another lifecycle path.",
+    "proxy_bootstrap_ready is local ProxyWorker readiness before token reload; it proves neither remote-token adoption nor DO/container execution nor complete descendant closure."
+  ],
+  "diagnostic_scope": "Only fixed categories at existing result guard and existing swallowed AbortError branch; no changed condition, token repair, retry, listener, process handler, configuration or authentication behavior. Unapplied.",
+  "source_line_evidence": {
+    "transformed_cli": "/tmp/cf-preview-review-20261111/transformed-cli.js",
+    "preview_token_and_tail": [
+      293166,
+      293195
+    ],
+    "result_guard": [
+      293274,
+      293277
+    ],
+    "bundle_abort_and_generation": [
+      293381,
+      293397
+    ],
+    "devenv_error_routing": [
+      293575,
+      293602
+    ],
+    "main_error_and_finally": [
+      285385,
+      285418
+    ],
+    "cli_terminal_catch": [
+      297964,
+      297967
+    ]
+  },
+  "controls": {
+    "source_sha256": "161cc5430bc1f714b108592ab3761eb9c8d49e80fa714789723c2eb26d31195c",
+    "controls": 3,
+    "results": [
+      {
+        "before": {
+          "mode": "current",
+          "stages": [
+            "remote_bindings_enter",
+            "preview_init_enter",
+            "preview_upload_enter",
+            "preview_upload_returned",
+            "proxy_access_enter",
+            "proxy_reload_enter"
+          ],
+          "events": [
+            "reloadStart",
+            "reloadComplete"
+          ],
+          "access": [
+            "synthetic.invalid"
+          ],
+          "errors": [],
+          "native_or_network_calls": 0
+        },
+        "after": {
+          "mode": "current",
+          "stages": [
+            "remote_bindings_enter",
+            "preview_init_enter",
+            "preview_upload_enter",
+            "preview_upload_returned",
+            "preview_result_current",
+            "proxy_access_enter",
+            "proxy_reload_enter"
+          ],
+          "events": [
+            "reloadStart",
+            "reloadComplete"
+          ],
+          "access": [
+            "synthetic.invalid"
+          ],
+          "errors": [],
+          "native_or_network_calls": 0
+        }
+      },
+      {
+        "before": {
+          "mode": "stale_after_upload",
+          "stages": [
+            "remote_bindings_enter",
+            "preview_init_enter",
+            "preview_upload_enter",
+            "preview_upload_returned"
+          ],
+          "events": [
+            "reloadStart"
+          ],
+          "access": [],
+          "errors": [],
+          "native_or_network_calls": 0
+        },
+        "after": {
+          "mode": "stale_after_upload",
+          "stages": [
+            "remote_bindings_enter",
+            "preview_init_enter",
+            "preview_upload_enter",
+            "preview_upload_returned",
+            "preview_result_stale"
+          ],
+          "events": [
+            "reloadStart"
+          ],
+          "access": [],
+          "errors": [],
+          "native_or_network_calls": 0
+        }
+      },
+      {
+        "before": {
+          "mode": "abort_after_upload",
+          "stages": [
+            "remote_bindings_enter",
+            "preview_init_enter",
+            "preview_upload_enter",
+            "preview_upload_returned"
+          ],
+          "events": [
+            "reloadStart"
+          ],
+          "access": [],
+          "errors": [],
+          "native_or_network_calls": 0
+        },
+        "after": {
+          "mode": "abort_after_upload",
+          "stages": [
+            "remote_bindings_enter",
+            "preview_init_enter",
+            "preview_upload_enter",
+            "preview_upload_returned",
+            "preview_token_aborted",
+            "preview_result_missing"
+          ],
+          "events": [
+            "reloadStart"
+          ],
+          "access": [],
+          "errors": [],
+          "native_or_network_calls": 0
+        }
+      }
+    ],
+    "scope": "Source-extracted RemoteRuntimeController; synthetic dependencies only. No CLI/main, sockets, credentials, native programs or network."
+  },
+  "commands": [
+    "node /tmp/cf-preview-followup-20261111/controls.cjs",
+    "node --check /tmp/cf-preview-followup-20261111/wrapper.proposed.cjs",
+    "node --check /tmp/cf-preview-followup-20261111/stages.proposed.cjs"
+  ],
+  "artifacts": {
+    "diagnostic-discrimination.patch": {
+      "sha256": "d9ad15555b6f9a2c027cf65521b94b036afd0db455aed1b150600b58247308d7",
+      "bytes": 3784
+    },
+    "controls.cjs": {
+      "sha256": "5d60c0e426453009a8052810d434838f0a4cb7e20e7027bfbdef61ba5023c228",
+      "bytes": 4257
+    },
+    "results.json": {
+      "sha256": "dc44c00583491817932c9bd5fb7a141d2ccebdc92a73ba00bac268ba5baaf052",
+      "bytes": 2902
+    }
+  },
+  "preimages": {
+    "wrapper.cjs": "0e1ded3876bbe2f773f0c84b23cc4eac3509c00ca7a32c9b4a17e11c6a7e5a6e",
+    "stages.cjs": "1b4e89e85754d2fefb272e90ca89a750178bb7952aaf955f0cea2d1daa7807b4"
+  }
+}
