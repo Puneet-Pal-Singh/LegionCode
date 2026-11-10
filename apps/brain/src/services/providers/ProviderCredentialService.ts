@@ -1,3 +1,7 @@
+import {
+  BYOKConnectRequestSchema,
+  BYOKDisconnectRequestSchema,
+} from "@repo/shared-types";
 /**
  * ProviderCredentialService
  * Single Responsibility: Manage provider API credentials (connect, disconnect, isConnected, getApiKey)
@@ -30,14 +34,19 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
  * ProviderCredentialService - Manages provider API credentials
  */
 export class ProviderCredentialService {
-  private vault: CredentialVault;
+  private vault: CredentialVault & {
+    resolveCredential(providerId: ProviderId): Promise<{
+      apiKey: string;
+      connectionConfig?: ProviderConnectionConfig;
+    } | null>;
+  };
   private readonly env: Env;
   private liveValidationService: ProviderLiveValidationService;
   private readonly registryService: ProviderRegistryService;
 
   constructor(
     env: Env,
-    vault: CredentialVault,
+    vault: ProviderCredentialService["vault"],
     registryService: ProviderRegistryService,
   ) {
     this.env = env;
@@ -53,6 +62,7 @@ export class ProviderCredentialService {
    */
   async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
     try {
+      request = BYOKConnectRequestSchema.parse(request);
       const { providerId, apiKey } = request;
       ensureProviderAllowsManualCredential(this.registryService, providerId);
       const normalizedApiKey = apiKey.trim();
@@ -139,6 +149,7 @@ export class ProviderCredentialService {
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     try {
+      request = BYOKDisconnectRequestSchema.parse(request);
       const { providerId } = request;
       ensureProviderAllowsManualCredential(this.registryService, providerId);
 
@@ -162,12 +173,17 @@ export class ProviderCredentialService {
    * Returns null if provider not connected
    * Uses durable store as the only source of truth.
    */
-  async getApiKey(providerId: ProviderId): Promise<string | null> {
+  async resolveCredential(providerId: ProviderId): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
     const platformManagedApiKey = this.getPlatformManagedApiKey(providerId);
-    if (platformManagedApiKey) {
-      return platformManagedApiKey;
-    }
-    return this.vault.getApiKey(providerId);
+    if (platformManagedApiKey) return { apiKey: platformManagedApiKey };
+    return this.vault.resolveCredential(providerId);
+  }
+
+  async getApiKey(providerId: ProviderId): Promise<string | null> {
+    return (await this.resolveCredential(providerId))?.apiKey ?? null;
   }
 
   /**

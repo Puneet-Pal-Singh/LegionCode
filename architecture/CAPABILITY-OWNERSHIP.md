@@ -2056,6 +2056,27 @@ parents; stale prepared candidates conflict rather than being reparented. No
 terminal mirror, projection table, second reducer or recovery authority is added.
 Native process-loss recovery retains its separate opaque delegated exclusion.
 
+## Selected cloud credential custody
+
+`persistence` owns connection identity, encrypted credential material, owner/material
+versions and the durable default-slot fence. `CloudCredentialVault` resolves the
+explicit preference selection through that same custody authority; stale or revoked
+selections remain unavailable without falling back to a different default.
+`ProviderConfigService` supplies the selection callback. Shared provider discovery,
+`AdapterSelectionService` inference and connection status consume one resolved key
+and paired configuration. Disconnect revokes the captured selected connection;
+selection changes conflict instead of reporting a different connection disconnected.
+These metadata/custody checks establish no provider identity, entitlement or host
+confinement claim.
+
+Explicit Connect stages encryption before the existing credential/preference
+transaction. The PostgreSQL preference snapshot uses private row `xmin`; Memory
+keeps its version in the canonical preference-map entry. The guarded commit
+retires only the captured credential, preserves revoked history, inserts a fresh
+credential identity and binds the new selection atomically. No credential is
+revived and no failed Connect clears a sticky selection to permit payer fallback.
+Unknown commit outcomes are reported without automatic creation retries.
+
 ## Plan 057 — Workspace-only observational Git contexts
 
 Canonical status, diff, line-count and untracked-file queries may omit Run
@@ -2136,3 +2157,31 @@ inputs or lower public tool limits. Canonical events have no global size cap;
 complete event materialization uses memory proportional to the declared event and
 allocation/validation failure remains explicit. Original HTTP handlers remain
 owned by the server's persistence shutdown barrier even after a disconnect.
+
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
+
+## Plan 057 — Optional exact lifecycle replay byte paging
+
+The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
+`{ events, nextSequence }`, with one shared budget and continuity helper for SQLite
+and memory replay. SQLite reads ordered rows incrementally and returns only the
+largest full-event prefix fitting both count and byte limits. The first excluded
+event remains canonical unread history; the cursor is the last returned sequence,
+and only an actual empty suffix returns null. Omitted byte budgets preserve the
+existing internal count-only replay contract.
+
+A first event that cannot fit raises a typed identity/sequence/encoded-size
+descriptor without copying its body, skipping it or claiming EOF. No append or
+lifecycle authority changes. Public HTTP byte paging remains inactive until the
+separately owned lossless event hydration and cursor-aware consumers are wired;
+this foundation alone does not make oversized public replay deliverable. Chunk
+bytes and their real wire digest remain read/transport responsibilities.
