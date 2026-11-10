@@ -3,6 +3,7 @@ import type {
   EventIdempotencyKey,
   EventSequence,
   LifecycleEvent,
+  ReplayLifecycleEventsResponse,
   TurnId,
 } from "@repo/platform-protocol";
 
@@ -33,6 +34,37 @@ export function createLifecycleOrderingState(
   afterSequence: EventSequence | null,
 ): LifecycleOrderingState {
   return new DefaultLifecycleOrderingState(turnId, afterSequence ?? 0);
+}
+
+/** A page cursor names its last accepted event, never an unseen later event.
+ * Page counts are not exhaustion evidence when transport pages have byte bounds.
+ */
+export function acceptLifecycleReplayPage(
+  page: ReplayLifecycleEventsResponse,
+  state: LifecycleOrderingState,
+): ReplayLifecycleEventsResponse {
+  const previousSequence = state.lastSequence;
+  const events = page.events.filter((event) => state.accept(event));
+  const lastSequence = state.lastSequence;
+  if (page.events.length === 0 && page.nextSequence === null) {
+    return { events, nextSequence: null };
+  }
+  if (
+    page.events.length === 0 ||
+    lastSequence <= previousSequence ||
+    (page.nextSequence !== null &&
+      (!Number.isSafeInteger(page.nextSequence) || page.nextSequence !== lastSequence))
+  ) {
+    throw new LifecycleContinuationError(
+      page.nextSequence !== null && page.nextSequence > lastSequence
+        ? "lifecycle_sequence_gap"
+        : "lifecycle_sequence_regression",
+      "Lifecycle replay page did not preserve its accepted sequence cursor",
+      lastSequence > previousSequence ? lastSequence : previousSequence + 1,
+      page.nextSequence,
+    );
+  }
+  return { events, nextSequence: page.nextSequence };
 }
 
 class DefaultLifecycleOrderingState implements LifecycleOrderingState {
