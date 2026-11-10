@@ -562,6 +562,10 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
       runAttemptId: admission.runAttemptId });
     if (!binding)
       throw new HarnessPersistenceError("binding_conflict", "Previous admission has no verified preparation");
+    if (binding.selection.userId !== admission.run.userId || binding.selection.runId !== admission.run.id ||
+        binding.selection.workspaceId !== admission.run.workspaceId || binding.selection.threadId !== admission.turn.threadId ||
+        binding.selection.turnId !== admission.turn.id || binding.selection.runAttemptId !== admission.runAttemptId)
+      throw new HarnessPersistenceError("corrupt", "Preparation binding differs from its canonical admission scope");
     this.requireAdmission(binding.selection);
     const canonical = this.admissions?.getByTurn(admission.turn.id);
     if (!canonical || createStableEventFingerprint(canonical) !== createStableEventFingerprint(admission))
