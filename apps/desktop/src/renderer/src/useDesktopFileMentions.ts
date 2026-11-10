@@ -7,7 +7,7 @@ export type DesktopFileMentionsClient = Pick<
   "listWorkspaceFileMentions"
 >;
 interface Options {
-  client: DesktopFileMentionsClient;
+  client: DesktopFileMentionsClient | null;
   workspace: Pick<
     LocalWorkspaceGrant,
     "workspaceId" | "grantedAt" | "readiness"
@@ -19,7 +19,7 @@ interface Options {
   revision?: number;
 }
 type Scope = {
-  client: DesktopFileMentionsClient;
+  client: DesktopFileMentionsClient | null;
   workspaceId: LocalWorkspaceGrant["workspaceId"] | null;
   grantedAt: string | null;
   readiness: LocalWorkspaceGrant["readiness"] | null;
@@ -76,7 +76,8 @@ export function useDesktopFileMentions({
 
   useEffect(() => {
     let active = true;
-    if (!scope.available || !scope.workspaceId || scope.readiness !== "ready")
+    const client = scope.client;
+    if (!client || !scope.available || !scope.workspaceId || scope.readiness !== "ready")
       return;
     const timer = setTimeout(() => {
       void (async () => {
@@ -89,7 +90,7 @@ export function useDesktopFileMentions({
           | ReturnType<DesktopFileMentionsClient["listWorkspaceFileMentions"]>
           | undefined;
         try {
-          request = scope.client.listWorkspaceFileMentions({
+          request = client.listWorkspaceFileMentions({
             workspaceId: scope.workspaceId!,
             path: scope.directory,
           });
@@ -127,6 +128,7 @@ export function useDesktopFileMentions({
 
   const current = read?.scope === scope ? read : null;
   const enabled =
+    scope.client !== null &&
     scope.available &&
     scope.workspaceId !== null &&
     scope.readiness === "ready";
@@ -143,7 +145,9 @@ export function useDesktopFileMentions({
     isLoadingRepoTree: enabled && current === null,
     repoTreeError: !availability.available
       ? availability.reason
-      : !scope.workspaceId || scope.readiness !== "ready"
+      : !scope.client
+        ? "Reconnect Desktop to add file mentions."
+        : !scope.workspaceId || scope.readiness !== "ready"
         ? "Restore workspace access to add file mentions."
         : (current?.error ?? null),
     repoTreeNotice: current?.notice ?? null,

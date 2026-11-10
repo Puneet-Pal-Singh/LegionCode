@@ -8,7 +8,7 @@ import {
   type ThreadId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   LocalTurnConfigurationSchema,
   type LocalTurnConfiguration,
@@ -26,18 +26,27 @@ import {
   useDesktopModelPicker,
   type DesktopModelPickerClient,
 } from "./DesktopModelPicker";
+import {
+  createDesktopComposerDraft,
+  type DesktopComposerDraftBinding,
+  type DesktopComposerDraftHandoff,
+  type DesktopComposerDraftValue,
+} from "./useDesktopComposerDraft";
 
-interface Props {
-  client: DesktopModelPickerClient & DesktopFileMentionsClient;
-  workspaceId: WorkspaceId;
-  grantedAt: LocalWorkspaceGrant["grantedAt"];
+export interface DesktopComposerProps {
+  client: (DesktopModelPickerClient & DesktopFileMentionsClient) | null;
+  workspaceId: WorkspaceId | null;
+  grantedAt: LocalWorkspaceGrant["grantedAt"] | null;
   fileAvailability: { available: true } | { available: false; reason: string };
-  threadId: ThreadId;
+  threadId: ThreadId | null;
+  providerReady?: boolean;
+  unboundDraft?: DesktopComposerDraftBinding;
+  draftHandoff?: DesktopComposerDraftHandoff | null;
   busy: boolean;
   layout?: "hero" | "docked";
   isHidden?: boolean;
   submissionUnavailableReason?: string;
-  onSubmit: (
+  onSubmit?: (
     prompt: string,
     configuration: LocalTurnConfiguration,
     expectedSelection: NonNullable<
@@ -60,9 +69,12 @@ interface Props {
 }
 
 /** Draft and delivery state only. The provider route is read from the App Server. */
-export function DesktopComposer(props: Props) {
+export function DesktopComposer(props: DesktopComposerProps) {
   return (
-    <ThreadComposer key={`${props.workspaceId}:${props.threadId}`} {...props} />
+    <ThreadComposer
+      key={props.workspaceId && props.threadId ? `${props.workspaceId}:${props.threadId}` : "unbound-composer"}
+      {...props}
+    />
   );
 }
 
@@ -72,6 +84,9 @@ function ThreadComposer({
   grantedAt,
   fileAvailability,
   threadId,
+  providerReady = true,
+  unboundDraft,
+  draftHandoff,
   busy,
   layout,
   isHidden = false,
@@ -87,40 +102,70 @@ function ThreadComposer({
   pendingSelection,
   contextBudget = null,
   usage = null,
-}: Props) {
+}: DesktopComposerProps) {
   const preferences = useComposerPreferences();
-  const [draftConfiguration, setDraftConfiguration] = useState(() =>
-    LocalTurnConfigurationSchema.parse({
+  const scopeReady = Boolean(client && providerReady && workspaceId && grantedAt && threadId);
+  const editableDraft = !workspaceId || !grantedAt || !threadId ? unboundDraft : undefined;
+  const matchingHandoff = workspaceId && threadId &&
+    draftHandoff?.workspaceId === workspaceId && draftHandoff.threadId === threadId
+      ? draftHandoff
+      : null;
+  const [localDraft, setLocalDraft] = useState<DesktopComposerDraftValue>(() =>
+    matchingHandoff?.value ?? createDesktopComposerDraft(LocalTurnConfigurationSchema.parse({
       mode:
         initialConfiguration?.mode ??
         (configurationOptions?.modes.includes("build") ? "build" : "plan"),
-    }),
+    })),
   );
-  const configurationTouched = useRef(false);
-  const initialMode = initialConfiguration?.mode;
+  const adoptedHandoff = useRef(matchingHandoff?.id ?? null);
+  const localDraftEdited = useRef(false);
+  const draft = editableDraft?.value ?? localDraft;
+  const updateDraft = (update: (current: DesktopComposerDraftValue) => DesktopComposerDraftValue) => {
+    if (editableDraft) editableDraft.update(update);
+    else {
+      localDraftEdited.current = true;
+      setLocalDraft(update);
+    }
+  };
+  useLayoutEffect(() => {
+    if (!matchingHandoff) return;
+    if (adoptedHandoff.current !== matchingHandoff.id) {
+      adoptedHandoff.current = matchingHandoff.id;
+      // Main normally supplies the transfer before mounting the new Thread.
+      // A late receipt must never overwrite text already typed in that Thread.
+      if (!localDraftEdited.current) setLocalDraft(matchingHandoff.value);
+    }
+    matchingHandoff.consume();
+  }, [matchingHandoff]);
+  const initialMode = initialConfiguration?.mode ?? (configurationOptions
+    ? configurationOptions.modes.includes("build") ? "build" : "plan"
+    : undefined);
   useEffect(() => {
-    if (configurationTouched.current || !initialMode) return;
-    setDraftConfiguration((current) =>
-      current.mode === initialMode
+    if (adoptedHandoff.current !== null || draft.configurationTouched || !initialMode) return;
+    const update = (current: DesktopComposerDraftValue) =>
+      current.configuration.mode === initialMode
         ? current
-        : { ...current, mode: initialMode },
-    );
-  }, [initialMode]);
-  const configuration = pendingConfiguration ?? draftConfiguration;
+        : { ...current, configuration: { ...current.configuration, mode: initialMode } };
+    if (editableDraft) editableDraft.update(update);
+    else setLocalDraft(update);
+  }, [initialMode, draft.configurationTouched, editableDraft]);
+  const configuration = pendingConfiguration ?? draft.configuration;
   const availableProductModes = configurationOptions?.productModesByMode?.[configuration.mode]
     ?? configurationOptions?.productModes ?? [];
   const configurationLocked = busy || pendingConfiguration !== null;
-  const [input, setInput] = useState("");
+  const input = draft.input;
+  // Without a Thread this is only a DOM/list key, never an SDK identity.
+  const inputDomId = useId();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const slash = mentionQuery?.lastIndexOf("/") ?? -1;
   const mentionDirectory =
     slash >= 0 ? mentionQuery!.slice(0, slash).replace(/^(?:\.\/)+/, "") || "." : ".";
   const mentions = useDesktopFileMentions({
     client,
-    workspace: { workspaceId, grantedAt, readiness: "ready" },
+    workspace: scopeReady && workspaceId && grantedAt ? { workspaceId, grantedAt, readiness: "ready" } : null,
     directory: mentionDirectory,
     availability:
-      fileAvailability.available && mentionQuery !== null && !isHidden
+      scopeReady && fileAvailability.available && mentionQuery !== null && !isHidden
         ? { available: true }
         : {
             available: false,
@@ -138,7 +183,8 @@ function ThreadComposer({
   const modelPicker = useDesktopModelPicker(
     client,
     providerRevision,
-    workspaceId,
+    workspaceId && grantedAt ? { workspaceId, grantedAt } : null,
+    providerReady,
   );
   const selectedRoute = pendingSelection ?? modelPicker.selection;
   const selectedModel = selectedRoute
@@ -147,15 +193,21 @@ function ThreadComposer({
       )
     : undefined;
   const attachmentsAvailable = Boolean(
+    scopeReady &&
     configurationOptions?.attachments &&
     selectedModel?.capabilities?.supportsVision === true,
   );
-  const attachmentsUnavailableReason = !configurationOptions?.attachments
+  const attachmentsUnavailableReason = !scopeReady
+    ? "Choose or restore a workspace and create a task before adding images."
+    : !configurationOptions?.attachments
     ? "Image attachments are unavailable in the current Desktop runtime."
     : "Select a model that supports images to send these attachments.";
   const displayError = error ?? modelPicker.error;
   const unavailable =
     submissionUnavailableReason ??
+    (!scopeReady
+      ? "Choose or restore a workspace and create a task before sending."
+      : !onSubmit ? "Message delivery is unavailable for this task." : undefined) ??
     (!configurationOptions
       ? "Local execution configuration is unavailable. Restart Desktop to reconnect."
       : !configurationOptions.modes.includes(configuration.mode)
@@ -181,10 +233,10 @@ function ThreadComposer({
         {...mentions}
         onFileMentionQueryChange={setMentionQuery}
         layout={layout}
-        sessionId={threadId}
+        sessionId={threadId ?? inputDomId}
         input={input}
         onChange={(value) => {
-          setInput(value);
+          updateDraft((current) => ({ ...current, input: value }));
           setError(null);
         }}
         mode={configuration.mode}
@@ -195,16 +247,19 @@ function ThreadComposer({
             ? undefined
             : (mode) => {
                 if (!configurationOptions.modes.includes(mode)) return;
-                configurationTouched.current = true;
-                setDraftConfiguration((current) => {
+                updateDraft((current) => {
                   const allowed = configurationOptions.productModesByMode?.[mode]
                     ?? configurationOptions.productModes;
                   const supervised = LocalTurnConfigurationSchema.parse({ mode }).productMode;
                   return {
-                    ...current, mode,
-                    productMode: allowed.includes(current.productMode)
-                      ? current.productMode
-                      : allowed.includes(supervised) ? supervised : current.productMode,
+                    ...current,
+                    configurationTouched: true,
+                    configuration: {
+                      ...current.configuration, mode,
+                      productMode: allowed.includes(current.configuration.productMode)
+                        ? current.configuration.productMode
+                        : allowed.includes(supervised) ? supervised : current.configuration.productMode,
+                    },
                   };
                 });
               }
@@ -217,10 +272,10 @@ function ThreadComposer({
             : (productMode) => {
                 if (!availableProductModes.includes(productMode))
                   return;
-                configurationTouched.current = true;
-                setDraftConfiguration((current) => ({
+                updateDraft((current) => ({
                   ...current,
-                  productMode,
+                  configurationTouched: true,
+                  configuration: { ...current.configuration, productMode },
                 }));
               }
         }
@@ -253,6 +308,8 @@ function ThreadComposer({
           );
           if (
             isHidden ||
+            !scopeReady ||
+            !onSubmit ||
             (images?.length && !attachmentsAvailable) ||
             unavailable ||
             busy ||
@@ -275,7 +332,7 @@ function ThreadComposer({
               images,
             );
             if (accepted)
-              setInput((current) => (current === prompt ? "" : current));
+              updateDraft((current) => current.input === prompt ? { ...current, input: "" } : current);
             return accepted;
           } catch (error) {
             setError(

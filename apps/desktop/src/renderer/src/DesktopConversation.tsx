@@ -18,6 +18,7 @@ import {
 } from "./useDesktopImagePreviews";
 import { useDesktopConversation } from "./useDesktopConversation";
 import type { DesktopSavedReviewTurn } from "./useDesktopSavedReviewSelection";
+import type { DesktopComposerDraftHandoff } from "./useDesktopComposerDraft";
 
 export type DesktopExecutionAvailability =
   | { available: true }
@@ -36,6 +37,8 @@ interface Props {
   projectName?: string;
   onProjectClick?: () => void;
   onReviewTurn?: (turn: DesktopSavedReviewTurn) => void;
+  draftHandoff?: DesktopComposerDraftHandoff | null;
+  providerReady?: boolean;
 }
 
 export function DesktopConversation(props: Props) {
@@ -60,6 +63,8 @@ function SelectedConversation({
   onReviewTurn,
   projectName,
   onProjectClick,
+  draftHandoff,
+  providerReady = true,
 }: Props) {
   // The current local history owner is composed with turn execution. Do not issue
   // unsupported history requests or fabricate an empty saved transcript.
@@ -208,6 +213,8 @@ function SelectedConversation({
               grantedAt={workspaceGrantAt}
               fileAvailability={fileAvailability}
               threadId={thread.id}
+              draftHandoff={draftHandoff}
+              providerReady={providerReady}
               busy={execution.available && conversation.busy}
               submissionUnavailableReason={unavailableReason}
               onSubmit={conversation.submit}

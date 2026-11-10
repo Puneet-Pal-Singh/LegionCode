@@ -2,7 +2,7 @@ import {
   ModelPickerPopover,
   type ModelPickerModel,
 } from "@legioncode/client-ui";
-import type { WorkspaceId } from "@repo/platform-protocol";
+import type { LocalWorkspaceGrant, WorkspaceId } from "@repo/platform-protocol";
 import type { AppServerClient } from "@legioncode/sdk";
 import {
   createProviderProductPolicy,
@@ -21,10 +21,13 @@ export type DesktopModelPickerClient = Pick<
 >;
 type Selection = Awaited<ReturnType<AppServerClient["getProviderSelection"]>>;
 type Scope = {
-  client: DesktopModelPickerClient;
+  client: DesktopModelPickerClient | null;
   revision: number;
-  workspaceId: WorkspaceId;
+  workspaceId: WorkspaceId | null;
+  grantedAt: string | null;
+  enabled: boolean;
 };
+type PreferenceScope = Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt">;
 type PickerRead = {
   scope: Scope;
   catalog: ProviderRegistryEntry[];
@@ -40,13 +43,20 @@ const DESKTOP_PROVIDER_POLICY = createProviderProductPolicy("production");
 
 /** Local SDK routing plus protected credential-status metadata; no provider secrets or hosted state. */
 export function useDesktopModelPicker(
-  client: DesktopModelPickerClient,
+  client: DesktopModelPickerClient | null,
   revision: number,
-  workspaceId: WorkspaceId,
+  workspace: PreferenceScope | null,
+  enabled = true,
 ) {
   const scope = useMemo(
-    () => ({ client, revision, workspaceId }),
-    [client, revision, workspaceId],
+    () => ({
+      client,
+      revision,
+      workspaceId: workspace?.workspaceId ?? null,
+      grantedAt: workspace?.grantedAt ?? null,
+      enabled,
+    }),
+    [client, revision, workspace?.workspaceId, workspace?.grantedAt, enabled],
   );
   const activeScope = useRef<Scope | null>(scope);
   const [read, setRead] = useState<PickerRead | null>(null);
@@ -65,26 +75,34 @@ export function useDesktopModelPicker(
     setRead(null);
     setSelectionError(null);
     setSaving(false);
+    const currentClient = scope.client;
+    if (!currentClient || !scope.enabled) return;
+    const preferences = scope.workspaceId && scope.grantedAt
+      ? currentClient.getWorkspaceGrant().then((grant) => {
+          if (
+            !grant ||
+            grant.readiness !== "ready" ||
+            grant.workspaceId !== scope.workspaceId ||
+            grant.grantedAt !== scope.grantedAt
+          ) throw new Error("Workspace scope changed");
+          if (!active || activeScope.current !== scope)
+            throw new Error("Provider scope changed");
+          return currentClient.readProviderPreferences(undefined, {
+            workspaceId: grant.workspaceId,
+            grantedAt: grant.grantedAt,
+          });
+        })
+      : Promise.resolve(null);
     void Promise.all([
-      client.getProviderCatalog(),
-      client.getProviderSelection(),
+      currentClient.getProviderCatalog(),
+      currentClient.getProviderSelection(),
       window.desktop.credential({ operation: "list" }),
-      client.getWorkspaceGrant().then((grant) => {
-        if (
-          !grant ||
-          grant.readiness !== "ready" ||
-          grant.workspaceId !== workspaceId
-        )
-          throw new Error("Workspace scope changed");
-        return client.readProviderPreferences(undefined, {
-          workspaceId,
-          grantedAt: grant.grantedAt,
-        });
-      }),
+      preferences,
     ])
       .then(async ([catalog, selection, statuses, preferences]) => {
         if (!Array.isArray(statuses))
           throw new Error("Credential status metadata is unavailable");
+        if (!active || activeScope.current !== scope) return;
         const credentials = statuses
           .filter(
             (status) =>
@@ -96,7 +114,7 @@ export function useDesktopModelPicker(
           .map(({ providerId }) => ({ providerId }));
         const pages = await Promise.all(
           credentials.map(async ({ providerId }) => {
-            const page = await client.getProviderModels(providerId);
+            const page = await currentClient.getProviderModels(providerId);
             return [providerId, page.models] as const;
           }),
         );
@@ -108,7 +126,7 @@ export function useDesktopModelPicker(
             models: Object.fromEntries(pages),
             selection,
             visibleModelIds: Object.fromEntries(
-              Object.entries(preferences.visibleModelIds).map(
+              Object.entries(preferences?.visibleModelIds ?? {}).map(
                 ([providerId, ids]) => [providerId, new Set(ids)],
               ),
             ),
@@ -132,14 +150,15 @@ export function useDesktopModelPicker(
     return () => {
       active = false;
     };
-  }, [client, scope]);
+  }, [scope]);
 
   const current = read?.scope === scope ? read : null;
   const selectModel = async (
     providerId: string,
     modelId: string,
   ): Promise<void> => {
-    if (!current || activeScope.current !== scope || saving) return;
+    if (!scope.client || !scope.enabled || !current || current.error || activeScope.current !== scope || saving)
+      throw new Error("Provider model selection is not available yet.");
     if (
       !current.credentials.some(
         (credential) => credential.providerId === providerId,
@@ -150,8 +169,8 @@ export function useDesktopModelPicker(
     setSelectionError(null);
     setSaving(true);
     try {
-      const selection = await client.selectProvider(providerId, modelId);
-      if (activeScope.current !== scope) return;
+      const selection = await scope.client.selectProvider(providerId, modelId);
+      if (activeScope.current !== scope) throw new Error("Provider scope changed");
       setRead((value) =>
         value?.scope === scope ? { ...value, selection } : value,
       );
@@ -163,7 +182,9 @@ export function useDesktopModelPicker(
       if (activeScope.current === scope) setSaving(false);
     }
   };
-  const unavailableReason = !current
+  const unavailableReason = !scope.client || !scope.enabled
+    ? "Desktop's provider connection is not ready. Reconnect to select a model."
+    : !current
     ? "Loading the selected provider and model…"
     : (current.error ??
       (saving
@@ -183,6 +204,8 @@ export function useDesktopModelPicker(
     selectModel,
     unavailableReason,
     error: selectionError ?? current?.error ?? null,
+    loading: Boolean(scope.client && scope.enabled && !current),
+    saving,
   };
 }
 
@@ -206,7 +229,7 @@ export function DesktopModelPicker({
   return (
     <ModelPickerPopover
       policy={DESKTOP_PROVIDER_POLICY}
-      disabled={disabled}
+      disabled={disabled || controls.saving}
       catalog={current?.catalog ?? []}
       credentials={current?.credentials ?? []}
       providerModels={current?.models ?? {}}
@@ -220,7 +243,7 @@ export function DesktopModelPicker({
       }}
       onConnectProvider={onConnectProvider}
       onManageModels={onManageModels}
-      isLoading={!current}
+      isLoading={controls.loading}
     />
   );
 }
