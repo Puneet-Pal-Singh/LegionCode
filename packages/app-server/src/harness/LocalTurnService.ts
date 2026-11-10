@@ -22,7 +22,7 @@ import type { LocalWorkspaceService } from "../local-workspace.js";
 import type { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
 import type { LocalHarnessOperations } from "./LocalHarnessOperations.js";
 import type { HarnessOperations } from "./HarnessOperations.js";
-import { reconcileLocalHarnessRestart } from "./LocalHarnessRestart.js";
+import { reconcileLocalHarnessRestart, localAdmissionBackend, type LocalHarnessInitializationResult, type LocalHarnessBackend } from "./LocalHarnessRestart.js";
 
 type HostConfiguration = Omit<Parameters<typeof createHarnessHost>[0], "workspaceRoot">;
 /** Private in-process composition over canonical ports. Never a renderer/HTTP/IPC payload. */
@@ -65,6 +65,19 @@ export interface LocalHarnessRuntimeServices {
   resolveBinding(input: { readonly selection: HarnessNextSelection; readonly thread: Thread;
     readonly grant: StoredLocalWorkspaceGrant }): Promise<LocalHarnessRuntimeBinding>;
 }
+export interface LocalHarnessShutdownResult {
+  readonly status: "settled";
+  readonly retainedTurnIds: readonly TurnId[];
+}
+export class LocalHarnessRecoveryError extends Error {
+  readonly result: LocalHarnessInitializationResult;
+  constructor(retainedTurnIds: readonly TurnId[]) {
+    super("Local harness retains unresolved physical or durable ownership");
+    this.name = "LocalHarnessRecoveryError";
+    this.result = { status: "recovery_required", retainedTurnIds };
+  }
+}
+
 interface ActiveExecution {
   readonly admission: TurnAdmission;
   readonly controller: AbortController;
@@ -75,7 +88,10 @@ interface ActiveExecution {
 /** Local admission and task composition; the kernel is the sole lifecycle/approval/artifact owner. */
 export class LocalTurnService {
   private readonly active = new Map<TurnId, ActiveExecution>();
-  private startup: Promise<void> | undefined;
+  private startup: Promise<LocalHarnessInitializationResult> | undefined;
+  private stopping = false;
+  private readonly admissions = new Set<Promise<TurnAdmission>>();
+  private readonly settled = new Set<TurnId>();
   constructor(private readonly options: {
     readonly persistence: LocalPersistence;
     readonly threads: LocalThreadService;
@@ -91,11 +107,19 @@ export class LocalTurnService {
       selection: HarnessSelection) => RuntimeKernel;
   }) {}
 
-  initialize(): Promise<void> {
+  initialize(): Promise<LocalHarnessInitializationResult> {
     return this.startup ??= reconcileLocalHarnessRestart(this.options.persistence);
   }
 
-  async startTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
+  startTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
+    if (this.stopping) return Promise.reject(new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down"));
+    const admission = this.admitTurn(params, captured);
+    this.admissions.add(admission);
+    void admission.then(() => this.admissions.delete(admission), () => this.admissions.delete(admission));
+    return admission;
+  }
+
+  private async admitTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
     await this.initialize();
     params = LocalTurnStartParamsSchema.parse(params);
     const thread = await this.authorizeThread(params.threadId, params.workspaceId);
@@ -105,17 +129,21 @@ export class LocalTurnService {
       if (previous.userMessage.type !== "user_message" || previous.userMessage.content.text !== params.prompt) {
         throw new AppServerOperationError(409, "invalid_request", "Local submission identity already has different content");
       }
-      if (captured && JSON.stringify(ChatRequestBodySchema.parse({ harnessSelection: previous.userMessage.content.harnessSelection }).harnessSelection) !== JSON.stringify(captured)) {
+      if (localAdmissionBackend(previous, this.options.persistence.environmentId) !== "delegated") {
+        throw new AppServerOperationError(409, "invalid_request", "Local submission identity belongs to the native backend");
+      }
+      if (JSON.stringify(ChatRequestBodySchema.parse({ harnessSelection: previous.userMessage.content.harnessSelection }).harnessSelection) !== JSON.stringify(captured)) {
         throw new AppServerOperationError(409, "invalid_request", "Local submission identity already has a different captured harness selection");
       }
       return previous; // Never restart an admitted or ambiguously delivered prompt.
     }
+    if (!captured?.selection) throw new AppServerOperationError(409, "invalid_request", "Delegated admission requires an explicit captured harness selection");
     return this.options.harnessOperations.withSelection({
       environmentId: this.options.persistence.environmentId, workspaceId: thread.workspaceId,
       threadId: thread.id, sessionId: thread.id,
     }, async (saved) => {
-      if (captured && (captured.environmentId !== this.options.persistence.environmentId ||
-          captured.selectionRevision !== saved.revision || JSON.stringify(captured.selection) !== JSON.stringify(saved.selection))) {
+      if (captured.environmentId !== this.options.persistence.environmentId ||
+          captured.selectionRevision !== saved.revision || JSON.stringify(captured.selection) !== JSON.stringify(saved.selection)) {
         throw new AppServerOperationError(409, "invalid_request", "Local harness selection changed before admission");
       }
       if (!saved.selection) throw new AppServerOperationError(503, "server_unavailable", "Select a configured local harness before starting a delegated turn");
@@ -138,9 +166,11 @@ export class LocalTurnService {
         policyId: binding.permissionProfileId, policyRevision: binding.policyRevision, billingSource: binding.billingSource });
       // Revalidate after protected metadata resolution; writer independently validates Thread ownership.
       await this.authorizeThread(thread.id, thread.workspaceId);
+      if (this.stopping) throw new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down");
       const stored = await this.options.leases.admit(admission);
       if (!stored.newlyAdmitted) return stored.admission;
       const execution: ActiveExecution = { admission: stored.admission, controller: new AbortController() };
+      if (this.stopping) execution.controller.abort();
       this.active.set(admission.turn.id, execution); // Immediate Stop owns this before preparation yields.
       execution.task = this.run(execution, binding, selection, grant);
       void execution.task.catch(() => undefined); // Failures are canonical events/recovery, never raw secret-bearing logs.
@@ -165,6 +195,10 @@ export class LocalTurnService {
       clientRequestId: params.clientMessageId, prompt: message[0]!.content }, params.harnessSelection);
     return { runtimeStatus: 202, runId: admission.run.id, threadId: admission.run.threadId,
       turnId: admission.turn.id, runAttemptId: admission.runAttemptId };
+  }
+
+  async savedTurnBackend(turnId: TurnId): Promise<LocalHarnessBackend> {
+    return localAdmissionBackend(await this.getTurn(turnId), this.options.persistence.environmentId);
   }
 
   async getTurn(turnId: TurnId): Promise<TurnAdmission> {
@@ -222,9 +256,25 @@ export class LocalTurnService {
   }
   get hasActiveExecutions(): boolean { return this.active.size > 0; }
   hasExecutionOwner(turnId: TurnId): boolean { return this.active.has(turnId); }
-  async shutdown(): Promise<void> {
+  async shutdown(): Promise<LocalHarnessShutdownResult> {
+    this.stopping = true;
+    await Promise.allSettled([...this.admissions]);
     for (const execution of this.active.values()) execution.controller.abort();
-    await Promise.all([...this.active.values()].map((execution) => execution.task));
+    await Promise.allSettled([...this.active.values()].map((execution) => execution.task));
+    const retained = new Set((await this.initialize()).retainedTurnIds);
+    const events = await this.options.persistence.events.listAll();
+    for (const event of events) {
+      if (event.type !== "turn.started" || this.settled.has(event.payload.turn.id)) continue;
+      const admission = await this.options.persistence.turnAdmissions.getByTurn(event.payload.turn.id);
+      if (!admission) { retained.add(event.payload.turn.id); continue; }
+      try {
+        if (localAdmissionBackend(admission, this.options.persistence.environmentId) === "native") continue;
+        await this.options.leases.assertSettled(admission);
+      } catch { retained.add(admission.turn.id); }
+    }
+    for (const turnId of this.active.keys()) retained.add(turnId);
+    if (retained.size) throw new LocalHarnessRecoveryError([...retained]);
+    return { status: "settled", retainedTurnIds: [] };
   }
 
   private async run(execution: ActiveExecution, binding: LocalHarnessRuntimeBinding,
@@ -287,6 +337,7 @@ export class LocalTurnService {
       throw error;
     } finally {
       await this.options.settleExecution(execution.admission); // Unknown retains the live/durable owner.
+      this.settled.add(execution.admission.turn.id);
       this.active.delete(execution.admission.turn.id);
     }
   }

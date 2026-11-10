@@ -11,6 +11,7 @@ import type { LocalWorkspaceService } from "../local-workspace.js";
  */
 export class LocalWorkspaceLease {
   private queue: Promise<void> = Promise.resolve();
+  private readonly released = new Set<TurnId>();
   constructor(private readonly persistence: LocalPersistence, private readonly workspace: LocalWorkspaceService,
     private readonly hasExecutionOwner: (turnId: TurnId) => boolean) {}
   leaseId(admission: TurnAdmission): LeaseId {
@@ -56,9 +57,25 @@ export class LocalWorkspaceLease {
     await this.assertArtifactsCommitted(admission);
     const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
       turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
-    if (binding?.attachment) {
-      throw new Error("Local checkout lease retains its external stream until canonical integrity retirement is verified");
+    if (binding && !this.released.has(admission.turn.id)) {
+      throw new Error("Local checkout lease retains its frozen claim until owner-driven physical release is verified");
     }
+    if (binding?.attachment) throw new Error("Local checkout lease retains its external stream");
+  }
+
+  /** Trusted composition supplies the existing CORE release and SQLite retirement.
+   * The marker records their successful completion in this process; it is never
+   * reconstructed from a missing attachment or used to select a backend.
+   */
+  async settleAfterRelease(admission: TurnAdmission, release: () => Promise<void>): Promise<void> {
+    await this.assertArtifactsCommitted(admission);
+    await release();
+    await this.assertArtifactsCommitted(admission);
+    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
+      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+    if (binding?.attachment) throw new Error("Local release did not retire its exact attachment");
+    this.released.add(admission.turn.id);
+    await this.assertSettled(admission);
   }
 
   /** Canonical terminal/artifact precondition for the owner-driven release path.
@@ -81,7 +98,7 @@ export class LocalWorkspaceLease {
       turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
     // A learned attachment invalidates the pre-start exemption even when start
     // evidence is missing. Missing evidence must retain, never release, ownership.
-    if (!hasStartEvidence && !binding?.attachment && terminal.type !== "turn.completed") return terminal.eventId;
+    if (!hasStartEvidence && !binding && terminal.type !== "turn.completed") return terminal.eventId;
     const snapshot = artifacts.find((event) => event.payload.artifact.kind === "workspace_snapshot" &&
       event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.phase === "snapshot:terminal");
     const diff = artifacts.find((event) => event.payload.artifact.kind === "diff" &&

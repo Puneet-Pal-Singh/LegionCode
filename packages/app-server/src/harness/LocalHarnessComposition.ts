@@ -15,9 +15,9 @@ import { LocalTurnService, type LocalHarnessRuntimeServices, type LocalHarnessRu
 import { LocalHarnessExecution } from "./LocalHarnessExecution.js";
 import { settleLocalHarnessAttachment } from "./LocalHarnessSettlement.js";
 
-import { LocalProviderService } from "../local-providers.js";
-import { LocalThreadNotFoundError, LocalThreadService } from "../local-threads.js";
-import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "../local-workspace.js";
+import type { LocalProviderService } from "../local-providers.js";
+import { LocalThreadNotFoundError, type LocalThreadService } from "../local-threads.js";
+import type { LocalWorkspaceService } from "../local-workspace.js";
 
 type HostConfiguration = Omit<Parameters<typeof createHarnessHost>[0], "workspaceRoot">;
 type ConfigureHost = (command: Parameters<HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>;
@@ -31,6 +31,7 @@ export type LocalHarnessBootstrap = (context: {
   readonly workspaceService: LocalWorkspaceService;
   readonly threadService: LocalThreadService;
   readonly leases: LocalWorkspaceLease;
+  readonly providerService: LocalProviderService;
   readonly fenceConnection: (origin: Pick<HarnessInstanceScope, "connectionId" | "authOwnerGeneration">) => void;
 }) => LocalHarnessRuntimeServices;
 
@@ -51,15 +52,15 @@ export class LocalHarnessComposition {
   private readonly sessions = new HarnessSessionManager(this.registry);
   readonly harnessExecution = new HarnessExecutionPort(this.sessions);
 
-  constructor(private readonly persistence: LocalPersistence, storageDirectory?: string,
-    workspaceOptions: Omit<LocalWorkspaceServiceOptions, "workspaceGrants"> = {}) {
+  constructor(private readonly persistence: LocalPersistence, services: {
+    readonly workspaceService: LocalWorkspaceService;
+    readonly threadService: LocalThreadService;
+    readonly providerService: LocalProviderService;
+  }, storageDirectory?: string) {
     this.environmentId = persistence.environmentId;
-    this.workspaceService = new LocalWorkspaceService({ ...workspaceOptions, workspaceGrants: persistence.workspaceGrants });
-    this.threadService = new LocalThreadService({
-      events: persistence.events,
-      getWorkspace: () => this.workspaceService.getAuthorizedCurrent(),
-    });
-    this.providerService = new LocalProviderService({ selectionStore: persistence.providerSelection });
+    this.workspaceService = services.workspaceService;
+    this.threadService = services.threadService;
+    this.providerService = services.providerService;
     this.leases = new LocalWorkspaceLease(persistence, this.workspaceService,
       (turnId) => this.turnService.hasExecutionOwner(turnId));
     this.gitSnapshots = new LocalGitSnapshots(persistence, this.workspaceService, this.threadService);
@@ -110,7 +111,8 @@ export class LocalHarnessComposition {
   bootstrap(factory: LocalHarnessBootstrap): void {
     this.bindRuntimeServices(factory({
       persistence: this.persistence, environmentId: this.environmentId,
-      workspaceService: this.workspaceService, threadService: this.threadService, leases: this.leases,
+      workspaceService: this.workspaceService, threadService: this.threadService,
+      providerService: this.providerService, leases: this.leases,
       fenceConnection: this.fenceConnection.bind(this),
     }));
   }

@@ -19,39 +19,43 @@ export async function settleLocalHarnessAttachment(input: {
   const terminalEventId = await leases.assertArtifactsCommitted(admission);
   const scope = { userId: admission.run.userId, turnId: admission.turn.id, runAttemptId: admission.runAttemptId };
   const binding = await persistence.harnessBindings.read(scope);
-  if (binding?.attachment) {
-    const selection = HarnessSelectionSchema.parse(JSON.parse(binding.selection.selectionJson) as unknown);
-    const origin = binding.attachment;
-    if (selection.runId !== admission.run.id || selection.turnId !== admission.turn.id ||
-        selection.threadId !== admission.run.threadId || selection.workspaceId !== admission.run.workspaceId ||
-        selection.userId !== admission.run.userId || selection.runAttemptId !== admission.runAttemptId ||
-        selection.environmentId !== persistence.environmentId || selection.modelId !== admission.run.modelId ||
-        selection.policyId !== admission.run.permissionProfileId ||
-        selection.instanceId !== origin.instanceId || selection.authOwnerGeneration !== origin.authOwnerGeneration) {
-      throw new Error("Local settlement does not match the frozen attempt and attachment");
-    }
-    await input.releaseAfterCanonicalSettlement({
-      runAttemptId: admission.runAttemptId, instanceId: origin.instanceId,
-      externalSessionId: origin.externalSessionId, processGeneration: origin.processGeneration,
-    });
-    // CORE drained ingress before returning. Read the final committed sequence
-    // afterward; a pre-release observation watermark is insufficient for retirement.
-    const drained = await persistence.harnessBindings.read(scope);
-    if (!drained || drained.selection.selectionJson !== binding.selection.selectionJson ||
-        drained.attachment?.instanceId !== origin.instanceId ||
-        drained.attachment.externalSessionId !== origin.externalSessionId ||
-        drained.attachment.processGeneration !== origin.processGeneration ||
-        drained.attachment.authOwnerGeneration !== origin.authOwnerGeneration ||
-        drained.lastObservationSequence < binding.lastObservationSequence) {
-      throw new Error("Local attachment changed during canonical CORE release");
-    }
-    // If this commit fails/has unknown outcome, the caller retains its active
-    // owner. A missing live CORE session on retry is never success; restart must
-    // use existing journal settlement evidence or remain recovery_required.
-    await persistence.retireHarnessAttachment({
-      selection: drained.selection, origin,
-      lastObservationSequence: drained.lastObservationSequence, terminalEventId,
-    });
+  if (binding && !binding.attachment) {
+    throw new Error("Local frozen opening or prior retirement requires durable recovery evidence");
   }
-  await leases.assertSettled(admission);
+  await leases.settleAfterRelease(admission, async () => {
+    if (binding?.attachment) {
+      const selection = HarnessSelectionSchema.parse(JSON.parse(binding.selection.selectionJson) as unknown);
+      const origin = binding.attachment;
+      if (selection.runId !== admission.run.id || selection.turnId !== admission.turn.id ||
+          selection.threadId !== admission.run.threadId || selection.workspaceId !== admission.run.workspaceId ||
+          selection.userId !== admission.run.userId || selection.runAttemptId !== admission.runAttemptId ||
+          selection.environmentId !== persistence.environmentId || selection.modelId !== admission.run.modelId ||
+          selection.policyId !== admission.run.permissionProfileId ||
+          selection.instanceId !== origin.instanceId || selection.authOwnerGeneration !== origin.authOwnerGeneration) {
+        throw new Error("Local settlement does not match the frozen attempt and attachment");
+      }
+      await input.releaseAfterCanonicalSettlement({
+        runAttemptId: admission.runAttemptId, instanceId: origin.instanceId,
+        externalSessionId: origin.externalSessionId, processGeneration: origin.processGeneration,
+      });
+      // CORE drained ingress before returning. Read the final committed sequence
+      // afterward; a pre-release observation watermark is insufficient for retirement.
+      const drained = await persistence.harnessBindings.read(scope);
+      if (!drained || drained.selection.selectionJson !== binding.selection.selectionJson ||
+          drained.attachment?.instanceId !== origin.instanceId ||
+          drained.attachment.externalSessionId !== origin.externalSessionId ||
+          drained.attachment.processGeneration !== origin.processGeneration ||
+          drained.attachment.authOwnerGeneration !== origin.authOwnerGeneration ||
+          drained.lastObservationSequence < binding.lastObservationSequence) {
+        throw new Error("Local attachment changed during canonical CORE release");
+      }
+      // If this commit fails/has unknown outcome, the caller retains its active
+      // owner. A missing live CORE session on retry is never success; restart must
+      // use existing journal settlement evidence or remain recovery_required.
+      await persistence.retireHarnessAttachment({
+        selection: drained.selection, origin,
+        lastObservationSequence: drained.lastObservationSequence, terminalEventId,
+      });
+    }
+  });
 }
