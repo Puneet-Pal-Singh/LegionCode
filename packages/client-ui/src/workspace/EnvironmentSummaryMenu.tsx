@@ -104,8 +104,13 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
     wasVisible.current = visible;
   }, [visible, props.onOpen]);
   useLayoutEffect(() => {
-    if (!isOpen || !panelRef.current) return;
-    (getVisibleFocusTargets(panelRef.current)[0] ?? panelRef.current).focus();
+    if (!isOpen) return;
+    // Positioning first reveals the measured popup; focus after that layout flush.
+    const frame = window.requestAnimationFrame(() => {
+      if (panelRef.current?.isConnected)
+        (getVisibleFocusTargets(panelRef.current)[0] ?? panelRef.current).focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [isOpen, layout?.overlayTarget]);
   useEffect(() => {
     if (!isOpen && !isBranchOpen) return;

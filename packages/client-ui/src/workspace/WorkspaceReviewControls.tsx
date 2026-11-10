@@ -6,7 +6,6 @@ export function WorkspaceReviewControls({
   onToggleRightSidebar,
   toggleButtonRef,
 }: {
-  onReview?: () => void;
   onToggleRightSidebar?: () => void;
   toggleButtonRef?: Ref<HTMLButtonElement>;
 }) {

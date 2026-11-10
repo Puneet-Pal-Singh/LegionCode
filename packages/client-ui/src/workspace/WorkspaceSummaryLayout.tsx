@@ -95,6 +95,7 @@ export function WorkspaceSummaryLayout({ children, allowInline = true }: {
 }) {
   const layout = useWorkspaceSummaryLayout();
   const containerRef = useRef<HTMLDivElement>(null);
+  const footprintRef = useRef<HTMLDivElement>(null);
   const setInlineEligible = layout?.setInlineEligible;
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -105,13 +106,19 @@ export function WorkspaceSummaryLayout({ children, allowInline = true }: {
       const visible = getVisibleViewportBounds();
       const width = Math.max(0, Math.min(rectangle.right, visible.right) - Math.max(rectangle.left, visible.left));
       const height = Math.max(0, Math.min(rectangle.bottom, visible.bottom) - Math.max(rectangle.top, visible.top));
-      const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-      // 36rem conversation + 21.25rem existing card + gaps; short viewports use the popup.
-      setInlineEligible(allowInline && width >= 60 * rem && height >= 22 * rem);
+      const footprint = footprintRef.current?.getBoundingClientRect();
+      // The rail stays at the container's right edge. A large intersection alone
+      // can leave it offscreen during pinch/pan or behind the on-screen keyboard.
+      const contained = rectangle.left >= visible.left - 0.5 && rectangle.top >= visible.top - 0.5 &&
+        rectangle.right <= visible.right + 0.5 && rectangle.bottom <= visible.bottom + 0.5;
+      // Like T3's measured chat lane, the CSS footprint resolves rem sizing and
+      // retains minimum chat width plus the existing card, clearance and edges.
+      setInlineEligible(Boolean(allowInline && contained && footprint && width >= footprint.width && height >= footprint.height));
     };
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(container);
+    if (footprintRef.current) observer?.observe(footprintRef.current);
     window.addEventListener("resize", measure);
     viewport?.addEventListener("resize", measure);
     viewport?.addEventListener("scroll", measure);
@@ -125,6 +132,7 @@ export function WorkspaceSummaryLayout({ children, allowInline = true }: {
   }, [allowInline, setInlineEligible]);
   return (
     <div ref={containerRef} className="lc-workspace-summary-layout">
+      <div ref={footprintRef} aria-hidden="true" className="lc-workspace-summary-footprint" />
       <div className="lc-workspace-summary-conversation">{children}</div>
       {layout?.inlineVisible ? (
         <aside aria-label="Chat environment summary" className="lc-workspace-summary-rail">

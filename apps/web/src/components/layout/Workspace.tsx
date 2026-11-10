@@ -1,4 +1,4 @@
-import { clampRightSidebarWidth } from "@legioncode/client-ui";
+import { clampRightSidebarWidth, WorkspaceSummaryLayout } from "@legioncode/client-ui";
 import {
   useRef,
   useEffect,
@@ -610,7 +610,8 @@ export function Workspace({
         }
       >
         <div className="ui-center-surface flex min-h-0 flex-1 overflow-hidden relative">
-          {/* Chat Area */}
+          {/* Measure only the chat area after the real review pane takes its space. */}
+          <WorkspaceSummaryLayout allowInline={!isCompact || !isRightSidebarOpen}>
           <main className="ui-center-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-clip">
             {initialPromptSubmission &&
             initialPromptSubmission.status === "failed" ? (
@@ -708,6 +709,7 @@ export function Workspace({
               }}
             />
           </main>
+          </WorkspaceSummaryLayout>
 
           {isConversationSurfaceReady && isRightSidebarOpen ? (
             <SidebarHeader

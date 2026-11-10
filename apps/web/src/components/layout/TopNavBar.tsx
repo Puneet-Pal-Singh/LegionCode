@@ -9,7 +9,6 @@ import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSum
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
-  onReview?: () => void;
   isRightSidebarOpen?: boolean;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
@@ -75,7 +74,6 @@ function TopNavSessionActions({
 
 function TopNavActions({
   onOpenIde,
-  onReview,
   isRightSidebarOpen = false,
   onToggleRightSidebar,
   isAuthenticated = false,
@@ -85,7 +83,6 @@ function TopNavActions({
 }: Pick<
   TopNavBarProps,
   | "onOpenIde"
-  | "onReview"
   | "isRightSidebarOpen"
   | "onToggleRightSidebar"
   | "isAuthenticated"
@@ -110,7 +107,6 @@ function TopNavActions({
       ) : null}
       {!isRightSidebarOpen ? (
         <WorkspaceReviewControls
-          onReview={onReview}
           onToggleRightSidebar={onToggleRightSidebar}
         />
       ) : null}
