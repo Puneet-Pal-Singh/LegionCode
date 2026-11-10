@@ -14,7 +14,7 @@ export class ApprovalCoordinator {
   private readonly pending = new Map<string, PendingApprovalResolution>();
 
   constructor(
-    private readonly approvals: ApprovalWaitPort,
+    private readonly approvals: ApprovalWaitPort | undefined,
     private readonly lifecycle: RuntimeLifecycleCoordinator,
   ) {}
 
@@ -25,6 +25,7 @@ export class ApprovalCoordinator {
     parentItemId: ItemId,
     request: ApprovalRequestedPayload,
     signal?: AbortSignal,
+    requestAlreadyCommitted = false,
   ): Promise<ApprovalResolution> {
     if (request.itemId === null || request.itemId === parentItemId) {
       throw new RuntimeKernelError(
@@ -33,8 +34,12 @@ export class ApprovalCoordinator {
       );
     }
     const pending = this.createPending(request);
+    const waitController = new AbortController();
+    const waitSignal = signal
+      ? AbortSignal.any([signal, waitController.signal])
+      : waitController.signal;
     try {
-      await this.lifecycle.requestApproval(
+      if (!requestAlreadyCommitted) await this.lifecycle.requestApproval(
         parentItemId,
         request.approvalId,
         request.itemId,
@@ -46,25 +51,26 @@ export class ApprovalCoordinator {
       );
       const candidate = await raceApprovalResolution(
         [
-          this.approvals.waitForDecision({
+          ...(this.approvals ? [this.approvals.waitForDecision({
             runId: run.id,
             runAttemptId,
             turnId: turn.id,
             request,
-            signal,
-          }),
+            signal: waitSignal,
+          })] : []),
           pending.resolution.then((outcome) => {
             if (outcome.status === "failed") throw outcome.error;
             return outcome.resolution;
           }),
         ],
-        signal,
+        waitSignal,
       );
       const resolution = await this.settle(
         request.approvalId,
         pending,
         candidate,
       );
+      if (signal?.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped while approval settlement was committing");
       if (resolution.timedOut) {
         throw new RuntimeKernelError(
           "approval_timed_out",
@@ -85,6 +91,7 @@ export class ApprovalCoordinator {
       }
       return resolution;
     } finally {
+      waitController.abort();
       this.pending.delete(request.approvalId);
     }
   }
@@ -123,6 +130,30 @@ export class ApprovalCoordinator {
       if (pending.settlement) pending.resolve({ status: "failed", error });
       throw error;
     }
+  }
+
+  /** Reserve the existing canonical winner while a targeted native withdrawal
+   * commits through the same observation append transaction. No second append. */
+  reserveNativeWithdrawal(approvalId: ApprovalRequestedPayload["approvalId"], stopped = false): {
+    committed(): void;
+    failed(error: unknown): void;
+  } {
+    const pending = this.pending.get(approvalId);
+    // Stop may have drained the waiter before the exact native cancellation
+    // arrives. The observation draft still verifies the canonical pending item.
+    if (!pending && stopped) return { committed: () => undefined, failed: () => undefined };
+    if (!pending || pending.settlement)
+      throw new RuntimeKernelError("approval_resolution_conflict", "Approval withdrawal no longer owns an unresolved request");
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const completion = new Promise<void>((accept, fail) => { resolve = accept; reject = fail; });
+    void completion.catch(() => undefined);
+    const resolution = Object.freeze({ decision: "cancelled" as const, decidedBy: null, reason: "Native request withdrawn" });
+    pending.settlement = { resolution, completion };
+    return {
+      committed: () => { resolve(); pending.resolve({ status: "decided", resolution }); },
+      failed: (error) => { reject(error); pending.resolve({ status: "failed", error }); },
+    };
   }
 
   private createPending(
@@ -233,7 +264,16 @@ function raceApprovalResolution(
   resolutions: readonly Promise<ApprovalResolution>[],
   signal?: AbortSignal,
 ): Promise<ApprovalResolution> {
-  if (!signal) return Promise.race(resolutions);
+  // Attach handlers to every already-created provider promise before checking
+  // cancellation; a late provider rejection must remain observed after Stop.
+  const raced = Promise.race(resolutions);
+  if (!signal) return raced;
+  if (signal.aborted) {
+    void raced.catch(() => undefined);
+    return Promise.reject(
+      new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
+    );
+  }
   return new Promise<ApprovalResolution>((resolve, reject) => {
     const abort = () => {
       signal.removeEventListener("abort", abort);
@@ -242,7 +282,7 @@ function raceApprovalResolution(
       );
     };
     signal.addEventListener("abort", abort, { once: true });
-    Promise.race(resolutions)
+    raced
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", abort));
     // Attach contender rejection handlers even if Stop arrived during request append.
