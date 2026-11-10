@@ -2055,3 +2055,25 @@ check. Native and delegated admission producers consume the same current Thread
 parents; stale prepared candidates conflict rather than being reparented. No
 terminal mirror, projection table, second reducer or recovery authority is added.
 Native process-loss recovery retains its separate opaque delegated exclusion.
+
+## Shared exact-commit checkout materialization
+
+`git-service`'s private `./pinned-checkout` entry now owns the existing pinned
+checkout sequence: initialize the checkout, configure the credential-free origin
+URL, fetch only the authorized commit with depth one and no tags, then check out
+that exact commit detached. It consumes the existing `GitCommandExecutor` contract
+and stops at the first failed command; it adds no Git transport or security policy.
+
+Secure's real `GitPlugin` pinned-clone branch consumes this helper through the
+existing `SandboxGitCommandExecutor`. Its canonical Node runner owns contained
+Git execution, Linux subreaper/pidfd closure and validated auth environment;
+`SafeCommand` / Toolbox preserve normalized run and original call context. The
+executor borrows the existing checkout lease with no competing outer timeout.
+Its `execIfRunning` transport fails closed without restarting a stopped sandbox
+or falling back to direct Git execution. Scoped auth environment reaches only
+fetch; credentials never enter command arguments or the configured origin URL.
+The replaced `SandboxGitWorkspaceCloner` is deleted. Ordinary unpinned clone
+retains its existing direct `runToolboxCommand` behavior. URL/commit authorization,
+Cloudflare Sandbox execution and immutable checkout ownership remain with their
+existing owners. This migration does not enable managed local checkouts,
+container commands or installed Desktop execution.

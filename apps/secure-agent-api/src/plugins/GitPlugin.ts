@@ -346,15 +346,11 @@ export class GitPlugin implements IPlugin {
           authorizedCommitId,
           authEnvironment,
         },
-        {
-          execute: ({ cwd, args, environment }) =>
-            runGit({
-              command: "git",
-              args: ["-C", cwd, ...args],
-              env: environment,
-              runId,
-            }),
-        },
+        new SandboxGitCommandExecutor(
+          sandbox,
+          { ...toolboxContext, runId },
+          "git.clone",
+        ),
       );
     }
     return await runGit({
