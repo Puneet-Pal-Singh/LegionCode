@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { PanelLeftOpen } from "lucide-react";
 import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
 import { getVisibleFocusTargets } from "../hooks/modal-focus.js";
+import { WorkspaceSummaryOverlay, WorkspaceSummaryProvider } from "./WorkspaceSummaryLayout.js";
 
 const COMPACT_WORKSPACE_QUERY = "(max-width: 1023px)";
 
@@ -120,6 +121,7 @@ export function WorkspaceFrame({
     rightPanelWidth === undefined ? undefined : { "--lc-workspace-panel-width": `${rightPanelWidth}px` };
 
   return (
+    <WorkspaceSummaryProvider>
     <div className={`lc-workspace-frame${className ? ` ${className}` : ""}`} style={panelStyle}>
       <div
         ref={sidebarRef}
@@ -164,7 +166,9 @@ export function WorkspaceFrame({
             <aside className="lc-workspace-right-panel" aria-label={rightPanelLabel}>{rightPanel}</aside>
           ) : null}
         </div>
+        <WorkspaceSummaryOverlay />
       </div>
     </div>
+    </WorkspaceSummaryProvider>
   );
 }

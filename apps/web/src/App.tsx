@@ -717,6 +717,7 @@ function AppContent() {
           : { status: "unavailable" as const, sessionId: activeSession.id },
         savedSources: activeSavedSources,
         onOpen: () => prioritizeSession(activeSession.id, true),
+        onOpenChanges: () => handleOpenReviewSidebar(),
         onOpenSources:
           isSessionPersistenceReady(activeSession.persistenceStatus) &&
           (activeSavedSources.images.length > 0 ||
@@ -742,14 +743,11 @@ function AppContent() {
   };
 
   const handleOpenReviewSidebar = () => {
-    if (isRightSidebarOpen && activeTab === "review") {
-      setIsRightSidebarOpen(false);
-    } else {
-      setIsGitReviewOpen(false);
-      setGitReviewSessionId(null);
-      setIsRightSidebarOpen(true);
-      focusReviewSidebar();
-    }
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
+    setIsRightSidebarOpen(true);
+    focusReviewSidebar();
+    setSummaryActionRequest({ id: Date.now(), action: "changes" });
   };
 
   const handleToggleRightSidebar = () => {
@@ -947,7 +945,6 @@ function AppContent() {
               </div>
             ) : null}
             <TopNavBar
-              onReview={activeSession ? handleOpenReviewSidebar : undefined}
               isRightSidebarOpen={Boolean(activeSession) && isRightSidebarOpen}
               onToggleRightSidebar={handleToggleRightSidebar}
               threadTitle={threadTitle}

@@ -7,6 +7,7 @@ export type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 export { ClientShell } from "./shell/ClientShell.js";
 export { ClientShellLoading } from "./shell/ClientShellLoading.js";
 export { WorkspaceFrame, type WorkspaceFrameProps } from "./workspace/WorkspaceFrame.js";
+export { WorkspaceSummaryLayout } from "./workspace/WorkspaceSummaryLayout.js";
 export { WorkspaceTopBar, type WorkspaceTopBarProps } from "./workspace/WorkspaceTopBar.js";
 export { ThreadSidebar, SidebarSettingsButton, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
 export {

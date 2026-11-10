@@ -7,6 +7,7 @@ import {
   EnvironmentSummaryMenu,
   WorkspaceReviewControls,
   WorkspaceFrame,
+  WorkspaceSummaryLayout,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
 import { AppServerClientError, createAppServerClient } from "@legioncode/sdk";
@@ -742,7 +743,6 @@ function DesktopApp(): React.JSX.Element {
               title={selectedThread?.title}
               actions={!rightPanelOpen ? <>
                 <WorkspaceReviewControls
-                  onReview={() => setRightPanelOpen(true)}
                   onToggleRightSidebar={() => setRightPanelOpen((open) => !open)}
                   toggleButtonRef={rightPanelToggleRef}
                 />
@@ -855,6 +855,7 @@ function DesktopApp(): React.JSX.Element {
           rightPanelWidth={rightPanelWidth}
           rightPanelLabel="Files and saved turn review"
         >
+          <WorkspaceSummaryLayout>
           {workspace?.readiness === "ready" &&
           selectedThread &&
           appServerClient &&
@@ -943,6 +944,7 @@ function DesktopApp(): React.JSX.Element {
               />
             </DesktopWorkspaceBootstrapHero>
           )}
+          </WorkspaceSummaryLayout>
         </WorkspaceFrame>
       </ClientShell>
       {appServerClient ? (
