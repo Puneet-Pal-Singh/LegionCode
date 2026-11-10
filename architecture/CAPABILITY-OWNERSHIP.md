@@ -2242,8 +2242,9 @@ paging and provider custody retain their existing source and exports.
 ## Plans 048 / 061 — Kernel delegated execution foundation
 
 RuntimeKernel remains the sole canonical lifecycle, approval and terminal owner.
-It accepts a frozen delegated Run selection only with a matching resolved execution
-strategy, exact scope and active binding; it never routes that intent into Native
+It requires a nonnull frozen delegated Run selection and matches every captured
+field to the resolved execution strategy before any binding or runtime effect;
+exact scope and active binding remain independently required; it never routes that intent into Native
 execution or its preparation-failure fallback. Existing Native provider, guarded
 worker, restoration and artifact responsibilities remain on their current path.
 
