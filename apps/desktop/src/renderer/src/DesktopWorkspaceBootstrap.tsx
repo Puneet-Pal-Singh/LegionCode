@@ -178,6 +178,7 @@ export function DesktopWorkspaceBootstrapHero({
   children?: ReactNode;
 }) {
   return (
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4">
     <ConversationHero projectName={workspace?.displayName} onProjectClick={onChoose}>
       {state.status === "connecting" || state.status === "loading" ? (
         <BootstrapLoading label={state.status === "connecting" ? "Connecting Desktop" : "Restoring workspace access"} />
@@ -207,6 +208,7 @@ export function DesktopWorkspaceBootstrapHero({
       ) : null}
       {children}
     </ConversationHero>
+    </div>
   );
 }
 
