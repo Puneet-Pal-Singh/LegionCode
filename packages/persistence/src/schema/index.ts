@@ -36,3 +36,5 @@ export {
   artifactMetadata,
   artifactMetadataChangedFiles,
 } from "./artifact-metadata.js";
+
+export { providerCredentialDefaultEpochs } from "./credential-default-epochs.js";

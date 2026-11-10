@@ -1,6 +1,7 @@
 import { BYOKPreferenceSchema, BYOKPreferencesUpdateRequestSchema, BYOKResolutionSchema, BYOKResolveRequestSchema } from "@repo/shared-types";
 import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentialUpdateRequestSchema, BYOKCredentialValidateRequestSchema, BYOKCredentialValidateResponseSchema } from "@repo/shared-types";
 import {
+  HostedWorkspaceConfigurationReadRequestSchema, HostedWorkspaceConfigurationUpdateRequestSchema, HostedWorkspaceConfigurationSchema,
   HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
   HostedSessionWorkspaceContextRequestSchema, HostedSessionWorkspaceContextSchema,
@@ -43,6 +44,8 @@ import {
   TurnScopeReadQuerySchema,
   ReplayLifecycleEventsRequestSchema,
   ReplayLifecycleEventsResponseSchema,
+  ReadLifecycleEventChunkRequestSchema,
+  ReadLifecycleEventChunkResponseSchema,
   GetTurnDiffRequestSchema,
   GetTurnDiffResponseSchema,
   CommitTurnArtifactRequestSchema,
@@ -478,6 +481,7 @@ export const AppServerMethodSchema = z.enum([
   "thread/input/steer",
   "thread/input/start",
   "turn/lifecycleEvents",
+  "turn/lifecycleEventChunk",
   "turn/diff",
   "turn/approval",
   "turn/compact",
@@ -496,6 +500,8 @@ export const AppServerMethodSchema = z.enum([
   "git/pullRequest",
   "artifact/codeContent",
 
+  "workspace/configuration/read",
+  "workspace/configuration/update",
   "workspace/list",
   "workspace/select",
   "repository/list",
@@ -542,6 +548,8 @@ const AppServerRequestShape = {
 };
 
 export const AppServerRequestSchema = z.discriminatedUnion("method", [
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/read"), params: HostedWorkspaceConfigurationReadRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/update"), params: HostedWorkspaceConfigurationUpdateRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/list"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/select"), params: HostedWorkspaceSelectRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("repository/list"), params: RepositoryListRequestSchema }).strict(),
@@ -576,6 +584,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("thread/input/steer"), params: SteerQueuedThreadInputCommandSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/input/start"), params: StartQueuedThreadInputCommandSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/lifecycleEvents"), params: ReplayLifecycleEventsRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("turn/lifecycleEventChunk"), params: ReadLifecycleEventChunkRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/diff"), params: GetTurnDiffRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/approval"), params: SubmitLifecycleApprovalRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("turn/compact"), params: CompactTurnRequestSchema }).strict(),
@@ -632,6 +641,8 @@ export type AppServerRequest = z.infer<typeof AppServerRequestSchema>;
 export type AppServerMethod = z.infer<typeof AppServerMethodSchema>;
 
 export const AppServerResultSchemas = {
+  "workspace/configuration/read": HostedWorkspaceConfigurationSchema,
+  "workspace/configuration/update": HostedWorkspaceConfigurationSchema,
   "workspace/list": HostedWorkspaceListResponseSchema,
   "workspace/select": HostedWorkspaceSelectResponseSchema,
   "repository/list": RepositoryListResponseSchema,
@@ -666,6 +677,7 @@ export const AppServerResultSchemas = {
   "thread/input/steer": ThreadInputReceiptSchema,
   "thread/input/start": ThreadInputReceiptSchema,
   "turn/lifecycleEvents": ReplayLifecycleEventsResponseSchema,
+  "turn/lifecycleEventChunk": ReadLifecycleEventChunkResponseSchema,
   "turn/diff": GetTurnDiffResponseSchema,
   "turn/approval": LifecycleEventSchema,
   "turn/compact": CompactTurnResponseSchema,
@@ -722,6 +734,8 @@ export const AppServerResultSchemas = {
 } as const;
 
 export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
+  success("workspace/configuration/read", AppServerResultSchemas["workspace/configuration/read"]),
+  success("workspace/configuration/update", AppServerResultSchemas["workspace/configuration/update"]),
   success("workspace/list", AppServerResultSchemas["workspace/list"]),
   success("workspace/select", AppServerResultSchemas["workspace/select"]),
   success("repository/list", AppServerResultSchemas["repository/list"]),
@@ -756,6 +770,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("thread/input/steer", AppServerResultSchemas["thread/input/steer"]),
   success("thread/input/start", AppServerResultSchemas["thread/input/start"]),
   success("turn/lifecycleEvents", AppServerResultSchemas["turn/lifecycleEvents"]),
+  success("turn/lifecycleEventChunk", AppServerResultSchemas["turn/lifecycleEventChunk"]),
   success("turn/diff", AppServerResultSchemas["turn/diff"]),
   success("turn/approval", AppServerResultSchemas["turn/approval"]),
   success("turn/compact", AppServerResultSchemas["turn/compact"]),

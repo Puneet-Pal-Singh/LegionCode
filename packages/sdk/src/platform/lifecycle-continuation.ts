@@ -1,7 +1,7 @@
 import type { LifecycleEvent } from "@repo/platform-protocol";
 import {
-  LifecycleContinuationError,
   createLifecycleOrderingState,
+  acceptLifecycleReplayPage,
 } from "./lifecycle-ordering.js";
 import type {
   FollowLifecycleRequest,
@@ -155,32 +155,18 @@ async function* replayPaged(
   input.options?.onLifecycleContinuationStatus?.("replaying");
   const limit = input.request.replayLimit;
   while (true) {
-    const previousSequence = state.lastSequence;
+    let terminal = false;
     const response = await replayLifecycleEventsWithRetry(input, {
       turnId: input.request.turnId,
       afterSequence: state.lastSequence,
       limit,
     });
-    for (const event of response.events) {
-      if (state.accept(event)) {
-        yield event;
-      }
+    const page = acceptLifecycleReplayPage(response, state);
+    for (const event of page.events) {
+      yield event;
+      if (isTerminalLifecycleEventType(event.type)) terminal = true;
     }
-    if (response.events.length === 0) {
-      return;
-    }
-    if (limit === undefined || response.events.length < limit) {
-      return;
-    }
-    if (state.lastSequence > previousSequence) {
-      continue;
-    }
-    throw new LifecycleContinuationError(
-      "lifecycle_sequence_regression",
-      "Lifecycle replay page did not advance the sequence cursor",
-      state.lastSequence + 1,
-      response.nextSequence,
-    );
+    if (terminal || page.nextSequence === null) return;
   }
 }
 
@@ -203,16 +189,11 @@ async function* pollLiveEvents(
       );
       input.options?.onLifecycleContinuationStatus?.("following");
 
-      let hasNew = false;
-      for (const event of response.events) {
-        if (state.accept(event)) {
-          hasNew = true;
-          yield event;
-          if (isTerminalLifecycleEventType(event.type)) {
-            input.options?.onLifecycleContinuationStatus?.("following");
-            return;
-          }
-        }
+      const page = acceptLifecycleReplayPage(response, state);
+      const hasNew = page.events.length > 0;
+      for (const event of page.events) {
+        yield event;
+        if (isTerminalLifecycleEventType(event.type)) return;
       }
 
       if (hasNew) {

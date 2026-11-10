@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
 import {
   AppServerRequestSchema,
   LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER,
@@ -11,21 +10,22 @@ import {
   isLocalAppServerImageRequest,
 } from "./protocol.js";
 import type { AppServerComposition } from "./server.js";
-import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
+import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./local-workspace.js";
 import { DefaultGitService } from "@repo/git-service";
 import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
-import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
+import { LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
-import { attachLocalServerShutdown, combineLocalShutdownOwners, type LocalShutdownOwner } from "./local-server-shutdown.js";
+import { attachLocalServerShutdown, combineLocalShutdownOwners, createLocalHttpRequestDrain, type LocalShutdownOwner } from "./local-server-shutdown.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
 import { LocalChatMediaReads } from "./local-chat-media-reads.js";
+import { LocalLifecycleReplay } from "./local-lifecycle-replay.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 
 export type LocalAppServerStartConfig = {
@@ -127,11 +127,12 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;
+    const requests = createLocalHttpRequestDrain();
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
+      void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, () => requests.stopping));
     });
     const owner = attachLocalServerShutdown(
-      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits, workspaceGitReads),
+      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits, workspaceGitReads, requests),
       () => workspaceService.hasUnsettledResources,
     );
     // Attach the actual shutdown owner before invoking metadata recovery. Its
@@ -235,6 +236,7 @@ async function handleRequest(
   artifactReads?: LocalTurnArtifactReads,
   imageReads?: LocalChatMediaReads,
   artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
+  isShuttingDown: () => boolean = () => false,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -258,14 +260,15 @@ async function handleRequest(
     localChatMediaService: imageReads,
     localTurnArtifactCommitService: artifactCommits,
     threadService,
-    localLifecycleReplayService: {
-      replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
-        replayLocalLifecycle(persistence, threadService, params),
-    },
+    localLifecycleReplayService: new LocalLifecycleReplay(persistence, threadService),
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {
     writeJson(response, boundaryFailure.statusCode, boundaryFailure.payload, boundaryFailure.headers);
+    return;
+  }
+  if (isShuttingDown()) {
+    writeJson(response, 503, { code: "server_unavailable", message: "Local App Server is shutting down", operationCode: "server_shutting_down", retryable: false });
     return;
   }
   const imageOptIn = request.headers[LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER];
@@ -283,6 +286,11 @@ async function handleRequest(
   }
   if (body.timedOut) {
     writeJson(response, 408, { code: "invalid_request", message: "App Server request timed out" });
+    return;
+  }
+  // A body may finish after shutdown fenced new work. Do not dispatch it then.
+  if (isShuttingDown()) {
+    writeJson(response, 503, { code: "server_unavailable", message: "Local App Server is shutting down", operationCode: "server_shutting_down", retryable: false });
     return;
   }
   if (imageOptIn === "1") {
@@ -317,43 +325,6 @@ async function handleRequest(
     { ...composition, providerService, providerConfiguration },
   );
   writeJson(response, result.statusCode, result.payload, result.headers);
-}
-
-/** Admission authorizes replay even while runtime preflight has not emitted events. */
-async function replayLocalLifecycle(
-  persistence: LocalPersistence,
-  threadService: LocalThreadService,
-  params: ReplayLifecycleEventsRequest,
-) {
-  if (params.backend && params.backend !== "execution-engine-v1") {
-    throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
-  }
-  const admission = await persistence.turnAdmissions.getByTurn(params.turnId);
-  if (!admission) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-  const authorizeThread = async () => {
-    try {
-      const thread = await threadService.get(admission.run.threadId);
-      if (thread.workspaceId !== admission.run.workspaceId) throw new LocalThreadNotFoundError();
-    } catch (error) {
-      if (error instanceof LocalThreadNotFoundError) {
-        throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
-      }
-      throw error;
-    }
-  };
-  await authorizeThread();
-  const page = await persistence.lifecycleEvents.replay({
-    turnId: params.turnId,
-    afterSequence: params.afterSequence ?? null,
-    limit: params.limit ?? 1_000,
-  });
-  if (page.events.some((event) => event.threadId !== admission.run.threadId ||
-      event.turnId !== admission.turn.id || event.runAttemptId !== admission.runAttemptId ||
-      event.producer.id !== admission.run.workerId)) {
-    throw new AppServerOperationError(503, "server_unavailable", "Local turn history does not match its admission");
-  }
-  await authorizeThread();
-  return page;
 }
 
 function readBody(
