@@ -627,6 +627,17 @@ export class MemoryPreferenceStore implements PreferenceStore {
   }
 }
 
+function cloneVisibleModelIds(
+  visibleModelIds: Record<string, string[]>,
+): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(visibleModelIds).map(([providerId, modelIds]) => [
+      providerId,
+      [...modelIds],
+    ]),
+  );
+}
+
 export class MemoryProviderAuditLog implements ProviderAuditLog {
   private readonly events: ProviderAuditEvent[] = [];
 
