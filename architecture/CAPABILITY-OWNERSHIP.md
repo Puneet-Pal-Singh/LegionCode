@@ -1727,7 +1727,10 @@ listing, refresh and exact-model selection; bounded paged inventory remains
 request-local and coalesces concurrent lookups. The existing shared discovery
 service owns catalog retrieval and caching. The local process accepts this one
 injected catalog; protected credential access remains in its existing host port.
-Workspace preferences validate model identities through the same service.
+Saved selection and preference reads validate structure and supported-provider
+identity without catalog access. Preference updates validate only introduced
+model references through the same discovery service; unchanged or removed saved
+references remain recoverable during outages.
 
 ProtectedProviderInference requires the admitted discovered model identity and
 uses the canonical provider route resolver with the protected connection config.
