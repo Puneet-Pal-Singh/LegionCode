@@ -1,11 +1,3 @@
-import {
-  ChangesList,
-  DiffViewer,
-  ReviewDiffToolbar,
-  ReviewFileStack,
-  ReviewPanelLayout,
-  useChangesPanelViewState,
-} from "@legioncode/client-ui";
 import type { DesktopRightPanelControls } from "./DesktopRightPanel";
 import {
   buildDiffContentFromTurnDiff,
@@ -16,8 +8,8 @@ import type {
   TurnId,
   WorkspaceId,
 } from "@repo/platform-protocol";
-import type { FileStatus } from "@repo/shared-types";
 import { useState } from "react";
+import { DesktopReviewPresentation, type DesktopReviewScopeControls } from "./DesktopReviewPresentation";
 import type { DesktopSavedReviewRead } from "./useDesktopSavedReviewSelection";
 
 export interface DesktopReviewSelection {
@@ -38,6 +30,7 @@ export interface DesktopReviewProps {
   } | null;
   availability: { available: true } | { available: false; reason: string };
   controls: DesktopRightPanelControls;
+  scopeControls?: DesktopReviewScopeControls;
 }
 
 /** Parent supplies a replay-settled selection, actual grant scope and advertised capability. */
@@ -48,11 +41,13 @@ export function DesktopReview({
   scope,
   availability,
   controls,
+  scopeControls,
 }: DesktopReviewProps) {
   if (!scope)
     return (
       <ReviewStatus
         controls={controls}
+        scopeControls={scopeControls}
         message="Open a granted workspace and thread to review saved changes."
       />
     );
@@ -64,6 +59,7 @@ export function DesktopReview({
     return (
       <ReviewStatus
         controls={controls}
+        scopeControls={scopeControls}
         message="Select a settled turn in the current workspace and thread."
       />
     );
@@ -72,6 +68,7 @@ export function DesktopReview({
     return (
       <ReviewStatus
         controls={controls}
+        scopeControls={scopeControls}
         message={`Saved turn review unavailable: ${availability.reason}`}
       />
     );
@@ -79,6 +76,7 @@ export function DesktopReview({
     return (
       <ReviewStatus
         controls={controls}
+        scopeControls={scopeControls}
         message="Select a settled turn to review."
       />
     );
@@ -94,6 +92,7 @@ export function DesktopReview({
       read={read}
       onRetry={onRetry}
       controls={controls}
+      scopeControls={scopeControls}
     />
   );
 }
@@ -102,168 +101,45 @@ function SelectedTurnReview({
   read,
   onRetry,
   controls,
-}: Pick<DesktopReviewProps, "read" | "onRetry" | "controls">) {
-  const viewState = useChangesPanelViewState();
-  const isChangesOpen = controls.isChangesOpen;
-  const onToggleChanges = controls.onToggleChanges;
+  scopeControls,
+}: Pick<DesktopReviewProps, "read" | "onRetry" | "controls" | "scopeControls">) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-
-  if (read.status === "idle" || read.status === "loading")
-    return (
-      <ReviewStatus controls={controls} message="Loading saved turn changes…" />
-    );
-  if (read.status === "error")
-    return (
-      <div role="alert">
-        <p>Saved turn changes could not be loaded.</p>
-        <button type="button" onClick={onRetry}>
-          Retry
-        </button>
-      </div>
-    );
-  if (!read.diff)
-    return (
-      <ReviewStatus
-        controls={controls}
-        message="No saved diff is available for this turn."
-      />
-    );
-
-  const savedDiff = read.diff;
-  const files = savedDiff.files.map((file) => {
-    const status: FileStatus["status"] =
-      file.status === "copied" || file.status === "unchanged"
-        ? "modified"
-        : file.status;
-    return {
-      path: file.path,
-      status,
-      additions: file.additions,
-      deletions: file.deletions,
-      isStaged: false,
-    };
-  });
-  const selectedFile =
-    files.find((file) => file.path === selectedPath) ?? files[0] ?? null;
-  const diff = selectedFile
-    ? buildDiffContentFromTurnDiff(savedDiff, selectedFile.path)
-    : null;
-
+  const savedDiff = read.status === "ready" ? read.diff : null;
+  const files = savedDiff?.files.map((file) => ({
+    path: file.path,
+    status: file.status === "copied" || file.status === "unchanged"
+      ? "modified" as const : file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    isStaged: false,
+  })) ?? [];
+  const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0] ?? null;
+  const message = read.status === "idle" || read.status === "loading"
+    ? "Loading saved turn changes…"
+    : read.status === "error" ? "Saved turn changes could not be loaded."
+      : !savedDiff ? "No saved diff is available for this turn." : undefined;
   return (
-    <ReviewPanelLayout
-      mode="modal"
-      layout="stacked"
+    <DesktopReviewPresentation
+      controls={controls}
+      scopeControls={scopeControls}
       canonicalTurn
-      isChangesOpen={isChangesOpen}
-      toolbar={
-        <ReviewDiffToolbar
-          reviewScope="turn-diff"
-          onReviewScopeChange={() => {}}
-          canonicalAvailable
-          availableScopes={["turn-diff"]}
-          layout={viewState.diffLayout}
-          onLayoutChange={viewState.setDiffLayout}
-          wordWrap={viewState.wordWrap}
-          onWordWrapChange={viewState.setWordWrap}
-          allDiffsCollapsed={viewState.allDiffsCollapsed}
-          onToggleAllDiffs={viewState.toggleAllDiffs}
-          isChangesOpen={isChangesOpen}
-          onToggleChanges={onToggleChanges}
-          isFilesOpen={controls.isFilesOpen}
-          onToggleFiles={controls.onToggleFiles}
-        />
-      }
-      changesList={
-        <ChangesList
-          files={files}
-          selectedFile={selectedFile}
-          onSelectFile={(file) => setSelectedPath(file.path)}
-          reviewScope="turn-diff"
-          onReviewScopeChange={() => {}}
-          showToolbar={false}
-          searchable
-          canonicalAvailable
-          emptyLabel="No changes in this saved turn."
-        />
-      }
-    >
-      <ReviewFileStack
-        files={files}
-        selectedFile={selectedFile}
-        emptyLabel="No changes in this saved turn."
-        onSelectFile={(file) => setSelectedPath(file.path)}
-        allCollapsed={viewState.allDiffsCollapsed}
-      >
-        {selectedFile && diff ? (
-          <DiffViewer
-            key={selectedFile.path}
-            diff={diff}
-            className="min-h-[420px] w-full overflow-hidden"
-            layout={viewState.diffLayout}
-            onLayoutChange={viewState.setDiffLayout}
-            wordWrap={viewState.wordWrap}
-            onWordWrapChange={viewState.setWordWrap}
-            showHeader={false}
-            showFileSummary={false}
-          />
-        ) : (
-          <p
-            role="status"
-            className="flex flex-1 items-center justify-center text-sm text-zinc-500"
-          >
-            {selectedFile
-              ? `Saved patch content is unavailable for ${selectedFile.path}.`
-              : "No changes in this saved turn."}
-          </p>
-        )}
-      </ReviewFileStack>
-    </ReviewPanelLayout>
+      files={files}
+      selectedFile={selectedFile}
+      onSelectFile={(file) => setSelectedPath(file.path)}
+      diff={savedDiff && selectedFile ? buildDiffContentFromTurnDiff(savedDiff, selectedFile.path) : null}
+      message={message}
+      error={read.status === "error"}
+      onRetry={read.status === "error" ? onRetry : undefined}
+      emptyLabel="No changes in this saved turn."
+      missingDiffLabel={selectedFile ? `Saved patch content is unavailable for ${selectedFile.path}.` : undefined}
+    />
   );
 }
 
-function ReviewStatus({
-  message,
-  controls,
-}: {
+function ReviewStatus({ message, controls, scopeControls }: {
   message: string;
   controls: DesktopRightPanelControls;
+  scopeControls?: DesktopReviewScopeControls;
 }) {
-  const viewState = useChangesPanelViewState();
-  const isChangesOpen = controls.isChangesOpen;
-  return (
-    <ReviewPanelLayout
-      mode="modal"
-      layout="stacked"
-      isChangesOpen={isChangesOpen}
-      changesList={
-        <p role="status" className="p-4 text-sm text-zinc-500">
-          {message}
-        </p>
-      }
-      toolbar={
-        <ReviewDiffToolbar
-          reviewScope="turn-diff"
-          onReviewScopeChange={() => {}}
-          availableScopes={["turn-diff"]}
-          layout={viewState.diffLayout}
-          onLayoutChange={viewState.setDiffLayout}
-          wordWrap={viewState.wordWrap}
-          onWordWrapChange={viewState.setWordWrap}
-          allDiffsCollapsed={viewState.allDiffsCollapsed}
-          onToggleAllDiffs={viewState.toggleAllDiffs}
-          isChangesOpen={isChangesOpen}
-          onToggleChanges={controls.onToggleChanges}
-          isFilesOpen={controls.isFilesOpen}
-          onToggleFiles={controls.onToggleFiles}
-        />
-      }
-    >
-      <p
-        role="status"
-        className="flex flex-1 items-center justify-center p-4 text-sm text-zinc-500"
-      >
-        {message}
-      </p>
-    </ReviewPanelLayout>
-  );
+  return <DesktopReviewPresentation controls={controls} scopeControls={scopeControls} message={message} />;
 }
