@@ -58,6 +58,8 @@ export type {
   GitFileLineCount,
   GitFileLineCountsInput,
   GitFilesystemContext,
+  GitReadFilesystemContext,
+  GitReadStatusInput,
   GitPatchCaptureResult,
   GitPullInput,
   GitPushInput,
