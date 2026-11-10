@@ -2002,3 +2002,9 @@ only the matching child's positive receipt clears the ownership obligation.
 Exit, error, timeout or notification loss retain that exact child and block
 restart. Late positive receipts remain valid across request-generation changes.
 The existing before-quit caller waits for this proof; no force-kill is substituted.
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.
