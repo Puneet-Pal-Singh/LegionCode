@@ -2291,6 +2291,8 @@ SandboxPolicy union describes vendor request bytes and owns no canonical policy.
 RuntimeKernel retains lifecycle/approval truth, while harness-core owns journal
 ordering, scoped host processes and durable request-delivery boundaries.
 
+Experimental questions accept blocking requests only; a native nonblocking request
+is rejected before canonical emission rather than inventing a blocking condition.
 The package is not registered by an active product constructor here. Binary/schema
 pins are not OS confinement or installed-feature acceptance; both remain explicitly
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected

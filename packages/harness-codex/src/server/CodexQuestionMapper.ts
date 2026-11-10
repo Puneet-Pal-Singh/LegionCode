@@ -42,7 +42,7 @@ export function codexQuestion(
   const p = nativeIdentity
     .extend({
       itemId: z.string().min(1),
-      isBlocking: z.boolean(),
+      isBlocking: z.literal(true),
       questions: z.array(question).min(1).max(8),
     })
     .parse(raw.params);
