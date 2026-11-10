@@ -655,6 +655,8 @@ export {
   UserInputQuestionSchema,
   UserInputRequestSchema,
   UserInputResponseSchema,
+  SubmitUserInputResponseRequestSchema,
+  type SubmitUserInputResponseRequest,
   normalizeUserInputResponse,
   type UserInputQuestion,
   type UserInputRequest,

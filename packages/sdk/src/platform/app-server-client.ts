@@ -1,3 +1,4 @@
+import type { SubmitUserInputResponseRequest } from "@repo/platform-protocol";
 import { createHarnessClient, type HarnessClient } from "../harness/client.js";
 import { CheckoutListFilesParamsSchema, CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
 import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
@@ -223,6 +224,7 @@ export type AppServerClient = {
   replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
   getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+  submitUserInputResponse(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
   compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   getLatestEditArtifactReviewSource(params: { runId: string; sessionId?: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
   getEditArtifactReviewSourceByMessage(params: { runId: string; assistantMessageId: string; identity: EditArtifactIdentity }): Promise<ArtifactReviewLookupResult>;
@@ -438,6 +440,9 @@ export function createAppServerClient(
     submitLifecycleApproval: async (params) => request(options, {
       method: "turn/approval", params,
     }, AppServerResultSchemas["turn/approval"]),
+    submitUserInputResponse: async (params) => request(options, {
+      method: "turn/userInput", params,
+    }, AppServerResultSchemas["turn/userInput"]),
     compactTurn: async (params) => request(options, {
       method: "turn/compact", params,
     }, AppServerResultSchemas["turn/compact"]),

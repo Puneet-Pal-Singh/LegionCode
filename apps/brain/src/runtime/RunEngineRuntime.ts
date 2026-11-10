@@ -1,3 +1,4 @@
+import { InMemoryRunUserInputResponseRegistry } from "./RunUserInputResponseRegistry";
 import { CloudDelegatedRunPreparation } from "./CloudDelegatedRunPreparation";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import { z } from "zod";
@@ -78,6 +79,7 @@ export class RunEngineRuntime extends DurableObject {
   private readonly contextCompactionRegistry =
     new InMemoryRunContextCompactionRegistry();
   private readonly threadInputRegistry = new InMemoryRunThreadInputRegistry();
+  private readonly userInputResponseRegistry = new InMemoryRunUserInputResponseRegistry();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -138,6 +140,10 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/approval" && request.method === "POST") {
       return requestHandler.handleApprovalRequest(request);
+    }
+
+    if (url.pathname === "/user-input-response" && request.method === "POST") {
+      return requestHandler.handleUserInputResponseRequest(request);
     }
 
     if (url.pathname === "/lifecycle-approval" && request.method === "POST") {
@@ -504,6 +510,7 @@ export class RunEngineRuntime extends DurableObject {
         delegatedPreparation: new CloudDelegatedRunPreparation(this.env as Env),
         interruptRegistry: this.interruptRegistry,
         approvalResolutionRegistry: this.approvalResolutionRegistry,
+        userInputResponseRegistry: this.userInputResponseRegistry,
         contextCompactionRegistry: this.contextCompactionRegistry,
         threadInputRegistry: this.threadInputRegistry,
       },

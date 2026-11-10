@@ -25,7 +25,7 @@ import type {
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 const PROTECTED_HEADERS = new Set(["content-type", "accept"]);
-type HostedLifecycleMethod = "turn/submit" | "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact";
+type HostedLifecycleMethod = "turn/submit" | "turn/interrupt" | "turn/lifecycleEvents" | "turn/diff" | "turn/approval" | "turn/compact" | "turn/userInput";
 type HostedOperationError = PlatformClientOperationError | PlatformClientContractError;
 type HostedThreadInputMethod = "turn/steer" | "turn/resume" |
   "thread/input/enqueue" | "thread/input/list" | "thread/input/update" |
@@ -181,18 +181,7 @@ export function createPlatformHttpTransport(
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
     submitLifecycleApproval: (payload, options) => hostedOperation("turn/approval", options?.signal, (client) => client.submitLifecycleApproval(payload)),
-    // Hosted question replies need an authenticated runtime operation with a
-    // single-use, generation-bound origin. No such operation is composed yet;
-    // never send a response to the former, nonexistent REST route.
-    submitUserInputResponse: async () => {
-      throw new PlatformClientOperationError(
-        "capability_unsupported",
-        "Hosted question replies are unavailable until the runtime reply operation is connected.",
-        false,
-        undefined,
-        501,
-      );
-    },
+    submitUserInputResponse: (payload, options) => hostedOperation("turn/userInput", options?.signal, (client) => client.submitUserInputResponse(payload)),
     getTurnDiff: (payload, options) => hostedOperation("turn/diff", options?.signal, (client) => client.getTurnDiff(payload)),
     getArtifact: (artifactId, options) =>
       request.json("GET", buildArtifactPath(artifactId), undefined, options),
@@ -743,6 +732,7 @@ function hostedResponseContractError(method: HostedLifecycleMethod): PlatformCli
     "turn/lifecycleEvents": "replayLifecycleEvents",
     "turn/diff": "getTurnDiff",
     "turn/approval": "submitLifecycleApproval",
+    "turn/userInput": "submitUserInputResponse",
     "turn/compact": "compactTurn",
   };
   const operation = operationByMethod[method];

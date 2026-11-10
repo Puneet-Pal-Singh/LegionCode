@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TurnIdSchema, UserIdSchema } from "./ids.js";
 
 const QuestionIdSchema = z.string().min(1).max(160).refine(
   (value) => value.trim().length > 0 && !["__proto__", "prototype", "constructor"].includes(value),
@@ -81,3 +82,12 @@ export function normalizeUserInputResponse(requestInput: unknown, responseInput:
   }
   return UserInputResponseSchema.parse({ answers });
 }
+
+/** Exact durable request identity; the authenticated host supplies its actor. */
+export const SubmitUserInputResponseRequestSchema = z.object({
+  turnId: TurnIdSchema,
+  requestId: z.string().min(1).max(160),
+  respondedBy: UserIdSchema.nullable(),
+  response: UserInputResponseSchema,
+}).strict();
+export type SubmitUserInputResponseRequest = z.infer<typeof SubmitUserInputResponseRequestSchema>;

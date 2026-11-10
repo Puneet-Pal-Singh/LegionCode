@@ -186,7 +186,7 @@ export function createAppServerHttpTransport(
 
 function isHostedLifecycleMethod(method: AppServerRequest["method"]): boolean {
   return method === "turn/interrupt" || method === "turn/lifecycleEvents" || method === "turn/diff" ||
-    method === "turn/approval" || method === "turn/compact";
+    method === "turn/approval" || method === "turn/compact" || method === "turn/userInput";
 }
 
 function isThreadInputMethod(method: AppServerRequest["method"]): boolean {

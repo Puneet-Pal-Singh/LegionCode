@@ -1,3 +1,4 @@
+import type { RunUserInputResponseRegistry } from "./RunUserInputResponseRegistry";
 import {
   RuntimeKernel,
   type RuntimeKernelDependencies,
@@ -53,6 +54,7 @@ export async function executeDelegatedRun(input: {
   readonly interrupts: RunInterruptRegistry;
   readonly approvals: RunApprovalResolutionRegistry;
   readonly threadInputs: RunThreadInputRegistry;
+  readonly userInputs?: RunUserInputResponseRegistry;
 }): Promise<Response> {
   const { payload } = input;
   const requested = payload.input.harnessSelection;
@@ -114,6 +116,7 @@ export async function executeDelegatedRun(input: {
   input.approvals.register(turnId, (approvalId, resolution) =>
     kernel.resolveApproval(turnId, approvalId, resolution),
   );
+  input.userInputs?.register(turnId, command => kernel.respondUserInput(command));
   input.threadInputs.register(turnId, (threadInput) =>
     kernel.acceptThreadInput({
       turnId,
@@ -182,6 +185,7 @@ export async function executeDelegatedRun(input: {
     input.interrupts.unregister(turnId);
     input.approvals.unregister(turnId);
     input.threadInputs.unregister(turnId);
+    input.userInputs?.unregister(turnId);
     await prepared.checkoutLifecycle.release();
   }
 }

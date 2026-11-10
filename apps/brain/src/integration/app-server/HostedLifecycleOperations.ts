@@ -1,3 +1,4 @@
+import { userIdFromExternalId, type SubmitUserInputResponseRequest } from "@repo/platform-protocol";
 import {
   AppServerOperationError,
   type AppServerComposition,
@@ -40,6 +41,7 @@ export function composeHostedLifecycleOperations(
     replayLifecycleEvents: (params) => replay(request, env, userId, params),
     getTurnDiff: (params) => getDiff(request, env, userId, params),
     submitLifecycleApproval: (params) => submitApproval(request, env, userId, params),
+    submitUserInputResponse: (params) => submitUserInput(request, env, userId, params),
     compactTurn: (params) => compact(request, env, userId, params),
   };
 }
@@ -121,6 +123,24 @@ async function submitApproval(
   } catch (error) {
     throw mapLifecycleFailure(error);
   }
+}
+
+async function submitUserInput(
+  request: Request, env: Env, userId: string, params: SubmitUserInputResponseRequest,
+): Promise<LifecycleEvent> {
+  const runId = runIdFromTurnId(params.turnId);
+  try {
+    if (!(await verifyRunOwnership(env, runId, userId))) throw notFound("Run not found");
+    const actor = userIdFromExternalId(userId);
+    if (params.respondedBy !== null && params.respondedBy !== actor)
+      throw new AppServerOperationError(403, "forbidden", "Question responder does not match the authenticated actor", "API_ERROR", false);
+    const response = await fetchRunRuntimeRoute(env, runId, "execution-engine-v1", {
+      method: "POST", path: "/user-input-response",
+      body: JSON.stringify({ ...params, respondedBy: actor }),
+      headers: { "Content-Type": "application/json" }, signal: request.signal,
+    });
+    return await readRuntimeResponse(response, LifecycleEventSchema);
+  } catch (error) { throw mapLifecycleFailure(error); }
 }
 
 async function compact(

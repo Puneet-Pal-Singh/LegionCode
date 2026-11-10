@@ -78,17 +78,8 @@ export interface StartTurnResponse {
   readonly turn: Turn;
 }
 
-export const SubmitUserInputResponseRequestSchema = z
-  .object({
-    turnId: TurnIdSchema,
-    requestId: z.string().min(1).max(160),
-    respondedBy: UserIdSchema.nullable(),
-    response: JsonRecordSchema,
-  })
-  .strict();
-export type SubmitUserInputResponseRequest = z.infer<
-  typeof SubmitUserInputResponseRequestSchema
->;
+export { SubmitUserInputResponseRequestSchema } from "@repo/platform-protocol";
+export type { SubmitUserInputResponseRequest } from "@repo/platform-protocol";
 
 export { CompactTurnRequestSchema, CompactTurnResponseSchema };
 export type { CompactTurnRequest, CompactTurnResponse };

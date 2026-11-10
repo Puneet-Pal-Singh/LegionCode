@@ -1,3 +1,6 @@
+import { authorizeLifecycleUserInput, findLifecycleUserInputEvents } from "./LifecycleUserInputAuthorization";
+import { SubmitUserInputResponseRequestSchema } from "@repo/platform-protocol";
+import { InMemoryRunUserInputResponseRegistry, type RunUserInputResponseRegistry } from "./RunUserInputResponseRegistry";
 import { authorizeLifecycleApproval, findLifecycleApprovalEvents } from "./LifecycleApprovalAuthorization";
 import { readRunHarnessAdmission } from "./RunHarnessAdmission";
 import { CloudDelegatedRunPreparation } from "./CloudDelegatedRunPreparation";
@@ -178,6 +181,7 @@ export interface RunEngineRequestHandlerDependencies {
   lifecycleEventStore?: LifecycleEventStore;
   interruptRegistry?: RunInterruptRegistry;
   approvalResolutionRegistry?: RunApprovalResolutionRegistry;
+  userInputResponseRegistry?: RunUserInputResponseRegistry;
   contextCompactionRegistry?: RunContextCompactionRegistry;
   threadInputRegistry?: RunThreadInputRegistry;
   taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
@@ -197,6 +201,7 @@ export class RunEngineRequestHandler {
   >();
   private readonly interruptRegistry: RunInterruptRegistry;
   private readonly approvalResolutionRegistry: RunApprovalResolutionRegistry;
+  private readonly userInputResponseRegistry: RunUserInputResponseRegistry;
   private readonly contextCompactionRegistry: RunContextCompactionRegistry;
   private readonly threadInputRegistry: RunThreadInputRegistry;
   private turnToRunMapLoaded = false;
@@ -216,6 +221,7 @@ export class RunEngineRequestHandler {
     this.approvalResolutionRegistry =
       dependencies.approvalResolutionRegistry ??
       new InMemoryRunApprovalResolutionRegistry();
+    this.userInputResponseRegistry = dependencies.userInputResponseRegistry ?? new InMemoryRunUserInputResponseRegistry();
     this.contextCompactionRegistry =
       dependencies.contextCompactionRegistry ??
       new InMemoryRunContextCompactionRegistry();
@@ -812,6 +818,34 @@ export class RunEngineRequestHandler {
     });
   }
 
+  async handleUserInputResponseRequest(request: Request): Promise<Response> {
+    let payload: z.infer<typeof SubmitUserInputResponseRequestSchema>;
+    try {
+      payload = SubmitUserInputResponseRequestSchema.parse(await parseRequestBody(request, "user-input-response"));
+    } catch { return runEngineErrorResponse(request, this.env, "Invalid question response payload", 400); }
+    await this.ensureTurnToRunMapLoaded();
+    const runId = this.turnToRunMap.get(payload.turnId);
+    if (!runId) return runEngineErrorResponse(request, this.env, "Run not found for turnId", 404);
+    const store = this.createLifecycleEventStore();
+    const admission = await withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(payload.turnId));
+    const authorization = await authorizeLifecycleUserInput({ store, command: payload, runId,
+      identity: this.turnRuntimeIdentities.get(payload.turnId), admission,
+      hasActiveOwner: () => this.userInputResponseRegistry.has(payload.turnId) });
+    if (authorization.kind === "conflict") return runEngineErrorResponse(request, this.env, authorization.message, 409);
+    if (authorization.kind === "responded") return runEngineJsonResponse(request, this.env, authorization.event);
+    try {
+      if (!await this.userInputResponseRegistry.respond(authorization.command))
+        return runEngineErrorResponse(request, this.env, "Question has no active runtime owner", 409);
+    } catch {
+      // Native validation/claim/Stop ambiguity never becomes successful delivery.
+      return runEngineErrorResponse(request, this.env, "Question response could not be delivered", 409);
+    }
+    const facts = await findLifecycleUserInputEvents(store, authorization.scope, payload.requestId);
+    if (facts.unavailable || !facts.responded)
+      return runEngineErrorResponse(request, this.env, "Canonical question response is unavailable", 409);
+    return runEngineJsonResponse(request, this.env, facts.responded);
+  }
+
   async handleLifecycleApprovalRequest(request: Request): Promise<Response> {
     let payload: z.infer<typeof LifecycleApprovalDecisionRequestSchema>;
     try {
@@ -1290,7 +1324,7 @@ export class RunEngineRequestHandler {
           const response = await executeDelegatedRun({ payload, claimId,
             preparation: this.dependencies.delegatedPreparation ?? new CloudDelegatedRunPreparation(this.env),
             lifecycleEvents: this.createLifecycleEventStore(), interrupts: this.interruptRegistry,
-            approvals: this.approvalResolutionRegistry, threadInputs: this.threadInputRegistry });
+            approvals: this.approvalResolutionRegistry, threadInputs: this.threadInputRegistry, userInputs: this.userInputResponseRegistry });
           return withRunEngineHeaders(request, this.env, response, { "X-Thread-Id": threadId, "X-Turn-Id": turnId, "X-Run-Attempt-Id": runAttemptId });
         }
         const claimResult = await claimExecutionWithStartupInterrupt(this.interruptRegistry, turnId, () => withTurnAdmissionRepository(

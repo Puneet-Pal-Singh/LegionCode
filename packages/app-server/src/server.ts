@@ -1,3 +1,4 @@
+import type { SubmitUserInputResponseRequest } from "@repo/platform-protocol";
 import type { HarnessOperations } from "./harness/HarnessOperations.js";
 export type { HarnessOperations } from "./harness/HarnessOperations.js";
 import type { LocalProviderPreferenceScope } from "./protocol.js";
@@ -147,6 +148,7 @@ export type AppServerComposition = {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
     getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+    submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
     compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   };
   hostedEditArtifactReadsService?: {
@@ -475,6 +477,11 @@ async function dispatch(
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
+    }
+    case "turn/userInput": {
+      const service = composition.hostedLifecycleOperationsService;
+      if (composition.environment !== "hosted" || !service?.submitUserInputResponse) throw new Error("unsupported");
+      return service.submitUserInputResponse(request.params);
     }
     case "turn/compact": {
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
