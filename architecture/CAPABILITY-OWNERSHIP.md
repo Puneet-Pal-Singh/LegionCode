@@ -2001,3 +2001,20 @@ An admitted Turn may return an actual empty event page while runtime preflight
 is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
 and admitted worker identity must agree. Authorization is checked again after
 the replay read. No status, event, terminal or retrying prompt is synthesized.
+
+Local first-message chat titles reuse the existing persistence title-preview
+algorithm; Brain forwards to that shared implementation. LocalThreadService
+serializes preview metadata from the first durable admission, protects explicit
+user titles and version changes, and records same-text manual renames as user
+ownership. Confirmed admission refreshes Desktop's canonical Thread list under
+the existing workspace/grant/Thread scope. Execution dispatch and lifecycle
+settlement retain their existing owners; title metadata cannot redispatch a
+receipt or prevent an admitted response. Generated-title provider work is not
+activated by this preview wiring.
+
+Shared client popovers measure the current VisualViewport, including pan,
+resize and keyboard-related offsets. Optional companion panels use the same
+bounds; the existing Settings and Workspace dialogs share focus lifetime and
+restoration behavior. Desktop's wide sidebar remains below the shared dialog
+layer. Packaged Electron always loads its bundled renderer, reuses the existing
+product icon, and focuses the existing window on a second launch.
