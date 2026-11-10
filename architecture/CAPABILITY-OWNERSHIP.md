@@ -1181,6 +1181,17 @@ LegionCode's documented Enter-to-queue and Cmd/Ctrl+Enter-to-steer contract,
 versioned queue CAS, accepted/applied/unconfirmed receipts, approvals and Stop
 remain unchanged. This UI slice does not activate local queue execution.
 
+The SDK `buildConversationTurns` associates each canonical assistant message with
+the most recent preceding user message of that same canonical Turn. Shared
+`buildChatEntries` preserves all actual user leaves in source order and renders
+one unchanged whole-Turn workflow aggregate after the last corresponding user
+marker. The first user remains the logical prompt for revision lineage and
+continuation editing; continuation workflows group at the last marker without
+moving resumed output before steering leaves. This is transcript presentation,
+not a new Turn, lifecycle fragment, queue receipt, acknowledgement body fallback,
+or runtime event owner. Exact tool-fragment interleaving remains outside this
+whole-Turn aggregate presentation.
+
 ## Plan 058 — Portable lifecycle projection continuation
 
 SDK `platform/conversation-lifecycle` composes the existing canonical lifecycle
