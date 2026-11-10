@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenRouterModelCatalogAdapter } from "./OpenRouterModelCatalogAdapter";
+import { OpenRouterModelCatalogAdapter } from "@repo/provider-core/discovery";
 
 describe("OpenRouterModelCatalogAdapter", () => {
   afterEach(() => {

@@ -1,20 +1,19 @@
-import { DomainError } from "../../../domain/errors";
-
 type ProviderModelDiscoveryErrorCode =
   | "MODEL_DISCOVERY_AUTH_FAILED"
   | "MODEL_DISCOVERY_PROVIDER_API_FAILED"
   | "MODEL_DISCOVERY_NORMALIZATION_FAILED"
   | "MODEL_DISCOVERY_CACHE_FAILED";
 
-abstract class ProviderModelDiscoveryError extends DomainError {
+export abstract class ProviderModelDiscoveryError extends Error {
   protected constructor(
-    code: ProviderModelDiscoveryErrorCode,
+    public readonly code: ProviderModelDiscoveryErrorCode,
     message: string,
-    status: number,
-    retryable: boolean,
-    correlationId?: string,
+    public readonly status: number,
+    public readonly retryable: boolean,
+    public readonly correlationId?: string,
   ) {
-    super(code, message, status, retryable, correlationId);
+    super(message);
+    this.name = this.constructor.name;
   }
 }
 

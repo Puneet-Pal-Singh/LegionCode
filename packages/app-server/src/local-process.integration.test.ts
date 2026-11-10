@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DefaultGitService } from "@repo/git-service";
+import { createLocalTurnAdmission } from "@legioncode/execution-engine/runtime/desktop/LocalTurnAdmission";
 
 import { APP_SERVER_PROTOCOL_VERSION, MAX_LOCAL_APP_SERVER_REQUEST_BYTES } from "./protocol.js";
 import { createLocalAppServer } from "./local-process.js";
@@ -18,7 +19,10 @@ import {
   EVENT_SCHEMA_VERSION,
   LifecycleEventSchema,
   createTurnId,
-  createRunAttemptId,
+  ModelIdSchema,
+  ProviderIdSchema,
+  WorkerIdSchema,
+  PermissionProfileIdSchema,
   LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ThreadSchema,
@@ -64,29 +68,45 @@ describe("local App Server HTTP integration", () => {
     });
 
     await close(firstServer);
-    // Seed persisted runtime envelopes: this check exercises replay, not execution.
-    const turnId = createTurnId();
-    const runAttemptId = createRunAttemptId();
+    // Seed canonical admissions and runtime envelopes; no provider executes.
+    const replayThread = ThreadSchema.parse((created as { result: { thread: unknown } }).result.thread);
+    const admissionInput = {
+      thread: replayThread, workspaceId: replayThread.workspaceId,
+      clientRequestId: "runtime-replay-completed", prompt: "Replay fixture",
+      providerId: ProviderIdSchema.parse("openai"), modelId: ModelIdSchema.parse("gpt-4o"),
+      workerId: WorkerIdSchema.parse("worker_localreplayfixture"),
+      permissionProfileId: PermissionProfileIdSchema.parse("perm_localreplayfixture"),
+    };
+    const completedAdmission = createLocalTurnAdmission(admissionInput);
+    const turnId = completedAdmission.turn.id;
+    const runAttemptId = completedAdmission.runAttemptId;
     const events = (["turn.queued", "turn.started", "turn.completed"] as const).map((type, index) =>
       LifecycleEventSchema.parse({
         eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
         threadId, turnId, runAttemptId, sequence: index + 1,
         idempotencyKey: `runtime-replay:${index + 1}`,
-        producer: { kind: "runtime_kernel", id: "local-replay-fixture" },
+        producer: { kind: "runtime_kernel", id: admissionInput.workerId },
         schemaVersion: 1, createdAt: new Date().toISOString(), type,
         payload: type === "turn.completed" ? { outcome: { status: "completed" } } : {},
       }),
     );
-    const unfinishedTurnId = createTurnId();
+    const unfinishedAdmission = createLocalTurnAdmission({
+      ...admissionInput, clientRequestId: "runtime-replay-unfinished",
+      thread: { ...replayThread, activeLeafItemId: completedAdmission.userMessage.id, lastTerminalTurnId: turnId },
+    });
+    const unfinishedTurnId = unfinishedAdmission.turn.id;
     const unfinished = LifecycleEventSchema.parse({
       ...events[0],
       eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
       turnId: unfinishedTurnId,
-      runAttemptId: createRunAttemptId(),
+      runAttemptId: unfinishedAdmission.runAttemptId,
     });
     const persisted = new LocalPersistence({ storageDirectory });
     try {
-      await persisted.lifecycleEvents.appendBatch([...events, unfinished]);
+      await persisted.turnAdmissions.admit(completedAdmission);
+      await persisted.lifecycleEvents.appendBatch(events);
+      await persisted.turnAdmissions.admit(unfinishedAdmission);
+      await persisted.lifecycleEvents.append(unfinished);
     } finally { persisted.close(); }
     const restarted = await start(storageDirectory);
     const restartedUrl = serverUrl(restarted);
@@ -425,6 +445,27 @@ async function start(storageDirectory: string) {
     repositoryRoot: workspaceRoot, repositoryIdentity: "github.com/example/repository", branch: "main", isDirty: false,
   }));
   const server = createLocalAppServer({ credential, serverVersion: "test", storageDirectory }, {
+    providerModelCatalog: {
+      getDiscoveredModels: async (providerId, query) => {
+        const models = builtinProviderRegistry.listModels(providerId).map((model) => ({
+          id: model.modelId, name: model.displayName, providerId,
+          ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+          capabilities: {
+            supportsTools: model.supportsTools, supportsVision: model.supportsVision,
+            supportsReasoning: model.supportsReasoning,
+          },
+        }));
+        return {
+          providerId, view: query.view, models,
+          page: { limit: Math.max(1, models.length), hasMore: false },
+          metadata: { fetchedAt: new Date().toISOString(), stale: false, source: "registry", status: "available" },
+        };
+      },
+      refreshDiscoveredModels: async (providerId) => ({
+        providerId, refreshedAt: new Date().toISOString(), source: "provider_api",
+        cacheInvalidated: true, modelsCount: builtinProviderRegistry.listModels(providerId).length,
+      }),
+    },
     createMetadataInspector: (rootDirectory) => ({
       async inspectGitMetadataLayout() {
         const root = await rootDirectory.stat({ bigint: true });

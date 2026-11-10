@@ -655,11 +655,14 @@ async function dispatch(
         return composition.hostedProviderDiscoveryService.models(request.params.runId, request.params.providerId, request.params.query);
       }
       if (!composition.providerService) throw new Error("unsupported");
-      return composition.providerService.listModels(request.params.providerId);
+      return composition.providerService.listModels(request.params.providerId, request.params.query);
     }
     case "provider/models/refresh": {
-      if (!composition.hostedProviderDiscoveryService) throw new Error("unsupported");
-      return composition.hostedProviderDiscoveryService.refresh(request.params.runId, request.params.providerId);
+      if (composition.hostedProviderDiscoveryService) {
+        return composition.hostedProviderDiscoveryService.refresh(request.params.runId, request.params.providerId);
+      }
+      if (!composition.providerService) throw new Error("unsupported");
+      return composition.providerService.refreshProviderModels(request.params.providerId);
     }
     case "provider/credentials/list": {
       if (!composition.hostedProviderCredentialService) throw new Error("unsupported");

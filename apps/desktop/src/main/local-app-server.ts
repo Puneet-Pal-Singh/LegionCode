@@ -1,3 +1,6 @@
+import { RuntimeCredentialClient, type RuntimeCredentialRequest } from "./runtime-credentials";
+import { ProviderIdSchema } from "@repo/shared-types";
+import { createLocalProviderModelDiscovery } from "@legioncode/app-server/local-provider-model-discovery";
 import { createWorkspaceFileComposition } from "./workspace-file-composition";
 import {
   runLocalAppServerProcess,
@@ -12,7 +15,7 @@ const parentPort = (
         event: "message",
         listener: (event: { data: unknown }) => void,
       ): void;
-      postMessage(message: LocalAppServerMessage): void;
+      postMessage(message: LocalAppServerMessage | RuntimeCredentialRequest): void;
     };
   }
 ).parentPort;
@@ -22,7 +25,11 @@ if (!parentPort) {
   throw new Error("Local App Server requires an Electron utility process");
 }
 
+const runtimeCredentials = new RuntimeCredentialClient((message) => parentPort.postMessage(message));
+process.once("exit", () => runtimeCredentials.close());
+
 parentPort.on("message", ({ data }) => {
+  if (runtimeCredentials.handleMessage(data)) return;
   if (!isStartMessage(data)) {
     parentPort?.postMessage({ type: "fatal" });
     return;
@@ -31,7 +38,12 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data, createWorkspaceFileComposition(data));
+  runLocalAppServerProcess(parentPort, data, {
+    ...createWorkspaceFileComposition(data),
+    providerModelCatalog: createLocalProviderModelDiscovery({
+      resolveCredential: (providerId) => runtimeCredentials.resolveRuntimeCredential(ProviderIdSchema.parse(providerId)),
+    }),
+  });
 });
 
 process.once("uncaughtException", () => {

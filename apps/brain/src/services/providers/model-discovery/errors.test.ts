@@ -5,7 +5,7 @@ import {
   ProviderModelDiscoveryApiError,
   ProviderModelDiscoveryAuthError,
   ProviderModelNormalizationError,
-} from "./errors";
+} from "@repo/provider-core/discovery";
 
 describe("provider model discovery errors", () => {
   it("maps auth error to 401", () => {

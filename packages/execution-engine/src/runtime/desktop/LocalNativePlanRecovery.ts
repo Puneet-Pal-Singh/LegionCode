@@ -52,7 +52,14 @@ export async function reconcileLocalNativePlanTurn(input: {
   readonly producerId: string;
   readonly clock: RuntimeKernelClock;
 }): Promise<"settled" | "already_terminal" | "unsupported"> {
-  const admission = TurnAdmissionSchema.parse(input.admission);
+  // Delegated owners retain their opaque immutable selection, even when they
+  // share a local worker/profile. Native admission never emits either tag.
+  const source = input.admission;
+  if (("harnessSelection" in source.run && source.run.harnessSelection !== undefined) ||
+      (source.userMessage.type === "user_message" && source.userMessage.content.harnessSelection !== undefined)) {
+    return "unsupported";
+  }
+  const admission = TurnAdmissionSchema.parse(source);
   if (
     admission.run.workerId !== WorkerIdSchema.parse(input.workerId) ||
     admission.run.mode !== "plan" ||

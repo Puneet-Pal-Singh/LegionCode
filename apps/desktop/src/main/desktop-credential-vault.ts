@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { RuntimeCredentialLease } from "./runtime-credentials";
 
 import {
   ProviderConnectionConfigSchema,
@@ -31,6 +32,9 @@ export class DesktopCredentialVault implements CredentialVault {
   private loaded: VaultFile | null = null;
   private loadPromise: Promise<VaultFile> | null = null;
   private writes: Promise<void> = Promise.resolve();
+  // One bounded authority epoch; any admitted write invalidates all older leases.
+  private mutationRevision = 0;
+  private pendingMutations = 0;
   private readonly filePath: string;
 
   constructor(
@@ -141,6 +145,24 @@ export class DesktopCredentialVault implements CredentialVault {
     }
   }
 
+  /** Main-only delivery lease over one atomic key/config read. Never serialize the lease. */
+  async acquireRuntimeCredentialLease(providerId: ProviderId): Promise<RuntimeCredentialLease> {
+    const revision = this.mutationRevision;
+    if (this.pendingMutations !== 0 || revision >= Number.MAX_SAFE_INTEGER) throw unavailable();
+    const credential = await this.resolveRuntimeCredential(providerId);
+    const canDeliver = (): boolean => {
+      try {
+        return this.pendingMutations === 0 && this.mutationRevision === revision &&
+          this.mutationRevision < Number.MAX_SAFE_INTEGER && this.safeStorage.isEncryptionAvailable();
+      } catch {
+        return false;
+      }
+    };
+    if (!canDeliver()) throw unavailable();
+    if (credential?.connectionConfig) Object.freeze(credential.connectionConfig);
+    return Object.freeze({ credential: credential ? Object.freeze(credential) : null, canDeliver });
+  }
+
   private async load(): Promise<VaultFile> {
     if (!this.safeStorage.isEncryptionAvailable()) throw unavailable();
     if (this.loaded) return this.loaded;
@@ -198,13 +220,22 @@ export class DesktopCredentialVault implements CredentialVault {
   private async mutate(
     makeNext: (current: VaultFile) => Promise<VaultFile>,
   ): Promise<void> {
+    // This runs synchronously at queue admission, before any writer/decrypt/disk await.
+    // Never wrap the revision: exhaustion permanently refuses new delivery leases.
+    if (this.mutationRevision >= Number.MAX_SAFE_INTEGER) throw unavailable();
+    this.mutationRevision += 1;
+    this.pendingMutations += 1;
     const operation = this.writes.then(async () => {
       const current = await this.load();
       const next = await makeNext(current);
       await this.commit(next);
     });
     this.writes = operation.catch(() => undefined);
-    await operation;
+    try {
+      await operation;
+    } finally {
+      this.pendingMutations -= 1;
+    }
   }
 }
 

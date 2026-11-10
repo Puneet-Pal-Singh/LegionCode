@@ -36,8 +36,19 @@ export class CloudCredentialVault implements CredentialVault {
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
+    return (await this.resolveCredential(providerId))?.apiKey ?? null;
+  }
+
+  /** Discovery consumes the key and configuration from one canonical record. */
+  async resolveCredential(providerId: ProviderId): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
     const result = await this.credentialStore.getCredentialWithKey(providerId);
-    return result?.apiKey ?? null;
+    return result ? {
+      apiKey: result.apiKey,
+      ...(result.record.connectionConfig ? { connectionConfig: result.record.connectionConfig } : {}),
+    } : null;
   }
 
   async deleteCredential(providerId: ProviderId): Promise<void> {
